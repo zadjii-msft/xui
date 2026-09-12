@@ -17,6 +17,7 @@ std::wstring system_message(DWORD error) {
         FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, error, 0, reinterpret_cast<wchar_t*>(&text), 0, nullptr);
     std::wstring result = size ? std::wstring(text, size) : L"Error " + std::to_wstring(error);
     if (text) LocalFree(text);
+    while (!result.empty() && (result.back() == L'\r' || result.back() == L'\n')) result.pop_back();
     return result;
 }
 }
@@ -27,7 +28,15 @@ SourceResult DirectorySource::scan(const CancelCheck& cancel) {
         auto items = std::make_shared<std::vector<FileItem>>();
         std::unordered_map<std::wstring, ItemId> next_identities;
         WIN32_FIND_DATAW entry{};
-        const auto pattern = folder_ / L"*";
+        auto native = std::filesystem::absolute(folder_).lexically_normal().wstring();
+        if (!native.starts_with(L"\\\\?\\")) {
+            native = native.starts_with(L"\\\\") ? L"\\\\?\\UNC\\" + native.substr(2) : L"\\\\?\\" + native;
+        }
+        if (cancel()) return {};
+        const auto attributes = GetFileAttributesW(native.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) return {nullptr, L"Cannot read folder: " + system_message(GetLastError())};
+        if (!(attributes & FILE_ATTRIBUTE_DIRECTORY)) return {nullptr, L"The path is not a folder."};
+        const auto pattern = std::filesystem::path(native) / L"*";
         FindHandle find{FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &entry,
             FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH)};
         if (find.value == INVALID_HANDLE_VALUE) {
@@ -62,6 +71,7 @@ SourceResult DirectorySource::scan(const CancelCheck& cancel) {
             const int order = CompareStringOrdinal(a.name.c_str(), -1, b.name.c_str(), -1, TRUE);
             return order == CSTR_LESS_THAN || (order == CSTR_EQUAL && a.name < b.name);
         });
+        if (!result.error.empty()) return result;
         result.source = FileSnapshot::build(std::move(items), cancel);
         if (cancel() || !result.source) return {};
         identities_ = std::move(next_identities);

@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include "uia_events.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -20,6 +21,11 @@ void check(HRESULT result, const char* text) {
 bool eventually(const std::function<bool()>& predicate) {
     const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(8);
     do {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
         if (predicate()) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
     } while (std::chrono::steady_clock::now() < limit);
@@ -48,7 +54,8 @@ BOOL CALLBACK find_window(HWND window, LPARAM data) {
     }
     return TRUE;
 }
-ComPtr<IUIAutomationElement> named(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* name) {
+ComPtr<IUIAutomationElement> named(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* name,
+    CONTROLTYPEID type = 0) {
     VARIANT value{};
     value.vt = VT_BSTR;
     value.bstrVal = SysAllocString(name);
@@ -56,6 +63,15 @@ ComPtr<IUIAutomationElement> named(IUIAutomation* automation, IUIAutomationEleme
     const auto result = automation->CreatePropertyCondition(UIA_NamePropertyId, value, &condition);
     VariantClear(&value);
     check(result, "Create name condition");
+    if (type) {
+        value = {};
+        value.vt = VT_I4;
+        value.lVal = type;
+        ComPtr<IUIAutomationCondition> role, combined;
+        check(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, value, &role), "Create role condition");
+        check(automation->CreateAndCondition(condition.Get(), role.Get(), &combined), "Combine name and role");
+        condition = combined;
+    }
     ComPtr<IUIAutomationElement> element;
     check(root->FindFirst(TreeScope_Descendants, condition.Get(), &element), "Find named control");
     return element;
@@ -87,15 +103,6 @@ void focus(IUIAutomationElement* element, const char* message) {
         return std::chrono::steady_clock::now() - stable >= std::chrono::milliseconds(150);
     });
     require(arrived, message);
-}
-void focus_native(HWND window, HWND edit, IUIAutomationElement* element, const char* message) {
-    // Exercise the host's native focus route, then query the real EDIT provider.
-    SendMessageW(window, WM_NEXTDLGCTL, reinterpret_cast<WPARAM>(edit), TRUE);
-    auto stable = std::chrono::steady_clock::now();
-    require(eventually([&] {
-        if (!focused(element)) { stable = std::chrono::steady_clock::now(); return false; }
-        return std::chrono::steady_clock::now() - stable >= std::chrono::milliseconds(150);
-    }), message);
 }
 bool enabled(IUIAutomationElement* element) {
     BOOL value{};
@@ -155,9 +162,25 @@ struct ShiftState {
         AttachThreadInput(GetCurrentThreadId(), thread, FALSE);
     }
 };
+struct NativeFocusEvents {
+    static inline thread_local NativeFocusEvents* current{};
+    HWND target{};
+    size_t count{};
+    HWINEVENTHOOK hook{};
+    explicit NativeFocusEvents(DWORD process) {
+        current = this;
+        hook = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, nullptr,
+            [](HWINEVENTHOOK, DWORD, HWND window, LONG object, LONG, DWORD, DWORD) {
+                if (current && window == current->target && object == OBJID_CLIENT) ++current->count;
+            }, process, 0, WINEVENT_OUTOFCONTEXT);
+        require(hook != nullptr, "Subscribe process-scoped native focus events");
+    }
+    ~NativeFocusEvents() { UnhookWinEvent(hook); current = nullptr; }
+};
 }
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 2) { std::cerr << "Supply xui_gallery.exe\n"; return 1; }
+    const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
+    if (argc != 2 && !global_focus_events) { std::cerr << "Supply xui_gallery.exe [--focus-events]\n"; return 1; }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(initialized)) return 1;
     int result = 1;
@@ -171,11 +194,29 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
+        require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+            SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        uia_test::Subscription subscription{automation};
+        ComPtr<uia_test::Events> events;
+        events.Attach(new uia_test::Events(process.info.dwProcessId));
+        ComPtr<IUIAutomationCacheRequest> event_cache;
+        check(automation->CreateCacheRequest(&event_cache), "Create event cache");
+        check(event_cache->AddProperty(UIA_ProcessIdPropertyId), "Cache event process");
+        check(event_cache->AddProperty(UIA_NamePropertyId), "Cache event name");
+        NativeFocusEvents native_focus(process.info.dwProcessId);
+        if (global_focus_events)
+            check(automation->AddFocusChangedEventHandler(event_cache.Get(), events.Get()), "Subscribe desktop-wide UIA focus events");
+        PROPERTYID properties[]{UIA_NamePropertyId, UIA_IsEnabledPropertyId,
+            UIA_ToggleToggleStatePropertyId, UIA_ValueValuePropertyId, UIA_HasKeyboardFocusPropertyId};
+        check(automation->AddPropertyChangedEventHandlerNativeArray(root.Get(), TreeScope_Subtree,
+            event_cache.Get(), events.Get(), properties, static_cast<int>(std::size(properties))), "Subscribe property events");
+        check(automation->AddAutomationEventHandler(UIA_Invoke_InvokedEventId, root.Get(),
+            TreeScope_Subtree, event_cache.Get(), events.Get()), "Subscribe invoke events");
         ComPtr<IUIAutomationElement> save;
         require(eventually([&] { save = named(automation.Get(), root.Get(), L"Save greeting"); return save != nullptr; }),
             "Find Save button");
@@ -198,15 +239,22 @@ int wmain(int argc, wchar_t** argv) {
         require(state == ToggleState_On, "Initial checkbox state");
 
         const HWND edit_hwnd = FindWindowExW(process.window, nullptr, L"EDIT", nullptr);
+        native_focus.target = edit_hwnd;
         require(edit_hwnd != nullptr, "Find native edit");
-        ComPtr<IUIAutomationElement> edit;
-        check(automation->ElementFromHandle(edit_hwnd, &edit), "Read native edit provider");
+        auto edit = named(automation.Get(), root.Get(), L"Your name", UIA_EditControlTypeId);
+        require(edit != nullptr, "Find native edit through the automation tree");
         require(name(edit.Get()) == L"Your name", "Native edit accessible name");
         auto value = pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId);
         set_value(value.Get(), L"\u65e5\u672c Alex");
         require(eventually([&] { return enabled(save.Get()); }), "Text callback enables Save");
         check(invoke->Invoke(), "Invoke Save");
         require(eventually([&] { return name(greeting.Get()) == L"Hello, \u65e5\u672c Alex!"; }), "Retained label provider updates");
+        require(eventually([&] {
+            return events->count(UIA_Invoke_InvokedEventId, L"Save greeting") &&
+                events->count(UIA_NamePropertyId, L"Hello, \u65e5\u672c Alex!") &&
+                events->boolean(UIA_IsEnabledPropertyId, L"Save greeting", true) &&
+                events->count(UIA_ValueValuePropertyId, L"Your name");
+        }), "External client receives invoke, name, enabled and native value events");
         auto renamed = named(automation.Get(), root.Get(), L"Hello, \u65e5\u672c Alex!");
         BOOL same{};
         check(automation->CompareElements(greeting.Get(), renamed.Get(), &same), "Compare updated label identity");
@@ -216,7 +264,65 @@ int wmain(int argc, wchar_t** argv) {
         const auto allow_hwnd = handle(automation.Get(), allow.Get());
         const auto light_hwnd = handle(automation.Get(), light.Get());
         require(save_hwnd && allow_hwnd && light_hwnd, "Native host handles");
-        focus_native(process.window, edit_hwnd, edit.Get(), "Focus native input");
+        for (int cycle = 0; cycle < 12; ++cycle) {
+            focus(allow.Get(), "Focus checkbox before external native focus");
+            const auto focus_events = native_focus.count;
+            if (cycle % 3 == 1) ShowWindow(process.window, SW_MINIMIZE);
+            const auto other = CreateWindowExW(0, L"STATIC", L"XUI owned activation probe",
+                WS_OVERLAPPEDWINDOW, 0, 0, 160, 80, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+            require(other != nullptr, "Create owned activation window");
+            ShowWindow(other, SW_SHOW);
+            SetForegroundWindow(other);
+            try {
+                focus(edit.Get(), "External EDIT focus persists after owned window activation");
+                require(!IsIconic(process.window), "Native UIA focus restores a minimized host");
+            } catch (...) {
+                GUITHREADINFO info{sizeof(info)};
+                GetGUIThreadInfo(process.info.dwThreadId, &info);
+                std::cerr << "server focus=" << info.hwndFocus << " edit=" << edit_hwnd
+                    << " foreground=" << GetForegroundWindow() << " host=" << process.window << '\n';
+                DestroyWindow(other);
+                throw;
+            }
+            DestroyWindow(other);
+            focus(edit.Get(), "External EDIT focus persists after custom focus or minimization");
+            require(eventually([&] {
+                return native_focus.count > focus_events;
+            }), "External native SetFocus delivers an EDIT focus event");
+            require(GetForegroundWindow() == process.window, "Native UIA focus activates the application");
+            SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
+            constexpr std::wstring_view queued = L"Q\U0001f642";
+            INPUT input[6]{};
+            for (size_t i = 0; i < queued.size(); ++i) {
+                input[2 * i].type = input[2 * i + 1].type = INPUT_KEYBOARD;
+                input[2 * i].ki.wScan = input[2 * i + 1].ki.wScan = queued[i];
+                input[2 * i].ki.dwFlags = KEYEVENTF_UNICODE;
+                input[2 * i + 1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            }
+            require(SendInput(6, input, sizeof(INPUT)) == 6, "Send real queued Unicode keyboard input");
+            require(eventually([&] {
+                BSTR text{};
+                check(value->get_CurrentValue(&text), "Read native value after queued input");
+                const bool matches = text && std::wstring_view(text) == queued;
+                SysFreeString(text);
+                return matches;
+            }), "Native UIA focus receives eventual queued keyboard input");
+        }
+        require(eventually([&] { return events->boolean(UIA_HasKeyboardFocusPropertyId, L"Allow greeting updates", true); }),
+            "External client receives custom UIA keyboard-focus property events");
+        if (global_focus_events)
+            require(eventually([&] { return events->count(UIA_AutomationFocusChangedEventId, L"Your name") != 0; }),
+                "External client receives native UIA AutomationFocusChanged events");
+        focus(allow.Get(), "Focus checkbox before activation restoration");
+        const auto activation = CreateWindowExW(0, L"STATIC", L"XUI owned restore probe",
+            WS_OVERLAPPEDWINDOW, 0, 0, 160, 80, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        require(activation != nullptr, "Create activation restoration probe");
+        ShowWindow(activation, SW_SHOW);
+        SetForegroundWindow(activation);
+        SetForegroundWindow(process.window);
+        DestroyWindow(activation);
+        require(eventually([&] { return focused(allow.Get()); }), "Reactivation restores the last child without a focus request");
+        focus(edit.Get(), "Focus native input");
         key(edit_hwnd, VK_TAB);
         const bool tabbed = eventually([&] { return focused(save.Get()); });
         require(tabbed, "Tab advances to Save");
@@ -232,14 +338,16 @@ int wmain(int argc, wchar_t** argv) {
         focus(allow.Get(), "Focus checkbox");
         key(allow_hwnd, VK_SPACE);
         require(eventually([&] { return !enabled(save.Get()); }), "Space toggles preference and disables Save");
+        require(eventually([&] { return events->count(UIA_ToggleToggleStatePropertyId, L"Allow greeting updates"); }),
+            "External client receives toggle events");
         require(invoke->Invoke() == UIA_E_ELEMENTNOTENABLED, "Disabled callback rejected after property update");
-        focus_native(process.window, edit_hwnd, edit.Get(), "Focus input for disabled traversal");
+        focus(edit.Get(), "Focus input for disabled traversal");
         key(edit_hwnd, VK_TAB);
         require(eventually([&] { return focused(allow.Get()); }), "Tab skips disabled Save");
         check(toggle->Toggle(), "Toggle preference with UIA");
         require(eventually([&] { return enabled(save.Get()); }), "UIA callback enables Save");
         set_value(value.Get(), L"Keyboard");
-        focus_native(process.window, edit_hwnd, edit.Get(), "Native value update settles before keyboard action");
+        focus(edit.Get(), "Native value update settles before keyboard action");
         focus(save.Get(), "Focus button");
         key(save_hwnd, VK_RETURN);
         const auto entered = eventually([&] { return name(greeting.Get()) == L"Hello, Keyboard!"; });
@@ -252,7 +360,7 @@ int wmain(int argc, wchar_t** argv) {
         }
         require(entered, "Enter invokes focused button");
         set_value(value.Get(), L"Pointer");
-        focus_native(process.window, edit_hwnd, edit.Get(), "Native value update settles before pointer action");
+        focus(edit.Get(), "Native value update settles before pointer action");
         SendMessageW(save_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 20));
         SendMessageW(save_hwnd, WM_CANCELMODE, 0, 0);
         SendMessageW(save_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(20, 20));
@@ -278,7 +386,7 @@ int wmain(int argc, wchar_t** argv) {
         check(value->get_CurrentValue(&text), "Read preserved input");
         require(std::wstring(text) == L"Pointer", "Theme preserves text");
         SysFreeString(text);
-        focus_native(process.window, edit_hwnd, edit.Get(), "Focus edit for native character input");
+        focus(edit.Get(), "Focus edit for native character input");
         SendMessageW(edit_hwnd, EM_SETSEL, 0, -1);
         for (const wchar_t ch : std::wstring(L"Native")) SendMessageW(edit_hwnd, WM_CHAR, ch, 0);
         check(invoke->Invoke(), "Save native character input");
@@ -302,6 +410,25 @@ int wmain(int argc, wchar_t** argv) {
         require(GetExitCodeProcess(process.info.hProcess, &exit) != 0 && exit == 0, "Gallery successful exit");
         require(invoke->Invoke() == UIA_E_ELEMENTNOTAVAILABLE, "Retained button provider invalidated");
         require(toggle->Toggle() == UIA_E_ELEMENTNOTAVAILABLE, "Retained checkbox provider invalidated");
+        BSTR closed_text = SysAllocString(L"Closed");
+        require(closed_text != nullptr, "Allocate closed-provider probe value");
+        const auto closed_value = value->SetValue(closed_text);
+        SysFreeString(closed_text);
+        require(closed_value == UIA_E_ELEMENTNOTAVAILABLE, "Native value provider invalidated after shutdown");
+        const auto guard = CreateWindowExW(0, L"STATIC", L"XUI stale focus guard",
+            WS_OVERLAPPEDWINDOW, 0, 0, 160, 80, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        require(guard != nullptr, "Create owned stale-focus guard");
+        ShowWindow(guard, SW_SHOW);
+        SetForegroundWindow(guard);
+        SetFocus(guard);
+        const auto closed_focus = edit->SetFocus();
+        const bool untouched = GetFocus() == guard && GetForegroundWindow() == guard && !IsWindow(edit_hwnd);
+        DestroyWindow(guard);
+        // Windows can return S_OK from its cached HWND focus proxy after exit.
+        // The native value provider must disconnect, and stale focus must do nothing.
+        require((closed_focus == S_OK || closed_focus == UIA_E_ELEMENTNOTAVAILABLE) && untouched,
+            "Stale native focus cannot move focus or reactivate a closed window");
+        std::cout << "Closed native focus HRESULT=" << closed_focus << "; value=UIA_E_ELEMENTNOTAVAILABLE; focus unchanged\n";
         BSTR unavailable{};
         const auto stale = greeting->get_CurrentName(&unavailable);
         SysFreeString(unavailable);

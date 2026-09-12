@@ -316,6 +316,10 @@ void large_case(std::size_t count, bool benchmark) {
     const auto build_start = Clock::now();
     auto source = xui::FileSnapshot::build(items);
     const double snapshot_ms = milliseconds(build_start);
+    const auto exact_index_bytes = count * (sizeof(xui::RowIndex) + 16 * sizeof(wchar_t))
+        + (count + 1) * sizeof(std::size_t);
+    require(source->index_bytes() <= exact_index_bytes + 64,
+        "The lowercase-name cache must not retain geometric growth capacity");
     const auto all_start = Clock::now();
     auto all = xui::FilteredView::build(source, {});
     const double all_ms = milliseconds(all_start);
@@ -395,9 +399,10 @@ int main(int argc, char** argv) {
             retirement_test();
             mailbox_destruction_test();
         }
+        large_case(60, benchmark);
         large_case(100000, benchmark);
         large_case(1000000, benchmark);
-        std::cout << "Performance invariants passed: 100k/1m rows, zero-allocation interactions.\n";
+        std::cout << "Performance invariants passed: 60/100k/1m rows, zero-allocation interactions.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

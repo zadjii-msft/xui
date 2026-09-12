@@ -27,6 +27,7 @@ struct AccessibleSnapshot {
     float offset_pixels{};
     float row_right_inset_pixels{};
     bool focused{};
+    bool enabled{true};
     std::shared_ptr<const std::wstring> name;
     std::shared_ptr<const std::wstring> automation_id;
 };
@@ -47,5 +48,7 @@ void raise_list_selection_removed(IRawElementProviderSimple* provider,
                                  std::shared_ptr<AccessibilityState> state, size_t index);
 void raise_list_focus(IRawElementProviderSimple* provider,
                       std::shared_ptr<AccessibilityState> state, std::optional<size_t> index);
+void raise_list_properties(IRawElementProviderSimple* provider,
+    const std::shared_ptr<AccessibilityState>& state, const AccessibleSnapshot& previous);
 
 }

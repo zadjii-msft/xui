@@ -6,9 +6,13 @@
 
 namespace xui {
 
+class TextInput;
+class SuggestionPeer;
+
 // Replaceable text control boundary. Windows EDIT owns text, IME, undo, and UIA.
 class NativeEditBridge final : public Element {
 public:
+    NativeEditBridge();
     ~NativeEditBridge() override;
     void attach(HWND parent, int control_id);
     void set_dpi(UINT dpi);
@@ -20,6 +24,15 @@ public:
     bool composing() const { return composing_; }
     std::wstring text() const;
     void focus(bool select_all = false);
+    void sync_suggestions(TextInput& input);
+    void text_changed();
+    void dismiss_suggestions();
+    bool suggestion_key(WPARAM key);
+    void set_model_text(const std::wstring& text);
+    void set_suggestion_colors(COLORREF background, COLORREF text, COLORREF secondary);
+    RECT suggestion_anchor() const;
+    void on_failure(std::function<void()> callback) { failure_ = std::move(callback); }
+    void report_failure() noexcept { if (failure_) { auto callback = failure_; callback(); } }
 private:
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     HWND window_{};
@@ -29,6 +42,9 @@ private:
     COLORREF placeholder_color_{RGB(128, 128, 128)};
     std::wstring placeholder_{L"Filter this folder"};
     std::optional<Insets> insets_;
+    std::unique_ptr<SuggestionPeer> suggestions_;
+    bool setting_text_{};
+    std::function<void()> failure_;
 };
 
 }

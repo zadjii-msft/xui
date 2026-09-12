@@ -1,0 +1,9 @@
+[workspace]
+members = ["xui-sys", "xui", "sample"]
+resolver = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"

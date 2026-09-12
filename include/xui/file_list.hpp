@@ -9,6 +9,7 @@
 namespace xui {
 
 enum class Navigation { previous, next, first, last, page_up, page_down };
+enum class FileActivation { enter, double_click, command };
 
 // Behavior and viewport state have no dependency on the window or drawing API.
 class FileList : public Control {
@@ -19,6 +20,14 @@ public:
     void set_disposer(std::function<void(std::shared_ptr<const FilteredView>)> dispose) { dispose_ = std::move(dispose); }
     void on_selection_change(std::function<void()> callback) { selection_change_ = std::move(callback); }
     void on_view_change(std::function<void()> callback) { view_change_ = std::move(callback); }
+    void on_activate(std::function<void(const FileItem&, FileActivation)> callback) { activation_ = std::move(callback); }
+    bool activate_selected(FileActivation reason = FileActivation::command) {
+        if (!enabled() || !model_.selected_index() || !activation_) return false;
+        const auto item = *model_.selected_item();
+        const auto callback = activation_;
+        callback(item, reason);
+        return true;
+    }
     void set_empty_text(std::wstring title, std::wstring detail) {
         empty_title_ = std::move(title); empty_detail_ = std::move(detail);
         invalidate(Invalidation::paint);
@@ -97,6 +106,12 @@ public:
         focused_.reset();
         invalidate(Invalidation::paint);
     }
+    void restore_state(std::optional<ItemId> selected, std::optional<ItemId> focused, float offset) {
+        model_.selected_ = selected && model_.view()->source()->find(*selected) ? selected : std::nullopt;
+        focused_ = focused && model_.view()->source()->find(*focused) ? focused : std::nullopt;
+        scroll_to(offset);
+        notify_selection();
+    }
     void navigate(Navigation navigation) {
         const int page = static_cast<int>(std::clamp(
             static_cast<double>(viewport_height_) / row_height(), 1.0,
@@ -119,6 +134,7 @@ private:
     void notify_view() { if (view_change_) { auto callback = view_change_; callback(); } }
     void notify_selection() { if (selection_change_) { auto callback = selection_change_; callback(); } }
     std::function<void()> selection_change_, view_change_;
+    std::function<void(const FileItem&, FileActivation)> activation_;
     std::function<void(std::shared_ptr<const FilteredView>)> dispose_;
     std::wstring empty_title_{L"No items"}, empty_detail_;
     FileListModel model_;

@@ -1,12 +1,16 @@
 #include "xui/native_edit.hpp"
 #include "platform.hpp"
 #include "xui/theme.hpp"
+#include "xui/controls.hpp"
+#include "suggestion_peer.hpp"
 #include <commctrl.h>
 #include <cmath>
 
 namespace xui {
 
+NativeEditBridge::NativeEditBridge() = default;
 NativeEditBridge::~NativeEditBridge() {
+    suggestions_.reset();
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     if (font_) DeleteObject(font_);
 }
@@ -26,7 +30,7 @@ void NativeEditBridge::attach(HWND parent, int control_id) {
 }
 
 void NativeEditBridge::set_dpi(UINT dpi) {
-    dpi_ = dpi;
+    if (font_ && dpi_ == dpi) return;
     HFONT replacement = CreateFontW(-MulDiv(static_cast<int>(VisualMetrics::body_size), static_cast<int>(dpi), 96), 0, 0, 0, FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -34,9 +38,13 @@ void NativeEditBridge::set_dpi(UINT dpi) {
     SendMessageW(window_, WM_SETFONT, reinterpret_cast<WPARAM>(replacement), TRUE);
     if (font_) DeleteObject(font_);
     font_ = replacement;
+    dpi_ = dpi;
 }
 
 void NativeEditBridge::arrange(Rect bounds) {
+    const auto previous = this->bounds();
+    if (previous.x != bounds.x || previous.y != bounds.y ||
+        previous.width != bounds.width || previous.height != bounds.height) dismiss_suggestions();
     Element::arrange(bounds);
     if (!window_) return;
     const auto insets = insets_.value_or(VisualMetrics::search_insets);
@@ -64,6 +72,40 @@ void NativeEditBridge::focus(bool select_all) {
     if (select_all) SendMessageW(window_, EM_SETSEL, 0, -1);
 }
 
+void NativeEditBridge::sync_suggestions(TextInput& input) {
+    if (input.suggestions() && !suggestions_)
+        suggestions_ = std::make_unique<SuggestionPeer>(*this, input);
+    if (!input.suggestions()) suggestions_.reset();
+    if (suggestions_) suggestions_->sync();
+}
+void NativeEditBridge::text_changed() {
+    if (suggestions_ && !setting_text_) suggestions_->changed();
+}
+void NativeEditBridge::dismiss_suggestions() {
+    if (suggestions_) suggestions_->dismiss();
+}
+void NativeEditBridge::set_suggestion_colors(COLORREF background, COLORREF text, COLORREF secondary) {
+    if (suggestions_) suggestions_->set_colors(background, text, secondary);
+}
+RECT NativeEditBridge::suggestion_anchor() const {
+    const auto area = bounds();
+    const auto scale = dpi_ / 96.0f;
+    RECT rect{static_cast<LONG>(std::lround(area.x * scale)), static_cast<LONG>(std::lround(area.y * scale)),
+        static_cast<LONG>(std::lround((area.x + area.width) * scale)),
+        static_cast<LONG>(std::lround((area.y + area.height) * scale))};
+    MapWindowPoints(GetParent(window_), nullptr, reinterpret_cast<POINT*>(&rect), 2);
+    return rect;
+}
+bool NativeEditBridge::suggestion_key(WPARAM key) {
+    return suggestions_ && suggestions_->key(key);
+}
+void NativeEditBridge::set_model_text(const std::wstring& text) {
+    dismiss_suggestions();
+    setting_text_ = true;
+    SetWindowTextW(window_, text.c_str());
+    setting_text_ = false;
+}
+
 void NativeEditBridge::set_placeholder_color(COLORREF color) {
     placeholder_color_ = color;
     if (window_) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh search hint");
@@ -82,6 +124,38 @@ void NativeEditBridge::set_insets(Insets insets) {
 LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wparam,
     LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept {
     auto& self = *reinterpret_cast<NativeEditBridge*>(data);
+    try {
+        if (message == detail::suggestions_ready) {
+            if (self.suggestions_) self.suggestions_->deliver();
+            return 0;
+        }
+        if (message == WM_TIMER && wparam == SuggestionPeer::timer_id) {
+            if (self.suggestions_) self.suggestions_->timer();
+            return 0;
+        }
+        if (message == WM_KEYDOWN && self.suggestion_key(wparam)) return 0;
+        if (message == WM_KILLFOCUS || message == WM_CANCELMODE ||
+            message == WM_IME_STARTCOMPOSITION || message == EM_SETREADONLY ||
+            (message == WM_ENABLE && !wparam) || (message == WM_SHOWWINDOW && !wparam))
+            self.dismiss_suggestions();
+    } catch (...) {
+        self.dismiss_suggestions();
+        self.report_failure();
+        return 0;
+    }
+    if (message == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE) {
+        const auto result = DefSubclassProc(window, message, wparam, lparam);
+        // The native UIA proxy can activate EDIT itself, even in a minimized
+        // window. Keep activation on the top-level host and keyboard focus on EDIT.
+        if (GetActiveWindow() == window) {
+            const auto root = GetAncestor(window, GA_ROOT);
+            if (IsIconic(root)) ShowWindow(root, SW_RESTORE);
+            SetForegroundWindow(root);
+            SetActiveWindow(root);
+            SetFocus(window);
+        }
+        return result;
+    }
     if (message == WM_PAINT || message == WM_PRINTCLIENT) {
         const LRESULT result = DefSubclassProc(window, message, wparam, lparam);
         // Only the empty-field hint is custom. EDIT still owns text, caret, selection and IME.
@@ -117,13 +191,14 @@ LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wp
             OutputDebugStringW(L"XUI: Cannot refresh the search field at composition start.\n");
     }
     if (message == WM_IME_ENDCOMPOSITION) {
-        self.composing_ = false;
         const LRESULT result = DefSubclassProc(window, message, wparam, lparam);
+        self.composing_ = false;
         SendMessageW(GetParent(window), WM_COMMAND,
             MAKEWPARAM(GetDlgCtrlID(window), EN_CHANGE), reinterpret_cast<LPARAM>(window));
         return result;
     }
     if (message == WM_NCDESTROY) {
+        self.suggestions_.reset();
         RemoveWindowSubclass(window, subclass, id);
         self.window_ = nullptr;
     }

@@ -3,3 +3,6 @@
 /out/
 *.user
 *.pdb
+/bindings/dotnet/**/bin/
+/bindings/dotnet/**/obj/
+/bindings/rust/target/

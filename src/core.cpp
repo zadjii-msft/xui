@@ -75,14 +75,19 @@ Element::~Element() {
 std::uint64_t Element::id() const { return id_; }
 
 Size Element::measure(Size available) {
+    return constrain(preferred_, available);
+}
+
+Size Element::constrain(Size desired, Size available) const {
     available = normalized(available);
-    return {(std::min)(preferred_.width, available.width),
-        (std::min)(preferred_.height, available.height)};
+    desired = normalized(desired);
+    return {std::min(available.width, std::clamp(desired.width, minimum_.width, maximum_.width)),
+        std::min(available.height, std::clamp(desired.height, minimum_.height, maximum_.height))};
 }
 
 void Element::arrange(Rect bounds) {
     bounds_ = {coordinate(bounds.x), coordinate(bounds.y),
-        dimension(bounds.width), dimension(bounds.height)};
+        std::min(dimension(bounds.width), maximum_.width), std::min(dimension(bounds.height), maximum_.height)};
 }
 
 Rect Element::bounds() const { return bounds_; }
@@ -98,9 +103,42 @@ void Element::invalidate(Invalidation kind) {
 
 void Element::set_preferred_size(Size size) {
     size = normalized(size);
-    if (preferred_.width == size.width && preferred_.height == size.height) return;
+    if (!auto_size_ && preferred_.width == size.width && preferred_.height == size.height) return;
+    auto_size_ = false;
     preferred_ = size;
     invalidate(Invalidation::layout);
+}
+
+void Element::set_auto_size(bool value) {
+    if (auto_size_ == value) return;
+    auto_size_ = value;
+    invalidate(Invalidation::layout);
+}
+void Element::set_fixed_size(Size size) {
+    size = normalized(size);
+    preferred_ = minimum_ = maximum_ = size;
+    auto_size_ = false;
+    invalidate(Invalidation::layout);
+}
+void Element::set_minimum_size(Size size) {
+    minimum_ = normalized(size);
+    maximum_.width = std::max(maximum_.width, minimum_.width);
+    maximum_.height = std::max(maximum_.height, minimum_.height);
+    invalidate(Invalidation::layout);
+}
+void Element::set_maximum_size(Size size) {
+    maximum_ = normalized(size);
+    minimum_.width = std::min(minimum_.width, maximum_.width);
+    minimum_.height = std::min(minimum_.height, maximum_.height);
+    invalidate(Invalidation::layout);
+}
+void Element::adopt(const std::shared_ptr<Element>& child) {
+    if (!child) throw std::invalid_argument("Content must not be null");
+    if (!child->invalidation_->parent.expired())
+        throw std::invalid_argument("Content already has a parent");
+    for (auto ancestor = invalidation_; ancestor; ancestor = ancestor->parent.lock())
+        if (ancestor == child->invalidation_) throw std::invalid_argument("Content must not contain a cycle");
+    child->invalidation_->parent = invalidation_;
 }
 
 Stack::Stack(Axis axis) : axis_(axis) {}
@@ -149,7 +187,7 @@ std::vector<Size> Stack::layout_children(Size available) {
     std::vector<Size> sizes(children_.size());
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const auto& child = children_[index];
-        if (child.flex > 0.0f) {
+        if (child.flex > 0.0f && main < maximum) {
             total_flex += child.flex;
             continue;
         }
@@ -164,7 +202,7 @@ std::vector<Size> Stack::layout_children(Size available) {
     }
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const auto& child = children_[index];
-        if (child.flex <= 0.0f) continue;
+        if (child.flex <= 0.0f || main >= maximum) continue;
         const float share = dimension(remaining * (static_cast<double>(child.flex) / total_flex));
         const Size constraint = horizontal ? Size{share, cross} : Size{cross, share};
         auto measured = normalized(child.element->measure(constraint));
@@ -194,8 +232,7 @@ Size Stack::measure(Size available) {
     const Size desired = axis_ == Axis::horizontal ?
         Size{dimension(main + padding_width), dimension(cross + padding_height)} :
         Size{dimension(cross + padding_width), dimension(main + padding_height)};
-    return {(std::min)(desired.width, available.width),
-        (std::min)(desired.height, available.height)};
+    return constrain(desired, available);
 }
 
 void Stack::arrange(Rect rectangle) {

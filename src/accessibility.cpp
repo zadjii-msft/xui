@@ -77,8 +77,20 @@ struct View {
             top = std::max(top, row_top);
             bottom = std::min(bottom, row_top + row_height());
         }
-        if (bottom <= top) return {};
-        return { static_cast<double>(rect.left), top, width, bottom - top };
+        double left = rect.left, right = left + width;
+        // Keep the list's own viewport for row geometry and scroll percentages.
+        // Ancestor clipping changes only the exposed bounds, not virtual row indices.
+        for (auto parent = GetParent(window); parent; parent = GetParent(parent)) {
+            RECT clip{};
+            GetClientRect(parent, &clip);
+            MapWindowPoints(parent, nullptr, reinterpret_cast<POINT*>(&clip), 2);
+            left = std::max(left, static_cast<double>(clip.left));
+            right = std::min(right, static_cast<double>(clip.right));
+            top = std::max(top, static_cast<double>(clip.top));
+            bottom = std::min(bottom, static_cast<double>(clip.bottom));
+        }
+        if (bottom <= top || right <= left) return {};
+        return {left, top, right - left, bottom - top};
     }
 };
 
@@ -171,7 +183,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_ProviderOptions(ProviderOptions* result) override {
         if (!result) return E_POINTER;
         *result = static_cast<ProviderOptions>(
-            ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading);
+            ProviderOptions_ServerSideProvider | ProviderOptions_ProviderOwnsSetFocus | ProviderOptions_UseComThreading);
         return available();
     }
 
@@ -373,8 +385,8 @@ public:
             if (x < bounds.left || x >= bounds.left + bounds.width ||
                 y < bounds.top || y >= bounds.top + bounds.height) return S_OK;
             if (view.row_height() > 0 &&
-                x < bounds.left + bounds.width - view.snapshot.row_right_inset_pixels) {
-                const double index = std::floor((y - bounds.top + view.offset()) / view.row_height());
+                x < view.snapshot.screen_bounds.right - view.snapshot.row_right_inset_pixels) {
+                const double index = std::floor((y - view.snapshot.screen_bounds.top + view.offset()) / view.row_height());
                 if (index >= 0 && index < static_cast<double>(view.count()))
                     return child(view, static_cast<size_t>(index), result);
             }
@@ -711,6 +723,70 @@ void raise_list_focus(IRawElementProviderSimple* provider,
         }
     } else {
         UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);
+    }
+}
+
+void raise_list_properties(IRawElementProviderSimple* provider,
+        const std::shared_ptr<AccessibilityState>& state, const AccessibleSnapshot& previous) {
+    if (!provider || !previous.control_id || !UiaClientsAreListening()) return;
+    const auto next = read_view(state);
+    if (!next.window) return;
+    const View before{next.window, previous};
+    const auto number = [&](PROPERTYID property, double old_number, double new_number) {
+        if (old_number == new_number) return;
+        VARIANT old_value{}, new_value{};
+        old_value.vt = new_value.vt = VT_R8;
+        old_value.dblVal = old_number;
+        new_value.dblVal = new_number;
+        UiaRaiseAutomationPropertyChangedEvent(provider, property, old_value, new_value);
+    };
+    const auto boolean = [](IRawElementProviderSimple* element, PROPERTYID property, bool old_bool, bool new_bool) {
+        if (old_bool == new_bool) return;
+        VARIANT old_value{}, new_value{};
+        bool_value(old_bool, &old_value);
+        bool_value(new_bool, &new_value);
+        UiaRaiseAutomationPropertyChangedEvent(element, property, old_value, new_value);
+    };
+    const auto percent = [](const View& view) {
+        return view.scrollable() ? view.offset() * 100 / view.extent() : UIA_ScrollPatternNoScroll;
+    };
+    const auto size = [](const View& view) {
+        const auto total = view.count() * view.row_height();
+        return total > 0 ? std::clamp(view.height() * 100 / total, 0.0, 100.0) : 100.0;
+    };
+    number(UIA_ScrollVerticalScrollPercentPropertyId, percent(before), percent(next));
+    number(UIA_ScrollVerticalViewSizePropertyId, size(before), size(next));
+    boolean(provider, UIA_ScrollVerticallyScrollablePropertyId, before.scrollable(), next.scrollable());
+    boolean(provider, UIA_IsEnabledPropertyId, previous.enabled, next.snapshot.enabled);
+    boolean(provider, UIA_HasKeyboardFocusPropertyId, previous.focused && !previous.focused_item,
+        next.snapshot.focused && !next.snapshot.focused_item);
+    if (previous.name && next.snapshot.name && *previous.name != *next.snapshot.name) {
+        VARIANT old_value{}, new_value{};
+        if (SUCCEEDED(string_value(previous.name->data(), previous.name->size(), &old_value)) &&
+            SUCCEEDED(string_value(next.snapshot.name->data(), next.snapshot.name->size(), &new_value)))
+            UiaRaiseAutomationPropertyChangedEvent(provider, UIA_NamePropertyId, old_value, new_value);
+        VariantClear(&old_value);
+        VariantClear(&new_value);
+    }
+    const auto item_boolean = [&](std::optional<ItemId> id, PROPERTYID property, bool old_value, bool new_value) {
+        if (!id || old_value == new_value) return;
+        const auto index = next.find(*id);
+        if (!index) return;
+        IRawElementProviderSimple* item{};
+        if (SUCCEEDED(static_cast<Provider*>(provider)->item_at(next, *index, &item))) {
+            boolean(item, property, old_value, new_value);
+            item->Release();
+        }
+    };
+    if (previous.selected != next.snapshot.selected) {
+        item_boolean(previous.selected, UIA_SelectionItemIsSelectedPropertyId, true, false);
+        item_boolean(next.snapshot.selected, UIA_SelectionItemIsSelectedPropertyId, false, true);
+    }
+    const auto old_focus = previous.focused ? previous.focused_item : std::nullopt;
+    const auto new_focus = next.snapshot.focused ? next.snapshot.focused_item : std::nullopt;
+    if (old_focus != new_focus) {
+        item_boolean(old_focus, UIA_HasKeyboardFocusPropertyId, true, false);
+        item_boolean(new_focus, UIA_HasKeyboardFocusPropertyId, false, true);
     }
 }
 

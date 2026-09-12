@@ -9,12 +9,11 @@ class ListPeer {
 public:
     ListPeer(std::shared_ptr<FileList> control, std::function<void()> failure, std::function<void(HWND)> focus);
     ~ListPeer();
-    void attach(HWND parent, int id, const Drawing& resources);
+    void attach(HWND parent, int id);
     void update(UINT dpi, const Palette& palette);
     void publish(bool structure = false);
-    void discard() { drawing_.discard(); }
+    void paint(Drawing& drawing);
     HWND window() const { return window_; }
-    std::uint64_t paints() const { return paints_; }
     std::size_t rows() const { return rows_; }
 private:
     static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
@@ -25,7 +24,6 @@ private:
     void select_at(int y);
     void pointer_down(LPARAM);
     void pointer_move(LPARAM);
-    void paint();
     float width() const;
     bool in_scrollbar(LPARAM) const;
     std::shared_ptr<FileList> list_;
@@ -34,7 +32,6 @@ private:
     HWND window_{};
     UINT dpi_{96};
     Palette palette_{};
-    Drawing drawing_;
     ScrollThumb thumb_{};
     std::optional<std::size_t> hovered_;
     bool hover_scrollbar_{}, dragging_{}, tracking_{};
@@ -44,7 +41,6 @@ private:
     IRawElementProviderSimple* provider_{};
     const FilteredView* published_{};
     std::shared_ptr<const std::wstring> name_, automation_id_;
-    std::uint64_t paints_{};
     std::size_t rows_{};
 };
 

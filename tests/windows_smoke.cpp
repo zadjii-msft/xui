@@ -42,6 +42,16 @@ bool eventually(const std::function<bool()>& predicate, int milliseconds = 10000
     } while (std::chrono::steady_clock::now() < limit);
     return false;
 }
+void focus(IUIAutomationElement* element, const char* message) {
+    check(element->SetFocus(), message);
+    auto stable = std::chrono::steady_clock::now();
+    require(eventually([&] {
+        BOOL focused{};
+        check(element->get_CurrentHasKeyboardFocus(&focused), "Read settled keyboard target");
+        if (!focused) { stable = std::chrono::steady_clock::now(); return false; }
+        return std::chrono::steady_clock::now() - stable >= std::chrono::milliseconds(150);
+    }), message);
+}
 struct Fixture {
     std::filesystem::path folder;
     std::vector<std::filesystem::path> files;
@@ -96,6 +106,17 @@ BOOL CALLBACK find_window(HWND window, LPARAM parameter) {
         return FALSE;
     }
     return TRUE;
+}
+HWND native_child(HWND root, const wchar_t* cls, int ordinal = 0) {
+    struct Search { const wchar_t* cls; int ordinal; HWND result{}; } search{cls, ordinal};
+    EnumChildWindows(root, [](HWND hwnd, LPARAM data) -> BOOL {
+        auto& s = *reinterpret_cast<Search*>(data);
+        wchar_t name[128]{};
+        GetClassNameW(hwnd, name, 128);
+        if (_wcsicmp(name, s.cls) == 0 && s.ordinal-- == 0) { s.result = hwnd; return FALSE; }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&search));
+    return search.result;
 }
 BOOL CALLBACK find_popup(HWND window, LPARAM parameter) {
     wchar_t name[32]{};
@@ -233,10 +254,12 @@ int wmain(int argc, wchar_t** argv) {
         CONTROLTYPEID type{};
         check(list->get_CurrentControlType(&type), "Read list role");
         require(type == UIA_ListControlTypeId, "Custom control must expose List role");
-        auto edit = child(automation.Get(), root.Get(), UIA_ClassNamePropertyId, L"Edit");
+        auto edit = child(automation.Get(), root.Get(), UIA_AutomationIdPropertyId, L"browser-search");
         require(edit != nullptr, "Native search field not in UIA tree");
         require(!name(edit.Get()).empty(), "Search field needs an accessible name");
         auto value = pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId);
+        auto theme_button = child(automation.Get(), root.Get(), UIA_AutomationIdPropertyId, L"browser-theme");
+        auto theme_action = pattern<IUIAutomationInvokePattern>(theme_button.Get(), UIA_InvokePatternId);
         auto selection = pattern<IUIAutomationSelectionPattern>(list.Get(), UIA_SelectionPatternId);
         BOOL required{};
         check(selection->get_CurrentIsSelectionRequired(&required), "Read selection requirement");
@@ -256,7 +279,7 @@ int wmain(int argc, wchar_t** argv) {
 
         const auto identity = runtime_id(first.Get());
         auto first_selection = pattern<IUIAutomationSelectionItemPattern>(first.Get(), UIA_SelectionItemPatternId);
-        const auto pointer_list = FindWindowExW(process.window, nullptr, L"Xui.FileList.1", nullptr);
+        const auto pointer_list = native_child(process.window, L"Xui.FileList.1");
         require(pointer_list != nullptr, "Find public list pointer target");
         SendMessageW(pointer_list, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 16));
         SendMessageW(pointer_list, WM_LBUTTONUP, 0, MAKELPARAM(20, 16));
@@ -290,7 +313,7 @@ int wmain(int argc, wchar_t** argv) {
         check(last->get_CurrentIsOffscreen(&offscreen), "Read offscreen state");
         require(offscreen != FALSE, "Last row must initially be offscreen");
         {
-            HWND viewport = FindWindowExW(process.window, nullptr, L"Xui.FileList.1", nullptr);
+            HWND viewport = native_child(process.window, L"Xui.FileList.1");
             require(viewport != nullptr, "Find custom scrollbar viewport");
             RECT client{};
             require(GetClientRect(viewport, &client) != 0, "Read custom scrollbar bounds");
@@ -350,8 +373,8 @@ int wmain(int argc, wchar_t** argv) {
         require(runtime_id(first.Get()) == identity, "Item runtime ID must remain stable after filtering");
         require(selection_count(selection.Get()) == 1, "Visible selection must survive filtering");
         require(counter(process.window, 6) == 0, "Default visual theme must be dark");
-        require(PostMessageW(process.window, WM_KEYDOWN, VK_F6, 0) != 0, "Switch to light theme");
-        require(eventually([&] { return counter(process.window, 6) == 1; }), "F6 must apply the light theme");
+        check(theme_action->Invoke(), "Switch to light theme");
+        require(eventually([&] { return counter(process.window, 6) == 1; }), "Theme command must apply the light theme");
         BSTR themed_text{};
         check(value->get_CurrentValue(&themed_text), "Read search after theme change");
         const bool text_preserved = std::wstring(themed_text) == L"file-0000";
@@ -359,8 +382,8 @@ int wmain(int argc, wchar_t** argv) {
         require(text_preserved && selection_count(selection.Get()) == 1,
                 "Theme changes must preserve text and selection");
         require(runtime_id(first.Get()) == identity, "Theme changes must preserve item identity");
-        require(PostMessageW(process.window, WM_KEYDOWN, VK_F6, 0) != 0, "Restore dark theme");
-        require(eventually([&] { return counter(process.window, 6) == 0; }), "F6 must restore the dark theme");
+        check(theme_action->Invoke(), "Restore dark theme");
+        require(eventually([&] { return counter(process.window, 6) == 0; }), "Theme command must restore the dark theme");
 
         set_text(value.Get(), L"file-0001");
         ComPtr<IUIAutomationElement> other;
@@ -389,16 +412,18 @@ int wmain(int argc, wchar_t** argv) {
         set_text(value.Get(), L"");
         require(eventually([&] { return selection_count(selection.Get()) == 1; }),
                 "Selection must return after clearing the filter");
-        HWND list_window = FindWindowExW(process.window, nullptr, L"Xui.FileList.1", nullptr);
+        HWND list_window = native_child(process.window, L"Xui.FileList.1");
         require(list_window != nullptr, "Find list HWND");
-        HWND edit_window = FindWindowExW(process.window, nullptr, L"EDIT", nullptr);
+        HWND edit_window = native_child(process.window, L"EDIT", 1);
         require(edit_window != nullptr, "Find native EDIT HWND");
-        check(first->SetFocus(), "Focus custom list before keyboard traversal");
-        require(PostMessageW(list_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab to native search");
+        focus(first.Get(), "Focus custom list before keyboard traversal");
+        auto split_button = child(automation.Get(), root.Get(), UIA_AutomationIdPropertyId, L"browser-split");
+        require(PostMessageW(list_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab wraps to first toolbar command");
         require(eventually([&] {
             BOOL has_focus{};
-            return SUCCEEDED(edit->get_CurrentHasKeyboardFocus(&has_focus)) && has_focus;
-        }), "Tab must move keyboard focus to native EDIT");
+            return SUCCEEDED(split_button->get_CurrentHasKeyboardFocus(&has_focus)) && has_focus;
+        }), "Tab must wrap to the first enabled toolbar command");
+        focus(edit.Get(), "Focus native search before keyboard traversal");
         require(PostMessageW(edit_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab to custom list");
         require(eventually([&] {
             BOOL has_focus{};
@@ -410,7 +435,7 @@ int wmain(int argc, wchar_t** argv) {
                 counter(process.window, 10) == 0;
         };
         require(eventually(settled), "Initial filter must settle before live input");
-        check(edit->SetFocus(), "Focus native EDIT for live typing");
+        focus(edit.Get(), "Focus native EDIT for live typing");
         double maximum_input_ms{};
         for (wchar_t character : std::wstring(L"file-0299")) {
             const auto start = std::chrono::steady_clock::now();
@@ -447,8 +472,7 @@ int wmain(int argc, wchar_t** argv) {
                 require(PostMessageW(list_window, WM_KEYDOWN, VK_F5, 0) != 0,
                     "Refresh during rapid query replacement");
             if (request == 20 || request == 60)
-                require(PostMessageW(process.window, WM_KEYDOWN, VK_F6, 0) != 0,
-                    "Change the theme while worker requests are active");
+                check(theme_action->Invoke(), "Change the theme while worker requests are active");
         }
         set_text(value.Get(), L"file-0123");
         require(eventually([&] {

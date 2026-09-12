@@ -7,7 +7,7 @@
 
 namespace xui {
 
-enum class ThemeMode { dark, light };
+enum class ThemeMode { dark, light, high_contrast };
 
 struct ThemeColors {
     uint32_t background, surface, field, hover, text, secondary;

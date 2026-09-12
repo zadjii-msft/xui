@@ -10,6 +10,7 @@ void require(bool value, const char* message) {
 }
 void behavior() {
     Button button(L"Save");
+    button.set_preferred_size({240, 40});
     Toggle toggle(L"Preference");
     int clicks{}, changes{}, paints{}, layouts{};
     button.on_click([&] { ++clicks; });
@@ -66,6 +67,86 @@ void behavior() {
     require(paints == before + 1 && layouts == 0, "Fixed-size caption update only repaints");
     button.set_preferred_size({120, 50});
     require(layouts == 1, "Size update requests layout");
+}
+void sizing_and_scroll() {
+    int calls{}, layouts{};
+    const TextMeasurer measure = [&](std::wstring_view text, TextStyle style) {
+        ++calls;
+        return Size{static_cast<float>(text.size()) * (style == TextStyle::heading ? 12.0f : 7.0f),
+            style == TextStyle::heading ? 30.0f : 18.0f};
+    };
+    auto label = std::make_shared<Label>(L"Short");
+    label->set_text_measurer(measure);
+    label->set_invalidator([&](Invalidation kind) { if (kind == Invalidation::layout) ++layouts; });
+    require(label->measure({1000, 1000}).width == 35 && calls == 1, "Automatic text width uses injected metrics");
+    label->measure({20, 30});
+    label->pointer_move(true);
+    require(label->measure({1000, 1000}).width == 35 && calls == 1, "Constraints and hover reuse intrinsic metrics");
+    label->set_text(L"A much longer label");
+    require(layouts == 1 && label->measure({1000, 1000}).width == 133 && calls == 2, "Text updates measure and layout");
+    label->set_heading(true);
+    require(label->measure({1000, 1000}).height == 30 && calls == 3, "Typography invalidates metrics");
+    label->set_preferred_size({90, 50});
+    label->set_text(L"Fixed label");
+    require(label->measure({1000, 1000}).width == 90 && calls == 3, "Explicit preferred sizes remain fixed");
+    label->set_auto_size(true);
+    label->set_minimum_size({180, 40});
+    label->set_maximum_size({200, 50});
+    require(label->measure({1000, 1000}).width == 180, "Automatic size respects minimum");
+    require(label->measure({25, 10}).width == 25 && label->measure({25, 10}).height == 10,
+        "Parent constraints take precedence in narrow windows");
+    label->set_text(std::wstring(200, L'x'));
+    require(label->measure({1000, 1000}).width == 200, "Automatic size respects maximum");
+    label->arrange({0, 0, 500, 100});
+    require(label->bounds().width == 200 && label->bounds().height == 50, "Maximum limits arranged dimensions");
+    label->set_fixed_size({80, 32});
+    label->arrange({0, 0, 200, 100});
+    require(label->bounds().width == 80 && label->bounds().height == 32, "Fixed size constrains both axes");
+    label->arrange({0, 0, 10, 5});
+    require(label->bounds().width == 10 && label->bounds().height == 5, "Fixed size cannot escape parent allocation");
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->set_spacing(5);
+    for (int i = 0; i < 10; ++i) {
+        auto button = std::make_shared<Button>(L"Action");
+        button->set_preferred_size({100, 40});
+        content->add(button, i == 9 ? 1.0f : 0.0f);
+    }
+    auto scroll = std::make_shared<ScrollView>(content);
+    Stack root(Axis::vertical);
+    root.add(scroll, 1);
+    root.arrange({0, 0, 220, 120});
+    require(scroll->extent() == 445 && scroll->maximum_offset() == 325,
+        "Scroll measures content unbounded vertically; flex takes natural size");
+    require(content->bounds().width == 208, "Scrollbar reserves viewport width");
+    scroll->set_offset(9999);
+    root.arrange({0, 0, 220, 120});
+    require(scroll->offset() == 325 && content->bounds().y == -325, "Scroll clamps and translates content");
+    scroll->reveal(content->child_at(0)->bounds());
+    root.arrange({0, 0, 220, 120});
+    require(scroll->offset() == 0, "Reveal above viewport");
+    scroll->reveal(content->child_at(9)->bounds());
+    root.arrange({0, 0, 220, 120});
+    require(scroll->offset() == 325, "Reveal below viewport");
+    root.arrange({0, 0, 220, 1000});
+    require(scroll->offset() == 0 && scroll->maximum_offset() == 0 && scroll->thumb().height == 0,
+        "Growing viewport removes scrolling and clamps offset");
+    root.arrange({0, 0, 0, 0});
+    require(scroll->viewport().width == 0, "Zero-sized viewport stays nonnegative");
+    bool rejected{};
+    try { ScrollView duplicate(content); } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "Scroll content has one retained owner");
+    int invalidations{};
+    std::shared_ptr<Label> retained;
+    {
+        auto inner = std::make_shared<Stack>(Axis::vertical);
+        retained = std::make_shared<Label>(L"Before");
+        inner->add(retained);
+        ScrollView temporary(inner);
+        temporary.set_invalidator([&](Invalidation) { ++invalidations; });
+        retained->set_text(L"During");
+    }
+    retained->set_text(L"After");
+    require(invalidations == 1, "Scroll content invalidation detaches safely");
 }
 void focus_and_lifetime() {
     auto label = std::make_shared<Label>(L"Title");
@@ -153,6 +234,6 @@ void virtual_list_control() {
 }
 }
 int main() {
-    try { behavior(); focus_and_lifetime(); virtual_list_control(); std::cout << "Control tests passed\n"; return 0; }
+    try { behavior(); focus_and_lifetime(); virtual_list_control(); sizing_and_scroll(); std::cout << "Control tests passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

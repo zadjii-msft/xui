@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <limits>
 
 namespace xui {
 
@@ -40,12 +41,24 @@ public:
     void set_invalidator(std::function<void(Invalidation)> callback);
     void invalidate(Invalidation kind);
     void set_preferred_size(Size size);
+    void set_fixed_size(Size size);
+    void set_auto_size(bool value);
+    bool auto_size() const { return auto_size_; }
+    void set_minimum_size(Size size);
+    void set_maximum_size(Size size);
+
+protected:
+    Size constrain(Size desired, Size available) const;
+    void adopt(const std::shared_ptr<Element>& child);
 
 private:
     struct InvalidationState;
     friend class Stack;
     std::uint64_t id_;
     Size preferred_{};
+    Size minimum_{};
+    Size maximum_{(std::numeric_limits<float>::max)(), (std::numeric_limits<float>::max)()};
+    bool auto_size_{};
     Rect bounds_{};
     std::shared_ptr<InvalidationState> invalidation_;
 };

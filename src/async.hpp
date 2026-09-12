@@ -16,4 +16,15 @@ struct ViewTask::Impl {
     void cancel();
     void deliver();
 };
+struct SampleTask::Impl {
+    struct Worker;
+    std::shared_ptr<Worker> worker;
+    Receiver receive;
+    bool cancelled{};
+    std::uint64_t delivered{};
+    void cancel();
+    void deliver();
+    void suspend(bool value);
+    void start(Loader loader, std::shared_ptr<TaskWake> wake, unsigned interval);
+};
 }

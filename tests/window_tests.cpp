@@ -1,4 +1,6 @@
 #include "xui/application.hpp"
+#include "../src/drawing.hpp"
+#include "../src/list_peer.hpp"
 #include <windows.h>
 #include <atomic>
 #include <chrono>
@@ -8,6 +10,9 @@
 #include <ole2.h>
 #include <UIAutomation.h>
 #include <wrl/client.h>
+#include <psapi.h>
+#include "resource_probe.hpp"
+#include "uia_events.hpp"
 
 namespace {
 void require(bool value, const char* message) {
@@ -100,6 +105,206 @@ void window_lifecycle() {
         root->add(button);
         window.set_content(root);
         require(drive(window, title) == (throws ? 1 : 0), "Callback failure stops only its own run");
+    }
+}
+void resource_lifecycle(bool diagnostics = false, bool scroll_content = false, bool split_content = false) {
+    std::vector<HANDLE> previous_handles;
+    DWORD handles_after_warmup{}, gdi_after_warmup{}, user_after_warmup{};
+    for (int cycle = 0; cycle < 8; ++cycle) {
+        {
+            xui::Window window({L"XUI resource lifecycle", split_content ? xui::Size{924, 641} : xui::Size{640, 640}});
+            auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
+            for (int i = 0; i < 16; ++i) {
+                auto label = std::make_shared<xui::Label>(L"Shared renderer label");
+                label->set_preferred_size({0, 12});
+                root->add(label);
+            }
+            auto input = std::make_shared<xui::TextInput>(L"Native input");
+            auto button = std::make_shared<xui::Button>(L"Focus");
+            auto toggle = std::make_shared<xui::Toggle>(L"Toggle");
+            auto list = std::make_shared<xui::FileList>();
+            root->add(input);
+            root->add(button);
+            root->add(toggle);
+            root->add(list, 1);
+            std::shared_ptr<xui::ScrollView> viewport;
+            std::shared_ptr<xui::SplitView> split;
+            std::shared_ptr<xui::TabStrip> tabs;
+            std::shared_ptr<xui::FileList> second_list;
+            if (split_content) {
+                auto secondary = std::make_shared<xui::Stack>(xui::Axis::vertical);
+                tabs = std::make_shared<xui::TabStrip>(L"Resource tabs");
+                tabs->set_tabs({{1, L"One"}, {2, L"Two"}}, 1);
+                secondary->add(tabs);
+                secondary->add(std::make_shared<xui::TextInput>(L"Secondary input"));
+                second_list = std::make_shared<xui::FileList>(L"Secondary list");
+                secondary->add(second_list, 1);
+                split = std::make_shared<xui::SplitView>(root, secondary, L"Resource divider");
+                auto outer = std::make_shared<xui::Stack>(xui::Axis::vertical);
+                outer->add(split, 1);
+                window.set_content(outer);
+            } else if (scroll_content) {
+                viewport = std::make_shared<xui::ScrollView>(root, L"Resource viewport");
+                auto outer = std::make_shared<xui::Stack>(xui::Axis::vertical);
+                outer->add(viewport, 1);
+                window.set_content(outer);
+            } else window.set_content(root);
+            auto task = window.create_view_task(
+                [](const xui::CancelCheck &cancel) {
+                    auto items = std::make_shared<std::vector<xui::FileItem>>();
+                    for (int i = 0; i < 60; ++i)
+                        items->push_back(
+                            {static_cast<xui::ItemId>(i + 1), L"Entry " + std::to_wstring(i), L"path", false});
+                    return xui::SourceResult{xui::FileSnapshot::build(std::move(items), cancel), {}};
+                },
+                [list, second_list](xui::ViewResult result) {
+                    if (result.view) {
+                        if (second_list) second_list->set_view(result.view);
+                        list->set_view(std::move(result.view));
+                    }
+                });
+            task->request(L"");
+            int resize_step{};
+            window.on_key([&](const xui::KeyEvent &key) {
+                if (key.key == xui::Key::f5) {
+                    for (int i = 0; i < 100; ++i)
+                        task->request(L"obsolete", true);
+                    task->request(L"", true);
+                    return true;
+                }
+                if (key.key == xui::Key::f6) {
+                    window.set_theme(window.theme() == xui::ThemeMode::dark ? xui::ThemeMode::light
+                                                                            : xui::ThemeMode::dark);
+                    window.focus(*button);
+                    if (viewport) viewport->scroll_by(32);
+                    toggle->set_checked(!toggle->checked());
+                    Search search{L"XUI resource lifecycle"};
+                    EnumWindows(find, reinterpret_cast<LPARAM>(&search));
+                    HWND divider{};
+                    if (split) {
+                        split->set_ratio(0.3f + resize_step * 0.1f);
+                        tabs->step(1);
+                        divider = FindWindowExW(search.result, nullptr, L"Xui.Control.1", L"Resource divider");
+                        require(divider != nullptr, "SplitView has one native input peer");
+                        SetCapture(divider);
+                    }
+                    SetWindowPos(search.result, nullptr, 0, 0, 650 + resize_step * 11, 660 + resize_step * 13,
+                                 SWP_NOMOVE | SWP_NOZORDER);
+                    const UINT scale[] = {96, 120, 144, 192};
+                    RECT suggested{40, 40, 720, 940};
+                    SendMessageW(search.result, WM_DPICHANGED,
+                                 MAKEWPARAM(scale[resize_step % 4], scale[resize_step % 4]),
+                                 reinterpret_cast<LPARAM>(&suggested));
+                    if (split) {
+                        require(GetCapture() != divider, "DPI transition releases splitter capture");
+                        SendMessageW(search.result, WM_APP + 12, 0, 0);
+                        const auto second = FindWindowExW(divider, nullptr, L"Xui.Control.1", L"Right pane");
+                        const auto edit = FindWindowExW(second, nullptr, L"EDIT", nullptr);
+                        require(edit != nullptr, "SplitView retains a native secondary EDIT");
+                        require((IsWindowVisible(edit) != FALSE) == split->expanded(),
+                            "DPI layout clips and hides native children in a collapsed pane");
+                        if (split->expanded()) {
+                            RECT pane_bounds{}, edit_bounds{};
+                            GetWindowRect(second, &pane_bounds); GetWindowRect(edit, &edit_bounds);
+                            require(second_list->bounds().width > 0 && edit_bounds.left >= pane_bounds.left &&
+                                edit_bounds.right <= pane_bounds.right && edit_bounds.top >= pane_bounds.top &&
+                                edit_bounds.bottom <= pane_bounds.bottom, "DPI layout contains native EDIT within its pane");
+                        }
+                    }
+                    SendMessageW(search.result, WM_DISPLAYCHANGE, 0, 0);
+                    ++resize_step;
+                    return true;
+                }
+                return false;
+            });
+            std::exception_ptr failure;
+            std::jthread driver([&] {
+                HWND hwnd{};
+                try {
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                    const auto wait = [&](auto predicate) {
+                        while (!predicate()) {
+                            require(std::chrono::steady_clock::now() < deadline, "Resource lifecycle timed out");
+                            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        }
+                    };
+                    wait([&] {
+                        Search search{L"XUI resource lifecycle"};
+                        EnumWindows(find, reinterpret_cast<LPARAM>(&search));
+                        hwnd = search.result;
+                        return hwnd != nullptr;
+                    });
+                    const auto metric = [&](int key) { return SendMessageW(hwnd, WM_APP + 60, key, 0); };
+                    wait([&] { return metric(9) == 60 && metric(4) == 0; });
+                    for (int step = 0; step < 4; ++step) {
+                        const auto generation = metric(3);
+                        const auto prior_paints = metric(0);
+                        PostMessageW(hwnd, WM_KEYDOWN, VK_F5, 0);
+                        PostMessageW(hwnd, WM_KEYDOWN, VK_F6, 0);
+                        wait([&] { return metric(3) > generation && metric(4) == 0; });
+                        wait([&] { return metric(11) == 1 && metric(0) > prior_paints; });
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        require(metric(11) == 1, "Labels, buttons, toggles and lists must share one host target");
+                        require(metric(8) == 60, "Repeated cancelled refreshes retain the latest complete view");
+                    }
+                    auto paints = metric(0);
+                    auto quiet_since = std::chrono::steady_clock::now();
+                    wait([&] {
+                        const auto now = std::chrono::steady_clock::now();
+                        const auto current = metric(0);
+                        if (current != paints) {
+                            paints = current;
+                            quiet_since = now;
+                        }
+                        return now - quiet_since >= std::chrono::milliseconds(200);
+                    });
+                    if (diagnostics && cycle == 2) {
+                        std::cout << "open_window ";
+                        resource_probe::heaps();
+                    }
+                } catch (...) {
+                    failure = std::current_exception();
+                }
+                if (hwnd) PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            });
+            require(xui::Application::run(window) == 0, "Resource stress window completes");
+            require(xui::Drawing::live_targets() == 0, "A retained closed Window must not retain graphics targets");
+            driver.join();
+            if (failure) std::rethrow_exception(failure);
+        }
+        std::atomic<bool> drained{};
+        xui::dispose_later(std::shared_ptr<const void>(new int, [&](const void *value) {
+            delete static_cast<const int *>(value);
+            drained = true;
+        }));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!drained) {
+            require(std::chrono::steady_clock::now() < deadline, "Resource cleanup must finish off the UI thread");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(xui::Drawing::live_targets() == 0, "Window destruction releases every XUI render target");
+        Search search{L"XUI resource lifecycle"};
+        EnumWindows(find, reinterpret_cast<LPARAM>(&search));
+        require(!search.result, "Window destruction releases native hosts");
+        DWORD handles{};
+        require(GetProcessHandleCount(GetCurrentProcess(), &handles) != 0, "Read lifecycle handle count");
+        const auto gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+        const auto user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+        if (cycle == 2) {
+            handles_after_warmup = handles;
+            gdi_after_warmup = gdi;
+            user_after_warmup = user;
+        } else if (cycle > 2) {
+            require(gdi <= gdi_after_warmup + 2 && user <= user_after_warmup + 2,
+                    "Repeated windows must not retain GDI or USER objects");
+            require(handles <= handles_after_warmup + 2, "Repeated windows must not retain process handles");
+        }
+        std::cout << "resource_cycle=" << cycle << " scroll=" << scroll_content << " split=" << split_content << " targets=" << xui::Drawing::live_targets() << " handles=" << handles
+                  << " gdi=" << gdi << " user=" << user << '\n';
+        if (diagnostics) {
+            resource_probe::heaps();
+            previous_handles = resource_probe::handle_difference(previous_handles);
+        }
     }
 }
 void public_list_delivery() {
@@ -211,8 +416,17 @@ int run_public_list_server() {
     auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
     auto list = std::make_shared<xui::FileList>(L"Public result list");
     list->set_automation_id(L"public-result-list");
-    list->set_items(std::make_shared<const std::vector<xui::FileItem>>(
-        std::vector<xui::FileItem>{{811, L"One", L"one", false}, {922, L"Two", L"two", false}}));
+    auto items = std::make_shared<std::vector<xui::FileItem>>(
+        std::vector<xui::FileItem>{{811, L"One", L"one", false}, {922, L"Two", L"two", false}});
+    for (int i = 0; i < 58; ++i) items->push_back({static_cast<xui::ItemId>(1000 + i), L"Extra", L"extra", false});
+    list->set_items(std::move(items));
+    bool filtered{};
+    window.on_key([&](const xui::KeyEvent& event) {
+        if (event.key == xui::Key::f1) { list->set_name(L"Renamed results"); return true; }
+        if (event.key == xui::Key::f2) { list->set_enabled(!list->enabled()); return true; }
+        if (event.key == xui::Key::f3) { filtered = !filtered; list->set_filter(filtered ? L"Two" : L""); return true; }
+        return false;
+    });
     root->add(std::make_shared<xui::Label>(L"Provider lifetime"));
     root->add(std::make_shared<xui::TextInput>(L"Query"));
     root->add(std::make_shared<xui::Button>(L"Action"));
@@ -274,6 +488,30 @@ void public_list_provider_lifetime() {
         const bool identified = std::wstring(text ? text : L"") == L"public-result-list";
         SysFreeString(text);
         require(identified, "Public list uses its own automation identity");
+        const auto wait_for = [&](auto predicate, const char* message) {
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+            while (!predicate()) {
+                require(std::chrono::steady_clock::now() < end, message);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        };
+        uia_test::Subscription subscription{automation};
+        ComPtr<uia_test::Events> events;
+        events.Attach(new uia_test::Events(process.info.dwProcessId));
+        ComPtr<IUIAutomationCacheRequest> cache;
+        require(SUCCEEDED(automation->CreateCacheRequest(&cache)) &&
+            SUCCEEDED(cache->AddProperty(UIA_ProcessIdPropertyId)) &&
+            SUCCEEDED(cache->AddProperty(UIA_NamePropertyId)), "Cache event identities");
+        PROPERTYID properties[]{UIA_NamePropertyId, UIA_IsEnabledPropertyId, UIA_HasKeyboardFocusPropertyId,
+            UIA_SelectionItemIsSelectedPropertyId, UIA_ScrollVerticalScrollPercentPropertyId,
+            UIA_ScrollVerticalViewSizePropertyId, UIA_ScrollVerticallyScrollablePropertyId};
+        require(SUCCEEDED(automation->AddPropertyChangedEventHandlerNativeArray(element.Get(), TreeScope_Subtree,
+            cache.Get(), events.Get(), properties, static_cast<int>(std::size(properties)))), "Subscribe list property events");
+        for (const auto event : {UIA_SelectionItem_ElementSelectedEventId, UIA_SelectionItem_ElementRemovedFromSelectionEventId})
+            require(SUCCEEDED(automation->AddAutomationEventHandler(event, element.Get(), TreeScope_Subtree,
+                cache.Get(), events.Get())), "Subscribe list selection events");
+        require(SUCCEEDED(automation->AddStructureChangedEventHandler(element.Get(), TreeScope_Subtree,
+            cache.Get(), events.Get())), "Subscribe list structure events");
         ComPtr<IUIAutomationTreeWalker> walker;
         require(SUCCEEDED(automation->get_ControlViewWalker(&walker)), "Read public list fragments");
         ComPtr<IUIAutomationElement> first, second;
@@ -288,6 +526,50 @@ void public_list_provider_lifetime() {
             SUCCEEDED(first->get_CurrentHasKeyboardFocus(&first_focus)) && !first_focus &&
             SUCCEEDED(second->get_CurrentHasKeyboardFocus(&second_focus)) && second_focus,
             "Keyboard focus is separate from selection on the public control");
+        wait_for([&] {
+            return events->boolean(UIA_SelectionItemIsSelectedPropertyId, L"One", true) &&
+                events->boolean(UIA_HasKeyboardFocusPropertyId, L"Two", true) &&
+                events->count(UIA_SelectionItem_ElementSelectedEventId, L"One");
+        }, "External client receives independent selection and focus properties");
+        require(SUCCEEDED(selection->RemoveFromSelection()), "Optional selection supports removal");
+        wait_for([&] {
+            return events->boolean(UIA_SelectionItemIsSelectedPropertyId, L"One", false) &&
+                events->count(UIA_SelectionItem_ElementRemovedFromSelectionEventId, L"One");
+        }, "External client receives explicit selection removal");
+        require(SUCCEEDED(selection->Select()), "Restore stable selection before filtering");
+        ComPtr<IUIAutomationScrollPattern> scroll;
+        require(SUCCEEDED(element->GetCurrentPatternAs(UIA_ScrollPatternId, IID_PPV_ARGS(&scroll))) && scroll,
+            "Public list exposes scroll");
+        require(SUCCEEDED(scroll->SetScrollPercent(-1, 100)), "Scroll public list");
+        wait_for([&] { return events->count(UIA_ScrollVerticalScrollPercentPropertyId); }, "External scroll event arrives");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const auto scroll_events = events->count(UIA_ScrollVerticalScrollPercentPropertyId);
+        for (int repeat = 0; repeat < 8; ++repeat)
+            require(SUCCEEDED(scroll->SetScrollPercent(-1, 100)), "Repeated scroll endpoint succeeds");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        require(events->count(UIA_ScrollVerticalScrollPercentPropertyId) == scroll_events,
+            "Unchanged scroll endpoints must not raise redundant property events");
+        PostMessageW(hwnd, WM_KEYDOWN, VK_F3, 0);
+        wait_for([&] { return events->count(UIA_StructureChangedEventId); }, "Filtering raises structure event");
+        wait_for([&] {
+            return events->boolean(UIA_ScrollVerticallyScrollablePropertyId, L"Public result list", false) &&
+                events->count(UIA_ScrollVerticalViewSizePropertyId, L"Public result list");
+        }, "Filtering publishes changed scroll availability and viewport fraction");
+        require(selection->Select() == UIA_E_ELEMENTNOTAVAILABLE, "Hidden provider actions reject stale visible positions");
+        PostMessageW(hwnd, WM_KEYDOWN, VK_F3, 0);
+        wait_for([&] {
+            BOOL restored{};
+            return SUCCEEDED(selection->get_CurrentIsSelected(&restored)) && restored;
+        }, "Filtering restores the hidden stable selection");
+        PostMessageW(hwnd, WM_KEYDOWN, VK_F1, 0);
+        wait_for([&] { return events->count(UIA_NamePropertyId, L"Renamed results"); }, "List rename raises name event");
+        PostMessageW(hwnd, WM_KEYDOWN, VK_F2, 0);
+        wait_for([&] { return events->boolean(UIA_IsEnabledPropertyId, L"Renamed results", false); },
+            "List disable raises enabled event");
+        require(selection->Select() == UIA_E_ELEMENTNOTENABLED, "Disabled list rejects retained selection actions");
+        PostMessageW(hwnd, WM_KEYDOWN, VK_F2, 0);
+        wait_for([&] { return events->boolean(UIA_IsEnabledPropertyId, L"Renamed results", true); },
+            "List enable raises enabled event");
         PostMessageW(hwnd, WM_CLOSE, 0, 0);
         require(WaitForSingleObject(process.info.hProcess, 5000) == WAIT_OBJECT_0, "Public provider server stops");
         DWORD code{};
@@ -305,9 +587,13 @@ void public_list_provider_lifetime() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--public-list-server") return run_public_list_server();
+        if (argc == 2 && std::string(argv[1]) == "--resources") { resource_lifecycle(true); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--split-resources") { resource_lifecycle(false, false, true); return 0; }
         window_lifecycle();
         public_list_delivery();
         cancellation_without_join();
+        resource_lifecycle();
+        resource_lifecycle(false, true);
         public_list_provider_lifetime();
         std::cout << "Window lifecycle, public list, asynchronous delivery and disposal tests passed\n";
         return 0;

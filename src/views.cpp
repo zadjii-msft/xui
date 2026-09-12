@@ -24,6 +24,15 @@ std::shared_ptr<const FileSnapshot> FileSnapshot::build(
             throw std::length_error("File snapshot exceeds the 32-bit row limit");
         result->by_id_.reserve(count);
         result->name_offsets_.reserve(count + 1);
+        std::size_t name_units{};
+        for (std::size_t index = 0; index < count; ++index) {
+            if ((index & 255) == 0) checkpoint(cancel);
+            const auto size = (*result->items_)[index].name.size();
+            if (size > result->names_.max_size() - name_units)
+                throw std::length_error("File names exceed the snapshot storage limit");
+            name_units += size;
+        }
+        result->names_.reserve(name_units);
         std::size_t characters{};
         for (std::size_t index = 0; index < count; ++index) {
             if ((index & 255) == 0) checkpoint(cancel);
@@ -172,12 +181,13 @@ void ViewWorker::run(std::stop_token stop) {
                 };
                 auto replacement = loader_(source_cancelled);
                 if (source_cancelled()) continue;
-                if (!replacement.source) throw std::runtime_error("Source loader returned no snapshot");
+                if (!replacement.source && replacement.error.empty())
+                    throw std::runtime_error("Source loader returned no snapshot");
                 source = std::move(replacement);
                 loaded = source_generation;
             }
             if (cancelled()) continue;
-            result.view = FilteredView::build(source.source, std::move(query), cancelled);
+            if (source.source) result.view = FilteredView::build(source.source, std::move(query), cancelled);
             result.error = source.error;
         } catch (const std::exception& error) {
             const std::string text(error.what());
