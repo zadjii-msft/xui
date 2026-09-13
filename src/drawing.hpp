@@ -7,6 +7,8 @@
 #include "xui/vector_canvas.hpp"
 #include <windows.h>
 #include <d2d1.h>
+#include <d3d11.h>
+#include <dxgi1_3.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <string_view>
@@ -71,7 +73,13 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> text_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format_, small_format_, heading_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> numeric_format_;
-    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
+    Microsoft::WRL::ComPtr<ID3D11Device> device_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> device_context_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain2> swap_chain_;
+    HWND window_{};
+    D2D1_SIZE_U target_size_{};
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> target_;
+    void discard_target();
     struct NativeBitmap {
         HWND window{};
         RECT bounds{};

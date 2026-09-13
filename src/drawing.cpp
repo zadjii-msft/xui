@@ -156,18 +156,65 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background) {
     win32_require(GetClientRect(window, &client) != 0, "Read window size");
     const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
     if (!size.width || !size.height) return false;
-    if (!target_) {
-        hr_require(factory_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(),
-            D2D1::HwndRenderTargetProperties(window, size), &target_), "Create graphics target");
-        ++live_targets_;
-        hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
-    } else if (target_->GetPixelSize().width != size.width || target_->GetPixelSize().height != size.height) {
-        const HRESULT result = target_->Resize(size);
-        if (result == D2DERR_RECREATE_TARGET) {
+    if (!swap_chain_) {
+        constexpr D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3,
+            D3D_FEATURE_LEVEL_9_2, D3D_FEATURE_LEVEL_9_1};
+        constexpr UINT flags = D3D11_CREATE_DEVICE_SINGLETHREADED | D3D11_CREATE_DEVICE_BGRA_SUPPORT |
+            D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS;
+        auto result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags,
+            levels, ARRAYSIZE(levels), D3D11_SDK_VERSION, &device_, nullptr, &device_context_);
+        if (FAILED(result)) {
+            device_context_.Reset();
+            device_.Reset();
+            result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                flags & ~D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS,
+                levels, ARRAYSIZE(levels), D3D11_SDK_VERSION, &device_, nullptr, &device_context_);
+        }
+        hr_require(result, "Create graphics device");
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
+        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+        Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory;
+        hr_require(device_.As(&dxgi_device), "Query graphics device");
+        hr_require(dxgi_device->GetAdapter(&adapter), "Get graphics adapter");
+        hr_require(adapter->GetParent(IID_PPV_ARGS(&dxgi_factory)), "Get graphics factory");
+        DXGI_SWAP_CHAIN_DESC1 description{};
+        description.Width = size.width;
+        description.Height = size.height;
+        description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        description.SampleDesc.Count = 1;
+        description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        description.BufferCount = 3;
+        description.Scaling = DXGI_SCALING_NONE;
+        description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+        Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
+        hr_require(dxgi_factory->CreateSwapChainForHwnd(device_.Get(), window, &description,
+            nullptr, nullptr, &swap_chain), "Create window swap chain");
+        hr_require(swap_chain.As(&swap_chain_), "Query window swap chain");
+        hr_require(dxgi_factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER), "Disable DXGI fullscreen shortcut");
+        window_ = window;
+        target_size_ = size;
+    } else if (target_size_.width != size.width || target_size_.height != size.height) {
+        discard_target();
+        device_context_->ClearState();
+        const HRESULT result = swap_chain_->ResizeBuffers(0, size.width, size.height,
+            DXGI_FORMAT_UNKNOWN, 0);
+        if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) {
             discard();
-            return begin(window, dpi, background);
+            return false;
         }
         hr_require(result, "Resize graphics target");
+        target_size_ = size;
+    }
+    if (!target_) {
+        Microsoft::WRL::ComPtr<IDXGISurface> surface;
+        hr_require(swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface)), "Get swap chain surface");
+        const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
+        hr_require(factory_->CreateDxgiSurfaceRenderTarget(surface.Get(), &properties, &target_), "Create graphics target");
+        ++live_targets_;
+        hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
     }
     target_->SetDpi(dpi, dpi);
     target_->BeginDraw();
@@ -185,7 +232,7 @@ bool Drawing::native_windows(std::span<const NativeWindow> windows) {
     for (const auto& entry : windows) {
         RECT bounds{}, clip{};
         win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native buffer bounds");
-        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        MapWindowPoints(entry.window, window_, reinterpret_cast<POINT*>(&bounds), 2);
         if (IntersectRect(&clip, &bounds, &entry.clip)) {
             required.width = std::max(required.width, static_cast<UINT32>(clip.right - clip.left));
             required.height = std::max(required.height, static_cast<UINT32>(clip.bottom - clip.top));
@@ -200,7 +247,7 @@ bool Drawing::native_windows(std::span<const NativeWindow> windows) {
     for (const auto& entry : windows) {
         RECT bounds{};
         win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native drawing bounds");
-        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        MapWindowPoints(entry.window, window_, reinterpret_cast<POINT*>(&bounds), 2);
         RECT clip{};
         if (!IntersectRect(&clip, &bounds, &entry.clip)) continue;
         const auto width = static_cast<UINT32>(clip.right - clip.left);
@@ -282,18 +329,38 @@ bool Drawing::end() {
     HRESULT result = target_->EndDraw();
     const auto injected = std::exchange(end_result_override_, S_OK);
     if (SUCCEEDED(result) && FAILED(injected)) result = injected;
-    if (result == D2DERR_RECREATE_TARGET) {
+    if (result == D2DERR_RECREATE_TARGET || result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) {
         discard();
         return false;
     }
     hr_require(result, "Draw window");
+    const DXGI_PRESENT_PARAMETERS parameters{};
+    result = swap_chain_->Present1(1, 0, &parameters);
+    if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) {
+        discard();
+        return false;
+    }
+    hr_require(result, "Present window");
     std::erase_if(scenes_, [](const auto& scene) { return !scene.used; });
     if (scenes_.empty()) scene_stroke_.Reset();
-    if (present_observer_) present_observer_(target_->GetHwnd());
+    if (present_observer_) present_observer_(window_);
     return true;
 }
 
 void Drawing::discard() {
+    discard_target();
+    swap_chain_.Reset();
+    if (device_context_) {
+        device_context_->ClearState();
+        device_context_->Flush();
+    }
+    device_context_.Reset();
+    device_.Reset();
+    window_ = nullptr;
+    target_size_ = {};
+}
+
+void Drawing::discard_target() {
     scenes_.clear();
     scene_stroke_.Reset();
     while (!bitmaps_.empty()) erase_bitmap(bitmaps_.size() - 1);

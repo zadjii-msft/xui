@@ -81,7 +81,7 @@ if(WIN32)
         src/images.cpp
         )
     target_link_libraries(xui_windows PUBLIC xui_core
-        d2d1 dwrite dwmapi uiautomationcore ole32 oleaut32 comctl32 shell32 user32 gdi32 windowscodecs uxtheme mfuuid)
+        d2d1 d3d11 dxgi dwrite dwmapi uiautomationcore ole32 oleaut32 comctl32 shell32 user32 gdi32 windowscodecs uxtheme mfuuid)
     option(XUI_ENABLE_WEBVIEW2 "Enable the optional WebView2 host (requires an explicit SDK path)" OFF)
     set(XUI_WEBVIEW2_SDK_DIR "" CACHE PATH "Extracted Microsoft.Web.WebView2 1.0.2903.40 package")
     if(XUI_ENABLE_WEBVIEW2)
