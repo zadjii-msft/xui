@@ -12,6 +12,7 @@
 #include <vector>
 #include "uia_events.hpp"
 #include "suggestion_capture.hpp"
+#include "environment_fixture.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -108,6 +109,8 @@ int wmain(int argc, wchar_t** argv) {
     if (argc != 2 && argc != 3) return 2;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--global-focus-events";
     const bool capture_suggestions = argc == 3 && std::wstring_view(argv[2]) == L"--suggestion-capture";
+    const bool capture_header = argc == 3 && std::wstring_view(argv[2]) == L"--header-capture";
+    const auto captures = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"captures";
     const auto folder = std::filesystem::current_path() / (L"explorer-desktop-" + std::to_wstring(GetCurrentProcessId()));
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code ec; std::filesystem::remove_all(path, ec); } } cleanup{folder};
     try {
@@ -119,6 +122,7 @@ int wmain(int argc, wchar_t** argv) {
         check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Initialize client COM");
         struct Uninit { ~Uninit() { CoUninitialize(); } } uninit;
         Process process;
+        EnvironmentFixture environment(folder.c_str()), missing_environment(nullptr);
         std::wstring command = L"\"" + std::filesystem::absolute(argv[1]).wstring() + L"\" \"" + folder.wstring() + L"\"";
         STARTUPINFOW startup{sizeof(startup)};
         require(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process.info), "Launch explorer");
@@ -159,6 +163,56 @@ int wmain(int argc, wchar_t** argv) {
         auto address_value = pattern<IUIAutomationValuePattern>(address.Get(), UIA_ValuePatternId);
         auto search_value = pattern<IUIAutomationValuePattern>(search.Get(), UIA_ValuePatternId);
         auto tab_selection = pattern<IUIAutomationSelectionPattern>(tabs.Get(), UIA_SelectionPatternId);
+        const auto title = [&] {
+            wchar_t text[32768]{};
+            GetWindowTextW(process.window, text, 32768);
+            return std::wstring(text);
+        };
+        const auto title_is = [&](const std::filesystem::path& path) { return title() == L"XUI/Files - " + path.wstring(); };
+        require(title_is(folder), "Startup title identifies the committed folder");
+        require(name(address.Get()) == L"Folder address", "Captionless native EDIT retains its accessible name");
+        ComPtr<IUIAutomationTextPattern> address_text, search_text;
+        check(address->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&address_text)), "Read address native TextPattern support");
+        check(search->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&search_text)), "Read search native TextPattern support");
+        require(bool(address_text) == bool(search_text), "Compact address preserves the platform EDIT TextPattern support");
+        std::cout << "Native EDIT TextPattern available=" << bool(address_text) << "; editable ValuePattern available=1\n";
+        const auto bounds_of = [&](const wchar_t* id) {
+            auto element = find(uia.Get(), root.Get(), id);
+            RECT bounds{}; check(element->get_CurrentBoundingRectangle(&bounds), "Read header bounds");
+            return bounds;
+        };
+        const auto header_bounds = [&](float dpi_scale, bool expanded) {
+            const auto tab = bounds_of(L"browser-tabs");
+            for (const auto* id : {L"browser-new-tab", L"browser-split", L"browser-theme"}) {
+                const auto b = bounds_of(id);
+                require(std::abs(b.top - tab.top) <= 1 && std::abs(b.bottom - tab.bottom) <= 1 &&
+                    b.left >= tab.right, "Tab commands share one band without overlap");
+            }
+            for (int side = 0; side < (expanded ? 2 : 1); ++side) {
+                const auto address = bounds_of(side ? L"browser-right-address" : L"browser-address");
+                const auto pane_tab = bounds_of(side ? L"browser-right-tabs" : L"browser-tabs");
+                require(pane_tab.top == tab.top && pane_tab.bottom == tab.bottom, "Independent pane tab rows align");
+                require(address.right - address.left >= static_cast<LONG>(100 * dpi_scale), "Narrow pane retains readable native address width");
+                for (const auto* action : {L"back", L"forward", L"up", L"refresh"}) {
+                    const auto id = std::wstring(side ? L"browser-right-" : L"browser-") + action;
+                    const auto b = bounds_of(id.c_str());
+                    require(std::abs((b.top + b.bottom) - (address.top + address.bottom)) <= 2 &&
+                        b.right <= address.left && b.top > tab.bottom, "Navigation icons and native address share one band");
+                }
+            }
+            bool noise{};
+            EnumChildWindows(process.window, [](HWND hwnd, LPARAM data) -> BOOL {
+                if (!IsWindowVisible(hwnd)) return TRUE;
+                wchar_t text[256]{}; GetWindowTextW(hwnd, text, 256);
+                const std::wstring_view value(text);
+                if (value == L"XUI  /  FILES" || value.starts_with(L"LEFT  /") || value.starts_with(L"RIGHT  /") ||
+                    value == L"Folder address" || value == L"Right folder address") *reinterpret_cast<bool*>(data) = true;
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&noise));
+            require(!noise, "Brand, active labels and visible address captions are absent");
+        };
+        header_bounds(GetDpiForWindow(process.window) / 96.0f, false);
+        if (capture_header) suggestion_capture::bitmap(process.window, nullptr, captures / L"single-dark.bmp");
         const auto peer_count = SendMessageW(process.window, WM_APP + 60, 14, 0);
         CONTROLTYPEID type{};
         check(tabs->get_CurrentControlType(&type), "Read tab role");
@@ -183,8 +237,12 @@ int wmain(int argc, wchar_t** argv) {
         };
         const auto settled = [&] { return SendMessageW(process.window, WM_APP + 60, 4, 0) == 0; };
         const auto go = [&](const std::filesystem::path& path, bool success = true) {
+            check(address->SetFocus(), "Focus the address before a navigation gesture");
+            require(wait([&] { return settled() && title_is(current_path()); }), "Prior committed title settles before typed address");
             const auto generation = SendMessageW(process.window, WM_APP + 60, 3, 0);
+            const auto committed_title = title();
             check(set_value(address_value.Get(), path.c_str()), "Enter address");
+            require(title() == committed_title, "Typing an address does not change the committed title");
             PostMessageW(native(process.window, L"EDIT"), WM_KEYDOWN, VK_RETURN, 0);
             const auto completed = wait([&] { return SendMessageW(process.window, WM_APP + 60, 3, 0) > generation && settled() &&
                 (success ? current_path() == path.wstring() : current_path() != path.wstring()); });
@@ -192,7 +250,33 @@ int wmain(int argc, wchar_t** argv) {
                 L" generation=" << generation << L" -> " << SendMessageW(process.window, WM_APP + 60, 3, 0) <<
                 L" status=" << name(status.Get()) << L'\n';
             require(completed, "Address Enter completes latest folder request");
+            require(wait([&] { return success ? title_is(path) : title() == committed_title; }),
+                "Only successful navigation changes the window title");
         };
+        const auto go_environment = [&](const std::wstring& input, const std::filesystem::path& expected) {
+            check(address->SetFocus(), "Focus address for environment input");
+            const auto generation = SendMessageW(process.window, WM_APP + 60, 3, 0);
+            check(set_value(address_value.Get(), input.c_str()), "Enter environment address through UIA");
+            PostMessageW(native(process.window, L"EDIT"), WM_KEYDOWN, VK_RETURN, 0);
+            require(wait([&] { return settled() && current_path() == expected.wstring() && title_is(expected); }),
+                "Environment address commits its expanded path and caption");
+            require(SendMessageW(process.window, WM_APP + 60, 3, 0) == generation + 1,
+                "Environment address submits exactly one request");
+        };
+        wchar_t windows_path[32768]{};
+        require(GetWindowsDirectoryW(windows_path, 32768) != 0, "Read Windows path without changing the environment");
+        go_environment(L"%SystemRoot%\\System32", std::filesystem::path(windows_path) / L"System32");
+        go(folder);
+        go_environment(L"\"" + environment.reference() + L"\\日本-🙂\"", folder / L"日本-🙂");
+        go(folder);
+        const auto invalid_generation = SendMessageW(process.window, WM_APP + 60, 3, 0);
+        check(set_value(address_value.Get(), missing_environment.reference().c_str()), "Enter unknown environment variable");
+        PostMessageW(native(process.window, L"EDIT"), WM_KEYDOWN, VK_RETURN, 0);
+        require(wait([&] { return name(status.Get()).starts_with(L"Unknown environment variable:"); }),
+            "Unknown environment variable reports a visible nonfatal error");
+        require(SendMessageW(process.window, WM_APP + 60, 3, 0) == invalid_generation && title_is(folder),
+            "Unknown reference starts no scan and preserves the committed caption");
+        check(set_value(address_value.Get(), folder.c_str()), "Restore address after invalid environment input");
         const auto suggestion_list = [&] {
             HWND popup{}, list{};
             const bool ready = wait([&] {
@@ -223,7 +307,8 @@ int wmain(int argc, wchar_t** argv) {
             "Native left address reports keyboard focus");
         std::cout << "Left address suggestions\n";
         const auto cold_popup_start = std::chrono::steady_clock::now();
-        check(set_value(address_value.Get(), L"al"), "Type left relative folder prefix");
+        check(set_value(address_value.Get(), (environment.reference() + L"\\al").c_str()), "Type environment folder prefix");
+        require(title_is(folder), "Autosuggest prefix does not replace the window title");
         const auto suggestions = suggestion_list();
         std::cout << "browser_cold_popup_ms=" << std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - cold_popup_start).count() << '\n';
@@ -286,8 +371,10 @@ int wmain(int argc, wchar_t** argv) {
         require(SendMessageW(process.window, WM_APP + 60, 9, 0) == 1, "Address navigation updates list");
         invoke(L"browser-back");
         require(wait([&] { return settled() && current_path() == folder.wstring(); }), "Back restores location");
+        require(wait([&] { return title_is(folder); }), "Back updates window title");
         invoke(L"browser-forward");
         require(wait([&] { return settled() && current_path() == (folder / L"alpha").wstring(); }), "Forward restores location");
+        require(wait([&] { return title_is(folder / L"alpha"); }), "Forward updates window title");
         invoke(L"browser-up");
         require(wait([&] { return settled() && current_path() == folder.wstring(); }), "Up returns to parent");
         const auto list_hwnd = native(process.window, L"Xui.FileList.1");
@@ -317,8 +404,10 @@ int wmain(int argc, wchar_t** argv) {
         check(first_select->Select(), "Select first tab");
         require(wait([&] { return settled() && current_path() == folder.wstring() &&
             SendMessageW(process.window, WM_APP + 60, 8, 0) == 1; }), "Tab restores its independent path and filter");
+        require(wait([&] { return title_is(folder); }), "Tab switch updates committed title");
         check(second_select->Select(), "Select second tab");
         require(wait([&] { return settled() && current_path() == (folder / L"beta").wstring(); }), "Other tab preserves its history");
+        require(wait([&] { return title_is(folder / L"beta"); }), "Second tab restores its title");
         go(folder / L"missing", false);
         require(wait([&] { return name(status.Get()).find(L"Cannot read folder") != std::wstring::npos; }), "Invalid address reports specific error");
         require(current_path() == (folder / L"beta").wstring() && SendMessageW(process.window, WM_APP + 60, 9, 0) == 1,
@@ -352,6 +441,54 @@ int wmain(int argc, wchar_t** argv) {
         auto right_status = find(uia.Get(), root.Get(), L"browser-right-status");
         require(wait([&] { return name(right_status.Get()).starts_with(L"0 of 0"); }), "Independent second pane scans Unicode location");
         require(current_path() == (folder / L"beta").wstring(), "Right navigation leaves left pane unchanged");
+        require(wait([&] { return title_is(folder / L"日本-🙂"); }), "Active right pane updates title");
+        check(list->SetFocus(), "Activate left pane for caption");
+        require(wait([&] { return title_is(folder / L"beta"); }), "Pane focus restores left caption");
+        check(right_suggestion_list->SetFocus(), "Activate right pane for caption");
+        require(wait([&] { return title_is(folder / L"日本-🙂"); }), "Pane focus restores right caption");
+        const auto right_path = [&] {
+            BSTR text{}; check(right_value->get_CurrentValue(&text), "Read right address");
+            std::wstring result = text ? text : L""; SysFreeString(text); return result;
+        };
+        const auto mouse_history = [&](HWND target, WORD button, int pane, const std::filesystem::path& expected,
+            bool available = true) {
+            const auto generation = SendMessageW(process.window, WM_APP + 60, 3, pane);
+            PostMessageW(target, WM_XBUTTONDOWN, MAKEWPARAM(button == XBUTTON1 ? MK_XBUTTON1 : MK_XBUTTON2, button), MAKELPARAM(12, 12));
+            PostMessageW(target, WM_XBUTTONUP, MAKEWPARAM(0, button), MAKELPARAM(12, 12));
+            require(wait([&] {
+                return SendMessageW(process.window, WM_APP + 60, 4, pane) == 0 &&
+                    (pane ? right_path() : current_path()) == expected.wstring() && title_is(expected);
+            }), "Mouse history uses the pane under the native target");
+            // Drain a barrier after the posted click, including the unavailable-history case.
+            SendMessageW(target, WM_NULL, 0, 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            require(SendMessageW(process.window, WM_APP + 60, 3, pane) == generation + (available ? 1 : 0),
+                "Mouse history starts exactly one request, or none without history");
+        };
+        const auto right_edit = native(process.window, L"EDIT", 2);
+        mouse_history(native(process.window, L"EDIT"), XBUTTON1, 0, folder);
+        require(right_path() == (folder / L"日本-🙂").wstring(), "Left mouse Back leaves the right location unchanged");
+        mouse_history(native(process.window, L"EDIT", 1), XBUTTON2, 0, folder / L"beta");
+        BSTR restored_query{}; check(search_value->get_CurrentValue(&restored_query), "Read restored mouse history query");
+        require(restored_query && std::wstring_view(restored_query) == L"beta", "Mouse Forward restores the query");
+        SysFreeString(restored_query);
+        mouse_history(right_edit, XBUTTON1, 1, folder);
+        mouse_history(right_edit, XBUTTON1, 1, folder, false);
+        require(current_path() == (folder / L"beta").wstring(), "Right mouse Back leaves the left location unchanged");
+        check(list->SetFocus(), "Leave keyboard focus in the opposite pane");
+        mouse_history(native(process.window, L"Xui.FileList.1", 1), XBUTTON2, 1, folder / L"日本-🙂");
+        mouse_history(native(process.window, L"EDIT", 3), XBUTTON2, 1, folder / L"日本-🙂", false);
+        check(list->SetFocus(), "Keep focus in the left pane for a right application command");
+        const auto right_generation = SendMessageW(process.window, WM_APP + 60, 3, 1);
+        require(SendMessageW(right_edit, WM_APPCOMMAND, reinterpret_cast<WPARAM>(right_edit),
+            MAKELPARAM(0, APPCOMMAND_BROWSER_BACKWARD)) == TRUE, "Native EDIT browser command reports handled");
+        require(wait([&] { return right_path() == folder.wstring() && title_is(folder) &&
+            SendMessageW(process.window, WM_APP + 60, 4, 1) == 0; }), "Browser command uses its native source pane");
+        require(SendMessageW(process.window, WM_APP + 60, 3, 1) == right_generation + 1,
+            "Browser command does not duplicate a history request");
+        mouse_history(right_edit, XBUTTON2, 1, folder / L"日本-🙂");
+        header_bounds(scale, true);
+        if (capture_header) suggestion_capture::bitmap(process.window, nullptr, captures / L"split-dark.bmp");
         auto divider = find(uia.Get(), root.Get(), L"browser-divider");
         auto range = pattern<IUIAutomationRangeValuePattern>(divider.Get(), UIA_RangeValuePatternId);
         check(range->SetValue(60), "Accessible splitter resize");
@@ -369,8 +506,11 @@ int wmain(int argc, wchar_t** argv) {
         SendMessageW(split_hwnd, WM_KEYDOWN, VK_RIGHT, 0);
         require(wait([&] { return SUCCEEDED(range->get_CurrentValue(&ratio)) && ratio > dragged; }), "Keyboard splitter resize");
         RECT outer{}; GetWindowRect(process.window, &outer);
+        auto theme_control = find(uia.Get(), root.Get(), L"browser-theme");
+        check(theme_control->SetFocus(), "Keep global command focus during narrow collapse");
         SetWindowPos(process.window, nullptr, 0, 0, static_cast<int>(500 * scale), static_cast<int>(600 * scale), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         require(wait([&] { return !IsWindowVisible(native(process.window, L"EDIT", 2)); }), "Narrow window hides secondary native EDIT");
+        require(wait([&] { return title_is(folder / L"beta"); }), "Automatic collapse activates the visible pane even with global command focus");
         SetWindowPos(process.window, nullptr, 0, 0, outer.right - outer.left, outer.bottom - outer.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         require(wait([&] { return IsWindowVisible(native(process.window, L"EDIT", 2)) != FALSE; }), "Widening restores secondary native EDIT");
         check(first_select->Select(), "Return to first tab");
@@ -388,8 +528,10 @@ int wmain(int argc, wchar_t** argv) {
         SendMessageW(tab_hwnd, WM_KEYDOWN, VK_DELETE, 0);
         require(wait([&] { return count_tabs() == 1 && settled(); }), "Closing active tab restores remaining tab");
         require(FAILED(second_select->Select()), "Closed tab provider rejects action");
+        const auto cycle_peers = SendMessageW(process.window, WM_APP + 60, 14, 0);
+        require(cycle_peers <= peer_count + 2, "Only current-path breadcrumb depth adds native controls");
         for (int i = 0; i < 6; ++i) { invoke(L"browser-split"); invoke(L"browser-split"); }
-        require(SendMessageW(process.window, WM_APP + 60, 14, 0) == peer_count &&
+        require(SendMessageW(process.window, WM_APP + 60, 14, 0) == cycle_peers &&
             SendMessageW(process.window, WM_APP + 60, 15, 0) <= 2 &&
             SendMessageW(process.window, WM_APP + 60, 16, 0) <= 2, "Pane cycles retain a bounded native tree and task registry");
         go(folder / L"日本-🙂");
@@ -429,6 +571,8 @@ int wmain(int argc, wchar_t** argv) {
         press(process.window, VK_F10, false, true);
         HWND popup{};
         require(wait([&] { popup = popup_for(process.info.dwProcessId); return popup != nullptr; }), "Shift+F10 opens native context menu");
+        suggestion_capture::bitmap(process.window, popup, captures / L"explorer-menu.bmp");
+        suggestion_capture::bitmap(popup, nullptr, captures / L"explorer-menu-detail.bmp");
         std::cout << "Explorer: keyboard context menu opened" << std::endl;
         ComPtr<IUIAutomationElement> menu;
         check(uia->ElementFromHandle(popup, &menu), "Read native menu");
@@ -459,6 +603,35 @@ int wmain(int argc, wchar_t** argv) {
         go(deep);
         require(current_path().size() > 260 && current_path() == deep.wstring() &&
             SendMessageW(process.window, WM_APP + 60, 9, 0) == 0, "Native address opens exact long Unicode folder");
+        for (int i = count_tabs(); i < 16; ++i) invoke(L"browser-new-tab");
+        require(wait([&] { return settled() && count_tabs() == 16; }), "Many long-named tabs retain bounded controls");
+        RECT original{}; GetWindowRect(process.window, &original);
+        const auto original_dpi = GetDpiForWindow(process.window);
+        const auto layout_matrix = [&] {
+            for (auto dpi : {96u, 144u, 192u}) {
+                for (auto width : {924, 600, 460}) {
+                    RECT requested{original.left, original.top, original.left + MulDiv(width, dpi, 96),
+                        original.top + MulDiv(641, dpi, 96)};
+                    const auto layouts = SendMessageW(process.window, WM_APP + 60, 2, 0);
+                    SendMessageW(process.window, WM_DPICHANGED, MAKELONG(dpi, dpi), reinterpret_cast<LPARAM>(&requested));
+                    require(wait([&] { return SendMessageW(process.window, WM_APP + 60, 2, 0) > layouts; }), "Header DPI layout settles");
+                    header_bounds(dpi / 96.0f, width == 924);
+                    require((IsWindowVisible(native(process.window, L"EDIT", 2)) != FALSE) == (width == 924),
+                        "Narrow layout hides the secondary native field");
+                    if (capture_header) {
+                        const auto filename = std::to_wstring(dpi) + L"-" + std::to_wstring(width) +
+                            (SendMessageW(process.window, WM_APP + 60, 6, 0) ? L"-light.bmp" : L"-dark.bmp");
+                        suggestion_capture::bitmap(process.window, nullptr, captures / filename);
+                    }
+                }
+            }
+        };
+        layout_matrix();
+        invoke(L"browser-theme");
+        layout_matrix();
+        SendMessageW(process.window, WM_DPICHANGED, MAKELONG(original_dpi, original_dpi), reinterpret_cast<LPARAM>(&original));
+        require(wait([&] { return IsWindowVisible(native(process.window, L"EDIT", 2)) != FALSE; }), "Original split layout restored");
+        std::cout << "Header: 18 DPI/width/theme cases; native address, compact commands, long paths and 16 tabs passed\n";
         if (global_focus_events)
             require(wait([&] { return events->count(UIA_AutomationFocusChangedEventId) > 0; }), "Keyboard workflows publish global focus events");
         std::cout << "Explorer: keyboard and empty-area context passed" << std::endl;

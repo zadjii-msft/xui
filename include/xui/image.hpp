@@ -14,7 +14,7 @@ enum class ImageStatus { empty, loading, ready, error };
 struct ImageLimits {
     static constexpr std::size_t cpu_bytes = 8 * 1024 * 1024;
     static constexpr std::size_t gpu_bytes = 8 * 1024 * 1024;
-    static constexpr std::size_t queue = 64, cache_entries = 128, workers = 1;
+    static constexpr std::size_t queue = 64, cache_entries = 128, workers = 2;
     static constexpr std::uint32_t output_dimension = 1024, source_dimension = 16384;
     static constexpr std::uint64_t source_pixels = 16 * 1024 * 1024, file_bytes = 32 * 1024 * 1024;
 };

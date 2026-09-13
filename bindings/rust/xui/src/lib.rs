@@ -8,6 +8,12 @@ use std::{
     rc::{Rc, Weak},
 };
 use xui_sys as sys;
+mod features;
+mod features_generated;
+pub use features::*;
+pub use features_generated::*;
+#[cfg(test)]
+mod feature_tests;
 
 #[derive(Debug, Clone)]
 pub struct Error {

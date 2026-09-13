@@ -2,6 +2,8 @@
 #include "async.hpp"
 #include "drawing.hpp"
 #include <wincodec.h>
+#include <shobjidl.h>
+#include <shellapi.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <chrono>
@@ -11,6 +13,7 @@
 
 namespace xui {
 std::atomic<void(*)(ImageDecodeStage)> ImageDecodeTestAccess::hook{};
+std::atomic<void(*)(ImageDecodeStage)> ImageDecodeTestAccess::shell_hook{};
 namespace {
 using Microsoft::WRL::ComPtr;
 using Clock = std::chrono::steady_clock;
@@ -23,9 +26,11 @@ void peak_cpu(ImageStatistics& s) { s.cpu_peak = std::max(s.cpu_peak, s.cpu_byte
 void peak_gpu(ImageStatistics& s) { s.gpu_peak = std::max(s.gpu_peak, s.gpu_bytes + s.gpu_reserved); }
 struct Key {
     std::wstring path;
+    std::wstring shell_path;
     DWORD volume{}, index_high{}, index_low{};
     std::uint64_t write{}, bytes{};
     ImageSize size{};
+    ImageKind kind{};
     bool operator==(const Key&) const = default;
 };
 struct Handle {
@@ -34,17 +39,96 @@ struct Handle {
 };
 struct Cancelled {};
 void checkpoint(const ImageRequest& r) { if (r.cancelled) throw Cancelled{}; }
-void test_boundary(ImageDecodeStage stage) {
-    if (const auto hook = ImageDecodeTestAccess::hook.load()) hook(stage);
+void test_boundary(ImageKind kind, ImageDecodeStage stage) {
+    const auto hook = kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook.load() : ImageDecodeTestAccess::hook.load();
+    if (hook) hook(stage);
 }
 void require(HRESULT result, const char* operation) {
     if (FAILED(result)) throw std::runtime_error(operation);
+}
+void shell_require(HRESULT result, const char* operation) {
+    if (SUCCEEDED(result)) return;
+    char message[192]{};
+    sprintf_s(message, "%s (HRESULT 0x%08lX).", operation, static_cast<unsigned long>(result));
+    throw std::runtime_error(message);
+}
+struct Bitmap {
+    HBITMAP value{};
+    ~Bitmap() { if (value) DeleteObject(value); }
+};
+struct Icon {
+    HICON value{};
+    ~Icon() { if (value) DestroyIcon(value); }
+};
+std::wstring shell_path(const std::wstring& path) {
+    const auto length = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (!length || length > 32767) throw std::runtime_error("Cannot resolve the Shell item path.");
+    std::wstring result(length, L'\0');
+    const auto actual = GetFullPathNameW(path.c_str(), length, result.data(), nullptr);
+    if (!actual || actual >= length) throw std::runtime_error("Cannot resolve the Shell item path.");
+    result.resize(actual);
+    return result;
+}
+ComPtr<IWICBitmapSource> shell_source(ImageRequest& r, const std::wstring& path, IWICImagingFactory* wic) {
+    ComPtr<IShellItemImageFactory> item;
+    shell_require(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item)),
+        "Cannot open the Shell item");
+    checkpoint(r);
+    Bitmap bitmap;
+    const SIZE target{static_cast<LONG>(r.size.width), static_cast<LONG>(r.size.height)};
+    const auto thumbnail = item->GetImage(target, SIIGBF_THUMBNAILONLY, &bitmap.value);
+    checkpoint(r);
+    const bool icon = FAILED(thumbnail);
+    if (icon) {
+        if (bitmap.value) { DeleteObject(bitmap.value); bitmap.value = nullptr; }
+        shell_require(item->GetImage(target, SIIGBF_ICONONLY, &bitmap.value),
+            "Cannot obtain a Shell thumbnail or file icon");
+    }
+    checkpoint(r);
+    BITMAP dimensions{};
+    if (!bitmap.value || !GetObjectW(bitmap.value, sizeof(dimensions), &dimensions) ||
+        dimensions.bmWidth <= 0 || dimensions.bmHeight <= 0 ||
+        static_cast<UINT>(dimensions.bmWidth) > r.size.width ||
+        static_cast<UINT>(dimensions.bmHeight) > r.size.height)
+        throw std::runtime_error("The Shell bitmap exceeds the requested dimensions or is invalid.");
+    ComPtr<IWICBitmap> source;
+    require(wic->CreateBitmapFromHBITMAP(bitmap.value, nullptr,
+        dimensions.bmBitsPixel == 32 ? WICBitmapUsePremultipliedAlpha : WICBitmapIgnoreAlpha, &source),
+        "Cannot read the Shell bitmap.");
+    if (dimensions.bmBitsPixel == 32) {
+        // Some legacy icons have no alpha channel. Preserve their AND mask through HICON.
+        bool alpha{};
+        BYTE row[ImageLimits::output_dimension * 4]{};
+        for (INT y = 0; y < dimensions.bmHeight && !alpha; ++y) {
+            WICRect rect{0, y, dimensions.bmWidth, 1};
+            require(source->CopyPixels(&rect, dimensions.bmWidth * 4, sizeof(row), row),
+                "Cannot read Shell bitmap transparency.");
+            for (INT x = 0; x < dimensions.bmWidth; ++x) if (row[x * 4 + 3]) { alpha = true; break; }
+        }
+        if (!alpha) {
+            source.Reset();
+            if (icon) {
+                SHFILEINFOW info{};
+                const auto obtained = SHGetFileInfoW(path.c_str(), 0, &info, sizeof(info), SHGFI_ICON |
+                    (r.size.width <= 16 ? SHGFI_SMALLICON : SHGFI_LARGEICON));
+                Icon handle{info.hIcon};
+                if (!obtained || !handle.value) throw std::runtime_error("Cannot read the Shell icon transparency mask.");
+                require(wic->CreateBitmapFromHICON(handle.value, &source), "Cannot convert the Shell icon mask.");
+            } else {
+                require(wic->CreateBitmapFromHBITMAP(bitmap.value, nullptr, WICBitmapIgnoreAlpha, &source),
+                    "Cannot read the opaque Shell thumbnail.");
+            }
+        }
+    }
+    return source;
 }
 class Service {
     struct Entry { Key key; std::shared_ptr<const ImagePixels> pixels; };
     std::mutex mutex_;
     std::condition_variable changed_;
     std::deque<std::shared_ptr<ImageRequest>> queue_;
+    HANDLE shell_changed_{};
+    std::once_flag shell_started_, wic_started_;
     std::list<Entry> cache_;
     std::uint64_t epoch_{}, next_id_{};
     void prune() {
@@ -85,15 +169,17 @@ class Service {
     }
     std::shared_ptr<const ImagePixels> decode(ImageRequest& r, IWICImagingFactory* factory) {
         checkpoint(r);
-        Handle file{CreateFileW(r.path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
-        if (file.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open the image file.");
+        const bool shell = r.kind == ImageKind::shell;
+        Handle file{CreateFileW(r.path.c_str(), shell ? FILE_READ_ATTRIBUTES : GENERIC_READ,
+            shell ? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE : FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, shell ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+        if (file.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open the visual source file.");
         BY_HANDLE_FILE_INFORMATION info{};
-        if (!GetFileInformationByHandle(file.value, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-            throw std::runtime_error("Cannot read image file information.");
+        if (!GetFileInformationByHandle(file.value, &info) || (!shell && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)))
+            throw std::runtime_error("Cannot read visual source file information.");
         Key key;
         key.bytes = (std::uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-        if (!key.bytes || key.bytes > ImageLimits::file_bytes)
+        if (!shell && (!key.bytes || key.bytes > ImageLimits::file_bytes))
             throw std::runtime_error("The image file exceeds the 32 MiB limit or is empty.");
         const auto length = GetFinalPathNameByHandleW(file.value, nullptr, 0, FILE_NAME_NORMALIZED);
         if (!length || length > 32767) throw std::runtime_error("Cannot resolve the image path.");
@@ -101,11 +187,14 @@ class Service {
         const auto actual = GetFinalPathNameByHandleW(file.value, key.path.data(), length, FILE_NAME_NORMALIZED);
         if (!actual || actual >= length) throw std::runtime_error("Cannot resolve the image path.");
         key.path.resize(actual);
+        // Shell visuals can differ for links to the same resolved file.
+        if (shell) key.shell_path = shell_path(r.path);
         key.volume = info.dwVolumeSerialNumber;
         key.index_high = info.nFileIndexHigh;
         key.index_low = info.nFileIndexLow;
         key.write = (std::uint64_t(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime;
         key.size = r.size;
+        key.kind = r.kind;
         checkpoint(r);
         std::uint64_t epoch{};
         {
@@ -121,11 +210,17 @@ class Service {
             }
         }
         ComPtr<IWICBitmapDecoder> decoder;
-        require(factory->CreateDecoderFromFileHandle(reinterpret_cast<ULONG_PTR>(file.value), nullptr,
-            WICDecodeMetadataCacheOnDemand, &decoder), "Cannot decode the image file.");
-        checkpoint(r);
-        ComPtr<IWICBitmapFrameDecode> frame;
-        require(decoder->GetFrame(0, &frame), "Cannot decode the first image frame.");
+        ComPtr<IWICBitmapSource> frame;
+        if (shell) {
+            frame = shell_source(r, key.shell_path, factory);
+        } else {
+            require(factory->CreateDecoderFromFileHandle(reinterpret_cast<ULONG_PTR>(file.value), nullptr,
+                WICDecodeMetadataCacheOnDemand, &decoder), "Cannot decode the image file.");
+            checkpoint(r);
+            ComPtr<IWICBitmapFrameDecode> first;
+            require(decoder->GetFrame(0, &first), "Cannot decode the first image frame.");
+            frame = first;
+        }
         UINT width{}, height{};
         require(frame->GetSize(&width, &height), "Cannot read image dimensions.");
         if (!width || !height || width > ImageLimits::source_dimension || height > ImageLimits::source_dimension ||
@@ -142,7 +237,7 @@ class Service {
                 auto& a = accounting(); std::lock_guard lock(a.mutex); a.stats.cpu_reserved -= bytes;
             }
         } reservation{bytes};
-        test_boundary(ImageDecodeStage::reserved);
+        test_boundary(r.kind, ImageDecodeStage::reserved);
         checkpoint(r);
         auto result = std::make_shared<ImagePixels>();
         result->size = size;
@@ -186,30 +281,51 @@ class Service {
         auto& a = accounting(); std::lock_guard lock(a.mutex); ++a.stats.decoded;
         return result;
     }
-    void run() {
-        const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    void run(ImageKind kind) {
+        const bool shell = kind == ImageKind::shell;
+        const HRESULT com = CoInitializeEx(nullptr, shell ? COINIT_APARTMENTTHREADED : COINIT_MULTITHREADED);
+        HRESULT wait_result = S_OK;
         {
             ComPtr<IWICImagingFactory> factory;
             const auto initialized = SUCCEEDED(com) ? CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                 CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)) : com;
             for (;;) {
+                if (shell && SUCCEEDED(wait_result)) {
+                    // Pump the STA between requests, including while the bounded queue is empty.
+                    const auto wait = MsgWaitForMultipleObjectsEx(1, &shell_changed_, INFINITE,
+                        QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                    if (wait == WAIT_FAILED) {
+                        wait_result = HRESULT_FROM_WIN32(GetLastError());
+                    }
+                    MSG message{};
+                    for (int i = 0; i < 64 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++i) {
+                        TranslateMessage(&message); DispatchMessageW(&message);
+                    }
+                }
                 std::shared_ptr<ImageRequest> request;
                 {
                     std::unique_lock lock(mutex_);
-                    changed_.wait(lock, [&] { return !queue_.empty(); });
-                    request = std::move(queue_.front());
-                    queue_.pop_front();
+                    const auto belongs = [kind](const auto& r) { return r->kind == kind; };
+                    if (!shell || FAILED(wait_result)) changed_.wait(lock, [&] {
+                        return std::any_of(queue_.begin(), queue_.end(), belongs);
+                    });
+                    const auto found = std::find_if(queue_.begin(), queue_.end(), belongs);
+                    if (found == queue_.end()) continue;
+                    request = std::move(*found);
+                    queue_.erase(found);
+                    if (shell && std::any_of(queue_.begin(), queue_.end(), belongs)) SetEvent(shell_changed_);
                     auto& a = accounting();
                     std::lock_guard guard(a.mutex);
-                    a.stats.active = 1;
+                    ++a.stats.active;
                 }
                 auto& a = accounting();
                 const auto start = Clock::now();
                 std::shared_ptr<const ImagePixels> pixels;
                 std::wstring error;
                 try {
-                    test_boundary(ImageDecodeStage::before_decode);
+                    test_boundary(kind, ImageDecodeStage::before_decode);
                     checkpoint(*request);
+                    shell_require(wait_result, "Cannot wait for Shell worker messages");
                     require(initialized, "Cannot initialize Windows Imaging Component.");
                     pixels = decode(*request, factory.Get());
                 } catch (const Cancelled&) {
@@ -225,7 +341,7 @@ class Service {
                     if (!error.empty()) ++a.stats.rejected;
                 }
                 {
-                    test_boundary(ImageDecodeStage::before_delivery);
+                    test_boundary(kind, ImageDecodeStage::before_delivery);
                     std::lock_guard lock(request->mutex);
                     if (!request->cancelled) {
                         request->pixels = std::move(pixels);
@@ -239,14 +355,28 @@ class Service {
                 }
                 pixels.reset();
                 request.reset();
-                { std::lock_guard lock(a.mutex); a.stats.active = 0; }
+                { std::lock_guard lock(a.mutex); --a.stats.active; }
             }
         }
         if (SUCCEEDED(com)) CoUninitialize();
     }
 public:
-    Service() { std::thread([this] { run(); }).detach(); }
     void add(const std::shared_ptr<ImageRequest>& request) {
+        try {
+            if (request->kind == ImageKind::shell) std::call_once(shell_started_, [this] {
+                shell_changed_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                if (!shell_changed_) throw std::runtime_error("Cannot create the Shell worker event.");
+                try { std::thread([this] { run(ImageKind::shell); }).detach(); }
+                catch (...) { CloseHandle(shell_changed_); shell_changed_ = nullptr; throw; }
+            });
+            else std::call_once(wic_started_, [this] { std::thread([this] { run(ImageKind::wic); }).detach(); });
+        } catch (const std::exception& failure) {
+            const std::string text(failure.what());
+            request->error.assign(text.begin(), text.end());
+            request->done = true;
+            auto& a = accounting(); std::lock_guard guard(a.mutex); ++a.stats.rejected;
+            return;
+        }
         std::lock_guard lock(mutex_);
         prune();
         if (queue_.size() >= ImageLimits::queue) {
@@ -256,7 +386,8 @@ public:
             return;
         }
         queue_.push_back(request);
-        changed_.notify_one();
+        if (request->kind == ImageKind::shell) SetEvent(shell_changed_);
+        changed_.notify_all();
     }
     void clear(bool all) {
         std::lock_guard lock(mutex_);
@@ -273,11 +404,11 @@ public:
         stats.cache_entries = cache_.size();
     }
 };
-// The worker starts only after the first image request, not for ordinary windows.
+// Each worker starts only after the first request for its source kind.
 std::atomic<Service*> live_service{};
 Service& service() {
     (void)accounting();
-    // One process-lifetime worker. Neither window close nor C++ exit waits for a codec.
+    // At most two process-lifetime workers. Neither close nor exit waits for a codec or Shell handler.
     // Windows reclaims this bounded service at process exit. No per-window worker is created.
     static auto* value = new Service;
     live_service = value;
@@ -315,9 +446,9 @@ void ImageRequest::cancel() {
     pixels.reset();
     wake.reset();
 }
-std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake) {
+std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake, ImageKind kind) {
     auto request = std::make_shared<ImageRequest>();
-    request->path = std::move(path); request->size = size; request->wake = std::move(wake);
+    request->path = std::move(path); request->size = size; request->wake = std::move(wake); request->kind = kind;
     service().add(request);
     return request;
 }

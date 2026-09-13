@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -155,8 +156,64 @@ void virtual_rendering() {
     require(one_peer && end_visible && grid->selected() == RowKey{1000000, 1}, "Dynamic million-row source keeps one peer and reveals final row");
     require(bounded && small->text_requests > 0 && large->text_requests > 0, "Actual renderer requests only visible cells for 100k and 1m sources");
 }
+void column_dpi_input() {
+    using namespace xui;
+    const auto title = L"XUI column input at multiple DPI scales";
+    Window window({title, {600, 380}});
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    auto grid = std::make_shared<DataGrid>(L"DPI columns");
+    grid->set_columns({{L"Name", 180}, {L"PID", 80, true}, {L"CPU", 92, true}, {L"Memory", 142, true}});
+    grid->set_source(std::make_shared<VirtualSource>(1000000));
+    grid->select({1234, 1});
+    grid->set_sort(2, true);
+    content->add(grid, 1); window.set_content(content);
+    std::atomic<int> verified{};
+    window.on_key([&](const KeyEvent& event) {
+        if (event.key == Key::s) {
+            const auto h = owned(title);
+            const auto peer = FindWindowExW(h, nullptr, L"Xui.Control.1", L"DPI columns");
+            require(h && peer, "Owned DPI grid exists");
+            // Keep each synthetic gesture on the UI thread. Otherwise queued
+            // hardware moves at the physical cursor can interrupt its capture.
+            for (UINT dpi : {96u, 144u, 192u}) {
+                RECT bounds{}; GetWindowRect(h, &bounds);
+                bounds.right = bounds.left + MulDiv(540, dpi, 96);
+                bounds.bottom = bounds.top + MulDiv(380, dpi, 96);
+                SendMessageW(h, WM_DPICHANGED, MAKELONG(dpi, dpi), reinterpret_cast<LPARAM>(&bounds));
+                SendMessageW(h, WM_APP + 12, 0, 0);
+                const auto mouse = [&](UINT message, int x) {
+                    SendMessageW(peer, message, message == WM_LBUTTONUP ? 0 : MK_LBUTTON,
+                        MAKELPARAM(MulDiv(x, dpi, 96), MulDiv(18, dpi, 96)));
+                };
+                mouse(WM_LBUTTONDOWN, 180); mouse(WM_MOUSEMOVE, 220); mouse(WM_LBUTTONUP, 220);
+                mouse(WM_LBUTTONDOWN, 40); mouse(WM_MOUSEMOVE, 430); mouse(WM_LBUTTONUP, 430);
+                if (grid->column_order() == std::vector<std::size_t>{1, 2, 0, 3} &&
+                    std::abs(grid->columns()[2].width - 220) < 1 &&
+                    grid->selected() == RowKey{1234, 1} && grid->sort_column() == 2) ++verified;
+                grid->set_columns({{L"Name", 180}, {L"PID", 80, true}, {L"CPU", 92, true}, {L"Memory", 142, true}});
+                grid->set_offset(grid->offset(), 0);
+            }
+            window.close();
+            return true;
+        }
+        return false;
+    });
+    std::jthread driver([&] {
+        HWND h{};
+        for (int i = 0; i < 300; ++i) {
+            h = owned(title);
+            if (h && SendMessageW(h, WM_APP + 60, 0, 0) > 0) break;
+            Sleep(10);
+        }
+        if (!h) return;
+        PostMessageW(h, WM_KEYDOWN, 'S', 0);
+    });
+    require(Application::run(window) == 0, "Column input window runs at simulated DPI scales");
+    driver.join();
+    require(verified == 3, "Native header resize and reorder preserve DIP widths and source identities at 96, 144 and 192 DPI");
+}
 }
 int main() {
-    try { delayed_close(); delivery(); virtual_rendering(); std::cout << assertions << " grid and sample lifecycle assertions passed\n"; return 0; }
+    try { delayed_close(); delivery(); virtual_rendering(); column_dpi_input(); std::cout << assertions << " grid and sample lifecycle assertions passed\n"; return 0; }
     catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

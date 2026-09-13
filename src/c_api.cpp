@@ -1,6 +1,13 @@
 #include "xui/xui.h"
 #include "xui/application.hpp"
 #include "xui/image.hpp"
+#include "xui/navigation.hpp"
+#include "xui/documents.hpp"
+#include "xui/map_view.hpp"
+#include "xui/runtime_hosts.hpp"
+#include "xui/data_grid.hpp"
+#include <bit>
+#include <variant>
 #include <windows.h>
 #include <algorithm>
 #include <array>
@@ -73,6 +80,8 @@ struct State {
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
     unsigned callbacks{};
+    unsigned source_callbacks{};
+    unsigned secret_callbacks{};
     xui_status callback_failure{};
 };
 struct Node {
@@ -80,6 +89,13 @@ struct Node {
     uint32_t kind{};
     std::shared_ptr<State> owner;
     std::shared_ptr<xui::Element> element;
+    std::shared_ptr<void> resource;
+    std::vector<xui_handle> children;
+    std::shared_ptr<const xui::CommandSet> commands;
+    xui::CommandBindings bindings;
+    uint64_t web_generation{};
+    std::function<void()> prior_action;
+    unsigned dispatching{};
     xui_callback callback{};
     void* context{};
     bool attached{};
@@ -104,6 +120,7 @@ void same(const std::shared_ptr<Node>& a, const std::shared_ptr<Node>& b) {
 }
 void editable(const std::shared_ptr<State>& state) {
     require(!state->closed, XUI_CLOSED, "The window is closed.");
+    require(!state->source_callbacks, XUI_BUSY, "Immutable source callbacks cannot mutate their window.");
 }
 void topology(const std::shared_ptr<State>& state) {
     editable(state);
@@ -123,9 +140,12 @@ xui_handle insert(const std::shared_ptr<State>& owner, uint32_t kind, std::share
 }
 template<class T> T& as(const std::shared_ptr<Node>& n) { return *static_cast<T*>(n->element.get()); }
 xui::Control& control(const std::shared_ptr<Node>& n) {
-    require(n->kind >= XUI_LABEL, XUI_WRONG_KIND, "Expected a control.");
-    return as<xui::Control>(n);
+    auto* c = dynamic_cast<xui::Control*>(n->element.get());
+    require(c != nullptr, XUI_WRONG_KIND, "Expected a control.");
+    return *c;
 }
+void wire_feature(const std::shared_ptr<Node>& n);
+bool feature_key(const std::shared_ptr<Node>& n, const xui::KeyEvent& e);
 void callback_result(const std::shared_ptr<State>& state) {
     require(!state->callback_failure, XUI_CALLBACK_FAILED, "A foreign callback failed. The window was closed.");
 }
@@ -133,13 +153,13 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
     auto n = weak.lock();
     if (!n || !n->callback || n->owner->closed || n->owner->callback_failure) return;
     auto s = n->owner;
-    if (s->callbacks) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
-    ++s->callbacks;
+    if (n->dispatching) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
+    ++s->callbacks; ++n->dispatching;
     const xui_event event{sizeof(xui_event), kind, n->handle, value};
     xui_status result{};
     try { result = n->callback(n->context, &event); }
     catch (...) { result = XUI_CALLBACK_FAILED; }
-    --s->callbacks;
+    --s->callbacks; --n->dispatching;
     if (result) { s->callback_failure = result; s->window->close(); }
 }
 void wire(const std::shared_ptr<Node>& n) {
@@ -147,11 +167,15 @@ void wire(const std::shared_ptr<Node>& n) {
     switch (n->kind) {
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
+            if (auto node = weak.lock(); node && feature_key(node, e)) return true;
             dispatch(weak, XUI_KEY, static_cast<uint64_t>(e.key) |
                 (static_cast<uint64_t>(e.control) << 32) | (static_cast<uint64_t>(e.shift) << 33));
             return false;
         }); break;
-    case XUI_BUTTON: as<xui::Button>(n).on_click([weak] { dispatch(weak, XUI_CLICK); }); break;
+    case XUI_BUTTON: as<xui::Button>(n).on_click([weak] {
+        if (auto node = weak.lock(); node && node->prior_action) node->prior_action();
+        dispatch(weak, XUI_CLICK);
+    }); break;
     case XUI_TOGGLE: as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
     case XUI_TEXT_INPUT:
         as<xui::TextInput>(n).on_change([weak](const std::wstring&) { dispatch(weak, XUI_CHANGE); });
@@ -159,7 +183,7 @@ void wire(const std::shared_ptr<Node>& n) {
     case XUI_FILE_LIST:
         as<xui::FileList>(n).on_selection_change([weak] { dispatch(weak, XUI_SELECTION); });
         as<xui::FileList>(n).on_view_change([weak] { dispatch(weak, XUI_VIEW); }); break;
-    default: throw Failure{XUI_WRONG_KIND, "This kind has no events."};
+    default: wire_feature(n); break;
     }
 }
 struct Prepared {
@@ -203,6 +227,7 @@ xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
             std::lock_guard lock(registry_mutex);
             for (auto h : s->handles) {
                 auto it = registry.find(h);
+                if (it == registry.end()) continue;
                 it->second->callback = nullptr; it->second->context = nullptr;
                 removed.push_back(std::move(it->second)); registry.erase(it);
             }
@@ -291,6 +316,8 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
             switch (p.property) {
             case XUI_TEXT:
                 control(n);
+                require(n->kind != XUI_PASSWORD_INPUT && n->kind != XUI_MULTILINE_TEXT && n->kind != XUI_RICH_TEXT,
+                    XUI_WRONG_KIND, "Use the document or password API.");
                 next.text = decode(p.text); break;
             case XUI_NAME: case XUI_AUTOMATION_ID: control(n); next.text = decode(p.text); break;
             case XUI_ENABLED: control(n); [[fallthrough]];
@@ -354,7 +381,9 @@ xui_status XUI_CALL xui_text_copy(xui_handle target, char* buffer, uint32_t capa
     return boundary([&] {
         require(required && (buffer || !capacity), XUI_INVALID_ARGUMENT, "Invalid output span.");
         auto n = get(target); auto& c = control(n);
-        const auto text = encode(n->kind == XUI_TEXT_INPUT ? as<xui::TextInput>(n).text() : c.name());
+        require(n->kind != XUI_PASSWORD_INPUT, XUI_WRONG_KIND, "Use the scoped password receiver.");
+        const auto text = encode(n->kind == XUI_TEXT_INPUT ? as<xui::TextInput>(n).text() :
+            n->kind == XUI_MULTILINE_TEXT || n->kind == XUI_RICH_TEXT ? as<xui::DocumentText>(n).text() : c.name());
         *required = static_cast<uint32_t>(text.size());
         require(capacity >= *required, XUI_BUFFER_TOO_SMALL, "The output buffer is too small.");
         if (*required) std::memcpy(buffer, text.data(), *required);
@@ -430,3 +459,5 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
         *has_selection = model.selected_id().has_value(); *id = model.selected_id().value_or(0);
     });
 }
+
+#include "c_api_features.inc"

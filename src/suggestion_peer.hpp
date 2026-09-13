@@ -37,7 +37,7 @@ private:
     std::shared_ptr<detail::SuggestionDelivery> delivery_;
     std::shared_ptr<detail::SuggestionWorker> worker_;
     std::vector<std::wstring> items_;
-    bool wanted_{}, explicit_{}, replacing_{};
+    bool wanted_{}, explicit_{}, replacing_{}, pending_{};
     int clicked_{-1};
 };
 }

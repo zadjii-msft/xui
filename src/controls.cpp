@@ -11,8 +11,12 @@ void PageView::select(std::size_t index) {
 }
 void PageView::arrange(Rect rectangle) {
     Element::arrange(rectangle);
-    for (std::size_t i = 0; i < child_count(); ++i)
-        child_at(i)->arrange(i == selected_ ? rectangle : Rect{rectangle.x, rectangle.y, 0, 0});
+    for (std::size_t i = 0; i < child_count(); ++i) {
+        const auto& child = child_at(i);
+        if (i == selected_) child->arrange(rectangle);
+        else if (child->bounds().width != 0 || child->bounds().height != 0)
+            child->arrange({rectangle.x, rectangle.y, 0, 0});
+    }
 }
 
 Control::Control(ControlRole role, std::wstring name, Size preferred)
@@ -22,6 +26,21 @@ void Control::set_name(std::wstring name) {
     if (name_ == name) return;
     name_ = std::move(name);
     text_changed();
+}
+void Control::set_help_text(std::wstring value) {
+    if (help_text_ == value) return;
+    help_text_ = std::move(value);
+    invalidate(Invalidation::paint);
+}
+void Control::set_tooltip_delay(unsigned value) {
+    if (value < 100 || value > 60000) throw std::invalid_argument("Tooltip delay must be 100 to 60000 milliseconds");
+    if (tooltip_delay_ == value) return;
+    tooltip_delay_ = value;
+    invalidate(Invalidation::paint);
+}
+bool Control::actionable() const {
+    return role_ == ControlRole::button || role_ == ControlRole::toggle ||
+        role_ == ControlRole::expander || role_ == ControlRole::combo_box;
 }
 void Control::text_changed() {
     text_dirty_ = true;
@@ -41,6 +60,7 @@ Size Control::measured_text() {
     return text_size_;
 }
 Size Control::measure(Size available) {
+    if (!visible_) return {};
     if (!auto_size() || !measurer_) return Element::measure(available);
     const auto text = measured_text();
     const float inset = role_ == ControlRole::toggle ? 54.0f : role_ == ControlRole::button ? 28.0f : 0;
@@ -109,7 +129,7 @@ void Control::pointer_move(bool inside) {
     invalidate(Invalidation::paint);
 }
 bool Control::pointer_down() {
-    if (!enabled_ || !hovered_ || (role_ != ControlRole::button && role_ != ControlRole::toggle))
+    if (!enabled_ || !hovered_ || !actionable())
         return false;
     pointer_ = true;
     keyboard_ = false;
@@ -128,8 +148,8 @@ void Control::cancel() {
 }
 bool Control::key_down(ActivationKey key, bool repeat) {
     if (!enabled_ || !focused_ || repeat || pointer_) return false;
-    if (key == ActivationKey::enter) return role_ == ControlRole::button && invoke();
-    if (role_ != ControlRole::button && role_ != ControlRole::toggle) return false;
+    if (key == ActivationKey::enter) return role_ != ControlRole::toggle && invoke();
+    if (!actionable()) return false;
     keyboard_ = true;
     invalidate(Invalidation::paint);
     return true;
@@ -140,13 +160,36 @@ bool Control::key_up(ActivationKey key) {
     return fire && invoke();
 }
 bool Control::invoke() {
-    if (!enabled_ || (role_ != ControlRole::button && role_ != ControlRole::toggle)) return false;
+    if (!enabled_ || !actionable()) return false;
     activate();
     return true;
 }
 void Button::activate() {
     const auto callback = click_;
+    const auto toggle = toggle_;
+    const bool checked = !checked_;
+    if (behavior_ == ButtonBehavior::toggle) {
+        set_checked(checked);
+        if (toggle) toggle(checked);
+        return;
+    }
     if (callback) callback();
+}
+void Button::set_behavior(ButtonBehavior value) {
+    if (value < ButtonBehavior::momentary || value > ButtonBehavior::dropdown)
+        throw std::invalid_argument("Invalid button behavior");
+    if (behavior_ == value) return;
+    cancel(); behavior_ = value; invalidate(Invalidation::paint);
+}
+void Button::set_checked(bool value) {
+    if (checked_ == value) return;
+    checked_ = value; invalidate(Invalidation::paint);
+}
+void Button::set_repeat_timing(unsigned delay, unsigned interval) {
+    if (delay < 100 || delay > 60000 || interval < 16 || interval > 60000)
+        throw std::invalid_argument("Invalid repeat timing");
+    if (repeat_delay_ == delay && repeat_interval_ == interval) return;
+    cancel(); repeat_delay_ = delay; repeat_interval_ = interval;
 }
 void Toggle::set_checked(bool checked) {
     if (checked_ == checked) return;

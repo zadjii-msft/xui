@@ -69,6 +69,28 @@ void behavior() {
     require(layouts == 1, "Size update requests layout");
 }
 void sizing_and_scroll() {
+    Button icon(L"Back");
+    icon.set_text_measurer([](std::wstring_view, TextStyle) { return Size{180, 20}; });
+    icon.set_icon(ButtonIcon::back);
+    require(icon.measure({300, 80}).width == 36 && icon.name() == L"Back", "Icon size is independent of accessible name");
+    icon.set_preferred_size({32, 40});
+    require(icon.measure({300, 80}).width == 32, "Icon respects explicit size");
+    icon.set_auto_size(true);
+    icon.set_icon(ButtonIcon::none);
+    require(icon.measure({300, 80}).width == 208, "Text button sizing is restored");
+    TextInput compact(L"Folder address");
+    require(compact.caption_visible(), "Input caption remains visible by default");
+    int caption_layouts{};
+    compact.set_invalidator([&](Invalidation kind) { if (kind == Invalidation::layout) ++caption_layouts; });
+    compact.set_caption_visible(false);
+    compact.set_caption_visible(false);
+    compact.set_shortcut_hint(L"Ctrl+L");
+    require(!compact.caption_visible() && !compact.search_style() && caption_layouts == 1,
+        "Compact input hides caption without search presentation and avoids duplicate layout");
+    require(!compact.shortcut_visible(150) && compact.shortcut_visible(300), "Compact hint leaves room for narrow text");
+    compact.set_search_style(true);
+    compact.set_caption_visible(true);
+    require(!compact.caption_visible() && compact.shortcut_visible(150), "Search presentation retains its previous caption and hint policy");
     int calls{}, layouts{};
     const TextMeasurer measure = [&](std::wstring_view text, TextStyle style) {
         ++calls;
@@ -218,6 +240,14 @@ void virtual_list_control() {
         std::vector<FileItem>{{71, L"Alpha", L"A", false}, {92, L"Beta", L"B", true}}));
     list->select(0);
     list->focus_item(1);
+    require(!list->thumbnails(), "FileList thumbnails require explicit opt-in");
+    const auto thumbnail_revision = list->thumbnail_revision();
+    list->set_thumbnails(true);
+    list->reload_thumbnails();
+    require(list->thumbnails() && list->thumbnail_revision() == thumbnail_revision + 2 &&
+        list->model().selected_id() == 71 && list->focused_id() == 92 && selections == 1,
+        "Thumbnail configuration preserves selection, focus, and selection events");
+    list->set_thumbnails(false);
     require(selections == 1 && list->model().selected_id() == 71 && list->focused_id() == 92,
         "Item focus is independent of selection and its event");
     const auto source = list->model().view()->source();

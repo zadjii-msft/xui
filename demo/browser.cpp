@@ -4,12 +4,47 @@
 #include "xui/suggestions.hpp"
 #include "shell_dispatch.hpp"
 #include "xui/application.hpp"
+#include "xui/navigation.hpp"
 #include <array>
 #include <mutex>
+#include <cwctype>
 
 namespace xui {
 namespace {
 using namespace explorer;
+class CachedPlaces final : public ItemsSource {
+public:
+    CachedPlaces(const std::map<ItemKey, std::filesystem::path>& paths, std::wstring query = {}) {
+        std::transform(query.begin(), query.end(), query.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+        for (const auto& [key, path] : paths) {
+            auto text = path.wstring();
+            std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+            if (text.find(query) != std::wstring::npos) rows_.push_back({key, path.wstring()});
+        }
+    }
+    std::size_t size() const override { return rows_.size(); }
+    ItemKey key(std::size_t i) const override { return rows_.at(i).first; }
+    std::optional<std::size_t> find(ItemKey key) const override {
+        for (std::size_t i = 0; i < rows_.size(); ++i) if (rows_[i].first == key) return i;
+        return {};
+    }
+    ItemContent item(std::size_t i) const override { return {rows_.at(i).second, L"Cached path location", ButtonIcon::up}; }
+    std::vector<ItemGroup> groups() const override {
+        return {{{1, 0}, L"Current path", 0, rows_.size()}};
+    }
+private:
+    std::vector<std::pair<ItemKey, std::wstring>> rows_;
+};
+class BrowserRoot final : public Stack {
+public:
+    explicit BrowserRoot(std::function<void()> arranged) : Stack(Axis::vertical), arranged_(std::move(arranged)) {}
+    void arrange(Rect bounds) override {
+        Stack::arrange(bounds);
+        arranged_();
+    }
+private:
+    std::function<void()> arranged_;
+};
 struct SourceSlot {
     std::mutex mutex;
     std::filesystem::path path;
@@ -28,13 +63,16 @@ struct Pane {
     std::shared_ptr<TabStrip> tabs = std::make_shared<TabStrip>();
     std::shared_ptr<TextInput> address = std::make_shared<TextInput>(L"Folder address");
     std::shared_ptr<TextInput> search = std::make_shared<TextInput>(L"Search files");
+    std::shared_ptr<Breadcrumb> breadcrumb = std::make_shared<Breadcrumb>();
+    std::map<ItemKey, std::filesystem::path> breadcrumb_paths;
+    std::filesystem::path breadcrumb_path;
     std::shared_ptr<FileList> list = std::make_shared<FileList>();
-    std::shared_ptr<Label> heading = std::make_shared<Label>(L"");
     std::shared_ptr<Label> status = std::make_shared<Label>(L"Reading folder...");
     std::shared_ptr<Button> back, forward, up, refresh, new_tab;
     std::shared_ptr<SourceSlot> source = std::make_shared<SourceSlot>();
     std::shared_ptr<ViewTask> task;
     std::wstring error, notice;
+    std::size_t thumbnail_failures{};
     std::uint64_t pending_serial{};
     bool syncing{}, filtering{}, loaded{};
     bool reload_source{};
@@ -48,20 +86,15 @@ class Browser {
     std::size_t active_{};
 public:
     explicit Browser(const BrowserOptions& options)
-        : window_({L"XUI - " + options.folder.wstring(), {924, 641}, options.theme, {460, 420}}) {
-        auto root = std::make_shared<Stack>(Axis::vertical);
+        : window_({L"XUI/Files - " + options.folder.wstring(), {924, 641}, options.theme, {460, 420}}) {
+        auto root = std::make_shared<BrowserRoot>([this] {
+            if (active_ && split_ && !split_->expanded()) activate(0);
+        });
         root->set_padding({16, 12, 16, 12});
-        root->set_spacing(10);
-        auto bar = std::make_shared<Stack>(Axis::horizontal);
-        bar->set_spacing(8);
-        auto brand = std::make_shared<Label>(L"XUI  /  FILES");
-        brand->set_heading(true); brand->set_tone(TextTone::accent);
-        bar->add(brand, 1);
         split_button_ = button(L"Split panes", L"browser-split", [this] { toggle_split(); });
+        split_button_->set_icon(ButtonIcon::split);
+        split_button_->set_fixed_size({32, 38});
         split_button_->on_focus([this] { if (split_ && !split_->expanded()) activate(0); });
-        bar->add(split_button_);
-        bar->add(button(L"Theme", L"browser-theme", [this] { theme(); }));
-        root->add(bar);
         for (std::size_t i = 0; i < panes_.size(); ++i) {
             panes_[i] = std::make_unique<Pane>(options.folder);
             build_pane(i);
@@ -70,11 +103,28 @@ public:
         split_->set_automation_id(L"browser-divider");
         split_->set_secondary_visible(false);
         root->add(split_, 1);
-        auto hint = std::make_shared<Label>(L"Ctrl+L  Address     Ctrl+T / Ctrl+W  Tabs     Ctrl+Tab  Next tab     F6  Switch pane");
-        hint->set_caption(true); hint->set_tone(TextTone::secondary); hint->set_preferred_size({0, 22});
-        root->add(hint);
         window_.set_content(root);
         window_.on_key([this](const KeyEvent& event) { return key(event); });
+        window_.on_navigation([this](const NavigationEvent& event) {
+            auto index = active_;
+            auto point = event.position;
+            if (!point && event.target) {
+                const auto bounds = event.target->bounds();
+                point = Point{bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
+            }
+            if (point) {
+                for (std::size_t i = 0; i < panes_.size(); ++i) {
+                    if (i && !split_->expanded()) continue;
+                    const auto bounds = panes_[i]->root->bounds();
+                    if (point->x >= bounds.x && point->x < bounds.x + bounds.width &&
+                        point->y >= bounds.y && point->y < bounds.y + bounds.height) { index = i; break; }
+                }
+            }
+            if (index && !split_->expanded()) index = 0;
+            activate(index);
+            travel(index, event.direction == NavigationDirection::back ? -1 : 1);
+            return true;
+        });
         load(0, panes_[0]->state.active().history.current());
     }
     int run() {
@@ -96,37 +146,97 @@ private:
         p.root->set_spacing(7);
         p.root->set_padding({4, 0, 4, 0});
         auto tab_row = std::make_shared<Stack>(Axis::horizontal);
+        tab_row->set_spacing(2);
         p.tabs->set_automation_id(id(L"tabs"));
         p.tabs->set_name(index ? L"Right pane tabs" : L"Left pane tabs");
         tab_row->add(p.tabs, 1);
         p.new_tab = button(L"+", id(L"new-tab"), [this, index] { add_tab(index); });
-        p.new_tab->set_preferred_size({38, 38});
+        p.new_tab->set_icon(ButtonIcon::add);
+        p.new_tab->set_fixed_size({32, 38});
         tab_row->add(p.new_tab);
+        if (!index) {
+            tab_row->add(split_button_);
+            auto theme_button = button(L"Theme", L"browser-theme", [this] { theme(); });
+            theme_button->set_icon(ButtonIcon::theme);
+            theme_button->set_fixed_size({32, 38});
+            tab_row->add(theme_button);
+        }
         p.root->add(tab_row);
-        p.heading->set_caption(true);
-        p.heading->set_preferred_size({0, 24});
-        p.heading->set_automation_id(id(L"heading"));
-        p.root->add(p.heading);
         auto navigation = std::make_shared<Stack>(Axis::horizontal);
         navigation->set_spacing(4);
         p.back = button(L"Back", id(L"back"), [this, index] { travel(index, -1); });
         p.forward = button(L"Forward", id(L"forward"), [this, index] { travel(index, 1); });
         p.up = button(L"Up", id(L"up"), [this, index] { go_up(index); });
         p.refresh = button(L"Refresh", id(L"refresh"), [this, index] { refresh(index); });
+        p.back->set_icon(ButtonIcon::back);
+        p.forward->set_icon(ButtonIcon::forward);
+        p.up->set_icon(ButtonIcon::up);
+        p.refresh->set_icon(ButtonIcon::refresh);
         for (const auto& control : {p.back, p.forward, p.up, p.refresh}) {
-            control->set_preferred_size({control == p.up ? 54.0f : control == p.back ? 58.0f : 80.0f, 34});
+            control->set_fixed_size({32, 40});
             navigation->add(control);
             control->on_focus([this, index] { activate(index); });
         }
+        auto path_bar = std::make_shared<Stack>(Axis::horizontal); path_bar->set_spacing(4);
+        path_bar->add(p.breadcrumb, 1);
+        p.root->add(path_bar);
         p.root->add(navigation);
         p.address->set_name(index ? L"Right folder address" : L"Folder address");
         p.address->set_automation_id(id(L"address"));
         p.address->set_maximum_length(32767);
         p.address->set_suggestions(folder_suggestions());
-        p.address->set_preferred_size({0, 64});
+        p.address->set_caption_visible(false);
+        p.address->set_preferred_size({0, 40});
         p.address->set_placeholder(L"Enter a folder path");
         p.address->set_shortcut_hint(L"Ctrl+L");
-        p.root->add(p.address);
+        navigation->add(p.address, 1);
+        auto commands = button(L"Commands", id(L"commands"), [this, index] {
+            auto items = menu(index);
+            std::vector<CommandRecord> records;
+            CommandId next{};
+            for (auto& item : items) {
+                CommandRecord record; record.id = ++next; record.enabled = item.enabled;
+                record.kind = item.separator ? CommandKind::separator : CommandKind::action;
+                record.label = item.text; record.action = std::move(item.action);
+                if (const auto tab = record.label.find(L'\t'); tab != std::wstring::npos) {
+                    record.shortcut_hints.push_back(record.label.substr(tab + 1)); record.label.resize(tab);
+                }
+                records.push_back(std::move(record));
+            }
+            auto surface = std::make_shared<CommandSurface>(L"File commands");
+            surface->set_commands(std::make_shared<CommandSet>(std::move(records)));
+            window_.show_commands(surface, *panes_[index]->address);
+        });
+        commands->set_fixed_size({84, 40}); path_bar->add(commands);
+        auto locations = button(L"Locations", id(L"locations"), [this, index] {
+            auto picker = std::make_shared<LocationPicker>(L"Path locations");
+            const auto paths = panes_[index]->breadcrumb_paths;
+            picker->navigation()->set_items(std::make_shared<CachedPlaces>(paths));
+            picker->navigation()->on_query([weak = std::weak_ptr<NavigationPane>(picker->navigation()), paths](NavigationQuery request) {
+                if (auto pane = weak.lock()) pane->complete(request, std::make_shared<CachedPlaces>(paths, request.text));
+            });
+            picker->navigation()->on_navigate([this, index, paths, weak = std::weak_ptr<Popup>(picker->popup())](ItemKey key) {
+                const auto found = paths.find(key); if (found == paths.end()) return;
+                const auto path = found->second;
+                if (auto popup = weak.lock()) window_.dismiss_popup(*popup, PopupDismissReason::commit);
+                navigate(index, path);
+            });
+            picker->toolbar()->set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{
+                {1, 0, L"Back", [this, index] { travel(index, -1); }, panes_[index]->back->enabled()},
+                {2, 0, L"Up", [this, index] { go_up(index); }, panes_[index]->up->enabled()}}));
+            window_.show_location_picker(picker, *panes_[index]->address);
+        });
+        locations->set_fixed_size({80, 40}); path_bar->add(locations);
+        p.breadcrumb->set_automation_id(id(L"breadcrumb")); p.breadcrumb->set_preferred_size({0, 40});
+        p.breadcrumb->on_navigate([this, index](ItemKey key) {
+            const auto found = panes_[index]->breadcrumb_paths.find(key);
+            if (found != panes_[index]->breadcrumb_paths.end()) navigate(index, found->second);
+        });
+        p.breadcrumb->on_overflow([this, index] {
+            const auto& breadcrumb = panes_[index]->breadcrumb;
+            auto surface = std::make_shared<CommandSurface>(L"Earlier folders", false);
+            surface->set_commands(breadcrumb->overflow_commands()); window_.show_commands(surface, *breadcrumb->overflow_button());
+        });
         p.search->set_name(index ? L"Search right files" : L"Search files");
         p.search->set_automation_id(id(L"search"));
         p.search->set_search_style(true);
@@ -157,6 +267,7 @@ private:
         p.address->on_submit([this, index] {
             auto& pane = *panes_[index];
             try { navigate(index, resolve_location(pane.address->text(), pane.state.active().history.current().path)); }
+            catch (const PathInputError& error) { pane.error = error.message(); update(index); }
             catch (const std::exception&) { pane.error = L"Invalid folder path: " + pane.address->text(); update(index); }
         });
         p.search->on_change([this, index](const std::wstring& query) { filter(index, query); });
@@ -166,6 +277,11 @@ private:
             save(index); update(index);
         });
         p.list->on_activate([this, index](const FileItem& item, FileActivation) { open(index, item); });
+        p.list->set_thumbnails(true);
+        p.list->on_thumbnail_error([this, index](ItemId, const std::wstring&) {
+            ++panes_[index]->thumbnail_failures;
+            update(index);
+        });
         p.list->on_context_menu([this, index] { return menu(index); });
         update(index);
     }
@@ -203,6 +319,7 @@ private:
         auto& p = *panes_[index];
         activate(index);
         p.error.clear(); p.notice.clear(); p.filtering = false;
+        p.thumbnail_failures = 0;
         p.pending_serial = p.state.begin(location, history).serial;
         p.address->set_text(location.path.wstring());
         p.address->set_suggestion_context(p.state.active().history.current().path.wstring());
@@ -355,6 +472,10 @@ private:
             {L"Refresh\tF5", [this, index] { refresh(index); }},
             {L"New tab\tCtrl+T", [this, index] { add_tab(index); }},
             {L"Close active tab\tCtrl+W", [this, index] { close_tab(index, panes_[index]->state.active().id); }},
+            {L"Shell commands (native fallback)…", [this, index, item, folder] {
+                try { window_.show_shell_commands(*panes_[index]->list, {item ? item->path : folder.wstring()}); }
+                catch (const std::exception&) { panes_[index]->error = L"Shell commands are unavailable for this item."; update(index); }
+            }},
         };
     }
     void toggle_split() {
@@ -415,6 +536,22 @@ private:
         auto& p = *panes_[index];
         const auto& history = p.state.active().history;
         const auto& path = history.current().path;
+        if (p.breadcrumb_path != path) {
+            std::vector<PathSegment> segments;
+            std::filesystem::path prefix;
+            std::map<ItemKey, std::filesystem::path> paths;
+            for (const auto& part : path) {
+                prefix /= part;
+                const bool omitted = segments.size() == 64;
+                if (omitted) { paths.erase(segments.back().key); segments.pop_back(); }
+                std::uint64_t hash = 1469598103934665603ull;
+                for (auto ch : prefix.wstring()) { hash ^= static_cast<std::uint64_t>(std::towlower(ch)); hash *= 1099511628211ull; }
+                ItemKey key{hash ? hash : 1, 1};
+                while (paths.contains(key)) ++key.version;
+                segments.push_back({key, (omitted ? L"…\\" : L"") + part.wstring()}); paths.emplace(key, prefix);
+            }
+            p.breadcrumb->set_segments(std::move(segments)); p.breadcrumb_paths = std::move(paths); p.breadcrumb_path = path;
+        }
         std::vector<TabItem> tabs;
         for (const auto& tab : p.state.tabs()) {
             const auto& location = tab.history.current().path;
@@ -423,11 +560,7 @@ private:
             tabs.push_back({tab.id, std::move(title)});
         }
         p.tabs->set_tabs(std::move(tabs), p.state.active().id);
-        const auto active_tab = std::find_if(p.state.tabs().begin(), p.state.tabs().end(),
-            [&](const auto& tab) { return tab.id == p.state.active().id; });
-        p.heading->set_text(std::wstring(index ? L"RIGHT" : L"LEFT") + (active_ == index ? L"  /  ACTIVE  /  " : L"  /  ") +
-            L"Tab " + std::to_wstring(active_tab - p.state.tabs().begin() + 1) + L" of " + std::to_wstring(p.state.tabs().size()));
-        p.heading->set_tone(active_ == index ? TextTone::accent : TextTone::secondary);
+        if (active_ == index) window_.set_title(L"XUI/Files - " + path.wstring());
         p.back->set_enabled(history.relative(-1).has_value());
         p.forward->set_enabled(history.relative(1).has_value());
         p.up->set_enabled(parent_location(path) != path);
@@ -439,6 +572,7 @@ private:
         else {
             const auto& model = p.list->model();
             auto text = std::to_wstring(model.visible_indices().size()) + L" of " + std::to_wstring(model.items()->size()) + L" items";
+            if (p.thumbnail_failures) text += L"  |  Thumbnail failures: " + std::to_wstring(p.thumbnail_failures);
             if (model.selected_index()) text += L"  |  Selected: " + model.selected_item()->name;
             p.status->set_text(std::move(text));
         }

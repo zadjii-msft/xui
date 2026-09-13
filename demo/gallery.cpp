@@ -1,127 +1,954 @@
 #include "xui/application.hpp"
+#include "xui/documents.hpp"
 #include "xui/image.hpp"
+#include "xui/suggestions.hpp"
+#include "xui/adaptive_layout.hpp"
+#include "xui/navigation.hpp"
+#include "xui/shell_commands.hpp"
+#include "xui/titlebar.hpp"
+#include "xui/map_view.hpp"
+#include "xui/runtime_hosts.hpp"
+#include "host_fixtures.hpp"
+#include "gallery_catalog.hpp"
 #include <windows.h>
+#include <shellapi.h>
+#include <sstream>
 
+namespace {
+using namespace xui;
+using Panel = std::shared_ptr<Stack>;
+std::filesystem::path host_directory() {
+    return std::filesystem::absolute(std::filesystem::path(L"gallery-host-fixtures") / std::to_wstring(GetCurrentProcessId()));
+}
+Panel panel(Axis axis = Axis::vertical) {
+    auto result = std::make_shared<Stack>(axis);
+    result->set_spacing(10);
+    return result;
+}
+std::shared_ptr<Label> label(Panel parent, std::wstring text, TextTone tone = TextTone::normal) {
+    auto result = std::make_shared<Label>(std::move(text));
+    result->set_tone(tone);
+    parent->add(result);
+    return result;
+}
+std::shared_ptr<Button> button(Panel parent, std::wstring name, std::function<void()> action) {
+    auto result = std::make_shared<Button>(std::move(name));
+    result->on_click(std::move(action));
+    parent->add(result);
+    return result;
+}
+class Suggestions final : public SuggestionSource {
+public:
+    SuggestionResult suggest(const SuggestionRequest& request, const std::function<bool()>& cancelled) override {
+        SuggestionResult result;
+        for (const auto* text : {L"Documents", L"Downloads", L"Design", L"Desktop"}) {
+            if (cancelled()) return {};
+            if (gallery::fold(text).find(gallery::fold(request.text)) != std::wstring::npos) result.items.emplace_back(text);
+        }
+        return result;
+    }
+};
+class SampleShell final : public ShellCommandProvider {
+public:
+    explicit SampleShell(std::shared_ptr<Label> output) : output_(std::move(output)) {}
+    std::vector<ShellCommandInfo> discover(std::stop_token stop) override {
+        return stop.stop_requested() ? std::vector<ShellCommandInfo>{} :
+            std::vector<ShellCommandInfo>{{{1, 1}, L"Inspect sample", L"inspect"}, {{2, 1}, L"Disabled sample", L"disabled", false}};
+    }
+    void invoke(ItemKey key) override { output_->set_text(L"Events: synthetic verb " + std::to_wstring(key.id)); }
+private:
+    std::shared_ptr<Label> output_;
+};
+class Gallery {
+public:
+    explicit Gallery(Window& window, const std::wstring& page, const std::wstring& image_path) : window_(window) {
+        auto root = panel();
+        root->set_padding({16, 12, 16, 12});
+        auto header = panel(Axis::horizontal);
+        auto title = label(header, L"XUI Control Gallery");
+        title->set_heading(true);
+        button(header, L"Theme", [this] { cycle_theme(); });
+        root->add(header);
+        auto body = panel(Axis::horizontal);
+        auto sidebar = panel();
+        sidebar->set_preferred_size({242, 600});
+        sidebar->set_maximum_size({242, 10000});
+        search_ = std::make_shared<TextInput>(L"Search controls");
+        search_->set_search_style(true);
+        search_->set_preferred_size({242, 42});
+        search_->set_placeholder(L"Search controls or categories");
+        search_->set_shortcut_hint(L"Ctrl+F");
+        search_->set_automation_id(L"gallery-search");
+        sidebar->add(search_);
+        count_ = label(sidebar, std::to_wstring(gallery::entries.size()) + L" examples", TextTone::secondary);
+        count_->set_caption(true);
+        nav_ = std::make_shared<DataGrid>(L"Control catalog");
+        nav_->set_automation_id(L"gallery-catalog");
+        nav_->set_columns({{L"Category / example", 228}});
+        nav_->set_source(std::make_shared<gallery::Catalog>());
+        sidebar->add(nav_, 1);
+        label(sidebar, L"Arrows: select  |  Enter: explore", TextTone::secondary)->set_caption(true);
+        label(sidebar, L"Roadmap: docs/control-roadmap.md", TextTone::secondary)->set_caption(true);
+        body->add(sidebar);
+        pages_ = std::make_shared<PageView>();
+        for (std::size_t i = 0; i < gallery::entries.size(); ++i) {
+            if (i >= 17) {
+                auto slot = panel();
+                auto scroll = std::make_shared<ScrollView>(slot, std::wstring(gallery::entries[i].title) + L" example");
+                scroll->set_automation_id(L"gallery-example-" + std::wstring(gallery::entries[i].id));
+                pages_->add_page(scroll);
+                deferred_[i] = [this, i, slot, image_path] {
+                    const auto& entry = gallery::entries[i];
+                    slot->set_padding({16, 12, 16, 16}); slot->set_surface(true);
+                    auto heading = label(slot, entry.title); heading->set_heading(true);
+                    heading->set_automation_id(L"gallery-page-" + std::wstring(entry.id));
+                    label(slot, entry.purpose, TextTone::secondary);
+                    auto demo = panel(); slot->add(demo);
+                    auto output = label(slot, L"Events: ready", TextTone::accent);
+                    output->set_automation_id(L"gallery-events-" + std::wstring(entry.id));
+                    build(i, demo, output, image_path);
+                    label(slot, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
+                    std::wistringstream code(entry.code); std::wstring line;
+                    while (std::getline(code, line)) label(slot, line)->set_caption(true);
+                    button(slot, L"Copy code", [this, i, output] {
+                        try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
+                        catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
+                    });
+                };
+                continue;
+            }
+            auto content = panel();
+            content->set_padding({16, 12, 16, 16});
+            content->set_surface(true);
+            const auto& entry = gallery::entries[i];
+            label(content, entry.group, TextTone::secondary)->set_caption(true);
+            auto heading = label(content, entry.title);
+            heading->set_heading(true);
+            heading->set_automation_id(L"gallery-page-" + std::wstring(entry.id));
+            label(content, entry.purpose, TextTone::secondary);
+            auto demo = panel();
+            content->add(demo);
+            auto output = std::make_shared<Label>(L"Events: ready");
+            output->set_automation_id(L"gallery-events-" + std::wstring(entry.id));
+            output->set_tone(TextTone::accent);
+            build(i, demo, output, image_path);
+            content->add(output);
+            label(content, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
+            std::wistringstream code(entry.code);
+            std::wstring line;
+            while (std::getline(code, line)) label(content, line)->set_caption(true);
+            button(content, L"Copy code", [this, i, output] {
+                try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
+                catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
+            });
+            auto scroll = std::make_shared<ScrollView>(content, std::wstring(entry.title) + L" example");
+            scroll->set_automation_id(L"gallery-example-" + std::wstring(entry.id));
+            pages_->add_page(scroll);
+        }
+        auto empty = panel();
+        empty->set_padding({24, 24, 24, 24});
+        label(empty, L"No matching controls")->set_heading(true);
+        label(empty, L"Try a category: Input, Layout, Collections, Navigation, Media, Commands, Appearance.");
+        button(empty, L"Clear search", [this] { search_->set_text(L""); filter(L""); window_.focus(*search_); });
+        pages_->add_page(empty);
+        body->add(pages_, 1);
+        root->add(body, 1);
+        auto footer = panel(Axis::horizontal);
+        button(footer, L"Previous example", [this] { step(-1); });
+        button(footer, L"Next example", [this] { step(1); });
+        location_ = label(footer, L"", TextTone::secondary);
+        root->add(footer);
+        nav_->on_select([this] {
+            if (const auto selected = nav_->selected()) show(static_cast<std::size_t>(selected->id - 1));
+        });
+        nav_->on_activate([this] { window_.focus(*first_target()); });
+        nav_->on_sort([this](std::size_t, bool descending) {
+            catalog_descending_ = descending;
+            filter(search_->text());
+        });
+        search_->on_change([this](const auto& query) { filter(query); });
+        search_->on_submit([this] { if (nav_->source()->size()) window_.focus(*nav_); });
+        std::size_t selected{};
+        for (std::size_t i = 0; i < gallery::entries.size(); ++i) if (page == gallery::entries[i].id) selected = i;
+        nav_->select({selected + 1, 1});
+        show(selected);
+        window_.on_key([this](const KeyEvent& event) {
+            if (selected_ == 30 && command_key_ && command_key_(event)) return true;
+            if (event.control && event.key == Key::f) return window_.focus(*search_, true);
+            if (event.key == Key::escape && event.target == search_.get()) {
+                search_->set_text(L""); filter(L""); return true;
+            }
+            // F6 belongs to DataGrid header navigation while a grid has focus.
+            if (event.key == Key::f6 && (!event.target || event.target->role() != ControlRole::data_grid)) {
+                cycle_theme(); return true;
+            }
+            return false;
+        });
+        window_.set_content(root);
+    }
+private:
+    Window& window_;
+    std::shared_ptr<TextInput> search_;
+    std::shared_ptr<DataGrid> nav_;
+    std::shared_ptr<PageView> pages_;
+    std::shared_ptr<Label> count_, location_;
+    std::shared_ptr<Toggle> light_;
+    std::array<std::shared_ptr<Control>, gallery::entries.size()> targets_;
+    std::array<std::function<void()>, gallery::entries.size()> deferred_;
+    std::size_t selected_{};
+    std::optional<bool> catalog_descending_;
+    std::function<bool(const KeyEvent&)> command_key_;
+    Control* first_target() { return selected_ < targets_.size() && targets_[selected_] ? targets_[selected_].get() : search_.get(); }
+    void cycle_theme() {
+        const auto next = window_.theme() == ThemeMode::dark ? ThemeMode::light :
+            window_.theme() == ThemeMode::light ? ThemeMode::high_contrast : ThemeMode::dark;
+        window_.set_theme(next);
+        light_->set_checked(next == ThemeMode::light);
+    }
+    void show(std::size_t index) {
+        if (index < deferred_.size() && deferred_[index]) {
+            auto build = std::move(deferred_[index]); deferred_[index] = {}; build();
+        }
+        selected_ = index;
+        pages_->select(index);
+        location_->set_text(index < gallery::entries.size() ? std::wstring(gallery::entries[index].title) + L"  |  C++ public API" : L"No results");
+    }
+    void filter(const std::wstring& query) {
+        auto source = std::make_shared<gallery::Catalog>(query, catalog_descending_);
+        nav_->set_source(source);
+        count_->set_text(std::to_wstring(source->size()) + L" of " + std::to_wstring(gallery::entries.size()) + L" examples");
+        if (source->size()) {
+            const auto key = source->find({selected_ + 1, 1}) ? RowKey{selected_ + 1, 1} : source->key(0);
+            nav_->select(key);
+            show(static_cast<std::size_t>(key.id - 1));
+        } else {
+            nav_->clear_selection();
+            show(gallery::entries.size());
+        }
+    }
+    void step(int delta) {
+        const auto source = nav_->source();
+        if (!source->size()) return;
+        const auto current = source->find({selected_ + 1, 1}).value_or(0);
+        const auto next = (static_cast<std::ptrdiff_t>(current) + delta + source->size()) % source->size();
+        nav_->select(source->key(next));
+    }
+    void build(std::size_t index, Panel demo, std::shared_ptr<Label> output, const std::wstring& image_path) {
+        switch (index) {
+        case 0: {
+            label(demo, L"Make yourself at home")->set_heading(true);
+            auto name = std::make_shared<TextInput>(L"Your name");
+            name->set_placeholder(L"How should we greet you?");
+            demo->add(name); targets_[index] = name;
+            auto save = button(demo, L"Save greeting", [] {});
+            auto permission = std::make_shared<Toggle>(L"Allow greeting updates");
+            permission->set_checked(true); demo->add(permission);
+            light_ = std::make_shared<Toggle>(L"Use light theme");
+            light_->set_checked(window_.theme() == ThemeMode::light);
+            demo->add(light_);
+            auto greeting = label(demo, L"Your greeting will appear here.", TextTone::accent);
+            auto status = label(demo, L"Enter a name to enable Save.", TextTone::secondary);
+            save->set_enabled(false);
+            // Callbacks borrow their controls. The page owns them for the window lifetime.
+            auto update = [name = name.get(), save = save.get(), permission = permission.get(), status] {
+                save->set_enabled(permission->checked() && !name->text().empty());
+                status->set_text(!permission->checked() ? L"Updates are paused." :
+                    name->text().empty() ? L"Enter a name to enable Save." : L"Ready to save your greeting.");
+            };
+            name->on_change([update](const auto&) { update(); });
+            permission->on_change([update](bool) { update(); });
+            save->on_click([name = name.get(), greeting, status, output] {
+                greeting->set_text(L"Hello, " + name->text() + L"!");
+                status->set_text(L"Greeting saved for this session.");
+                output->set_text(L"Events: Save invoked.");
+            });
+            light_->on_change([this](bool value) { window_.set_theme(value ? ThemeMode::light : ThemeMode::dark); });
+            break;
+        }
+        case 1: {
+            auto clicks = std::make_shared<unsigned>();
+            auto row = panel(Axis::horizontal); demo->add(row);
+            auto action = button(row, L"Run action", [output, clicks] { output->set_text(L"Events: invoked " + std::to_wstring(++*clicks) + L" times."); });
+            targets_[index] = action;
+            for (const auto icon : {ButtonIcon::back, ButtonIcon::forward, ButtonIcon::refresh, ButtonIcon::add}) {
+                auto b = button(row, icon == ButtonIcon::back ? L"Back" : icon == ButtonIcon::forward ? L"Forward" :
+                    icon == ButtonIcon::refresh ? L"Refresh" : L"Add", [output] { output->set_text(L"Events: icon action invoked."); });
+                b->set_icon(icon);
+            }
+            auto enabled = std::make_shared<Toggle>(L"Enable action"); enabled->set_checked(true); demo->add(enabled);
+            enabled->on_change([action](bool value) { action->set_enabled(value); });
+            break;
+        }
+        case 2: {
+            auto a = std::make_shared<Toggle>(L"Allow updates"); demo->add(a); targets_[index] = a;
+            auto b = std::make_shared<Toggle>(L"Show descriptions"); demo->add(b);
+            a->on_change([output](bool value) { output->set_text(value ? L"Events: updates on." : L"Events: updates off."); });
+            b->on_change([output](bool value) { output->set_text(value ? L"Events: descriptions on." : L"Events: descriptions off."); });
+            auto disabled = std::make_shared<Toggle>(L"Unavailable choice"); disabled->set_enabled(false); demo->add(disabled);
+            break;
+        }
+        case 3: {
+            auto input = std::make_shared<TextInput>(L"Project name"); targets_[index] = input; demo->add(input);
+            input->set_maximum_length(40); input->set_placeholder(L"Enter up to 40 UTF-16 units");
+            input->on_change([output](const auto& text) { output->set_text(L"Events: " + std::to_wstring(text.size()) + L" UTF-16 units."); });
+            input->on_submit([output] { output->set_text(L"Events: Enter submitted."); });
+            auto caption = std::make_shared<Toggle>(L"Show caption"); caption->set_checked(true); demo->add(caption);
+            caption->on_change([input](bool checked) { input->set_caption_visible(checked); });
+            label(demo, L"Password, multiline, and rich text need separate contracts.", TextTone::secondary);
+            break;
+        }
+        case 4: {
+            auto input = std::make_shared<TextInput>(L"Suggested location"); targets_[index] = input; demo->add(input);
+            input->set_search_style(true); input->set_placeholder(L"Type D, then use Down and Enter");
+            input->set_suggestions(std::make_shared<Suggestions>());
+            input->on_submit([input = input.get(), output] { output->set_text(L"Events: " + input->text()); });
+            label(demo, L"Four in-memory suggestions. No filesystem access.");
+            break;
+        }
+        case 5: {
+            auto heading = label(demo, L"A measured heading"); heading->set_heading(true);
+            label(demo, L"Body text: Unicode 日本語 and English");
+            label(demo, L"Secondary caption", TextTone::secondary)->set_caption(true);
+            label(demo, L"Accent tone", TextTone::accent);
+            label(demo, L"Error tone", TextTone::error);
+            targets_[index] = button(demo, L"Change heading", [heading] { heading->set_text(L"Text updates preserve identity"); });
+            break;
+        }
+        case 6: {
+            auto row = panel(Axis::horizontal); row->set_padding({12, 12, 12, 12}); row->set_surface(true); demo->add(row);
+            label(row, L"Fixed label");
+            auto stretch = panel(); row->add(stretch, 1); label(stretch, L"Flexible column"); label(stretch, L"Second row");
+            auto spacing = std::make_shared<Toggle>(L"Use wider spacing"); demo->add(spacing); targets_[index] = spacing;
+            spacing->on_change([row, output](bool value) { row->set_spacing(value ? 24.0f : 10.0f); output->set_text(L"Events: layout updated."); });
+            break;
+        }
+        case 7: {
+            auto form = panel(); form->set_padding({12, 12, 12, 12});
+            label(form, L"Workspace preferences")->set_heading(true);
+            label(form, L"Scroll to review your workspace. Tab reveals each field.");
+            auto workspace = std::make_shared<TextInput>(L"Workspace name"); workspace->set_text(L"Personal workspace"); form->add(workspace);
+            for (auto text : {L"Restore this workspace when the app opens", L"Show previews in the file browser", L"Keep selected folders"}) form->add(std::make_shared<Toggle>(text));
+            auto description = std::make_shared<TextInput>(L"Workspace description"); form->add(description);
+            button(form, L"Apply preferences", [output] { output->set_text(L"Workspace preferences applied."); });
+            button(form, L"Reset", [workspace, description, output] { workspace->set_text(L"Personal workspace"); description->set_text(L""); output->set_text(L"Preferences reset."); });
+            auto scroll = std::make_shared<ScrollView>(form, L"Workspace preferences");
+            scroll->set_automation_id(L"workspace-scroll"); scroll->set_preferred_size({480, 260}); demo->add(scroll); targets_[index] = scroll;
+            break;
+        }
+        case 8: {
+            auto list = std::make_shared<FileList>(L"Sample files"); list->set_preferred_size({480, 240}); targets_[index] = list;
+            auto items = std::make_shared<std::vector<FileItem>>();
+            for (unsigned i = 1; i <= 200; ++i) items->push_back({i, L"Fixture " + std::to_wstring(i), L"", i % 4 == 0});
+            list->set_items(items); demo->add(list);
+            list->on_activate([output](const FileItem& item, FileActivation) { output->set_text(L"Events: selected " + item.name + L". No file action."); });
+            auto search = std::make_shared<TextInput>(L"Filter fixture names"); demo->add(search);
+            search->set_search_style(true); search->on_change([list](const auto& text) { list->set_filter(text); });
+            break;
+        }
+        case 9: {
+            auto grid = std::make_shared<DataGrid>(L"Synthetic data");
+            grid->set_columns({{L"Item", 240}, {L"Size", 150, true}});
+            grid->set_source(std::make_shared<gallery::Numbers>());
+            grid->set_preferred_size({480, 260}); demo->add(grid); targets_[index] = grid;
+            grid->on_sort([grid = grid.get(), output](std::size_t, bool descending) {
+                grid->set_source(std::make_shared<gallery::Numbers>(descending));
+                output->set_text(descending ? L"Events: descending source." : L"Events: ascending source.");
+            });
+            grid->on_select([grid = grid.get(), output] {
+                if (auto key = grid->selected()) output->set_text(L"Events: stable row " + std::to_wstring(key->id));
+            });
+            label(demo, L"Drag headers to reorder. Drag boundaries to resize.", TextTone::secondary);
+            label(demo, L"F6: header  |  Ctrl+arrows: resize  |  Ctrl+Shift+arrows: reorder", TextTone::secondary)->set_caption(true);
+            button(demo, L"Reverse columns", [grid] { grid->reorder_column(0, 1); });
+            break;
+        }
+        case 10: {
+            auto tabs = std::make_shared<TabStrip>(L"Sample documents"); demo->add(tabs); targets_[index] = tabs;
+            tabs->set_tabs({{1, L"Notes"}, {2, L"Preview"}}, 1);
+            auto next = std::make_shared<std::uint64_t>(2);
+            tabs->on_select([output](auto id) { output->set_text(L"Events: document " + std::to_wstring(id)); });
+            tabs->on_close([tabs = tabs.get(), output](auto id) {
+                auto items = tabs->tabs(); std::erase_if(items, [id](const auto& item) { return item.id == id; });
+                const auto selected = items.empty() ? std::optional<std::uint64_t>{} : items.front().id;
+                tabs->set_tabs(std::move(items), selected); output->set_text(L"Events: document closed.");
+            });
+            button(demo, L"Add document", [tabs, next, output] {
+                if (tabs->tabs().size() >= 12) { output->set_text(L"Events: sample limit is 12 tabs."); return; }
+                auto items = tabs->tabs(); auto id = ++*next; items.push_back({id, L"Document " + std::to_wstring(id)});
+                tabs->set_tabs(std::move(items), id); output->set_text(L"Events: document added.");
+            });
+            break;
+        }
+        case 11: {
+            auto first = panel(), second = panel();
+            label(first, L"Primary pane"); first->add(std::make_shared<TextInput>(L"Primary note"));
+            label(second, L"Secondary pane"); second->add(std::make_shared<TextInput>(L"Secondary note"));
+            auto split = std::make_shared<SplitView>(first, second, L"Sample divider");
+            split->set_preferred_size({720, 180}); demo->add(split); targets_[index] = split;
+            auto toggle = std::make_shared<Toggle>(L"Show secondary pane"); toggle->set_checked(true); demo->add(toggle);
+            toggle->on_change([split](bool value) { split->set_secondary_visible(value); });
+            label(demo, L"Two panes need at least 610 DIPs of example width.", TextTone::secondary);
+            break;
+        }
+        case 12: {
+            auto pages = std::make_shared<PageView>(); pages->set_preferred_size({480, 110});
+            for (auto text : {L"First page field", L"Second page field"}) {
+                auto page = panel(); page->add(std::make_shared<TextInput>(text)); pages->add_page(page);
+            }
+            demo->add(pages);
+            targets_[index] = button(demo, L"Switch content page", [pages, output] {
+                pages->select(1 - pages->selected()); output->set_text(L"Events: page " + std::to_wstring(pages->selected() + 1));
+            });
+            break;
+        }
+        case 13: {
+            auto path = std::make_shared<TextInput>(L"Preview image path");
+            path->set_placeholder(L"Enter a PNG, JPEG, BMP, GIF, or TIFF path");
+            path->set_text(image_path); demo->add(path); targets_[index] = path;
+            auto image = std::make_shared<Image>(L"Workspace image preview"); image->set_preferred_size({320, 144}); demo->add(image);
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Load image", [image, path, output] {
+                image->set_source(path->text(), {320, 144}); image->reload();
+                output->set_text(L"Events: image requested. Decode errors appear in the preview.");
+            });
+            button(actions, L"Unload image", [image, output] { image->unload(); output->set_text(L"Events: image unloaded."); });
+            break;
+        }
+        case 14: {
+            auto chart = std::make_shared<HistoryChart>(L"Deterministic history"); chart->set_preferred_size({480, 180}); demo->add(chart);
+            for (unsigned i = 0; i < 45; ++i) chart->append((i * 17) % 100);
+            auto next = std::make_shared<unsigned>(45);
+            targets_[index] = button(demo, L"Append sample", [chart, next, output] {
+                chart->append(((*next)++ * 17) % 100); output->set_text(L"Events: retained samples " + std::to_wstring(chart->size()));
+            });
+            button(demo, L"Append gap", [chart] { chart->append(std::nullopt); });
+            label(demo, L"No timer, sampler, or process metrics run on this page.");
+            break;
+        }
+        case 15: {
+            auto checked = std::make_shared<bool>(true);
+            auto menu = button(demo, L"Context menu target", [output] { output->set_text(L"Events: right-click this button or press Shift+F10."); });
+            targets_[index] = menu;
+            label(demo, L"Right-click the target, or focus it and press Shift+F10.", TextTone::secondary);
+            menu->on_context_menu([checked, output] {
+                return std::vector<MenuItem>{
+                    {L"&Run example\tEnter", [output] { output->set_text(L"Events: menu action invoked."); }},
+                    {L"&Show details", [checked, output] { *checked = !*checked; output->set_text(*checked ? L"Events: details on." : L"Events: details off."); }, true, *checked},
+                    {L"", {}, false, false, true},
+                    {L"Unavailable action", {}, false}};
+            });
+            button(demo, L"Show confirmation", [this, output] {
+                output->set_text(window_.confirm(L"Gallery confirmation", L"Apply this sample action? No files will change.") ?
+                    L"Events: confirmation accepted." : L"Events: confirmation cancelled.");
+            });
+            label(demo, L"Confirmation uses TaskDialog or MessageBox, not a custom ContentDialog.", TextTone::secondary);
+            break;
+        }
+        case 16: {
+            for (auto mode : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast}) {
+                auto b = button(demo, mode == ThemeMode::dark ? L"Dark theme" : mode == ThemeMode::light ? L"Light theme" : L"High contrast theme",
+                    [this, mode, output] { window_.set_theme(mode); light_->set_checked(mode == ThemeMode::light); output->set_text(L"Events: theme changed."); });
+                if (!targets_[index]) targets_[index] = b;
+            }
+            label(demo, L"Tab: move focus. Space: toggle. Enter: invoke.");
+            label(demo, L"F6 cycles themes outside grids. Ctrl+F focuses catalog search.");
+            label(demo, L"Native EDIT exposes ValuePattern. TextPattern depends on Windows.");
+            label(demo, L"C ABI, C#, and Rust expose a smaller control subset.", TextTone::secondary);
+            break;
+        }
+        case 17: {
+            auto radio = std::make_shared<RadioGroup>(L"View mode");
+            radio->set_automation_id(L"foundation-radio");
+            radio->set_items({{10, L"List"}, {20, L"Details"}, {30, L"Unavailable view", false}}, 10);
+            radio->set_preferred_size({320, 102});
+            radio->on_change([output](auto id) { output->set_text(L"Events: view ID " + std::to_wstring(id)); });
+            demo->add(radio); targets_[index] = radio;
+            break;
+        }
+        case 18: {
+            auto combo = std::make_shared<ComboBox>(L"Output format");
+            combo->set_automation_id(L"foundation-combo");
+            combo->set_items({{11, L"Text"}, {22, L"Markdown"}, {33, L"HTML"}}, 11);
+            combo->on_change([output](auto id) { output->set_text(L"Events: committed format ID " + std::to_wstring(id)); });
+            demo->add(combo); targets_[index] = combo;
+            auto editable = std::make_shared<ComboBox>(L"Editable format", true);
+            editable->set_items({{11, L"Text"}, {22, L"Markdown"}, {33, L"HTML"}}, 11);
+            editable->on_edit([output](const auto& text) { output->set_text(L"Events: native text " + text); });
+            editable->on_change([output](auto id) { output->set_text(L"Events: editable committed ID " + std::to_wstring(id)); });
+            demo->add(editable);
+            break;
+        }
+        case 19: {
+            auto anchor = std::make_shared<Button>(L"Open retained popup");
+            anchor->set_automation_id(L"foundation-popup");
+            demo->add(anchor); targets_[index] = anchor;
+            auto content = panel(); content->set_padding({10, 10, 10, 10});
+            auto edit = std::make_shared<TextInput>(L"Popup native input"); edit->set_caption_visible(false);
+            content->add(edit);
+            auto range = std::make_shared<RangeInput>(L"Popup range"); content->add(range);
+            auto nested_anchor = std::make_shared<Button>(L"Nested popup"); content->add(nested_anchor);
+            auto popup = std::make_shared<Popup>(content); popup->set_preferred_size({340, 170});
+            popup->on_dismiss([output](auto reason) { output->set_text(L"Events: popup dismissed (" + std::to_wstring(static_cast<int>(reason)) + L")."); });
+            auto nested_content = panel(); nested_content->set_padding({10, 10, 10, 10});
+            auto nested_toggle = std::make_shared<Toggle>(L"Nested independent choice"); nested_content->add(nested_toggle);
+            auto nested = std::make_shared<Popup>(nested_content); nested->set_preferred_size({260, 64}); nested->set_placement(PopupPlacement::right);
+            std::weak_ptr<Button> weak_anchor = anchor, weak_nested = nested_anchor;
+            anchor->on_click([this, popup, weak_anchor, edit] { if (auto a = weak_anchor.lock()) window_.show_popup(popup, *a, edit.get()); });
+            nested_anchor->on_click([this, nested, weak_nested] { if (auto a = weak_nested.lock()) window_.show_popup(nested, *a); });
+            break;
+        }
+        case 20: {
+            auto action = button(demo, L"Hover or focus for help", [output] { output->set_text(L"Events: help action invoked."); });
+            action->set_automation_id(L"foundation-tooltip");
+            action->set_help_text(L"Help appears after 600 ms. Focus stays on this action.");
+            action->set_tooltip_delay(600); targets_[index] = action;
+            break;
+        }
+        case 21: {
+            auto repeat = button(demo, L"Hold to repeat", [output, count = 0]() mutable { output->set_text(L"Events: repeat " + std::to_wstring(++count)); });
+            repeat->set_automation_id(L"foundation-repeat"); repeat->set_behavior(ButtonBehavior::repeat);
+            auto toggle = std::make_shared<Button>(L"Toggle action"); toggle->set_behavior(ButtonBehavior::toggle);
+            toggle->on_toggle([output](bool value) { output->set_text(value ? L"Events: action on." : L"Events: action off."); }); demo->add(toggle);
+            auto split = std::make_shared<SplitButton>(L"Run primary", L"Run options");
+            split->primary()->on_click([output] { output->set_text(L"Events: primary action only."); });
+            auto content = panel(); label(content, L"Run options");
+            auto option = std::make_shared<Toggle>(L"Run with diagnostics"); content->add(option);
+            auto popup = std::make_shared<Popup>(content); popup->set_preferred_size({260, 80});
+            std::weak_ptr<Button> secondary = split->secondary();
+            split->secondary()->on_click([this, secondary, popup] { if (auto anchor = secondary.lock()) window_.show_popup(popup, *anchor); });
+            demo->add(split); targets_[index] = repeat;
+            break;
+        }
+        case 22: {
+            auto number = std::make_shared<NumericInput>(L"Copies"); number->set_automation_id(L"foundation-number");
+            number->set_range({1, 99, 1, 10}); number->set_value(3);
+            number->on_change([output](double value) { output->set_text(L"Events: copies " + std::to_wstring(value)); });
+            demo->add(number); targets_[index] = number->editor();
+            label(demo, L"Invalid text stays visible with an error border. Up/Down changes the value.", TextTone::secondary);
+            break;
+        }
+        case 23: {
+            auto row = panel(Axis::horizontal);
+            for (auto axis : {Axis::horizontal, Axis::vertical}) {
+                auto range = std::make_shared<RangeInput>(axis == Axis::horizontal ? L"Horizontal scale" : L"Vertical scale");
+                range->set_range({0, 100, 5, 20}); range->set_value(40); range->set_orientation(axis);
+                range->set_fixed_size(axis == Axis::horizontal ? Size{280, 42} : Size{44, 160});
+                range->on_preview([output](double value) { output->set_text(L"Events: preview " + std::to_wstring(value)); });
+                range->on_change([output](double value) { output->set_text(L"Events: committed " + std::to_wstring(value)); });
+                range->on_cancel([output](double value) { output->set_text(L"Events: cancelled, value " + std::to_wstring(value)); });
+                if (axis == Axis::horizontal) { range->set_automation_id(L"foundation-range"); targets_[index] = range; }
+                row->add(range);
+            }
+            demo->add(row);
+            break;
+        }
+        case 24: {
+            auto content = panel();
+            auto text = std::make_shared<TextInput>(L"Detail note"); content->add(text);
+            auto choice = std::make_shared<Toggle>(L"Keep detail selection"); content->add(choice);
+            auto expander = std::make_shared<Expander>(L"Details", content);
+            expander->set_automation_id(L"foundation-disclosure");
+            expander->on_change([output](bool expanded) { output->set_text(expanded ? L"Events: details expanded." : L"Events: details collapsed."); });
+            demo->add(expander); targets_[index] = expander;
+            break;
+        }
+        case 25: {
+            auto progress = std::make_shared<Progress>(L"Sample task"); progress->set_value(40);
+            progress->set_automation_id(L"foundation-progress"); demo->add(progress);
+            auto row = panel(Axis::horizontal);
+            targets_[index] = button(row, L"Advance", [progress, output] {
+                progress->set_state(ProgressState::determinate); progress->set_value(std::min(100.0, progress->value() + 10));
+                output->set_text(L"Events: progress advanced.");
+            });
+            button(row, L"Indeterminate", [progress, output] { progress->set_state(ProgressState::indeterminate); output->set_text(L"Events: static indeterminate state."); });
+            button(row, L"Pause", [progress] { progress->set_state(ProgressState::paused); }); demo->add(row);
+            auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
+            auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
+            break;
+        }
+        case 26: {
+            auto items = std::make_shared<ItemsView>(L"Synthetic items"); items->set_automation_id(L"collection-items");
+            auto full = std::make_shared<gallery::FixtureItems>(); items->set_items(full, full);
+            items->set_preferred_size({480, 250}); items->set_help_text(L"Ctrl toggles. Shift selects a range. Drag tiles for a rectangle. F2 invokes the inline action.");
+            auto modes = panel(Axis::horizontal);
+            for (const auto mode : {ItemsPresentation::list, ItemsPresentation::tiles, ItemsPresentation::grouped}) {
+                button(modes, mode == ItemsPresentation::list ? L"List" : mode == ItemsPresentation::tiles ? L"Tiles" : L"Groups",
+                    [items, mode] { items->set_presentation(mode); });
+            }
+            demo->add(modes); demo->add(items); targets_[index] = items;
+            auto actions = panel(Axis::horizontal);
+            button(actions, L"Select filtered", [items, output] { items->set_select_all_scope(SelectAllScope::filtered); items->select_all(); output->set_text(L"Events: filtered selection, one range."); });
+            button(actions, L"Select full source", [items, output] { items->set_select_all_scope(SelectAllScope::full_source); items->select_all(); output->set_text(L"Events: full-source selection, one range."); });
+            demo->add(actions);
+            auto even = std::make_shared<Toggle>(L"Show even IDs"); demo->add(even);
+            even->on_change([items, full](bool value) { items->set_items(value ? std::make_shared<gallery::FixtureItems>(50000, 2, 2) : full, full); });
+            items->on_selection([items = items.get(), output] {
+                const auto focus = items->selection().focused();
+                output->set_text(L"Events: focus " + std::to_wstring(focus ? focus->id : 0) + L", selection terms " + std::to_wstring(items->selection().storage_size()));
+            });
+            items->on_action([output](ItemKey key) { output->set_text(L"Events: inline item " + std::to_wstring(key.id)); });
+            items->on_activate([output](ItemKey key) { output->set_text(L"Events: open item " + std::to_wstring(key.id)); });
+            break;
+        }
+        case 27: {
+            auto tree = std::make_shared<TreeView>(L"Synthetic tree"); tree->set_automation_id(L"collection-tree");
+            tree->set_tree(std::make_shared<gallery::FixtureTree>()); tree->set_preferred_size({480, 260}); demo->add(tree); targets_[index] = tree;
+            tree->on_request([tree = tree.get(), output](TreeRequest request) {
+                tree->complete(request, std::make_shared<gallery::FixtureItems>(100000, request.node.id * 1000000 + 1, 1, false));
+                output->set_text(L"Events: cached branch " + std::to_wstring(request.node.id) + L", 100,000 virtual children.");
+            });
+            tree->on_action([output](ItemKey key) { output->set_text(L"Events: tree action " + std::to_wstring(key.id)); });
+            button(demo, L"Expand first branch", [tree] { tree->disclose({1, 1}, true); });
+            button(demo, L"Collapse first branch", [tree] { tree->disclose({1, 1}, false); });
+            label(demo, L"Right: expand or enter children. Left: collapse or select parent.", TextTone::secondary)->set_caption(true);
+            break;
+        }
+        case 28: {
+            auto navigation = std::make_shared<ItemsView>(L"Adaptive navigation");
+            navigation->set_items(std::make_shared<gallery::FixtureItems>(8, 1, 1, false)); navigation->set_item_size({120, 40});
+            auto detail = std::make_shared<Grid>();
+            detail->set_tracks({{TrackSizing::automatic}, {TrackSizing::star}}, {{}, {}});
+            detail->set_gap(8, 8); detail->set_padding({8, 8, 8, 8});
+            auto title = std::make_shared<Label>(L"Shared detail controls"); detail->add(title, 0, 0, 1, 2);
+            auto wrap = std::make_shared<Wrap>(); wrap->set_item_width(110);
+            for (int i = 1; i <= 4; ++i) {
+                auto action = std::make_shared<Button>(L"Action " + std::to_wstring(i));
+                action->on_click([output, i] { output->set_text(L"Events: wrapped action " + std::to_wstring(i)); }); wrap->add(action);
+            }
+            detail->add(wrap, 1, 0, 1, 2);
+            auto adaptive = std::make_shared<AdaptiveLayout>(navigation, detail); adaptive->set_preferred_size({600, 260});
+            adaptive->set_breakpoint(520); adaptive->set_navigation_extent(170); demo->add(adaptive); targets_[index] = navigation;
+            auto compact = std::make_shared<Toggle>(L"Compact recipe"); demo->add(compact);
+            compact->on_change([adaptive, output](bool value) { adaptive->set_breakpoint(value ? 10000.0f : 520.0f); output->set_text(value ? L"Events: compact panes, same controls." : L"Events: width-based panes, same controls."); });
+            auto overlay = std::make_shared<Toggle>(L"Overlay navigation"); demo->add(overlay);
+            overlay->on_change([adaptive, output](bool value) {
+                adaptive->set_compact_navigation(value ? CompactNavigation::overlay : CompactNavigation::stacked);
+                adaptive->set_navigation_open(true);
+                output->set_text(value ? L"Events: compact overlay uses the same navigation." : L"Events: compact stacked navigation.");
+            });
+            button(demo, L"Show navigation", [adaptive] { adaptive->set_navigation_open(true); });
+            navigation->on_selection([navigation = navigation.get(), title] {
+                if (const auto key = navigation->selection().focused()) title->set_text(L"Details for ID " + std::to_wstring(key->id));
+            });
+            break;
+        }
+        case 29: {
+            auto grid = std::make_shared<DataGrid>(L"Filterable data"); grid->set_automation_id(L"collection-grid");
+            grid->set_columns({{L"Item", 290, false, true, true}, {L"Size", 150, true}});
+            grid->set_source(std::make_shared<gallery::Numbers>()); grid->set_full_source(grid->source());
+            grid->set_preferred_size({480, 240}); demo->add(grid); targets_[index] = grid;
+            grid->on_filter([grid = grid.get(), output](GridFilterRequest request) {
+                const bool even = request.filters[0] == L"even";
+                if (grid->complete_filter(request, std::make_shared<gallery::Numbers>(grid->descending(), even)))
+                    output->set_text(even ? L"Events: even-ID filter, 50,000 rows." : L"Events: filter cleared, 100,000 rows.");
+            });
+            grid->on_sort([grid = grid.get()](std::size_t, bool descending) {
+                grid->set_source(std::make_shared<gallery::Numbers>(descending, grid->filters()[0] == L"even"));
+            });
+            grid->on_filter_open([this, grid = grid.get()](std::size_t column) {
+                auto content = panel(); content->set_padding({10, 10, 10, 10});
+                auto edit = std::make_shared<TextInput>(L"Header filter"); edit->set_text(grid->filters()[column]);
+                edit->set_placeholder(L"Type even, or leave empty"); content->add(edit);
+                auto apply = std::make_shared<Button>(L"Apply filter"); content->add(apply);
+                auto popup = std::make_shared<Popup>(content); popup->set_preferred_size({320, 140});
+                std::weak_ptr<Popup> weak = popup;
+                apply->on_click([this, grid, column, edit, weak] {
+                    const auto text = edit->text();
+                    if (auto p = weak.lock()) window_.dismiss_popup(*p);
+                    grid->filter(column, text);
+                });
+                window_.show_popup(popup, *grid, edit.get());
+            });
+            auto actions = panel(Axis::horizontal);
+            button(actions, L"Select all rows", [grid] { grid->select_all(); });
+            button(actions, L"Even IDs", [grid] { grid->filter(0, L"even"); });
+            button(actions, L"Clear filter", [grid] { grid->filter(0, L""); }); demo->add(actions);
+            button(demo, L"Reorder table columns", [grid] { grid->reorder_column(0, 1); });
+            label(demo, L"F6: headers. F4: sort/filter/check. Space: act. Ctrl+A: select all.", TextTone::secondary)->set_caption(true);
+            break;
+        }
+        case 30: {
+            auto surface = std::make_shared<CommandSurface>(L"Gallery commands");
+            surface->menu()->set_automation_id(L"command-menu");
+            surface->editor()->set_automation_id(L"command-search");
+            std::vector<CommandRecord> records{
+                {1, 0, L"Open sample", [output] { output->set_text(L"Events: Open sample."); }, true, {}, ButtonIcon::forward,
+                    {L"Enter", L"Ctrl+O"}, L"Pin", [output] { output->set_text(L"Events: Pin only. Primary did not run."); }},
+                {2, 0, L"Checked command", [output] { output->set_text(L"Events: checked action."); }, true, true},
+                {3, 0, L"Disabled command", {}, false},
+                {4, 0, L"", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::separator},
+                {5, 0, L"More actions", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::submenu},
+                {6, 5, L"Nested action", [output] { output->set_text(L"Events: nested action."); }}};
+            auto commands = std::make_shared<CommandSet>(std::move(records)); surface->set_commands(commands);
+            auto bindings = std::make_shared<CommandBindings>(); bindings->bind({static_cast<std::uint16_t>(Key::o), true}, 1);
+            command_key_ = [commands, bindings](const KeyEvent& event) {
+                return bindings->invoke(*commands, {static_cast<std::uint16_t>(event.key), event.control, event.shift, event.alt});
+            };
+            auto open = std::make_shared<Button>(L"Open command palette"); demo->add(open); targets_[index] = open;
+            open->on_click([this, open = open.get(), surface] { window_.show_commands(surface, *open); });
+            auto bar = std::make_shared<CommandBar>(); bar->set_fixed_size({340, 40});
+            std::vector<CommandRecord> toolbar;
+            for (std::uint64_t i = 1; i <= 6; ++i) toolbar.push_back({i, 0, L"Action " + std::to_wstring(i),
+                [output, i] { output->set_text(L"Events: toolbar action " + std::to_wstring(i)); }});
+            bar->set_commands(std::make_shared<CommandSet>(std::move(toolbar)));
+            bar->on_overflow([this, bar = bar.get()] {
+                auto overflow = std::make_shared<CommandSurface>(L"Toolbar overflow", false);
+                overflow->set_commands(bar->overflow_commands()); window_.show_commands(overflow, *bar->overflow_button());
+            });
+            demo->add(bar); label(demo, L"Search uses native text input. F2 runs only the independent pin action.", TextTone::secondary);
+            break;
+        }
+        case 31: {
+            auto path = std::make_shared<Breadcrumb>(); path->set_fixed_size({460, 38});
+            path->set_segments({{{1, 1}, L"Home"}, {{2, 1}, L"Projects"}, {{3, 1}, L"Library"}, {{4, 1}, L"Samples"}, {{5, 1}, L"Current"}});
+            path->on_navigate([output](ItemKey key) { output->set_text(L"Events: navigate request " + std::to_wstring(key.id)); });
+            path->on_overflow([this, path = path.get()] {
+                auto surface = std::make_shared<CommandSurface>(L"Earlier locations", false);
+                surface->set_commands(path->overflow_commands()); window_.show_commands(surface, *path->overflow_button());
+            });
+            demo->add(path);
+            auto picker = std::make_shared<LocationPicker>();
+            picker->navigation()->set_items(std::make_shared<gallery::FixtureItems>(12, 1, 1, false));
+            picker->navigation()->on_navigate([this, weak = std::weak_ptr<Popup>(picker->popup()), output](ItemKey key) {
+                if (auto popup = weak.lock()) window_.dismiss_popup(*popup, PopupDismissReason::commit);
+                output->set_text(L"Events: chosen location " + std::to_wstring(key.id));
+            });
+            picker->navigation()->on_query([weak = std::weak_ptr<NavigationPane>(picker->navigation())](NavigationQuery request) {
+                if (auto pane = weak.lock()) pane->complete(request, std::make_shared<gallery::FixtureItems>(request.text.empty() ? 12 : 4, 1, 1, false));
+            });
+            picker->toolbar()->set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{
+                {1, 0, L"Back", [output] { output->set_text(L"Events: provider back request."); }},
+                {2, 0, L"Up", [output] { output->set_text(L"Events: provider parent request."); }}}));
+            auto open = std::make_shared<Button>(L"Choose location"); demo->add(open); targets_[index] = open;
+            open->on_click([this, open = open.get(), picker] { window_.show_location_picker(picker, *open); });
+            label(demo, L"These locations are synthetic. Escape never sends a navigation request.", TextTone::secondary);
+            break;
+        }
+        case 32: {
+            auto nav = std::make_shared<NavigationPane>(); nav->set_fixed_size({220, 250});
+            nav->set_items(std::make_shared<gallery::FixtureItems>(20));
+            nav->on_navigate([output](ItemKey key) { output->set_text(L"Events: quick access " + std::to_wstring(key.id)); });
+            auto items = std::make_shared<ItemsView>(L"Navigation content");
+            items->set_items(std::make_shared<gallery::FixtureItems>(100));
+            auto layout = std::make_shared<AdaptiveLayout>(nav, items); layout->set_preferred_size({520, 250});
+            layout->set_breakpoint(450); layout->set_navigation_extent(220); layout->set_compact_navigation(CompactNavigation::overlay);
+            demo->add(layout); targets_[index] = items;
+            auto picker = std::make_shared<LocationPicker>(L"Anchored quick access");
+            picker->navigation()->set_items(nav->items()->source());
+            picker->navigation()->on_navigate([output, weak = std::weak_ptr<NavigationPane>(nav)](ItemKey key) {
+                if (auto pane = weak.lock()) pane->items()->select(key);
+                output->set_text(L"Events: anchored quick access " + std::to_wstring(key.id));
+            });
+            auto open = std::make_shared<Button>(L"Open quick access"); demo->add(open);
+            open->on_click([this, open = open.get(), picker, nav] {
+                picker->navigation()->items()->set_selection(nav->items()->selection());
+                window_.show_location_picker(picker, *open);
+            });
+            auto view = std::make_shared<ViewPicker>(items);
+            auto settings = std::make_shared<Button>(L"View settings"); demo->add(settings);
+            settings->on_click([this, settings = settings.get(), view, output] {
+                window_.show_popup(view->popup(), *settings, view->choices().get());
+                output->set_text(L"Events: radio and size controls change the visible ItemsView.");
+            });
+            break;
+        }
+        case 33: {
+            auto session = std::make_shared<ShellCommandSession>(std::make_shared<SampleShell>(output));
+            targets_[index] = button(demo, L"Discover synthetic Shell commands", [session, output] {
+                session->discover(); output->set_text(L"Events: 2 synthetic commands discovered. No verb ran.");
+            });
+            button(demo, L"Invoke synthetic inspect", [session] { session->invoke({1, 1}); });
+            auto path = std::make_shared<TextInput>(L"Shell item path"); path->set_maximum_length(32767); demo->add(path);
+            auto open = std::make_shared<Button>(L"Shell commands (native fallback)"); open->set_enabled(false); demo->add(open);
+            path->on_change([weak = std::weak_ptr<Button>(open)](const std::wstring& text) { if (auto button = weak.lock()) button->set_enabled(!text.empty()); });
+            open->on_click([this, open = open.get(), path, output] {
+                try { window_.show_shell_commands(*open, {path->text()}); }
+                catch (const std::exception&) { output->set_text(L"Events: Shell commands are unavailable for this item."); }
+            });
+            label(demo, L"Native Shell verbs can change files. Only an explicit choice runs a verb. Third-party calls cannot always cancel.", TextTone::secondary);
+            break;
+        }
+        case 34: {
+            if (auto caption = window_.titlebar()) {
+                caption->tabs()->set_tabs({{1, L"Gallery"}, {2, L"Preview"}}, 1);
+                caption->tabs()->on_select([output](std::uint64_t id) { output->set_text(L"Events: titlebar tab " + std::to_wstring(id)); });
+                targets_[index] = button(demo, L"Select Preview tab", [caption] { caption->tabs()->select(2); });
+                label(demo, L"The real window caption contains these tabs. Drag empty caption space. Right-click opens the system menu.");
+                label(demo, L"Caption buttons send Windows system commands. The window title remains XUI Control Gallery.", TextTone::secondary);
+            } else targets_[index] = button(demo, L"System titlebar is active", [output] { output->set_text(L"Events: start without --system-titlebar for the custom caption."); });
+            break;
+        }
+        case 35: {
+            auto content = std::make_shared<Stack>(Axis::vertical);
+            auto editor = std::make_shared<TextInput>(L"Document title"); editor->set_placeholder(L"A title is required"); content->add(editor);
+            auto dialog = std::make_shared<ContentDialog>(L"Save document", content);
+            dialog->on_validate([editor] { return editor->text().empty() ? L"Enter a document title." : L""; });
+            dialog->on_result([output](DialogResult result) { output->set_text(result == DialogResult::primary ? L"Events: dialog saved" : L"Events: dialog canceled"); });
+            auto open = std::make_shared<Button>(L"Open content dialog"); demo->add(open); targets_[index] = open;
+            open->on_click([this, open = open.get(), dialog, editor] { window_.show_dialog(dialog, *open, editor.get()); });
+            label(demo, L"Owner controls stay disabled until OK or Cancel closes the dialog. Empty titles remain visible.", TextTone::secondary);
+            break;
+        }
+        case 36: {
+            auto status = std::make_shared<InlineStatus>(L"The document is ready."); status->set_dismissible(true); demo->add(status);
+            status->set_action(L"Inspect", [output] { output->set_text(L"Events: status action"); });
+            status->on_dismiss([output] { output->set_text(L"Events: status dismissed"); });
+            targets_[index] = button(demo, L"Show warning", [status] { status->set_message(L"The document has unsaved changes.", StatusSeverity::warning); status->show(); });
+            button(demo, L"Show error", [status] { status->set_message(L"Save failed. The document has unsaved changes.", StatusSeverity::error); status->show(); });
+            break;
+        }
+        case 37: {
+            auto text = std::make_shared<MultilineText>(L"Multiline notes");
+            text->set_text(L"Native Unicode notes\rSecond paragraph: \u65e5\u672c\u8a9e \U0001f642\rSelect, edit, undo, and scroll.");
+            text->on_change([output](const std::wstring& value) { output->set_text(L"Events: document length " + std::to_wstring(value.size())); });
+            demo->add(text); targets_[index] = text;
+            auto read_only = std::make_shared<Toggle>(L"Read-only document"); demo->add(read_only);
+            read_only->on_change([text](bool value) { text->set_read_only(value); });
+            button(demo, L"Undo document edit", [text] { text->command(TextCommand::undo); });
+            button(demo, L"Redo document edit", [text] { text->command(TextCommand::redo); });
+            break;
+        }
+        case 38: {
+            label(demo, L"Use a test password only. This example never authenticates or logs the value.", TextTone::secondary);
+            auto password = std::make_shared<PasswordInput>(L"Test password"); password->set_automation_id(L"gallery-password");
+            password->on_change([output] { output->set_text(L"Events: password changed (value hidden)"); });
+            demo->add(password); targets_[index] = password;
+            password->set_reveal_policy(PasswordRevealPolicy::explicit_request);
+            auto reveal = std::make_shared<Toggle>(L"Reveal test password"); demo->add(reveal);
+            reveal->on_change([password](bool value) { password->set_revealed(value); });
+            button(demo, L"Clear password", [password, reveal] { password->set_password(L""); password->set_revealed(false); reveal->set_checked(false); });
+            break;
+        }
+        case 39: {
+            auto rich = std::make_shared<RichText>(L"Rich document"); rich->set_read_only(true);
+            rich->set_runs({{L"Styled document\r", true}, {L"Native italic text\r", false, true},
+                {L"An explicit documentation link", false, false, true, L"https://example.com/docs"}});
+            rich->on_link([output](const std::wstring&) { output->set_text(L"Events: link requested (no browser launched)"); });
+            demo->add(rich); targets_[index] = rich;
+            auto editable = std::make_shared<Toggle>(L"Edit rich document"); demo->add(editable);
+            editable->on_change([rich](bool value) { rich->set_read_only(!value); });
+            label(demo, L"Select a link and press Ctrl+Enter, or click it. Paste accepts plain Unicode only.", TextTone::secondary);
+            break;
+        }
+        case 40: {
+            auto date = std::make_shared<DateTimePicker>(L"Document date");
+            date->set_value({2026, 9, 13}); date->set_range({2020, 1, 1}, {2030, 12, 31});
+            date->on_change([output](DateTimeValue value) { output->set_text(L"Events: date day " + std::to_wstring(value.day)); });
+            demo->add(date); targets_[index] = date;
+            auto time = std::make_shared<DateTimePicker>(L"Document time", DateTimePresentation::time);
+            time->set_value({2026, 9, 13, 14, 30}); demo->add(time);
+            time->on_change([output](DateTimeValue value) { output->set_text(L"Events: time hour " + std::to_wstring(value.hour)); });
+            auto calendar = std::make_shared<DateTimePicker>(L"Document calendar", DateTimePresentation::calendar);
+            calendar->set_value({2026, 9, 13}); demo->add(calendar);
+            calendar->on_change([output](DateTimeValue value) { output->set_text(L"Events: calendar day " + std::to_wstring(value.day)); });
+            label(demo, L"Windows owns locale formats and the calendar popup. Native date controls keep system styling.", TextTone::secondary);
+            break;
+        }
+        case 41: {
+            auto color = std::make_shared<ColorPicker>(L"Document color"); color->set_value({45, 100, 230, 180});
+            color->on_change([output](RgbaColor value) { output->set_text(L"Events: RGBA " + std::to_wstring(value.red) + L", " +
+                std::to_wstring(value.green) + L", " + std::to_wstring(value.blue) + L", " + std::to_wstring(value.alpha)); });
+            demo->add(color); targets_[index] = color->channels()[0]->editor();
+            label(demo, L"Alpha changes the checkerboard preview. Arrow keys change channel values. Each swatch has an RGBA name.", TextTone::secondary);
+            break;
+        }
+        case 42: {
+            auto canvas = std::make_shared<VectorCanvas>(L"Retained vector scene"); canvas->set_automation_id(L"gallery-vector");
+            auto box = VectorShape::rectangle(11, {24, 35, 110, 95});
+            box.fill = {0.1f, 0.55f, 0.9f, 1}; box.name = L"Transformed blue rectangle"; box.interactive = true;
+            box.transform = {0.94, 0.34, -0.34, 0.94, 40, 0}; box.clip = Rect{10, 10, 260, 170};
+            auto circle = VectorShape::ellipse(12, {200, 50, 110, 95});
+            circle.fill = {0.9f, 0.55f, 0.15f, 1}; circle.name = L"Gold ellipse"; circle.interactive = true;
+            canvas->set_scene(std::make_shared<const VectorScene>(std::vector<VectorShape>{box, circle}));
+            canvas->on_select([output](ShapeId id) { output->set_text(L"Events: selected shape " + std::to_wstring(id)); });
+            canvas->set_preferred_size({480, 280}); demo->add(canvas); targets_[index] = canvas->accessible_items();
+            label(demo, L"Click a shape or select its named list entry. Ellipses use 64 straight segments.", TextTone::secondary);
+            break;
+        }
+        case 43: {
+            auto map = std::make_shared<MapView>(); map->set_automation_id(L"gallery-map");
+            map->set_overlay({{{101, {0, 179}, L"Authored east marker: 0 N, 179 E"},
+                {102, {10, -179}, L"Authored west marker: 10 N, 179 W"}}, {{{{0, 179}, {10, -179}}}}});
+            map->set_view({5, 179}, 2);
+            map->on_select([output](ShapeId id) { output->set_text(L"Events: selected map marker " + std::to_wstring(id)); });
+            map->set_preferred_size({480, 320}); demo->add(map); targets_[index] = map;
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Map zoom in", [map] { const auto b = map->canvas_bounds(); map->zoom_at(1, {b.width / 2, b.height / 2}); });
+            button(actions, L"Map zoom out", [map] { const auto b = map->canvas_bounds(); map->zoom_at(-1, {b.width / 2, b.height / 2}); });
+            button(actions, L"Map reset", [map] { map->set_view({5, 179}, 2); });
+            label(demo, L"Drag or use arrows to pan. Plus/minus zoom. Markers are authored coordinates, not a geographic dataset.", TextTone::secondary);
+            break;
+        }
+        case 44: {
+            auto media = std::make_shared<MediaPlayback>(); media->set_automation_id(L"gallery-media");
+            media->set_preferred_size({480, 240}); demo->add(media); targets_[index] = media;
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Load owned tone", [media] {
+                auto file = host_directory() / L"tone.wav"; host_fixtures::wave(file); media->load_local(file.wstring());
+            });
+            button(actions, L"Load owned video", [media] {
+                auto file = host_directory() / L"video.avi"; host_fixtures::video(file); media->load_local(file.wstring());
+            });
+            auto playback = panel(Axis::horizontal); demo->add(playback);
+            auto play = button(playback, L"Play", [media] { media->play(); });
+            auto pause = button(playback, L"Pause", [media] { media->pause(); });
+            auto stop = button(playback, L"Stop", [media] { media->stop(); });
+            auto unload = button(playback, L"Unload media", [media] { media->unload(); });
+            auto seek = std::make_shared<RangeInput>(L"Seek seconds"); seek->set_range({0, 3, 0.1, 1}); seek->on_change([media](double value) { media->seek(value); }); demo->add(seek);
+            auto volume = std::make_shared<RangeInput>(L"Playback volume"); volume->set_range({0, 1, 0.05, 0.2}); volume->set_value(0.5);
+            volume->on_change([media](double value) { media->set_volume(value); }); demo->add(volume);
+            std::array<std::weak_ptr<Control>, 5> transport{play, pause, stop, seek, unload};
+            for (const auto& weak : transport) if (auto control = weak.lock()) control->set_enabled(false);
+            media->on_state([output, transport, weak_media = std::weak_ptr<MediaPlayback>(media)](HostState state) {
+                output->set_text(L"Events: media state " + std::to_wstring(static_cast<int>(state)));
+                const bool loaded = state == HostState::ready || state == HostState::playing || state == HostState::paused || state == HostState::stopped;
+                const bool enabled[]{loaded && state != HostState::playing, state == HostState::playing,
+                    loaded && state != HostState::stopped, loaded, state != HostState::idle && state != HostState::suspended};
+                for (std::size_t i = 0; i < transport.size(); ++i) if (auto control = transport[i].lock()) control->set_enabled(enabled[i]);
+                if (state == HostState::ready) if (auto player = weak_media.lock()) if (auto slider = transport[3].lock())
+                    static_cast<RangeInput&>(*slider).set_range({0, std::min(player->duration(), 604800.0), 0.1, 1});
+            });
+            label(demo, L"Load creates an owned tone or video. Play is explicit. Unload before opening an XUI popup.", TextTone::secondary);
+            break;
+        }
+        case 45: {
+            auto web = std::make_shared<WebContent>(); web->set_automation_id(L"gallery-web");
+            web->set_profile_root((host_directory() / L"web-profiles").wstring());
+            web->set_preferred_size({480, 270}); demo->add(web); targets_[index] = web;
+            web->on_state([output](HostState state) { output->set_text(L"Events: web state " + std::to_wstring(static_cast<int>(state))); });
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Load owned HTML", [web] { web->set_html(L"<!doctype html><html><body style='background:#18324d;color:white;font:20px sans-serif'><h1 id='title'>Owned WebView2 content</h1><button onclick=\"document.getElementById('title').textContent='DOM changed'\">Change DOM</button><input aria-label='Owned web editor' value='Native web editing'></body></html>"); });
+            button(actions, L"Read DOM", [web, output] { web->evaluate(L"document.getElementById('title').textContent", [output](std::wstring json, std::wstring error) { output->set_text(L"Events: " + (error.empty() ? json : error)); }); });
+            button(actions, L"Focus web", [web] { web->focus_content(); });
+            auto lifecycle = panel(Axis::horizontal); demo->add(lifecycle);
+            button(lifecycle, L"Stop web", [web] { web->stop(); }); button(lifecycle, L"Reload web", [web] { web->reload(); });
+            button(lifecycle, L"Unload web", [web] { web->unload(); });
+            label(demo, L"Requires XUI_ENABLE_WEBVIEW2, the pinned SDK, and an installed Edge WebView2 runtime. No installer runs.", TextTone::secondary);
+            label(demo, L"No external origins are allowed. Hiding unloads the engine. Unload before an XUI popup.", TextTone::secondary);
+            break;
+        }
+        }
+    }
+};
+}
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    using namespace xui;
-    Window window({L"XUI Control Gallery", {680, 740}});
-    auto content = std::make_shared<Stack>(Axis::vertical);
-    content->set_padding({28, 24, 28, 24});
-    content->set_spacing(12);
-    auto title = std::make_shared<Label>(L"Make yourself at home");
-    title->set_heading(true);
-    auto hint = std::make_shared<Label>(L"Edit your name, then save your greeting.");
-    hint->set_tone(TextTone::secondary);
-    auto name = std::make_shared<TextInput>(L"Your name");
-    auto greeting = std::make_shared<Label>(L"Your greeting will appear here.");
-    auto save = std::make_shared<Button>(L"Save greeting");
-    auto permission = std::make_shared<Toggle>(L"Allow greeting updates");
-    auto light = std::make_shared<Toggle>(L"Use light theme");
-    auto status = std::make_shared<Label>(L"Enter a name to enable Save.");
-    status->set_caption(true);
-    status->set_tone(TextTone::secondary);
-    greeting->set_tone(TextTone::accent);
-    name->set_placeholder(L"How should we greet you?");
-    permission->set_checked(true);
-    save->set_enabled(false);
-    const auto update = [&] {
-        save->set_enabled(permission->checked() && !name->text().empty());
-        status->set_text(!permission->checked() ? L"Updates are paused." :
-            name->text().empty() ? L"Enter a name to enable Save." : L"Ready to save your greeting.");
-    };
-    name->on_change([update](const auto&) { update(); });
-    permission->on_change([update](bool) { update(); });
-    save->on_click([&] {
-        greeting->set_text(L"Hello, " + name->text() + L"!");
-        status->set_text(L"Greeting saved for this session.");
-    });
-    light->on_change([&window](bool checked) { window.set_theme(checked ? ThemeMode::light : ThemeMode::dark); });
-    window.on_key([&window, light](const KeyEvent& event) {
-        if (event.key != Key::f6) return false;
-        const auto next = window.theme() == ThemeMode::dark ? ThemeMode::light :
-            window.theme() == ThemeMode::light ? ThemeMode::high_contrast : ThemeMode::dark;
-        window.set_theme(next);
-        light->set_checked(next == ThemeMode::light);
-        return true;
-    });
-    auto actions = std::make_shared<Stack>(Axis::horizontal);
-    actions->set_spacing(8);
-    actions->add(save);
-    for (const auto& control : std::initializer_list<std::shared_ptr<Element>>{
-        title, hint, name, actions, permission, light, greeting, status}) content->add(control);
-
-    auto details = std::make_shared<Stack>(Axis::vertical);
-    details->set_padding({16, 16, 16, 16});
-    details->set_spacing(12);
-    details->set_surface(true);
-    auto section = std::make_shared<Label>(L"Workspace preferences");
-    section->set_heading(true);
-    details->add(section);
-    auto explanation = std::make_shared<Label>(L"Scroll to review your workspace. Tab reveals each field.");
-    explanation->set_tone(TextTone::secondary);
-    details->add(explanation);
-    auto sizes = std::make_shared<Stack>(Axis::horizontal);
-    sizes->set_spacing(16);
-    sizes->add(std::make_shared<Label>(L"Short"));
-    sizes->add(std::make_shared<Label>(L"A longer label uses its measured text width"));
-    details->add(sizes);
-    auto workspace = std::make_shared<TextInput>(L"Workspace name");
-    workspace->set_text(L"Personal workspace");
-    details->add(workspace);
-    auto restore = std::make_shared<Toggle>(L"Restore this workspace when the app opens");
-    restore->set_checked(true);
-    details->add(restore);
-    auto preview = std::make_shared<Toggle>(L"Show previews in the file browser");
-    details->add(preview);
-    auto unavailable = std::make_shared<Toggle>(L"Shared workspaces (not connected)");
-    unavailable->set_enabled(false);
-    details->add(unavailable);
-    auto description = std::make_shared<TextInput>(L"Workspace description");
-    description->set_placeholder(L"Add a short description");
-    details->add(description);
-    auto long_label = std::make_shared<Label>(L"Long labels keep their full accessible text, but show an ellipsis when the viewport is too narrow.");
-    long_label->set_caption(true);
-    long_label->set_tone(TextTone::secondary);
-    details->add(long_label);
-    auto footer = std::make_shared<Stack>(Axis::horizontal);
-    footer->set_spacing(8);
-    auto apply = std::make_shared<Button>(L"Apply preferences");
-    auto reset = std::make_shared<Button>(L"Reset");
-    footer->add(apply);
-    footer->add(reset);
-    details->add(footer);
-    auto result = std::make_shared<Label>(L"Preferences stay in this session.");
-    result->set_tone(TextTone::secondary);
-    details->add(result);
-    auto image_path = std::make_shared<TextInput>(L"Preview image path");
-    image_path->set_placeholder(L"Enter a PNG, JPEG, BMP, GIF, or TIFF path");
-    details->add(image_path);
-    auto image = std::make_shared<Image>(L"Workspace image preview");
-    image->set_preferred_size({320, 144});
-    details->add(image);
-    auto image_actions = std::make_shared<Stack>(Axis::horizontal);
-    image_actions->set_spacing(8);
-    auto load_image = std::make_shared<Button>(L"Load image");
-    auto unload_image = std::make_shared<Button>(L"Unload image");
-    load_image->on_click([image, image_path] {
-        image->set_source(image_path->text(), {320, 144});
-        image->reload();
-    });
-    unload_image->on_click([image] { image->unload(); });
-    image_actions->add(load_image);
-    image_actions->add(unload_image);
-    details->add(image_actions);
-    apply->on_click([result] { result->set_text(L"Workspace preferences applied."); });
-    reset->on_click([workspace, description, restore, preview, result] {
-        workspace->set_text(L"Personal workspace");
-        description->set_text(L"");
-        restore->set_checked(true);
-        preview->set_checked(false);
-        result->set_text(L"Preferences reset.");
-    });
-    auto scroll = std::make_shared<ScrollView>(details, L"Workspace preferences");
-    scroll->set_automation_id(L"workspace-scroll");
-    content->add(scroll, 1);
-    window.set_content(content);
+    std::wstring page = L"forms", image_path;
+    WindowOptions options{L"XUI Control Gallery", {1040, 700}};
+    options.custom_titlebar = true;
+    int argc{};
+    auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv) {
+        for (int i = 1; i < argc; ++i) {
+            const std::wstring_view arg = argv[i];
+            if (arg == L"--page" && i + 1 < argc) page = argv[++i];
+            else if (arg == L"--image" && i + 1 < argc) image_path = argv[++i];
+            else if (arg == L"--light") options.theme = ThemeMode::light;
+            else if (arg == L"--high-contrast") options.theme = ThemeMode::high_contrast;
+            else if (arg == L"--system-titlebar") options.custom_titlebar = false;
+        }
+        LocalFree(argv);
+    }
+    Window window(options);
+    Gallery gallery(window, page, image_path);
     return Application::run(window);
 }

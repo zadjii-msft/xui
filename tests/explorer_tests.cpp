@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include "environment_fixture.hpp"
 
 using namespace xui;
 using namespace xui::explorer;
@@ -74,6 +75,28 @@ void state_tests() {
     require(parent_location(L"\\\\?\\UNC\\server\\share\\") == L"\\\\?\\UNC\\server\\share\\", "Extended UNC share stays at root");
     require(resolve_location(L"..\\child", L"C:\\base\\folder") == L"C:\\base\\child", "Relative address resolves against current folder");
     require(resolve_location(L"\"C:\\Unicode 日本\"", L"D:\\") == L"C:\\Unicode 日本", "Quoted Unicode address");
+    EnvironmentFixture absolute(L"C:\\Unicode 日本\\with spaces"), relative(L"..\\child"), missing(nullptr);
+    require(resolve_location(L"\"" + absolute.reference() + L"\\child\"", L"D:\\") ==
+        L"C:\\Unicode 日本\\with spaces\\child", "Quoted Unicode environment reference and suffix");
+    require(resolve_location(relative.reference(), L"C:\\base\\folder") == L"C:\\base\\child",
+        "Expanded relative path uses the tab base");
+    require(resolve_location(L"%SystemRoot%\\System32", L"D:\\") ==
+        resolve_location(expand_path_input(L"%SystemRoot%").text + L"\\System32", L"D:\\"),
+        "SystemRoot address expands");
+    require(expand_path_input(L"%USERPROFILE%").error.empty(), "USERPROFILE expands");
+    for (const auto& input : {missing.reference(), std::wstring(L"%unfinished"),
+        std::wstring(32767, L'a'), std::wstring(L"a\0b", 3)}) {
+        bool invalid{};
+        try { resolve_location(input, L"C:\\base"); } catch (const PathInputError&) { invalid = true; }
+        require(invalid, "Invalid environment input is explicit and nonfatal");
+    }
+    require(resolve_location(L"100% complete", L"C:\\base") == L"C:\\base\\100% complete" &&
+        resolve_location(L"tail%", L"C:\\base") == L"C:\\base\\tail%", "Ordinary unpaired literal percents remain valid");
+    EnvironmentFixture nested(missing.reference().c_str());
+    require(expand_path_input(nested.reference()).text == missing.reference(), "Expansion is one pass, not recursive");
+    EnvironmentFixture long_value(std::wstring(32760, L'a').c_str());
+    require(expand_path_input(long_value.reference() + L"123456").text.size() == 32766, "Maximum expanded path includes terminator");
+    require(!expand_path_input(long_value.reference() + L"1234567").error.empty(), "Expanded output cannot exceed Windows bound");
 }
 void control_tests() {
     TabStrip tabs;

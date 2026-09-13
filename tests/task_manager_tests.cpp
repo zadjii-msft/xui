@@ -46,6 +46,12 @@ void pure() {
     require(names.size() == 1 && names.key(0) == a.key && pid.size() == 1, "Case-insensitive name and PID search");
     require(cpu.key(0) == b.key && cpu.key(2) == c.key && memory.key(0) == b.key && memory.key(2) == c.key, "Numeric sort and missing values last");
     require(!names.find({20, 13}), "PID reuse does not match old identity");
+    auto collisions = std::make_shared<Snapshot>(*data);
+    Process collision = b; collision.pid = 120; collision.key = {120, 17}; collision.name = L"20-helper.exe";
+    collisions->processes.push_back(collision);
+    ProcessView exact(collisions, L"20", 0, false), numeric_name(collisions, L"20-helper", 0, false);
+    require(exact.size() == 1 && exact.key(0) == a.key && numeric_name.size() == 1 &&
+        numeric_name.key(0) == collision.key, "Numeric PID search excludes substring collisions but names remain searchable");
     require(cpu.text(2, 2) == L"\u2014" && cpu.text(2, 3) == L"\u2014", "Unavailable metrics are not zeros");
     require(can_end(a, 99) && !can_end(a, 20) && !can_end(c, 99), "Unsafe end-task targets disabled");
     xui::HistoryChart chart;
@@ -93,6 +99,100 @@ void pure() {
     require(pages->child_at(1)->bounds().width == 0, "Inactive page has no visible host");
     pages->select(1); pages->arrange({0, 0, 500, 300});
     require(pages->child_at(0)->bounds().width == 0 && pages->child_at(1)->bounds().width == 500, "Page switch reuses retained hosts");
+}
+void column_ordering() {
+    xui::DataGrid grid;
+    grid.set_column_order({});
+    require(!grid.reorder_column(0, 0), "Empty grid rejects column moves");
+    for (std::size_t count : {1u, 2u, 7u, 64u}) {
+        std::vector<xui::GridColumn> columns;
+        std::vector<std::size_t> reversed;
+        for (std::size_t i = 0; i < count; ++i) {
+            columns.push_back({std::to_wstring(i), 64.0f + static_cast<float>(i), i % 2 != 0});
+            reversed.push_back(count - 1 - i);
+        }
+        grid.set_columns(columns);
+        grid.set_source(std::make_shared<Synthetic>(1000000));
+        grid.arrange({0, 0, 200, 200});
+        grid.select({1234, 42}); grid.focus_header(true); grid.step_header(1);
+        const auto focused = grid.source_column(grid.focused_column());
+        grid.set_sort(count - 1, true);
+        const auto extent = grid.content_width();
+        const auto offset = grid.offset();
+        grid.set_column_order(reversed);
+        require(grid.column_order() == reversed && grid.source_column(grid.focused_column()) == focused,
+            "Complete permutation preserves focused source column");
+        require(grid.sort_column() == count - 1 && grid.descending() && grid.selected() == xui::RowKey{1234, 42} &&
+            grid.content_width() == extent && grid.offset() == offset, "Reorder preserves sort, selection and dimensions");
+        for (std::size_t i = 0; i < count; ++i)
+            require(grid.columns()[i] == columns[count - 1 - i] && grid.display_column(count - 1 - i) == i,
+                "Names, numeric flags and widths travel with source identity");
+        for (auto invalid : {std::vector<std::size_t>{}, std::vector<std::size_t>(count, count),
+            std::vector<std::size_t>(count + 1, 0)}) {
+            bool rejected{};
+            try { grid.set_column_order(invalid); } catch (const std::invalid_argument&) { rejected = true; }
+            require(rejected && grid.column_order() == reversed, "Invalid permutations fail atomically");
+        }
+        if (count > 1) {
+            auto duplicate = reversed; duplicate[0] = duplicate[1];
+            bool rejected{};
+            try { grid.set_column_order(duplicate); } catch (const std::invalid_argument&) { rejected = true; }
+            require(rejected && grid.column_order() == reversed, "Duplicate source identities fail atomically");
+        }
+        require(!grid.reorder_column(count, 0) && !grid.reorder_column(0, count) && grid.column_order() == reversed,
+            "Out-of-range moves fail atomically");
+        require(grid.reorder_column(0, count - 1) && grid.reorder_column(count - 1, 0) && grid.column_order() == reversed,
+            "First-to-last and last-to-first moves are inverses");
+        for (std::size_t i = 1; i < count; ++i) {
+            require(grid.reorder_column(i - 1, i) && grid.reorder_column(i, i - 1) && grid.column_order() == reversed,
+                "Adjacent column moves are reversible");
+        }
+        require(grid.reorder_column(0, 0) && grid.column_order() == reversed, "Same-position move is a no-op");
+        grid.resize_column(0, 321);
+        grid.set_source(std::make_shared<Synthetic>(1000000, true));
+        require(grid.column_order() == reversed && grid.columns()[0].width == 321 && grid.selected() == xui::RowKey{1234, 42},
+            "Snapshot replacement preserves column order, width and row identity");
+        std::size_t sorted = count;
+        grid.on_sort([&](auto column, auto) { sorted = column; });
+        grid.sort(grid.source_column(0));
+        require(sorted == count - 1, "Sort callbacks retain canonical source identities");
+        grid.on_sort({});
+        grid.set_columns(columns);
+        for (std::size_t i = 0; i < count; ++i) require(grid.source_column(i) == i, "set_columns resets source mapping");
+    }
+    grid.set_columns({{L"A", 100}, {L"B", 100}});
+    grid.arrange({0, 0, 180, 160});
+    grid.set_offset(0, 0);
+    require(grid.resize_boundary(95) == 0 && grid.resize_boundary(105) == 0 && !grid.resize_boundary(106),
+        "Resize cursor and input share the five-DIP boundary");
+    grid.set_offset(0, 80);
+    require(grid.resize_boundary(68) == 0 && !grid.resize_boundary(-1) && !grid.resize_boundary(168),
+        "Resize boundaries account for horizontal scroll and viewport clipping");
+    for (float width : {48.0f, 2000.0f}) {
+        grid.set_column_width(0, width);
+        grid.resize_column(0, 100);
+        grid.set_column_width(0, width);
+        require(grid.columns()[0].width == width, "Resize cancellation can restore any valid configured width");
+    }
+    for (float width : {47.0f, 2001.0f, INFINITY, NAN}) {
+        bool rejected{};
+        try { grid.set_column_width(0, width); } catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected && grid.columns()[0].width == 2000, "Exact width validation fails atomically");
+    }
+    auto data = std::make_shared<task_manager::Snapshot>();
+    task_manager::Process p; p.name = L"Column fixture"; p.pid = 123; p.key = {123, 456}; p.cpu = 23; p.working_set = 987654;
+    data->processes.push_back(p);
+    auto source = std::make_shared<task_manager::ProcessView>(data, L"", 2, true);
+    grid.set_columns({{L"Name", 260}, {L"PID", 80, true}, {L"CPU", 92, true}, {L"Memory", 142, true}});
+    grid.set_source(source); grid.set_sort(2, true); grid.select(p.key);
+    grid.reorder_column(0, 3);
+    require(source->text(0, grid.source_column(0)) == L"123" && source->text(0, grid.source_column(1)) == source->text(0, 2) &&
+        source->text(0, grid.source_column(2)) == source->text(0, 3) && source->text(0, grid.source_column(3)) == p.name,
+        "Reordered process columns read canonical PID, CPU, memory and name values");
+    grid.sort(0);
+    require(grid.sort_column() == 0 && !grid.descending(), "Moved text column initially sorts ascending rather than using a numeric neighbor");
+    grid.sort(1);
+    require(grid.sort_column() == 1 && grid.descending(), "Moved numeric column initially sorts descending");
 }
 int fixture() {
     auto* memory = static_cast<unsigned char*>(VirtualAlloc(nullptr, 32 * 1024 * 1024, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
@@ -163,6 +263,6 @@ int wmain(int argc, wchar_t** argv) {
         }
         return 0;
     }
-    try { pure(); actual(argv[0]); std::cout << assertions << " Task Manager assertions passed\n"; return 0; }
+    try { pure(); column_ordering(); actual(argv[0]); std::cout << assertions << " Task Manager assertions passed\n"; return 0; }
     catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

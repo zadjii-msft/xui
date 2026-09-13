@@ -92,11 +92,13 @@ ProcessView::ProcessView(std::shared_ptr<const Snapshot> snapshot, std::wstring 
     snapshot_(std::move(snapshot)) {
     if (!snapshot_) return;
     query = lower(std::move(query));
+    const bool exact_pid = !query.empty() && std::all_of(query.begin(), query.end(),
+        [](wchar_t value) { return value >= L'0' && value <= L'9'; });
     indices_.reserve(snapshot_->processes.size());
     for (std::size_t i = 0; i < snapshot_->processes.size(); ++i) {
         const auto& p = snapshot_->processes[i];
-        if (query.empty() || lower(p.name).find(query) != std::wstring::npos ||
-            std::to_wstring(p.pid).find(query) != std::wstring::npos) indices_.push_back(i);
+        if (query.empty() || (exact_pid ? std::to_wstring(p.pid) == query :
+            lower(p.name).find(query) != std::wstring::npos)) indices_.push_back(i);
     }
     std::sort(indices_.begin(), indices_.end(), [&](auto a, auto b) {
         const auto& left = snapshot_->processes[a]; const auto& right = snapshot_->processes[b];

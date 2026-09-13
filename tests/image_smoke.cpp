@@ -85,6 +85,7 @@ int wmain(int argc, wchar_t** argv) {
         const bool gallery = argc > 3 && std::wstring_view(argv[3]) == L"--gallery";
         Process process;
         std::wstring command = L"\"" + std::wstring(argv[1]) + L"\"";
+        if (gallery) command += L" --page images";
         if (!gallery) command += L" \"" + directory.wstring() + L"\"";
         STARTUPINFOW startup{sizeof(startup)};
         check(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process.info) != 0,

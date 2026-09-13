@@ -10,7 +10,7 @@ public sealed class XuiException(int status, string message, Exception? inner = 
 }
 public enum Theme : uint { Dark, Light, HighContrast }
 public enum Axis : uint { Horizontal, Vertical }
-public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View }
+public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View, Preview, Cancel, Action, Dismiss, Request, FilterOpen }
 public readonly record struct UiEvent(EventKind Kind, ulong Value);
 public enum PropertyKind : uint
 {
@@ -19,7 +19,7 @@ public enum PropertyKind : uint
 }
 public readonly record struct Property(Element Target, PropertyKind Kind, string? Text = null,
     float A = 0, float B = 0, float C = 0, float D = 0, ulong Integer = 0);
-public sealed unsafe class Window : IDisposable
+public sealed unsafe partial class Window : IDisposable
 {
     internal ulong Handle { get; private set; }
     private readonly int thread = Environment.CurrentManagedThreadId;
@@ -30,7 +30,7 @@ public sealed unsafe class Window : IDisposable
     private Action<UiEvent>? key;
     internal static readonly UTF8Encoding Encoding = new(false, true);
 
-    public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark)
+    public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark, bool customTitlebar = false)
     {
         if (Native.VersionGet() != Native.Version) throw new XuiException(5, "The XUI runtime ABI version does not match.");
         var bytes = Utf8(title);
@@ -45,7 +45,9 @@ public sealed unsafe class Window : IDisposable
                 Height = height,
                 Theme = (uint)theme
             };
-            Check(Native.WindowCreate(in options, out var handle));
+            ulong handle;
+            if (customTitlebar) Check(Native.WindowCreateFeatures(&options, 1, &handle));
+            else Check(Native.WindowCreate(in options, out handle));
             Handle = handle;
         }
     }

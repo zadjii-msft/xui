@@ -7,6 +7,8 @@ The explorer supports folder navigation, file associations, context menus, tabs,
 Win32 owns the windows and message loop. Direct2D draws the custom UI. DirectWrite draws text.
 The executable uses the static MSVC runtime and Windows system libraries. It has no third-party runtime dependencies.
 
+**Technical report:** [A useful minimum for a Windows GUI](docs/windows-gui-memory.md) explains the memory experiments, performance tradeoffs, and reproduction steps.
+
 ## Visual milestone
 
 The explorer starts with a dark theme. Its Theme button and Ctrl+F6 switch between dark and light themes.
@@ -14,14 +16,15 @@ F6 switches between the two panes. The theme lasts for the current window.
 System high contrast overrides the theme colors.
 `ThemeMode::high_contrast` also uses system high-contrast colors without a change to Windows settings.
 
-The window includes tabs, navigation commands, an address field, a search field, vector file icons, and a status area.
+The window includes tabs, navigation commands, an address field, a search field, thumbnail icons, and a status area.
 Rows have separate hover, selection, and keyboard-focus states.
 The scrollbar supports thumb dragging and track paging. The list exposes scrolling through UIA `ScrollPattern`.
 The scrollbar does not create a separate UIA element.
 
 `include\xui\theme.hpp` contains shared colors, typography sizes, spacing values, and scrollbar geometry.
 `WindowOptions::theme` selects the initial theme. The browser sample also accepts `BrowserOptions::theme`.
-The icons use drawing primitives, not image files, shell queries, or per-row image caches.
+Both explorer panes use WIC image previews and Windows Shell thumbnails or file icons.
+Pending or failed requests use vector icons. EXE files use their Shell application icons when no thumbnail is available.
 Supported Windows versions use matching title-bar colors. Older versions retain system title-bar colors.
 
 ## Explorer workflows
@@ -29,17 +32,34 @@ Supported Windows versions use matching title-bar colors. Older versions retain 
 Run the explorer with an optional initial folder:
 
 ```powershell
-.\build\arm64\Release\xui_demo.exe "D:\Documents"
+.\build\header\Release\xui_demo.exe "D:\Documents"
 ```
 
 Without an argument, the explorer uses the current directory.
+The window title is `XUI/Files - {folder}`, where `{folder}` is the committed location in the active pane and tab.
+Successful navigation, history movement, tab selection, and pane focus update this title.
+Typed prefixes and failed navigation do not change it.
+
+Both panes retain independent tab strips in one horizontal band.
+The first tab strip also contains the Split panes and Theme icon buttons. These buttons remain available when the second pane collapses.
+The existing split ratio and minimum pane width still apply.
+Automatic collapse activates the first pane and updates the title, including when a global button has focus.
+Back, Forward, Up, and Refresh use compact vector buttons beside the address field.
+Their accessible names and automation IDs remain unchanged.
+The address field has no visible caption or search icon. Its native EDIT retains its accessible name and text patterns.
+At narrow widths, the address field hides its shortcut hint to preserve text space.
+The separate brand, pane headings, and shortcut footer are absent. This section and the context menus describe the keyboard commands.
+
 The address field accepts absolute paths, UNC paths, extended paths, and paths relative to the current folder.
-It accepts enclosing quotation marks. It does not expand environment variables or interpret shell commands.
+It accepts enclosing quotation marks and environment references such as `%USERPROFILE%` and `%SystemRoot%\System32`.
+Successful navigation stores the expanded path in the address field, tab history, and window caption.
+The address field does not interpret shell commands.
 
 | Input | Action |
 | --- | --- |
 | Back / Alt+Left | Previous location in the active tab |
 | Forward / Alt+Right | Next location in the active tab |
+| Mouse Back / Forward | Previous / next location in the pane under the pointer, without a focus change |
 | Up / Alt+Up | Parent folder, without movement beyond a drive or share root |
 | Ctrl+L, then Enter | Address focus, then folder navigation |
 | Up / Down in an address dropdown | Previous / next folder suggestion |
@@ -69,13 +89,43 @@ The context menu supports Open, Open folder in new tab, Open folder in other pan
 It also supports tab commands, Copy folder path, and Copy status details.
 An empty-area context click clears the previous selection. A hidden selection cannot open or copy an item.
 The native EDIT retains its own clipboard menu and text-editing keys.
+
+### Compact header validation
+
+The current validated executable is `build\header\Release\xui_demo.exe` (650,240 bytes).
+This separate build leaves existing executables available to open applications.
+The full ARM64 Release build and all 23 native CTest tests passed.
+The explorer smoke passed 1,863 assertions, including title transitions, native address editing, and 18 width/DPI/theme combinations.
+The matrix uses 924, 600, and 460 DIP outer widths, injected 96/144/192 DPI, long Unicode paths, and 16 tabs.
+Both themes retain the global commands and independent pane tabs without overlap.
+The frame regression retained zero missing glyph regions across 1,323 presentations, including a visible-to-hidden address caption transition.
+All five existing binding clients passed normal and callback-failure UIA checks against the new binaries.
+Both C# wrapper variants also passed their 17 assertions. The bindings used isolated copies under `build\header\bindings`.
+
+Three fresh processes used the existing 60-file measurement procedure without a resize or memory trim.
+The warm median private commit was **28.52 MiB**. The private working set was **14.12 MiB**.
+The warm total working set was **44.85 MiB**. Input-and-paint latency was **17.29 ms**, with a 16.76–18.36 ms range.
+The preceding complete-frame build recorded 30.29 MiB private commit, 16.00 MiB private working set, and 17.83 ms latency.
+Those earlier results are historical measurements, not a simultaneous comparison.
+The target count remained one. These results do not change the documented driver allocation threshold at larger window sizes.
+Separate geometry probes measured a list height increase from **269 to 443 DIPs** at the unchanged default client size.
+The **174-DIP gain** comes from the removed header rows and footer, not a smaller file row.
+
+The full suite log is `build\header\ctest-final.log`. The final targeted frame rerun is `build\header\ctest-rerun.log`.
+Memory and geometry samples are in `build\header\browser-memory.json` and `build\header\viewport-comparison.json`.
+Owned-window captures are in `build\header\captures`, including single-pane, split-pane, narrow, dark, and light views.
+Native EDIT exposes an editable `ValuePattern` on this machine. Its system `TextPattern` is unavailable for both address and search.
+The compact field preserves that platform behavior rather than supplying a replacement text provider.
+Physical mixed-monitor transitions and interactive IME candidate windows still need manual coverage.
 IME composition suppresses application shortcuts until committed text reaches the control.
 
 File activation calls `ShellExecuteExW` with the exact selected path and no command-line parameters.
 Only an explicit row activation or Open command calls this dispatcher.
 Windows associations can start executable files.
 The sample does not copy, move, rename, or delete files.
-It has no Properties command, shell-extension menu, drag-and-drop, or tab reorder.
+The optional Shell menu can expose extension verbs, including Properties.
+It uses an explicit native fallback. XUI does not reinterpret third-party owner-drawn menu items.
+The sample has no drag-and-drop or tab reorder.
 
 ### Navigation and resource ownership
 
@@ -111,7 +161,7 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | --- | --- |
 | `Stack` | Layout, padding, spacing, flex space, an optional surface, and a separator |
 | `Label` | Text, heading or caption appearance, semantic color, and an accessible name |
-| `Button` | An enabled command with an `on_click` callback |
+| `Button` | An enabled command with an `on_click` callback and optional vector icon |
 | `Toggle` | A checkbox with `checked`, `set_checked`, and an `on_change` callback |
 | `TextInput` | Native EDIT, committed-text and submit callbacks, optional asynchronous suggestions, search appearance, placeholder, and shortcut hint |
 | `ScrollView` | Retained content, a vertical viewport, a scrollbar, focus reveal, and UIA scroll actions |
@@ -119,21 +169,134 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | `TabStrip` | Dynamic tab data, stable IDs, selection, close callbacks, overflow reveal, and UIA tab patterns |
 | `SplitView` | Two content hosts, a draggable divider, keyboard resizing, minimum widths, and narrow-window collapse |
 | `FileList` | Immutable views, stable selection and item focus, navigation, viewport, empty text, and change callbacks |
-| `DataGrid` | Immutable row sources, stable two-part keys, virtual cells, numeric columns, sorting, column resizing, and two-axis scrolling |
+| `DataGrid` | Immutable row sources, stable keys, shared multi-selection, header filters, selection check columns, sorting, resize, reorder, and two-axis scrolling |
 | `HistoryChart` | A fixed 60-sample history, explicit gaps, a numeric scale, and an accessible metric name |
 | `PageView` | Retained pages with one visible content host and no page-selection I/O |
 | `ViewTask` | Cancellable source and filter work, latest-generation delivery, and progress counters |
 | `SampleTask` | One background worker, a bounded result slot, periodic or manual requests, pause, and UI-thread delivery |
 | `Image` | Asynchronous WIC file decoding, bounded pixels, shared bitmaps, explicit unload, and accessible image names |
 | `ImageResources` | Process-wide image limits, ownership counters, latency counters, and unused-cache eviction |
-| `Window` | Content ownership, size, focus, themes, key callbacks, clipboard text, tasks, closure, and error text |
+| `ContentDialog` | Client-bound modal content, validation, default/cancel actions, and focus return |
+| `InlineStatus` | Severity, an independent action, dismissal, and UIA live announcements |
+| `MultilineText` | Bounded native RichEdit plain text, selection, clipboard commands, undo, and read-only mode |
+| `PasswordInput` | Masked native EDIT, explicit secret access, and an optional reveal preview |
+| `RichText` | Native RichEdit styled runs, explicit links, selection, and bounded editing |
+| `DateTimePicker` | Native date, time, and calendar presentations with validated Gregorian bounds |
+| `ColorPicker` | Retained sRGB byte channels, alpha preview, swatches, and numeric keyboard access |
+| `VectorCanvas` | Immutable paths, shapes, transforms, clipping, hit testing, and a virtual accessible element list |
+| `MapView` | Offline Mercator coordinates, graticule, authored overlays, stable markers, pan, zoom, and cancelable provider requests |
+| `MediaPlayback` | Explicit local audio/video through lazy Windows Media Foundation, with playback, seek, volume, and unload |
+| `WebContent` | Optional WebView2, owned HTML, explicit HTTPS origins, script results, and native browser accessibility |
+| `Window` | Content ownership, title, size, focus, themes, key callbacks, clipboard text, tasks, closure, and error text |
 
 `Control::set_automation_id` supplies an optional application identity for custom controls.
 Without an override, custom controls use their stable element IDs.
-`Control::on_context_menu` returns native menu items with actions, enabled state, and checked state.
-Native EDIT retains its system context menu and provider.
+`Control::on_context_menu` returns themed native menu items with actions, enabled state, checked state, and separators.
+Native EDIT retains its system menu unless the control supplies a context-menu callback. Its native text provider does not change.
 Nested native EDIT controls expose the public automation ID and name through their geometry override.
 `Control::on_focus` reports a focus transition without a replacement window procedure.
+
+### Shared context menus
+
+Every `Control::on_context_menu` callback uses the same Windows menu backend.
+This includes buttons, native text inputs, file lists, and data grids. Applications do not supply colors, drawing code, or HWNDs.
+`WindowOptions::theme` and `Window::set_theme` select the shared palette.
+System high contrast overrides dark and light colors.
+
+The backend keeps `HMENU` and the native `#32768` popup.
+Owner drawing supplies Segoe UI text, DPI-scaled padding, a checkmark column, right-aligned shortcut labels, separators, and selection colors.
+The popup uses the shared surface color and a one-pixel border.
+Its outer frame is square. Selected rows have rounded corners outside high contrast.
+Windows retains menu placement, capture, dismissal, and accessibility.
+
+```cpp
+control->on_context_menu([&] {
+    return std::vector<xui::MenuItem>{
+        {L"&Refresh\tF5", refresh},
+        {L"Copy path\tCtrl+C", copy_path, has_selection()},
+        {L"", {}, true, false, true},
+        {L"Dark theme", select_dark_theme, true, dark_theme()}
+    };
+});
+```
+
+The first tab separates the command name from its shortcut label.
+A shortcut label does not register a keyboard shortcut. `Window::on_key` can call the same command function.
+An ampersand marks a mnemonic. Two ampersands display one literal ampersand.
+Other letters select commands by their first letter. Repeated letters cycle through matching commands.
+Up, Down, Home, End, Enter, Escape, the context-menu key, and Shift+F10 use the same menu.
+Home and End select the first and last enabled commands through the native menu-selection protocol.
+Native arrow navigation can focus a disabled command. Enter dismisses that menu without a command call.
+Separators do not run commands. UIA invocation rejects disabled commands.
+
+The menu factory and its returned items are snapshots.
+The backend closes the native menu and releases its resources before it calls the selected action.
+An action can change the theme, open another context menu, close the window, or delete its public `Window`.
+The backend remains alive until the active dispatch returns.
+Callback exceptions and reported native API failures reach `Window::error` and a nonzero `Application::run` result.
+
+A context menu cancels visible and pending suggestions before it opens.
+Late suggestion results cannot reopen the dropdown over the menu.
+A custom text-input menu does not open during IME composition.
+Menu dismissal preserves native EDIT selection. Focus returns to the previous control only while the same host remains in the foreground.
+Outside clicks, host deactivation, host closure, and theme or DPI changes cancel the menu.
+Windows places the popup within the destination monitor's work area.
+
+Menu fonts, brushes, thread hooks, and owner subclasses exist only for the active popup.
+Closed menus retain no menu resources and schedule no timers or paints.
+The backend creates no Direct2D targets.
+Native MSAA menu metadata preserves command names and checked state. UIA retains native `Menu`, `MenuItem`, focus, and Invoke behavior.
+The current model is flat. Submenus, menu bars, dropdown buttons, and Windows Shell extension menus are not part of this change.
+
+#### Menu checks and captures
+
+The ARM64 menu test covers three palettes and 96, 144, and 192 DPI.
+Pixel assertions read the visible popup border, margin, and selected row.
+The test also covers UIA names, focus, disabled invocation, checked state, native EDIT focus, IME messages, and pending suggestion cancellation.
+Lifecycle cases cover callback exceptions, public-window deletion, host closure, and a reentrant menu command.
+Fifty open/close cycles retained no extra GDI or USER objects. Closed menus produced zero idle paints and zero Direct2D targets.
+Work-area checks covered all four monitors on the test desktop.
+The DPI tests inject drawing scales. They do not change monitor configuration.
+The high-contrast test uses current system colors. Physical high-contrast and screen-reader sessions remain manual checks.
+
+The final ARM64 build passed all 25 CTest tests, including 1,014 menu assertions and 347 C ABI assertions.
+The explorer smoke passed 1,930 assertions. The Task Manager desktop smoke passed 328 assertions.
+All five binding clients passed both regular and callback-failure runs.
+Those clients use copies under `build\menus\bindings`, with the new DLL. Older application deployments remain unchanged.
+The first sampled themed popup appeared after 16.5 ms.
+Across 50 warm cycles, sampled visibility averaged 23.3 ms, with a 35.2 ms 95th percentile.
+The samples use a 10 ms observation interval and include Windows menu work.
+`build\menus\menu-timing.json`, `ctest-final.log`, and the client logs contain the measurements and results.
+
+Run these commands from the repository root:
+
+```powershell
+$cmake = 'C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+$ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
+& $cmake -S . -B build\menus -G 'Visual Studio 17 2022' -A ARM64 -DXUI_DESKTOP_TESTS=ON
+& $cmake --build build\menus --config Release --parallel 4
+& $ctest --test-dir build\menus -C Release --output-on-failure
+& build\menus\Release\xui_menu_tests.exe build\menus\menu-captures
+```
+
+The menu test writes owned-window BMP captures to `build\menus\menu-captures`.
+Files include `before-native.bmp`, `dark-96.bmp`, `light-144.bmp`, and `contrast-192.bmp`.
+The explorer and Task Manager smoke tests write menu captures beside their build's `Release` directory, under `captures`.
+Current application captures are `build\menus\captures\explorer-menu.bmp` and `build\menus\captures\task-manager-menu.bmp`.
+Before-change application captures are under `build\menus\before\captures`. Those runs use copies of the previous `build\columns` executables.
+PNG copies permit image review without changes to the BMP capture tests.
+The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
+If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.
+
+The C++ API provides `Window::set_title` and `Window::title`.
+The setter runs on the window owner thread before or during `Application::run`. Repeated values do not update the native caption.
+A closed window rejects changes. The getter retains the last title after closure.
+Invalid strings, wrong-thread calls, and native title failures throw exceptions.
+`Button::set_icon` selects an icon-only presentation without changing the accessible name.
+`ButtonIcon::none` restores text. Icon buttons retain standard focus, hover, pressed, disabled, and high-contrast states.
+`TextInput::set_caption_visible(false)` hides the native caption without a search icon.
+The native label remains available for EDIT naming. The default caption and search presentations remain unchanged.
+These additions are C++ APIs only. They do not change the C ABI or the C# and Rust bindings.
 
 ### Tabs, split panes, and activation
 
@@ -183,13 +346,18 @@ The Theme button cycles through dark, light, and high-contrast colors without a 
 | Up / Down / Home / End / Page Up / Page Down | Row selection and reveal |
 | F6 with grid focus | Switch between rows and column headers |
 | Left / Right with header focus | Previous or next column header |
+| Ctrl+Left / Ctrl+Right with header focus | Decrease or increase column width by 16 DIPs |
+| Ctrl+Shift+Left / Ctrl+Shift+Right with header focus | Move the column one position left or right |
 | Enter / Space with header focus | Sort the column |
 | Enter or double-click on a row | Selected-process details |
 | Drag a header boundary | Resize the column |
+| Drag a header | Move the column to the insertion marker |
+| Escape during a header drag | Cancel the move or restore the original width |
 | Shift+wheel, horizontal wheel, or bottom scrollbar | Horizontal scroll |
 | Right-click / Shift+F10 / context-menu key | Details, Copy PID, End task, pause, and refresh commands |
 
 The Processes page shows name, PID, CPU, working set, thread count, total I/O rate, and counter availability.
+An all-digit search matches an exact PID. Other searches match part of the process name, without case sensitivity.
 Missing permissions and process exits are normal sampling conditions.
 The row remains visible when possible. Unavailable values show an em dash, not zero.
 The status area shows collection errors, snapshot count, and collection duration.
@@ -246,10 +414,40 @@ The grid supports at most `INT_MAX` rows and 64 columns.
 
 The renderer requests text only for visible rows plus one boundary row.
 It retains no visual, native window, provider cache, or string cache for each row.
-Selection remains a key across refresh, sort, and filter changes.
+Selection uses `CollectionSelection` across refresh, sort, and filter changes.
+The compatibility `selected()` accessor returns the focused row key. `selection().contains(key)` reports actual membership.
 A missing or filtered key cannot activate a process. A provider for a missing identity rejects later actions.
 `ScrollIntoView` changes the viewport without selection.
 Column headers expose Invoke for sorting. F6 and arrow keys provide the keyboard equivalent.
+
+`set_columns` assigns source identities from zero in the supplied order. It resets the display order and widths.
+Column names do not serve as identities. Duplicate names are valid.
+`columns()` returns columns in display order. `column_order()` maps each display ordinal to its source identity.
+`source_column(ordinal)` returns that identity. `display_column(identity)` returns its current ordinal, or no value for an invalid identity.
+`GridSource::text`, `sort`, `set_sort`, `sort_column`, and sort callbacks use source identities.
+`resize_column`, `set_column_width`, `focused_column`, and `column_at` use display ordinals.
+`set_column_width` sets an exact width from 48 to 2,000 DIPs without a change to column order.
+An invalid ordinal or width throws `std::invalid_argument` without changes.
+`reorder_column(from, to)` moves a column between display ordinals. The destination is its final position.
+An invalid move returns `false` without changes. A same-position move returns `true` without changes.
+`set_column_order` accepts a complete permutation of source identities.
+An incorrect size, duplicate identity, or out-of-range identity throws `std::invalid_argument` without changes.
+An unconfigured grid accepts an empty permutation. `set_columns` requires 1 to 64 columns.
+Each move preserves the column width, numeric format, sort identity, focused identity, and selected row key.
+Snapshot replacement through `set_source` preserves column order and widths.
+Task Manager uses this path for refresh, sort, filter, pause, resume, and page changes.
+
+The existing mouse resize uses a five-DIP boundary and a horizontal resize cursor.
+Mouse and keyboard resizing use widths from 64 to 1,000 DIPs.
+A header move starts after six DIPs of pointer movement. A click without a drag sorts on release.
+The accent-colored marker shows the insertion position. Pointer movement near a viewport edge scrolls horizontally.
+Keyboard header navigation also reveals offscreen columns. There is no drag timer or idle render loop.
+Escape, focus loss, capture loss, and window closure cancel an uncommitted column move.
+UIA headers retain Invoke for sorting. Their HelpText describes the keyboard resize and move commands.
+The grid does not advertise UIA Drag or DropTarget patterns.
+Retained cell and header providers use source identities. Their bounds and GridItem column ordinals follow the current display order.
+Table headers and cell-header associations use the same mapping.
+Column changes publish a locked snapshot and raise layout and structure invalidation events, without a provider for every cell.
 
 The grid exposes UIA Grid, Table, Selection, Scroll, GridItem, TableItem, SelectionItem, Invoke, and ScrollItem patterns where applicable.
 Virtual providers resolve stable keys against immutable snapshots.
@@ -263,6 +461,17 @@ The existing C ABI layouts and versions remain unchanged.
 The C#, NativeAOT, and Rust wrappers retain their existing surfaces.
 
 #### Task Manager verification and measurements
+
+The column update passed all 24 native tests on September 12, 2026, in 262.71 seconds.
+The existing mouse resize remains in place, with a shared boundary cursor and keyboard commands.
+The column tests passed 335 model assertions, 328 Task Manager desktop assertions, and 14 grid and sample lifecycle assertions.
+They cover permutations through 64 columns, retained UIA identities, drag cancellation, keyboard input, narrow viewports, and snapshot persistence.
+Native drag tests also exercise simulated 96-, 144-, and 192-DPI layouts. The actual Task Manager desktop run used 96 DPI.
+The tests preserve the million-row virtualization, native EDIT, rendering, thumbnail, and ABI checks.
+The isolated executable is `build\columns\Release\xui_task_manager.exe` (655,872 bytes).
+The full test log is `build\columns\full-tests.log`.
+The desktop smoke saves `build\columns\task-manager-columns.bmp` and `build\columns\task-manager-columns-narrow.bmp` under CTest.
+These screenshots contain only the test-owned Task Manager window.
 
 The final ARM64 Release verification completed on September 11, 2026.
 The full compatibility command passed all 20 native tests in 184.94 seconds, including the previous 17 tests.
@@ -336,11 +545,63 @@ Physical IME, mixed-monitor transitions, systems with more than 64 logical proce
 External shell and clipboard gestures also remain manual coverage.
 The sample does not claim full Windows Task Manager feature parity.
 
-#### Window-size memory investigation
+#### Retained-resource reduction: September 13, 2026
 
-The production renderer and sample binaries remain unchanged.
-The investigation found no safe framework-local correction.
-The extra memory comes from the Direct2D hardware rendering path on this machine, not process-row storage or hidden controls.
+`PageView` creates native peers on first selection, not for every inactive page.
+Visited peers remain alive, including native EDIT selection and undo.
+The renderer releases hidden text layouts and unused scene geometry.
+Its native composition buffer now matches the current visible regions instead of retaining its largest historical dimensions.
+
+Three fresh processes per variant used the preserved baseline and the final ARM64 Release build.
+Both variants used dark colors, 96 DPI, and identical physical client sizes.
+No build or test ran during these measurements. No working-set trim occurred.
+
+| Workload and client size | Private commit before → after, MiB | Private working set before → after, MiB |
+|---|---:|---:|
+| Gallery initial, 1040×731 | 95.30 → 94.61 | 80.96 → 80.38 |
+| Gallery after two 46-page cycles and popup disposal, 1040×731 | 110.40 → 102.31 | 92.30 → 88.02 |
+| Live Task Manager, 1080×780 | 94.13 → 94.08 | 79.87 → 79.80 |
+| Explorer with 60 owned files, 924×641 | 32.08 → 32.02 | 15.95 → 15.83 |
+
+These values are medians. The gallery reduction is 8.09 MiB of private commit.
+The small Task Manager and Explorer differences do not establish a reduction.
+Initial gallery peers decreased from 357 to 35. After both cycles, cached text layouts decreased from 594 to 28.
+Visited native editors remain allocated. The change does not discard their undo history.
+
+Warm navigation averaged 46.92 → 48.22 ms, with overlapping three-run ranges.
+Warm navigation CPU time was 1265.63 → 1250.00 ms per cycle.
+First visits averaged 38.73 → 47.24 ms because native peer creation moved from startup to first selection.
+Initial process CPU time decreased from 312.50 to 218.75 ms.
+Settled gallery and Explorer windows produced zero idle paints.
+
+The gallery workload did not load media or browser engines. Separate native tests cover those engines and their shutdown.
+The 64 MiB Qualcomm driver allocation cliff remains. These results do not attribute driver retention to framework caches.
+The full native suite passed all 36 tests, including C ABI, native composition, retained editor undo, and real host cleanup.
+Raw samples, ranges, hashes, and commands are under `build\controls\memory-evidence`.
+The complete report is `build\controls\memory-delivery.json`.
+
+#### No-slowdown memory investigation: September 13, 2026
+
+This investigation kept the retained-resource changes above and preserved new baseline binaries under `build\memory-tight\baseline`.
+It did not accept another default renderer change.
+
+At startup, a GDI-compatible hardware target saved 2.48–3.31 MiB of median private commit across the three native samples.
+Six matched runs did not establish equivalent startup, first-use, and warm performance.
+A separate six-run gallery comparison used normal input updates instead of extra forced updates.
+Its uncertainty interval also did not establish performance equivalence.
+The final build therefore uses the original hardware target configuration.
+
+Other target properties and a separate flip-model probe did not remove the 64 MiB driver allocation cliff.
+The measurements separate private commit, private working set, process CPU time, and process cycles.
+They include per-interaction percentiles and paired-run uncertainty intervals.
+The complete evidence and rejection reasons are in `build\memory-tight\delivery.json`.
+The measurement script supports `-Performance` with `-Sizes @()` to retain each initial client size.
+
+#### Earlier window-size memory investigation
+
+That investigation did not change the production renderer or sample binaries.
+It found no safe framework-local correction for the driver allocation cliff.
+The extra 64 MiB came from the Direct2D hardware rendering path, not process-row storage or hidden controls.
 
 The measured driver is `qcdx11arm64xum.dll`, version `31.0.133.1`.
 At 96 DPI and a 780-pixel client height, one additional client pixel crossed the allocation threshold.
@@ -549,11 +810,22 @@ The search pattern contains the typed prefix. A second ordinal, case-insensitive
 Results contain directories, not executable files, URL history, or shell commands.
 Supported input includes Unicode, spaces, folder names with dots, drive roots, absolute paths, relative paths, and both separator forms.
 Dot and dot-dot expand against the current base folder. Quoted paths match the explorer navigation rules.
-Environment variables and drive-relative paths such as `C:folder` are not supported.
+Environment references use `%name%`. Navigation and suggestions share `xui::expand_path_input` from `xui\path_input.hpp`.
+The helper reads Unicode environment values through `GetEnvironmentVariableW`. It expands each reference once, without shell execution or process-directory changes.
+Relative expanded paths use the current tab folder. Suggestions display complete expanded paths.
+Unknown paired references report an error without a folder scan. A component such as `%USERPRO` reports an incomplete reference.
+Unpaired percent signs inside names, a trailing `%`, and `%%` remain literal.
+Other paired percent signs denote environment references, not literal filename characters.
+Input and expanded output each have a 32,767-unit limit, including the terminator. Windows getter errors remain visible.
+The suggestion worker reads environment values outside the UI thread. Navigation reads them when the address is submitted.
+Drive-relative paths such as `C:folder` remain unsupported.
 UNC share paths are valid. Server-only paths do not enumerate network shares.
 An explicit request with empty text and empty context returns drive names without a scan of their contents.
 
 An 80-ms timer combines successive edits. Only the focused input keeps an active timer.
+An open dropdown retains its rows and size during the next request, then replaces the results in place.
+Typing clears the old selection. Pending rows cannot accept keyboard or mouse actions for an outdated query.
+The loading message appears only when the dropdown first opens, not between successive results.
 One shared worker callback runs at a time. It retains one pending request, which the latest request replaces.
 Generation checks reject old results after typing, tab changes, focus loss, or closure.
 Each scan retains at most 64 paths and examines at most 4,096 matching entries.
@@ -576,6 +848,25 @@ The popup does not take EDIT focus. It uses the complete field bounds and clamps
 Focus loss, pane hiding, window movement, resize, minimize, and destruction close the popup.
 IME composition closes suggestions and suppresses application shortcuts. Committed input can start a new request.
 Disabled and read-only inputs do not open suggestions.
+
+#### Browser mouse navigation
+
+`Window::on_navigation` receives a `NavigationEvent` with a direction, a target control, and an optional mouse position in client DIPs.
+The handler returns `true` to consume the event. This public C++ callback does not change focus or text selection.
+The C ABI and language bindings do not expose this callback.
+`WM_XBUTTONUP` dispatches Back for `XBUTTON1` and Forward for `XBUTTON2`.
+The host consumes button-down and double-click messages without a second navigation. Parent notifications do not dispatch navigation.
+Native EDIT, FileList, tab, and custom control peers use the same host callback.
+`WM_APPCOMMAND` supports browser Back and Forward. Non-mouse commands identify the source control or the focused control.
+The explorer activates the target pane and uses its active tab history. Unavailable history causes no folder request.
+Alt+Left and Alt+Right retain their existing keyboard behavior.
+
+The ARM64 Release build in `build\navigation` passed all 24 native tests, including the existing flicker, image, and Shell thumbnail tests.
+Environment coverage includes UIA submission of `%SystemRoot%\System32`, quoted Unicode paths, unknown references, bounds, and expanded suggestion names.
+Mouse coverage uses posted or sent Win32 messages on owned windows, not physical mouse hardware.
+It covers both panes, native EDIT, search, FileList, tabs, root coordinates, application commands, unavailable history, and query restoration.
+The checks also cover one request per click and unchanged EDIT focus and selection.
+The build and regression logs are `build\navigation\build.log` and `build\navigation\regression.log`.
 
 The list and status use the application text and background colors, including system high-contrast colors.
 Windows retains control of the selection highlight, scrollbar, and border appearance.
@@ -668,8 +959,8 @@ The scrollbar has no separate UIA element.
 
 ScrollView does not virtualize arbitrary content. All its controls and native peers remain in memory.
 `FileList` remains the virtualized choice for large collections. ScrollView does not create a control for each FileList row.
-The gallery contains automatic short and long labels, content-sized buttons, native fields, disabled controls, and a scrollable preferences form.
-In the gallery, F6 cycles dark, light, and explicit high-contrast colors.
+The gallery has 17 searchable examples, including measured labels, native fields, disabled controls, and a scrollable preferences form.
+F6 cycles dark, light, and explicit high-contrast colors outside grids. Within a grid, F6 selects the header.
 
 ### Input and accessibility
 
@@ -789,17 +1080,18 @@ Its source remains available for a later reveal. Its state becomes `empty` until
 A source revision and a cancelled mailbox prevent an obsolete completion from replacing a recycled tile.
 Only the UI thread changes control state or uses Direct2D.
 
-One process-wide worker initializes COM as MTA and owns its WIC factory.
-The worker starts with the first image request. Ordinary browser windows do not start it.
+One process-wide WIC worker initializes COM as MTA and owns its WIC factory.
+The worker starts with the first WIC image request. Text-only browser folders instead use the separate Shell worker.
 File access, path resolution, metadata queries, and WIC operations stay on this worker.
 The worker checks cancellation before decoding, after metadata, before allocation, before pixel conversion, after pixel transfer, and before delivery.
 WIC codecs can still decode the full source internally. A codec call or filesystem driver can ignore cancellation until that call returns.
 
-The service retains one active job and at most 64 queued jobs.
+The shared service retains at most two active jobs and 64 queued jobs.
+Only one WIC job and one Shell job can run at a time.
 New requests remove cancelled queued jobs before the queue-limit check.
 A full queue returns an error. It does not start another worker or silently use a different image.
 Window closure cancels delivery and clears its image references without a worker join.
-The single worker and its small service object last until process exit. Windows reclaims them without a C++ shutdown join.
+The workers and their shared service object last until process exit. Windows reclaims them without a C++ shutdown join.
 Repeated windows do not create retired decoder threads or an unbounded shutdown queue.
 
 | Limit | Policy |
@@ -808,7 +1100,7 @@ Repeated windows do not create retired decoder threads or an unbounded shutdown 
 | Controlled bitmap estimate | 8 MiB across the process, including upload reservations |
 | Decoded cache | At most 128 entries, least-recently-used eviction of unpinned entries |
 | Bitmap cache | At most 128 entries per target, subject to the shared byte limit |
-| Requests | One worker, one active job, and at most 64 queued jobs |
+| Requests | One WIC worker and one Shell worker, two active jobs, and at most 64 queued jobs |
 | Output box | Each dimension must be between 1 and 1,024 pixels |
 | Source dimensions | At most 16,384 per axis and 16,777,216 pixels in total |
 | Encoded file | Nonempty, at most 32 MiB |
@@ -821,7 +1113,7 @@ If pinned resources fill a budget, unload other images.
 Then call `reload` on the image that failed.
 The backend never substitutes a success result at a lower requested resolution.
 
-The cache key includes the normalized final path, volume and file identity, last-write timestamp, file length, and requested decode box.
+The cache key includes the normalized final path, volume and file identity, last-write timestamp, file length, source kind, and requested decode box.
 Every new request opens the file and checks that key on the worker.
 The open handle denies concurrent writes during metadata access and decoding.
 Different sizes have separate cache entries. Identical keys share immutable premultiplied BGRA pixels and one bitmap per target.
@@ -846,10 +1138,604 @@ The sample enumerates PNG, JPEG, BMP, GIF, and TIFF extensions.
 Installed WIC codecs determine actual format support. Automated fixtures cover PNG and malformed BMP data.
 Real codec cancellation, physical GPU loss, mixed-monitor image quality, and screen-reader speech still need manual coverage.
 
+### Foundation controls
+
+Include `xui/foundation.hpp` for the foundation controls.
+Property setters do not call application callbacks. Input actions do.
+Invalid identities, nonfinite numbers, invalid bounds, and invalid timing values throw `std::invalid_argument`.
+
+| API | Contract |
+| --- | --- |
+| `RadioGroup` | Stable `ChoiceItem` IDs, one enabled selection, arrow navigation, prefix selection, and virtual UIA SelectionItem children |
+| `ComboBox` | Committed ID separate from popup preview; Enter commits, Escape cancels, and optional editing uses a native EDIT |
+| `Popup` | Arbitrary retained content, anchored placement, nested dismissal, initial focus, focus return, and generation checks |
+| `Control::set_help_text` | Delayed hover/focus help and UIA HelpText; the tooltip never receives focus |
+| `Button::set_behavior` | Momentary, repeat, toggle-action, or dropdown behavior; toggle actions expose UIA Toggle |
+| `SplitButton` | Independent primary and dropdown Buttons with separate names, callbacks, and keyboard targets |
+| `NumericInput` | Native text entry, locale parsing, finite bounds, step actions, visible invalid text, UIA Value and RangeValue |
+| `RangeInput` | Horizontal/vertical input, explicit reversal, pointer capture, small/page steps, preview/change/cancel callbacks, UIA RangeValue |
+| `Expander` | Expand/collapse semantics, hidden-child inactivity, and focus repair to the header |
+| `Progress` | Read-only determinate values, static indeterminate/unknown states, paused/error states, and a capacity-meter recipe |
+
+Choice controls accept up to 4,096 items. They use one peer and virtual accessible children, not one peer per choice.
+Use `ItemsView` for larger sources.
+An editable ComboBox does not infer an ID from arbitrary text. Handle `on_edit` separately from `on_change`.
+`NumericInput::set_locale` selects parsing and formatting rules. Invalid text stays visible and leaves the last valid value unchanged.
+`NumericInput::step` restores valid formatted text. Native EDIT retains selection, undo, caret, and IME ownership.
+`RangeInput::on_preview` reports drag values without committing them. `on_change` reports accepted values.
+Input cancellation calls `on_cancel` after it clears the preview. Property-driven cancellation remains silent.
+
+```cpp
+auto size = std::make_shared<xui::RangeInput>(L"Item size");
+size->set_range({16, 256, 8, 32});
+size->set_value(64);
+size->set_orientation(xui::Axis::vertical);
+auto popup = std::make_shared<xui::Popup>(size, L"View options");
+popup->set_preferred_size({120, 240});
+// window and anchor must remain valid when this action runs.
+anchor.on_click([&window, &anchor, popup] { window.show_popup(popup, anchor); });
+```
+
+`Window::show_popup(popup, anchor, initial_focus)` requires an active retained anchor in that window.
+The default focus is the first eligible content control.
+Nested popups must anchor in the top popup; the maximum depth is eight.
+Tab traversal stays in the top popup. Escape dismisses it.
+Outside input, focus departure, hide, disable, or window closure cancels affected popups.
+`Window::dismiss_popup` accepts an explicit dismissal reason.
+Before callbacks run, closed popups have stale generations. Use `Popup::current(saved_generation)` to reject late provider results.
+Applications must also cancel their own queries and avoid strong callback ownership cycles.
+
+Popups stay inside the intersection of the client area and monitor work area. They cannot extend outside the application window.
+They share the root Direct2D target. Open content creates normal child input/UIA peers, including native EDIT/caption peers where needed.
+Dismissed peers are released after input dispatch. Retaining the public Popup does not retain its closed native peers.
+Native text is composed before `EndDraw`; popup clipping also masks underlying native fields.
+Tooltips use one pending one-shot timer and no extra HWND or target. Hidden tooltips have no timer.
+Indeterminate progress is deliberately static. This batch has no progress ring or progress animation.
+Capacity meters show used/total text without implying an active task.
+
+### Virtual collections and adaptive layout
+
+Include `xui/collections.hpp` for `CollectionSelection`, `ItemsSource`, `ItemsView`, `TreeSource`, and `TreeView`.
+Include `xui/adaptive_layout.hpp` for `Grid`, `Wrap`, and `AdaptiveLayout`.
+These APIs are C++-only. They do not add a native window or render target for each item.
+
+`CollectionIndex` supplies a count, a stable `ItemKey`, and identity lookup.
+`ItemKey` contains an ID and a version. `RowKey` is a compatible alias.
+Sources are immutable and thread-safe. Identity lookup must not scan all rows.
+`ItemsSource::item(index)` supplies primary text, secondary text, an icon, optional progress, and an optional inline action.
+The shared row renderer requests only visible content. It omits secondary text and inline buttons when the available space is too small.
+
+`ItemsView` supports list, tile, and grouped presentations through `set_presentation`.
+Groups describe ordered, nonoverlapping source ranges. Group IDs must not collide with item IDs.
+Group headers receive focus but do not join item selection. Filtered select-all includes data in collapsed groups.
+Collapse changes a small range projection, not an array of item controls.
+Hidden selected and focused IDs remain in the selection model.
+Arrow input repairs a hidden focus location without activating its item.
+Source replacement must preserve the identity namespace or supply new versions for reused IDs.
+
+```cpp
+auto items = std::make_shared<xui::ItemsView>(L"Results");
+items->set_items(filtered_source, full_source);
+items->set_presentation(xui::ItemsPresentation::tiles);
+items->set_item_size({180, 56});
+items->set_select_all_scope(xui::SelectAllScope::filtered);
+items->on_action(open_inline_details);
+```
+
+`CollectionSelection` separates focus, anchor, and membership.
+Ctrl+click and Space toggle membership. Shift extends a range. Ctrl+arrows move focus without replacing membership.
+A tile drag selects a rectangle. Escape cancels the drag.
+F2 invokes the focused inline action without activating the row.
+Ctrl+A uses the configured `SelectAllScope`.
+Full-source scope requires an explicit index that contains every displayed identity.
+
+Ranges and rectangles retain an immutable index plus compact bounds.
+Select-all uses one term. Exceptions add point terms.
+The model rejects more than 4,096 terms without changing the selection.
+Replacement selection releases earlier terms.
+Large header summaries never scan the source.
+`CollectionIndex::contains_all` can prove domain containment across reordered or filtered snapshots without enumeration.
+
+An explicit full-source index also supplies that containment contract.
+Without a containment proof, a large selection from another snapshot has a conservative mixed summary.
+Individual membership remains exact.
+UIA Selection returns at most 256 identities. Larger or uncounted selections return `UIA_E_INVALIDOPERATION`, not a truncated selected array.
+UIA clients can use ItemContainer, SelectionItem, and VirtualizedItem to inspect or reveal individual items.
+The fragment tree contains visible rows and required tree ancestors, not every source row.
+
+`TreeView` has a separate hierarchy contract.
+`TreeSource::roots` supplies a virtual root index. `has_children` uses cached, nonblocking data.
+Right expands a branch or enters its first child. Left collapses a branch or selects its parent.
+Collapse retains hidden selection and repairs focus to the collapsed ancestor.
+The tree retains at most 4,096 branch records and permits at most 128 expansion levels.
+Closed branches retain cached children until source replacement or tree destruction.
+
+```cpp
+tree->on_request([weak_tree, start_query](xui::TreeRequest request) {
+    // start_query owns worker execution and UI-thread delivery.
+    start_query(request, [weak_tree, request](auto children, auto error) {
+        if (auto owner = weak_tree.lock())
+            owner->complete(request, std::move(children), std::move(error));
+    });
+});
+```
+
+Applications start their own asynchronous work. They must deliver `complete` on the UI thread.
+Requests carry an owner-specific cancellation token and generation.
+Collapse, cancellation, focus departure during a pending request, disable, hide, source replacement, and owner closure cancel affected work.
+Late delivery returns `false`. Error text stays visible and accessible. Right retries a failed branch.
+Source methods must not perform filesystem or network work on the UI thread.
+
+`Grid` supports fixed, automatic, and weighted tracks, cell spans, gaps, padding, and child size constraints.
+`Wrap` derives its column count from available width and measures each retained child.
+`AdaptiveLayout` retains one navigation subtree and one content subtree.
+Wide layouts place them side by side. Compact layouts stack them or display navigation over the content.
+`set_compact_navigation(CompactNavigation::overlay)` selects the nonmodal overlay recipe.
+`set_navigation_open` controls that compact overlay. Escape from navigation closes it.
+
+Inline and overlay transitions keep the same controls, selected IDs, and focused navigation peer.
+The overlay uses the root target and masks native fields under its rectangle.
+It is client-bound and is not an anchored popup or a modal dialog.
+Nested retained popups still use the separate `Window::show_popup` contract.
+
+DataGrid adds `filterable` and `checkable` flags at the end of `GridColumn`.
+Existing `GridSource` implementations require no new methods.
+Check columns represent the shared row selection, not independently editable Boolean data.
+Header checks select or clear all rows under the configured scope. Indeterminate state represents mixed or uncounted membership.
+Column filters, sort state, and check flags follow source column identity through resize and reorder.
+
+`set_filter` and `set_checked` are silent setters.
+`filter` starts an external query through `on_filter`. Its `GridFilterRequest` contains all filters, a generation, and a cancellation token.
+`complete_filter` accepts only the current request. Direct source replacement, cancellation, and owner closure invalidate pending requests.
+`on_filter_open` lets an application compose a native text editor in a retained popup.
+The gallery filter accepts `even` or an empty string and uses synthetic data only.
+
+F6 switches between grid rows and headers.
+F4 selects the sort, filter, or check part of a header. Enter or Space invokes that part.
+Header sort exposes Invoke. Header filter exposes Value and Invoke. Header and cell checks expose Toggle.
+SelectionItem remains separate from Toggle. UIA focus never replaces row selection.
+All UIA mutation uses bounded action mailboxes on the UI thread.
+
+Collection tests cover million-row sources, bounded selection terms, visible content queries, cancellation, stale results, and layout identity.
+Native tests cover real Win32 input, external-process UIA, repeated popup cycles, native overlay clipping, target recovery, and zero idle paints.
+The theme matrix uses dark, light, high contrast, and injected 96/144/192 DPI.
+Physical monitor changes and screen-reader speech remain manual checks.
+
+### Command and navigation controls
+
+`xui/commands.hpp` supplies `CommandSet`, `CommandMenu`, `CommandSurface`, `CommandBar`, and `CommandBindings`.
+The older `Commands` class and flat native `MenuItem` interface remain available.
+An immutable command snapshot contains stable IDs, parent IDs, labels, actions, enabled states, optional checks, icons, and shortcut hints.
+A pin has its own label and callback. It never calls the primary action.
+
+`Window::show_commands` opens a retained menu or searchable palette.
+The palette uses native EDIT for committed text and IME.
+Up and Down move the selection. Right opens a submenu. Left and Escape close the current submenu.
+Enter runs the selected command. F2 runs only its pin action.
+The primary action runs after dismissal. A pin leaves the menu open.
+Missing filtered commands cause deterministic focus repair. Disabled commands and separators cannot receive menu selection.
+Disabled submenu parents also block their descendants.
+Submenu UIA state follows popup expansion and collapse. Repeated expansion does not open a duplicate popup.
+
+Shortcut hints are display text.
+Only an explicit `CommandBindings::bind` registration creates a binding.
+Applications pass keyboard events to `CommandBindings::invoke` from `Window::on_key`.
+The command gallery registers Ctrl+O independently of its hint text.
+
+```cpp
+auto surface = std::make_shared<xui::CommandSurface>(L"Actions");
+surface->set_commands(commands);
+window.show_commands(surface, *anchor);
+
+surface->on_query(start_application_query);
+// UI-thread completion rejects canceled and foreign requests.
+surface->complete(request, next_commands, error);
+```
+
+Command snapshots have at most 4,096 records and eight hierarchy levels.
+Each label has a 1,024-code-unit limit. Each command has at most eight shortcut hints.
+Queries have a 256-code-unit limit and one current cancellation token.
+Pending queries keep the previous rows visible. Closure and direct source replacement invalidate the current token.
+Each completion consumes its token once.
+Applications own worker scheduling and UI-thread completion.
+The toolbar has at most 64 records. Its overflow uses the same command IDs and actions.
+Command snapshots own checked state. A toolbar click does not change that state independently.
+Commands reuse virtual collection rendering and the bounded UIA action mailbox.
+UIA exposes Menu, MenuItem, Invoke, SelectionItem, ExpandCollapse, and optional Toggle patterns.
+Pins have separate Button providers. No native peer exists for each command row.
+
+`xui/navigation.hpp` supplies `Breadcrumb`, `NavigationPane`, `LocationPicker`, and `ViewPicker`.
+Breadcrumbs contain at most 64 stable path segments.
+Overflow retains earlier segments. Arrow keys move between visible segment buttons.
+The current segment exposes a current-location description.
+Activation sends a navigation request. It does not silently change the committed path.
+
+`NavigationPane` composes `ItemsView`, `Expander`, and static progress.
+`LocationPicker` adds a native editor, command toolbar, and keyboard footer inside a retained popup.
+`Window::show_location_picker` retains that composition and routes editor arrows to its virtual rows.
+Navigation queries have a 1,024-code-unit limit and owner-specific cancellation tokens.
+Hidden, collapsed, or closed navigation cancels its current query.
+Sources supply cached rows and stable IDs. The framework performs no directory enumeration.
+
+The explorer consumes command search, breadcrumbs, and a path-location picker.
+The picker filters cached current-path locations. The existing address suggestions retain their separate asynchronous directory provider.
+The path bar keeps its actions outside the native address band, including at narrow widths.
+Paths with more than 64 components retain the first 63 and the current location, with an explicit gap marker.
+Cancellation does not navigate or change the committed explorer location.
+The gallery also composes inline and anchored quick access with `AdaptiveLayout`.
+Its view picker changes the actual generic `ItemsView` presentation and row size.
+It does not change the legacy explorer `FileList` presentation.
+
+### Optional Shell and caption integration
+
+`xui/shell_commands.hpp` separates discovery from invocation.
+`ShellCommandSession` accepts a provider and rejects disabled, stale, canceled, and native-only actions.
+Discovery does not invoke verbs. Explicit invocation consumes the session before the provider call.
+Synthetic providers support tests without file operations.
+
+The Windows provider owns `IContextMenu`, optional `IContextMenu2` and `IContextMenu3`, and its native menu.
+Creation, discovery, invocation, and destruction belong to the same STA thread.
+A selection has at most 256 paths with one Shell parent.
+Discovery has a 4,096-item bound and an eight-level depth limit.
+Native fallback forwards submenu, owner-draw, measurement, and mnemonic messages to the extension.
+It preserves extension-owned icons, labels, checks, and shortcut text without custom interpretation.
+Snapshots carry optional vector icons, native-icon presence, and up to eight shortcut hints.
+Owner closure revokes the Windows provider. Calls from another apartment thread fail before COM dispatch.
+
+`Window::show_shell_commands` opens the native fallback for an explicit user request.
+The explorer exposes this command as **Shell commands (native fallback)**.
+The gallery requires a user-supplied path for its real Shell menu.
+Its default demonstration uses synthetic commands only.
+
+CAUTION: Shell verbs can change or delete files. Only an explicit user choice invokes a verb.
+
+Third-party COM calls can block, allocate outside XUI limits, or fail inside native code.
+Cancellation revokes XUI results and actions. It cannot interrupt an extension call already in progress.
+This service handles HRESULT failures. It does not isolate extension crashes in another process.
+The explorer and gallery report service errors without closing their windows.
+No periodic worker, query timer, or Shell verb discovery loop runs at idle.
+
+`WindowOptions::custom_titlebar` defaults to false.
+With this flag, `Window::titlebar()` supplies a retained `TitleBar` with the existing `TabStrip` and independent caption Buttons.
+The Windows backend removes the standard caption area but retains resize styles and system commands.
+Hit tests separate tabs, caption buttons, drag space, and resize borders.
+The maximize region reports `HTMAXBUTTON` for Windows Snap integration.
+The title remains the actual native window title.
+
+The gallery enables this optional caption. `--system-titlebar` retains the standard caption.
+The explorer retains its standard caption and committed-location title.
+Caption icons share XUI theme colors, DPI scaling, and the root render target.
+Native tests open and cancel the system menu, check resize corners, and maximize and restore through UIA.
+Physical monitor transitions, Snap flyout appearance, and screen-reader speech still require manual checks.
+
+The command/navigation tests cover callback exceptions, host closure, public-window deletion, stale queries, and separate pin identity.
+Nine native cases cover dark, light, and high contrast at injected 96, 144, and 192 DPI.
+Each case checks stable USER resources across 24 popup cycles and one root render target.
+Direct native print tests verify the popup region mask for EDIT and STATIC controls.
+Full-window `PrintWindow` fixture images can still show underlying native child pixels.
+They are not proof of live compositor occlusion. The gallery has separate popup captures.
+The document batch resolves this check with an independent owned-window compositor capture.
+This batch does not claim a committed-memory reduction.
+
+The September 12 command/navigation matrix passed 12 of 13 tests.
+One foundation target-recreation assertion failed. The subsequent six-test recheck passed, including foundation, collections, navigation, gallery, and explorer tests.
+The assertion was not weakened.
+See `build\controls\navigation-final-targeted.log`, `navigation-final-recheck.log`, and `navigation-delivery.json` for the earlier results.
+The document delivery record contains the later live-frame evidence.
+
+### Documents, dialogs, and color
+
+Include `xui/documents.hpp` for these seven families.
+Property setters are silent. Native user edits and semantic actions invoke callbacks.
+`Control::set_visible` hides a control and its retained descendants.
+Hidden native documents keep their last nonzero geometry. This avoids repeated calendar font allocation during page changes.
+
+```cpp
+auto notes = std::make_shared<xui::MultilineText>(L"Notes");
+notes->set_maximum_length(65536);
+notes->set_text(L"First paragraph\rSecond paragraph");
+notes->on_change(save_notes);
+
+auto dialog = std::make_shared<xui::ContentDialog>(L"Edit notes", notes);
+dialog->on_validate(validate_notes); // Return an error message, or an empty string.
+dialog->on_result(handle_result);
+window.show_dialog(dialog, *anchor, notes.get());
+```
+
+`ContentDialog` uses the existing client-bound `Popup` and the root Direct2D target.
+Owner controls remain disabled while the dialog is open. Tab stays within the top popup.
+Enter invokes the default action outside multiline documents. Escape cancels after native composition ends.
+Invalid content stays visible. Dismissal restores focus and revokes the old popup generation before result callbacks.
+Validation callbacks can close or reopen the dialog. An obsolete validation result cannot close the new generation.
+The UIA Window pattern reports modal state and supports Close.
+Minimize, maximize, and process-idle waits are not operations of a client-bound dialog.
+`Window::confirm` remains the separate native confirmation service.
+
+`InlineStatus` has information, success, warning, and error severities.
+Each severity has a visible symbol and an accessible prefix.
+The action and dismiss button have separate callbacks. Errors use assertive live-region semantics. Other severities use polite semantics.
+External UIA tests receive one live event per message change or re-show. Duplicate property writes remain silent.
+Messages have a 4,096-code-unit limit. The badge recipe omits both buttons.
+Actual screen-reader speech still requires a manual check.
+
+`MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
+Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+The default document limit is 65,536 UTF-16 code units. The maximum is 1,048,576.
+Paragraphs use `\r`. Setters normalize `\n` and `\r\n`, and reject null characters or unpaired surrogates.
+`TextSelection` uses UTF-16 offsets. A property selection cannot split a surrogate pair.
+Native surrogate-pair input publishes one complete value, not an intermediate half-character.
+`TextCommand` supports undo, redo, copy, cut, paste, and select-all while a native peer is attached.
+RichEdit retains at most 16 undo actions. Windows determines their byte cost.
+Property changes replace text once per revision, not once per paint.
+
+`RichText::set_runs` accepts at most 4,096 runs with bold, italic, underline, and explicit HTTP/HTTPS link targets.
+A click or Ctrl+Enter requests a link callback. XUI never opens the target automatically.
+Native edits retain formatting. The retained runs track surviving application-authored styles and link positions.
+They are not a general RTF serialization format for arbitrary native formatting commands.
+Unicode streaming explicitly selects plain text. RTF-looking strings remain literal text.
+Paste accepts plain Unicode only. The OLE callback rejects embedded objects and drag/drop effects.
+There is no RTF, HTML, image, or file importer in this API.
+
+RichEdit supplies its own server-side UIA Text provider, including text ranges and font attributes.
+Replacing that provider hides its Text pattern, so XUI leaves it intact.
+Its accessible name follows `Control::name`. Its automation ID remains the native numeric control ID.
+The custom `automation_id` override applies to the other document controls, not RichEdit.
+Native focus HRESULTs are not proof of focus. Tests inspect actual focus and the disabled owner state.
+Native EDIT and RichEdit remain Windows composition boundaries, not a new XUI TSF implementation.
+
+`PasswordInput` defaults to 256 code units and permits at most 4,096.
+`with_password` is the explicit application read boundary. Change callbacks carry no password value.
+The native editor always keeps `ES_PASSWORD`. Copy, cut, and its context menu are disabled.
+UIA reports `IsPassword`; value reads are empty or unavailable, including during reveal.
+The default reveal policy is `never`.
+`explicit_request` permits a separate noninteractive preview, while the native editor remains masked and keeps its real caret and selection behavior.
+Focus loss or hiding removes that preview. It does not create an accessible plaintext value.
+XUI erases the retained old value on replacement and destruction.
+This is not a credential vault. Windows and application code can retain plaintext in process memory.
+
+`DateTimePicker` has date, time, and calendar presentations.
+The native date editor includes its calendar dropdown. Windows supplies locale formats and platform UIA behavior.
+Values use local Gregorian fields, not UTC instants or time zones.
+The supported year range is 1601–9999. Invalid dates and ranges that exclude the current value throw.
+Date edits preserve the time fields. Time edits preserve the date fields.
+Native calendar styling follows Windows, not the custom dark palette.
+The native calendar background is initialized before bitmap composition, including unused margins.
+
+`ColorPicker` stores unpremultiplied sRGB bytes in `RgbaColor`.
+Four labeled numeric editors expose RangeValue and keyboard steps.
+Fractional channel edits round to the nearest byte. Alpha changes the checkerboard preview.
+Up to 16 swatches have distinct RGBA names and Invoke actions.
+Swatch replacement reuses retained buttons. Color controls create no idle timer or image assets.
+
+Native document pixels join the existing root frame before `EndDraw`.
+The compositor test uses a uniquely colored underlying EDIT and STATIC, then opens a covering popup.
+Four immediate root presentations contain no underlying ink. The native field still edits correctly after dismissal.
+When foreground activation is blocked, the test uses Windows Graphics Capture with the owned HWND, not a desktop capture.
+The corresponding full-window `PrintWindow` image still shows underlying pixels. It is a capture artifact, not the live compositor result.
+The evidence is in `build\controls\documents-captures` and `build\controls\documents-delivery.json`.
+Tests also cover native UIA, theme/DPI cases, target loss, callback closure, and repeated resources.
+Physical monitor changes, interactive IME candidates, and screen-reader speech remain manual checks.
+This batch adds no language bindings and makes no process-memory reduction claim.
+
+### Vector scenes and offline maps
+
+`include\xui\vector_canvas.hpp` defines the public retained scene API.
+`VectorScene` owns immutable `VectorShape` records with nonzero, unique `ShapeId` values.
+Paths contain straight segments. The rectangle helper creates four vertices, and the ellipse helper creates 64 vertices.
+Closed paths use an even-odd fill. Open paths have no fill.
+Colors use unpremultiplied sRGB components between zero and one.
+
+Each shape has an affine transform and an optional axis-aligned clip.
+The scene applies transforms once, at construction. Clips use canvas coordinates after the transform.
+Stroke widths remain in DIPs after the transform. Rounded stroke ends and joins match the hit-test distance calculation.
+Scene coordinates must be finite, with an absolute value of at most one billion.
+Hit testing examines the topmost interactive shape first and applies the same clip.
+
+```cpp
+#include "xui/vector_canvas.hpp"
+auto shape = xui::VectorShape::rectangle(10, {20, 20, 120, 80});
+shape.fill = {0.1f, 0.4f, 0.9f, 1};
+shape.name = L"Blue region";
+shape.interactive = true;
+shape.transform = {1, 0, 0.2, 1, 10, 0};
+shape.clip = xui::Rect{0, 0, 320, 200};
+auto canvas = std::make_shared<xui::VectorCanvas>();
+canvas->set_scene(std::make_shared<const xui::VectorScene>(
+    std::vector<xui::VectorShape>{shape}));
+canvas->on_select([](xui::ShapeId id) { /* application selection */ });
+```
+
+A scene supports 4,096 shapes, 65,536 total vertices, and 256 interactive entries.
+Names have at most 256 UTF-16 units. Strokes have a maximum width of 256 DIPs.
+The root renderer caches geometry for at most eight scene snapshots. It creates no additional Direct2D render target.
+Snapshot replacement normally causes paint invalidation. The first or last interactive entry also changes the list layout.
+Selection retains a stable ID across scene replacement.
+
+The named list below the scene is its semantic alternative.
+It exposes virtual UIA SelectionItem children and ordinary keyboard navigation without one HWND per shape.
+Its rows represent semantic elements, not the spatial bounds of the drawing.
+Selection through the list changes the same scene selection and outline as a pointer hit.
+Decorative shapes have no automation actions.
+
+`include\xui\map_view.hpp` defines `MapView`, `GeoPoint`, `WorldPoint`, `MapMarker`, `MapPolyline`, and `MapOverlay`.
+The map shows a Mercator graticule and application-authored coordinates.
+It has no street basemap, commercial tiles, copied world assets, geocoding, routing, or implicit network access.
+It is an offline coordinate map, not a mapping-service replacement.
+The renderer uses `VectorCanvas` and the same root target.
+
+Longitude wraps across the dateline. Latitude clamps to approximately ±85.051129 degrees.
+Projection uses double-precision normalized world coordinates. Zoom clamps to the range zero through 20.
+Drag or arrow keys pan the viewport. Plus and minus zoom, and Home resets the viewport.
+`zoom_at` preserves the geographic point under its DIP anchor, except at the latitude clamp.
+The viewport displays the nearest wrapped world copy of each marker.
+
+`set_overlay` accepts at most 256 markers, 256 polylines, and 2,048 total polyline points.
+Marker IDs occupy the nonzero lower half of the 64-bit ID range.
+Selected marker IDs survive pan and zoom. The marker list supplies keyboard and UIA selection.
+UIA help exposes the current latitude, longitude, zoom, and provider error.
+The application supplies meaningful marker names, including coordinates when necessary.
+
+`on_request` and `request_overlay` define the optional provider boundary.
+Each `MapRequest` contains a generation, center, zoom, and owner-specific stop token.
+Pan, zoom, source replacement, hiding, and `cancel_request` cancel the old token.
+`complete` rejects foreign, obsolete, canceled, or duplicate responses.
+The application runs provider work and marshals completion to the UI thread.
+XUI does not create a provider worker or implement network tile loading.
+
+### Native media and optional web content
+
+`include\xui\runtime_hosts.hpp` contains platform-independent models. No public method exposes COM interfaces or native renderer objects.
+`MediaPlayback` loads only an explicitly supplied absolute local drive path.
+It rejects URL, UNC, and alternate-stream syntax. It never selects a file or starts playback automatically.
+The Windows backend loads the system `mfplay.dll` only after `load_local`.
+MFPlay is a legacy Media Foundation API, not DirectShow or a bundled codec library.
+
+`play`, `pause`, `stop`, `seek`, `set_volume`, `refresh`, and `unload` operate on the real native player.
+Volume ranges from zero to one. Seek uses seconds and clamps to the current duration.
+The public seek limit is seven days. `refresh` reads position and duration without a periodic UI timer.
+Native callbacks update playback state and errors through a bounded 16-event mailbox.
+Source replacement revokes the old mailbox before player shutdown.
+Windows owns codec selection, audio output, and the native video renderer.
+
+The host renders video in a native child window.
+It does not replace video with a thumbnail or capture each frame into the root renderer.
+Windows codec allocations and noninterruptible native calls are outside XUI memory and cancellation bounds.
+The API does not implement camera capture, DRM, streaming URLs, subtitles, or recording.
+Camera access never starts as a side effect.
+
+Separate `Button` and `RangeInput` controls provide accessible Play, Pause, Stop, Seek, and Volume actions.
+The gallery demonstrates this composition and a live status element.
+The native host itself exposes a named group, not unsupported transport patterns.
+The generated WAV and uncompressed AVI fixtures contain only repository-authored samples.
+They load and play through the Windows codec stack.
+
+`WebContent` requires the opt-in build below and an installed Microsoft Edge WebView2 runtime.
+The default build has no WebView2 dependency. An enabled build still creates no environment before an explicit load.
+XUI never installs the browser runtime or copies a complete browser distribution.
+The native browser owns DOM rendering, editing, and browser accessibility.
+`focus_content` enters the browser. WebView2 moves focus back to the XUI traversal order at its boundary.
+
+`set_profile_root` requires an explicit absolute local directory.
+Each environment uses a unique owned child directory under that root.
+`set_html` accepts at most 262,144 UTF-16 units of owned HTML.
+XUI adds a restrictive content policy before the HTML. Inline scripts and styles are allowed, but network connections, frames, workers, and form submission are blocked.
+`navigate` accepts only `about:blank` or an exact HTTPS origin from `set_allowed_origins`.
+The allowlist has at most 16 entries. An origin contains a scheme and authority, without a trailing slash.
+Navigation and ordinary resource requests receive the same origin check.
+This policy is not a network firewall for arbitrary remote applications or the browser runtime itself.
+
+New windows, downloads, and permission requests are blocked.
+Developer tools, browser accelerator keys, and default context menus are disabled.
+`evaluate` accepts an explicit application script and returns its JSON result or error.
+At most eight scripts can be pending. Script text and results each have a 65,536-unit limit.
+At most eight environment/controller creation requests can be pending across source changes.
+Unload or source replacement discards pending script callbacks. Obsolete callbacks cannot restore an old controller or document.
+`stop`, `reload`, and `unload` operate on the actual browser.
+
+Hiding a runtime host, its page, or its window unloads its native resources.
+A fully scrolled-out host also unloads. A later show does not resume the old source.
+The application must issue another explicit load.
+Native cleanup tracks each owned profile through asynchronous environment and controller creation.
+It keeps a process handle for the owned browser until that process exits.
+After window teardown, `Application::run` dispatches STA completion messages before COM shutdown.
+This cleanup has a 30-second limit. A timeout returns an error instead of reporting successful disposal.
+`BrowserProcessExited` reports completion for the browser and its associated runtime processes.
+Cleanup removes each retired profile after its creation callbacks and that process collection complete.
+At most eight locked retired profiles can accumulate per host before further loads report an error.
+Applications can remove their dedicated profile root after all owned runtimes exit.
+Tests remove only their own fixture roots.
+
+Native media and web surfaces are not part of the root bitmap composition.
+`Window::show_popup` rejects a retained popup while a native runtime is active.
+Tooltips are suppressed while a media or web runtime is active. An adaptive retained overlay unloads the runtime.
+This explicit boundary prevents false claims about `WM_PRINT` composition or popup occlusion.
+Ordinary native parent clipping handles scroll viewports.
+The document, EDIT, and RichEdit composition paths remain unchanged.
+
+#### Enable WebView2 explicitly
+
+Restore the pinned public SDK package from `integrations\webview2\packages.config`:
+
+```powershell
+$version = '1.0.2903.40'
+New-Item -ItemType Directory -Force build\controls\packages | Out-Null
+Invoke-WebRequest "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$version" `
+  -OutFile build\controls\packages\webview2.zip
+Expand-Archive build\controls\packages\webview2.zip `
+  "build\controls\packages\Microsoft.Web.WebView2.$version" -Force
+$sdk = (Resolve-Path "build\controls\packages\Microsoft.Web.WebView2.$version").Path
+cmake -S . -B build\controls -DXUI_ENABLE_WEBVIEW2=ON "-DXUI_WEBVIEW2_SDK_DIR=$sdk"
+cmake --build build\controls --config Release --target xui_gallery xui_hosts_window_tests
+ctest --test-dir build\controls -C Release -R '^xui_hosts_window_tests$' --output-on-failure
+```
+
+The backend links the small SDK static loader for ARM64 or x64. The installed runtime remains a separate requirement.
+No SDK or runtime download occurs during CMake configuration or normal application startup.
+Without the feature flag or runtime, the web host displays an explicit error after a load request.
+Owned-window Graphics Capture, rather than `PrintWindow`, supplies the native video and browser pixel evidence.
+
 ### Gallery and browser boundaries
 
-The gallery edits a name, saves a greeting, changes the theme, and contains a scrollable workspace form.
-Its status labels show callback results. It adds no application-specific window procedure or drawing code.
+The gallery has a searchable category catalog and 46 interactive pages built from actual XUI controls.
+Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
+The examples cover input, typography, layout, scrolling, collections, tabs, split panes, images, charts, menus, and themes.
+The grid calculates 100,000 synthetic rows without a retained row array.
+The chart updates only on request. The file list uses synthetic fixtures.
+The gallery adds no application-specific window procedure or drawing code.
+
+```powershell
+.\build\controls\Release\xui_gallery.exe
+.\build\controls\Release\xui_gallery.exe --page combo
+.\build\controls\Release\xui_gallery.exe --page popup --light
+.\build\controls\Release\xui_gallery.exe --page items
+.\build\controls\Release\xui_gallery.exe --page tree
+.\build\controls\Release\xui_gallery.exe --page adaptive
+.\build\controls\Release\xui_gallery.exe --page grid-extensions
+.\build\controls\Release\xui_gallery.exe --page commands
+.\build\controls\Release\xui_gallery.exe --page breadcrumb
+.\build\controls\Release\xui_gallery.exe --page navigation
+.\build\controls\Release\xui_gallery.exe --page shell
+.\build\controls\Release\xui_gallery.exe --page titlebar
+.\build\controls\Release\xui_gallery.exe --page dialog
+.\build\controls\Release\xui_gallery.exe --page status
+.\build\controls\Release\xui_gallery.exe --page multiline
+.\build\controls\Release\xui_gallery.exe --page password
+.\build\controls\Release\xui_gallery.exe --page rich-text
+.\build\controls\Release\xui_gallery.exe --page date-time
+.\build\controls\Release\xui_gallery.exe --page color
+.\build\controls\Release\xui_gallery.exe --page images --image "D:\images\sample.png"
+```
+
+Build this integration tree without replacing an existing `build\gallery` executable:
+
+```powershell
+$tools = 'C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+& "$tools\cmake.exe" -S . -B build\controls -G 'Visual Studio 17 2022' -A ARM64 `
+  '-DCMAKE_GENERATOR_INSTANCE=C:\Program Files\Microsoft Visual Studio\2022\Preview' `
+  -DBUILD_TESTING=ON -DXUI_DESKTOP_TESTS=ON
+& "$tools\cmake.exe" --build build\controls --config Release
+& "$tools\ctest.exe" --test-dir build\controls -C Release --output-on-failure
+```
+
+The 29 added pages build their examples on first use.
+They cover foundation controls, collections, adaptive panels, command surfaces, navigation, documents, dialogs, color, and optional Windows integration.
+Native tests cover dark, light, high contrast, and injected 96/144/192 DPI.
+Physical mixed-monitor changes, interactive IME sessions, and screen-reader speech still require manual validation.
+
+Use `Ctrl+F` to focus search.
+Type a control name or category, then press Enter to focus the results.
+Use arrow keys to select an example.
+Press Enter to focus its controls.
+Right-click the menu target, or use `Shift+F10`, to open the styled context menu.
+The image argument fills the path field. Load image starts decoding.
+The optional `--high-contrast` argument selects explicit high-contrast colors.
+
+[Control families and roadmap](docs/control-roadmap.md) records the verified File Pilot and WinUI overlap.
+It contains 25 completed family checkboxes. Web runtime integration remains an explicit build option.
+The DataGrid extension, navigation recipe, optional Shell boundary, and optional custom caption are also implemented.
+The research includes public sources, supplied images, and a limited live File Pilot capture.
+File Pilot keyboard behavior and popup interaction remain unverified.
+The gallery demonstrates the completed batches. It does not claim WinUI parity or completion of the backlog.
 
 All three applications use `Window` for their native host.
 `src\window_host.cpp` supplies COM initialization, the blocking message loop, focus traversal, child placement, and title-bar appearance.
@@ -863,7 +1749,7 @@ Provider actions include the control identity and item identity. A recycled HWND
 `src\async.cpp` supplies reusable task delivery and cleanup.
 Each window owns one Direct2D target, brush, DirectWrite factory, and set of immutable text formats.
 The host draws labels, images, buttons, toggles, viewports, and visible list rows in one frame.
-Transparent child HWNDs retain input and UIA behavior. Native EDIT and caption HWNDs keep their own pixels.
+Transparent child HWNDs retain input and UIA behavior. Native EDIT and caption HWNDs supply current pixels through `WM_PRINTCLIENT`.
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
 
@@ -878,6 +1764,44 @@ It creates no per-row controls.
 The control host creates an HWND for each control, including one HWND for each virtual list.
 General runtime tree replacement, control removal, multiline input, and application-defined control renderers are not supported.
 Tab data can change without these tree operations.
+
+### Complete text frames
+
+The previous host presented its cleared Direct2D target before it repainted nested native fields and captions.
+Transparent viewport HWNDs did not protect these descendants through `WS_CLIPCHILDREN`.
+A frame-boundary capture reproduced missing native text in all 72 original frames. Custom labels and buttons remained visible.
+
+The host now includes native pixels before `EndDraw`.
+Each visible native region has a reusable bitmap, not a render target.
+One GDI scratch buffer serves these regions. Each frame refreshes the pixels from the real native control.
+Ancestor viewports limit the copied regions. Hidden regions release their bitmaps.
+There is no window-sized CPU copy, full-target readback, additional presentation, or repaint timer.
+Native EDIT still owns text, selection, caret, undo, TSF, and accessibility.
+
+Unchanged caption text and placeholder properties no longer cause native repaint requests.
+An empty EDIT paints its background and placeholder through one small buffered blit.
+The regression captures the desktop immediately after presentation, before any subsequent child paint.
+It observed zero missing glyph regions across 1,323 frames with status changes, hover changes, and asynchronous thumbnail arrivals.
+Coverage includes three themes, injected 96/144/192 DPI, scroll clipping, split visibility, native text changes, target loss, caret pixels, and repeated closure.
+Only the regression uses `DwmFlush`. Physical mixed-monitor transitions and interactive IME candidates still need manual coverage.
+
+Three browser runs used the same initial size and measurement procedure:
+
+| Measurement | Original | Complete frames |
+| --- | ---: | ---: |
+| Warm private commit | 29.61 MiB | 30.29 MiB |
+| Warm private working set | 15.36 MiB | 16.00 MiB |
+| Warm total working set | 45.87 MiB | 46.62 MiB |
+| Input-and-paint latency | 16.74 ms | 17.83 ms |
+| Startup to first paint | 196.47 ms | 189.17 ms |
+| Demo executable | 637,952 bytes | 645,632 bytes |
+
+Both versions produced zero additional idle paints and retained one root target.
+The known Qualcomm allocation increase near 865×780 client pixels remains. This change does not correct that driver behavior.
+A full-target GDI-compatible prototype removed the gap but increased the larger-window paint cost.
+The final implementation uses small native bitmaps instead.
+All 23 native tests and five binding clients passed, including their callback-failure cases.
+Logs, frame samples, and measurements are in `build\flicker`. The updated demo is `build\flicker\Release\xui_demo.exe`.
 
 ## Build
 
@@ -932,6 +1856,214 @@ Arrow keys, Home, End, Page Up, and Page Down change the list selection.
 The mouse wheel and the themed scrollbar move the viewport.
 Ctrl+C copies the selected path. The context menu provides the same copy command, Refresh, Search, and theme commands.
 F5 refreshes the folder. Shift+F10 opens the context menu for keyboard use.
+
+### Explorer thumbnail icons
+
+`FileList` provides optional thumbnail icons through the C++ API.
+The explorer enables this option in both panes. Other `FileList` clients retain vector icons by default.
+The C ABI and the C# and Rust wrappers remain unchanged.
+
+```cpp
+auto files = std::make_shared<xui::FileList>();
+files->set_thumbnails(true);
+files->on_thumbnail_error([](xui::ItemId id, const std::wstring& error) {
+    // Report a failed visible request without a modal dialog.
+});
+files->reload_thumbnails();
+files->set_thumbnails(false);
+```
+
+The backend uses each `FileItem::path` as the visual source.
+The direct WIC path supports `.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`, `.tif`, `.tiff`, and `.webp`.
+Extension matching ignores case. Paths retain their Unicode characters.
+WebP requires an installed WIC codec. GIF and TIFF use the first frame only.
+The existing WIC image limits, codec restrictions, and orientation limitations also apply here.
+
+All other extensions and folders use `IShellItemImageFactory::GetImage`.
+XUI first requests `SIIGBF_THUMBNAILONLY`. If no thumbnail is available, XUI requests `SIIGBF_ICONONLY`.
+EXE, DLL, shortcut, document, PDF, and unknown extensions no longer have an extension filter.
+Available thumbnail handlers and file associations determine their visuals.
+A document preview shows file content. An application or file-type icon identifies the application or file type, not file content.
+XUI does not run the selected executable, load it as application code, or change file associations to obtain its icon.
+
+Each icon fits inside a 24-by-24-DIP box in the existing 32-DIP row.
+The decode box follows the physical DPI size. The renderer preserves aspect ratio and blends alpha over the row background.
+Names, selection, focus, scrolling, and UIA item identities retain their existing behavior.
+Pending requests and failed requests retain the original vector icons.
+The error callback receives the stable item ID and the error text on the UI thread.
+The explorer status area counts failed visual requests.
+A missing thumbnail is not an error if the Shell returns an icon.
+If both Shell requests fail, the callback includes an HRESULT. Missing files also produce an explicit error.
+The list does not retry a failed slot every frame.
+
+The native list adapter retains only visible rows and the existing viewport buffer.
+Limits are 24 thumbnail slots per list and 48 per window. Additional rows retain vector icons.
+There is no thumbnail control, HWND, render target, or worker for each file.
+WIC and Shell requests use separate, lazy, process-lifetime workers.
+The Shell worker initializes a COM STA and pumps messages between requests and while idle.
+Shell interfaces stay on that worker. They never cross apartments.
+Both workers share one 64-request queue, a 128-entry cache, and the existing 8-MiB CPU and 8-MiB GPU pixel budgets.
+At most two requests are active. A blocked Shell handler does not block the WIC worker.
+The host retains bitmap IDs from both lists and `Image` controls in one shared target.
+Equal files, source kinds, and physical decode sizes share cached pixels and bitmaps across panes.
+
+Shell output converts to premultiplied BGRA for the existing renderer.
+The backend rejects bitmaps larger than the requested dimensions before conversion.
+Legacy icons without alpha use their HICON transparency mask through WIC.
+Temporary HBITMAP and HICON handles have scoped ownership. XUI does not cache these handles.
+The CPU ledger includes retained output pixels and pending output reservations.
+Shell allocations, temporary WIC conversion storage, handler allocations, and driver allocations are outside these pixel budgets.
+These budgets are not hard limits on total process memory.
+
+Filtering and scrolling match slots by stable item ID and path, not row position.
+A new source snapshot, `reload_thumbnails`, or a DPI change cancels the old requests.
+The worker checks the canonical path, file identity, modification time, size, source kind, and physical output size before cache reuse.
+Shell keys also retain the absolute item path, because links can have different visuals from their targets.
+File metadata access and Shell extraction stay off the UI thread.
+Directory refresh provides a new source snapshot. There is no periodic file watcher.
+Hidden panes, offscreen rows, disabled thumbnails, and window closure release their requests and pixel references.
+The bounded cache can retain unused pixels until eviction or `ImageResources::clear_unused`.
+Window closure does not wait for a codec or Shell handler. Completed visuals do not request idle frames.
+
+Cancellation revokes delivery and releases completed pixels. It cannot interrupt a Shell call that is already active.
+XUI does not terminate blocked threads or create replacement workers.
+A blocked Shell handler can therefore delay subsequent Shell icons until that call returns.
+Network paths and third-party handlers can block or allocate memory outside XUI's budgets.
+The Shell controls provider activation and its own thumbnail cache. XUI does not guarantee isolation for every third-party handler.
+XUI does not directly instantiate thumbnail providers or disable Shell-managed provider isolation.
+Windows can retain an old per-path icon after a file update, even when XUI detects the new file version.
+File-association changes do not invalidate XUI's cache automatically.
+Third-party handlers, network stalls, and physical monitor transitions still require manual coverage.
+
+`xui_thumbnail_tests` covers the public control and the actual explorer composition.
+Original WIC fixtures include PNG, JPEG, alpha, corrupt data, Unicode paths, folders, and ordinary text files.
+Pixel assertions cover aspect ratio, selection, theme changes, synthetic DPI changes, and target recreation.
+Other assertions cover shared ownership, filtering, scrolling, tabs, pane visibility, navigation, file changes, deletion, and blocked-decoder closure.
+A 20,006-row source and a synthetic tall viewport cover slot limits without thousands of decodes.
+The existing image pipeline tests retain their budget, cache, reservation, and cancellation checks.
+Physical monitor transitions, physical GPU loss, and optional third-party WIC codecs still require manual coverage.
+
+The current executable is `build\shell-icons\Release\xui_demo.exe`.
+The existing `build\header` and `build\arm64` executables remain untouched.
+The compact header, native EDIT composition, and suggestion-refresh fixes remain in this build.
+
+#### Shell validation and measurements
+
+The ARM64 Release executable is 687,104 bytes, compared with 650,240 bytes for the preserved header build.
+All 24 native tests passed across the full suite and isolated retries.
+Repeated full-suite runs had transient failures in desktop foreground, UIA, suggestion, and image-idle checks.
+Each failed test passed in isolation, without changes to its focus safeguards.
+The final full suite passed 23 tests. Its one suggestion-test failure passed on an isolated retry.
+The Shell test also passed separately after additional queue, STA, and error-delivery assertions.
+All five existing binding clients passed their normal UIA and callback-failure checks.
+Both C# wrapper test executables passed 17 assertions with isolated copies of the new DLL.
+
+`xui_shell_thumbnail_tests` uses a compiled, owned fixture EXE with original icon resources. It never runs that EXE.
+Pixel assertions cover resource color, transparent margins, legacy icon masks, selection, filtering, scrolling, light theme, and 150%/200% synthetic DPI.
+The native `C:\Windows\System32\cmd.exe` row matched all 388 opaque pixels from its extracted Shell image.
+Text, PDF, DOCX, shortcut, DLL, folder, unknown-type, and missing-file requests also have coverage.
+A PNG request through the private Shell path exercises the Shell thumbnail provider.
+The public list keeps its existing direct WIC path and PNG/JPEG pixel assertions.
+
+The tests check COM STA ownership, separate WIC progress during a blocked Shell call, and cancellation before stale delivery.
+Two tall panes request exactly 48 of 1,000 distinct paths. A blocked worker cannot expand the shared queue beyond 64 requests.
+A missing file produces one callback per slot, with no frame-by-frame retry.
+The tests also check page changes, hidden content, replacement requests, and window closure while the Shell worker is blocked.
+Fifty repeated extraction cycles retained 40 GDI handles before and after the loop.
+The controlled CPU and GPU pixel peaks were 87,552 and 46,080 bytes in the Shell workload.
+
+Three fresh processes per build used the same 60-text-file fixture and initial window geometry.
+The protocol remains `tests\measure-browser.ps1`. The additional `cpu_ms` field measures process CPU time.
+The following values are medians. They separate private commitment, private working set, and total working set.
+
+| Counter | Preserved header build | Shell-enabled build |
+| --- | ---: | ---: |
+| First-paint private commitment, MiB | 28.609 | 29.293 |
+| First-paint private working set, MiB | 13.816 | 14.332 |
+| Idle private commitment, MiB | 28.398 | 31.758 |
+| Idle private working set, MiB | 14.066 | 15.762 |
+| Idle total working set, MiB | 44.812 | 56.453 |
+| Selection, scroll, and full paint, ms | 16.858 | 17.294 |
+
+Shell icons add a real cost to text-only folders, which previously requested no file images.
+Idle private commitment increased by approximately 3.36 MiB. Idle private working set increased by approximately 1.70 MiB.
+The Shell build retained 11 process threads and 405–417 handles, compared with nine threads and 250 handles.
+Those process totals include Windows-owned work, not only XUI workers.
+All text-folder idle intervals added zero custom paints.
+The Shell build recorded zero CPU time in each two-second idle interval. The baseline recorded 0–15.625 ms.
+These small samples do not establish a general performance result.
+
+Three additional fresh demo processes opened native System32, then scrolled through its files.
+Observed first-visible readiness was 241.81–339.70 ms, with a 261.81-ms median.
+All three settled intervals recorded zero process CPU time and zero custom paints over two seconds.
+Each process retained 18 visible slots, 18 ready images, 62 GDI handles, and one render target after scrolling.
+The in-process browser test measured 0.779 ms for filter input and 0.178 ms per Page Down command.
+Its blocked-Shell test processed ten scroll/filter/paint cycles in 153.60 ms without waiting for the Shell gate.
+Readiness measurements include polling or quiet-observation intervals. They are not raw provider-call latency.
+
+The build, logs, measurements, and owned-window captures are in `build\shell-icons`.
+Evidence includes `native-tests.log`, `native-final.log`, `native-final-retry.log`, `explorer-isolated.log`, and `shell-tests.log`.
+Measurements are in `browser-before.json`, `browser-after.json`, and `system32-idle.json`.
+Binding logs and compatible DLL copies are in `build\shell-icons\bindings`.
+The `shell-fixtures` directory contains `system32-cmd.png`, `system32-scrolled.png`, and `fixture-200dpi.png`.
+No existing browser process was closed or replaced for this work.
+
+```powershell
+$cmake = "C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+$ctest = Join-Path (Split-Path $cmake) "ctest.exe"
+& $cmake -S . -B build\shell-icons -G "Visual Studio 17 2022" -A ARM64 -DXUI_DESKTOP_TESTS=ON
+& $cmake --build build\shell-icons --config Release --parallel 4
+& $ctest --test-dir build\shell-icons -C Release --output-on-failure
+& $ctest --test-dir build\shell-icons -C Release -R "xui_(shell_thumbnail|thumbnail)_tests" --output-on-failure
+```
+
+#### Earlier WIC-only validation and measurements
+
+All 22 native tests passed in the ARM64 Release build.
+The existing five binding clients passed their UIA and callback-failure checks with the updated native runtime.
+The C# framework-dependent and Native AOT wrapper tests each passed 17 assertions.
+The binding clients reused their existing published binaries. This change added no wrapper API.
+
+Three fresh explorer processes used the unchanged 60-text-file measurement protocol.
+The initial client size remained 924 by 641 DIPs at 96 DPI.
+First-paint private commitment was 28.80 MiB median (28.79–28.90).
+First-paint private working set was 14.40 MiB median (14.37–14.49).
+
+Idle private commitment was 29.41 MiB median. Idle private working set was 15.19 MiB median.
+Selection, scrolling, and a full paint took 17.25 ms median (17.16–17.77).
+Each process retained one render target, nine threads, and 250 handles.
+All three two-second idle intervals added zero custom paints.
+
+The earlier recorded first-paint values were 28.78 MiB commitment and 14.32 MiB private working set.
+These small samples do not establish a general performance change.
+
+Separate fresh processes ran the actual explorer against 100 and 1,000 generated PNG files.
+Each folder also contained six format, error, text, and folder entries.
+
+| Counter | 100 PNG files | 1,000 PNG files |
+| --- | ---: | ---: |
+| Observed cold readiness, ms | 335.16 | 376.51 |
+| Shared-cache second-pane readiness, ms | 189.26 | 175.05 |
+| Page Down input handling, ms per command | 0.129 | 0.225 |
+| Observed readiness after five Page Down commands, ms | 190.90 | 193.61 |
+| Maximum retained slots across both panes | 20 | 20 |
+| Decodes through the complete workload | 45 | 113 |
+| Cache hits through the complete workload | 37 | 37 |
+| Owned CPU pixel peak, bytes | 102,528 | 259,200 |
+| Controlled GPU pixel peak, bytes | 29,952 | 29,952 |
+| Warm private commitment, MiB | 31.13 | 32.05 |
+| Warm private working set, MiB | 17.85 | 18.82 |
+
+Readiness measurements include six quiet timer observations. They are not raw decode latency or directly comparable to the text-only paint measurement.
+The 20-ms queue sampler observed zero queued jobs in these final runs. It can miss short queue peaks.
+
+The service still enforces the 64-job queue limit. The tests assert this limit and the 24/48-slot limits.
+CPU and GPU pixel counters exclude WIC transient allocations, driver allocations, source snapshots, and other process memory.
+The tests also cover thumbnail cancellation during a blocked decode and window closure without a decoder join.
+
+Logs, JSON measurements, original fixtures, and owned-window screenshots are in `build\thumbnails`.
+Dark single-pane and light dual-pane screenshots show the existing filename alignment and vector fallback icons.
+The main evidence files are `native-tests.log`, `thumbnail-tests.log`, `bindings.log`, `browser-60.json`, `images-100.log`, and `images-1000.log`.
 
 ### Thumbnail sample
 
@@ -1194,7 +2326,7 @@ The `ViewTask` cleanup thread waits for cancelled workers. Process exit does not
 UIA clients that enumerate the complete tree still perform work for every item.
 
 UIA supports the patterns that this demo uses, not every Windows control pattern.
-The native context menu retains Windows appearance.
+Application context menus use the shared theme. Native EDIT keeps its Windows menu when no custom menu callback exists.
 Custom touch gestures, drag-and-drop, and file modifications are outside this milestone.
 The explorer uses Windows mouse promotion for touch input. Dedicated touch-hardware coverage remains incomplete.
 The image sample replaces folders through its path field.
@@ -1917,9 +3049,168 @@ The native-proxy focus caveat remains. The assertions did not change.
 Real IME sessions, mixed-DPI transitions, high-contrast sessions, and complete screen-reader behavior still require manual coverage.
 The API does not include C bindings, a general scroll container, or arbitrary row templates.
 
+## Feature bindings (1.1 extension)
+
+This extension supersedes earlier statements that the new controls have C++ APIs only.
+The original nine control kinds remain available.
+The extension adds 35 typed constructors to both C# and Rust.
+These include compositions and the earlier workspace controls.
+The bindings use the existing native controls, layout, drawing, input, and accessibility.
+They contain no second renderer or retained row array.
+
+### Current coverage
+
+| Family | C# and Rust types | Usable contracts |
+| --- | --- | --- |
+| Numeric and exclusive choice | `RangeInput`, `NumericInput`, `RadioGroup`, `ComboBox`, `Progress` | Ranges, values, orientation, selection, editable combo creation, state, events |
+| Actions and disclosure | `SplitButton`, `Expander`, `Popup` | Independent actions, expanded state, arbitrary popup content, explicit owner and anchor |
+| Virtual collections | `ItemsView`, `TreeView`, `ImmutableSource` | Constant-cost identity lookup, bounded row callbacks, compact select-all, lazy tree requests, owner-bound completion |
+| Layout and workspace | `Grid`, `Wrap`, `AdaptiveLayout`, `TabStrip`, `SplitView`, `PageView` | Tracks, cells, wrapping, breakpoints, retained panes, tabs, active pages |
+| Data and history | `DataGrid`, `HistoryChart` | Immutable source, logical columns, resize, reorder, filter state, sort state, check selection, samples |
+| Commands | `CommandBar`, `CommandSurface` | Nested command records, separate pin actions, shortcuts, hints, overflow, explicit popup display |
+| Navigation | `Breadcrumb`, `NavigationPane`, `LocationPicker`, `ViewPicker` | Path segments, immutable sources, typed borrowed children, presentation and size controls |
+| Documents | `MultilineText`, `RichText`, `PasswordInput` | Native editing, authored runs, selection, editing commands, read-only mode, scoped password access |
+| Forms | `DateTimePicker`, `ColorPicker`, `InlineStatus`, `ContentDialog` | Local Gregorian fields, RGBA values, status dismissal, arbitrary dialog content, validation message, result events |
+| Scenes and maps | `VectorCanvas`, `MapView` | Immutable shapes, transforms, clips, stable IDs, offline markers, view state, cancelable overlay tokens |
+| Native hosts | `MediaPlayback`, `WebContent` | Explicit local media load, volume, seek, playback actions, allowed origins, HTML, JavaScript result tokens, stop and unload |
+| Window integration | `Window` | Optional custom title bar and explicit native Shell menu fallback |
+
+`include\xui\xui_features.h` declares the extension through `xui.h`.
+`bindings\generate_features.py` generates both FFI declarations from that header.
+It generates typed constructors and scalar properties from `bindings\features.json`.
+The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
+
+The baseline `xui_abi_version()` remains `0x00010000`.
+Old records, kind values, exports, and version negotiation remain unchanged.
+`xui_feature_version()` returns `0x00010001`.
+Top-level feature options and values contain explicit size and version fields.
+Other record arrays validate their sizes.
+The wrappers check the feature major version before construction.
+`xui_capabilities()` reports build support for WebView2 without starting a runtime.
+
+### Ownership and data limits
+
+All UI calls, source callbacks, and completions require the creating UI thread.
+Background tasks must deliver their results through an application-owned UI queue.
+The wrappers do not capture a synchronization context or marshal worker calls automatically.
+C# uses a disposable window owner. Rust uses `Rc` ownership and does not implement `Send` or `Sync` for controls.
+Borrowed children retain their window owner and reject use after native disposal.
+
+The immutable source interface supplies `Count`, `Key`, `Find`, and row content.
+`Find` must not enumerate the source. The count and identity mapping must remain stable for each snapshot.
+The binding copies only requested row fields, not the complete source.
+Selection exposes the focused key and compact term count.
+`Contains` in C#, or `contains` in Rust, tests membership without expanding all selected identities.
+Each primary or secondary field has a 1,024-byte UTF-8 limit.
+An oversized field fails instead of triggering a full-row-array fallback.
+Source callbacks must remain nonblocking and must not call another source callback.
+The ABI rejects mutations of the source window during a source callback.
+
+Source contexts use native retain/release ownership.
+C# snapshots implement `IDisposable`. Rust releases a snapshot handle when its last wrapper drops.
+Attached controls and selection terms retain their own source references.
+Replacing a source can therefore release its old context without waiting for window destruction.
+Managed exceptions and Rust panics become callback failures.
+Different controls can dispatch nested events. Recursion on the same event source fails with `XUI_BUSY`.
+Window destruction remains blocked during a callback or `Run`.
+Closing a window revokes delivery before destruction releases its source contexts.
+
+Tree requests expose their stable `ItemKey`.
+Map and tree completion tokens belong to one control, not merely a generation number.
+Successful completion consumes a token. Cancellation or disposal revokes it.
+Rust request objects cancel on drop. C# request objects implement `IDisposable`.
+Window destruction also revokes all remaining tokens.
+
+Document strings cross the ABI as UTF-8. Selections count UTF-16 code units.
+The selection setter rejects offsets inside a surrogate pair.
+Password controls have no ordinary plaintext getter.
+C# `WithPassword` supplies a scoped UTF-8 span. Rust `with_password` supplies a borrowed byte slice.
+Native temporary plaintext buffers are erased after the callback.
+The password limit is at most 4,096 UTF-16 code units.
+
+Creating a media or web control starts no optional runtime.
+Only explicit source loads start the native hosts.
+JavaScript evaluation returns a disposable native-owned result token.
+`TryGetResult` or `try_result` reads completion on the UI thread.
+No managed delegate or Rust closure remains pinned for JavaScript completion.
+Stop, unload, source replacement, hidden-host unload, and window close reject stale results.
+Token disposal releases storage even when WebView2 never calls its completion handler.
+
+### Examples and validation
+
+Regenerate the declaration files after a feature-header or manifest change:
+
+```powershell
+python bindings\generate_features.py
+```
+
+Run the isolated binding validation:
+
+```powershell
+.\tests\binding-features.ps1 -BuildDirectory build\controls
+```
+
+The script builds the native ABI tests, .NET framework-dependent clients, NativeAOT clients, and Rust clients.
+It runs model tests, Clippy, formatting, and owned-window smoke cases.
+It stores logs and deployment copies under `build\controls\bindings-validation`.
+It does not replace older application deployments or run a memory probe.
+The historical `tests\phase4.ps1` still targets `build\arm64`; it is not the entry point for this build.
+
+Run one representative application:
+
+```powershell
+.\build\controls\bindings-validation\Sample-fdd\Sample.exe --features
+.\build\controls\bindings-validation\Sample-aot\Sample.exe --features
+.\build\controls\bindings-validation\rust\xui-sample.exe --features
+.\build\controls\Release\xui_feature_sample.exe
+```
+
+Each application shows choices, a range, an offline map, and a million-row virtual source.
+F6 opens a document and color dialog. Escape cancels it. F8 changes the range. F12 closes the window.
+The `--callback-fail` argument makes the F8 event report a controlled callback failure.
+The source logs its actual visible-row fetch count after a normal run.
+The examples perform no Shell verb and load no remote website.
+
+A C# range uses ordinary typed properties:
+
+```csharp
+using var window = new Xui.Window();
+var root = window.Stack();
+var range = window.RangeInput("Volume");
+range.Range = new(0, 100, 1, 10);
+range.Value = 25;
+range.Event += e => Console.WriteLine(range.Value);
+root.Add(range);
+window.SetContent(root);
+window.Run();
+```
+
+The complete source examples are `FeatureDemo.cs`, `sample\src\features.rs`, and `bindings\native\features.cpp`.
+The ABI constructor test covers all 35 added kinds.
+Both language test suites exercise typed properties, source limits, callback failures, and disposal.
+The tests preserve the existing native focus and accessibility assertions.
+
+### Advanced API gaps
+
+Coverage is family-level, not full C++ method parity.
+The extension does not expose custom collection groups, full-source selection domains, rectangle gestures, or custom row action/icon metadata.
+It does not expose navigation-query completion, command-query completion, DataGrid filter-worker completion, or the abstract Shell provider session.
+Applications can replace immutable snapshots explicitly and handle command or header events.
+DataGrid filter and sort setters store state; applications supply the filtered or sorted snapshot.
+
+Map route polylines, custom date bounds, locale selection, color swatch configuration, and live dialog validation functions remain C++ APIs.
+Dialogs instead accept a validation message that applications update with their form state.
+JavaScript completion uses result polling rather than a language callback subscription.
+Optional browser and media adapter interfaces remain internal.
+The source interface is UI-thread-only and does not supply a worker dispatcher.
+
+The existing memory measurements in this README remain historical evidence.
+This extension makes no new process-memory reduction claim and does not alter the gallery memory baseline.
+
 ## C ABI and language bindings (phase 4)
 
-This section supersedes the historical binding limitations in the milestone sections.
+This section describes the original ABI baseline and its historical measurements.
+The feature extension section supersedes its control-coverage limitations.
 The native engine owns layout, drawing, input, accessibility, image work, and virtual rows.
 C# and Rust supply control properties, data, and event handlers. Neither binding contains a second retained engine or a row painter.
 The existing static C++ targets do not load the new DLL.

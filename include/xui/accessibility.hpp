@@ -30,6 +30,7 @@ struct AccessibleSnapshot {
     bool enabled{true};
     std::shared_ptr<const std::wstring> name;
     std::shared_ptr<const std::wstring> automation_id;
+    std::shared_ptr<const std::wstring> help_text;
 };
 
 struct AccessibilityState {

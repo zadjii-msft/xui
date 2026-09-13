@@ -104,10 +104,19 @@ New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $samples = [System.Collections.Generic.List[object]]::new()
 function Snapshot($process, $window, $run, $phase, $latency = 0) {
     $process.Refresh()
+    $listHeight = 0
+    if ($window -ne [IntPtr]::Zero) {
+        $list = [BrowserProbe]::Child($window,"Xui.FileList.1")
+        $bounds = [BrowserProbe+Rect]::new()
+        if ($list -ne [IntPtr]::Zero -and [BrowserProbe]::GetWindowRect($list,[ref]$bounds)) {
+            $listHeight = ($bounds.bottom-$bounds.top)*96.0/[BrowserProbe]::GetDpiForWindow($window)
+        }
+    }
     $samples.Add([pscustomobject]@{
         run=$run; phase=$phase; private_bytes=$process.PrivateMemorySize64
         private_working_set=[BrowserProbe]::PrivateWorkingSet($process.Handle)
         working_set=$process.WorkingSet64; peak_working_set=$process.PeakWorkingSet64
+        cpu_ms=$process.TotalProcessorTime.TotalMilliseconds
         peak_commit=$process.PeakPagedMemorySize64
         threads=$process.Threads.Count; handles=$process.HandleCount
         gdi=[BrowserProbe]::GetGuiResources($process.Handle,0)
@@ -115,6 +124,7 @@ function Snapshot($process, $window, $run, $phase, $latency = 0) {
         paints=if ($window -ne [IntPtr]::Zero) {[BrowserProbe]::Metric($window,0)} else {0}
         dpi=if ($window -ne [IntPtr]::Zero) {[BrowserProbe]::GetDpiForWindow($window)} else {0}
         latency_ms=$latency
+        list_height_dip=$listHeight
         targets=if ($window -ne [IntPtr]::Zero) {[BrowserProbe]::Metric($window,11)} else {0}
     })
 }

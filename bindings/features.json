@@ -1,0 +1,49 @@
+{
+  "controls": [
+    ["RangeInput",10,"control"],["RadioGroup",11,"control"],["ComboBox",12,"combo"],["NumericInput",13,"control"],
+    ["Expander",14,"content"],["Progress",15,"control"],["Popup",16,"content"],["SplitButton",17,"panel"],
+    ["ItemsView",18,"control"],["TreeView",19,"control"],["Grid",20,"panel"],["Wrap",21,"panel"],
+    ["AdaptiveLayout",22,"two"],["CommandBar",23,"control"],["CommandSurface",24,"popup"],
+    ["Breadcrumb",25,"control"],["NavigationPane",26,"control"],["LocationPicker",27,"popup"],
+    ["ViewPicker",28,"target"],["MultilineText",29,"document"],["RichText",30,"document"],
+    ["PasswordInput",31,"secret"],["DateTimePicker",32,"date"],["InlineStatus",33,"control"],
+    ["ColorPicker",34,"control"],["ContentDialog",35,"contentPopup"],["VectorCanvas",36,"control"],
+    ["MapView",37,"control"],["MediaPlayback",38,"control"],["WebContent",39,"control"],
+    ["TabStrip",40,"control"],["SplitView",41,"twoControl"],["PageView",42,"panel"],
+    ["DataGrid",43,"control"],["HistoryChart",44,"control"]
+  ],
+  "members": [
+    [["RangeInput","NumericInput","Progress"],"Range",1,"range","get"],
+    [["RangeInput","NumericInput","Progress"],"Value",2,"double","get"],
+    [["RangeInput"],"Orientation",3,"Axis",""],
+    [["RangeInput"],"Reversed",4,"bool",""],
+    [["Expander"],"Expanded",5,"bool","get"],
+    [["Progress"],"State",6,"ProgressState","get"],
+    [["MultilineText","RichText"],"Document",12,"string",""],
+    [["MultilineText","RichText"],"ReadOnly",13,"bool","get"],
+    [["MultilineText","RichText","PasswordInput"],"MaximumLength",14,"ulong",""],
+    [["MultilineText","RichText"],"Selection",15,"selection","get"],
+    [["PasswordInput"],"RevealAllowed",17,"bool",""],
+    [["ColorPicker"],"Value",19,"color","get"],
+    [["InlineStatus"],"Dismissible",21,"bool",""],
+    [["MediaPlayback"],"Volume",24,"double",""],
+    [["ItemsView","TreeView"],"Presentation",28,"ItemsPresentation",""],
+    [["ItemsView","TreeView"],"Offset",29,"double",""],
+    [["Wrap"],"ItemWidth",30,"double",""],
+    [["AdaptiveLayout"],"Breakpoint",31,"double",""],
+    [["AdaptiveLayout"],"NavigationExtent",32,"double",""],
+    [["AdaptiveLayout"],"NavigationOpen",33,"bool",""],
+    [["AdaptiveLayout"],"CompactNavigation",34,"CompactNavigation",""],
+    [["SplitView"],"Ratio",35,"double",""],
+    [["PageView"],"SelectedPage",36,"ulong",""]
+  ],
+  "actions": [
+    [["ContentDialog"],"Accept",7], [["ContentDialog"],"Cancel",8],
+    [["InlineStatus","Popup","CommandSurface","LocationPicker","ViewPicker"],"Dismiss",5],
+    [["InlineStatus"],"Show",6],
+    [["MediaPlayback"],"Play",9],[["MediaPlayback"],"Pause",10],
+    [["MediaPlayback","WebContent"],"Stop",11],[["MediaPlayback","WebContent"],"Unload",12],
+    [["WebContent"],"Reload",13],[["WebContent"],"FocusContent",14],
+    [["ItemsView","TreeView","DataGrid"],"SelectAll",15]
+  ]
+}

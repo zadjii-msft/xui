@@ -1,4 +1,5 @@
 #include "xui/application.hpp"
+#include "xui/vector_canvas.hpp"
 #include "../src/drawing.hpp"
 #include "../src/list_peer.hpp"
 #include <windows.h>
@@ -64,12 +65,26 @@ void window_lifecycle() {
     const auto identity = retained->id();
     {
         xui::Window window({L"XUI lifecycle normal"});
+        window.set_title(L"Before run");
+        require(window.title() == L"Before run", "Title property updates before run");
+        window.set_title(L"XUI lifecycle normal");
+        std::jthread wrong_thread([&] {
+            bool rejected{};
+            try { window.set_title(L"Wrong thread"); } catch (const std::logic_error&) { rejected = true; }
+            require(rejected, "Title rejects non-owner thread");
+        });
+        wrong_thread.join();
         auto root = retained_root;
         auto input = std::make_shared<xui::TextInput>(L"Name");
         root->add(retained);
         root->add(input);
         window.set_content(root);
         retained->on_click([&] {
+            window.set_title(L"Updated during run");
+            window.set_title(L"Updated during run");
+            Search titled{L"Updated during run"};
+            EnumWindows(find, reinterpret_cast<LPARAM>(&titled));
+            require(titled.result && window.title() == L"Updated during run", "Title updates native caption during run");
             input->set_enabled(false);
             require(!window.focus(*input), "Focus rejects a disabled control");
             input->set_enabled(true);
@@ -77,6 +92,10 @@ void window_lifecycle() {
             window.close();
         });
         require(drive(window, L"XUI lifecycle normal") == 0, "Callback closes the window");
+        require(window.title() == L"Updated during run", "Title remains readable after run");
+        bool closed_title{};
+        try { window.set_title(L"After close"); } catch (const std::logic_error&) { closed_title = true; }
+        require(closed_title, "Closed window rejects title mutation");
         retained->on_click({});
         require(xui::Application::run(window) == 1, "Window cannot run twice");
         root->set_invalidator([&](xui::Invalidation) { ++later_invalidations; });
@@ -106,6 +125,179 @@ void window_lifecycle() {
         window.set_content(root);
         require(drive(window, title) == (throws ? 1 : 0), "Callback failure stops only its own run");
     }
+}
+void navigation_input() {
+    using namespace xui;
+    Window window({L"XUI navigation input", {900, 500}});
+    auto left = std::make_shared<Stack>(Axis::vertical), right = std::make_shared<Stack>(Axis::vertical);
+    auto address = std::make_shared<TextInput>(L"Navigation address");
+    auto search = std::make_shared<TextInput>(L"Navigation search");
+    auto list = std::make_shared<FileList>(L"Navigation list");
+    auto tabs = std::make_shared<TabStrip>(L"Navigation tabs");
+    auto button = std::make_shared<Button>(L"Navigation button");
+    address->set_text(L"Selection stays");
+    left->add(address); left->add(list, 1);
+    right->add(tabs); right->add(search); right->add(button);
+    auto split = std::make_shared<SplitView>(left, right);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(split, 1); window.set_content(root);
+    std::vector<NavigationEvent> events;
+    window.on_navigation([&](const NavigationEvent& event) { events.push_back(event); return true; });
+    bool completed{};
+    window.on_key([&](const KeyEvent& event) {
+        if (event.key != Key::f12) return false;
+        Search host{L"XUI navigation input"}; EnumWindows(find, reinterpret_cast<LPARAM>(&host));
+        require(host.result != nullptr, "Navigation host exists");
+        const auto native = [&](const wchar_t* name) {
+            struct Match { const wchar_t* name; HWND window{}; } match{name};
+            EnumChildWindows(host.result, [](HWND hwnd, LPARAM data) -> BOOL {
+                auto& match = *reinterpret_cast<Match*>(data);
+                wchar_t title[128]{}; GetWindowTextW(hwnd, title, 128);
+                if (std::wstring_view(title) == match.name) { match.window = hwnd; return FALSE; }
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&match));
+            require(match.window != nullptr, "Navigation native peer exists"); return match.window;
+        };
+        require(window.focus(*address), "Focus navigation EDIT");
+        const auto edit = GetFocus();
+        SendMessageW(edit, EM_SETSEL, 2, 6);
+        const auto gesture = [&](HWND hwnd, Control* target) {
+            for (const WORD button : {WORD(XBUTTON1), WORD(XBUTTON2)}) {
+                const auto count = events.size();
+                const auto flags = MAKEWPARAM(button == XBUTTON1 ? MK_XBUTTON1 : MK_XBUTTON2, button);
+                require(SendMessageW(hwnd, WM_XBUTTONDOWN, flags, MAKELPARAM(12, 12)) == TRUE &&
+                    events.size() == count, "Button-down is consumed without navigation");
+                require(SendMessageW(hwnd, WM_XBUTTONUP, MAKEWPARAM(0, button), MAKELPARAM(12, 12)) == TRUE,
+                    "Button-up reports handled");
+                require(events.size() == count + 1 && events.back().target == target && events.back().position &&
+                    events.back().direction == (button == XBUTTON1 ? NavigationDirection::back : NavigationDirection::forward),
+                    "Each native click dispatches once with the owning target");
+                SendMessageW(GetParent(hwnd), WM_PARENTNOTIFY, MAKEWPARAM(WM_XBUTTONDOWN, button), MAKELPARAM(12, 12));
+                require(events.size() == count + 1, "Parent notification never duplicates a navigation");
+            }
+        };
+        gesture(edit, address.get());
+        require(window.focus(*search), "Find native search EDIT");
+        const auto search_edit = GetFocus();
+        require(window.focus(*address), "Restore EDIT focus");
+        SendMessageW(edit, EM_SETSEL, 2, 6);
+        gesture(search_edit, search.get());
+        gesture(native(L"Navigation list"), list.get());
+        gesture(native(L"Navigation tabs"), tabs.get());
+        gesture(native(L"Navigation button"), button.get());
+        const auto double_count = events.size();
+        require(SendMessageW(edit, WM_XBUTTONDBLCLK, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), MAKELPARAM(12, 12)) == TRUE &&
+            events.size() == double_count, "Double-click down does not dispatch a second command");
+        SendMessageW(edit, WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), MAKELPARAM(12, 12));
+        require(events.size() == double_count + 1, "Second click dispatches once on release");
+        DWORD start{}, end{};
+        SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        require(GetFocus() == edit && start == 2 && end == 6 && address->text() == L"Selection stays",
+            "Mouse browser navigation preserves native EDIT focus, selection and text");
+        POINT point{12, 12}; MapWindowPoints(search_edit, host.result, &point, 1);
+        const auto count = events.size();
+        SendMessageW(host.result, WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), MAKELPARAM(point.x, point.y));
+        SendMessageW(host.result, WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), MAKELPARAM(point.x, point.y));
+        require(events.size() == count + 1 && events.back().target == search.get(),
+            "Root coordinates identify a control in the inactive pane");
+        for (const auto hwnd : {search_edit, native(L"Navigation list"), native(L"Navigation tabs")}) {
+            const auto before = events.size();
+            require(SendMessageW(hwnd, WM_APPCOMMAND, reinterpret_cast<WPARAM>(hwnd),
+                MAKELPARAM(0, APPCOMMAND_BROWSER_FORWARD)) == TRUE, "Application command is consumed at the peer");
+            require(events.size() == before + 1 && events.back().direction == NavigationDirection::forward &&
+                !events.back().position, "Application command dispatches once without mouse coordinates");
+        }
+        completed = true;
+        window.close();
+        return true;
+    });
+    std::jthread driver([&] {
+        for (int i = 0; i < 250; ++i) {
+            Search host{L"XUI navigation input"}; EnumWindows(find, reinterpret_cast<LPARAM>(&host));
+            if (host.result) { PostMessageW(host.result, WM_KEYDOWN, VK_F12, 0); return; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    });
+    const auto result = Application::run(window);
+    driver.join();
+    if (result) std::wcerr << window.error() << L'\n';
+    require(result == 0 && completed, "Navigation input checks complete");
+}
+void retained_page_resources() {
+    using namespace xui;
+    Window window({L"XUI retained page resources", {780, 620}});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto anchor = std::make_shared<Button>(L"Page anchor"); root->add(anchor);
+    auto pages = std::make_shared<PageView>(); root->add(pages, 1);
+    auto home = std::make_shared<Stack>(Axis::vertical);
+    auto edit = std::make_shared<TextInput>(L"Retained editor"); edit->set_text(L"original");
+    home->add(edit); home->add(std::make_shared<Label>(L"Home page")); pages->add_page(home);
+    auto large = std::make_shared<Stack>(Axis::vertical);
+    auto tall = std::make_shared<TextInput>(L"Tall editor"); tall->set_preferred_size({700, 300}); large->add(tall);
+    for (int i = 0; i < 20; ++i) large->add(std::make_shared<Label>(L"Measured page label " + std::to_wstring(i)));
+    pages->add_page(large);
+    auto canvas = std::make_shared<VectorCanvas>();
+    std::vector<VectorShape> shapes;
+    for (int i = 0; i < 40; ++i) shapes.push_back(VectorShape::rectangle(i + 1, {float(i * 10), 10, 8, 80}));
+    const auto scene = std::make_shared<const VectorScene>(std::move(shapes)); canvas->set_scene(scene); pages->add_page(canvas);
+    window.set_content(root);
+    bool completed{};
+    window.on_key([&](const KeyEvent& event) {
+        if (event.key != Key::f12) return false;
+        Search host{L"XUI retained page resources"}; EnumWindows(find, reinterpret_cast<LPARAM>(&host));
+        require(host.result != nullptr, "Retained page host exists");
+        const auto metric = [&](int key) { return SendMessageW(host.result, WM_APP + 60, key, 0); };
+        const auto flush = [&] {
+            SendMessageW(host.result, WM_APP + 12, 0, 0);
+            InvalidateRect(host.result, nullptr, FALSE); UpdateWindow(host.result);
+        };
+        flush();
+        const auto initial_peers = metric(14), initial_layouts = metric(13), initial_buffer = metric(30);
+        require(initial_peers < 10 && initial_buffer > 0, "Inactive pages do not eagerly create native peers");
+        require(window.focus(*edit), "Focus retained native editor");
+        const auto native = GetFocus();
+        SendMessageW(native, EM_SETSEL, 8, 8);
+        SendMessageW(native, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-edit"));
+        SendMessageW(native, EM_SETSEL, 2, 6);
+        require(edit->text() == L"original-edit" && SendMessageW(native, EM_CANUNDO, 0, 0), "Native editor owns text and undo");
+        pages->select(1); flush();
+        const auto warm_peers = metric(14);
+        require(warm_peers >= initial_peers + 20 && metric(30) > initial_buffer,
+            "First page visit materializes peers and a larger native composition buffer");
+        require(metric(13) > initial_layouts, "Visible page creates measured label layouts");
+        pages->select(2); flush();
+        require(metric(32) == 40, "Visible scene caches its native paths");
+        const auto all_peers = metric(14);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            pages->select(0); flush();
+            require(metric(13) == initial_layouts && metric(30) == initial_buffer && metric(32) == 0,
+                "Inactive text layouts, scene paths and oversized native buffer are reclaimed");
+            require(metric(14) == all_peers && IsWindow(native), "Visited native editor and retained peer identities survive hiding");
+            pages->select(1); flush();
+            pages->select(2); flush();
+            require(metric(32) == 40 && canvas->scene() == scene, "Native geometry rebuild preserves the retained scene model");
+        }
+        pages->select(0); flush();
+        require(window.focus(*edit) && GetFocus() == native, "Page return restores the same EDIT HWND");
+        DWORD start{}, end{};
+        SendMessageW(native, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        require(start == 2 && end == 6 && SendMessageW(native, EM_CANUNDO, 0, 0),
+            "Page reclamation preserves native selection and undo history");
+        SendMessageW(native, EM_UNDO, 0, 0);
+        require(edit->text() == L"original", "Undo after hiding restores the original model text");
+        completed = true; window.close(); return true;
+    });
+    std::jthread driver([&](std::stop_token stop) {
+        while (!stop.stop_requested()) {
+            Search host{L"XUI retained page resources"}; EnumWindows(find, reinterpret_cast<LPARAM>(&host));
+            if (host.result) { PostMessageW(host.result, WM_KEYDOWN, VK_F12, 0); return; }
+            Sleep(10);
+        }
+    });
+    const auto result = Application::run(window);
+    driver.request_stop(); driver.join();
+    if (result) std::wcerr << window.error() << '\n';
+    require(result == 0 && completed && Drawing::live_targets() == 0, "Retained page resources close without a target leak");
 }
 void resource_lifecycle(bool diagnostics = false, bool scroll_content = false, bool split_content = false) {
     std::vector<HANDLE> previous_handles;
@@ -590,6 +782,8 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "--resources") { resource_lifecycle(true); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--split-resources") { resource_lifecycle(false, false, true); return 0; }
         window_lifecycle();
+        retained_page_resources();
+        navigation_input();
         public_list_delivery();
         cancellation_without_join();
         resource_lifecycle();

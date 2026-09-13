@@ -6,7 +6,7 @@ internal static class Tests
     [STAThread]
     private static int Main()
     {
-        try { Run(); return 0; }
+        try { Run(); FeatureTests.Run(); return 0; }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
     private static int count;

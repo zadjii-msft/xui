@@ -1,39 +1,102 @@
 #include "list_peer.hpp"
 #include "platform.hpp"
+#include "context_menu.hpp"
 #include <UIAutomation.h>
 #include <windowsx.h>
 
 namespace xui {
-void show_control_menu(Control& control, HWND window, LPARAM position) {
-    auto items = control.context_menu();
-    if (items.empty() || !IsWindow(window)) return;
-    POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
-    if (point.x == -1 && point.y == -1) {
-        point = {12, 12};
-        ClientToScreen(window, &point);
-    }
-    HMENU menu = CreatePopupMenu();
-    win32_require(menu != nullptr, "Create context menu");
-    for (size_t i = 0; i < items.size(); ++i) {
-        const auto& item = items[i];
-        AppendMenuW(menu, item.separator ? MF_SEPARATOR : MF_STRING |
-            (item.enabled ? MF_ENABLED : MF_GRAYED) | (item.checked ? MF_CHECKED : 0),
-            i + 1, item.text.c_str());
-    }
-    const UINT chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-        point.x, point.y, window, nullptr);
-    DestroyMenu(menu);
-    if (chosen && chosen <= items.size() && items[chosen - 1].enabled && items[chosen - 1].action)
-        items[chosen - 1].action();
-}
-
 ListPeer::ListPeer(std::shared_ptr<FileList> control, std::function<void()> failure, std::function<void(HWND)> focus)
     : list_(std::move(control)), failure_(std::move(failure)), focus_(std::move(focus)) {
     list_->set_disposer([](std::shared_ptr<const FilteredView> view) { dispose_later(std::move(view)); });
 }
 ListPeer::~ListPeer() {
+    detach_thumbnails();
     if (window_) DestroyWindow(window_);
     if (provider_) provider_->Release();
+}
+void ListPeer::detach_thumbnails() {
+    thumbnails_.clear();
+    thumbnail_source_.reset();
+}
+namespace {
+bool image_path(std::wstring_view path) {
+    const auto dot = path.find_last_of(L'.');
+    if (dot == path.npos) return false;
+    const auto extension = path.substr(dot);
+    for (const auto supported : {L".png", L".jpg", L".jpeg", L".bmp", L".gif", L".tif", L".tiff", L".webp"})
+        if (CompareStringOrdinal(extension.data(), static_cast<int>(extension.size()),
+            supported, -1, TRUE) == CSTR_EQUAL) return true;
+    return false;
+}
+}
+bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<TaskWake>& wake,
+    std::vector<std::uint64_t>& retained, std::size_t& remaining) {
+    if (!shown || !list_->thumbnails()) { detach_thumbnails(); return false; }
+    const auto view = list_->model().view();
+    const auto source = view->source();
+    const auto pixels = std::clamp(static_cast<UINT>(std::lround(24.0 * dpi_ / 96.0)), 1u,
+        ImageLimits::output_dimension);
+    if (thumbnail_source_.lock() != source || thumbnail_revision_ != list_->thumbnail_revision() ||
+        thumbnail_pixels_ != pixels) {
+        detach_thumbnails();
+        thumbnail_source_ = source;
+        thumbnail_revision_ = list_->thumbnail_revision();
+        thumbnail_pixels_ = pixels;
+    }
+    // Bound each pane and the whole window, even on an unusually tall desktop.
+    const auto limit = std::min<std::size_t>(24, remaining);
+    const auto range = visible_range(list_->model().visible_indices().size(), list_->row_height(),
+        list_->offset() + std::max(0.0f, clip.y), clip.height);
+    const auto& model = list_->model();
+    std::vector<const FileItem*> wanted;
+    for (auto row = range.begin; row < range.end && wanted.size() < limit; ++row) {
+        const auto& item = (*model.items())[model.visible_indices()[row]];
+        wanted.push_back(&item);
+    }
+    std::erase_if(thumbnails_, [&](const auto& slot) {
+        return std::none_of(wanted.begin(), wanted.end(), [&](const auto* item) {
+            return slot->id == item->id && slot->path == item->path;
+        });
+    });
+    bool changed{};
+    std::vector<std::pair<ItemId, std::wstring>> errors;
+    for (const auto* item : wanted) {
+        auto found = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {
+            return slot->id == item->id && slot->path == item->path;
+        });
+        if (found == thumbnails_.end()) {
+            auto slot = std::make_unique<Thumbnail>();
+            slot->id = item->id;
+            slot->path = item->path;
+            slot->request = request_image(slot->path, {pixels, pixels}, wake,
+                !item->directory && image_path(item->path) ? ImageKind::wic : ImageKind::shell);
+            thumbnails_.push_back(std::move(slot));
+            found = std::prev(thumbnails_.end());
+        }
+        auto& slot = **found;
+        if (auto request = slot.request) {
+            std::lock_guard lock(request->mutex);
+            if (request->done && !request->cancelled) {
+                slot.pixels = std::move(request->pixels);
+                if (!slot.pixels) slot.error = request->error.empty() ?
+                    L"Thumbnail decoding failed." : std::move(request->error);
+                slot.request.reset();
+                changed = true;
+            }
+        }
+        if (!slot.error.empty() && !slot.reported) {
+            errors.emplace_back(slot.id, slot.error);
+            slot.reported = true;
+        }
+        if (slot.pixels) retained.push_back(slot.pixels->id);
+    }
+    remaining -= thumbnails_.size();
+    for (const auto& [id, error] : errors) {
+        if (list_->model().view() != view || !list_->thumbnails() ||
+            list_->thumbnail_revision() != thumbnail_revision_) break;
+        list_->thumbnail_error(id, error);
+    }
+    return changed;
 }
 void ListPeer::attach(HWND parent, int id) {
     if (list_->id() > (std::numeric_limits<WPARAM>::max() >> 8))
@@ -55,8 +118,7 @@ void ListPeer::attach(HWND parent, int id) {
 }
 void ListPeer::invalidate() { if (window_) InvalidateRect(GetAncestor(window_, GA_ROOT), nullptr, FALSE); }
 void ListPeer::update(UINT dpi, const Palette& palette) {
-    dpi_ = dpi;
-    palette_ = palette;
+    set_theme(dpi, palette);
     if (!IsWindowEnabled(window_)) {
         palette_.text = palette_.secondary = palette_.selection_text = palette_.folder = palette_.file = palette_.disabled;
         hovered_.reset();
@@ -90,6 +152,9 @@ void ListPeer::publish(bool structure) {
     if (!automation_id_ || *automation_id_ != id) automation_id_ = std::make_shared<const std::wstring>(id);
     snapshot.name = name_;
     snapshot.automation_id = automation_id_;
+    if (list_->help_text().empty()) help_text_.reset();
+    else if (!help_text_ || *help_text_ != list_->help_text()) help_text_ = std::make_shared<const std::wstring>(list_->help_text());
+    snapshot.help_text = help_text_;
     snapshot.view = list_->model().view();
     snapshot.selected = list_->model().selected_index() ? list_->model().selected_id() : std::nullopt;
     snapshot.focused_item = list_->focused_index() ? list_->focused_id() : std::nullopt;
@@ -205,7 +270,18 @@ void ListPeer::paint(Drawing& drawing) {
                 palette_.selection_text : palette_.accent, 4, true);
         const auto text = selected ? palette_.selection_text : palette_.text;
         const float kind_width = area > 260 ? 100.0f : 0;
-        drawing.icon({14, bounds.y + 8, 18, 18},
+        const auto thumbnail = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {
+            return slot->id == item.id && slot->path == item.path;
+        });
+        bool drawn{};
+        if (thumbnail != thumbnails_.end() && (*thumbnail)->pixels) {
+            drawn = drawing.image((*thumbnail)->pixels, {11, bounds.y + 4, 24, 24});
+            if (!drawn && !(*thumbnail)->reported && (*thumbnail)->error.empty()) {
+                (*thumbnail)->error = L"The thumbnail bitmap budget is full or the upload failed.";
+                invalidate();
+            }
+        }
+        if (!drawn) drawing.icon({14, bounds.y + 8, 18, 18},
             selected ? palette_.selection_text : item.directory ? palette_.folder : palette_.file, item.directory);
         drawing.text(item.name, {40, bounds.y, std::max(0.0f, area - kind_width - 52), bounds.height}, text);
         if (kind_width) drawing.text(item.directory ? L"Folder" : L"File",
@@ -232,6 +308,12 @@ LRESULT CALLBACK ListPeer::procedure(HWND hwnd, UINT message, WPARAM wparam, LPA
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
     }
     if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
+    if (message == WM_CONTEXTMENU) {
+        const auto failure = self->failure_;
+        try { show_control_menu(*self->list_, hwnd, lparam, self->palette_, self->dpi_); }
+        catch (...) { failure(); }
+        return 0;
+    }
     try { return self->message(hwnd, message, wparam, lparam); }
     catch (...) { self->failure_(); return 0; }
 }
@@ -273,7 +355,6 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         if (!in_scrollbar(lparam)) select_at(GET_Y_LPARAM(lparam));
         else list_->clear_selection();
         return 0;
-    case WM_CONTEXTMENU: show_control_menu(*list_, hwnd, lparam); return 0;
     case WM_KEYDOWN: {
         if (!IsWindowEnabled(hwnd)) return 0;
         std::optional<Navigation> navigation;

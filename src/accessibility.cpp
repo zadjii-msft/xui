@@ -232,6 +232,10 @@ public:
                     string_value(view.snapshot.automation_id->data(), view.snapshot.automation_id->size(), result) :
                     string_value(L"XuiFileList", 11, result);
                 break;
+            case UIA_HelpTextPropertyId:
+                if (!root_ && view.snapshot.help_text)
+                    return string_value(view.snapshot.help_text->data(), view.snapshot.help_text->size(), result);
+                break;
             case UIA_ItemTypePropertyId:
                 if (index) {
                     const bool folder = view.item(*index)->directory;

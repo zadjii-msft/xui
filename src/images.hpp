@@ -7,6 +7,7 @@
 namespace xui {
 struct TaskWake;
 class Drawing;
+enum class ImageKind { wic, shell };
 struct ImagePixels {
     std::uint64_t id{};
     ImageSize size{};
@@ -19,6 +20,7 @@ struct ImageRequest {
     std::mutex mutex;
     std::wstring path;
     ImageSize size;
+    ImageKind kind{ImageKind::wic};
     std::shared_ptr<TaskWake> wake;
     std::shared_ptr<const ImagePixels> pixels;
     std::wstring error;
@@ -38,14 +40,16 @@ struct ImagePeer {
     void detach();
     void paint(Drawing& drawing, Rect bounds);
 };
-std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake);
+std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake,
+    ImageKind kind = ImageKind::wic);
 void clear_image_cache();
 bool reserve_bitmap(std::size_t bytes);
 void finish_bitmap(std::size_t bytes, bool success, double milliseconds);
 void release_bitmap(std::size_t bytes);
-// Private deterministic test seam. The callback runs on the single decode worker.
+// Private deterministic test seams. Each callback runs on its respective decode worker.
 enum class ImageDecodeStage { before_decode, reserved, before_delivery };
 struct ImageDecodeTestAccess {
     static std::atomic<void(*)(ImageDecodeStage)> hook;
+    static std::atomic<void(*)(ImageDecodeStage)> shell_hook;
 };
 }

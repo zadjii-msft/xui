@@ -11,6 +11,7 @@ internal static class Program
     }
     private static void Run(string[] args)
     {
+        if (args.Contains("--features")) { FeatureDemo.Run(args.Contains("--callback-fail")); return; }
         using var window = new Window();
         var root = window.Stack();
         root.Padding(20); root.Spacing(10);

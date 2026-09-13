@@ -34,13 +34,15 @@ bool SuggestionPeer::eligible() const {
 void SuggestionPeer::dismiss() {
     KillTimer(edit_.window(), timer_id);
     wanted_ = false;
+    pending_ = false;
     delivery_->cancel();
-    items_.clear();
     clicked_ = -1;
     if (popup_) {
         ShowWindow(popup_, SW_HIDE);
+        if (!items_.empty()) SendMessageW(list_, LB_RESETCONTENT, 0, 0);
         SendMessageW(list_, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     }
+    items_.clear();
 }
 void SuggestionPeer::sync() {
     if (revision_ != input_.suggestion_revision() || !eligible()) dismiss();
@@ -49,9 +51,13 @@ void SuggestionPeer::sync() {
 void SuggestionPeer::changed() {
     if (replacing_) return;
     sync();
-    dismiss();
-    if (!eligible() || input_.text().empty()) return;
+    if (!eligible() || input_.text().empty()) { dismiss(); return; }
+    KillTimer(edit_.window(), timer_id);
+    delivery_->cancel();
+    clicked_ = -1;
+    if (list_) SendMessageW(list_, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     wanted_ = true;
+    pending_ = true;
     explicit_ = false;
     SetTimer(edit_.window(), timer_id, 80, nullptr);
 }
@@ -60,17 +66,22 @@ void SuggestionPeer::timer() {
     sync();
     if (!wanted_ || !eligible()) return;
     if (!worker_) worker_ = detail::SuggestionWorker::shared();
-    show({{}, L"Loading suggestions\u2026"});
+    pending_ = true;
+    if (!popup_ || !IsWindowVisible(popup_)) show({{}, L"Loading suggestions\u2026"});
     try {
         worker_->request(input_.suggestions(), {input_.text(), input_.suggestion_context(), explicit_}, delivery_);
     } catch (...) {
+        pending_ = false;
         show({{}, L"Suggestions are unavailable."});
     }
 }
 void SuggestionPeer::deliver() {
     sync();
     auto result = delivery_->take();
-    if (result && wanted_ && eligible()) show(std::move(*result));
+    if (result && wanted_ && eligible()) {
+        pending_ = false;
+        show(std::move(*result));
+    }
 }
 void SuggestionPeer::show(SuggestionResult result) {
     if (!popup_) {
@@ -112,11 +123,15 @@ void SuggestionPeer::show(SuggestionResult result) {
             font_ = font; font_dpi_ = dpi;
         }
     }
-    items_ = std::move(result.items);
-    std::erase_if(items_, [&](const auto& value) { return value.size() > input_.maximum_length(); });
-    SendMessageW(list_, WM_SETREDRAW, FALSE, 0);
-    SendMessageW(list_, LB_RESETCONTENT, 0, 0);
-    for (const auto& item : items_) SendMessageW(list_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+    std::erase_if(result.items, [&](const auto& value) { return value.size() > input_.maximum_length(); });
+    const bool changed = items_ != result.items;
+    if (changed) {
+        SendMessageW(list_, WM_SETREDRAW, FALSE, 0);
+        items_ = std::move(result.items);
+        SendMessageW(list_, LB_RESETCONTENT, 0, 0);
+        for (const auto& item : items_) SendMessageW(list_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+        SendMessageW(list_, WM_SETREDRAW, TRUE, 0);
+    }
     if (result.status.empty() && items_.empty()) result.status = L"No suggestions.";
     SetWindowTextW(status_, result.status.c_str());
     SendMessageW(list_, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
@@ -140,11 +155,12 @@ void SuggestionPeer::show(SuggestionResult result) {
         SWP_NOZORDER | SWP_NOACTIVATE | (items_.empty() ? SWP_HIDEWINDOW : SWP_SHOWWINDOW));
     SetWindowPos(status_, nullptr, 8, std::max(0, height - 2 - footer) + 4, width - 18, std::max(0, footer - 4),
         SWP_NOZORDER | SWP_NOACTIVATE | (footer ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
-    SendMessageW(list_, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(list_, nullptr, TRUE);
     InvalidateRect(popup_, nullptr, TRUE);
 }
 void SuggestionPeer::accept(bool submit) {
+    // The visible rows can belong to the previous query while its replacement loads.
+    if (pending_) return;
     const auto row = static_cast<int>(SendMessageW(list_, LB_GETCURSEL, 0, 0));
     if (row < 0 || static_cast<std::size_t>(row) >= items_.size()) return;
     const auto text = items_[row];
@@ -166,7 +182,7 @@ bool SuggestionPeer::key(WPARAM key) {
     }
     if (!wanted_) return false;
     if (key == VK_DOWN || key == VK_UP) {
-        if (!items_.empty()) {
+        if (!pending_ && !items_.empty()) {
             int row = static_cast<int>(SendMessageW(list_, LB_GETCURSEL, 0, 0));
             row = key == VK_DOWN ? std::min(row + 1, static_cast<int>(items_.size()) - 1) : std::max(row - 1, 0);
             SendMessageW(list_, LB_SETCURSEL, row, 0);
@@ -175,7 +191,7 @@ bool SuggestionPeer::key(WPARAM key) {
         return true;
     }
     if (key == VK_RETURN || key == VK_TAB) {
-        const bool selected = !items_.empty() && popup_ && IsWindowVisible(popup_) &&
+        const bool selected = !pending_ && !items_.empty() && popup_ && IsWindowVisible(popup_) &&
             SendMessageW(list_, LB_GETCURSEL, 0, 0) != LB_ERR &&
             !(GetKeyState(VK_SHIFT) & 0x8000);
         if (selected) { accept(key == VK_RETURN); return true; }
@@ -209,6 +225,7 @@ LRESULT CALLBACK SuggestionPeer::procedure(HWND window, UINT message, WPARAM wpa
         }
         if (window == self.list_ &&
             (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_LBUTTONDBLCLK)) {
+            if (self.pending_) return 0;
             const auto hit = SendMessageW(window, LB_ITEMFROMPOINT, 0, lparam);
             const int row = HIWORD(hit) ? -1 : LOWORD(hit);
             if (message == WM_LBUTTONDOWN) {

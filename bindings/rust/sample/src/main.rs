@@ -1,6 +1,10 @@
 use xui::*;
+mod features;
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.iter().any(|s| s == "--features") {
+        return features::run(args.iter().any(|s| s == "--callback-fail"));
+    }
     let window = Window::new("XUI bindings", 600., 720.)?;
     let root = window.stack(Axis::Vertical)?;
     root.padding(20.)?;

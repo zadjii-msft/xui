@@ -14,6 +14,8 @@
 #include <future>
 #include <iostream>
 #include <thread>
+#include "environment_fixture.hpp"
+#include "../demo/explorer_state.hpp"
 
 namespace {
 using namespace std::chrono_literals;
@@ -113,6 +115,32 @@ void folders(const std::filesystem::path& fixture) {
     const auto extended = query(L"\\\\?\\" + (fixture / L"al").wstring());
     require(extended.items.size() == 3 && extended.items[0].starts_with(L"\\\\?\\"), "Extended absolute paths preserve their prefix");
     require(query(L"\"" + (fixture / L"al").wstring() + L"\"").items == query(L"al").items, "Quoted path matches navigation");
+    EnvironmentFixture environment(fixture.c_str()), relative(L"alpha"), missing(nullptr);
+    require(query(environment.reference() + L"\\al").items == query(L"al").items, "Environment prefix matches absolute candidates");
+    const auto expanded = query(L"\"" + environment.reference() + L"\\日本\"");
+    require(expanded.items == query(L"日本").items, "Quoted Unicode environment suggestions");
+    require(xui::explorer::resolve_location(expanded.items.front(), fixture).wstring() == expanded.items.front(),
+        "Suggestion display path and address resolve to the same folder");
+    require(query(relative.reference() + L"\\").items == query(L"alpha\\").items,
+        "Relative environment suggestions use the tab context");
+    require(query(missing.reference()).items.empty() && query(missing.reference()).status.starts_with(L"Unknown environment"),
+        "Missing environment reference reports a nonfatal error");
+    std::size_t opens{};
+    auto forbidden = xui::detail::folder_suggestions_with([&](const std::wstring&, DWORD&) -> std::unique_ptr<xui::detail::FolderCursor> {
+        ++opens; return {};
+    });
+    EnvironmentFixture long_value(std::wstring(32760, L'a').c_str());
+    for (const auto& invalid : {std::wstring(L"%"), std::wstring(L"%unfinished"), missing.reference(), long_value.reference() + L"1234567"}) {
+        const auto result = forbidden->suggest({invalid, fixture.wstring()}, [] { return false; });
+        if (opens) std::wcerr << L"Unexpected enumeration for " << invalid << L": " << result.status << L'\n';
+        require(!result.status.empty(), "Incomplete, unknown and oversized references show status");
+    }
+    require(opens == 0, "Invalid environment references never enumerate");
+    const auto literal = fixture / L"100% complete";
+    require(std::filesystem::create_directory(literal), "Create literal percent folder");
+    require(query(L"100%").items == std::vector<std::wstring>{literal.wstring()},
+        "Unpaired percent in a filename remains a literal suggestion prefix");
+    require(std::filesystem::remove(literal), "Remove owned literal percent folder");
     require(query(L"").items.empty(), "Empty typing does not enumerate");
     require(query(L"", L"", true).items.size() == 6, "Explicit Down expands base");
     require(query(L"C:").items == std::vector<std::wstring>{L"C:\\"}, "Drive designator root completion");
@@ -339,6 +367,63 @@ void native_tests(const std::filesystem::path& fixture) {
             PostMessageW(edit, WM_KEYDOWN, VK_DOWN, 0); results();
             ui([&] { input->set_enabled(false); });
             ui([&] { require(!IsWindowVisible(popup), "Disabling input hides suggestions"); input->set_enabled(true); window.focus(*input); });
+            {
+                auto refresh_gate = std::make_shared<Gate>();
+                ReleaseGate release_refresh{refresh_gate};
+                ui([&] { input->set_suggestions(refresh_gate); input->set_suggestion_context(L"refresh:"); });
+                type(L"seed");
+                const auto refresh_popup = results();
+                const auto list = FindWindowExW(refresh_popup, nullptr, L"LISTBOX", nullptr);
+                RECT original{};
+                ui([&] {
+                    GetWindowRect(refresh_popup, &original);
+                    SendMessageW(list, LB_SETCURSEL, 0, 0);
+                });
+                type(L"blocked");
+                const auto retained = [&] {
+                    require(IsWindowVisible(refresh_popup) && IsWindowVisible(list),
+                        "Typing keeps the existing popup and list visible");
+                    require(SendMessageW(list, LB_GETCOUNT, 0, 0) == 1,
+                        "Pending refresh retains the previous rows");
+                    wchar_t text[128]{};
+                    SendMessageW(list, LB_GETTEXT, 0, reinterpret_cast<LPARAM>(text));
+                    require(std::wstring_view(text) == L"refresh:seed", "Pending refresh does not replace rows with loading text");
+                    RECT current{}; GetWindowRect(refresh_popup, &current);
+                    require(EqualRect(&original, &current), "Pending refresh preserves popup geometry");
+                    require(SendMessageW(list, LB_GETCURSEL, 0, 0) == LB_ERR,
+                        "Typing clears the previous query selection");
+                    require(GetFocus() == edit, "Refreshing keeps native EDIT focus");
+                };
+                ui(retained); // Includes the debounce interval, before the worker starts.
+                refresh_gate->await();
+                ui(retained);
+                PostMessageW(edit, WM_KEYDOWN, VK_DOWN, 0);
+                ui([&] {
+                    const auto before = submits;
+                    SendMessageW(list, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 10));
+                    SendMessageW(list, WM_LBUTTONUP, 0, MAKELPARAM(20, 10));
+                    require(submits == before && input->text() == L"blocked",
+                        "Pending rows cannot accept a stale keyboard or mouse choice");
+                    RedrawWindow(refresh_popup, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+                    retained();
+                });
+                type(L"latest");
+                ui(retained);
+                refresh_gate->release();
+                wait([&] {
+                    wchar_t text[128]{};
+                    SendMessageW(list, LB_GETTEXT, 0, reinterpret_cast<LPARAM>(text));
+                    return std::wstring_view(text) == L"refresh:latest";
+                }, "Latest result replaces the retained rows in place");
+                ui([&] {
+                    require(owned(L"Xui.Suggestions.1") == refresh_popup && IsWindowVisible(list),
+                        "Completion reuses the same visible popup and list");
+                    require(SendMessageW(list, LB_GETCURSEL, 0, 0) == LB_ERR,
+                        "Replacement rows do not inherit an old selection");
+                });
+                type(L"");
+                ui([&] { require(!IsWindowVisible(refresh_popup), "Empty input still dismisses suggestions"); });
+            }
             ui([&] { input->set_suggestions(slow); input->set_suggestion_context(L"old:"); });
             type(L"blocked");
             slow->await();
@@ -360,6 +445,7 @@ void native_tests(const std::filesystem::path& fixture) {
             ui([&] { input->set_suggestion_context(L"new:"); input->set_text(L"new text"); });
             slow->release();
             ui([&] { require(!IsWindowVisible(popup), "Context change hides pending popup"); });
+            ui([&] { RedrawWindow(host, nullptr, nullptr, RDW_UPDATENOW | RDW_ALLCHILDREN); });
             const auto paints = SendMessageW(host, WM_APP + 60, 0, 0);
             std::this_thread::sleep_for(250ms);
             require(SendMessageW(host, WM_APP + 60, 0, 0) == paints, "Closed suggestions have zero idle rendering");

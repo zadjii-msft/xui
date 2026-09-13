@@ -1,5 +1,8 @@
 #include "control_accessibility.hpp"
+#include "xui/map_view.hpp"
 #include "xui/image.hpp"
+#include "xui/foundation.hpp"
+#include "xui/documents.hpp"
 #include "workspace_accessibility.hpp"
 #include "grid_accessibility.hpp"
 #include <UIAutomation.h>
@@ -11,6 +14,13 @@ namespace {
 RECT clipped_bounds(HWND window) {
     RECT rect{};
     if (!IsWindowVisible(window) || !GetWindowRect(window, &rect)) return {};
+    RECT region{};
+    const auto kind = GetWindowRgnBox(window, &region);
+    if (kind == NULLREGION) return {};
+    if (kind != ERROR) {
+        OffsetRect(&region, rect.left, rect.top);
+        if (!IntersectRect(&rect, &rect, &region)) return {};
+    }
     for (auto parent = GetParent(window); parent; parent = GetParent(parent)) {
         RECT clip{};
         GetClientRect(parent, &clip);
@@ -66,8 +76,22 @@ public:
         std::lock_guard lock(state_->mutex);
         const auto hwnd = state_->snapshot.window;
         if (!hwnd) return UIA_E_ELEMENTNOTAVAILABLE;
-        if (id == UIA_NamePropertyId || id == UIA_AutomationIdPropertyId) {
-            const auto& text = id == UIA_NamePropertyId ? state_->snapshot.name : state_->snapshot.automation_id;
+        if (id == UIA_HasKeyboardFocusPropertyId) {
+            GUITHREADINFO info{sizeof(info)};
+            value->vt = VT_BOOL;
+            value->boolVal = GetGUIThreadInfo(GetWindowThreadProcessId(hwnd, nullptr), &info) &&
+                (info.hwndFocus == hwnd || IsChild(hwnd, info.hwndFocus)) ? VARIANT_TRUE : VARIANT_FALSE;
+            return S_OK;
+        }
+        if (state_->snapshot.role == ControlRole::password_input) {
+            if (id == UIA_IsPasswordPropertyId) { value->vt = VT_BOOL; value->boolVal = VARIANT_TRUE; return S_OK; }
+            if (id == UIA_ValueValuePropertyId) {
+                return E_ACCESSDENIED;
+            }
+        }
+        if (id == UIA_NamePropertyId || id == UIA_AutomationIdPropertyId || id == UIA_HelpTextPropertyId) {
+            const auto& text = id == UIA_HelpTextPropertyId ? state_->snapshot.help_text :
+                id == UIA_NamePropertyId ? state_->snapshot.name : state_->snapshot.automation_id;
             value->vt = VT_BSTR;
             value->bstrVal = SysAllocStringLen(text.data(), static_cast<UINT>(text.size()));
             return value->bstrVal ? S_OK : E_OUTOFMEMORY;
@@ -229,9 +253,9 @@ public:
             if (id == UIA_ScrollItemPatternId && root_)
                 *value = static_cast<IScrollItemProvider*>(this);
             if (!root_) { if (*value) AddRef(); return S_OK; }
-            if (id == UIA_InvokePatternId && snapshot.role == ControlRole::button)
+            if (id == UIA_InvokePatternId && snapshot.role == ControlRole::button && !snapshot.toggle_action)
                 *value = static_cast<IInvokeProvider*>(this);
-            if (id == UIA_TogglePatternId && snapshot.role == ControlRole::toggle)
+            if (id == UIA_TogglePatternId && (snapshot.role == ControlRole::toggle || snapshot.toggle_action))
                 *value = static_cast<IToggleProvider*>(this);
             if (*value) AddRef();
             return S_OK;
@@ -245,8 +269,8 @@ public:
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             const bool semantic = root_ || snapshot.role == ControlRole::scroll_view || snapshot.role == ControlRole::content_view;
             if (id == UIA_NamePropertyId || id == UIA_AutomationIdPropertyId ||
-                id == UIA_FrameworkIdPropertyId) {
-                const auto text = id == UIA_NamePropertyId ? (semantic ? snapshot.name : L"") :
+                id == UIA_FrameworkIdPropertyId || id == UIA_HelpTextPropertyId) {
+                const auto text = id == UIA_HelpTextPropertyId ? snapshot.help_text : id == UIA_NamePropertyId ? (semantic ? snapshot.name : L"") :
                     id == UIA_FrameworkIdPropertyId ? L"XUI" : semantic ?
                         (snapshot.automation_id.empty() ? std::to_wstring(snapshot.id) : snapshot.automation_id) : L"";
                 value->vt = VT_BSTR;
@@ -275,7 +299,14 @@ public:
         });
     }
     HRESULT STDMETHODCALLTYPE Invoke() override { return action(ControlRole::button); }
-    HRESULT STDMETHODCALLTYPE Toggle() override { return action(ControlRole::toggle); }
+    HRESULT STDMETHODCALLTYPE Toggle() override {
+        return guarded([&]() -> HRESULT {
+            const auto s = read(state_);
+            if (!s.window) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (!s.enabled) return UIA_E_ELEMENTNOTENABLED;
+            return s.role == ControlRole::toggle || s.toggle_action ? send(s, 0) : UIA_E_INVALIDOPERATION;
+        });
+    }
     HRESULT STDMETHODCALLTYPE ScrollIntoView() override {
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
@@ -415,7 +446,7 @@ public:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (snapshot.role != ControlRole::toggle) return UIA_E_INVALIDOPERATION;
+            if (snapshot.role != ControlRole::toggle && !snapshot.toggle_action) return UIA_E_INVALIDOPERATION;
             *value = snapshot.checked ? ToggleState_On : ToggleState_Off;
             return S_OK;
         });
@@ -498,6 +529,53 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     const bool enabled = control.enabled() && IsWindowEnabled(window);
     ControlSnapshot next{window, control.id(), control.role(), control.name(), control.automation_id(), enabled,
         control.focused(), control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked()};
+    next.help_text = control.help_text();
+    if (const auto button = dynamic_cast<const Button*>(&control)) {
+        next.toggle_action = button->behavior() == ButtonBehavior::toggle;
+        next.checked = button->checked();
+    }
+    if (const auto choices = dynamic_cast<const RadioGroup*>(&control)) {
+        next.selected_tab = choices->selected(); next.vertical_choices = true;
+        for (std::size_t i = 0; i < choices->items().size(); ++i) {
+            const auto& item = choices->items()[i];
+            next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
+            const auto b = choices->item_bounds(i);
+            next.tab_edges.push_back(b.y); next.tab_edges.push_back(b.y + b.height);
+        }
+    }
+    if (const auto combo = dynamic_cast<const ComboBox*>(&control)) {
+        next.selected_tab = combo->selected(); next.expanded = combo->popup()->is_open();
+        for (const auto& item : combo->items()) {
+            next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
+            // Collapsed items have no screen geometry.
+            next.tab_edges.push_back(0); next.tab_edges.push_back(0);
+        }
+    }
+    const auto range_values = [&](const NumericRange& range, double value) {
+        next.minimum = range.minimum; next.maximum = range.maximum;
+        next.small_step = range.small_step; next.large_step = range.large_step; next.value = value;
+    };
+    if (const auto range = dynamic_cast<const RangeInput*>(&control)) range_values(range->range(), range->preview_value());
+    if (const auto number = dynamic_cast<const NumericInput*>(&control)) {
+        range_values(number->range(), number->value()); next.invalid = !number->valid(); next.value_text = number->editor()->text();
+        if (next.invalid) next.help_text = L"Enter a finite number within the allowed range.";
+    }
+    if (const auto progress = dynamic_cast<const Progress*>(&control)) {
+        range_values(progress->range(), progress->value()); next.read_only = true;
+        next.invalid = progress->state() == ProgressState::indeterminate || progress->state() == ProgressState::unknown;
+        next.value_text = progress->value_text();
+        next.help_text += progress->state() == ProgressState::indeterminate ? L" In progress." :
+            progress->state() == ProgressState::unknown ? L" Unknown." : progress->state() == ProgressState::error ? L" Error." :
+            progress->state() == ProgressState::paused ? L" Paused." : L" " + progress->value_text();
+    }
+    if (const auto expander = dynamic_cast<const Expander*>(&control)) next.expanded = expander->expanded();
+    if (const auto popup = dynamic_cast<const Popup*>(&control)) next.dialog_surface = popup->dialog_surface();
+    if (const auto status = dynamic_cast<const InlineStatus*>(&control)) {
+        const wchar_t* severity[]{L"Information: ", L"Success: ", L"Warning: ", L"Error: "};
+        next.name = severity[static_cast<int>(status->severity())] + status->name();
+        next.invalid = status->severity() == StatusSeverity::error;
+        next.visible = provider && IsWindowVisible(window);
+    }
     if (control.role() == ControlRole::image) {
         const auto& image = static_cast<const Image&>(control);
         if (image.status() == ImageStatus::error) next.name += L". " + image.error();
@@ -523,13 +601,28 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.split_ratio = split->ratio();
         next.split_left = split->divider().x - split->bounds().x;
         next.split_width = split->divider().width;
+        next.minimum = 10; next.maximum = 90; next.small_step = 2.5; next.large_step = 10; next.value = split->ratio() * 100;
     }
     if (const auto grid = dynamic_cast<const DataGrid*>(&control)) {
-        next.grid = grid->source(); next.columns = grid->columns(); next.selected_row = grid->selected();
+        next.grid = grid->source(); next.columns = grid->columns(); next.column_order = grid->column_order(); next.selected_row = grid->selected();
         next.grid_x = grid->horizontal_offset(); next.grid_y = grid->offset();
         next.grid_width = grid->viewport_width(); next.grid_height = grid->viewport_height();
         next.sort_column = grid->sort_column(); next.descending = grid->descending();
-        next.header_column = grid->focused_column(); next.header_focus = grid->header_focus();
+        next.header_column = grid->columns().empty() ? 0 : grid->source_column(grid->focused_column()); next.header_focus = grid->header_focus();
+        next.selection = grid->selection(); next.grid_filters = grid->filters(); next.header_part = grid->header_part(); next.full_source = grid->full_source();
+    }
+    if (const auto collection = dynamic_cast<const VirtualCollection*>(&control)) {
+        next.single_selection = !collection->multiple_selection();
+        next.collection = collection->source(); next.selection = collection->selection();
+        next.collection_columns = collection->columns(); next.collection_item_height = collection->item_size().height;
+        next.collection_offset = collection->offset(); next.collection_width = collection->bounds().width;
+        next.collection_height = collection->bounds().height;
+    }
+    if (const auto map = dynamic_cast<const MapView*>(&control)) {
+        const auto center = map->center();
+        next.help_text += L" Latitude " + std::to_wstring(center.latitude) + L", longitude " +
+            std::to_wstring(center.longitude) + L", zoom " + std::to_wstring(map->zoom()) + L".";
+        if (!map->error().empty()) next.help_text += L" Provider error: " + map->error();
     }
     ControlSnapshot previous;
     {
@@ -539,11 +632,22 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         state->snapshot = std::move(next);
     }
     if (!provider || !previous.window || !UiaClientsAreListening()) return;
+    if (control.role() == ControlRole::inline_status) {
+        const auto current = read(state);
+        name_event(provider, previous.name, current.name);
+        if ((previous.name != current.name || !previous.visible) && current.visible)
+            UiaRaiseAutomationEvent(provider, UIA_LiveRegionChangedEventId);
+        return;
+    }
+    if (control.role() == ControlRole::items_view || control.role() == ControlRole::tree_view || control.role() == ControlRole::command_menu) {
+        raise_collection_changes(provider, previous, read(state)); return;
+    }
     if (control.role() == ControlRole::data_grid) {
         raise_grid_changes(provider, previous, read(state));
         return;
     }
-    if (control.role() == ControlRole::tab_strip || control.role() == ControlRole::split_view) {
+    if (control.role() == ControlRole::tab_strip || control.role() == ControlRole::split_view ||
+        control.role() >= ControlRole::popup) {
         raise_workspace_changes(provider, previous, read(state));
         return;
     }
@@ -580,18 +684,20 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     boolean_event(provider, UIA_HasKeyboardFocusPropertyId, previous.focused, control.focused());
     if (!previous.focused && control.focused()) UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);
     name_event(provider, previous.name, control.name());
-    if (control.role() == ControlRole::toggle && previous.checked != static_cast<const Toggle&>(control).checked()) {
+    const auto snapshot = read(state);
+    if ((control.role() == ControlRole::toggle || snapshot.toggle_action) && previous.checked != snapshot.checked) {
         VARIANT old_value{}, new_value{};
         old_value.vt = new_value.vt = VT_I4;
         old_value.lVal = previous.checked ? ToggleState_On : ToggleState_Off;
-        new_value.lVal = static_cast<const Toggle&>(control).checked() ? ToggleState_On : ToggleState_Off;
+        new_value.lVal = snapshot.checked ? ToggleState_On : ToggleState_Off;
         UiaRaiseAutomationPropertyChangedEvent(provider, UIA_ToggleToggleStatePropertyId, old_value, new_value);
     }
 }
 void disconnect_control(const std::shared_ptr<ControlAccessibility>& state, IRawElementProviderSimple* provider) {
     {
         std::lock_guard lock(state->mutex);
-        state->snapshot.window = nullptr;
+        state->snapshot = {};
+        state->grid_actions.clear(); state->foundation_actions.clear();
     }
     if (provider) UiaDisconnectProvider(provider);
 }

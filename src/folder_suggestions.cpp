@@ -1,4 +1,5 @@
 #include "xui/suggestions.hpp"
+#include "xui/path_input.hpp"
 #include "folder_suggestions.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -29,13 +30,9 @@ public:
         const std::function<bool()>& cancelled) override {
         SuggestionResult result;
         if (cancelled()) return result;
-        auto text = request.text;
-        if (text.size() > SuggestionRequest::maximum_text || text.find(L'\0') != text.npos) {
-            result.status = L"Folder path is too long or invalid.";
-            return result;
-        }
-        if (text.size() >= 2 && text.front() == L'"' && text.back() == L'"')
-            text = text.substr(1, text.size() - 2);
+        auto expanded = expand_path_input(request.text);
+        if (!expanded.error.empty()) { result.status = std::move(expanded.error); return result; }
+        auto text = std::move(expanded.text);
         std::replace(text.begin(), text.end(), L'/', L'\\');
         if (text.empty() && !request.explicit_request) return result;
         if (text.find_first_of(L"*?\"<>|") != text.npos && !text.starts_with(L"\\\\?\\")) {

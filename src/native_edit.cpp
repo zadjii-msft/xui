@@ -107,11 +107,13 @@ void NativeEditBridge::set_model_text(const std::wstring& text) {
 }
 
 void NativeEditBridge::set_placeholder_color(COLORREF color) {
+    if (placeholder_color_ == color) return;
     placeholder_color_ = color;
     if (window_) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh search hint");
 }
 
 void NativeEditBridge::set_placeholder(std::wstring text) {
+    if (placeholder_ == text) return;
     placeholder_ = std::move(text);
     if (window_) InvalidateRect(window_, nullptr, FALSE);
 }
@@ -156,11 +158,37 @@ LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wp
         }
         return result;
     }
+    if (message == WM_PAINT && !self.composing_ && GetWindowTextLengthW(window) == 0 &&
+        !self.placeholder_.empty()) {
+        PAINTSTRUCT paint{};
+        const auto dc = BeginPaint(window, &paint);
+        RECT bounds{};
+        GetClientRect(window, &bounds);
+        const auto buffer = dc ? CreateCompatibleDC(dc) : nullptr;
+        const auto bitmap = dc ? CreateCompatibleBitmap(dc, bounds.right, bounds.bottom) : nullptr;
+        bool complete{};
+        if (buffer && bitmap) {
+            const auto previous = SelectObject(buffer, bitmap);
+            // Publish EDIT's background and its hint in one blit, not two visible passes.
+            SendMessageW(window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(buffer), PRF_CLIENT | PRF_ERASEBKGND);
+            complete = BitBlt(dc, 0, 0, bounds.right, bounds.bottom, buffer, 0, 0, SRCCOPY) != FALSE;
+            SelectObject(buffer, previous);
+        }
+        if (bitmap) DeleteObject(bitmap);
+        if (buffer) DeleteDC(buffer);
+        EndPaint(window, &paint);
+        if (!complete) {
+            try { throw std::runtime_error("Draw native search hint"); }
+            catch (...) { self.report_failure(); }
+        }
+        return 0;
+    }
     if (message == WM_PAINT || message == WM_PRINTCLIENT) {
         const LRESULT result = DefSubclassProc(window, message, wparam, lparam);
         // Only the empty-field hint is custom. EDIT still owns text, caret, selection and IME.
-        if (!self.composing_ && GetWindowTextLengthW(window) == 0) {
-            HDC dc = message == WM_PRINTCLIENT ? reinterpret_cast<HDC>(wparam) : GetDC(window);
+        if (message == WM_PRINTCLIENT && !self.composing_ && GetWindowTextLengthW(window) == 0 &&
+            !self.placeholder_.empty()) {
+            HDC dc = reinterpret_cast<HDC>(wparam);
             if (dc) {
                 const int saved = SaveDC(dc);
                 if (saved) {
@@ -178,7 +206,6 @@ LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wp
                 } else {
                     OutputDebugStringW(L"XUI: Cannot save the search hint drawing context.\n");
                 }
-                if (message != WM_PRINTCLIENT) ReleaseDC(window, dc);
             } else {
                 OutputDebugStringW(L"XUI: Cannot acquire the search hint drawing context.\n");
             }

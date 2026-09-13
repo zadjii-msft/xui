@@ -19,6 +19,7 @@ namespace xui {
 using ItemId = std::uint64_t;
 
 struct Size { float width{}, height{}; };
+struct Point { float x{}, y{}; };
 struct Rect { float x{}, y{}, width{}, height{}; };
 struct Insets { float left{}, top{}, right{}, bottom{}; };
 

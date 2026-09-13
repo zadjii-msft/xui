@@ -3,9 +3,14 @@
 #include "xui/controls.hpp"
 #include "xui/theme.hpp"
 #include "xui/file_list.hpp"
+#include "xui/foundation.hpp"
 #include <stop_token>
 
 namespace xui {
+class CommandSurface;
+class TitleBar;
+class LocationPicker;
+class ContentDialog;
 
 struct WindowOptions {
     std::wstring title = L"XUI";
@@ -14,6 +19,7 @@ struct WindowOptions {
     ThemeMode theme = ThemeMode::dark;
     // Optional minimum outer window size in DIPs. Zero uses the system minimum.
     Size minimum_size{};
+    bool custom_titlebar{};
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -27,6 +33,13 @@ enum class Key : std::uint16_t {
     f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24
 };
 struct KeyEvent { Key key; bool control{}, shift{}; Control* target{}; bool alt{}; };
+enum class NavigationDirection { back, forward };
+struct NavigationEvent {
+    NavigationDirection direction;
+    Control* target{};
+    // Mouse position in client DIPs. Keyboard application commands have no position.
+    std::optional<Point> position;
+};
 
 // A bounded, cancellable snapshot/filter task. Delivery occurs on the Window thread.
 // Closing the Window revokes delivery and cancels work without joining the UI thread.
@@ -73,10 +86,23 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
     void set_content(std::shared_ptr<Stack> content);
+    // Calling UI thread only, before or during run. The title remains available after run.
+    void set_title(std::wstring title);
+    const std::wstring& title() const;
+    const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
     ThemeMode theme() const;
     bool focus(Control& control, bool select_all = false);
+    void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial_focus = nullptr);
+    void show_dialog(std::shared_ptr<ContentDialog> dialog, Control& anchor, Control* initial_focus = nullptr);
+    void dismiss_popup(Popup& popup, PopupDismissReason reason = PopupDismissReason::cancel);
+    void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor);
+    void show_location_picker(std::shared_ptr<LocationPicker> picker, Control& anchor);
+    // Explicit native fallback for third-party Shell extensions. No verbs run during discovery.
+    void show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths);
     void on_key(std::function<bool(const KeyEvent&)> callback);
+    // Return true to consume browser navigation. This does not change keyboard focus.
+    void on_navigation(std::function<bool(const NavigationEvent&)> callback);
     std::shared_ptr<ViewTask> create_view_task(ViewWorker::Loader loader, std::function<void(ViewResult)> receive);
     std::shared_ptr<SampleTask> create_sample_task(SampleTask::Loader loader, SampleTask::Receiver receive, unsigned milliseconds = 1000);
     bool confirm(const std::wstring& title, const std::wstring& message);
@@ -86,7 +112,7 @@ public:
 private:
     friend class Application;
     struct Impl;
-    std::unique_ptr<Impl> impl_;
+    std::shared_ptr<Impl> impl_;
 };
 
 class Application final {

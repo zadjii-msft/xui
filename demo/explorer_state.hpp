@@ -1,4 +1,5 @@
 #pragma once
+#include "xui/path_input.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -109,12 +110,16 @@ private:
     std::optional<NavigationRequest> pending_;
 };
 inline std::filesystem::path resolve_location(std::wstring input, const std::filesystem::path& base) {
-    if (input.size() >= 2 && input.front() == L'"' && input.back() == L'"') input = input.substr(1, input.size() - 2);
+    auto expanded = expand_path_input(input);
+    if (!expanded.error.empty()) throw PathInputError(std::move(expanded.error));
+    input = std::move(expanded.text);
     if (input.empty()) throw std::invalid_argument("Enter a folder path");
     std::filesystem::path path(input);
     if (path.has_root_name() && !path.has_root_directory()) throw std::invalid_argument("Use an absolute drive path");
     if (!path.is_absolute()) path = base / path;
-    return std::filesystem::absolute(path).lexically_normal();
+    auto resolved = std::filesystem::absolute(path).lexically_normal();
+    if (resolved.native().size() >= 32767) throw std::length_error("Folder path is too long");
+    return resolved;
 }
 inline std::filesystem::path parent_location(const std::filesystem::path& path) {
     auto parent = path.lexically_normal();

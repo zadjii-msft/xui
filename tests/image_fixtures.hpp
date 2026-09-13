@@ -10,6 +10,30 @@
 
 namespace image_fixture {
 inline void hr(HRESULT result) { if (FAILED(result)) throw std::runtime_error("Create WIC fixture"); }
+inline void jpeg(const std::filesystem::path& path, unsigned width, unsigned height, unsigned color) {
+    using Microsoft::WRL::ComPtr;
+    ComPtr<IWICImagingFactory> factory;
+    hr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)));
+    ComPtr<IWICStream> stream;
+    hr(factory->CreateStream(&stream));
+    hr(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE));
+    ComPtr<IWICBitmapEncoder> encoder;
+    hr(factory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, &encoder));
+    hr(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache));
+    ComPtr<IWICBitmapFrameEncode> frame;
+    hr(encoder->CreateNewFrame(&frame, nullptr));
+    hr(frame->Initialize(nullptr)); hr(frame->SetSize(width, height));
+    auto format = GUID_WICPixelFormat24bppBGR;
+    hr(frame->SetPixelFormat(&format));
+    std::vector<BYTE> pixels(std::size_t(width) * height * 3);
+    for (std::size_t i = 0; i < pixels.size(); i += 3) {
+        pixels[i] = static_cast<BYTE>(color);
+        pixels[i + 1] = static_cast<BYTE>(color >> 8);
+        pixels[i + 2] = static_cast<BYTE>(color >> 16);
+    }
+    hr(frame->WritePixels(height, width * 3, static_cast<UINT>(pixels.size()), pixels.data()));
+    hr(frame->Commit()); hr(encoder->Commit());
+}
 inline void png(const std::filesystem::path& path, unsigned width, unsigned height, unsigned color) {
     using Microsoft::WRL::ComPtr;
     ComPtr<IWICImagingFactory> factory;

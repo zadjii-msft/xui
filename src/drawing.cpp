@@ -8,9 +8,96 @@
 #include <chrono>
 
 namespace xui {
+std::size_t Drawing::native_bitmap_bytes() const {
+    std::size_t result{};
+    for (const auto& entry : native_bitmaps_) if (entry.bitmap) {
+        const auto size = entry.bitmap->GetPixelSize();
+        result += std::size_t(size.width) * size.height * 4;
+    }
+    return result;
+}
+std::size_t Drawing::scene_paths() const {
+    std::size_t result{};
+    for (const auto& entry : scenes_) result += entry.paths.size();
+    return result;
+}
+void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optional<ShapeId> selected, D2D1_COLOR_F highlight) {
+    if (!source) return;
+    std::erase_if(scenes_, [](const auto& cache) { return cache.source.expired(); });
+    auto found = std::find_if(scenes_.begin(), scenes_.end(), [&](const auto& cache) { return cache.source.lock() == source; });
+    if (found == scenes_.end()) {
+        if (scenes_.size() >= 8) scenes_.erase(scenes_.begin());
+        SceneCache cache; cache.source = source;
+        for (const auto& shape : source->shapes()) {
+            Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+            hr_require(factory_->CreatePathGeometry(&geometry), "Create retained scene path");
+            Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+            hr_require(geometry->Open(&sink), "Open retained scene path");
+            sink->SetFillMode(D2D1_FILL_MODE_ALTERNATE);
+            sink->BeginFigure({shape.points.front().x, shape.points.front().y}, D2D1_FIGURE_BEGIN_FILLED);
+            for (std::size_t i = 1; i < shape.points.size(); ++i) sink->AddLine({shape.points[i].x, shape.points[i].y});
+            sink->EndFigure(shape.closed ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+            hr_require(sink->Close(), "Close retained scene path"); cache.paths.push_back(std::move(geometry));
+        }
+        scenes_.push_back(std::move(cache)); found = scenes_.end() - 1;
+    }
+    found->used = true;
+    if (!scene_stroke_) {
+        auto style = D2D1::StrokeStyleProperties();
+        style.startCap = style.endCap = D2D1_CAP_STYLE_ROUND; style.lineJoin = D2D1_LINE_JOIN_ROUND;
+        hr_require(factory_->CreateStrokeStyle(style, nullptr, 0, &scene_stroke_), "Create scene stroke");
+    }
+    const auto color = [](SceneColor c) { return D2D1::ColorF(c.red, c.green, c.blue, c.alpha); };
+    for (std::size_t i = 0; i < source->shapes().size(); ++i) {
+        const auto& s = source->shapes()[i]; auto* path = found->paths[i].Get();
+        if (s.clip) push_clip(*s.clip);
+        if (selected == s.id) { brush_->SetColor(highlight); target_->DrawGeometry(path, brush_.Get(), s.stroke_width + 4, scene_stroke_.Get()); }
+        if (s.closed && s.fill.alpha > 0) { brush_->SetColor(color(s.fill)); target_->FillGeometry(path, brush_.Get()); }
+        if (s.stroke.alpha > 0 && s.stroke_width > 0) { brush_->SetColor(color(s.stroke)); target_->DrawGeometry(path, brush_.Get(), s.stroke_width, scene_stroke_.Get()); }
+        if (s.clip) pop_clip();
+    }
+}
+void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette) {
+    const auto b = row.bounds;
+    if (row.content.separator) {
+        fill({b.x + 10, b.y + b.height / 2, std::max(0.0f, b.width - 20), 1}, palette.border);
+        return;
+    }
+    const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
+    if (selected || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, selected ? palette.selection : palette.surface);
+    float left = b.x + 10 + std::min(static_cast<float>(row.depth) * 20, b.width / 3);
+    if (row.content.checked) {
+        text(*row.content.checked ? L"✓" : L"○", {left, b.y, 22, b.height}, ink); left += 24;
+    }
+    if (row.expandable && !row.content.submenu) {
+        text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink); left += 24;
+    }
+    if (row.content.icon != ButtonIcon::none) {
+        button_icon({left, b.y + 10, 20, 20}, ink, row.content.icon); left += 28;
+    }
+    const bool action_visible = !row.content.action.empty() && b.width >= 160;
+    const bool secondary_visible = !row.content.secondary.empty() && b.height >= 48;
+    const float right = b.x + b.width - (action_visible ? 74 : row.content.submenu ? 34 : 10);
+    const float width = std::max(0.0f, right - left);
+    text(row.content.primary, {left, b.y + 3, width, secondary_visible ? 26 : b.height - 6}, ink);
+    if (secondary_visible) text(row.content.secondary, {left, b.y + 27, width, std::max(0.0f, b.height - 30)},
+        !enabled ? palette.disabled : selected ? palette.selection_text : palette.secondary, true);
+    if (row.content.progress && std::isfinite(*row.content.progress)) {
+        const Rect track{left, b.y + b.height - 4, width, 2}; fill(track, palette.border);
+        fill({track.x, track.y, track.width * static_cast<float>(std::clamp(*row.content.progress, 0.0, 1.0)), track.height}, ink);
+    }
+    if (action_visible) {
+        const Rect action{b.x + b.width - 70, b.y + 8, 64, std::max(0.0f, b.height - 16)};
+        rounded(action, palette.border, 4, true); text(row.content.action, {action.x + 5, action.y, action.width - 10, action.height}, ink, true);
+    }
+    if (row.content.submenu) text(L"›", {b.x + b.width - 28, b.y, 20, b.height}, ink);
+    if (focused) outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
+}
 thread_local std::size_t Drawing::live_targets_{};
 thread_local std::size_t Drawing::created_text_layouts_{};
 thread_local HRESULT Drawing::end_result_override_{S_OK};
+thread_local HRESULT Drawing::native_result_override_{S_OK};
+thread_local void (*Drawing::present_observer_)(HWND){};
 std::size_t Drawing::live_targets() { return live_targets_; }
 namespace {
 D2D1_COLOR_F color(int system_color) {
@@ -86,9 +173,111 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background) {
     target_->BeginDraw();
     target_->SetTransform(D2D1::Matrix3x2F::Identity());
     target_->Clear(background);
+    for (auto& scene : scenes_) scene.used = false;
     return true;
 }
 
+bool Drawing::native_windows(std::span<const NativeWindow> windows) {
+    auto result = std::exchange(native_result_override_, S_OK);
+    if (result == D2DERR_RECREATE_TARGET) { discard(); return false; }
+    hr_require(result, "Begin native window drawing");
+    D2D1_SIZE_U required{};
+    for (const auto& entry : windows) {
+        RECT bounds{}, clip{};
+        win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native buffer bounds");
+        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        if (IntersectRect(&clip, &bounds, &entry.clip)) {
+            required.width = std::max(required.width, static_cast<UINT32>(clip.right - clip.left));
+            required.height = std::max(required.height, static_cast<UINT32>(clip.bottom - clip.top));
+        }
+    }
+    if (native_size_.width != required.width || native_size_.height != required.height) {
+        if (native_buffer_) DeleteObject(std::exchange(native_buffer_, nullptr));
+        native_pixels_ = nullptr;
+        native_size_ = {};
+    }
+    for (auto& bitmap : native_bitmaps_) bitmap.used = false;
+    for (const auto& entry : windows) {
+        RECT bounds{};
+        win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native drawing bounds");
+        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        RECT clip{};
+        if (!IntersectRect(&clip, &bounds, &entry.clip)) continue;
+        const auto width = static_cast<UINT32>(clip.right - clip.left);
+        const auto height = static_cast<UINT32>(clip.bottom - clip.top);
+        if (!native_dc_) {
+            native_dc_ = CreateCompatibleDC(nullptr);
+            win32_require(native_dc_ != nullptr, "Create native drawing context");
+        }
+        if (native_size_.width < width || native_size_.height < height) {
+            if (native_buffer_) DeleteObject(std::exchange(native_buffer_, nullptr));
+            native_size_ = required;
+            BITMAPINFO info{};
+            info.bmiHeader = {sizeof(BITMAPINFOHEADER), static_cast<LONG>(native_size_.width),
+                -static_cast<LONG>(native_size_.height), 1, 32, BI_RGB};
+            native_buffer_ = CreateDIBSection(native_dc_, &info, DIB_RGB_COLORS, &native_pixels_, nullptr, 0);
+            win32_require(native_buffer_ != nullptr, "Create native pixel buffer");
+        }
+        const auto saved = SaveDC(native_dc_);
+        win32_require(saved != 0, "Save native drawing context");
+        const auto selected = SelectObject(native_dc_, native_buffer_);
+        const auto clipped = IntersectClipRect(native_dc_, 0, 0, width, height);
+        const auto positioned = SetViewportOrgEx(native_dc_, bounds.left - clip.left, bounds.top - clip.top, nullptr);
+        // Refresh every visible native region. EDIT owns selection, composition and text.
+        if (selected && selected != HGDI_ERROR && clipped != ERROR && positioned)
+            SendMessageW(entry.window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(native_dc_), PRF_CLIENT | PRF_ERASEBKGND);
+        const auto restored = RestoreDC(native_dc_, saved);
+        win32_require(selected && selected != HGDI_ERROR && clipped != ERROR && positioned && restored,
+            "Draw native window pixels");
+        win32_require(GdiFlush() != FALSE, "Finish native window drawing");
+        auto found = std::find_if(native_bitmaps_.begin(), native_bitmaps_.end(),
+            [&](const auto& bitmap) { return bitmap.window == entry.window; });
+        if (found == native_bitmaps_.end()) {
+            native_bitmaps_.push_back({entry.window});
+            found = std::prev(native_bitmaps_.end());
+        }
+        if (found->bitmap && (found->bitmap->GetPixelSize().width != width ||
+            found->bitmap->GetPixelSize().height != height)) found->bitmap.Reset();
+        if (!found->bitmap) {
+            result = target_->CreateBitmap(D2D1::SizeU(width, height), native_pixels_, native_size_.width * 4,
+                D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE)),
+                &found->bitmap);
+        } else result = found->bitmap->CopyFromMemory(nullptr, native_pixels_, native_size_.width * 4);
+        if (result == D2DERR_RECREATE_TARGET) { discard(); return false; }
+        hr_require(result, "Copy native window pixels");
+        found->bounds = clip;
+        found->used = true;
+    }
+    std::erase_if(native_bitmaps_, [](const auto& bitmap) { return !bitmap.used; });
+    if (native_bitmaps_.empty()) {
+        if (native_dc_) DeleteDC(std::exchange(native_dc_, nullptr));
+        if (native_buffer_) DeleteObject(std::exchange(native_buffer_, nullptr));
+        native_pixels_ = nullptr;
+        native_size_ = {};
+    }
+    float dpi_x{}, dpi_y{};
+    target_->GetDpi(&dpi_x, &dpi_y);
+    for (const auto& bitmap : native_bitmaps_) {
+        const auto& bounds = bitmap.bounds;
+        target_->DrawBitmap(bitmap.bitmap.Get(), D2D1::RectF(bounds.left * 96.0f / dpi_x,
+            bounds.top * 96.0f / dpi_y, bounds.right * 96.0f / dpi_x, bounds.bottom * 96.0f / dpi_y),
+            1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    }
+    return true;
+}
+
+void Drawing::present_native(std::span<const HWND> windows) {
+    if (!target_) return;
+    float dpi_x{}, dpi_y{};
+    target_->GetDpi(&dpi_x, &dpi_y);
+    for (const auto& bitmap : native_bitmaps_) {
+        if (std::find(windows.begin(), windows.end(), bitmap.window) == windows.end()) continue;
+        const auto& bounds = bitmap.bounds;
+        target_->DrawBitmap(bitmap.bitmap.Get(), D2D1::RectF(bounds.left * 96.0f / dpi_x,
+            bounds.top * 96.0f / dpi_y, bounds.right * 96.0f / dpi_x, bounds.bottom * 96.0f / dpi_y),
+            1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    }
+}
 bool Drawing::end() {
     HRESULT result = target_->EndDraw();
     const auto injected = std::exchange(end_result_override_, S_OK);
@@ -98,12 +287,22 @@ bool Drawing::end() {
         return false;
     }
     hr_require(result, "Draw window");
+    std::erase_if(scenes_, [](const auto& scene) { return !scene.used; });
+    if (scenes_.empty()) scene_stroke_.Reset();
+    if (present_observer_) present_observer_(target_->GetHwnd());
     return true;
 }
 
 void Drawing::discard() {
+    scenes_.clear();
+    scene_stroke_.Reset();
     while (!bitmaps_.empty()) erase_bitmap(bitmaps_.size() - 1);
     brush_.Reset();
+    native_bitmaps_.clear();
+    if (native_dc_) DeleteDC(std::exchange(native_dc_, nullptr));
+    if (native_buffer_) DeleteObject(std::exchange(native_buffer_, nullptr));
+    native_pixels_ = nullptr;
+    native_size_ = {};
     if (target_) --live_targets_;
     target_.Reset();
 }
@@ -191,6 +390,50 @@ void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
     brush_->SetColor(value);
     target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + 7, box.y + 7), 5, 5), brush_.Get(), 1.5f);
     line(box.x + 11, box.y + 11, box.x + 16, box.y + 16, value, 1.5f);
+}
+
+void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
+    const auto stroke = [&](float x1, float y1, float x2, float y2) {
+        line(box.x + x1 * box.width / 16, box.y + y1 * box.height / 16,
+            box.x + x2 * box.width / 16, box.y + y2 * box.height / 16, color, 1.5f);
+    };
+    if (icon == ButtonIcon::minimize) {
+        stroke(3, 8, 13, 8);
+    } else if (icon == ButtonIcon::close) {
+        stroke(3, 3, 13, 13); stroke(3, 13, 13, 3);
+    } else if (icon == ButtonIcon::maximize || icon == ButtonIcon::restore) {
+        stroke(3, 3, 13, 3); stroke(13, 3, 13, 13); stroke(13, 13, 3, 13); stroke(3, 13, 3, 3);
+        if (icon == ButtonIcon::restore) { stroke(5, 1, 15, 1); stroke(15, 1, 15, 11); }
+    } else if (icon == ButtonIcon::more) {
+        stroke(3, 8, 4, 8); stroke(7, 8, 8, 8); stroke(11, 8, 12, 8);
+    } else if (icon == ButtonIcon::back || icon == ButtonIcon::forward) {
+        const float tip = icon == ButtonIcon::back ? 2.0f : 14.0f;
+        const float tail = 16 - tip;
+        const float shoulder = icon == ButtonIcon::back ? 7.0f : 9.0f;
+        stroke(tip, 8, tail, 8); stroke(tip, 8, shoulder, 3); stroke(tip, 8, shoulder, 13);
+    } else if (icon == ButtonIcon::add) {
+        stroke(8, 3, 8, 13); stroke(3, 8, 13, 8);
+    } else if (icon == ButtonIcon::up) {
+        stroke(8, 2, 8, 14); stroke(8, 2, 3, 7); stroke(8, 2, 13, 7);
+    } else if (icon == ButtonIcon::split) {
+        rounded({box.x + 1, box.y + 2, box.width - 2, box.height - 4}, color, 1, true);
+        stroke(8, 2, 8, 14);
+    } else if (icon == ButtonIcon::theme) {
+        brush_->SetColor(color);
+        target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + box.width / 2, box.y + box.height / 2),
+            box.width / 4, box.height / 4), brush_.Get(), 1.5f);
+        stroke(8, 0, 8, 2); stroke(8, 14, 8, 16);
+        stroke(0, 8, 2, 8); stroke(14, 8, 16, 8);
+        stroke(2, 2, 3, 3); stroke(13, 13, 14, 14);
+        stroke(2, 14, 3, 13); stroke(13, 3, 14, 2);
+    } else if (icon == ButtonIcon::refresh) {
+        // An open circular arrow avoids a font-dependent symbol.
+        constexpr float points[][2]{{13, 5}, {11, 2}, {7, 1}, {3, 3}, {1, 7},
+            {2, 11}, {5, 14}, {9, 14}, {12, 12}};
+        for (std::size_t i = 1; i < std::size(points); ++i)
+            stroke(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+        stroke(13, 1, 13, 5); stroke(9, 5, 13, 5);
+    }
 }
 
 void Drawing::heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F value_color) {

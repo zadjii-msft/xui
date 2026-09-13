@@ -417,12 +417,12 @@ int wmain(int argc, wchar_t** argv) {
         HWND edit_window = native_child(process.window, L"EDIT", 1);
         require(edit_window != nullptr, "Find native EDIT HWND");
         focus(first.Get(), "Focus custom list before keyboard traversal");
-        auto split_button = child(automation.Get(), root.Get(), UIA_AutomationIdPropertyId, L"browser-split");
-        require(PostMessageW(list_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab wraps to first toolbar command");
+        auto first_tabs = child(automation.Get(), root.Get(), UIA_AutomationIdPropertyId, L"browser-tabs");
+        require(PostMessageW(list_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab wraps to the first tab strip");
         require(eventually([&] {
             BOOL has_focus{};
-            return SUCCEEDED(split_button->get_CurrentHasKeyboardFocus(&has_focus)) && has_focus;
-        }), "Tab must wrap to the first enabled toolbar command");
+            return SUCCEEDED(first_tabs->get_CurrentHasKeyboardFocus(&has_focus)) && has_focus;
+        }), "Tab must wrap to the first enabled header control");
         focus(edit.Get(), "Focus native search before keyboard traversal");
         require(PostMessageW(edit_window, WM_KEYDOWN, VK_TAB, 0) != 0, "Tab to custom list");
         require(eventually([&] {

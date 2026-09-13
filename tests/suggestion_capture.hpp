@@ -43,13 +43,16 @@ inline void bitmap(HWND host, HWND popup, const std::filesystem::path& path) {
     const auto previous = SelectObject(dc, image);
     // Print only our windows. Never capture other desktop applications.
     const bool printed = PrintWindow(host, dc, 2) != FALSE;
-    HDC drop_dc = CreateCompatibleDC(dc);
-    HBITMAP drop_image = CreateCompatibleBitmap(dc, drop.right - drop.left, drop.bottom - drop.top);
-    const auto drop_previous = SelectObject(drop_dc, drop_image);
-    const bool printed_popup = PrintWindow(popup, drop_dc, 2) != FALSE;
-    BitBlt(dc, drop.left - rect.left, drop.top - rect.top, drop.right - drop.left, drop.bottom - drop.top,
-        drop_dc, 0, 0, SRCCOPY);
-    SelectObject(drop_dc, drop_previous); DeleteObject(drop_image); DeleteDC(drop_dc);
+    bool printed_popup = true;
+    if (popup) {
+        HDC drop_dc = CreateCompatibleDC(dc);
+        HBITMAP drop_image = CreateCompatibleBitmap(dc, drop.right - drop.left, drop.bottom - drop.top);
+        const auto drop_previous = SelectObject(drop_dc, drop_image);
+        printed_popup = PrintWindow(popup, drop_dc, 2) != FALSE;
+        BitBlt(dc, drop.left - rect.left, drop.top - rect.top, drop.right - drop.left, drop.bottom - drop.top,
+            drop_dc, 0, 0, SRCCOPY);
+        SelectObject(drop_dc, drop_previous); DeleteObject(drop_image); DeleteDC(drop_dc);
+    }
     BITMAPFILEHEADER header{};
     header.bfType = 0x4d42;
     header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);

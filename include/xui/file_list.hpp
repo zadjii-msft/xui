@@ -16,6 +16,19 @@ class FileList : public Control {
 public:
     explicit FileList(std::wstring name = L"Files") : Control(ControlRole::file_list, std::move(name), {320, 240}) {}
     ~FileList() override { if (dispose_) dispose_(model_.release_view()); }
+    // Optional WIC previews and Shell thumbnails/icons. Pending or failed requests keep vector icons.
+    void set_thumbnails(bool enabled) {
+        if (thumbnails_ == enabled) return;
+        thumbnails_ = enabled;
+        reload_thumbnails();
+    }
+    bool thumbnails() const { return thumbnails_; }
+    void reload_thumbnails() { ++thumbnail_revision_; invalidate(Invalidation::paint); }
+    std::uint64_t thumbnail_revision() const { return thumbnail_revision_; }
+    // Runs on the UI thread, once per failed visible request. Missing thumbnails use Shell icons.
+    void on_thumbnail_error(std::function<void(ItemId, const std::wstring&)> callback) {
+        thumbnail_error_ = std::move(callback);
+    }
     // Backend lifetime boundary. Keeps final snapshot destruction off the UI thread.
     void set_disposer(std::function<void(std::shared_ptr<const FilteredView>)> dispose) { dispose_ = std::move(dispose); }
     void on_selection_change(std::function<void()> callback) { selection_change_ = std::move(callback); }
@@ -131,11 +144,18 @@ public:
         notify_selection();
     }
 private:
+    friend class ListPeer;
+    void thumbnail_error(ItemId id, const std::wstring& error) {
+        if (thumbnail_error_) { auto callback = thumbnail_error_; callback(id, error); }
+    }
     void notify_view() { if (view_change_) { auto callback = view_change_; callback(); } }
     void notify_selection() { if (selection_change_) { auto callback = selection_change_; callback(); } }
     std::function<void()> selection_change_, view_change_;
     std::function<void(const FileItem&, FileActivation)> activation_;
     std::function<void(std::shared_ptr<const FilteredView>)> dispose_;
+    std::function<void(ItemId, const std::wstring&)> thumbnail_error_;
+    std::uint64_t thumbnail_revision_{1};
+    bool thumbnails_{};
     std::wstring empty_title_{L"No items"}, empty_detail_;
     FileListModel model_;
     std::optional<ItemId> focused_;

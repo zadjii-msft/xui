@@ -9,8 +9,9 @@ namespace {
 class GridProvider final : public IRawElementProviderSimple, public IRawElementProviderFragment,
     public IRawElementProviderFragmentRoot, public IGridProvider, public ITableProvider,
     public IGridItemProvider, public ITableItemProvider, public ISelectionProvider,
-    public ISelectionItemProvider, public IInvokeProvider, public IScrollProvider, public IScrollItemProvider {
-    enum Kind { root, header, row, cell };
+    public ISelectionItemProvider, public IInvokeProvider, public IScrollProvider, public IScrollItemProvider,
+    public IToggleProvider, public IValueProvider {
+    enum Kind { root, header, row, cell, header_filter, header_check };
     std::atomic<ULONG> refs_{1};
     std::shared_ptr<ControlAccessibility> state_;
     GridProvider* root_{};
@@ -23,19 +24,35 @@ public:
         state_(owner->state_), root_(owner->root_ ? owner->root_ : owner), kind_(kind), key_(key), column_(column) { root_->AddRef(); }
     ~GridProvider() { if (root_) root_->Release(); }
     GridProvider* make(Kind kind, RowKey key = {}, std::size_t column = 0) { return new GridProvider(this, kind, key, column); }
+    std::size_t ordinal(const ControlSnapshot& s) const {
+        return static_cast<std::size_t>(std::find(s.column_order.begin(), s.column_order.end(), column_) - s.column_order.begin());
+    }
     void changes(const ControlSnapshot& before, const ControlSnapshot& after) {
         const auto active = [](const ControlSnapshot& s) {
             return s.grid && s.selected_row && s.grid->find(*s.selected_row) ? s.selected_row : std::nullopt;
         };
         const auto previous = active(before), current = active(after);
         if (before.grid != after.grid) UiaRaiseAutomationEvent(this, UIA_LayoutInvalidatedEventId);
+        if (before.columns != after.columns || before.column_order != after.column_order) {
+            UiaRaiseAutomationEvent(this, UIA_LayoutInvalidatedEventId);
+            UiaRaiseStructureChangedEvent(this, StructureChangeType_ChildrenInvalidated, nullptr, 0);
+        }
         if ((before.grid ? before.grid->size() : 0) != (after.grid ? after.grid->size() : 0))
             UiaRaiseStructureChangedEvent(this, StructureChangeType_ChildrenInvalidated, nullptr, 0);
-        if (previous != current) {
+        if (previous != current || !(before.selection == after.selection)) {
             UiaRaiseAutomationEvent(this, UIA_Selection_InvalidatedEventId);
             if (current) {
                 auto* item = make(row, *current);
                 UiaRaiseAutomationEvent(item, UIA_SelectionItem_ElementSelectedEventId);
+                item->Release();
+            }
+            if (!(before.selection == after.selection)) for (std::size_t c = 0; c < after.columns.size(); ++c) if (after.columns[c].checkable) {
+                auto* item = make(header_check, {}, after.column_order[c]);
+                VARIANT old_value{}, new_value{}; old_value.vt = new_value.vt = VT_I4;
+                const auto old_state = before.selection.state(before.grid, before.full_source), new_state = after.selection.state(after.grid, after.full_source);
+                old_value.lVal = old_state == SelectionState::all ? ToggleState_On : old_state == SelectionState::mixed ? ToggleState_Indeterminate : ToggleState_Off;
+                new_value.lVal = new_state == SelectionState::all ? ToggleState_On : new_state == SelectionState::mixed ? ToggleState_Indeterminate : ToggleState_Off;
+                if (old_value.lVal != new_value.lVal) UiaRaiseAutomationPropertyChangedEvent(item, UIA_ToggleToggleStatePropertyId, old_value, new_value);
                 item->Release();
             }
         }
@@ -75,6 +92,9 @@ public:
         else if ((kind_ == row || kind_ == cell) && id == __uuidof(ISelectionItemProvider)) *value = static_cast<ISelectionItemProvider*>(this);
         else if ((kind_ == row || kind_ == cell) && id == __uuidof(IScrollItemProvider)) *value = static_cast<IScrollItemProvider*>(this);
         else if ((kind_ == row || kind_ == header) && id == __uuidof(IInvokeProvider)) *value = static_cast<IInvokeProvider*>(this);
+        else if (kind_ == header_filter && id == __uuidof(IInvokeProvider)) *value = static_cast<IInvokeProvider*>(this);
+        else if (kind_ == header_filter && id == __uuidof(IValueProvider)) *value = static_cast<IValueProvider*>(this);
+        else if ((kind_ == header_check || kind_ == cell) && id == __uuidof(IToggleProvider)) *value = static_cast<IToggleProvider*>(this);
         else return E_NOINTERFACE;
         AddRef(); return S_OK;
     }
@@ -86,7 +106,9 @@ public:
             { std::lock_guard lock(state_->mutex); s = state_->snapshot; }
             if (!s.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if ((kind_ == row || kind_ == cell) && (!s.grid || !s.grid->find(key_))) return UIA_E_ELEMENTNOTAVAILABLE;
-            if ((kind_ == header || kind_ == cell) && column_ >= s.columns.size()) return UIA_E_ELEMENTNOTAVAILABLE;
+            if ((kind_ == header || kind_ == cell || kind_ == header_filter || kind_ == header_check) && ordinal(s) >= s.columns.size()) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (kind_ == header_filter && !s.columns[ordinal(s)].filterable) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (kind_ == header_check && !s.columns[ordinal(s)].checkable) return UIA_E_ELEMENTNOTAVAILABLE;
             return fn(s);
         } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; } catch (...) { return E_FAIL; }
     }
@@ -98,7 +120,7 @@ public:
     HRESULT STDMETHODCALLTYPE GetPatternProvider(PATTERNID id, IUnknown** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
-        return with([&](const auto&) {
+        return with([&](const auto& s) {
             if (kind_ == root) {
                 if (id == UIA_GridPatternId) *value = static_cast<IGridProvider*>(this);
                 if (id == UIA_TablePatternId) *value = static_cast<ITableProvider*>(this);
@@ -114,20 +136,26 @@ public:
                 if (id == UIA_ScrollItemPatternId) *value = static_cast<IScrollItemProvider*>(this);
             }
             if ((kind_ == row || kind_ == header) && id == UIA_InvokePatternId) *value = static_cast<IInvokeProvider*>(this);
+            if (kind_ == header_filter && id == UIA_InvokePatternId) *value = static_cast<IInvokeProvider*>(this);
+            if (kind_ == header_filter && id == UIA_ValuePatternId) *value = static_cast<IValueProvider*>(this);
+            if ((kind_ == header_check || (kind_ == cell && s.columns[ordinal(s)].checkable)) && id == UIA_TogglePatternId)
+                *value = static_cast<IToggleProvider*>(this);
             if (*value) AddRef();
             return S_OK;
         });
     }
     std::wstring name(const ControlSnapshot& s) const {
         if (kind_ == root) return s.name;
-        if (kind_ == header) return s.columns[column_].name +
+        if (kind_ == header_filter) return s.columns[ordinal(s)].name + L" filter";
+        if (kind_ == header_check) return L"Select all " + s.columns[ordinal(s)].name;
+        if (kind_ == header) return s.columns[ordinal(s)].name +
             (s.sort_column == column_ ? (s.descending ? L", sorted descending" : L", sorted ascending") : L", sort");
         const auto index = *s.grid->find(key_);
         if (kind_ == cell) return s.grid->text(index, column_);
         std::wstring value;
         for (std::size_t c = 0; c < s.columns.size(); ++c) {
             if (c) value += L", ";
-            value += s.columns[c].name + L": " + s.grid->text(index, c);
+            value += s.columns[c].name + L": " + s.grid->text(index, s.column_order[c]);
         }
         return value;
     }
@@ -138,7 +166,7 @@ public:
             if (id == UIA_NamePropertyId || id == UIA_AutomationIdPropertyId || id == UIA_FrameworkIdPropertyId ||
                 id == UIA_HelpTextPropertyId) {
                 auto text = id == UIA_NamePropertyId ? name(s) : id == UIA_FrameworkIdPropertyId ? L"XUI" :
-                    id == UIA_HelpTextPropertyId ? L"F6 switches between column headers and rows. Enter sorts a header or opens row details." :
+                    id == UIA_HelpTextPropertyId ? (s.help_text.empty() ? L"F6 switches between headers and rows. Left/Right selects a header. Ctrl+Left/Right resizes it. Ctrl+Shift+Left/Right moves it. Enter sorts a header or opens row details. Drag headers to move columns. Drag a header boundary to resize. Escape cancels a drag." : s.help_text) :
                     kind_ == root ? s.automation_id : s.automation_id + L"-" + std::to_wstring(kind_) + L"-" +
                     std::to_wstring(key_.id) + L"-" + std::to_wstring(key_.version) + L"-" + std::to_wstring(column_);
                 value->vt = VT_BSTR; value->bstrVal = SysAllocStringLen(text.data(), static_cast<UINT>(text.size()));
@@ -146,7 +174,9 @@ public:
             }
             if (id == UIA_ControlTypePropertyId) {
                 value->vt = VT_I4; value->lVal = kind_ == root ? UIA_DataGridControlTypeId :
-                    kind_ == header ? UIA_HeaderItemControlTypeId : kind_ == row ? UIA_DataItemControlTypeId : UIA_TextControlTypeId;
+                    kind_ == header ? UIA_HeaderItemControlTypeId : kind_ == header_filter ? UIA_EditControlTypeId :
+                    kind_ == header_check || (kind_ == cell && s.columns[ordinal(s)].checkable) ? UIA_CheckBoxControlTypeId :
+                    kind_ == row ? UIA_DataItemControlTypeId : UIA_TextControlTypeId;
             } else if (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId ||
                 id == UIA_IsKeyboardFocusablePropertyId || id == UIA_IsEnabledPropertyId ||
                 id == UIA_HasKeyboardFocusPropertyId || id == UIA_IsOffscreenPropertyId) {
@@ -154,7 +184,9 @@ public:
                 const bool result = id == UIA_IsOffscreenPropertyId ? b.width <= 0 || b.height <= 0 :
                     id == UIA_IsEnabledPropertyId ? s.enabled : id == UIA_IsKeyboardFocusablePropertyId ? s.enabled && kind_ != cell :
                     id == UIA_HasKeyboardFocusPropertyId ? s.focused && (kind_ == root ||
-                        (kind_ == header ? s.header_focus && s.header_column == column_ : !s.header_focus && kind_ == row && s.selected_row == key_)) : true;
+                        (kind_ == header || kind_ == header_filter || kind_ == header_check ? s.header_focus && s.header_column == column_ &&
+                            s.header_part == (kind_ == header_filter ? GridHeaderPart::filter : kind_ == header_check ? GridHeaderPart::check : GridHeaderPart::sort) :
+                            !s.header_focus && kind_ == row && s.selected_row == key_)) : true;
                 value->vt = VT_BOOL; value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
             return S_OK;
@@ -170,28 +202,46 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             const auto count = s.grid ? s.grid->size() : 0;
+            const auto first = std::min(count, static_cast<std::size_t>(s.grid_y / DataGrid::row_height));
+            const auto end = std::min(count, first + static_cast<std::size_t>(std::ceil(s.grid_height / DataGrid::row_height)) + 1);
             if (direction == NavigateDirection_Parent && kind_ != root) {
                 if (kind_ == cell) *value = make(row, key_);
+                else if (kind_ == header_filter || kind_ == header_check) *value = make(header, {}, column_);
                 else { *value = root_; root_->AddRef(); }
             } else if (kind_ == root) {
-                if (direction == NavigateDirection_FirstChild && !s.columns.empty()) *value = make(header);
+                if (direction == NavigateDirection_FirstChild && !s.columns.empty()) *value = make(header, {}, s.column_order.front());
                 if (direction == NavigateDirection_LastChild) {
-                    if (count) *value = make(row, s.grid->key(count - 1));
-                    else if (!s.columns.empty()) *value = make(header, {}, s.columns.size() - 1);
+                    if (end > first) *value = make(row, s.grid->key(end - 1));
+                    else if (!s.columns.empty()) *value = make(header, {}, s.column_order.back());
+                }
+            } else if (kind_ == header && (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild)) {
+                const auto& column = s.columns[ordinal(s)];
+                if (direction == NavigateDirection_FirstChild) {
+                    if (column.checkable) *value = make(header_check, {}, column_);
+                    else if (column.filterable) *value = make(header_filter, {}, column_);
+                } else {
+                    if (column.filterable) *value = make(header_filter, {}, column_);
+                    else if (column.checkable) *value = make(header_check, {}, column_);
                 }
             } else if (kind_ == row && (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild)) {
-                if (!s.columns.empty()) *value = make(cell, key_, direction == NavigateDirection_FirstChild ? 0 : s.columns.size() - 1);
+                if (!s.columns.empty()) *value = make(cell, key_, direction == NavigateDirection_FirstChild ? s.column_order.front() : s.column_order.back());
             } else if (direction == NavigateDirection_NextSibling || direction == NavigateDirection_PreviousSibling) {
                 const bool next = direction == NavigateDirection_NextSibling;
-                if (kind_ == header || kind_ == cell) {
-                    if (next && column_ + 1 < s.columns.size()) *value = make(kind_, key_, column_ + 1);
-                    else if (!next && column_) *value = make(kind_, key_, column_ - 1);
-                    else if (next && kind_ == header && count) *value = make(row, s.grid->key(0));
+                if (kind_ == header_check || kind_ == header_filter) {
+                    if (next && kind_ == header_check && s.columns[ordinal(s)].filterable) *value = make(header_filter, {}, column_);
+                    if (!next && kind_ == header_filter && s.columns[ordinal(s)].checkable) *value = make(header_check, {}, column_);
+                    return S_OK;
+                }
+                if (kind_ == header || kind_ == cell || kind_ == header_filter || kind_ == header_check) {
+                    const auto column = ordinal(s);
+                    if (next && column + 1 < s.columns.size()) *value = make(kind_, key_, s.column_order[column + 1]);
+                    else if (!next && column) *value = make(kind_, key_, s.column_order[column - 1]);
+                    else if (next && kind_ == header && end > first) *value = make(row, s.grid->key(first));
                 } else if (kind_ == row) {
                     const auto index = *s.grid->find(key_);
-                    if (next && index + 1 < count) *value = make(row, s.grid->key(index + 1));
-                    else if (!next && index) *value = make(row, s.grid->key(index - 1));
-                    else if (!next && !s.columns.empty()) *value = make(header, {}, s.columns.size() - 1);
+                    if (next && index + 1 < end) *value = make(row, s.grid->key(index + 1));
+                    else if (!next && index > first) *value = make(row, s.grid->key(index - 1));
+                    else if (!next && !s.columns.empty()) *value = make(header, {}, s.column_order.back());
                 }
             }
             return S_OK;
@@ -219,10 +269,13 @@ public:
         double x{}, y{}, width = s.grid_width, height = s.grid_height + DataGrid::header_height + DataGrid::bar_width;
         if (kind_ == header || kind_ == cell) {
             x = -s.grid_x;
-            for (std::size_t c = 0; c < column_; ++c) x += s.columns[c].width;
-            width = s.columns[column_].width;
+            const auto column = ordinal(s);
+            for (std::size_t c = 0; c < column; ++c) x += s.columns[c].width;
+            width = s.columns[column].width;
+            if (kind_ == header_filter) { x += width - 32; width = 28; }
+            if (kind_ == header_check) { x += 4; width = 28; }
         }
-        if (kind_ == header) height = DataGrid::header_height;
+        if (kind_ == header || kind_ == header_filter || kind_ == header_check) height = DataGrid::header_height;
         if (kind_ == row || kind_ == cell) {
             y = DataGrid::header_height + static_cast<double>(*s.grid->find(key_)) * DataGrid::row_height - s.grid_y;
             height = DataGrid::row_height;
@@ -260,8 +313,9 @@ public:
         return ok ? static_cast<HRESULT>(result) : UIA_E_ELEMENTNOTAVAILABLE;
     }
     HRESULT STDMETHODCALLTYPE SetFocus() override {
-        return with([&](const auto& s) { return send(s, {kind_ == header ? GridAction::header_focus : GridAction::focus,
-            kind_ == row || kind_ == cell ? std::optional{key_} : std::nullopt, column_}); });
+        return with([&](const auto& s) { return send(s, {kind_ == header || kind_ == header_filter || kind_ == header_check ? GridAction::header_focus : GridAction::focus,
+            kind_ == row || kind_ == cell ? std::optional{key_} : std::nullopt, column_,
+            static_cast<double>(kind_ == header_filter ? GridHeaderPart::filter : kind_ == header_check ? GridHeaderPart::check : GridHeaderPart::sort)}); });
     }
     HRESULT STDMETHODCALLTYPE get_FragmentRoot(IRawElementProviderFragmentRoot** value) override {
         if (!value) return E_POINTER;
@@ -279,10 +333,11 @@ public:
             std::size_t c{};
             while (c < s.columns.size() && x >= s.columns[c].width) x -= s.columns[c++].width;
             if (c < s.columns.size()) {
-                if (y < DataGrid::header_height) *value = make(header, {}, c);
+                if (y < DataGrid::header_height) *value = make(s.columns[c].checkable && x < 32 ? header_check :
+                    s.columns[c].filterable && x >= s.columns[c].width - 32 ? header_filter : header, {}, s.column_order[c]);
                 else {
                     const auto index = static_cast<std::size_t>((y - DataGrid::header_height + s.grid_y) / DataGrid::row_height);
-                    if (s.grid && index < s.grid->size()) *value = make(cell, s.grid->key(index), c);
+                    if (s.grid && index < s.grid->size()) *value = make(cell, s.grid->key(index), s.column_order[c]);
                 }
             }
             if (!*value) { *value = this; AddRef(); }
@@ -294,7 +349,8 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             if (s.focused) {
-                if (s.header_focus && s.header_column < s.columns.size()) *value = make(header, {}, s.header_column);
+                if (s.header_focus && s.header_column < s.columns.size()) *value = make(
+                    s.header_part == GridHeaderPart::filter ? header_filter : s.header_part == GridHeaderPart::check ? header_check : header, {}, s.header_column);
                 else if (s.grid && s.selected_row && s.grid->find(*s.selected_row)) *value = make(row, *s.selected_row);
                 else { *value = this; AddRef(); }
             }
@@ -306,7 +362,7 @@ public:
         *value = nullptr;
         return with([&](const auto& s) -> HRESULT {
             if (r < 0 || c < 0 || !s.grid || static_cast<std::size_t>(r) >= s.grid->size() || static_cast<std::size_t>(c) >= s.columns.size()) return E_INVALIDARG;
-            *value = make(cell, s.grid->key(r), c); return S_OK;
+            *value = make(cell, s.grid->key(r), s.column_order[c]); return S_OK;
         });
     }
     HRESULT integer(int* value, int property) {
@@ -315,7 +371,7 @@ public:
         return with([&](const auto& s) {
             *value = property == 0 ? static_cast<int>(std::min(s.grid ? s.grid->size() : 0, static_cast<std::size_t>(INT_MAX))) :
                 property == 1 ? static_cast<int>(s.columns.size()) : property == 2 ? static_cast<int>(*s.grid->find(key_)) :
-                property == 3 ? static_cast<int>(column_) : 1;
+                property == 3 ? static_cast<int>(ordinal(s)) : 1;
             return S_OK;
         });
     }
@@ -335,12 +391,13 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr;
         return with([&](const auto& s) -> HRESULT {
-            const bool selected = s.grid && s.selected_row && s.grid->find(*s.selected_row);
-            const ULONG count = property == 0 ? 0 : property == 1 ? static_cast<ULONG>(s.columns.size()) : property == 2 ? 1 : selected ? 1 : 0;
+            const auto selected = property == 3 ? s.selection.selected_keys(s.grid) : std::optional{std::vector<ItemKey>{}};
+            if (!selected) return UIA_E_INVALIDOPERATION;
+            const ULONG count = property == 0 ? 0 : property == 1 ? static_cast<ULONG>(s.columns.size()) : property == 2 ? 1 : static_cast<ULONG>(selected->size());
             *value = SafeArrayCreateVector(VT_UNKNOWN, 0, count);
             if (!*value) return E_OUTOFMEMORY;
             for (LONG i = 0; i < static_cast<LONG>(count); ++i) {
-                auto* item = property == 3 ? make(row, *s.selected_row) : make(header, {}, property == 2 ? column_ : i);
+                auto* item = property == 3 ? make(row, (*selected)[i]) : make(header, {}, property == 2 ? column_ : s.column_order[i]);
                 const auto result = SafeArrayPutElement(*value, &i, static_cast<IRawElementProviderSimple*>(item));
                 item->Release();
                 if (FAILED(result)) { SafeArrayDestroy(*value); *value = nullptr; return result; }
@@ -360,7 +417,7 @@ public:
     HRESULT boolean(BOOL* value, int property) {
         if (!value) return E_POINTER;
         *value = FALSE; return with([&](const auto& s) {
-            *value = property == 2 ? s.selected_row == key_ : property == 3 ? maximum(s, true) > 0 :
+            *value = property == 0 ? TRUE : property == 2 ? s.selection.contains(key_) : property == 3 ? maximum(s, true) > 0 :
                 property == 4 ? maximum(s, false) > 0 : FALSE;
             return S_OK;
         });
@@ -371,13 +428,36 @@ public:
     HRESULT STDMETHODCALLTYPE get_HorizontallyScrollable(BOOL* value) override { return boolean(value, 3); }
     HRESULT STDMETHODCALLTYPE get_VerticallyScrollable(BOOL* value) override { return boolean(value, 4); }
     HRESULT STDMETHODCALLTYPE Select() override { return with([&](const auto& s) { return send(s, {GridAction::select, key_}); }); }
-    HRESULT STDMETHODCALLTYPE AddToSelection() override { return Select(); }
+    HRESULT STDMETHODCALLTYPE AddToSelection() override { return with([&](const auto& s) { return send(s, {GridAction::add, key_}); }); }
     HRESULT STDMETHODCALLTYPE RemoveFromSelection() override { return with([&](const auto& s) { return send(s, {GridAction::clear, key_}); }); }
     HRESULT STDMETHODCALLTYPE ScrollIntoView() override { return with([&](const auto& s) { return send(s, {GridAction::reveal, key_}); }); }
     HRESULT STDMETHODCALLTYPE Invoke() override {
-        return with([&](const auto& s) { return send(s, {kind_ == header ? GridAction::sort : GridAction::invoke,
-            kind_ == header ? std::nullopt : std::optional{key_}, column_}); });
+        return with([&](const auto& s) { return send(s, {kind_ == header_filter ? GridAction::filter_open : kind_ == header ? GridAction::sort : GridAction::invoke,
+            kind_ == header || kind_ == header_filter ? std::nullopt : std::optional{key_}, column_}); });
     }
+    HRESULT STDMETHODCALLTYPE Toggle() override {
+        return with([&](const auto& s) -> HRESULT {
+            if (!s.columns[ordinal(s)].checkable) return UIA_E_INVALIDOPERATION;
+            return send(s, {GridAction::check, kind_ == cell ? std::optional{key_} : std::nullopt, column_});
+        });
+    }
+    HRESULT STDMETHODCALLTYPE get_ToggleState(ToggleState* value) override {
+        if (!value) return E_POINTER; *value = ToggleState_Off;
+        return with([&](const auto& s) {
+            const auto state = kind_ == cell ? (s.selection.contains(key_) ? SelectionState::all : SelectionState::none) : s.selection.state(s.grid, s.full_source);
+            *value = state == SelectionState::all ? ToggleState_On : state == SelectionState::mixed ? ToggleState_Indeterminate : ToggleState_Off;
+            return S_OK;
+        });
+    }
+    HRESULT STDMETHODCALLTYPE SetValue(LPCWSTR value) override {
+        if (!value || wcsnlen(value, 4097) > 4096) return E_INVALIDARG;
+        return with([&](const auto& s) { GridAction action{GridAction::filter, {}, column_}; action.text = value; return send(s, std::move(action)); });
+    }
+    HRESULT STDMETHODCALLTYPE get_Value(BSTR* value) override {
+        if (!value) return E_POINTER; *value = nullptr;
+        return with([&](const auto& s) -> HRESULT { *value = SysAllocString(s.grid_filters[column_].c_str()); return *value ? S_OK : E_OUTOFMEMORY; });
+    }
+    HRESULT STDMETHODCALLTYPE get_IsReadOnly(BOOL* value) override { if (!value) return E_POINTER; *value = FALSE; return S_OK; }
     static double maximum(const ControlSnapshot& s, bool horizontal) {
         double extent{};
         if (horizontal) { for (const auto& c : s.columns) extent += c.width; }

@@ -5,12 +5,18 @@
 
 namespace xui {
 
-enum class ControlRole { label, button, toggle, text_input, file_list, scroll_view, image, tab_strip, split_view, content_view, data_grid, history_chart };
+enum class ControlRole { label, button, toggle, text_input, file_list, scroll_view, image, tab_strip, split_view, content_view, data_grid, history_chart,
+    popup, radio_group, choice_list, combo_box, numeric_input, range_input, expander, progress, items_view, tree_view, command_menu,
+    document_text, password_input, date_time, inline_status, color_picker, vector_canvas, map_view, media_playback, web_content };
 enum class TextStyle { body, caption, heading };
 using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
+enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more };
+enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 struct MenuItem {
+    // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.
+    // Shortcut labels do not register application keyboard shortcuts.
     std::wstring text;
     std::function<void()> action;
     bool enabled{true}, checked{}, separator{};
@@ -25,6 +31,8 @@ public:
     void set_automation_id(std::wstring value) { automation_id_ = std::move(value); invalidate(Invalidation::paint); }
     void set_name(std::wstring name);
     bool enabled() const { return enabled_; }
+    bool visible() const { return visible_; }
+    void set_visible(bool value) { if (visible_ != value) { visible_ = value; invalidate(Invalidation::layout); } }
     void set_enabled(bool enabled);
     bool focused() const { return focused_; }
     // Backend state transition. Applications request focus through Window::focus.
@@ -33,12 +41,17 @@ public:
     bool hovered() const { return hovered_; }
     bool pressed() const { return pointer_ ? hovered_ : keyboard_; }
     bool captured() const { return pointer_; }
-    bool focusable() const { return enabled_ && role_ != ControlRole::label && role_ != ControlRole::image && role_ != ControlRole::content_view && role_ != ControlRole::history_chart; }
+    bool focusable() const { return enabled_ && role_ != ControlRole::label && role_ != ControlRole::image && role_ != ControlRole::content_view && role_ != ControlRole::history_chart && role_ != ControlRole::popup && role_ != ControlRole::progress && role_ != ControlRole::inline_status && role_ != ControlRole::color_picker; }
+    const std::wstring& help_text() const { return help_text_; }
+    void set_help_text(std::wstring value);
+    unsigned tooltip_delay() const { return tooltip_delay_; }
+    void set_tooltip_delay(unsigned milliseconds);
+    virtual std::span<const std::shared_ptr<Element>> retained_children() const { return {}; }
     // Input adapter boundary. Applications normally use callbacks and property setters.
     void pointer_move(bool inside);
     bool pointer_down();
     bool pointer_up(bool inside);
-    void cancel();
+    virtual void cancel();
     bool key_down(ActivationKey key, bool repeat = false);
     bool key_up(ActivationKey key);
     bool invoke();
@@ -47,17 +60,25 @@ public:
     void set_text_measurer(TextMeasurer measurer);
     Size measured_text();
     virtual TextStyle text_style() const { return TextStyle::body; }
+    // The Windows backend snapshots flat items, closes the menu, then runs one enabled action.
     void on_context_menu(std::function<std::vector<MenuItem>()> callback) { menu_ = std::move(callback); }
-    std::vector<MenuItem> context_menu() const { return menu_ ? menu_() : std::vector<MenuItem>{}; }
+    bool has_context_menu() const { return bool(menu_); }
+    std::vector<MenuItem> context_menu() const {
+        auto callback = menu_;
+        return callback ? callback() : std::vector<MenuItem>{};
+    }
 protected:
     Control(ControlRole role, std::wstring name, Size preferred);
     virtual void activate() {}
+    bool actionable() const;
     void text_changed();
 private:
     ControlRole role_;
     std::wstring name_;
     std::wstring automation_id_;
-    bool enabled_{true}, focused_{}, hovered_{}, pointer_{}, keyboard_{};
+    std::wstring help_text_;
+    unsigned tooltip_delay_{600};
+    bool enabled_{true}, visible_{true}, focused_{}, hovered_{}, pointer_{}, keyboard_{};
     std::function<std::vector<MenuItem>()> menu_;
     std::function<void()> focus_;
     TextMeasurer measurer_;
@@ -91,7 +112,29 @@ class Button final : public Control {
 public:
     explicit Button(std::wstring text) : Control(ControlRole::button, std::move(text), {240, 40}) { set_auto_size(true); }
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
+    ButtonBehavior behavior() const { return behavior_; }
+    void set_behavior(ButtonBehavior value);
+    bool checked() const { return checked_; }
+    void set_checked(bool value);
+    void on_toggle(std::function<void(bool)> callback) { toggle_ = std::move(callback); }
+    unsigned repeat_delay() const { return repeat_delay_; }
+    unsigned repeat_interval() const { return repeat_interval_; }
+    void set_repeat_timing(unsigned delay, unsigned interval);
+    // Icon-only presentation retains name() for accessibility and commands.
+    void set_icon(ButtonIcon value) {
+        if (icon_ == value) return;
+        icon_ = value; invalidate(Invalidation::layout);
+    }
+    ButtonIcon icon() const { return icon_; }
+    Size measure(Size available) override {
+        return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({36, 36}, available);
+    }
 private:
+    ButtonIcon icon_{};
+    ButtonBehavior behavior_{};
+    bool checked_{};
+    unsigned repeat_delay_{400}, repeat_interval_{80};
+    std::function<void(bool)> toggle_;
     void activate() override;
     std::function<void()> click_;
 };
@@ -144,6 +187,12 @@ public:
     void commit_text(std::wstring text);
     void set_search_style(bool value) { search_ = value; invalidate(Invalidation::layout); }
     bool search_style() const { return search_; }
+    void set_caption_visible(bool value) {
+        if (caption_visible_ == value) return;
+        caption_visible_ = value; invalidate(Invalidation::layout);
+    }
+    bool caption_visible() const { return caption_visible_ && !search_; }
+    bool shortcut_visible(float width) const { return !shortcut_.empty() && (search_ || caption_visible_ || width >= 260); }
     void set_placeholder(std::wstring value) { placeholder_ = std::move(value); invalidate(Invalidation::paint); }
     const std::wstring& placeholder() const { return placeholder_; }
     const std::wstring& shortcut_hint() const { return shortcut_; }
@@ -169,6 +218,7 @@ private:
     std::wstring placeholder_;
     std::wstring shortcut_;
     bool search_{};
+    bool caption_visible_{true};
     std::size_t maximum_length_{1024};
     std::function<void()> submit_;
     std::function<void(const std::wstring&)> change_;
@@ -214,7 +264,9 @@ private:
     std::shared_ptr<Element> content_;
 };
 
-// Retains pages but arranges only the active content host. Selection performs no I/O.
+// Retains pages but arranges only the active content host. Native peers are
+// created on first use and retained thereafter, including native editor undo.
+// Selection performs no I/O.
 class PageView final : public Stack {
 public:
     PageView() : Stack(Axis::vertical) { set_preferred_size({640, 360}); }

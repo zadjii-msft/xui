@@ -121,7 +121,7 @@ struct TaskManager {
         });
         process_page->add(grid, 1); process_page->add(selection);
         auto process_actions = stack(Axis::horizontal);
-        auto help = label(L"F6: headers \u00b7 Enter: details \u00b7 Shift+wheel: horizontal scroll", L"grid-help", 38);
+        auto help = label(L"F6: headers \u00b7 Ctrl+\u2190/\u2192: resize \u00b7 Ctrl+Shift+\u2190/\u2192: move", L"grid-help", 38);
         help->set_caption(true); help->set_tone(TextTone::secondary);
         auto inspect = std::make_shared<Button>(L"Details"); inspect->set_automation_id(L"show-details");
         inspect->on_click([this] { show_details(); });
