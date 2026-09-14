@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <ApplicationManifest Condition="'$(ApplicationManifest)' == ''">$(MSBuildThisFileDirectory)..\..\demo\xui.manifest</ApplicationManifest>
     <XuiHotReload Condition="'$(XuiHotReload)' == '' and '$(Configuration)' == 'Debug' and '$(PublishAot)' != 'true'">true</XuiHotReload>
     <DefineConstants Condition="'$(XuiHotReload)' == 'true'">$(DefineConstants);XUI_HOT_RELOAD</DefineConstants>
   </PropertyGroup>
