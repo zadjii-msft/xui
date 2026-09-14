@@ -1,0 +1,20 @@
+namespace Demo;
+component Counter {
+  state int Count = 0;
+  state bool Active = false;
+  state string Entry = "";
+  view {
+    VStack(spacing: 8, padding: 16) {
+      Text($"Count: {Count}", id: "count");
+      Button("Increment", click: Increment, id: "increment");
+      Toggle("Active", checked: Active, change: SetActive, id: "active");
+      TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
+      Text($"Entry: {Entry}", id: "echo");
+    }
+  }
+  code csharp {
+    void Increment() => Count++;
+    void SetActive(bool value) => Active = value;
+    void SetEntry(string value) => Entry = value;
+  }
+}
