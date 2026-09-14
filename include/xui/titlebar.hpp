@@ -3,7 +3,7 @@
 namespace xui {
 enum class CaptionAction { minimize, maximize_restore, close };
 enum class CaptionHit { client, drag, minimize, maximize, close };
-// Optional nonclient integration uses these same retained tab and Button controls.
+// Caption Buttons retain their actions and accessibility, but use Windows caption styling.
 class TitleBar final : public Control {
 public:
     explicit TitleBar(std::wstring title);
@@ -19,6 +19,8 @@ public:
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
     static constexpr float height = 44;
+    static constexpr float caption_width = 46;
+    static constexpr float caption_height = 32;
 private:
     std::shared_ptr<TabStrip> tabs_;
     std::shared_ptr<Label> title_;

@@ -45,12 +45,14 @@ public:
     void icon(Rect bounds, D2D1_COLOR_F color, bool folder);
     void search_icon(Rect bounds, D2D1_COLOR_F color);
     void button_icon(Rect bounds, D2D1_COLOR_F color, ButtonIcon icon);
+    void caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
+        bool active, bool enabled, bool hovered, bool pressed, bool focused);
     void heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F color);
     void text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool small_text = false);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout(std::wstring_view value, TextStyle style, Size& measured);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
     void cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool numeric);
-    void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette);
+    void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered = false);
     void push_clip(Rect bounds);
     void pop_clip();
     void origin(float x, float y);
@@ -71,6 +73,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> text_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format_, small_format_, heading_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> numeric_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> caption_format_;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
     struct NativeBitmap {
         HWND window{};

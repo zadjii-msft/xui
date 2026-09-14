@@ -57,7 +57,7 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette) {
+void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered) {
     const auto b = row.bounds;
     if (row.navigation) {
         selected = selected || row.selected_descendant;
@@ -95,8 +95,13 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         fill({b.x + 10, b.y + b.height / 2, std::max(0.0f, b.width - 20), 1}, palette.border);
         return;
     }
+    if (row.group && !row.expandable) {
+        text(row.content.primary, {b.x + 10, b.y, std::max(0.0f, b.width - 20), b.height}, palette.secondary, true);
+        return;
+    }
     const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
-    if (selected || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, selected ? palette.selection : palette.surface);
+    if (selected || hovered || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2},
+        selected ? palette.selection : hovered ? palette.hover : palette.surface);
     float left = b.x + 10 + std::min(static_cast<float>(row.depth) * 20, b.width / 3);
     if (row.content.checked) {
         text(*row.content.checked ? L"✓" : L"○", {left, b.y, 22, b.height}, ink); left += 24;
@@ -105,7 +110,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink); left += 24;
     }
     if (row.content.icon != ButtonIcon::none) {
-        button_icon({left, b.y + 10, 20, 20}, ink, row.content.icon); left += 28;
+        button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon); left += 28;
     }
     const bool action_visible = !row.content.action.empty() && b.width >= 160;
     const bool secondary_visible = !row.content.secondary.empty() && b.height >= 48;
@@ -123,7 +128,8 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         rounded(action, palette.border, 4, true); text(row.content.action, {action.x + 5, action.y, action.width - 10, action.height}, ink, true);
     }
     if (row.content.submenu) text(L"›", {b.x + b.width - 28, b.y, 20, b.height}, ink);
-    if (focused) outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
+    if (focused || (hovered && palette.high_contrast))
+        outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
 }
 thread_local std::size_t Drawing::live_targets_{};
 thread_local std::size_t Drawing::created_text_layouts_{};
@@ -377,6 +383,7 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
 }
 void Drawing::release() {
     discard();
+    caption_format_.Reset();
     numeric_format_.Reset();
     heading_format_.Reset();
     small_format_.Reset();
@@ -422,6 +429,47 @@ void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
     brush_->SetColor(value);
     target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + 7, box.y + 7), 5, 5), brush_.Get(), 1.5f);
     line(box.x + 11, box.y + 11, box.x + 16, box.y + 16, value, 1.5f);
+}
+
+void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
+    bool active, bool enabled, bool hovered, bool pressed, bool focused) {
+    if (!caption_format_) {
+        hr_require(text_factory_->CreateTextFormat(L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10, L"", &caption_format_),
+            "Create caption glyph format");
+        hr_require(caption_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER), "Center caption glyph");
+        hr_require(caption_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER), "Align caption glyph");
+        hr_require(caption_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP), "Set caption glyph wrapping");
+    }
+    const bool hot = enabled && hovered;
+    const bool down = hot && pressed;
+    const bool dark = palette.background.r + palette.background.g + palette.background.b < 1.5f;
+    auto background = palette.background;
+    auto ink = palette.high_contrast ? palette.text : D2D1::ColorF(dark ? 0xffffff : 0x000000);
+    if (!enabled || (!active && !hot)) ink = palette.high_contrast ? palette.disabled :
+        D2D1::ColorF(dark ? 0x999999 : 0x777777);
+    if (hot) {
+        if (palette.high_contrast) {
+            background = palette.selection;
+            ink = palette.selection_text;
+        } else if (icon == ButtonIcon::close) {
+            background = D2D1::ColorF(down ? 0xc50f1f : 0xe81123);
+            ink = D2D1::ColorF(0xffffff, down ? 0.7f : 1.0f);
+        } else {
+            const float alpha = down ? 0.06f : 0.10f;
+            const float overlay = dark ? 1.0f : 0.0f;
+            background = D2D1::ColorF(background.r * (1 - alpha) + overlay * alpha,
+                background.g * (1 - alpha) + overlay * alpha, background.b * (1 - alpha) + overlay * alpha);
+            if (down) ink.a = 0.7f;
+        }
+    }
+    fill(bounds, background);
+    const wchar_t glyph = icon == ButtonIcon::minimize ? L'\ue921' : icon == ButtonIcon::maximize ? L'\ue922' :
+        icon == ButtonIcon::restore ? L'\ue923' : L'\ue8bb';
+    brush_->SetColor(ink);
+    target_->DrawText(&glyph, 1, caption_format_.Get(), rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (focused) outline({bounds.x + 2.5f, bounds.y + 2.5f, std::max(0.0f, bounds.width - 5),
+        std::max(0.0f, bounds.height - 5)}, ink);
 }
 
 void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {

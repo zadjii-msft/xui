@@ -75,6 +75,15 @@ void command_contracts() {
     require(menu.source()->hierarchy(*menu.source()->find({4, 1})).expanded, "Expanded submenu snapshot");
     require(menu.visible_content()[3].expandable && menu.visible_content()[3].content.submenu,
         "Visible submenu rows carry disclosure rendering metadata");
+    require(menu.item_bounds(2).height == 12 && menu.item_bounds(3).y == 108,
+        "Separators use a compact slot without an invisible full-row gap");
+    require(menu.hit_test({20, 107}) == 2 && menu.hit_test({20, 108}) == 3,
+        "Hit testing uses the same separator geometry as painting");
+    menu.arrange({0, 0, 400, 60});
+    menu.edge(true);
+    require(menu.maximum_offset() == 144 && menu.offset() == 144 && menu.item_bounds(4).y == 12,
+        "Scrolling and keyboard reveal use compact row extents");
+    menu.set_offset(0); menu.arrange({0, 0, 400, 300});
     menu.on_collapse([&](CommandId id) { require(id == 4, "Collapse preserves submenu identity"); menu.set_expanded({}); });
     require(menu.disclose({4, 1}, false) && !menu.expanded(), "Collapse clears only selected submenu");
     bool closed{}; menu.on_accept([&] { closed = true; menu.set_commands(set, 0, L"none"); });
@@ -83,6 +92,24 @@ void command_contracts() {
     owned->on_accept([&] { owned.reset(); });
     require(owned->execute(1) && !owned && primary == 2, "Owner deletion during acceptance is safe");
     CommandSurface surface; surface.set_commands(set);
+    require(!surface.editor()->caption_visible() && !surface.editor()->placeholder().empty(),
+        "Palette search has an inline prompt without a duplicate caption");
+    for (const auto width : {320.0f, 480.0f, 640.0f}) {
+        surface.popup()->arrange({0, 0, width, 436});
+        require(surface.editor()->bounds().width == width - 32 && surface.editor()->bounds().height == 48,
+            "Palette search stretches to the popup width and retains native text height");
+        require(surface.menu()->bounds().y >= surface.editor()->bounds().y + surface.editor()->bounds().height + 12,
+            "Palette results are separated from search");
+        require(surface.menu()->bounds().height >= 204, "Palette retains space for commands and compact separators");
+    }
+    const auto full_height = surface.measure({800, 600}).height;
+    surface.request(L"Alpha");
+    require(surface.measure({800, 600}).height == 220 && surface.measure({800, 600}).height < full_height,
+        "A filtered palette shrinks to one result and its chrome");
+    surface.request(L"no result");
+    require(surface.measure({800, 600}).height == 220, "No results retains one readable empty-state row");
+    surface.request(L"");
+    require(surface.measure({800, 600}).height == full_height, "Clearing the filter restores the content height");
     CommandQuery pending; surface.on_query([&](CommandQuery query) { pending = query; });
     auto first = surface.request(L"a"); auto second = surface.request(L"b");
     require(first.cancellation.stop_requested() && !surface.complete(first, set), "Superseded query canceled");
@@ -111,6 +138,37 @@ void command_contracts() {
     auto bounded = std::make_shared<CommandSet>(many); menu.set_commands(bounded);
     require(menu.visible_content().size() <= 8, "Only visible command rows are materialized");
     many.push_back({4097, 0, L"Too many"}); rejects([&] { CommandSet over(many); });
+    CommandSurface sections;
+    auto grouped = std::make_shared<CommandSet>(std::vector<CommandRecord>{
+        {10, 0, L"Files", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
+        {11, 0, L"Open file", [] {}}, {12, 0, L"Save file", [] {}},
+        {20, 0, L"Window", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
+        {21, 0, L"Open window", [] {}},
+        {30, 0, L"Empty", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section}});
+    sections.set_commands(grouped);
+    auto& grouped_menu = *sections.menu();
+    require(grouped_menu.source()->size() == 5 && grouped_menu.selection().focused() == ItemKey{11, 1},
+        "Sections appear as headers, omit empty groups, and initially select a command");
+    require(!grouped_menu.select({10, 1}) && !grouped_menu.execute(10) && !grouped->invoke(10),
+        "Section headers cannot select or execute");
+    grouped_menu.arrange({0, 0, 448, 200});
+    require(grouped_menu.item_bounds(0).height == 32 && grouped_menu.visible_content()[0].group &&
+        !grouped_menu.visible_content()[0].expandable, "Section header has compact non-collapsible presentation");
+    grouped_menu.step(1); grouped_menu.step(1);
+    require(grouped_menu.selection().focused() == ItemKey{21, 1}, "Keyboard navigation skips section headers");
+    sections.request(L"Open");
+    require(grouped_menu.source()->size() == 4 && grouped_menu.source()->key(0).id == 10 &&
+        grouped_menu.source()->key(2).id == 20, "Filtering preserves headers for each matching section");
+    sections.request(L"Save");
+    require(grouped_menu.source()->size() == 2 && grouped_menu.source()->key(0).id == 10 &&
+        sections.measure({800, 600}).height == 252, "Filtering removes empty sections and sizes to header plus result");
+    sections.on_query([](CommandQuery) {});
+    auto async = sections.request(L"Open");
+    require(sections.complete(async, grouped) && sections.measure({800, 600}).height == 380,
+        "Asynchronous result delivery also updates content-based palette size");
+    rejects([] { CommandSet bad_section({{1, 0, L"Header", [] {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section}}); });
+    rejects([] { CommandSet parent_section({{1, 0, L"Header", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
+        {2, 1, L"Invalid child"}}); });
     CommandBar bar; bar.set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{{1, 0, L"A"}, {2, 0, L"B"}, {3, 0, L"C"}}));
     bar.arrange({0, 0, 240, 40}); require(bar.overflow_commands()->records().size() == 2, "Toolbar overflow retains hidden command records");
 }
@@ -144,6 +202,19 @@ void navigation_contracts() {
     TitleBar caption(L"Honest title"); caption.tabs()->set_tabs({{1, L"Document"}}, 1); caption.arrange({0, 0, 800, 44});
     require(caption.hit_test({10, 20}) == CaptionHit::drag && caption.hit_test({790, 20}) == CaptionHit::close, "Caption regions");
     const auto b = caption.tabs()->bounds(); require(caption.hit_test({b.x + 10, 20}) == CaptionHit::client, "Tab interaction never drags window");
+    for (const auto& button : {caption.minimize(), caption.maximize(), caption.close()})
+        require(button->bounds().width == 46 && button->bounds().height == 32, "Windows caption button dimensions");
+    require(caption.hit_test({790, 33}) == CaptionHit::drag, "Space below caption buttons remains draggable");
+    caption.maximize()->set_enabled(false);
+    require(caption.hit_test({730, 20}) == CaptionHit::client, "Disabled caption button has no nonclient action");
+    caption.maximize()->set_enabled(true);
+    caption.set_maximized(true);
+    require(caption.maximize()->icon() == ButtonIcon::restore && caption.maximize()->name() == L"Restore", "Maximized caption uses restore glyph and name");
+    caption.set_maximized(false);
+    require(caption.maximize()->icon() == ButtonIcon::maximize && caption.maximize()->name() == L"Maximize", "Restored caption uses maximize glyph and name");
+    caption.arrange({10, 5, 90, 20});
+    require(caption.close()->bounds().width == 30 && caption.close()->bounds().height == 20 &&
+        caption.hit_test({99, 24}) == CaptionHit::close, "Caption buttons fit constrained and offset layouts");
     int actions{}; caption.on_caption([&](CaptionAction action) { if (action == CaptionAction::maximize_restore) ++actions; });
     caption.maximize()->invoke(); require(actions == 1, "Accessible caption activation boundary");
 }

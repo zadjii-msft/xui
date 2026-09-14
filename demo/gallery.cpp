@@ -12,7 +12,7 @@
 #include "gallery_catalog.hpp"
 #include <windows.h>
 #include <shellapi.h>
-#include <sstream>
+#include <algorithm>
 
 namespace {
 using namespace xui;
@@ -36,6 +36,16 @@ std::shared_ptr<Button> button(Panel parent, std::wstring name, std::function<vo
     result->on_click(std::move(action));
     parent->add(result);
     return result;
+}
+void code_block(Panel parent, const gallery::Entry& entry) {
+    auto code = std::make_shared<MultilineText>(std::wstring(entry.title) + L" C++ code");
+    code->set_automation_id(L"gallery-code-" + std::wstring(entry.id));
+    code->set_text(entry.code);
+    code->set_read_only(true);
+    code->set_monospace(true);
+    const auto lines = 1 + std::count(code->text().begin(), code->text().end(), L'\r');
+    code->set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 240.0f)});
+    parent->add(code);
 }
 class Suggestions final : public SuggestionSource {
 public:
@@ -102,8 +112,7 @@ public:
                     output->set_automation_id(L"gallery-events-" + std::wstring(entry.id));
                     build(i, demo, output, image_path);
                     label(slot, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-                    std::wistringstream code(entry.code); std::wstring line;
-                    while (std::getline(code, line)) label(slot, line)->set_caption(true);
+                    code_block(slot, entry);
                     button(slot, L"Copy code", [this, i, output] {
                         try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
                         catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
@@ -128,9 +137,7 @@ public:
             build(i, demo, output, image_path);
             content->add(output);
             label(content, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-            std::wistringstream code(entry.code);
-            std::wstring line;
-            while (std::getline(code, line)) label(content, line)->set_caption(true);
+            code_block(content, entry);
             button(content, L"Copy code", [this, i, output] {
                 try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
                 catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
@@ -681,11 +688,13 @@ private:
             surface->menu()->set_automation_id(L"command-menu");
             surface->editor()->set_automation_id(L"command-search");
             std::vector<CommandRecord> records{
+                {7, 0, L"Sample commands", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
                 {1, 0, L"Open sample", [output] { output->set_text(L"Events: Open sample."); }, true, {}, ButtonIcon::forward,
                     {L"Enter", L"Ctrl+O"}, L"Pin", [output] { output->set_text(L"Events: Pin only. Primary did not run."); }},
                 {2, 0, L"Checked command", [output] { output->set_text(L"Events: checked action."); }, true, true},
                 {3, 0, L"Disabled command", {}, false},
                 {4, 0, L"", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::separator},
+                {8, 0, L"Other actions", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
                 {5, 0, L"More actions", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::submenu},
                 {6, 5, L"Nested action", [output] { output->set_text(L"Events: nested action."); }}};
             auto commands = std::make_shared<CommandSet>(std::move(records)); surface->set_commands(commands);
@@ -704,7 +713,7 @@ private:
                 auto overflow = std::make_shared<CommandSurface>(L"Toolbar overflow", false);
                 overflow->set_commands(bar->overflow_commands()); window_.show_commands(overflow, *bar->overflow_button());
             });
-            demo->add(bar); label(demo, L"Search uses native text input. F2 runs only the independent pin action.", TextTone::secondary);
+            demo->add(bar); label(demo, L"Search groups matching commands by section. F2 runs only the independent pin action.", TextTone::secondary);
             break;
         }
         case 31: {

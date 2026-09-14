@@ -1336,10 +1336,24 @@ A pin has its own label and callback. It never calls the primary action.
 
 `Window::show_commands` opens a retained menu or searchable palette.
 The palette uses native EDIT for committed text and IME.
+
+The palette opens with focus in its search field and shows an inline search prompt.
+The title, close button, rounded frame, soft shadow, and keyboard footer distinguish the popup from the page.
+The search field fills the available width. Its icon and padding also accept clicks to focus the editor.
+Pointer hover highlights enabled command rows without changing search focus or keyboard selection.
+A click runs a command, opens a submenu, or invokes its separate pin action.
+Clicks on section headers, disabled commands, and separators leave the palette open. Outside clicks dismiss it.
+The close button and Escape dismiss the palette and restore the previous focus.
+Switching to another application leaves the palette and its query open.
+Searchable palettes center horizontally in the available window area, with a stable search position near the top.
+Their height follows the results, up to the configured popup height. Longer results scroll; empty results retain one message row.
+Menus without search remain anchored to their invoking control.
+
 Up and Down move the selection. Right opens a submenu. Left and Escape close the current submenu.
 Enter runs the selected command. F2 runs only its pin action.
 The primary action runs after dismissal. A pin leaves the menu open.
 Missing filtered commands cause deterministic focus repair. Disabled commands and separators cannot receive menu selection.
+Separators occupy 12 DIPs, rather than a full command row.
 Disabled submenu parents also block their descendants.
 Submenu UIA state follows popup expansion and collapse. Repeated expansion does not open a duplicate popup.
 
@@ -1369,6 +1383,14 @@ Command snapshots own checked state. A toolbar click does not change that state 
 Commands reuse virtual collection rendering and the bounded UIA action mailbox.
 UIA exposes Menu, MenuItem, Invoke, SelectionItem, ExpandCollapse, and optional Toggle patterns.
 Pins have separate Button providers. No native peer exists for each command row.
+
+Use `CommandKind::section` for a labeled, non-interactive section header.
+The header applies to subsequent records with the same parent until the next section header.
+Each section needs a stable command ID and a label, but cannot have an action, check state, icon, or shortcut hints.
+Section records cannot be parents. Use `CommandKind::submenu` for nested commands.
+Filtering retains headers for sections with matching results and removes empty sections.
+Section headers occupy 32 DIPs. Keyboard selection skips them, and UIA exposes them as headers without Invoke or SelectionItem patterns.
+The command gallery includes two sections.
 
 `xui/navigation.hpp` supplies `NavigationView`, `Breadcrumb`, `NavigationPane`, `LocationPicker`, and `ViewPicker`.
 Breadcrumbs contain at most 64 stable path segments.
@@ -1430,7 +1452,11 @@ The title remains the actual native window title.
 
 The gallery enables this optional caption. `--system-titlebar` retains the standard caption.
 The explorer retains its standard caption and committed-location title.
-Caption icons share XUI theme colors, DPI scaling, and the root render target.
+Caption buttons use Windows-style graphics instead of the rounded XUI button style.
+Their 46-by-32-DIP bounds contain centered Windows caption glyphs, with no border or contrasting background at rest.
+Hover and press states use rectangular fills. The close button uses red, and inactive windows use dimmed glyphs.
+High-contrast mode uses system colors. Caption buttons retain DPI scaling, accessibility actions, and the root render target.
+Tab navigation skips caption buttons. Alt+Space opens the native system menu for keyboard window commands.
 Native tests open and cancel the system menu, check resize corners, and maximize and restore through UIA.
 Physical monitor transitions, Snap flyout appearance, and screen-reader speech still require manual checks.
 
@@ -1486,6 +1512,7 @@ Actual screen-reader speech still requires a manual check.
 
 `MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
 Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+`set_monospace(true)` selects Consolas for code. The default font remains Segoe UI.
 The default document limit is 65,536 UTF-16 code units. The maximum is 1,048,576.
 Paragraphs use `\r`. Setters normalize `\n` and `\r\n`, and reject null characters or unpaired surrogates.
 `TextSelection` uses UTF-16 offsets. A property selection cannot split a surrogate pair.
@@ -1704,6 +1731,8 @@ Owned-window Graphics Capture, rather than `PrintWindow`, supplies the native vi
 
 The gallery has a searchable category catalog and 47 interactive pages built from actual XUI controls.
 Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
+API excerpts use read-only, monospace code blocks with native text selection and copy support.
+The blocks preserve indentation and line breaks. Long content scrolls within the block.
 The examples cover input, typography, layout, scrolling, collections, tabs, split panes, images, charts, menus, and themes.
 The grid calculates 100,000 synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.
