@@ -41,6 +41,13 @@ The `id` argument supplies a control's automation ID.
 Stacks support `spacing` and `padding`.
 Control arguments use C# expressions.
 
+`Text`, `Button`, and `Toggle` use their positional string for both text and the accessible name.
+They do not accept a separate `name` argument because those native properties share storage.
+`TextInput` has a separate accessible name and text value.
+Its `text`, `change`, and `submit` arguments configure that input.
+`Toggle` supports `checked` and `change`.
+Event arguments name C# methods.
+
 The compiler generates a property for each `state` declaration.
 A state change updates properties that directly depend on that state.
 It does not reevaluate the entire view.
@@ -52,6 +59,8 @@ Assigning a replacement state value can trigger an update.
 Direct state references make dependencies explicit.
 An arbitrary method can hide a state dependency from the compiler.
 The first version rejects unsupported view expressions instead of adding runtime dependency discovery.
+External helpers must be pure and receive their state dependencies as explicit arguments.
+The compiler does not prove the purity of arbitrary external C# code.
 
 ## Configure a project
 
@@ -164,7 +173,9 @@ It does not attach each event handler again.
 Unchanged authored input values do not overwrite user edits.
 
 A structural edit changes the control types or their parent-child relationships.
-A state-schema or initializer edit also requires replacement.
+A source edit to the state schema, an initializer, or an explicit automation-ID expression also requires replacement.
+Adding or deleting an event subscription requires replacement.
+Changing the target method of an existing event subscription can update in place.
 The development host reports window replacement and resets component state.
 It closes the old window, waits for `Run` to return, and disposes the old owner.
 Then it constructs a new window.
@@ -173,9 +184,31 @@ The .NET runtime can reject other code changes as unsupported live edits.
 With `--non-interactive`, the watcher restarts the process for those edits.
 Process restart also resets transient state.
 
-A syntax error produces a build diagnostic in the `.xui` input.
-The old window remains usable when the compiler cannot apply an edit.
-A later valid edit can recover without deletion of generated files.
+Controls without explicit IDs use positional identity.
+Reordering same-kind controls without IDs can retain native input state at the old positions.
+Stable literal IDs distinguish stateful controls during source edits.
+
+Recoverable property errors produce diagnostics without a partial update.
+The old window remains usable for those errors.
+An error that prevents generation of a component's declarations can cause the SDK to request a process restart.
+A later valid edit recovers without deletion of generated files, but a restarted process loses transient state.
+
+## Publish a native executable
+
+1. Publish the sample:
+
+   ```powershell
+   dotnet publish bindings\dotnet\DeclarativeSample\DeclarativeSample.csproj -c Release -p:PublishAot=true
+   ```
+
+2. Copy the native XUI library beside the executable:
+
+   ```powershell
+   Copy-Item build\xui-language\Release\xui.dll bindings\dotnet\DeclarativeSample\bin\Release\net10.0\win-arm64\publish\
+   ```
+
+The published executable does not use the development reload host.
+The executable and `xui.dll` must use the same architecture.
 
 ## Install VS Code syntax support
 
@@ -210,6 +243,13 @@ It checks text, layout, input preservation, event behavior, invalid-edit recover
 It also checks input addition, renaming, deletion, no-op builds, and release references.
 Logs and edit durations remain in the fixture directory.
 The script stops the processes that it starts.
+
+The compiler and MSBuild checks do not open a native window:
+
+```powershell
+dotnet run --project bindings\dotnet\GeneratorTests\GeneratorTests.csproj -c Release
+.\bindings\dotnet\GeneratorTests\BuildTests.ps1
+```
 
 ## Performance boundary
 

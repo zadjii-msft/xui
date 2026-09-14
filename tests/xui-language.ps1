@@ -67,9 +67,20 @@ function Read-WatchLog {
 }
 function Record-Edit([string]$Name, [string]$Source, [scriptblock]$Condition) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
+    $reloads = Reload-Count
     Write-Source $Source
     Wait-For $Name $Condition
+    Wait-For "$Name completion" { (Reload-Count) -gt $reloads }
     $script:results.Add([pscustomobject]@{ edit = $Name; milliseconds = $clock.Elapsed.TotalMilliseconds })
+}
+function Reload-Count {
+    return [regex]::Matches((Read-WatchLog), "XUI hot reload applied|XUI topology/state schema changed").Count
+}
+function Update-ApplicationProcess {
+    $processes = [regex]::Matches((Read-WatchLog), "XUI integration process (\d+)")
+    if ($processes.Count -eq 0) { return $false }
+    $script:application = [int]$processes[$processes.Count - 1].Groups[1].Value
+    return $true
 }
 function Build-Fixture([string]$Configuration = "Debug") {
     $output = & dotnet build $script:project -c $Configuration --nologo -v:q 2>&1
@@ -176,9 +187,7 @@ try {
         -ArgumentList @("watch", "--project", "`"$project`"", "--non-interactive") `
         -WorkingDirectory $run -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     Wait-For "application startup" {
-        $matches = [regex]::Matches((Read-WatchLog), "XUI integration process (\d+)")
-        if ($matches.Count -eq 0) { return $false }
-        $script:application = [int]$matches[$matches.Count - 1].Groups[1].Value
+        if (!(Update-ApplicationProcess)) { return $false }
         return (Probe "name" "count") -eq "Count: 0"
     }
     $initialProcess = $application
@@ -203,12 +212,9 @@ try {
     Assert ((Probe "window") -eq $initialWindow) "A spacing edit replaced the native window."
 
     $source = $source.Replace("Count++;", "Count += 2;")
-    $logLength = (Read-WatchLog).Length
+    $reloads = Reload-Count
     Write-Source $source
-    Wait-For "handler code delta" {
-        $log = Read-WatchLog
-        return $log.Length -gt $logLength -and $log.Substring($logLength) -match "XUI hot reload applied"
-    }
+    Wait-For "handler code delta" { (Reload-Count) -gt $reloads }
     $null = Probe "invoke" "increment"
     Wait-For "updated event-handler behavior" { (Probe "name" "count") -eq "Total: 3" }
     Assert ((Probe "window") -eq $initialWindow) "A handler-body edit replaced the native window."
@@ -222,33 +228,56 @@ try {
     Wait-For "single event subscription after repeated reload" { (Probe "name" "count") -eq "Total: 5" }
 
     $source = $source.Replace("click: Increment,", "click: IncrementMore,")
-    $logLength = (Read-WatchLog).Length
+    $reloads = Reload-Count
     Write-Source $source
-    Wait-For "event target code delta" {
-        $log = Read-WatchLog
-        return $log.Length -gt $logLength -and $log.Substring($logLength) -match "XUI hot reload applied"
-    }
+    Wait-For "event target code delta" { (Reload-Count) -gt $reloads }
     $null = Probe "invoke" "increment"
     Wait-For "changed event target" { (Probe "name" "count") -eq "Total: 8" }
     Assert ((Probe "window") -eq $initialWindow) "An event-target edit replaced the native window."
-
-    $logLength = (Read-WatchLog).Length
-    Write-Source ($source.Replace("spacing: 24", "unknownArgument: 24"))
-    Wait-For "invalid input diagnostic" {
-        $log = Read-WatchLog
-        return $log.Length -gt $logLength -and $log.Substring($logLength) -match 'Counter\.xui\(\d+,\d+\).*error'
-    }
-    Assert ((Probe "name" "count") -eq "Total: 8") "An invalid edit changed the live UI."
-    $source = $source.Replace('Text($"Total: {Count}"', 'Text($"Recovered: {Count}"')
-    Record-Edit "recovery after invalid input" $source { (Probe "name" "count") -eq "Recovered: 8" }
-    Assert ((Probe "window") -eq $initialWindow) "Recovery replaced the native window."
 
     $source = $source.Replace('Text($"Echo: {Entry}", id: "echo");',
         'Text($"Echo: {Entry}", id: "echo");' + "`n            " + 'Text("Added", id: "added");')
     Record-Edit "structural fallback" $source { (Probe "name" "added") -eq "Added" }
     Assert ((Read-WatchLog) -match "recreating the window") "The structural fallback did not report window recreation."
-    Assert ((Probe "name" "count") -eq "Recovered: 0") "The documented structural fallback did not reset component state."
+    Assert ((Probe "name" "count") -eq "Total: 0") "The documented structural fallback did not reset component state."
     Assert ((Probe "value" "entry") -eq "Initial") "The structural fallback did not recreate native input."
+    $initialWindow = Probe "window"
+    $null = Probe "invoke" "increment"
+    Wait-For "event wiring after replacement" { (Probe "name" "count") -eq "Total: 3" }
+
+    $diagnostic = 'Counter\.xui\(\d+,\d+\).*error'
+    $errorsBefore = [regex]::Matches((Read-WatchLog), $diagnostic).Count
+    $reloadsBeforeError = Reload-Count
+    $boundsBeforeError = Probe "bounds" "increment"
+    Write-Source ($source.Replace("spacing: 24", "unknownArgument: 24"))
+    Wait-For "invalid input diagnostic" {
+        return [regex]::Matches((Read-WatchLog), $diagnostic).Count -gt $errorsBefore
+    }
+    Assert ((Probe "name" "count") -eq "Total: 3") "An invalid edit changed the live UI."
+    Assert ((Probe "bounds" "increment") -eq $boundsBeforeError) "An invalid edit changed native layout."
+    $source = $source.Replace('Text($"Total: {Count}"', 'Text($"Recovered: {Count}"')
+    Record-Edit "recovery after invalid input" $source { (Probe "name" "count") -eq "Recovered: 3" }
+    Assert ((Probe "window") -eq $initialWindow) "Recovery replaced the native window."
+    Assert ((Reload-Count) -eq ($reloadsBeforeError + 1)) "The invalid edit applied a code delta before recovery."
+
+    $beforeMalformed = $application
+    $errorsBefore = [regex]::Matches((Read-WatchLog), $diagnostic).Count
+    Write-Source 'namespace Demo; component Counter { view {'
+    Wait-For "malformed component diagnostic" {
+        return [regex]::Matches((Read-WatchLog), $diagnostic).Count -gt $errorsBefore
+    }
+    $source = $source.Replace('Text($"Recovered: {Count}"', 'Text($"Restored: {Count}"')
+    Write-Source $source
+    Wait-For "recovery after malformed component" {
+        if (!(Update-ApplicationProcess)) { return $false }
+        return (Probe "name" "count") -in @("Restored: 0", "Restored: 3")
+    }
+    if ($application -eq $beforeMalformed) {
+        Assert ((Probe "name" "count") -eq "Restored: 3") "Malformed-input recovery reset state without a restart."
+    } else {
+        Assert ((Read-WatchLog) -match "Restart is needed") "The malformed-input restart was not explicit."
+        Assert ((Probe "name" "count") -eq "Restored: 0") "A restarted application did not reset state."
+    }
 
     $null = Probe "close"
     Wait-For "application shutdown" { !(Get-Process -Id $application -ErrorAction SilentlyContinue) }

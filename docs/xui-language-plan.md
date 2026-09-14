@@ -38,6 +38,7 @@ component Counter {
 ```
 
 The namespace is optional.
+Each file declares one component.
 The initial controls are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, and `TextInput`.
 The compiler resolves their arguments to typed XUI calls.
 The `id` argument supplies the automation ID of a control.
@@ -49,6 +50,8 @@ The compiler must define its dependency rules.
 It must reject unsupported dependency patterns instead of adding a runtime scan.
 
 The `code csharp` block contains C# members.
+The initial implementation accepts methods in that block.
+Fields use `state` declarations.
 The parser must distinguish code braces from braces in strings, interpolations, and comments.
 C# errors must refer to the original `.xui` file and line.
 Unknown controls, arguments, and language constructs must produce build errors.
@@ -68,6 +71,9 @@ The build integration includes `.xui` inputs in the watch list.
 It excludes generated outputs from that list.
 It handles input creation, deletion, renaming, and syntax errors.
 A deleted input must not leave an obsolete compiled component.
+An input-list manifest invalidates compilation after input deletion or renaming.
+The manifest changes only when the input list changes.
+It has a separate path for each target framework and runtime identifier.
 
 The generated construction code calls the current `Window` factories and attaches children once.
 Named event handlers attach once.
@@ -94,6 +100,8 @@ It must not reset user input that the application owns.
 Stable generated names help .NET associate old and new methods.
 The UI refresh also needs a shape check.
 A valid .NET code delta can still describe an invalid live XUI tree.
+Explicit ID expressions form part of that shape.
+Controls without IDs use positional identity.
 
 ### Structural edits
 
@@ -116,6 +124,16 @@ The user guide must identify the actual behavior.
 Invalid source must produce a diagnostic and no partial update.
 A later valid edit must recover without a manual cleanup of generated files.
 Refresh errors must reach the existing error channel or a visible development diagnostic.
+
+Recoverable errors retain the generated declarations.
+The generator emits both its diagnostic and a mapped C# `#error` directive.
+The C# directive blocks hot deltas that the SDK otherwise permits despite generator diagnostics.
+This mechanism has no last-good-output cache.
+
+Some errors prevent the generator from emitting the component declarations.
+The SDK can request a process restart for those errors.
+A corrected file starts the application again, with fresh state.
+The user guide distinguishes this behavior from in-place recovery.
 
 Reload requests must not access a closed window.
 Window shutdown must revoke development subscriptions and queued work.
@@ -209,6 +227,34 @@ Per-file generation does not eliminate those costs.
 
 ## Progress
 
-The engineering contract is written.
-Compiler implementation, reload integration, and extension implementation are in progress.
-Acceptance results and concrete commands will replace this status after integration.
+The compiler, development host, VS Code package, and integration checks are complete.
+The native ABI and its topology rules remain unchanged.
+The [user guide](xui-language.md) contains the build, watch, and installation instructions.
+
+Acceptance checks passed on Windows ARM64 with .NET SDK 10.0.401:
+
+- The generator suite passed 92 assertions.
+- The real MSBuild suite passed 9 assertions, including last-input deletion and unchanged no-op timestamps.
+- The native watch suite passed 56 assertions.
+- The VS Code package passed 16 tokenizer and configuration tests.
+- The VSIX content check found the expected eight runtime files and no development dependencies.
+- The existing C# suites passed 28 wrapper assertions and 79 feature assertions.
+- Both focused native ABI suites passed.
+- The final NativeAOT sample published and passed native initial-text, button, state-update, and shutdown checks.
+
+The watch suite checked native text, bounds, input values, event behavior, and process lifecycle.
+It did not use successful reload messages as a substitute for native UI checks.
+It also checked that invalid edits produced no layout changes or extra completion markers.
+The suite covered structural replacement, severe-error restart, and both recovery paths.
+
+The generator checks include native text/name aliasing, reserved identifiers, generic hidden dependencies, and state-free components.
+Release checks reject references to the development host, compiler, and Roslyn.
+The development host uses a Win32 message dispatcher instead of a native ABI extension.
+
+The successful watch artifacts are under `build\xui-language-check\59a4faa0f6a34718b229d2bf0ce9f88e`.
+That directory contains the fixture, watcher logs, build log, and edit durations.
+The local extension package is `integrations\vscode-xui\dist\xui-0.1.0.vsix`.
+The extension is not published or installed globally.
+
+The initial scope remains fixed compositions and the six control names listed in this plan.
+Dynamic child collections, arbitrary row templates, a language server, and a visual designer are outside this delivery.
