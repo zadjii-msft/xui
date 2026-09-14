@@ -30,9 +30,11 @@ public sealed class XuiGenerator : IIncrementalGenerator
             .Select((file, token) => (file.Path, Text: file.GetText(token)));
         context.RegisterSourceOutput(files, (output, file) =>
         {
+            string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
             if (file.Text is null)
             {
                 output.ReportDiagnostic(Diagnostic.Create(Invalid, Location.None, $"Cannot read '{file.Path}'."));
+                output.AddSource("Xui.Error." + suffix + ".g.cs", "#error XUI001: Cannot read XUI source.\n");
                 return;
             }
             try
@@ -46,16 +48,23 @@ public sealed class XuiGenerator : IIncrementalGenerator
                 foreach (var error in parser.Errors.Concat(emitter.Errors))
                 {
                     Report(error);
-                    int offset = Math.Clamp(error.Offset, 0, file.Text.Length);
-                    int line = file.Text.Lines.GetLineFromPosition(offset).LineNumber + 1;
-                    string message = string.Join(" ", error.Message.Split(['\r', '\n', '\u0085', '\u2028', '\u2029']));
-                    generated += $"\n#line {line} \"{file.Path}\"\n#error XUI001: {message}\n#line default\n";
+                    generated += ErrorDirective(error);
                 }
                 string identity = component.Namespace + "." + component.Name;
-                string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
                 output.AddSource(identity.Replace("@", "") + "." + suffix + ".g.cs", generated);
             }
-            catch (ParseError error) { Report(error); }
+            catch (ParseError error)
+            {
+                Report(error);
+                output.AddSource("Xui.Error." + suffix + ".g.cs", ErrorDirective(error));
+            }
+            string ErrorDirective(ParseError error)
+            {
+                int offset = Math.Clamp(error.Offset, 0, file.Text.Length);
+                int line = file.Text.Lines.GetLineFromPosition(offset).LineNumber + 1;
+                string message = string.Join(" ", error.Message.Split(['\r', '\n', '\u0085', '\u2028', '\u2029']));
+                return $"\n#line {line} \"{file.Path}\"\n#error XUI001: {message}\n#line default\n";
+            }
             void Report(ParseError error)
             {
                 int offset = Math.Clamp(error.Offset, 0, file.Text.Length);

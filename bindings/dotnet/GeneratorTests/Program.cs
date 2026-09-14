@@ -13,6 +13,11 @@ internal static class Program
         public override string Path => path;
         public override SourceText GetText(CancellationToken cancellationToken = default) => SourceText.From(text);
     }
+    private sealed class UnreadableFile : AdditionalText
+    {
+        public override string Path => @"C:\fixture\Unreadable.xui";
+        public override SourceText? GetText(CancellationToken cancellationToken = default) => null;
+    }
     private static readonly MetadataReference[] References =
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(System.IO.Path.PathSeparator)
             .Append(typeof(Xui.Window).Assembly.Location).Distinct().Select(p => MetadataReference.CreateFromFile(p)).ToArray();
@@ -141,10 +146,11 @@ internal static class Program
     {
         GeneratorDriver driver = CSharpGeneratorDriver.Create([new XuiGenerator().AsSourceGenerator()],
             [new File(@"C:\fixture\Bad.xui", source)]);
-        driver.RunGeneratorsAndUpdateCompilation(Empty(), out _, out var diagnostics);
+        driver.RunGeneratorsAndUpdateCompilation(Empty(), out var compilation, out var diagnostics);
         var diagnostic = diagnostics.FirstOrDefault(d => d.Id == "XUI001");
         Assert(diagnostic is not null, "Expected XUI001: " + string.Join("\n", diagnostics));
         Assert(diagnostic!.Location.GetLineSpan().Path.EndsWith("Bad.xui"), "Diagnostic maps to authoring path");
+        Assert(compilation.GetDiagnostics().Any(d => d.Id == "CS1029"), "Every invalid source blocks the C# compilation pipeline");
         return diagnostic;
     }
     private static void TestUserNames()
@@ -188,6 +194,10 @@ internal static class Program
             "component Bad {\n view { VStack() {} }\n code csharp {\n void Go() => Missing();\n }\n}"));
         var methodError = badCode.GetDiagnostics().First(d => d.Id == "CS0103");
         Assert(methodError.Location.GetMappedLineSpan().StartLinePosition.Line == 3, "Embedded C# maps to actual XUI line");
+        GeneratorDriver unreadable = CSharpGeneratorDriver.Create([new XuiGenerator().AsSourceGenerator()], [new UnreadableFile()]);
+        unreadable.RunGeneratorsAndUpdateCompilation(Empty(), out var missingCompilation, out var missingDiagnostics);
+        Assert(missingDiagnostics.Any(d => d.Id == "XUI001") && missingCompilation.GetDiagnostics().Any(d => d.Id == "CS1029"),
+            "Unreadable input blocks compilation as well as reporting a generator error");
     }
     private static void TestIncremental()
     {
@@ -195,6 +205,10 @@ internal static class Program
         var second = new File(@"C:\fixture\Second.xui", "component Second { view { VStack() { Text(\"Second\"); } } }");
         var (driver, _) = Generate(first, second);
         var initial = driver.GetRunResult().Results.Single().GeneratedSources;
+        driver.AddAdditionalTexts([new File(@"C:\fixture\NewBroken.xui", "component NewBroken { view {")])
+            .RunGeneratorsAndUpdateCompilation(Empty(), out var brokenAdditionalCompilation, out _);
+        Assert(brokenAdditionalCompilation.GetDiagnostics().Any(d => d.Id == "CS1029"),
+            "Malformed newly added unused component blocks otherwise-valid hot deltas");
         var (_, stateless) = Generate(second);
         Assert(!stateless.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error),
             "State-free component compiles without unused-field warnings");
