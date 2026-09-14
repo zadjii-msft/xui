@@ -12,7 +12,7 @@
 #include "gallery_catalog.hpp"
 #include <windows.h>
 #include <shellapi.h>
-#include <sstream>
+#include <algorithm>
 
 namespace {
 using namespace xui;
@@ -36,6 +36,16 @@ std::shared_ptr<Button> button(Panel parent, std::wstring name, std::function<vo
     result->on_click(std::move(action));
     parent->add(result);
     return result;
+}
+void code_block(Panel parent, const gallery::Entry& entry) {
+    auto code = std::make_shared<MultilineText>(std::wstring(entry.title) + L" C++ code");
+    code->set_automation_id(L"gallery-code-" + std::wstring(entry.id));
+    code->set_text(entry.code);
+    code->set_read_only(true);
+    code->set_monospace(true);
+    const auto lines = 1 + std::count(code->text().begin(), code->text().end(), L'\r');
+    code->set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 240.0f)});
+    parent->add(code);
 }
 class Suggestions final : public SuggestionSource {
 public:
@@ -108,8 +118,7 @@ public:
                     output->set_automation_id(L"gallery-events-" + std::wstring(entry.id));
                     build(i, demo, output, image_path);
                     label(slot, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-                    std::wistringstream code(entry.code); std::wstring line;
-                    while (std::getline(code, line)) label(slot, line)->set_caption(true);
+                    code_block(slot, entry);
                     button(slot, L"Copy code", [this, i, output] {
                         try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
                         catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
@@ -134,9 +143,7 @@ public:
             build(i, demo, output, image_path);
             content->add(output);
             label(content, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-            std::wistringstream code(entry.code);
-            std::wstring line;
-            while (std::getline(code, line)) label(content, line)->set_caption(true);
+            code_block(content, entry);
             button(content, L"Copy code", [this, i, output] {
                 try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
                 catch (...) { output->set_text(L"Events: clipboard is unavailable."); }

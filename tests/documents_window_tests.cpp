@@ -246,6 +246,7 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool ca
     auto anchor = std::make_shared<Button>(L"Open modal fixture"); root->add(anchor);
     auto under = std::make_shared<TextInput>(L"Unique native caption"); under->set_text(L"Unique native EDIT fixture XXXXX"); root->add(under);
     auto document = std::make_shared<MultilineText>(L"Plain document"); document->set_text(L"Plain fixture\rUnicode \U0001f642");
+    document->set_monospace(true);
     document->set_automation_id(L"document"); document->set_preferred_size({400, 90}); root->add(document);
     auto rich = std::make_shared<RichText>(L"Styled fixture"); rich->set_automation_id(L"rich-document");
     rich->set_runs({{L"Bold fixture", true}, {L" Link", false, true, true, L"https://example.com"}});
@@ -289,6 +290,9 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool ca
         SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&outer)); flush(hwnd);
         const auto edit = native(hwnd, MSFTEDIT_CLASS, 0), rich_hwnd = native(hwnd, MSFTEDIT_CLASS, 1);
         require(read(edit).find(L"fixture") != std::wstring::npos, "Native multiline owns actual text");
+        CHARFORMAT2W code_style{sizeof(code_style)};
+        SendMessageW(edit, EM_GETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&code_style));
+        require(std::wstring_view(code_style.szFaceName) == L"Consolas", "Monospace survives native creation and DPI changes");
         window.focus(*document); SendMessageW(edit, EM_SETSEL, 0, 5); SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"Changed"));
         require(changes == 1 && document->text().starts_with(L"Changed"), "Native committed change fires once");
         require(document->command(TextCommand::undo) && changes == 2, "Native undo");
@@ -299,9 +303,19 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool ca
         document->set_selection({0, 7}); flush(hwnd); CHARRANGE selection{};
         SendMessageW(edit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
         require(selection.cpMin == 0 && selection.cpMax == 7, "Retained selection reaches native RichEdit");
+        document->set_monospace(false); flush(hwnd);
+        SendMessageW(edit, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&code_style));
+        require(std::wstring_view(code_style.szFaceName) == L"Segoe UI", "Native font returns to the default");
+        document->set_monospace(true); flush(hwnd);
+        SendMessageW(edit, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&code_style));
+        SendMessageW(edit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+        require(std::wstring_view(code_style.szFaceName) == L"Consolas" && selection.cpMin == 0 &&
+            selection.cpMax == 7 && changes == 3, "Font changes preserve native selection and do not publish edits");
         CHARFORMAT2W style{sizeof(style)}; SendMessageW(rich_hwnd, EM_SETSEL, 0, 4);
+        rich->set_monospace(true); flush(hwnd);
         SendMessageW(rich_hwnd, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&style));
-        require((style.dwEffects & CFE_BOLD) != 0, "RichEdit renders actual bold runs");
+        require((style.dwEffects & CFE_BOLD) != 0 && std::wstring_view(style.szFaceName) == L"Consolas",
+            "Monospace preserves rich document run formatting");
         const auto styled_runs = rich->runs();
         const std::wstring untrusted = L"{\\rtf1\\object\\objdata untrusted literal}";
         rich->set_runs({{untrusted}}); flush(hwnd);

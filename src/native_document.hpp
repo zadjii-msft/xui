@@ -26,7 +26,7 @@ private:
     HFONT font_{};
     UINT dpi_{};
     std::uint64_t revision_{}, selection_revision_{};
-    bool composing_{}, setting_{}, readonly_{}, colors_set_{};
+    bool composing_{}, setting_{}, readonly_{}, monospace_{}, colors_set_{};
     COLORREF text_color_{}, background_{};
     std::size_t maximum_{};
     std::wstring accessible_name_;

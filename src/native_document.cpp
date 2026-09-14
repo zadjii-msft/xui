@@ -146,6 +146,14 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         if (readonly_ != document->read_only()) {
             readonly_ = document->read_only(); SendMessageW(window_, EM_SETREADONLY, readonly_, 0);
         }
+        if (monospace_ != document->monospace()) {
+            monospace_ = document->monospace();
+            CHARFORMAT2W format{sizeof(format)};
+            format.dwMask = CFM_FACE;
+            wcscpy_s(format.szFaceName, monospace_ ? L"Consolas" : L"Segoe UI");
+            SendMessageW(window_, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
+            SendMessageW(window_, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
+        }
         if (recolor) {
             SendMessageW(window_, EM_SETBKGNDCOLOR, 0, background_);
             CHARRANGE previous{}; SendMessageW(window_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&previous));

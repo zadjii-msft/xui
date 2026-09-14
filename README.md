@@ -1460,6 +1460,7 @@ Actual screen-reader speech still requires a manual check.
 
 `MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
 Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+`set_monospace(true)` selects Consolas for code. The default font remains Segoe UI.
 The default document limit is 65,536 UTF-16 code units. The maximum is 1,048,576.
 Paragraphs use `\r`. Setters normalize `\n` and `\r\n`, and reject null characters or unpaired surrogates.
 `TextSelection` uses UTF-16 offsets. A property selection cannot split a surrogate pair.
@@ -1678,6 +1679,8 @@ Owned-window Graphics Capture, rather than `PrintWindow`, supplies the native vi
 
 The gallery has a searchable category catalog and 46 interactive pages built from actual XUI controls.
 Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
+API excerpts use read-only, monospace code blocks with native text selection and copy support.
+The blocks preserve indentation and line breaks. Long content scrolls within the block.
 The examples cover input, typography, layout, scrolling, collections, tabs, split panes, images, charts, menus, and themes.
 The grid calculates 100,000 synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.
