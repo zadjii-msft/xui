@@ -56,7 +56,12 @@ function Write-Source([string]$Source) {
 function Read-WatchLog {
     $text = ""
     foreach ($path in @($script:stdout, $script:stderr)) {
-        if (Test-Path $path) { $text += [IO.File]::ReadAllText($path) }
+        if (Test-Path $path) {
+            $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            $reader = [IO.StreamReader]::new($stream)
+            try { $text += $reader.ReadToEnd() }
+            finally { $reader.Dispose() }
+        }
     }
     return $text
 }
@@ -66,9 +71,22 @@ function Record-Edit([string]$Name, [string]$Source, [scriptblock]$Condition) {
     Wait-For $Name $Condition
     $script:results.Add([pscustomobject]@{ edit = $Name; milliseconds = $clock.Elapsed.TotalMilliseconds })
 }
+function Build-Fixture([string]$Configuration = "Debug") {
+    $output = & dotnet build $script:project -c $Configuration --nologo -v:q 2>&1
+    $status = $LASTEXITCODE
+    $output | Add-Content -LiteralPath (Join-Path $script:run "build.log")
+    Assert ($status -eq 0) "The $Configuration fixture build failed: $output"
+}
+function Inspect-Type([string]$Name) {
+    $assembly = Join-Path $script:run "bin\Debug\net10.0\$RuntimeIdentifier\WatchFixture.dll"
+    $output = & dotnet $assembly --inspect $Name 2>&1
+    Assert ($LASTEXITCODE -eq 0) "The assembly inspection failed: $output"
+    return ($output -join "`n")
+}
 
 $escapedTargets = [Security.SecurityElement]::Escape($targets)
 $escapedLibrary = [Security.SecurityElement]::Escape($library)
+$escapedManifest = [Security.SecurityElement]::Escape((Join-Path $root "demo\xui.manifest"))
 @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -78,6 +96,7 @@ $escapedLibrary = [Security.SecurityElement]::Escape($library)
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ApplicationManifest>$escapedManifest</ApplicationManifest>
   </PropertyGroup>
   <Import Project="$escapedTargets" />
   <ItemGroup>
@@ -91,8 +110,20 @@ using Xui;
 internal static class Program
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args is ["--inspect", var name])
+        {
+            Console.WriteLine(typeof(Program).Assembly.GetType(name) is null ? "absent" : "present");
+            return 0;
+        }
+        if (args is ["--release-contract"])
+        {
+            var forbidden = typeof(Program).Assembly.GetReferencedAssemblies()
+                .Where(a => a.Name is "Xui.Development" or "Xui.Generator" or "Microsoft.CodeAnalysis" or "Microsoft.CodeAnalysis.CSharp");
+            foreach (var reference in forbidden) Console.Error.WriteLine(reference.Name);
+            return forbidden.Any() ? 1 : 0;
+        }
         Console.WriteLine($"XUI integration process {Environment.ProcessId}");
         try
         {
@@ -130,6 +161,7 @@ component Counter {
     }
     code csharp {
         void Increment() => Count++;
+        void IncrementMore() => Count += 3;
         void SetEntry(string value) => Entry = value;
     }
 }
@@ -189,15 +221,26 @@ try {
     $null = Probe "invoke" "increment"
     Wait-For "single event subscription after repeated reload" { (Probe "name" "count") -eq "Total: 5" }
 
+    $source = $source.Replace("click: Increment,", "click: IncrementMore,")
+    $logLength = (Read-WatchLog).Length
+    Write-Source $source
+    Wait-For "event target code delta" {
+        $log = Read-WatchLog
+        return $log.Length -gt $logLength -and $log.Substring($logLength) -match "XUI hot reload applied"
+    }
+    $null = Probe "invoke" "increment"
+    Wait-For "changed event target" { (Probe "name" "count") -eq "Total: 8" }
+    Assert ((Probe "window") -eq $initialWindow) "An event-target edit replaced the native window."
+
     $logLength = (Read-WatchLog).Length
     Write-Source ($source.Replace("spacing: 24", "unknownArgument: 24"))
     Wait-For "invalid input diagnostic" {
         $log = Read-WatchLog
         return $log.Length -gt $logLength -and $log.Substring($logLength) -match 'Counter\.xui\(\d+,\d+\).*error'
     }
-    Assert ((Probe "name" "count") -eq "Total: 5") "An invalid edit changed the live UI."
+    Assert ((Probe "name" "count") -eq "Total: 8") "An invalid edit changed the live UI."
     $source = $source.Replace('Text($"Total: {Count}"', 'Text($"Recovered: {Count}"')
-    Record-Edit "recovery after invalid input" $source { (Probe "name" "count") -eq "Recovered: 5" }
+    Record-Edit "recovery after invalid input" $source { (Probe "name" "count") -eq "Recovered: 8" }
     Assert ((Probe "window") -eq $initialWindow) "Recovery replaced the native window."
 
     $source = $source.Replace('Text($"Echo: {Entry}", id: "echo");',
@@ -213,9 +256,33 @@ try {
     $watch.WaitForExit()
     $watch.Dispose()
     $watch = $null
+
+    $extra = Join-Path $run "Extra.xui"
+    'namespace Demo; component Extra { view { VStack() { Text("Extra"); } } }' |
+        Set-Content -LiteralPath $extra -Encoding utf8
+    Build-Fixture
+    Assert ((Inspect-Type "Demo.Extra") -eq "present") "An added .xui file did not produce a component."
+    Move-Item -LiteralPath $extra -Destination (Join-Path $run "Renamed.xui")
+    Build-Fixture
+    Assert ((Inspect-Type "Demo.Extra") -eq "present") "Renaming a .xui file removed its component."
+    Remove-Item -LiteralPath (Join-Path $run "Renamed.xui")
+    Build-Fixture
+    Assert ((Inspect-Type "Demo.Extra") -eq "absent") "A deleted .xui file left a compiled component."
+    $assembly = Join-Path $run "bin\Debug\net10.0\$RuntimeIdentifier\WatchFixture.dll"
+    $writeTime = (Get-Item -LiteralPath $assembly).LastWriteTimeUtc
+    Build-Fixture
+    Assert ((Get-Item -LiteralPath $assembly).LastWriteTimeUtc -eq $writeTime) "A no-op build rewrote the application assembly."
+    Build-Fixture "Release"
+    $release = Join-Path $run "bin\Release\net10.0\$RuntimeIdentifier\WatchFixture.dll"
+    $output = & dotnet $release --release-contract 2>&1
+    Assert ($LASTEXITCODE -eq 0) "Release output references development or compiler assemblies: $output"
+
     $results | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $run "edit-times.json") -Encoding utf8
     Write-Host "$assertions assertions passed. Results: $run"
 } catch {
+    if ($application) {
+        Write-Host "Last application process: $application; window: $(Probe 'window'); count: <$(Probe 'name' 'count')>"
+    }
     Write-Host (Read-WatchLog)
     Write-Host "Failure artifacts: $run"
     throw

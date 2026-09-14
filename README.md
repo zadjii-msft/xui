@@ -9,6 +9,10 @@ The executable uses the static MSVC runtime and Windows system libraries. It has
 
 **Technical report:** [A useful minimum for a Windows GUI](docs/windows-gui-memory.md) explains the memory experiments, performance tradeoffs, and reproduction steps.
 
+**Declarative C#:** [The `.xui` language](docs/xui-language.md) compiles UI blocks into retained XUI controls.
+It includes a `dotnet watch` development host and a VS Code syntax package.
+The [engineering plan](docs/xui-language-plan.md) defines the language scope, reload contracts, and acceptance checks.
+
 ## Visual milestone
 
 The explorer starts with a dark theme. Its Theme button and Ctrl+F6 switch between dark and light themes.
