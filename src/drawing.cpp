@@ -57,14 +57,19 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette) {
+void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered) {
     const auto b = row.bounds;
     if (row.content.separator) {
         fill({b.x + 10, b.y + b.height / 2, std::max(0.0f, b.width - 20), 1}, palette.border);
         return;
     }
+    if (row.group && !row.expandable) {
+        text(row.content.primary, {b.x + 10, b.y, std::max(0.0f, b.width - 20), b.height}, palette.secondary, true);
+        return;
+    }
     const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
-    if (selected || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, selected ? palette.selection : palette.surface);
+    if (selected || hovered || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2},
+        selected ? palette.selection : hovered ? palette.hover : palette.surface);
     float left = b.x + 10 + std::min(static_cast<float>(row.depth) * 20, b.width / 3);
     if (row.content.checked) {
         text(*row.content.checked ? L"✓" : L"○", {left, b.y, 22, b.height}, ink); left += 24;
@@ -73,7 +78,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink); left += 24;
     }
     if (row.content.icon != ButtonIcon::none) {
-        button_icon({left, b.y + 10, 20, 20}, ink, row.content.icon); left += 28;
+        button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon); left += 28;
     }
     const bool action_visible = !row.content.action.empty() && b.width >= 160;
     const bool secondary_visible = !row.content.secondary.empty() && b.height >= 48;
@@ -91,7 +96,8 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         rounded(action, palette.border, 4, true); text(row.content.action, {action.x + 5, action.y, action.width - 10, action.height}, ink, true);
     }
     if (row.content.submenu) text(L"›", {b.x + b.width - 28, b.y, 20, b.height}, ink);
-    if (focused) outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
+    if (focused || (hovered && palette.high_contrast))
+        outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
 }
 thread_local std::size_t Drawing::live_targets_{};
 thread_local std::size_t Drawing::created_text_layouts_{};

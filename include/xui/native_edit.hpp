@@ -37,6 +37,7 @@ private:
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     HWND window_{};
     HFONT font_{};
+    int font_height_{};
     UINT dpi_{96};
     bool composing_{};
     COLORREF placeholder_color_{RGB(128, 128, 128)};

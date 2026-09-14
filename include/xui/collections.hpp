@@ -90,6 +90,9 @@ enum class CollectionNavigation { parent, first_child, last_child, next, previou
 class ItemsSource : public CollectionIndex {
 public:
     virtual ItemContent item(std::size_t index) const = 0;
+    // List geometry shared by painting, hit testing, scrolling, and UIA. size() is the end boundary.
+    virtual double row_start(std::size_t index, double row_height) const;
+    virtual std::size_t row_at(double offset, double row_height) const;
     virtual std::vector<ItemGroup> groups() const { return {}; }
     virtual ItemHierarchy hierarchy(std::size_t) const { return {}; }
     virtual std::optional<std::size_t> navigate(std::optional<std::size_t> row, CollectionNavigation direction) const;
