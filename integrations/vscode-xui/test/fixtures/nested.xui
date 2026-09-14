@@ -21,7 +21,7 @@ second ""quoted"" } line";
     VStack(spacing: 8, padding: 16) {
       HStack(spacing: 4) {
         Text($"Count: {Math.Max(Count, 1)}", id: "nested");
-        Button("Go", click: Increment, enabled: true, name: "GoButton");
+        Button("Go", click: Increment, enabled: true, id: "go-button");
         Toggle("Enabled", checked: IsEnabled, change: OnChanged);
         TextInput(text: Input, change: OnChanged, submit: OnSubmit);
       }

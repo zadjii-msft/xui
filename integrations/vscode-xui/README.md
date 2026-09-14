@@ -48,7 +48,8 @@ component Counter {
 }
 ```
 
-The namespace is optional. A file can contain multiple components.
+The namespace is optional. The compiler accepts one component per file.
+The grammar can highlight multiple components, but this does not imply compiler support.
 The reserved keywords are `namespace`, `component`, `state`, `view`, `code`, and `csharp`.
 Built-in node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, and `TextInput`.
 Other node names receive a generic node scope. This highlighting does not imply compiler support for custom components.
@@ -66,6 +67,8 @@ No C# language server is necessary.
 Raw strings receive the highlighting available in the C# grammar.
 Highlighting does not guarantee that the XUI compiler accepts a C# construct.
 The compiler defines the supported expressions, state types, nodes, properties, and handlers.
+The compiler rejects `name:` on `Text`, `Button`, and `Toggle`.
+`TextInput` supports `name:`.
 
 ## Editor support
 
@@ -96,6 +99,7 @@ The upstream revision and attribution are in `test\fixtures\NOTICE.md`.
 
 The tests cover embedded scopes, nested delimiters, interpolation, comments, snippets,
 and recovery into XUI after C# blocks.
+Some tokenizer fixtures exceed the compiler subset to exercise lexical recovery.
 The VSIX contains only the manifest, grammar, language configuration, snippets, README, license, and VSIX metadata.
 
 To check an existing package, run:
