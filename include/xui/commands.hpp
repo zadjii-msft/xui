@@ -10,7 +10,7 @@
 namespace xui {
 
 using CommandId = std::uint64_t;
-enum class CommandKind { action, submenu, separator };
+enum class CommandKind { action, submenu, separator, section };
 struct CommandRecord {
     CommandId id{}, parent{};
     std::wstring label;
@@ -90,6 +90,7 @@ public:
     const std::shared_ptr<Popup>& popup() const { return popup_; }
     const std::shared_ptr<CommandMenu>& menu() const { return menu_; }
     const std::shared_ptr<TextInput>& editor() const { return editor_; }
+    Size measure(Size available) const;
     void set_commands(std::shared_ptr<const CommandSet> commands, CommandId parent = 0);
     void on_query(std::function<void(CommandQuery)> callback) { query_ = std::move(callback); }
     CommandQuery request(std::wstring text);
@@ -100,6 +101,7 @@ private:
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<CommandMenu> menu_;
     std::shared_ptr<TextInput> editor_;
+    std::shared_ptr<Button> close_;
     std::shared_ptr<Label> status_;
     std::shared_ptr<const CommandSet> commands_;
     std::stop_source stop_;

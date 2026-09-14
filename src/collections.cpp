@@ -5,6 +5,12 @@
 #include <stdexcept>
 
 namespace xui {
+double ItemsSource::row_start(std::size_t index, double row_height) const {
+    return std::min(index, size()) * row_height;
+}
+std::size_t ItemsSource::row_at(double offset, double row_height) const {
+    return static_cast<std::size_t>(std::clamp(std::floor(offset / row_height), 0.0, double(size())));
+}
 std::optional<std::size_t> ItemsSource::navigate(std::optional<std::size_t> row, CollectionNavigation direction) const {
     if (!row) {
         if (!size()) return {};
@@ -272,7 +278,8 @@ std::size_t VirtualCollection::columns() const {
     return presentation_ == ItemsPresentation::tiles ? static_cast<std::size_t>(std::max(1.0f, std::floor(std::max(0.0f, bounds().width - bar_width) / item_size_.width))) : 1;
 }
 double VirtualCollection::maximum_offset() const {
-    return std::max(0.0, (source_ ? std::ceil(double(source_->size()) / columns()) * item_size_.height : 0) - bounds().height);
+    return std::max(0.0, (source_ ? columns() == 1 ? source_->row_start(source_->size(), item_size_.height) :
+        std::ceil(double(source_->size()) / columns()) * item_size_.height : 0) - bounds().height);
 }
 void VirtualCollection::set_offset(double value) {
     value = std::clamp(std::isfinite(value) ? value : 0, 0.0, maximum_offset());
@@ -282,10 +289,17 @@ void VirtualCollection::set_offset(double value) {
 Rect VirtualCollection::item_bounds(std::size_t index) const {
     const auto cols = columns();
     const float width = std::max(0.0f, bounds().width - bar_width) / cols;
+    if (source_ && cols == 1) {
+        const auto top = source_->row_start(index, item_size_.height);
+        return {0, static_cast<float>(top - offset_), width,
+            static_cast<float>(source_->row_start(index + 1, item_size_.height) - top)};
+    }
     return {float(index % cols) * width, static_cast<float>(double(index / cols) * item_size_.height - offset_), width, item_size_.height};
 }
 VisibleRange VirtualCollection::visible_items() const {
     if (!source_ || bounds().height <= 0 || bounds().width <= 0) return {};
+    if (columns() == 1) return {source_->row_at(offset_, item_size_.height),
+        std::min(source_->size(), source_->row_at(offset_ + bounds().height, item_size_.height) + 1)};
     const auto cols = columns(), first = static_cast<std::size_t>(offset_ / item_size_.height) * cols;
     return {std::min(first, source_->size()), std::min(source_->size(),
         first + (static_cast<std::size_t>(std::ceil(bounds().height / item_size_.height)) + 1) * cols)};
@@ -293,6 +307,10 @@ VisibleRange VirtualCollection::visible_items() const {
 std::optional<std::size_t> VirtualCollection::hit_test(Point point) const {
     if (!source_ || point.x < 0 || point.y < 0 || point.x >= bounds().width - bar_width || point.y >= bounds().height) return {};
     const auto cols = columns();
+    if (cols == 1) {
+        const auto row = source_->row_at(point.y + offset_, item_size_.height);
+        return row < source_->size() ? std::optional{row} : std::nullopt;
+    }
     const auto row = static_cast<std::size_t>((point.y + offset_) / item_size_.height) * cols +
         static_cast<std::size_t>(point.x / ((bounds().width - bar_width) / cols));
     return row < source_->size() ? std::optional{row} : std::nullopt;

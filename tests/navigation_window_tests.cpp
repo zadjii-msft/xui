@@ -4,11 +4,13 @@
 #include "xui/titlebar.hpp"
 #include "../src/drawing.hpp"
 #include "suggestion_capture.hpp"
+#include "owned_window_capture.hpp"
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <cmath>
 
 namespace {
 using namespace xui;
@@ -74,6 +76,35 @@ void verify_caption(HWND hwnd, const TitleBar& caption, ThemeMode theme, UINT dp
     SendMessageW(close, WM_NCMOUSELEAVE, 0, 0);
     require(!caption.close()->hovered(), "Nonclient leave clears caption hover");
 }
+void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi, Point hovered) {
+    const auto pixels = owned_window_capture::capture(hwnd);
+    const auto pixel = [&](float x, float y) {
+        const auto px = static_cast<int>(std::lround(x * dpi / 96));
+        const auto py = static_cast<int>(std::lround(y * dpi / 96));
+        require(px >= 0 && py >= 0 && px < pixels.width && py < pixels.height, "Palette capture sample is inside the client");
+        return pixels.data[py * pixels.width + px] & 0xffffff;
+    };
+    if (theme != ThemeMode::high_contrast) {
+        const auto x = popup.x + popup.width / 2, bottom = popup.y + popup.height;
+        const auto inner_shadow = pixel(x, bottom + 2), outer_shadow = pixel(x, bottom + 18), outside = pixel(x, bottom + 24);
+        require(inner_shadow < outer_shadow && outer_shadow <= outside, "Live popup shadow fades outside the frame without a hard gutter");
+    }
+    const auto hover_color = Palette::system(theme).hover;
+    const DWORD expected = (static_cast<DWORD>(std::lround(hover_color.r * 255)) << 16) |
+        (static_cast<DWORD>(std::lround(hover_color.g * 255)) << 8) | static_cast<DWORD>(std::lround(hover_color.b * 255));
+    require(pixel(hovered.x, hovered.y) == expected, "The pointed command row paints the theme hover color");
+    const auto directory = std::filesystem::path(L"navigation-captures");
+    std::filesystem::create_directories(directory);
+    const auto path = directory / (L"palette-live-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp");
+    BITMAPINFOHEADER info{sizeof(BITMAPINFOHEADER), pixels.width, -pixels.height, 1, 32, BI_RGB};
+    BITMAPFILEHEADER header{}; header.bfType = 0x4d42; header.bfOffBits = sizeof(header) + sizeof(info);
+    header.bfSize = header.bfOffBits + static_cast<DWORD>(pixels.data.size() * sizeof(DWORD));
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    file.write(reinterpret_cast<const char*>(&info), sizeof(info));
+    file.write(reinterpret_cast<const char*>(pixels.data.data()), static_cast<std::streamsize>(pixels.data.size() * sizeof(DWORD)));
+    require(bool(file), "Write live palette capture");
+}
 void verify_native_print_clip(HWND hwnd) {
     RECT bounds{}; GetClientRect(hwnd, &bounds);
     struct Canvas {
@@ -88,11 +119,11 @@ void verify_native_print_clip(HWND hwnd) {
     require(canvas.dc && canvas.bitmap, "Create owned native print fixture");
     canvas.previous = SelectObject(canvas.dc, canvas.bitmap);
     const auto color = RGB(251, 0, 247);
-    SetPixel(canvas.dc, 2, bounds.bottom / 2, color);
+    SetPixel(canvas.dc, bounds.right / 2, bounds.bottom / 2, color);
     SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(canvas.dc), PRF_CLIENT | PRF_ERASEBKGND);
-    require(GetPixel(canvas.dc, 2, bounds.bottom / 2) == color, "Native print cannot overwrite pixels occluded by popup");
+    require(GetPixel(canvas.dc, bounds.right / 2, bounds.bottom / 2) == color, "Native print cannot overwrite pixels occluded by popup");
     SendMessageW(hwnd, WM_PRINT, reinterpret_cast<WPARAM>(canvas.dc), PRF_CLIENT | PRF_ERASEBKGND);
-    require(GetPixel(canvas.dc, 2, bounds.bottom / 2) == color, "Native full print respects popup occlusion");
+    require(GetPixel(canvas.dc, bounds.right / 2, bounds.bottom / 2) == color, "Native full print respects popup occlusion");
 }
 ComPtr<IUIAutomationElement> find(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* id) {
     VARIANT value{}; value.vt = VT_BSTR; value.bstrVal = SysAllocString(id);
@@ -115,6 +146,16 @@ int client(HWND hwnd) {
     ComPtr<IUIAutomationElement> root; success(automation->ElementFromHandle(hwnd, &root), "Own UIA root");
     auto menu = find(automation.Get(), root.Get(), L"native-command-menu");
     CONTROLTYPEID type{}; success(menu->get_CurrentControlType(&type), "Menu role"); require(type == UIA_MenuControlTypeId, "Rich menu exposes Menu role");
+    auto section = find(automation.Get(), menu.Get(), L"6:1");
+    success(section->get_CurrentControlType(&type), "Section role");
+    require(type == UIA_HeaderControlTypeId, "Command sections expose non-interactive UIA headers");
+    ComPtr<IUnknown> section_pattern;
+    success(section->GetCurrentPattern(UIA_InvokePatternId, &section_pattern), "Read section Invoke support");
+    require(!section_pattern, "Section headers do not expose command invocation");
+    BOOL section_focusable{};
+    success(section->get_CurrentIsKeyboardFocusable(&section_focusable), "Read section focusability");
+    require(!section_focusable, "Section headers cannot receive keyboard focus");
+    require(section->SetFocus() == UIA_E_INVALIDOPERATION, "UIA rejects focus requests for a section header");
     auto first = find(automation.Get(), menu.Get(), L"1:1");
     success(first->get_CurrentControlType(&type), "MenuItem role"); require(type == UIA_MenuItemControlTypeId, "Command exposes MenuItem role");
     auto toggle = pattern<IUIAutomationTogglePattern>(first.Get(), UIA_TogglePatternId);
@@ -127,6 +168,11 @@ int client(HWND hwnd) {
     require(disabled_action->Invoke() == UIA_E_ELEMENTNOTENABLED, "Disabled UIA command rejected");
     auto separator = find(automation.Get(), menu.Get(), L"3:1");
     success(separator->get_CurrentControlType(&type), "Separator role"); require(type == UIA_SeparatorControlTypeId, "Separator has semantic role");
+    RECT separator_bounds{}, first_bounds{};
+    success(separator->get_CurrentBoundingRectangle(&separator_bounds), "Read separator bounds");
+    success(first->get_CurrentBoundingRectangle(&first_bounds), "Read command bounds");
+    require(separator_bounds.bottom - separator_bounds.top == (first_bounds.bottom - first_bounds.top) / 4,
+        "UIA exposes compact separator geometry");
     ComPtr<IUnknown> unsupported;
     require(FAILED(separator->GetCurrentPattern(UIA_InvokePatternId, &unsupported)) || !unsupported, "Separator has no Invoke action");
     unsupported.Reset();
@@ -195,6 +241,7 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
     int primary{}, pins{}, navigations{}; bool validated{}, done{};
     path->on_navigate([&](ItemKey key) { require(key == ItemKey{3, 1}, "Correct breadcrumb identity"); ++navigations; });
     surface->set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{
+        {6, 0, L"Tools", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::section},
         {1, 0, L"Inspect", [&] { ++primary; }, true, true, ButtonIcon::up, {L"Enter", L"Ctrl+I"}, L"Pin", [&] { ++pins; }},
         {2, 0, L"Disabled", [&] { ++primary; }, false},
         {3, 0, L"", {}, true, {}, ButtonIcon::none, {}, L"", {}, CommandKind::separator},
@@ -241,6 +288,54 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
                 window.show_commands(surface, *anchor); window.dismiss_popup(*surface->popup()); flush(hwnd);
             }
             require(GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) == before, "Repeated menu use has stable native peers during dispatch");
+            window.focus(*anchor);
+            window.show_commands(surface, *anchor); flush(hwnd);
+            const auto search = GetFocus();
+            require(surface->editor()->focused() && IsWindowVisible(search), "Palette opens with native search focus");
+            RECT edit_bounds{}; GetClientRect(search, &edit_bounds);
+            require(edit_bounds.bottom >= MulDiv(16, dpi, 96), "Palette search has room for native text and caret");
+            const auto expanded_bounds = surface->popup()->bounds();
+            RECT client_bounds{}; GetClientRect(hwnd, &client_bounds);
+            require(std::abs(expanded_bounds.x + expanded_bounds.width / 2 - client_bounds.right * 48.0f / dpi) < 1,
+                "Palette centers horizontally in the window, independent of its opener");
+            SendMessageW(hwnd, WM_ACTIVATE, WA_INACTIVE, 0); flush(hwnd);
+            require(surface->popup()->is_open(), "Window deactivation does not dismiss the palette");
+            SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0);
+            window.focus(*surface->editor());
+            surface->editor()->set_text(L"Nested"); surface->request(L"Nested"); flush(hwnd);
+            const auto filtered_bounds = surface->popup()->bounds();
+            require(filtered_bounds.height < expanded_bounds.height && filtered_bounds.height == 220 &&
+                filtered_bounds.x == expanded_bounds.x && filtered_bounds.y == expanded_bounds.y,
+                "Filtering shrinks the palette without moving its centered search field");
+            surface->editor()->set_text(L"no result"); surface->request(L"no result"); flush(hwnd);
+            require(surface->popup()->bounds().height == 220 && !surface->menu()->source()->size(),
+                "An empty filter keeps only the empty-state row");
+            surface->editor()->set_text(L""); surface->request(L""); flush(hwnd);
+            require(surface->popup()->bounds().height == expanded_bounds.height, "Clearing search expands the palette");
+            const auto rows_hwnd = child(hwnd, L"Native command rows");
+            const auto hover_row = surface->menu()->item_bounds(4);
+            SendMessageW(rows_hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<int>(100 * dpi / 96),
+                static_cast<int>((hover_row.y + 4) * dpi / 96)));
+            flush(hwnd);
+            require(surface->editor()->focused() && surface->menu()->selection().focused() == ItemKey{1, 1},
+                "Mouse hover preserves search focus and keyboard selection");
+            const auto menu_bounds = surface->menu()->bounds();
+            capture_palette(hwnd, surface->popup()->bounds(), theme, dpi,
+                {menu_bounds.x + 100, menu_bounds.y + hover_row.y + 4});
+            SendMessageW(rows_hwnd, WM_MOUSELEAVE, 0, 0); flush(hwnd);
+            require(!surface->menu()->hovered(), "Leaving command rows clears pointer hover");
+            SendMessageW(search, WM_CHAR, L'n', 0); flush(hwnd);
+            require(surface->editor()->text() == L"n", "Typing immediately after opening reaches the native search");
+            surface->editor()->set_text(L""); surface->request(L""); flush(hwnd);
+            window.focus(*surface->menu());
+            const auto popup_bounds = surface->popup()->bounds(), search_bounds = surface->editor()->bounds();
+            const auto search_icon = MAKELPARAM(static_cast<int>((search_bounds.x - popup_bounds.x + 18) * dpi / 96),
+                static_cast<int>((search_bounds.y - popup_bounds.y + 24) * dpi / 96));
+            SendMessageW(GetParent(search), WM_LBUTTONDOWN, MK_LBUTTON, search_icon);
+            SendMessageW(GetParent(search), WM_LBUTTONUP, 0, search_icon);
+            require(GetFocus() == search && surface->editor()->focused(), "Clicking the search icon restores native editor focus");
+            window.dismiss_popup(*surface->popup()); flush(hwnd);
+            require(anchor->focused(), "Palette dismissal restores opener focus");
             window.show_commands(surface, *anchor); flush(hwnd); window.focus(*surface->menu());
             const auto menu = child(hwnd, L"Native command rows");
             SendMessageW(menu, WM_KEYDOWN, VK_DOWN, 0);

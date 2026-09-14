@@ -60,13 +60,15 @@ public:
                 if (id == UIA_ItemContainerPatternId) *value = static_cast<IItemContainerProvider*>(this);
             } else {
                 const auto item = s.collection->item(*s.collection->find(*key_));
+                const auto info = s.collection->hierarchy(*s.collection->find(*key_));
                 if (id == UIA_SelectionItemPatternId && !action_ && !item.separator && !s.collection->hierarchy(*s.collection->find(*key_)).group)
                     *value = static_cast<ISelectionItemProvider*>(this);
                 if (id == UIA_ExpandCollapsePatternId && !action_ && s.collection->hierarchy(*s.collection->find(*key_)).expandable)
                     *value = static_cast<IExpandCollapseProvider*>(this);
                 if (id == UIA_ScrollItemPatternId) *value = static_cast<IScrollItemProvider*>(this);
                 if (id == UIA_VirtualizedItemPatternId) *value = static_cast<IVirtualizedItemProvider*>(this);
-                if (id == UIA_InvokePatternId && !item.separator) *value = static_cast<IInvokeProvider*>(this);
+                if (id == UIA_InvokePatternId && !item.separator &&
+                    !(s.role == ControlRole::command_menu && info.group)) *value = static_cast<IInvokeProvider*>(this);
                 if (id == UIA_TogglePatternId && !action_ && !item.separator && item.checked)
                     *value = static_cast<IToggleProvider*>(this);
             }
@@ -95,14 +97,16 @@ public:
                     id == UIA_SizeOfSetPropertyId ? static_cast<LONG>(info.count ? info.count : s.collection ? s.collection->size() : 0) :
                     action_ ? UIA_ButtonControlTypeId : !key_ ? (s.role == ControlRole::command_menu ? UIA_MenuControlTypeId :
                     s.role == ControlRole::tree_view ? UIA_TreeControlTypeId : UIA_ListControlTypeId) :
-                    item.separator ? UIA_SeparatorControlTypeId : s.role == ControlRole::command_menu ? UIA_MenuItemControlTypeId :
+                    item.separator ? UIA_SeparatorControlTypeId :
+                    s.role == ControlRole::command_menu ? (info.group ? UIA_HeaderControlTypeId : UIA_MenuItemControlTypeId) :
                     s.role == ControlRole::tree_view ? UIA_TreeItemControlTypeId : info.group ? UIA_GroupControlTypeId : UIA_ListItemControlTypeId;
             } else if (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId || id == UIA_IsKeyboardFocusablePropertyId ||
                 id == UIA_IsEnabledPropertyId || id == UIA_HasKeyboardFocusPropertyId || id == UIA_IsOffscreenPropertyId) {
                 UiaRect b{}; bounds(s, b);
                 const bool result = id == UIA_IsOffscreenPropertyId ? b.width <= 0 || b.height <= 0 :
                     id == UIA_IsEnabledPropertyId ? s.enabled && (!key_ || item.enabled) :
-                    id == UIA_IsKeyboardFocusablePropertyId ? s.enabled && !action_ && (!key_ || (item.enabled && !item.separator)) :
+                    id == UIA_IsKeyboardFocusablePropertyId ? s.enabled && !action_ && (!key_ || (item.enabled && !item.separator &&
+                        !(s.role == ControlRole::command_menu && info.group))) :
                     id == UIA_HasKeyboardFocusPropertyId ? s.focused && !action_ && (!key_ || s.selection.focused() == key_) : true;
                 value->vt = VT_BOOL; value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
@@ -141,9 +145,11 @@ public:
                 child ? key_ : s.collection->hierarchy(*index).parent;
             if (key_ && child && s.role != ControlRole::tree_view) return S_OK;
             std::set<std::size_t> realized;
-            const auto first = std::min(s.collection->size(), static_cast<std::size_t>(s.collection_offset / s.collection_item_height) * s.collection_columns);
-            const auto end = std::min(s.collection->size(), first +
-                (static_cast<std::size_t>(std::ceil(s.collection_height / s.collection_item_height)) + 1) * s.collection_columns);
+            const auto first = s.collection_columns == 1 ? s.collection->row_at(s.collection_offset, s.collection_item_height) :
+                std::min(s.collection->size(), static_cast<std::size_t>(s.collection_offset / s.collection_item_height) * s.collection_columns);
+            const auto end = std::min(s.collection->size(), s.collection_columns == 1 ?
+                s.collection->row_at(s.collection_offset + s.collection_height, s.collection_item_height) + 1 :
+                first + (static_cast<std::size_t>(std::ceil(s.collection_height / s.collection_item_height)) + 1) * s.collection_columns);
             for (auto i = first; i < end; ++i) {
                 realized.insert(i);
                 if (s.role == ControlRole::tree_view) {
@@ -188,6 +194,11 @@ public:
             width = std::max(0.0, width - VirtualCollection::bar_width) / s.collection_columns;
             x = (row % s.collection_columns) * width; y = (row / s.collection_columns) * s.collection_item_height - s.collection_offset;
             height = s.collection_item_height;
+            if (s.collection_columns == 1) {
+                const auto top = s.collection->row_start(row, s.collection_item_height);
+                y = top - s.collection_offset;
+                height = s.collection->row_start(row + 1, s.collection_item_height) - top;
+            }
             if (action_) { if (width < 160) return; x += width - 74; width = 74; }
         }
         const auto left = std::max(0.0, x), right = std::min(s.collection_width, x + width);
@@ -201,6 +212,8 @@ public:
     HRESULT STDMETHODCALLTYPE GetEmbeddedFragmentRoots(SAFEARRAY** value) override { if (!value) return E_POINTER; *value = nullptr; return S_OK; }
     HRESULT send(const ControlSnapshot& s, GridAction action) {
         if (!s.enabled || (key_ && !s.collection->item(*s.collection->find(*key_)).enabled)) return UIA_E_ELEMENTNOTENABLED;
+        if (key_ && s.role == ControlRole::command_menu && s.collection->hierarchy(*s.collection->find(*key_)).group &&
+            action.kind != GridAction::reveal) return UIA_E_INVALIDOPERATION;
         std::uint64_t token{};
         { std::lock_guard lock(state_->mutex);
             if (state_->snapshot.window != s.window || state_->grid_actions.size() >= 32) return UIA_E_ELEMENTNOTAVAILABLE;
@@ -274,7 +287,8 @@ public:
             if (x < 0 || y < 0 || x >= s.collection_width || y >= s.collection_height) return S_OK;
             const auto width = std::max(0.0, s.collection_width - VirtualCollection::bar_width) / s.collection_columns;
             if (s.collection && width > 0 && x < width * s.collection_columns) {
-                const auto row = static_cast<std::size_t>((y + s.collection_offset) / s.collection_item_height) * s.collection_columns + static_cast<std::size_t>(x / width);
+                const auto row = s.collection_columns == 1 ? s.collection->row_at(y + s.collection_offset, s.collection_item_height) :
+                    static_cast<std::size_t>((y + s.collection_offset) / s.collection_item_height) * s.collection_columns + static_cast<std::size_t>(x / width);
                 if (row < s.collection->size()) {
                     const auto item = s.collection->item(row);
                     *value = make(s.collection->key(row), width >= 160 && !item.action.empty() && std::fmod(x, width) >= width - 74);
@@ -316,7 +330,9 @@ public:
         });
     }
     static double maximum(const ControlSnapshot& s) {
-        return std::max(0.0, (s.collection ? std::ceil(double(s.collection->size()) / s.collection_columns) * s.collection_item_height : 0) - s.collection_height);
+        return std::max(0.0, (s.collection ? s.collection_columns == 1 ?
+            s.collection->row_start(s.collection->size(), s.collection_item_height) :
+            std::ceil(double(s.collection->size()) / s.collection_columns) * s.collection_item_height : 0) - s.collection_height);
     }
     HRESULT STDMETHODCALLTYPE get_HorizontallyScrollable(BOOL* value) override { if (!value) return E_POINTER; *value = FALSE; return S_OK; }
     HRESULT STDMETHODCALLTYPE get_VerticallyScrollable(BOOL* value) override {

@@ -35,10 +35,22 @@ void NativeEditBridge::set_dpi(UINT dpi) {
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     win32_require(replacement != nullptr, "Create search font");
+    const auto dc = GetDC(window_);
+    const auto previous = dc ? SelectObject(dc, replacement) : nullptr;
+    TEXTMETRICW metrics{};
+    const bool measured = previous && previous != HGDI_ERROR && GetTextMetricsW(dc, &metrics);
+    if (previous && previous != HGDI_ERROR) SelectObject(dc, previous);
+    if (dc) ReleaseDC(window_, dc);
+    if (!measured) {
+        DeleteObject(replacement);
+        win32_require(false, "Measure search font");
+    }
     SendMessageW(window_, WM_SETFONT, reinterpret_cast<WPARAM>(replacement), TRUE);
     if (font_) DeleteObject(font_);
     font_ = replacement;
     dpi_ = dpi;
+    font_height_ = metrics.tmHeight;
+    arrange(bounds());
 }
 
 void NativeEditBridge::arrange(Rect bounds) {
@@ -52,10 +64,19 @@ void NativeEditBridge::arrange(Rect bounds) {
         std::max(0.0f, bounds.width - insets.left - insets.right),
         std::max(0.0f, bounds.height - insets.top - insets.bottom)};
     const float scale = dpi_ / 96.0f;
-    win32_require(SetWindowPos(window_, nullptr, static_cast<int>(std::lround(bounds.x * scale)),
-        static_cast<int>(std::lround(bounds.y * scale)),
-        static_cast<int>(std::lround(bounds.width * scale)),
-        static_cast<int>(std::lround(bounds.height * scale)),
+    const auto available_height = static_cast<int>(std::lround(bounds.height * scale));
+    const auto height = std::min(font_height_, available_height);
+    // Single-line EDIT top-aligns its native text. Center the line-sized HWND instead.
+    const auto top = static_cast<int>(std::lround(bounds.y * scale)) + (available_height - height) / 2;
+    const auto left = static_cast<int>(std::lround(bounds.x * scale));
+    const auto width = static_cast<int>(std::lround(bounds.width * scale));
+    RECT current{};
+    if (GetWindowRect(window_, &current)) {
+        MapWindowPoints(nullptr, GetParent(window_), reinterpret_cast<POINT*>(&current), 2);
+        if (current.left == left && current.top == top &&
+            current.right - current.left == width && current.bottom - current.top == height) return;
+    }
+    win32_require(SetWindowPos(window_, nullptr, left, top, width, height,
         SWP_NOZORDER | SWP_NOACTIVATE) != 0, "Arrange native search field");
 }
 
@@ -194,6 +215,7 @@ LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wp
                 if (saved) {
                     RECT bounds{};
                     if (GetClientRect(window, &bounds)) {
+                        SendMessageW(window, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&bounds));
                         bounds.left += 2;
                         SelectObject(dc, self.font_);
                         SetBkMode(dc, TRANSPARENT);
