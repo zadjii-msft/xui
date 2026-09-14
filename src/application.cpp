@@ -70,6 +70,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::size_t grid_column{};
         bool collection_drag{}, collection_scroll{}, collection_additive{};
         std::optional<ItemKey> collection_anchor;
+        std::optional<Point> command_pointer;
         CollectionSelection collection_before;
         AdaptiveLayout* adaptive{};
         Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
@@ -958,6 +959,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 ShowWindow(peer->window, visible(*peer) ? SW_SHOWNA : SW_HIDE);
             }
             batch.finish();
+            // Match native hit testing to the back-to-front popup composition order.
+            for (const auto& entry : popups)
+                win32_require(SetWindowPos(find_peer(entry.popup.get())->window, HWND_TOP, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW) != 0, "Raise popup input surface");
             update_paint_bounds();
             ++layouts;
         }
@@ -1553,11 +1558,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
             const bool commands = control.role() == ControlRole::command_menu;
+            const auto hovered = commands && control.hovered() && peer.command_pointer && enabled(peer) ?
+                collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
+            const auto hovered_key = hovered && collection->source()->selectable(*hovered) ?
+                std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
             canvas.fill({0, 0, bounds.width, bounds.height}, commands ? palette.surface : palette.background);
             canvas.push_clip({0, 0, std::max(0.0f, bounds.width - VirtualCollection::bar_width), bounds.height});
             for (const auto& row : collection->visible_content())
                 canvas.collection_row(row, collection->selection().contains(row.key),
-                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette);
+                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette, hovered_key == row.key);
             if (!collection->source() || !collection->source()->size())
                 canvas.text(commands ? L"No matching commands" : L"No matching items",
                     {12, 10, std::max(0.0f, bounds.width - 24), 32}, palette.secondary);
@@ -2058,6 +2067,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 update();
                 return 0;
             }
+            if (auto* menu = dynamic_cast<CommandMenu*>(&control)) {
+                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
+                const auto previous = peer.command_pointer ? menu->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
+                peer.command_pointer = point;
+                if (previous != menu->hit_test(point)) invalidate(Invalidation::paint);
+            }
             control.pointer_move(inside());
             if (control.captured() && control.hovered() && peer.repeat_cycle && !peer.repeating) repeat_start(peer, false);
             if (!peer.tracking) {
@@ -2065,7 +2080,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 peer.tracking = TrackMouseEvent(&track) != 0;
             }
             return 0;
-        case WM_MOUSELEAVE: peer.tracking = false; control.pointer_move(false); return 0;
+        case WM_MOUSELEAVE:
+            peer.tracking = false; peer.command_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }

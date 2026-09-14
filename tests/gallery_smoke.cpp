@@ -135,6 +135,22 @@ void set_value(IUIAutomationValuePattern* pattern, const wchar_t* text) {
     SysFreeString(value);
     check(result, "Set native text");
 }
+void click_at(HWND host, POINT point) {
+    require(GetAncestor(WindowFromPoint(point), GA_ROOT) == host, "Mouse input targets only the owned gallery window");
+    require(SetCursorPos(point.x, point.y) != 0, "Move mouse to gallery control");
+    INPUT input[2]{};
+    input[0].type = input[1].type = INPUT_MOUSE;
+    input[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    input[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    require(SendInput(2, input, sizeof(INPUT)) == 2, "Click gallery through the native mouse queue");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+void click_element(HWND host, IUIAutomationElement* element) {
+    require(element != nullptr, "Mouse target exists");
+    RECT bounds{};
+    check(element->get_CurrentBoundingRectangle(&bounds), "Read mouse target geometry");
+    click_at(host, {(bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2});
+}
 std::uint64_t cpu(HANDLE process) {
     FILETIME creation{}, exit{}, kernel{}, user{};
     require(GetProcessTimes(process, &creation, &exit, &kernel, &user) != 0, "Read CPU counters");
@@ -181,6 +197,11 @@ struct NativeFocusEvents {
 };
 }
 void palette_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND hwnd, const std::filesystem::path& captures) {
+    struct CursorRestore {
+        POINT point{};
+        CursorRestore() { require(GetCursorPos(&point) != 0, "Save mouse position"); }
+        ~CursorRestore() { SetCursorPos(point.x, point.y); }
+    } cursor;
     auto open = pattern<IUIAutomationInvokePattern>(named(automation, root, L"Open command palette", UIA_ButtonControlTypeId).Get(), UIA_InvokePatternId);
     for (const auto* theme : {L"dark", L"light"}) {
         if (std::wstring_view(theme) == L"light")
@@ -198,8 +219,32 @@ void palette_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND h
                 named(automation, menu.Get(), L"Other actions", UIA_HeaderControlTypeId);
         };
         require(eventually(has_sections), "Gallery palette shows section headers");
+        RECT search_rect{};
+        check(search->get_CurrentBoundingRectangle(&search_rect), "Read palette search geometry");
+        const POINT search_point{(search_rect.left + search_rect.right) / 2, (search_rect.top + search_rect.bottom) / 2};
+        require(WindowFromPoint(search_point) == handle(automation, search.Get()),
+            "Mouse hit testing reaches the palette search instead of the underlying page");
+        click_element(hwnd, named(automation, menu.Get(), L"Disabled command", UIA_MenuItemControlTypeId).Get());
+        require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1, "Clicking a disabled command does not dismiss the palette");
+        click_at(hwnd, search_point);
+        require(eventually([&] { return focused(search.Get()); }), "Clicking native search text focuses the palette editor");
+        click_element(hwnd, named(automation, menu.Get(), L"Sample commands", UIA_HeaderControlTypeId).Get());
+        require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1, "Clicking a section does not dismiss the palette");
+        RECT disabled_bounds{}, next_section{};
+        check(named(automation, menu.Get(), L"Disabled command", UIA_MenuItemControlTypeId)->get_CurrentBoundingRectangle(&disabled_bounds),
+            "Read command before the separator");
+        check(named(automation, menu.Get(), L"Other actions", UIA_HeaderControlTypeId)->get_CurrentBoundingRectangle(&next_section),
+            "Read section after the separator");
+        require(next_section.top > disabled_bounds.bottom, "A separator slot exists between command groups");
+        click_at(hwnd, {(disabled_bounds.left + disabled_bounds.right) / 2, (disabled_bounds.bottom + next_section.top) / 2});
+        require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1, "Clicking a separator does not dismiss the palette");
+        const auto scale = GetDpiForWindow(hwnd) / 96.0;
+        click_at(hwnd, {search_rect.left - static_cast<LONG>(22 * scale), search_point.y});
+        require(eventually([&] { return focused(search.Get()); }), "Clicking search icon padding focuses the palette editor");
         RECT full{}, client{};
         check(palette->get_CurrentBoundingRectangle(&full), "Read full palette geometry");
+        click_at(hwnd, {full.left + 3, full.top + 20});
+        require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1, "Clicking popup padding does not dismiss the palette");
         GetClientRect(hwnd, &client); MapWindowPoints(hwnd, nullptr, reinterpret_cast<POINT*>(&client), 2);
         require(std::abs((full.left + full.right) - (client.left + client.right)) <= 2, "Gallery palette centers in the client");
         RECT outer{}; GetWindowRect(hwnd, &outer);
@@ -239,9 +284,27 @@ void palette_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND h
             "Empty search removes gallery command results");
         set_value(value.Get(), L"");
         require(eventually(has_sections), "Clearing the query restores gallery sections");
-        check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Close command palette", UIA_ButtonControlTypeId).Get(),
-            UIA_InvokePatternId)->Invoke(), "Close gallery palette");
+        click_element(hwnd, named(automation, root, L"Close command palette", UIA_ButtonControlTypeId).Get());
         require(eventually([&] { return SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0; }), "Close dismisses the gallery palette");
+        check(open->Invoke(), "Reopen palette for mouse command activation");
+        click_element(hwnd, named(automation, root, L"Pin", UIA_ButtonControlTypeId).Get());
+        require(eventually([&] { return named(automation, root, L"Events: Pin only. Primary did not run.") != nullptr; }),
+            "Mouse pin invokes only its independent action");
+        require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1, "Pin keeps the palette open");
+        click_element(hwnd, named(automation, root, L"Open sample", UIA_MenuItemControlTypeId).Get());
+        require(eventually([&] { return named(automation, root, L"Events: Open sample.") != nullptr &&
+            SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0; }), "Mouse command activation invokes and dismisses the palette");
+        check(open->Invoke(), "Reopen palette for submenu mouse activation");
+        click_element(hwnd, named(automation, root, L"More actions", UIA_MenuItemControlTypeId).Get());
+        ComPtr<IUIAutomationElement> nested;
+        require(eventually([&] { nested = named(automation, root, L"Nested action", UIA_MenuItemControlTypeId); return nested != nullptr; }),
+            "Mouse activation opens the submenu");
+        click_element(hwnd, nested.Get());
+        require(eventually([&] { return named(automation, root, L"Events: nested action.") != nullptr &&
+            SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0; }), "Nested popup receives the click and invokes its command");
+        check(open->Invoke(), "Reopen palette for outside click");
+        click_at(hwnd, {client.left + 12, client.top + 70});
+        require(eventually([&] { return SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0; }), "Outside clicks still dismiss the palette");
     }
 }
 int wmain(int argc, wchar_t** argv) {

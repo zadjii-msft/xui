@@ -1314,6 +1314,9 @@ The palette uses native EDIT for committed text and IME.
 The palette opens with focus in its search field and shows an inline search prompt.
 The title, close button, rounded frame, soft shadow, and keyboard footer distinguish the popup from the page.
 The search field fills the available width. Its icon and padding also accept clicks to focus the editor.
+Pointer hover highlights enabled command rows without changing search focus or keyboard selection.
+A click runs a command, opens a submenu, or invokes its separate pin action.
+Clicks on section headers, disabled commands, and separators leave the palette open. Outside clicks dismiss it.
 The close button and Escape dismiss the palette and restore the previous focus.
 Switching to another application leaves the palette and its query open.
 Searchable palettes center horizontally in the available window area, with a stable search position near the top.

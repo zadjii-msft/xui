@@ -25,7 +25,7 @@ HWND child(HWND root, const wchar_t* name) {
     }, reinterpret_cast<LPARAM>(&state)); require(state.result != nullptr, "Owned native control exists"); return state.result;
 }
 void flush(HWND hwnd) { SendMessageW(hwnd, WM_APP + 12, 0, 0); InvalidateRect(hwnd, nullptr, FALSE); UpdateWindow(hwnd); }
-void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi) {
+void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi, Point hovered) {
     const auto pixels = owned_window_capture::capture(hwnd);
     const auto pixel = [&](float x, float y) {
         const auto px = static_cast<int>(std::lround(x * dpi / 96));
@@ -38,6 +38,10 @@ void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi) {
         const auto inner_shadow = pixel(x, bottom + 2), outer_shadow = pixel(x, bottom + 18), outside = pixel(x, bottom + 24);
         require(inner_shadow < outer_shadow && outer_shadow <= outside, "Live popup shadow fades outside the frame without a hard gutter");
     }
+    const auto hover_color = Palette::system(theme).hover;
+    const DWORD expected = (static_cast<DWORD>(std::lround(hover_color.r * 255)) << 16) |
+        (static_cast<DWORD>(std::lround(hover_color.g * 255)) << 8) | static_cast<DWORD>(std::lround(hover_color.b * 255));
+    require(pixel(hovered.x, hovered.y) == expected, "The pointed command row paints the theme hover color");
     const auto directory = std::filesystem::path(L"navigation-captures");
     std::filesystem::create_directories(directory);
     const auto path = directory / (L"palette-live-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp");
@@ -236,7 +240,18 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
                 "An empty filter keeps only the empty-state row");
             surface->editor()->set_text(L""); surface->request(L""); flush(hwnd);
             require(surface->popup()->bounds().height == expanded_bounds.height, "Clearing search expands the palette");
-            capture_palette(hwnd, surface->popup()->bounds(), theme, dpi);
+            const auto rows_hwnd = child(hwnd, L"Native command rows");
+            const auto hover_row = surface->menu()->item_bounds(4);
+            SendMessageW(rows_hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<int>(100 * dpi / 96),
+                static_cast<int>((hover_row.y + 4) * dpi / 96)));
+            flush(hwnd);
+            require(surface->editor()->focused() && surface->menu()->selection().focused() == ItemKey{1, 1},
+                "Mouse hover preserves search focus and keyboard selection");
+            const auto menu_bounds = surface->menu()->bounds();
+            capture_palette(hwnd, surface->popup()->bounds(), theme, dpi,
+                {menu_bounds.x + 100, menu_bounds.y + hover_row.y + 4});
+            SendMessageW(rows_hwnd, WM_MOUSELEAVE, 0, 0); flush(hwnd);
+            require(!surface->menu()->hovered(), "Leaving command rows clears pointer hover");
             SendMessageW(search, WM_CHAR, L'n', 0); flush(hwnd);
             require(surface->editor()->text() == L"n", "Typing immediately after opening reaches the native search");
             surface->editor()->set_text(L""); surface->request(L""); flush(hwnd);
