@@ -252,6 +252,121 @@ void real_shell_discovery() {
     try { provider->discover({}); } catch (const std::logic_error&) { closed = true; }
     require(closed, "Owner closure revokes real Shell discovery and invocation boundary");
 }
+void navigation_view_case(ThemeMode theme, UINT dpi) {
+    Window window({L"XUI navigation view contracts", {820, 680}, theme});
+    auto root = std::make_shared<Stack>(Axis::horizontal);
+    auto nav = std::make_shared<NavigationView>(L"Navigation fixture");
+    nav->set_items({
+        {{1, 1}, {}, L"Home", ButtonIcon::home, {}, {}, true, true, true, NavigationSection::header},
+        {{10, 1}, {}, L"Workspace", ButtonIcon::folder, {}, L"2", true, false},
+        {{11, 1}, ItemKey{10, 1}, L"Overview", ButtonIcon::library},
+        {{12, 1}, ItemKey{10, 1}, L"Team", ButtonIcon::folder, {}, {}, true, false, false},
+        {{13, 1}, ItemKey{12, 1}, L"Members", ButtonIcon::home},
+        {{20, 1}, {}, L"Reports", ButtonIcon::library},
+        {{30, 1}, {}, L"Disabled", ButtonIcon::close, {}, {}, false},
+        {{40, 1}, {}, L"Settings", ButtonIcon::settings, {}, {}, true, true, true, NavigationSection::footer}});
+    root->add(nav);
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->set_padding({16, 16, 16, 16});
+    content->set_surface(true);
+    auto heading = std::make_shared<Label>(L"Navigation page");
+    heading->set_heading(true); content->add(heading);
+    auto editor = std::make_shared<TextInput>(L"Page editor"); content->add(editor);
+    root->add(content, 1);
+    window.set_content(root);
+    int selected{}, activated{};
+    nav->on_select([&](ItemKey key) { ++selected; heading->set_text(nav->find(key)->label); });
+    nav->on_activate([&](ItemKey) { ++activated; });
+    std::atomic<bool> done{};
+    std::string driver_error;
+    window.on_key([&](const KeyEvent& key) {
+        if (key.key != Key::f12) return false;
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI navigation view contracts");
+        RECT outer{}; GetWindowRect(hwnd, &outer);
+        const auto current = GetDpiForWindow(hwnd);
+        outer.right = outer.left + MulDiv(820, dpi, 96);
+        outer.bottom = outer.top + MulDiv(680, dpi, 96);
+        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&outer)); flush(hwnd);
+        require(current > 0 && nav->bounds().width == 280, "Expanded pane gets its requested DIP width");
+        const auto list = child(hwnd, L"Navigation fixture items");
+        window.focus(*nav->items());
+        SendMessageW(list, WM_KEYDOWN, VK_DOWN, 0);
+        require(nav->selected() == ItemKey{11, 1} && selected == 1, "Native Down selects a page once");
+        SendMessageW(list, WM_KEYDOWN, VK_RETURN, 0);
+        require(activated == 1 && selected == 1, "Native Enter activates without duplicate selection");
+        SendMessageW(list, WM_KEYDOWN, VK_DOWN, 0);
+        require(nav->items()->selection().focused() == ItemKey{12, 1}, "Native Down focuses a nested group");
+        SendMessageW(list, WM_KEYDOWN, VK_RIGHT, 0);
+        SendMessageW(list, WM_KEYDOWN, VK_RIGHT, 0);
+        require(nav->selected() == ItemKey{13, 1}, "Native Right expands then enters a nested group");
+        SendMessageW(list, WM_KEYDOWN, VK_LEFT, 0);
+        SendMessageW(list, WM_KEYDOWN, VK_LEFT, 0); flush(hwnd);
+        require(!nav->item_expanded({12, 1}) && nav->selected() == ItemKey{13, 1}, "Native Left collapses without losing current page");
+        const auto click = [&](HWND target, float x, float y) {
+            const auto point = MAKELPARAM(static_cast<int>(x * dpi / 96), static_cast<int>(y * dpi / 96));
+            SendMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, point);
+            SendMessageW(target, WM_LBUTTONUP, 0, point); flush(hwnd);
+        };
+        click(list, nav->items()->bounds().width - VirtualCollection::bar_width - 16, 20);
+        require(!nav->item_expanded({10, 1}), "Trailing chevron collapses the parent");
+        click(list, 80, 20);
+        require(nav->item_expanded({10, 1}), "Group label reopens its branch");
+        const auto page_x = content->bounds().x;
+        nav->toggle_button()->invoke(); flush(hwnd);
+        require(nav->bounds().width == 64 && content->bounds().x == page_x - 216, "Rail releases layout space to content");
+        require(!IsWindowVisible(child(hwnd, L"Search navigation")), "Collapsed native EDIT is really hidden");
+        require(nav->selected() == ItemKey{13, 1}, "Collapsed rail retains active page");
+        suggestion_capture::bitmap(hwnd, nullptr, std::filesystem::path(L"navigation-captures") /
+            (L"rail-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp"));
+        click(list, 20, 20);
+        require(nav->expanded() && nav->item_expanded({10, 1}), "Native rail group click reopens pane");
+        nav->set_expanded(false); flush(hwnd);
+        nav->set_expanded(true);
+        require(window.focus(*nav->search(), true) && nav->search()->focused(),
+            "Expand then focus search flushes pending layout in the same input callback");
+        nav->set_filter(L"Members"); flush(hwnd);
+        require(nav->items()->source()->size() == 3 && nav->match_count() == 1, "Filter reveals the complete nested path");
+        require(nav->header_items()->visible() && nav->footer_items()->visible(), "Filtering preserves pinned sections");
+        click(list, nav->items()->bounds().width - VirtualCollection::bar_width - 16, 20);
+        require(!nav->item_expanded({10, 1}) && nav->items()->source()->size() == 1, "Native chevron collapses a search-result section");
+        nav->set_filter(L"Member"); flush(hwnd);
+        require(!nav->item_expanded({10, 1}) && nav->items()->source()->size() == 1, "Query edits preserve native search-result collapse");
+        click(list, nav->items()->bounds().width - VirtualCollection::bar_width - 16, 20);
+        require(nav->item_expanded({10, 1}) && nav->items()->source()->size() == 3, "Native chevron reopens a search-result section");
+        suggestion_capture::bitmap(hwnd, nullptr, std::filesystem::path(L"navigation-captures") /
+            (L"filtered-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp"));
+        nav->set_filter(L"no matches"); flush(hwnd);
+        require(!nav->items()->visible() && nav->footer_items()->bounds().height > 0, "Empty view retains footer actions");
+        nav->set_filter(L""); nav->select({13, 1}); flush(hwnd);
+        const auto peers = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+        for (int i = 0; i < 20; ++i) {
+            nav->set_expanded(false); flush(hwnd); nav->set_expanded(true); flush(hwnd);
+        }
+        require(GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) == peers, "Repeated rail transitions retain fixed native peers");
+        nav->set_item_expanded({12, 1}, true); flush(hwnd);
+        suggestion_capture::bitmap(hwnd, nullptr, std::filesystem::path(L"navigation-captures") /
+            (L"expanded-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp"));
+        require(Drawing::live_targets() == 1, "Navigation uses the shared root render target");
+        done = true; return true;
+    });
+    std::jthread driver([&] {
+        HWND hwnd{};
+        for (int i = 0; i < 500 && !hwnd; ++i) { hwnd = FindWindowW(L"Xui.Window.1", L"XUI navigation view contracts"); Sleep(10); }
+        try {
+            require(hwnd != nullptr, "Navigation fixture opens");
+            Sleep(100); PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
+            eventually([&] { return done.load() || !IsWindow(hwnd); }, "Native navigation phase finishes");
+            require(done.load(), "Native navigation assertions pass");
+            Sleep(100);
+            const auto paints = SendMessageW(hwnd, WM_APP + 60, 0, 0); Sleep(150);
+            require(SendMessageW(hwnd, WM_APP + 60, 0, 0) == paints, "Navigation has no idle repaint loop");
+        } catch (const std::exception& error) { driver_error = error.what(); }
+        if (hwnd) PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    });
+    const auto result = Application::run(window); driver.join();
+    if (!window.error().empty()) std::wcerr << window.error() << L'\n';
+    require(driver_error.empty() && result == 0 && done, driver_error.empty() ? "Navigation view native scenario completes" : driver_error.c_str());
+}
 void command_lifecycle(int mode) {
     auto window = std::make_unique<Window>(WindowOptions{L"XUI command lifecycle", {520, 440}});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -296,6 +411,12 @@ int wmain(int argc, wchar_t** argv) {
     try {
         if (argc == 3 && std::wstring_view(argv[1]) == L"--uia") return client(reinterpret_cast<HWND>(std::stoull(argv[2])));
         wchar_t executable[32768]{}; GetModuleFileNameW(nullptr, executable, 32768);
+        for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+            for (UINT dpi : {96u, 144u, 192u}) navigation_view_case(theme, dpi);
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--navigation-view") {
+            require(Drawing::live_targets() == 0, "Navigation view render targets released");
+            std::cout << "Navigation view native checks passed\n"; return 0;
+        }
         for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
             for (UINT dpi : {96u, 144u, 192u}) run_case(theme, dpi, executable);
         require(Drawing::live_targets() == 0, "Render targets released after windows close");

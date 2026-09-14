@@ -59,6 +59,38 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
 }
 void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette) {
     const auto b = row.bounds;
+    if (row.navigation) {
+        selected = selected || row.selected_descendant;
+        const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
+        const Rect face{b.x + 2, b.y + 2, std::max(0.0f, b.width - 4), std::max(0.0f, b.height - 4)};
+        if (selected || (row.hovered && enabled && row.content.enabled))
+            rounded(face, selected ? palette.selection : palette.hover, 5);
+        if (selected) rounded({b.x + 2, b.y + 10, 3, std::max(0.0f, b.height - 20)}, palette.accent, 1.5f);
+        const float left = row.compact ? b.x + std::max(0.0f, (b.width - 20) / 2) :
+            b.x + 12 + std::min(static_cast<float>(row.depth) * 16, b.width / 3);
+        if (row.content.icon != ButtonIcon::none)
+            button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon);
+        else if (row.compact)
+            text(row.content.primary.substr(0, 1), {left, b.y, 20, b.height}, ink);
+        if (!row.compact) {
+            float right = b.x + b.width - (row.expandable ? 32.0f : 10.0f);
+            if (!row.content.secondary.empty() && right - left > 120) {
+                const float badge_width = std::min(64.0f, 16 + static_cast<float>(row.content.secondary.size()) * 7);
+                rounded({right - badge_width, b.y + 9, badge_width, b.height - 18}, palette.surface, 8);
+                text(row.content.secondary, {right - badge_width + 7, b.y, badge_width - 14, b.height}, palette.secondary, true);
+                right -= badge_width + 6;
+            }
+            const float text_left = left + (row.content.icon == ButtonIcon::none ? 0 : 28);
+            text(row.content.primary, {text_left, b.y, std::max(0.0f, right - text_left), b.height}, ink);
+            if (row.expandable) {
+                const float x = b.x + b.width - 21, y = b.y + b.height / 2;
+                if (row.expanded) { line(x - 4, y - 2, x, y + 2, ink, 1.5f); line(x, y + 2, x + 4, y - 2, ink, 1.5f); }
+                else { line(x - 2, y - 4, x + 2, y, ink, 1.5f); line(x + 2, y, x - 2, y + 4, ink, 1.5f); }
+            }
+        }
+        if (focused) rounded(face, palette.accent, 5, true);
+        return;
+    }
     if (row.content.separator) {
         fill({b.x + 10, b.y + b.height / 2, std::max(0.0f, b.width - 20), 1}, palette.border);
         return;
@@ -397,7 +429,26 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         line(box.x + x1 * box.width / 16, box.y + y1 * box.height / 16,
             box.x + x2 * box.width / 16, box.y + y2 * box.height / 16, color, 1.5f);
     };
-    if (icon == ButtonIcon::minimize) {
+    if (icon == ButtonIcon::menu) {
+        stroke(2, 4, 14, 4); stroke(2, 8, 14, 8); stroke(2, 12, 14, 12);
+    } else if (icon == ButtonIcon::home) {
+        stroke(1, 7, 8, 1); stroke(8, 1, 15, 7); stroke(3, 6, 3, 14);
+        stroke(3, 14, 13, 14); stroke(13, 14, 13, 6); stroke(6, 14, 6, 9); stroke(6, 9, 10, 9); stroke(10, 9, 10, 14);
+    } else if (icon == ButtonIcon::folder) {
+        stroke(1, 3, 6, 3); stroke(6, 3, 8, 5); stroke(8, 5, 15, 5);
+        stroke(15, 5, 15, 13); stroke(15, 13, 1, 13); stroke(1, 13, 1, 3);
+    } else if (icon == ButtonIcon::library) {
+        stroke(2, 2, 2, 14); stroke(6, 2, 6, 14); stroke(10, 2, 14, 14);
+        stroke(1, 14, 15, 14);
+    } else if (icon == ButtonIcon::settings) {
+        stroke(1, 4, 15, 4); stroke(1, 12, 15, 12);
+        stroke(5, 1, 5, 7); stroke(11, 9, 11, 15);
+    } else if (icon == ButtonIcon::search) {
+        brush_->SetColor(color);
+        target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + box.width * 0.4f, box.y + box.height * 0.4f),
+            box.width * 0.3f, box.height * 0.3f), brush_.Get(), 1.5f);
+        stroke(10, 10, 15, 15);
+    } else if (icon == ButtonIcon::minimize) {
         stroke(3, 8, 13, 8);
     } else if (icon == ButtonIcon::close) {
         stroke(3, 3, 13, 13); stroke(3, 13, 13, 3);

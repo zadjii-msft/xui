@@ -172,6 +172,7 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | `DataGrid` | Immutable row sources, stable keys, shared multi-selection, header filters, selection check columns, sorting, resize, reorder, and two-axis scrolling |
 | `HistoryChart` | A fixed 60-sample history, explicit gaps, a numeric scale, and an accessible metric name |
 | `PageView` | Retained pages with one visible content host and no page-selection I/O |
+| `NavigationView` | Nested items, native search, pinned header/footer shortcuts, shared selection, icons, badges, and expanded or collapsed panes (C++ only) |
 | `ViewTask` | Cancellable source and filter work, latest-generation delivery, and progress counters |
 | `SampleTask` | One background worker, a bounded result slot, periodic or manual requests, pause, and UI-thread delivery |
 | `Image` | Asynchronous WIC file decoding, bounded pixels, shared bitmaps, explicit unload, and accessible image names |
@@ -1369,7 +1370,7 @@ Commands reuse virtual collection rendering and the bounded UIA action mailbox.
 UIA exposes Menu, MenuItem, Invoke, SelectionItem, ExpandCollapse, and optional Toggle patterns.
 Pins have separate Button providers. No native peer exists for each command row.
 
-`xui/navigation.hpp` supplies `Breadcrumb`, `NavigationPane`, `LocationPicker`, and `ViewPicker`.
+`xui/navigation.hpp` supplies `NavigationView`, `Breadcrumb`, `NavigationPane`, `LocationPicker`, and `ViewPicker`.
 Breadcrumbs contain at most 64 stable path segments.
 Overflow retains earlier segments. Arrow keys move between visible segment buttons.
 The current segment exposes a current-location description.
@@ -1701,12 +1702,25 @@ Owned-window Graphics Capture, rather than `PrintWindow`, supplies the native vi
 
 ### Gallery and browser boundaries
 
-The gallery has a searchable category catalog and 46 interactive pages built from actual XUI controls.
+The gallery has a searchable category catalog and 47 interactive pages built from actual XUI controls.
 Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
 The examples cover input, typography, layout, scrolling, collections, tabs, split panes, images, charts, menus, and themes.
 The grid calculates 100,000 synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.
 The gallery adds no application-specific window procedure or drawing code.
+
+The catalog uses `NavigationView`, not a data grid. Category groups contain the example rows.
+Home and Appearance remain in the pinned header and footer. All examples remain searchable in the main section.
+Search preserves the selected item identity. The page area displays a matching example or an empty state.
+
+Search expands collapsed groups that contain matches. Groups without matches keep their previous expansion state.
+Manual expansion or collapse during a search persists across query edits. An empty query restores the expansion states from before the search.
+`NavigationView::item_matches` reports filter membership even when a collapsed group hides the item.
+
+Previous and Next expand the pane and use visible example rows.
+Ctrl+F expands the pane before it focuses the native search field.
+The `navigation-view` page demonstrates nested groups, filtering, icons, badges, disabled items, and pinned shortcuts.
+`NavigationView` is a C++ API. This addition does not expand the C ABI or language bindings.
 
 ```powershell
 .\build\controls\Release\xui_gallery.exe
@@ -1719,6 +1733,7 @@ The gallery adds no application-specific window procedure or drawing code.
 .\build\controls\Release\xui_gallery.exe --page commands
 .\build\controls\Release\xui_gallery.exe --page breadcrumb
 .\build\controls\Release\xui_gallery.exe --page navigation
+.\build\controls\Release\xui_gallery.exe --page navigation-view
 .\build\controls\Release\xui_gallery.exe --page shell
 .\build\controls\Release\xui_gallery.exe --page titlebar
 .\build\controls\Release\xui_gallery.exe --page dialog

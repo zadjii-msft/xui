@@ -103,6 +103,7 @@ struct CollectionRow {
     std::size_t index{}, depth{};
     std::optional<ItemKey> parent;
     bool group{}, expandable{}, expanded{}, pending{};
+    bool navigation{}, compact{}, selected_descendant{}, hovered{};
 };
 class VirtualCollection : public Control {
 public:

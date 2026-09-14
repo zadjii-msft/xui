@@ -85,6 +85,59 @@ template<class T> ComPtr<T> pattern(IUIAutomationElement* element, PATTERNID id)
     require(result != nullptr, "Missing pattern");
     return result;
 }
+ComPtr<IUIAutomationElement> identified(IUIAutomation* automation, IUIAutomationElement* root, const std::wstring& id) {
+    require(root != nullptr, "Missing root for stable navigation lookup");
+    // Virtual tree traversal exposes the viewport, not every item in the source.
+    if (!id.empty() && id.front() >= L'0' && id.front() <= L'9') {
+        VARIANT role{};
+        role.vt = VT_I4;
+        role.lVal = UIA_TreeControlTypeId;
+        ComPtr<IUIAutomationCondition> condition;
+        check(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, role, &condition), "Find navigation sections");
+        ComPtr<IUIAutomationElementArray> sections;
+        check(root->FindAll(TreeScope_Descendants, condition.Get(), &sections), "Read navigation sections");
+        int count{};
+        check(sections->get_Length(&count), "Read navigation section count");
+        for (int i = 0; i < count; ++i) {
+            ComPtr<IUIAutomationElement> section, item;
+            check(sections->GetElement(i, &section), "Read navigation section");
+            auto container = pattern<IUIAutomationItemContainerPattern>(section.Get(), UIA_ItemContainerPatternId);
+            VARIANT value{};
+            value.vt = VT_BSTR;
+            value.bstrVal = SysAllocString(id.c_str());
+            const auto result = container->FindItemByProperty(nullptr, UIA_AutomationIdPropertyId, value, &item);
+            VariantClear(&value);
+            check(result, "Find virtual navigation item");
+            if (item) return item;
+        }
+        return {};
+    }
+    VARIANT value{};
+    value.vt = VT_BSTR;
+    value.bstrVal = SysAllocString(id.c_str());
+    ComPtr<IUIAutomationCondition> condition;
+    const auto result = automation->CreatePropertyCondition(UIA_AutomationIdPropertyId, value, &condition);
+    VariantClear(&value);
+    check(result, "Create automation ID condition");
+    ComPtr<IUIAutomationElement> element;
+    check(root->FindFirst(TreeScope_Descendants, condition.Get(), &element), "Find stable navigation item");
+    return element;
+}
+int selectable_count(IUIAutomationElement* root) {
+    if (!root) return 0;
+    auto container = pattern<IUIAutomationItemContainerPattern>(root, UIA_ItemContainerPatternId);
+    ComPtr<IUIAutomationElement> previous;
+    int count{};
+    for (;;) {
+        ComPtr<IUIAutomationElement> item;
+        check(container->FindItemByProperty(previous.Get(), 0, VARIANT{}, &item), "Read virtual navigation item");
+        if (!item) return count;
+        ComPtr<IUnknown> selection;
+        check(item->GetCurrentPattern(UIA_SelectionItemPatternId, &selection), "Read navigation selection support");
+        if (selection) ++count;
+        previous = item;
+    }
+}
 std::wstring name(IUIAutomationElement* element) {
     BSTR text{};
     check(element->get_CurrentName(&text), "Read name");
@@ -179,13 +232,57 @@ struct NativeFocusEvents {
     }
     ~NativeFocusEvents() { UnhookWinEvent(hook); current = nullptr; }
 };
+void search_disclosure(IUIAutomation* automation, IUIAutomationElement* root) {
+    ComPtr<IUIAutomationElement> search;
+    require(eventually([&] { search = named(automation, root, L"Search controls", UIA_EditControlTypeId); return search != nullptr; }),
+        "Find navigation search");
+    auto value = pattern<IUIAutomationValuePattern>(search.Get(), UIA_ValuePatternId);
+    auto catalog = identified(automation, root, L"gallery-catalog");
+    auto group = identified(automation, catalog.Get(), L"1002:1");
+    auto disclosure = pattern<IUIAutomationExpandCollapsePattern>(group.Get(), UIA_ExpandCollapsePatternId);
+    const auto count = [&] { return selectable_count(identified(automation, catalog.Get(), L"gallery-catalog-items").Get()); };
+    const auto expanded = [&] {
+        ExpandCollapseState state{};
+        check(disclosure->get_CurrentExpandCollapseState(&state), "Read search group disclosure");
+        return state == ExpandCollapseState_Expanded;
+    };
+    check(disclosure->Collapse(), "Collapse category before search");
+    set_value(value.Get(), L"collections");
+    require(eventually([&] { return expanded() && count() == 5; }), "Search expands a collapsed category with matches");
+    check(disclosure->Collapse(), "Collapse catalog category during search");
+    require(eventually([&] { return !expanded() && count() == 0; }), "Collapsed search category hides its example rows");
+    set_value(value.Get(), L"COLLECTION");
+    require(eventually([&] { return !expanded() && count() == 0; }), "Query edits retain manual category collapse");
+    const auto filtered_count = L"5 of " + std::to_wstring(gallery::entries.size()) + L" examples";
+    require(eventually([&] {
+        return named(automation, root, filtered_count.c_str(), UIA_TextControlTypeId) &&
+            identified(automation, root, L"gallery-page-files");
+    }), "Collapsed matches retain their count and page preview instead of showing no results");
+    set_value(value.Get(), L"no-such-control-zz");
+    require(eventually([&] { return named(automation, root, L"No matching controls") != nullptr; }), "Empty query results show the empty page");
+    set_value(value.Get(), L"collections");
+    require(eventually([&] { return !expanded() && count() == 0; }), "A returning match retains manual collapse");
+    require(eventually([&] { return identified(automation, root, L"gallery-page-files") != nullptr; }),
+        "Returning matches restore a page preview without reopening the category");
+    check(disclosure->Expand(), "Reopen catalog category during search");
+    require(eventually([&] { return expanded() && count() == 5; }), "Search category expands through UIA");
+    set_value(value.Get(), L"");
+    require(eventually([&] { return !expanded(); }), "Clearing search restores the previously collapsed category");
+    set_value(value.Get(), L"collections");
+    require(eventually([&] { return expanded() && count() == 5; }), "A new search starts without manual overrides");
+    set_value(value.Get(), L"");
+    check(disclosure->Expand(), "Restore original catalog disclosure");
+    require(eventually([&] { return count() == gallery::entries.size(); }), "Search disclosure check restores the complete catalog");
+}
 }
 int wmain(int argc, wchar_t** argv) {
     std::cout << std::unitbuf;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
-    if (argc != 2 && !global_focus_events) { std::cerr << "Supply xui_gallery.exe [--focus-events]\n"; return 1; }
+    const bool search_only = argc == 3 && std::wstring_view(argv[2]) == L"--search-disclosure";
+    if (argc != 2 && !global_focus_events && !search_only) { std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure]\n"; return 1; }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(initialized)) return 1;
+    struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
     int result = 1;
     try {
         Process process;
@@ -197,13 +294,18 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
-        require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+        if (!search_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
             SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (search_only) {
+            search_disclosure(automation.Get(), root.Get());
+            std::cout << "Gallery search disclosure UIA checks passed\n";
+            return 0;
+        }
         std::cout << "Gallery root ready\n";
         std::cout << "Gallery initial peers=" << SendMessageW(process.window, WM_APP + 60, 14, 0)
             << " GDI=" << GetGuiResources(process.info.hProcess, GR_GDIOBJECTS)
@@ -416,28 +518,74 @@ int wmain(int argc, wchar_t** argv) {
         require(quiet, "Gallery must stop custom painting at idle");
         auto search = named(automation.Get(), root.Get(), L"Search controls", UIA_EditControlTypeId);
         auto search_value = pattern<IUIAutomationValuePattern>(search.Get(), UIA_ValuePatternId);
-        auto catalog_element = named(automation.Get(), root.Get(), L"Control catalog");
-        auto catalog = pattern<IUIAutomationGridPattern>(catalog_element.Get(), UIA_GridPatternId);
+        auto catalog_element = identified(automation.Get(), root.Get(), L"gallery-catalog");
+        auto catalog_items = identified(automation.Get(), catalog_element.Get(), L"gallery-catalog-items");
+        check(catalog_items->get_CurrentControlType(&type), "Read catalog tree role");
+        require(type == UIA_TreeControlTypeId, "Catalog uses a real navigation tree");
+        auto catalog_selection = pattern<IUIAutomationSelectionPattern>(catalog_items.Get(), UIA_SelectionPatternId);
+        BOOL multiple{};
+        check(catalog_selection->get_CurrentCanSelectMultiple(&multiple), "Read catalog selection mode");
+        require(!multiple, "Navigation is single-select");
         auto next_element = named(automation.Get(), root.Get(), L"Next example");
         auto next = pattern<IUIAutomationInvokePattern>(next_element.Get(), UIA_InvokePatternId);
-        int count{};
-        check(catalog->get_CurrentRowCount(&count), "Read catalog row count");
-        require(count == gallery::entries.size(), "Every implemented example has a catalog entry");
+        const auto catalog_count = [&] {
+            return selectable_count(
+                identified(automation.Get(), catalog_element.Get(), L"gallery-catalog-items").Get());
+        };
+        require(catalog_count() == gallery::entries.size(), "Every implemented example has a catalog entry");
+        const auto catalog_row = [&](std::size_t index) {
+            return identified(automation.Get(), catalog_element.Get(), std::to_wstring(index + 1) + L":1");
+        };
         const auto choose = [&](int row) {
-            ComPtr<IUIAutomationElement> cell;
-            check(catalog->GetItem(row, 0, &cell), "Read catalog cell");
+            auto cell = catalog_row(static_cast<std::size_t>(row));
+            check(pattern<IUIAutomationVirtualizedItemPattern>(cell.Get(), UIA_VirtualizedItemPatternId)->Realize(),
+                "Reveal the virtual catalog item");
             auto selection = pattern<IUIAutomationSelectionItemPattern>(cell.Get(), UIA_SelectionItemPatternId);
             check(selection->Select(), "Select real catalog row");
         };
+        auto input_group = identified(automation.Get(), catalog_element.Get(), L"1000:1");
+        ComPtr<IUnknown> group_selection;
+        input_group->GetCurrentPattern(UIA_SelectionItemPatternId, &group_selection);
+        require(!group_selection, "Category groups cannot be selected");
+        ComPtr<IUIAutomationTreeWalker> walker;
+        check(automation->get_RawViewWalker(&walker), "Read navigation tree walker");
+        ComPtr<IUIAutomationElement> parent;
+        check(walker->GetParentElement(catalog_row(0).Get(), &parent), "Read nested example parent");
+        require(name(parent.Get()) == L"Input", "Examples are UIA children of their category");
+        auto disclosure = pattern<IUIAutomationExpandCollapsePattern>(input_group.Get(), UIA_ExpandCollapsePatternId);
+        check(disclosure->Collapse(), "Collapse actual catalog category");
+        require(eventually([&] { return !catalog_row(0); }), "Collapse removes category descendants");
+        check(disclosure->Expand(), "Expand actual catalog category");
+        require(eventually([&] { return catalog_row(0) != nullptr; }), "Expand restores stable example IDs");
+        search_disclosure(automation.Get(), root.Get());
         focus(search.Get(), "Focus catalog search");
         set_value(search_value.Get(), L"collections");
-        require(eventually([&] { catalog->get_CurrentRowCount(&count); return count == 5; }), "Search filters category names");
+        require(eventually([&] { return catalog_count() == 5; }), "Search filters category names");
+        require(identified(automation.Get(), root.Get(), L"gallery-page-files") != nullptr,
+            "A hidden selected item previews the first matching example");
+        const auto filtered_count = L"5 of " + std::to_wstring(gallery::entries.size()) + L" examples";
+        require(named(automation.Get(), root.Get(), filtered_count.c_str(), UIA_TextControlTypeId) != nullptr,
+            "Filtered count retains the complete main catalog denominator");
         require(focused(search.Get()), "Search never moves focus per keystroke");
         set_value(search_value.Get(), L"no-such-control-zz");
-        require(eventually([&] { catalog->get_CurrentRowCount(&count); return count == 0; }), "Empty search exposes no fake controls");
+        require(eventually([&] { return catalog_count() == 0; }), "Empty search exposes no fake controls");
         require(named(automation.Get(), root.Get(), L"No matching controls") != nullptr, "Empty search has a useful state");
+        auto home = identified(automation.Get(), catalog_element.Get(), L"10000:1");
+        auto appearance = identified(automation.Get(), catalog_element.Get(), L"10001:1");
+        require(home && appearance, "Pinned shortcuts survive an empty main filter");
+        check(pattern<IUIAutomationSelectionItemPattern>(home.Get(), UIA_SelectionItemPatternId)->Select(), "Select pinned Home");
+        require(named(automation.Get(), root.Get(), L"Your name", UIA_EditControlTypeId) != nullptr, "Home opens Forms");
+        check(pattern<IUIAutomationSelectionItemPattern>(appearance.Get(), UIA_SelectionItemPatternId)->Select(), "Select pinned Appearance");
+        BOOL pinned_selected{};
+        check(pattern<IUIAutomationSelectionItemPattern>(home.Get(), UIA_SelectionItemPatternId)->get_CurrentIsSelected(&pinned_selected),
+            "Read shared pinned selection");
+        require(!pinned_selected, "Footer selection clears header selection");
+        require(named(automation.Get(), root.Get(), L"Themes and accessibility", UIA_TextControlTypeId) != nullptr,
+            "Appearance opens Themes");
         set_value(search_value.Get(), L"buttons");
-        require(eventually([&] { catalog->get_CurrentRowCount(&count); return count == 1; }), "Search filters control names");
+        require(eventually([&] { return catalog_count() == 1; }), "Search filters control names");
+        require(identified(automation.Get(), root.Get(), L"gallery-page-buttons") != nullptr,
+            "A pinned selection previews the first matching main example");
         auto action = named(automation.Get(), root.Get(), L"Run action");
         auto action_invoke = pattern<IUIAutomationInvokePattern>(action.Get(), UIA_InvokePatternId);
         check(action_invoke->Invoke(), "Invoke interactive button example");
@@ -447,26 +595,40 @@ int wmain(int argc, wchar_t** argv) {
         check(enable_action->Toggle(), "Change example property");
         require(!enabled(action.Get()) && action_invoke->Invoke() == UIA_E_ELEMENTNOTENABLED, "Example property disables the real control");
         set_value(search_value.Get(), L"");
-        require(eventually([&] { catalog->get_CurrentRowCount(&count); return count == gallery::entries.size(); }), "Clear restores the catalog");
+        require(eventually([&] { return catalog_count() == gallery::entries.size(); }), "Clear restores the catalog");
         choose(0);
         check(next->Invoke(), "Next example uses the filtered catalog");
-        ComPtr<IUIAutomationElement> second_cell;
-        check(catalog->GetItem(1, 0, &second_cell), "Read second catalog entry");
+        auto second_cell = catalog_row(1);
         auto second_selection = pattern<IUIAutomationSelectionItemPattern>(second_cell.Get(), UIA_SelectionItemPatternId);
         BOOL selected{};
         check(second_selection->get_CurrentIsSelected(&selected), "Read next-example selection");
         require(selected != FALSE, "Next example preserves stable selection");
-        focus(catalog_element.Get(), "Focus catalog for real keyboard navigation");
-        key(handle(automation.Get(), catalog_element.Get()), VK_DOWN);
+        check(second_selection->RemoveFromSelection(), "Remove the current navigation selection through UIA");
+        check(second_selection->get_CurrentIsSelected(&selected), "Read cleared navigation selection");
+        require(selected == FALSE, "UIA removal clears the selected navigation item");
+        check(second_selection->Select(), "Restore navigation selection through UIA");
+        check(second_selection->get_CurrentIsSelected(&selected), "Read restored navigation selection");
+        require(selected != FALSE, "UIA selection restores the same stable navigation item");
+        focus(catalog_items.Get(), "Focus catalog for real keyboard navigation");
+        key(handle(automation.Get(), catalog_items.Get()), VK_DOWN);
         require(eventually([&] {
-            ComPtr<IUIAutomationElement> cell;
-            if (FAILED(catalog->GetItem(2, 0, &cell))) return false;
+            auto cell = catalog_row(2);
+            if (!cell) return false;
             auto selection = pattern<IUIAutomationSelectionItemPattern>(cell.Get(), UIA_SelectionItemPatternId);
             BOOL selected{}; selection->get_CurrentIsSelected(&selected); return selected != FALSE;
         }), "Arrow key selects another catalog page");
-        key(handle(automation.Get(), catalog_element.Get()), VK_RETURN);
+        key(handle(automation.Get(), catalog_items.Get()), VK_RETURN);
         auto choice = named(automation.Get(), root.Get(), L"Allow updates");
         require(choice && eventually([&] { return focused(choice.Get()); }), "Enter reveals and focuses the selected example");
+        auto collapse = named(automation.Get(), catalog_element.Get(), L"Collapse navigation");
+        check(pattern<IUIAutomationInvokePattern>(collapse.Get(), UIA_InvokePatternId)->Invoke(), "Collapse gallery pane");
+        require(eventually([&] {
+            return named(automation.Get(), catalog_element.Get(), L"Expand navigation") &&
+                !named(automation.Get(), catalog_element.Get(), L"Search controls", UIA_EditControlTypeId);
+        }), "Collapsed pane hides the native search");
+        require(identified(automation.Get(), catalog_element.Get(), L"10000:1") &&
+            identified(automation.Get(), catalog_element.Get(), L"10001:1"), "Collapsed pane keeps pinned shortcuts");
+        focus(next_element.Get(), "Focus gallery before Ctrl+F");
         INPUT shortcut[4]{};
         for (auto& input : shortcut) input.type = INPUT_KEYBOARD;
         shortcut[0].ki.wVk = VK_CONTROL;
@@ -474,7 +636,7 @@ int wmain(int argc, wchar_t** argv) {
         shortcut[2].ki.wVk = 'F'; shortcut[2].ki.dwFlags = KEYEVENTF_KEYUP;
         shortcut[3].ki.wVk = VK_CONTROL; shortcut[3].ki.dwFlags = KEYEVENTF_KEYUP;
         require(SendInput(4, shortcut, sizeof(INPUT)) == 4, "Send Ctrl+F shortcut");
-        require(eventually([&] { return focused(search.Get()); }), "Ctrl+F focuses the real search EDIT");
+        require(eventually([&] { return focused(search.Get()); }), "Ctrl+F expands navigation and focuses the real search EDIT");
         choose(0);
         focus(next_element.Get(), "Stop native caret before gallery navigation");
         const auto captures = std::filesystem::path(argv[1]).parent_path().parent_path() / L"gallery-captures";
@@ -701,12 +863,12 @@ int wmain(int argc, wchar_t** argv) {
                 }
                 if (!round && i == 38) {
                     auto password = named(automation.Get(), root.Get(), L"Test password", UIA_EditControlTypeId);
-                    auto value = pattern<IUIAutomationValuePattern>(password.Get(), UIA_ValuePatternId);
-                    set_value(value.Get(), L"gallery-fixture");
+                    auto password_value = pattern<IUIAutomationValuePattern>(password.Get(), UIA_ValuePatternId);
+                    set_value(password_value.Get(), L"gallery-fixture");
                     require(eventually([&] { return named(automation.Get(), root.Get(), L"Events: password changed (value hidden)") != nullptr; }), "Gallery password callback has no value");
                     check(pattern<IUIAutomationTogglePattern>(named(automation.Get(), root.Get(), L"Reveal test password", UIA_CheckBoxControlTypeId).Get(), UIA_TogglePatternId)->Toggle(), "Explicit gallery reveal");
                     BOOL secure{}; check(password->get_CurrentIsPassword(&secure), "Revealed gallery password retains native password semantics"); require(secure, "Gallery reveal is not a plaintext EDIT");
-                    BSTR secret{}; value->get_CurrentValue(&secret); const bool empty = !secret || SysStringLen(secret) == 0; SysFreeString(secret);
+                    BSTR secret{}; password_value->get_CurrentValue(&secret); const bool empty = !secret || SysStringLen(secret) == 0; SysFreeString(secret);
                     require(empty, "Gallery password UIA cannot read the reveal preview");
                     check(pattern<IUIAutomationInvokePattern>(named(automation.Get(), root.Get(), L"Clear password", UIA_ButtonControlTypeId).Get(), UIA_InvokePatternId)->Invoke(), "Clear the owned password fixture");
                 }
@@ -766,6 +928,49 @@ int wmain(int argc, wchar_t** argv) {
                     require(eventually([&] { return named(automation.Get(), root.Get(), L"Events: media state 3") != nullptr; }), "Gallery actual media playback");
                     auto unload = named(automation.Get(), root.Get(), L"Unload media");
                     check(pattern<IUIAutomationInvokePattern>(unload.Get(), UIA_InvokePatternId)->Invoke(), "Unload gallery media");
+                }
+                if (!round && i == 46) {
+                    auto workspace = identified(automation.Get(), root.Get(), L"gallery-navigation-view");
+                    auto reports = identified(automation.Get(), workspace.Get(), L"2:1");
+                    auto report = identified(automation.Get(), workspace.Get(), L"3:1");
+                    auto archived = identified(automation.Get(), workspace.Get(), L"4:1");
+                    require(reports && report && archived && !enabled(archived.Get()),
+                        "Navigation demo contains nested and disabled entries");
+                    ComPtr<IUIAutomationElement> report_parent;
+                    check(walker->GetParentElement(report.Get(), &report_parent), "Read report group");
+                    require(name(report_parent.Get()) == L"Reports", "Demo exposes its second hierarchy level");
+                    auto report_disclosure = pattern<IUIAutomationExpandCollapsePattern>(reports.Get(), UIA_ExpandCollapsePatternId);
+                    check(report_disclosure->Collapse(), "Collapse nested Reports group");
+                    require(eventually([&] { return !identified(automation.Get(), workspace.Get(), L"3:1"); }),
+                        "Nested collapse hides reports");
+                    check(report_disclosure->Expand(), "Expand nested Reports group");
+                    require(eventually([&] { return identified(automation.Get(), workspace.Get(), L"3:1") != nullptr; }),
+                        "Nested expansion restores reports");
+                    auto reference = identified(automation.Get(), workspace.Get(), L"6:1");
+                    auto reference_disclosure = pattern<IUIAutomationExpandCollapsePattern>(reference.Get(), UIA_ExpandCollapsePatternId);
+                    ExpandCollapseState reference_state{};
+                    check(reference_disclosure->get_CurrentExpandCollapseState(&reference_state), "Read initially collapsed reference");
+                    require(reference_state == ExpandCollapseState_Collapsed, "Demo preserves initial collapsed state");
+                    check(reference_disclosure->Expand(), "Expand reference");
+                    require(identified(automation.Get(), workspace.Get(), L"7:1") != nullptr, "Reference child is real");
+                    auto workspace_search = named(automation.Get(), workspace.Get(), L"Filter workspace", UIA_EditControlTypeId);
+                    auto workspace_value = pattern<IUIAutomationValuePattern>(workspace_search.Get(), UIA_ValuePatternId);
+                    set_value(workspace_value.Get(), L"summary");
+                    require(eventually([&] {
+                        return identified(automation.Get(), workspace.Get(), L"3:1") &&
+                            !identified(automation.Get(), workspace.Get(), L"5:1");
+                    }), "Workspace keywords filter nested items");
+                    require(identified(automation.Get(), workspace.Get(), L"1:1") &&
+                        identified(automation.Get(), workspace.Get(), L"2:1"), "Filtering retains ancestors");
+                    require(identified(automation.Get(), workspace.Get(), L"101:1") &&
+                        identified(automation.Get(), workspace.Get(), L"102:1"), "Filtering retains pinned sections");
+                    set_value(workspace_value.Get(), L"");
+                    check(pattern<IUIAutomationSelectionItemPattern>(
+                        identified(automation.Get(), workspace.Get(), L"102:1").Get(), UIA_SelectionItemPatternId)->Select(),
+                        "Select workspace footer");
+                    require(named(automation.Get(), root.Get(), L"Events: workspace selected 102") != nullptr,
+                        "Workspace selection calls its public callback");
+                    focus(next_element.Get(), "Leave workspace search before navigation");
                 }
 #ifdef XUI_ENABLE_WEBVIEW2
                 if (!round && i == 45) {
@@ -883,6 +1088,5 @@ int wmain(int argc, wchar_t** argv) {
         std::cout << "Gallery smoke passed: UIA, native input, keyboard, capture, themes, idle, shutdown\n";
         result = 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; }
-    CoUninitialize();
     return result;
 }

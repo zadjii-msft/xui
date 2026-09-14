@@ -223,7 +223,7 @@ Physical monitor changes and screen-reader speech remain manual checks.
 
 The foundation families have retained C++ APIs in `xui/foundation.hpp`, shared Windows input/rendering, UIA patterns, gallery pages, and automated tests.
 `Control` supplies tooltip help. `Button` supplies action modes. `SplitButton` composes two independent action targets.
-The gallery contains 46 pages. Foundation, collection, command/navigation, document, scene, and native-host examples build on first use.
+The gallery contains 47 pages. Later examples build on first use.
 Core tests check invalid input, stable identity, locale parsing, callback behavior, and silent setters.
 Native tests check dark/light/high contrast, injected 96/144/192 DPI, nested popup cycles, focus repair, capture cancellation, native clipping, and UIA.
 Physical monitor transitions, interactive IME sessions, and screen-reader speech remain manual checks.
@@ -393,7 +393,7 @@ The remaining family checkboxes are still open.
 
 Run `build\controls\Release\xui_gallery.exe`.
 Use the left catalog to select an example.
-Use `Ctrl+F` to focus search.
+Use `Ctrl+F` to expand the navigation pane and focus search.
 Type a control name or category.
 Press Enter to focus the result list.
 Use arrow keys to select a result.
@@ -402,8 +402,13 @@ Use Previous example or Next example to move through the filtered results.
 Use Copy code to copy the current C++ excerpt.
 
 Each page uses real public XUI controls and includes its purpose, API excerpt, and event output.
-The gallery has 35 pages across seven categories.
-They cover input, layout, collections, navigation, media, commands, and appearance.
+The gallery has 47 pages across eight categories.
+They cover input, layout, collections, navigation, media, commands, appearance, and documents.
+The catalog uses the reusable C++ `NavigationView` with nonselectable category groups and stable example IDs.
+Home and Appearance remain pinned while search filters the main section.
+Search preserves selection identity. The page area displays a matching example or an empty state.
+The final `navigation-view` page demonstrates nested groups, pane collapse, filtering, icons, badges, and a disabled item.
+This addition does not expand the C ABI or language bindings.
 The grid calculates 100,000 rows on demand. Its source stores no row array.
 File-list fixtures contain 200 synthetic names and empty paths. They do not enumerate a user directory.
 The image page loads only a path that the user supplies.
@@ -417,6 +422,7 @@ Examples:
 .\build\gallery\Release\xui_gallery.exe --page menus --light
 .\build\gallery\Release\xui_gallery.exe --page images --image "D:\images\sample.png"
 .\build\gallery\Release\xui_gallery.exe --page themes --high-contrast
+.\build\gallery\Release\xui_gallery.exe --page navigation-view
 ```
 
 The image argument fills the field. The Load image action starts decoding.

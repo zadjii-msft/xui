@@ -12,7 +12,8 @@ enum class TextStyle { body, caption, heading };
 using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
-enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more };
+enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
+    menu, home, folder, settings, search, library };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 struct MenuItem {
     // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.

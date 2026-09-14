@@ -70,26 +70,20 @@ public:
         button(header, L"Theme", [this] { cycle_theme(); });
         root->add(header);
         auto body = panel(Axis::horizontal);
-        auto sidebar = panel();
-        sidebar->set_preferred_size({242, 600});
-        sidebar->set_maximum_size({242, 10000});
-        search_ = std::make_shared<TextInput>(L"Search controls");
-        search_->set_search_style(true);
-        search_->set_preferred_size({242, 42});
+        nav_ = std::make_shared<NavigationView>(L"Control catalog");
+        nav_->set_automation_id(L"gallery-catalog");
+        nav_->set_pane_widths(260, 64);
+        nav_->set_items(gallery::navigation_items());
+        nav_->items()->set_automation_id(L"gallery-catalog-items");
+        search_ = nav_->search();
+        search_->set_name(L"Search controls");
         search_->set_placeholder(L"Search controls or categories");
         search_->set_shortcut_hint(L"Ctrl+F");
         search_->set_automation_id(L"gallery-search");
-        sidebar->add(search_);
-        count_ = label(sidebar, std::to_wstring(gallery::entries.size()) + L" examples", TextTone::secondary);
+        count_ = std::make_shared<Label>(std::to_wstring(gallery::entries.size()) + L" examples");
+        count_->set_tone(TextTone::secondary);
         count_->set_caption(true);
-        nav_ = std::make_shared<DataGrid>(L"Control catalog");
-        nav_->set_automation_id(L"gallery-catalog");
-        nav_->set_columns({{L"Category / example", 228}});
-        nav_->set_source(std::make_shared<gallery::Catalog>());
-        sidebar->add(nav_, 1);
-        label(sidebar, L"Arrows: select  |  Enter: explore", TextTone::secondary)->set_caption(true);
-        label(sidebar, L"Roadmap: docs/control-roadmap.md", TextTone::secondary)->set_caption(true);
-        body->add(sidebar);
+        body->add(nav_);
         pages_ = std::make_shared<PageView>();
         for (std::size_t i = 0; i < gallery::entries.size(); ++i) {
             if (i >= 17) {
@@ -149,7 +143,7 @@ public:
         empty->set_padding({24, 24, 24, 24});
         label(empty, L"No matching controls")->set_heading(true);
         label(empty, L"Try a category: Input, Layout, Collections, Navigation, Media, Commands, Appearance.");
-        button(empty, L"Clear search", [this] { search_->set_text(L""); filter(L""); window_.focus(*search_); });
+        button(empty, L"Clear search", [this] { nav_->set_filter(L""); nav_->set_expanded(true); window_.focus(*search_); });
         pages_->add_page(empty);
         body->add(pages_, 1);
         root->add(body, 1);
@@ -157,26 +151,34 @@ public:
         button(footer, L"Previous example", [this] { step(-1); });
         button(footer, L"Next example", [this] { step(1); });
         location_ = label(footer, L"", TextTone::secondary);
+        footer->add(count_);
         root->add(footer);
-        nav_->on_select([this] {
-            if (const auto selected = nav_->selected()) show(static_cast<std::size_t>(selected->id - 1));
+        nav_->on_select([this](ItemKey key) {
+            if (const auto index = gallery::entry_index(key)) show(*index);
         });
-        nav_->on_activate([this] { window_.focus(*first_target()); });
-        nav_->on_sort([this](std::size_t, bool descending) {
-            catalog_descending_ = descending;
-            filter(search_->text());
+        nav_->on_activate([this](ItemKey key) {
+            if (const auto index = gallery::entry_index(key)) { show(*index); window_.focus(*first_target()); }
         });
-        search_->on_change([this](const auto& query) { filter(query); });
-        search_->on_submit([this] { if (nav_->source()->size()) window_.focus(*nav_); });
+        nav_->on_filter([this](const auto&) { filter(); });
+        search_->on_submit([this] {
+            const auto keys = visible_entries();
+            if (keys.empty()) return;
+            const ItemKey displayed{selected_ + 1, 1};
+            nav_->select(std::find(keys.begin(), keys.end(), displayed) != keys.end() ? displayed : keys.front());
+            window_.focus(*nav_->items());
+        });
         std::size_t selected{};
         for (std::size_t i = 0; i < gallery::entries.size(); ++i) if (page == gallery::entries[i].id) selected = i;
         nav_->select({selected + 1, 1});
         show(selected);
         window_.on_key([this](const KeyEvent& event) {
             if (selected_ == 30 && command_key_ && command_key_(event)) return true;
-            if (event.control && event.key == Key::f) return window_.focus(*search_, true);
+            if (event.control && event.key == Key::f) {
+                nav_->set_expanded(true);
+                return window_.focus(*search_, true);
+            }
             if (event.key == Key::escape && event.target == search_.get()) {
-                search_->set_text(L""); filter(L""); return true;
+                nav_->set_filter(L""); return true;
             }
             // F6 belongs to DataGrid header navigation while a grid has focus.
             if (event.key == Key::f6 && (!event.target || event.target->role() != ControlRole::data_grid)) {
@@ -189,14 +191,13 @@ public:
 private:
     Window& window_;
     std::shared_ptr<TextInput> search_;
-    std::shared_ptr<DataGrid> nav_;
+    std::shared_ptr<NavigationView> nav_;
     std::shared_ptr<PageView> pages_;
     std::shared_ptr<Label> count_, location_;
     std::shared_ptr<Toggle> light_;
     std::array<std::shared_ptr<Control>, gallery::entries.size()> targets_;
     std::array<std::function<void()>, gallery::entries.size()> deferred_;
     std::size_t selected_{};
-    std::optional<bool> catalog_descending_;
     std::function<bool(const KeyEvent&)> command_key_;
     Control* first_target() { return selected_ < targets_.size() && targets_[selected_] ? targets_[selected_].get() : search_.get(); }
     void cycle_theme() {
@@ -213,25 +214,33 @@ private:
         pages_->select(index);
         location_->set_text(index < gallery::entries.size() ? std::wstring(gallery::entries[index].title) + L"  |  C++ public API" : L"No results");
     }
-    void filter(const std::wstring& query) {
-        auto source = std::make_shared<gallery::Catalog>(query, catalog_descending_);
-        nav_->set_source(source);
-        count_->set_text(std::to_wstring(source->size()) + L" of " + std::to_wstring(gallery::entries.size()) + L" examples");
-        if (source->size()) {
-            const auto key = source->find({selected_ + 1, 1}) ? RowKey{selected_ + 1, 1} : source->key(0);
-            nav_->select(key);
-            show(static_cast<std::size_t>(key.id - 1));
-        } else {
-            nav_->clear_selection();
-            show(gallery::entries.size());
-        }
+    std::vector<ItemKey> visible_entries() const {
+        std::vector<ItemKey> keys;
+        const auto source = nav_->items()->source();
+        for (std::size_t i = 0; i < source->size(); ++i)
+            if (source->selectable(i)) keys.push_back(source->key(i));
+        return keys;
+    }
+    void filter() {
+        std::vector<ItemKey> keys;
+        for (std::size_t i = 0; i < gallery::entries.size(); ++i)
+            if (nav_->item_matches({i + 1, 1})) keys.push_back({i + 1, 1});
+        count_->set_text(std::to_wstring(nav_->match_count()) + L" of " + std::to_wstring(gallery::entries.size()) + L" examples");
+        const auto selected = nav_->selected();
+        if (selected && std::find(keys.begin(), keys.end(), *selected) != keys.end())
+            show(*gallery::entry_index(*selected));
+        else show(keys.empty() ? gallery::entries.size() : *gallery::entry_index(keys.front()));
     }
     void step(int delta) {
-        const auto source = nav_->source();
-        if (!source->size()) return;
-        const auto current = source->find({selected_ + 1, 1}).value_or(0);
-        const auto next = (static_cast<std::ptrdiff_t>(current) + delta + source->size()) % source->size();
-        nav_->select(source->key(next));
+        nav_->set_expanded(true);
+        const auto keys = visible_entries();
+        if (keys.empty()) return;
+        const auto found = std::find(keys.begin(), keys.end(), ItemKey{selected_ + 1, 1});
+        const auto current = found == keys.end() ? 0 : found - keys.begin();
+        const auto size = static_cast<std::ptrdiff_t>(keys.size());
+        const auto next = (current + delta + size) % size;
+        nav_->select(keys[next]);
+        show(*gallery::entry_index(keys[next]));
     }
     void build(std::size_t index, Panel demo, std::shared_ptr<Label> output, const std::wstring& image_path) {
         switch (index) {
@@ -925,6 +934,37 @@ private:
             button(lifecycle, L"Unload web", [web] { web->unload(); });
             label(demo, L"Requires XUI_ENABLE_WEBVIEW2, the pinned SDK, and an installed Edge WebView2 runtime. No installer runs.", TextTone::secondary);
             label(demo, L"No external origins are allowed. Hiding unloads the engine. Unload before an XUI popup.", TextTone::secondary);
+            break;
+        }
+        case 46: {
+            auto nav = std::make_shared<NavigationView>(L"Workspace navigation");
+            nav->set_automation_id(L"gallery-navigation-view");
+            nav->set_maximum_size({480, 360});
+            nav->search()->set_name(L"Filter workspace");
+            nav->set_items({
+                {{101, 1}, {}, L"Workspace home", ButtonIcon::home, {}, {}, true, true, true, NavigationSection::header},
+                {{102, 1}, {}, L"Workspace settings", ButtonIcon::settings, {}, {}, true, true, true, NavigationSection::footer},
+                {{1, 1}, {}, L"Projects", ButtonIcon::folder, {}, {}, true, false},
+                {{2, 1}, ItemKey{1, 1}, L"Reports", ButtonIcon::folder, L"analytics", {}, true, false},
+                {{3, 1}, ItemKey{2, 1}, L"Weekly report", ButtonIcon::library, L"summary", L"3"},
+                {{4, 1}, ItemKey{2, 1}, L"Archived report", ButtonIcon::library, {}, L"Locked", false},
+                {{5, 1}, ItemKey{1, 1}, L"Project notes", ButtonIcon::library},
+                {{6, 1}, {}, L"Reference", ButtonIcon::folder, {}, {}, true, false, false},
+                {{7, 1}, ItemKey{6, 1}, L"API reference", ButtonIcon::search, L"help"}
+            });
+            nav->select({3, 1});
+            nav->on_select([output](ItemKey key) { output->set_text(L"Events: workspace selected " + std::to_wstring(key.id)); });
+            nav->on_activate([output](ItemKey key) { output->set_text(L"Events: workspace activated " + std::to_wstring(key.id)); });
+            nav->on_filter([output, weak = std::weak_ptr<NavigationView>(nav)](const auto&) {
+                if (auto view = weak.lock()) output->set_text(L"Events: workspace matches " + std::to_wstring(view->match_count()));
+            });
+            auto frame = panel(Axis::horizontal); frame->add(nav); demo->add(frame);
+            targets_[index] = nav->items();
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Filter reports", [nav] { nav->set_expanded(true); nav->set_filter(L"reports"); });
+            button(actions, L"Reset workspace filter", [nav] { nav->set_filter(L""); });
+            label(demo, L"Use the menu button to collapse the pane. Group arrows reveal nested items. Header and footer shortcuts stay visible.",
+                TextTone::secondary);
             break;
         }
         }

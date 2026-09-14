@@ -1938,6 +1938,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
+                const auto row = nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
+                nav_list->hover_item(row ? std::optional{nav_list->source()->key(*row)} : std::nullopt);
+            }
             if (auto* map = dynamic_cast<MapView*>(&control); map && peer.dragging) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 map->pan(x - peer.drag_offset, y - peer.drag_y); peer.drag_offset = x; peer.drag_y = y; return 0;
@@ -2009,7 +2013,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 peer.tracking = TrackMouseEvent(&track) != 0;
             }
             return 0;
-        case WM_MOUSELEAVE: peer.tracking = false; control.pointer_move(false); return 0;
+        case WM_MOUSELEAVE:
+            if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
+            peer.tracking = false; control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
@@ -2034,7 +2040,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 } else if (const auto index = collection->hit_test(point)) {
                     const auto source = collection->source(); const auto item_key = source->key(*index);
                     const auto info = source->hierarchy(*index); const auto b = collection->item_bounds(*index);
-                    if (info.expandable && point.x < b.x + 34 + std::min<float>(static_cast<float>(info.depth) * 20, b.width / 3)) { collection->disclose(item_key, !info.expanded); return 0; }
+                    const auto* nav_list = dynamic_cast<NavigationList*>(collection);
+                    const bool disclosure = nav_list ? nav_list->disclosure_hit(point) :
+                        info.expandable && point.x < b.x + 34 + std::min<float>(static_cast<float>(info.depth) * 20, b.width / 3);
+                    if (disclosure) { collection->disclose(item_key, !info.expanded); return 0; }
                     if (b.width >= 160 && point.x >= b.x + b.width - 74 && !source->item(*index).action.empty()) {
                         collection->activate_item(item_key, true); return 0;
                     }
@@ -2496,7 +2505,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const bool selected = collection->selection().contains(*action.key);
                     if (action.kind == GridAction::add && !collection->multiple_selection() &&
                         !selected && !collection->selection().empty()) return UIA_E_INVALIDOPERATION;
-                    if (selected != (action.kind == GridAction::add)) collection->select(*action.key, SelectionGesture::toggle);
+                    if (selected != (action.kind == GridAction::add)) {
+                        if (auto* nav_list = dynamic_cast<NavigationList*>(collection); nav_list && action.kind == GridAction::remove) {
+                            if (!nav_list->remove_selection(*action.key)) return UIA_E_INVALIDOPERATION;
+                        } else collection->select(*action.key, SelectionGesture::toggle);
+                    }
                 } else if (action.kind == GridAction::reveal) collection->reveal(*action.key);
                 else if (action.kind == GridAction::expand || action.kind == GridAction::collapse) {
                     if (!collection->disclose(*action.key, action.kind == GridAction::expand)) return UIA_E_INVALIDOPERATION;
@@ -2865,6 +2878,8 @@ bool Window::focus(Control& control, bool select_all) {
     const auto impl = impl_;
     Impl::InputScope scope(*impl);
     if (!impl->ready || impl->closing || !control.focusable()) return false;
+    if (impl->layout_pending) impl->update();
+    if (!impl->ready || impl->closing) return false;
     for (const auto& peer : impl->peers)
         if (peer->control.get() == &control) {
             if (!impl->focus(*peer, false)) return false;

@@ -1,5 +1,6 @@
 #pragma once
 #include "xui/data_grid.hpp"
+#include "xui/navigation.hpp"
 #include <algorithm>
 #include <array>
 #include <cwctype>
@@ -98,41 +99,42 @@ inline constexpr std::array entries{
     Entry{L"media-playback", L"Media", L"Media playback", L"Explicit local audio and video use Windows Media Foundation. Hiding unloads the native host.",
         L"auto media = std::make_shared<MediaPlayback>();\nmedia->load_local(owned_file);\nmedia->play();\nmedia->seek(1.0);"},
     Entry{L"web-content", L"Media", L"Optional web content", L"Opt-in WebView2 displays owned HTML. The default build does not load a browser.",
-        L"auto web = std::make_shared<WebContent>();\nweb->set_profile_root(owned_directory);\nweb->set_html(L\"<h1>Owned HTML</h1>\");\nweb->focus_content();"}
+        L"auto web = std::make_shared<WebContent>();\nweb->set_profile_root(owned_directory);\nweb->set_html(L\"<h1>Owned HTML</h1>\");\nweb->focus_content();"},
+    Entry{L"navigation-view", L"Navigation", L"Navigation view", L"Nested navigation shares selection across searchable items and pinned shortcuts.",
+        L"auto nav = std::make_shared<NavigationView>(L\"Workspace\");\nnav->set_items(records);\nnav->on_select(show_page);\nnav->set_filter(L\"reports\");\nnav->set_expanded(false);"}
 };
 inline std::wstring fold(std::wstring text) {
     std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
     return text;
 }
-class Catalog final : public xui::GridSource {
-public:
-    explicit Catalog(const std::wstring& query = {}, std::optional<bool> descending = {}) {
-        const auto needle = fold(query);
-        for (std::size_t i = 0; i < entries.size(); ++i) {
-            const auto& e = entries[i];
-            if (fold(std::wstring(e.group) + L" " + e.title + L" " + e.id + L" " + e.purpose).find(needle) != std::wstring::npos)
-                rows.push_back(i);
+inline constexpr xui::ItemKey home_key{10000, 1}, appearance_key{10001, 1};
+inline std::optional<std::size_t> entry_index(xui::ItemKey key) {
+    if (key == home_key) return 0;
+    if (key == appearance_key) return 16;
+    if (key.version != 1 || !key.id || key.id > entries.size()) return {};
+    return static_cast<std::size_t>(key.id - 1);
+}
+inline std::vector<xui::NavigationItem> navigation_items() {
+    using namespace xui;
+    std::vector<NavigationItem> result{
+        {home_key, {}, L"Home", ButtonIcon::home, {}, {}, true, true, true, NavigationSection::header},
+        {appearance_key, {}, L"Appearance", ButtonIcon::settings, {}, {}, true, true, true, NavigationSection::footer}
+    };
+    std::vector<std::wstring> groups;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        auto group = std::find(groups.begin(), groups.end(), entry.group);
+        const auto ordinal = static_cast<std::size_t>(group - groups.begin());
+        const ItemKey parent{1000 + ordinal, 1};
+        if (group == groups.end()) {
+            groups.emplace_back(entry.group);
+            result.push_back({parent, {}, entry.group, ButtonIcon::folder, {}, {}, true, false});
         }
-        if (descending) std::stable_sort(rows.begin(), rows.end(), [&](std::size_t a, std::size_t b) {
-            const auto first = std::wstring(entries[a].group) + L" / " + entries[a].title;
-            const auto second = std::wstring(entries[b].group) + L" / " + entries[b].title;
-            return *descending ? first > second : first < second;
-        });
+        result.push_back({{i + 1, 1}, parent, entry.title, ButtonIcon::library,
+            std::wstring(entry.id) + L" " + entry.purpose});
     }
-    std::size_t size() const override { return rows.size(); }
-    xui::RowKey key(std::size_t row) const override { return {rows.at(row) + 1, 1}; }
-    std::optional<std::size_t> find(xui::RowKey key) const override {
-        if (key.version != 1 || !key.id) return {};
-        const auto it = std::find(rows.begin(), rows.end(), key.id - 1);
-        if (it == rows.end()) return {};
-        return static_cast<std::size_t>(it - rows.begin());
-    }
-    std::wstring text(std::size_t row, std::size_t) const override {
-        const auto& e = entries.at(rows.at(row));
-        return std::wstring(e.group) + L" / " + e.title;
-    }
-    std::vector<std::size_t> rows;
-};
+    return result;
+}
 class Numbers final : public xui::GridSource {
 public:
     explicit Numbers(bool descending = false, bool even = false) : descending_(descending), even_(even) {}
