@@ -81,6 +81,8 @@ internal static class Program
         var toggle = window.Elements.OfType<Xui.Toggle>().Single();
         var root = window.Elements.OfType<Xui.Stack>().Single();
         Assert(label.Text == "Count: 0" && root.CurrentSpacing == 8 && root.CurrentPadding == 16, "Initial direct setters");
+        Assert(label.Name == "Count: 0" && button.Name == "Increment" && toggle.Name == "Active", "Initial native text/name aliases are not cleared");
+        Assert(input.Name == "Entry" && input.Text == "", "TextInput name remains separate from text");
         Assert(ExpressionProbe.ConstantReads == 1, "Independent expression evaluated during construction");
         button.Invoke();
         Assert(label.Text == "Count: 1", "Named handler updates state and dependent label");
@@ -150,6 +152,7 @@ internal static class Program
         Assert(unsupported.Location.GetLineSpan().StartLinePosition.Line == 2, "Unknown property maps to actual line");
         Invalid("component Bad { view { VStack() { Unknown(\"x\"); } } }");
         Invalid("component Bad { view { VStack() { Text(\"x\", click: Go); } } }");
+        Invalid("component Bad { view { VStack() { Text(\"x\", name: \"conflict\"); } } }");
         Invalid("component Bad { view { VStack() { Text(\"x\", id: ); } } }");
         Invalid("component Bad { view { Text(\"root\"); } }");
         Invalid("component Bad { state int X; view { VStack() {} } }");
@@ -183,6 +186,16 @@ internal static class Program
         Assert(initial.Select(s => s.HintName).SequenceEqual(edited.Select(s => s.HintName)), "Stable generated names");
         Assert(initial.Single(s => s.HintName.StartsWith(".Second")).SourceText.ToString() ==
             edited.Single(s => s.HintName.StartsWith(".Second")).SourceText.ToString(), "Unrelated file output unchanged");
+        string Shape(GeneratorDriver value) => value.GetRunResult().Results.Single().GeneratedSources
+            .Single(s => s.HintName.StartsWith("Demo.Counter")).SourceText.ToString().Split('\n')
+            .Single(line => line.StartsWith("private string __xuiShape()"));
+        string originalShape = Shape(driver);
+        var idEdit = new File(first.Path, Counter.Replace("id: \"count\"", "id: \"count-renamed\""));
+        var identityDriver = driver.ReplaceAdditionalText(changed, idEdit).RunGenerators(Empty());
+        Assert(Shape(identityDriver) != originalShape, "Explicit id edit requires recreation");
+        var labelEdit = new File(first.Path, Counter.Replace("Count: {Count}", "Value: {Count}"));
+        var labelDriver = driver.ReplaceAdditionalText(changed, labelEdit).RunGenerators(Empty());
+        Assert(Shape(labelDriver) == originalShape, "Label and spacing edits preserve topology signature");
         driver = driver.RemoveAdditionalTexts([second]).RunGenerators(Empty());
         Assert(driver.GetRunResult().Results.Single().GeneratedSources.Length == 2, "File deletion removes generated component");
         driver = driver.AddAdditionalTexts([second]).RunGenerators(Empty());

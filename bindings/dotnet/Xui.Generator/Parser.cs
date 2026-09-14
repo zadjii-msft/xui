@@ -130,9 +130,9 @@ internal sealed class Parser(string text)
         string[] allowed = kind switch
         {
             "VStack" or "HStack" => ["spacing", "padding"],
-            "Text" => ["value", "id", "name", "enabled"],
-            "Button" => ["value", "id", "name", "enabled", "click"],
-            "Toggle" => ["value", "id", "name", "enabled", "checked", "change"],
+            "Text" => ["value", "id", "enabled"],
+            "Button" => ["value", "id", "enabled", "click"],
+            "Toggle" => ["value", "id", "enabled", "checked", "change"],
             "TextInput" => ["value", "id", "name", "enabled", "text", "change", "submit"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };

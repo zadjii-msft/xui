@@ -31,7 +31,7 @@ public abstract class Control : Element
     private string text = "";
     public int TextSets;
     public string Text { get => text; set { text = value; TextSets++; } }
-    public string Name { get; set; } = "";
+    public virtual string Name { get => Text; set => Text = value; }
     public string AutomationId { get; set; } = "";
     public bool Enabled { get; set; }
 }
@@ -49,6 +49,7 @@ public sealed class Toggle : Control
 }
 public sealed class TextInput : Control
 {
+    public override string Name { get; set; } = "";
     public event Action<string>? Changed;
     public event Action? Submitted;
     public void Edit(string value) { Text = value; Changed?.Invoke(value); }

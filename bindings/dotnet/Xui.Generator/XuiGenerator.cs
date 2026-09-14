@@ -99,12 +99,10 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         else
         {
             if (node.Kind != "TextInput") Bind("value", "string", "Text = {0}", "\"\"");
-            Bind("name", "string", "Name = {0}", node.Kind == "TextInput" ? node.Arguments["value"].Text : "\"\"");
-            // TextInput's positional argument is its accessible name, not its text.
-            if (node.Kind == "TextInput" && !node.Arguments.ContainsKey("name"))
+            else
             {
-                bindings.RemoveAt(bindings.Count - 1);
-                node.Arguments["name"] = node.Arguments["value"];
+                // Other controls alias Name and Text; only TextInput has a separate name.
+                if (!node.Arguments.ContainsKey("name")) node.Arguments["name"] = node.Arguments["value"];
                 Bind("name", "string", "Name = {0}", "\"\"");
             }
             Bind("id", "string", "AutomationId = {0}", "\"\"");
@@ -114,9 +112,10 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         foreach (var child in node.Children) Collect(child);
     }
-    private string Shape(Node node) => node.Kind + "(" +
-        string.Join(",", node.Arguments.Keys.Where(k => k is "click" or "change" or "submit").Order()) +
-        ")[" + string.Join(",", node.Children.Select(Shape)) + "]";
+    private static string Part(string value) => value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + value;
+    private string Shape(Node node) => Part(node.Kind) + Part(node.Arguments.GetValueOrDefault("id")?.Text ?? "") +
+        Part(string.Join(",", node.Arguments.Keys.Where(k => k is "click" or "change" or "submit").Order())) +
+        Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
     internal string Emit()
     {
@@ -161,8 +160,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         Line("#if XUI_HOT_RELOAD");
         Line("private readonly string __xuiOriginalShape;");
-        Line("private string __xuiShape() => " + Literal(Shape(component.Root) + "|" +
-            string.Join("|", component.States.Select(s => s.Type + " " + s.Name + "=" + s.Initializer.Text))) + ";");
+        Line("private string __xuiShape() => " + Literal(Part(Shape(component.Root)) +
+            string.Concat(component.States.Select(s => Part(s.Type) + Part(s.Name) + Part(s.Initializer.Text)))) + ";");
         Line("private bool __xuiReload()");
         Line("{");
         Line("__xuiWindow.VerifyAccess();");
