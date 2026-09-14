@@ -24,13 +24,14 @@ void TitleBar::on_caption(std::function<void(CaptionAction)> callback) {
 void TitleBar::arrange(Rect b) {
     Element::arrange(b);
     b = bounds();
-    const float caption = std::min(46.0f, b.width / 3), remaining = std::max(0.0f, b.width - caption * 3);
+    const float caption = std::min(caption_width, b.width / 3), remaining = std::max(0.0f, b.width - caption * 3);
+    const float button_height = std::min(caption_height, b.height);
     const float title = std::min(180.0f, remaining / 3);
     title_->arrange({b.x + 8, b.y, std::max(0.0f, title - 8), b.height});
     tabs_->arrange({b.x + title, b.y + 3, std::max(0.0f, remaining - title - 36), std::max(0.0f, b.height - 6)});
-    minimize_->arrange({b.x + remaining, b.y, caption, b.height});
-    maximize_->arrange({b.x + remaining + caption, b.y, caption, b.height});
-    close_->arrange({b.x + remaining + caption * 2, b.y, caption, b.height});
+    minimize_->arrange({b.x + remaining, b.y, caption, button_height});
+    maximize_->arrange({b.x + remaining + caption, b.y, caption, button_height});
+    close_->arrange({b.x + remaining + caption * 2, b.y, caption, button_height});
 }
 CaptionHit TitleBar::hit_test(Point point) const {
     const auto inside = [point](Rect b) { return point.x >= b.x && point.y >= b.y && point.x < b.x + b.width && point.y < b.y + b.height; };

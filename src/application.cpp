@@ -90,6 +90,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::wstring error;
     std::shared_ptr<Stack> root;
     std::shared_ptr<TitleBar> titlebar;
+    bool caption_active{};
     std::vector<std::unique_ptr<Peer>> peers;
     std::vector<AdaptiveLayout*> adaptive_layouts;
     std::vector<HWND> focus_targets;
@@ -344,8 +345,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto hit = peer.host.caption_hit(peer.host.window, lparam);
                 if (hit != HTCLIENT) return hit;
             }
+            if (peer.host.is_caption_button(*peer.control)) {
+                try {
+                    if (message == WM_NCMOUSEMOVE) {
+                        peer.control->pointer_move(wparam == HTMINBUTTON || wparam == HTMAXBUTTON || wparam == HTCLOSE);
+                        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE | TME_NONCLIENT, hwnd, 0};
+                        win32_require(TrackMouseEvent(&track) != 0, "Track caption pointer");
+                    } else if (message == WM_NCMOUSELEAVE) {
+                        peer.control->pointer_move(false);
+                    } else if ((message == WM_NCLBUTTONDOWN || message == WM_NCLBUTTONDBLCLK) &&
+                        (wparam == HTMINBUTTON || wparam == HTMAXBUTTON || wparam == HTCLOSE)) {
+                        if (peer.host.enabled(peer) && peer.host.visible(peer)) {
+                            peer.host.hide_tooltip();
+                            peer.control->pointer_move(true);
+                            if (peer.control->pointer_down()) SetCapture(hwnd);
+                        }
+                        return 0;
+                    }
+                } catch (...) { peer.host.fail(); return 0; }
+            }
             if (message == WM_NCLBUTTONDOWN || message == WM_NCLBUTTONUP || message == WM_NCLBUTTONDBLCLK ||
-                message == WM_NCRBUTTONUP || message == WM_NCMOUSEMOVE) {
+                message == WM_NCRBUTTONUP || message == WM_NCMOUSEMOVE || message == WM_NCMOUSELEAVE) {
                 LRESULT result{};
                 if (DwmDefWindowProc(peer.host.window, message, wparam, lparam, &result)) return result;
                 return DefWindowProcW(peer.host.window, message, wparam, lparam);
@@ -460,7 +480,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native caption clipping provider");
             }
         } else {
-            const DWORD tab = peer->control->focusable() ? WS_TABSTOP : 0;
+            const DWORD tab = peer->control->focusable() && !is_caption_button(*peer->control) ? WS_TABSTOP : 0;
             peer->window = CreateWindowExW(WS_EX_TRANSPARENT, control_class, peer->control->name().c_str(),
                 WS_CHILD | WS_VISIBLE | tab, 0, 0, 1, 1, native_parent,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + peers.size())),
@@ -981,7 +1001,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
                 static_cast<MapView&>(*peer->control).cancel_request();
-            if (control.focusable() && enabled(*peer) && visible(*peer) && in_top_popup(*peer) &&
+            if (control.focusable() && !is_caption_button(control) && enabled(*peer) && visible(*peer) && in_top_popup(*peer) &&
                 (control.role() != ControlRole::split_view || static_cast<const SplitView&>(control).expanded()))
                 focus_targets.push_back(peer->window);
             if ((!enabled(*peer) || !visible(*peer)) &&
@@ -1173,7 +1193,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (size_t i = 0; i < peers.size(); ++i) if (peers[i]->window == current) index = i;
         for (size_t count = 0; count < peers.size(); ++count) {
             index = reverse ? (index ? index - 1 : peers.size() - 1) : (index + 1) % peers.size();
-            if (peers[index]->control->focusable() && enabled(*peers[index]) && in_top_popup(*peers[index]) && focus(*peers[index], false)) return;
+            if (peers[index]->control->focusable() && !is_caption_button(*peers[index]->control) &&
+                enabled(*peers[index]) && in_top_popup(*peers[index]) && focus(*peers[index], false)) return;
         }
     }
     bool enabled(const Peer& peer, bool respect_modal = true) const {
@@ -1779,6 +1800,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 std::max(0.0f, bounds.height - 1)}, palette.accent);
             return;
         }
+        if (is_caption_button(control)) {
+            canvas.caption_button({0, 0, bounds.width, bounds.height}, static_cast<const Button&>(control).icon(),
+                palette, caption_active, enabled(peer), control.hovered(), control.pressed(), control.focused());
+            return;
+        }
         control.measured_text();
         if (!peer.text_layout && (control.role() == ControlRole::label ||
             control.role() == ControlRole::button || control.role() == ControlRole::toggle)) {
@@ -2246,6 +2272,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             peer.grid_drag = 0;
             peer.dragging = false;
+            if (is_caption_button(control)) control.pointer_move(inside());
             activated(peer, control.pointer_up(inside()));
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
@@ -2626,6 +2653,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
+    bool is_caption_button(const Control& control) const {
+        return titlebar && (&control == titlebar->minimize().get() || &control == titlebar->maximize().get() ||
+            &control == titlebar->close().get());
+    }
     LRESULT caption_hit(HWND hwnd, LPARAM position) {
         POINT p{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
         RECT outer{}; GetWindowRect(hwnd, &outer);
@@ -2688,6 +2719,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         case WM_CANCELMODE: cancel_input(); return DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_ACTIVATE:
+            caption_active = LOWORD(wparam) != WA_INACTIVE;
+            if (titlebar) invalidate(Invalidation::paint);
             if (LOWORD(wparam) == WA_INACTIVE && !IsChild(hwnd, reinterpret_cast<HWND>(lparam))) {
                 cancel_input();
                 if (!popups.empty() && std::none_of(popups.begin(), popups.end(),

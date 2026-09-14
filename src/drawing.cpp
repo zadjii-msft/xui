@@ -351,6 +351,7 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
 }
 void Drawing::release() {
     discard();
+    caption_format_.Reset();
     numeric_format_.Reset();
     heading_format_.Reset();
     small_format_.Reset();
@@ -396,6 +397,47 @@ void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
     brush_->SetColor(value);
     target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + 7, box.y + 7), 5, 5), brush_.Get(), 1.5f);
     line(box.x + 11, box.y + 11, box.x + 16, box.y + 16, value, 1.5f);
+}
+
+void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
+    bool active, bool enabled, bool hovered, bool pressed, bool focused) {
+    if (!caption_format_) {
+        hr_require(text_factory_->CreateTextFormat(L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10, L"", &caption_format_),
+            "Create caption glyph format");
+        hr_require(caption_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER), "Center caption glyph");
+        hr_require(caption_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER), "Align caption glyph");
+        hr_require(caption_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP), "Set caption glyph wrapping");
+    }
+    const bool hot = enabled && hovered;
+    const bool down = hot && pressed;
+    const bool dark = palette.background.r + palette.background.g + palette.background.b < 1.5f;
+    auto background = palette.background;
+    auto ink = palette.high_contrast ? palette.text : D2D1::ColorF(dark ? 0xffffff : 0x000000);
+    if (!enabled || (!active && !hot)) ink = palette.high_contrast ? palette.disabled :
+        D2D1::ColorF(dark ? 0x999999 : 0x777777);
+    if (hot) {
+        if (palette.high_contrast) {
+            background = palette.selection;
+            ink = palette.selection_text;
+        } else if (icon == ButtonIcon::close) {
+            background = D2D1::ColorF(down ? 0xc50f1f : 0xe81123);
+            ink = D2D1::ColorF(0xffffff, down ? 0.7f : 1.0f);
+        } else {
+            const float alpha = down ? 0.06f : 0.10f;
+            const float overlay = dark ? 1.0f : 0.0f;
+            background = D2D1::ColorF(background.r * (1 - alpha) + overlay * alpha,
+                background.g * (1 - alpha) + overlay * alpha, background.b * (1 - alpha) + overlay * alpha);
+            if (down) ink.a = 0.7f;
+        }
+    }
+    fill(bounds, background);
+    const wchar_t glyph = icon == ButtonIcon::minimize ? L'\ue921' : icon == ButtonIcon::maximize ? L'\ue922' :
+        icon == ButtonIcon::restore ? L'\ue923' : L'\ue8bb';
+    brush_->SetColor(ink);
+    target_->DrawText(&glyph, 1, caption_format_.Get(), rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (focused) outline({bounds.x + 2.5f, bounds.y + 2.5f, std::max(0.0f, bounds.width - 5),
+        std::max(0.0f, bounds.height - 5)}, ink);
 }
 
 void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {

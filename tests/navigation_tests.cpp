@@ -202,6 +202,19 @@ void navigation_contracts() {
     TitleBar caption(L"Honest title"); caption.tabs()->set_tabs({{1, L"Document"}}, 1); caption.arrange({0, 0, 800, 44});
     require(caption.hit_test({10, 20}) == CaptionHit::drag && caption.hit_test({790, 20}) == CaptionHit::close, "Caption regions");
     const auto b = caption.tabs()->bounds(); require(caption.hit_test({b.x + 10, 20}) == CaptionHit::client, "Tab interaction never drags window");
+    for (const auto& button : {caption.minimize(), caption.maximize(), caption.close()})
+        require(button->bounds().width == 46 && button->bounds().height == 32, "Windows caption button dimensions");
+    require(caption.hit_test({790, 33}) == CaptionHit::drag, "Space below caption buttons remains draggable");
+    caption.maximize()->set_enabled(false);
+    require(caption.hit_test({730, 20}) == CaptionHit::client, "Disabled caption button has no nonclient action");
+    caption.maximize()->set_enabled(true);
+    caption.set_maximized(true);
+    require(caption.maximize()->icon() == ButtonIcon::restore && caption.maximize()->name() == L"Restore", "Maximized caption uses restore glyph and name");
+    caption.set_maximized(false);
+    require(caption.maximize()->icon() == ButtonIcon::maximize && caption.maximize()->name() == L"Maximize", "Restored caption uses maximize glyph and name");
+    caption.arrange({10, 5, 90, 20});
+    require(caption.close()->bounds().width == 30 && caption.close()->bounds().height == 20 &&
+        caption.hit_test({99, 24}) == CaptionHit::close, "Caption buttons fit constrained and offset layouts");
     int actions{}; caption.on_caption([&](CaptionAction action) { if (action == CaptionAction::maximize_restore) ++actions; });
     caption.maximize()->invoke(); require(actions == 1, "Accessible caption activation boundary");
 }

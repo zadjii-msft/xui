@@ -1426,7 +1426,11 @@ The title remains the actual native window title.
 
 The gallery enables this optional caption. `--system-titlebar` retains the standard caption.
 The explorer retains its standard caption and committed-location title.
-Caption icons share XUI theme colors, DPI scaling, and the root render target.
+Caption buttons use Windows-style graphics instead of the rounded XUI button style.
+Their 46-by-32-DIP bounds contain centered Windows caption glyphs, with no border or contrasting background at rest.
+Hover and press states use rectangular fills. The close button uses red, and inactive windows use dimmed glyphs.
+High-contrast mode uses system colors. Caption buttons retain DPI scaling, accessibility actions, and the root render target.
+Tab navigation skips caption buttons. Alt+Space opens the native system menu for keyboard window commands.
 Native tests open and cancel the system menu, check resize corners, and maximize and restore through UIA.
 Physical monitor transitions, Snap flyout appearance, and screen-reader speech still require manual checks.
 
