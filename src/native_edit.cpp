@@ -68,10 +68,15 @@ void NativeEditBridge::arrange(Rect bounds) {
     const auto height = std::min(font_height_, available_height);
     // Single-line EDIT top-aligns its native text. Center the line-sized HWND instead.
     const auto top = static_cast<int>(std::lround(bounds.y * scale)) + (available_height - height) / 2;
-    win32_require(SetWindowPos(window_, nullptr, static_cast<int>(std::lround(bounds.x * scale)),
-        top,
-        static_cast<int>(std::lround(bounds.width * scale)),
-        height,
+    const auto left = static_cast<int>(std::lround(bounds.x * scale));
+    const auto width = static_cast<int>(std::lround(bounds.width * scale));
+    RECT current{};
+    if (GetWindowRect(window_, &current)) {
+        MapWindowPoints(nullptr, GetParent(window_), reinterpret_cast<POINT*>(&current), 2);
+        if (current.left == left && current.top == top &&
+            current.right - current.left == width && current.bottom - current.top == height) return;
+    }
+    win32_require(SetWindowPos(window_, nullptr, left, top, width, height,
         SWP_NOZORDER | SWP_NOACTIVATE) != 0, "Arrange native search field");
 }
 

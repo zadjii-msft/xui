@@ -22,6 +22,10 @@ namespace {
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
 }
+LRESULT CALLBACK position_observer(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR data) {
+    if (message == WM_WINDOWPOSCHANGING) ++*reinterpret_cast<int*>(data);
+    return DefSubclassProc(hwnd, message, wp, lp);
+}
 void native_vertical_centering() {
     const auto host = CreateWindowExW(0, L"STATIC", L"", WS_POPUP,
         0, 0, 800, 200, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -81,6 +85,14 @@ void native_vertical_centering() {
             "Native line is vertically centered in the 48 DIP field at each DPI");
         require(bridge.bounds().y == field.y && bridge.bounds().height == field.height,
             "Native line centering preserves external field bounds");
+        int position_changes{};
+        require(SetWindowSubclass(edit, position_observer, 91, reinterpret_cast<DWORD_PTR>(&position_changes)),
+            "Observe unchanged native arrangements");
+        bridge.arrange(field);
+        bridge.set_dpi(dpi);
+        bridge.arrange(field);
+        require(RemoveWindowSubclass(edit, position_observer, 91), "Remove native arrangement observer");
+        require(position_changes == 0, "Unchanged native arrangements never call SetWindowPos");
         const int placeholder_baseline = rect.top + format.top + metrics.tmAscent;
         SetWindowTextW(edit, L"");
         const auto placeholder = ink_rows();
