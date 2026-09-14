@@ -41,9 +41,16 @@ public sealed class XuiGenerator : IIncrementalGenerator
                 var component = parser.Parse();
                 var emitter = new Emitter(component, file.Path, file.Text);
                 var generated = emitter.Emit();
-                // Keep recoverable declarations: deleting them makes dotnet watch restart
-                // before displaying generator errors. Error diagnostics still block emission.
-                foreach (var error in parser.Errors.Concat(emitter.Errors)) Report(error);
+                // Keep declarations to avoid rude deletions. The watch delta pipeline can
+                // ignore generator diagnostics, so C# #error must also block invalid updates.
+                foreach (var error in parser.Errors.Concat(emitter.Errors))
+                {
+                    Report(error);
+                    int offset = Math.Clamp(error.Offset, 0, file.Text.Length);
+                    int line = file.Text.Lines.GetLineFromPosition(offset).LineNumber + 1;
+                    string message = string.Join(" ", error.Message.Split(['\r', '\n', '\u0085', '\u2028', '\u2029']));
+                    generated += $"\n#line {line} \"{file.Path}\"\n#error XUI001: {message}\n#line default\n";
+                }
                 string identity = component.Namespace + "." + component.Name;
                 string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
                 output.AddSource(identity.Replace("@", "") + "." + suffix + ".g.cs", generated);
@@ -86,7 +93,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         {
             var value = node.Arguments.GetValueOrDefault(name) ?? new Expression(fallback, node.Offset);
             var expression = SyntaxFactory.ParseExpression(value.Text);
-            var identifiers = expression.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>().Select(n => n.Identifier.ValueText).ToHashSet();
+            var identifiers = expression.DescendantNodesAndSelf().OfType<SimpleNameSyntax>().Select(n => n.Identifier.ValueText).ToHashSet();
             var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
                 .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
             if (methods.Any(identifiers.Contains))
@@ -135,7 +142,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("{");
         Line("private readonly global::Xui.Window __xuiWindow;");
-        Line("private bool __xuiReady;");
+        if (component.States.Count != 0) Line("private bool __xuiReady;");
         foreach (var state in component.States)
         {
             Map(state.Offset);
@@ -208,7 +215,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             }
         }
         Line("window.SetContent(__xuiN0);");
-        Line("__xuiReady = true;");
+        if (component.States.Count != 0) Line("__xuiReady = true;");
         Line("#if XUI_HOT_RELOAD");
         Line("__xuiOriginalShape = __xuiShape();");
         Line("global::Xui.Development.ReloadHost.Register(window, __xuiReload);");
@@ -222,14 +229,14 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         {
             Line($"private void {binding.Name}()");
             Line("{");
-            Line($"{binding.Type} value =");
+            Line($"{binding.Type} __xuiValue =");
             Map(binding.Value.Offset);
             Line(binding.Value.Text + ";");
             Unmap();
-            Line($"if (!{binding.Name}_set || !global::System.Collections.Generic.EqualityComparer<{binding.Type}>.Default.Equals({binding.Name}_last, value))");
+            Line($"if (!{binding.Name}_set || !global::System.Collections.Generic.EqualityComparer<{binding.Type}>.Default.Equals({binding.Name}_last, __xuiValue))");
             Line("{");
-            Line($"__xuiN{binding.Node}." + string.Format(System.Globalization.CultureInfo.InvariantCulture, binding.Setter, "value") + ";");
-            Line($"{binding.Name}_last = value;");
+            Line($"__xuiN{binding.Node}." + string.Format(System.Globalization.CultureInfo.InvariantCulture, binding.Setter, "__xuiValue") + ";");
+            Line($"{binding.Name}_last = __xuiValue;");
             Line($"{binding.Name}_set = true;");
             Line("}");
             Line("}");
@@ -239,11 +246,11 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             foreach (string key in new[] { "click", "change", "submit" })
             {
                 if (!nodes[i].Arguments.TryGetValue(key, out var handler)) continue;
-                string arg = key == "change" ? (nodes[i].Kind == "Toggle" ? "bool value" : "string value") : "";
+                string arg = key == "change" ? (nodes[i].Kind == "Toggle" ? "bool __xuiValue" : "string __xuiValue") : "";
                 Line($"private void __xuiEvent{i}_{key}({arg})");
                 Line("{");
                 Map(handler.Offset);
-                Line(handler.Text + "(" + (arg.Length == 0 ? "" : "value") + ");");
+                Line(handler.Text + "(" + (arg.Length == 0 ? "" : "__xuiValue") + ");");
                 Unmap();
                 Line("}");
             }

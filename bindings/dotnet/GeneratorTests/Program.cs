@@ -56,6 +56,7 @@ internal static class Program
     {
         TestExecution();
         TestParsing();
+        TestUserNames();
         TestDiagnostics();
         TestIncremental();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
@@ -146,6 +147,19 @@ internal static class Program
         Assert(diagnostic!.Location.GetLineSpan().Path.EndsWith("Bad.xui"), "Diagnostic maps to authoring path");
         return diagnostic;
     }
+    private static void TestUserNames()
+    {
+        var (_, compilation) = Generate(
+            new File(@"C:\fixture\LowerState.xui",
+                """component LowerState { state string value = "Hello"; view { VStack() { Text(value); } } }"""),
+            new File(@"C:\fixture\LowerHandler.xui",
+                """component LowerHandler { state string Entry = ""; view { VStack() { TextInput("Entry", text: Entry, change: value); } } code csharp { void value(string incoming) => Entry = incoming; } }"""),
+            new File(@"C:\fixture\EscapedState.xui",
+                """component EscapedState { state int @value = 0; view { VStack() { Text($"{value}"); } } }"""));
+        var diagnostics = compilation.GetDiagnostics();
+        Assert(!diagnostics.Any(d => d.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error),
+            "Generated locals cannot shadow user state/handler names: " + string.Join("\n", diagnostics));
+    }
     private static void TestDiagnostics()
     {
         var unsupported = Invalid("component Bad {\n view {\n VStack(speling: 8) {}\n }\n}");
@@ -158,6 +172,7 @@ internal static class Program
         Invalid("component Bad { state int X; view { VStack() {} } }");
         Invalid("component Bad { state int X=0; state int X=1; view { VStack() {} } }");
         Invalid("component Bad { view { VStack() { Text(Get()); } } code csharp { string Get() => \"x\"; } }");
+        Invalid("component Bad { state int Count=0; view { VStack() { Text(Display<int>()); } } code csharp { string Display<T>() => Count.ToString(); } }");
         Invalid("component Bad { state int X=0; view { VStack() { Text($\"{X++}\"); } } }");
         Invalid("component Bad { view { VStack() {} } code csharp { int field=0; } }");
         Invalid("component Bad { view { VStack() {} } } component Second {}");
@@ -180,11 +195,19 @@ internal static class Program
         var second = new File(@"C:\fixture\Second.xui", "component Second { view { VStack() { Text(\"Second\"); } } }");
         var (driver, _) = Generate(first, second);
         var initial = driver.GetRunResult().Results.Single().GeneratedSources;
+        var (_, stateless) = Generate(second);
+        Assert(!stateless.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error),
+            "State-free component compiles without unused-field warnings");
         var badProperty = new File(first.Path, Counter.Replace("spacing: 8", "spacing: 8, unknownArgument: 1"));
         var invalidDriver = driver.ReplaceAdditionalText(first, badProperty).RunGenerators(Empty());
         Assert(invalidDriver.GetRunResult().Diagnostics.Any(d => d.Id == "XUI001"), "Recoverable invalid property blocks compilation");
         Assert(invalidDriver.GetRunResult().Results.Single().GeneratedSources.Length == initial.Length,
             "Recoverable invalid property does not delete generated component during watch");
+        invalidDriver.RunGeneratorsAndUpdateCompilation(Empty(), out var invalidCompilation, out _);
+        var blocking = invalidCompilation.GetDiagnostics().Single(d => d.Id == "CS1029");
+        Assert(blocking.Location.GetMappedLineSpan().Path == first.Path, "Invalid property emits mapped C# error to block hot deltas");
+        using (var stream = new MemoryStream())
+            Assert(!invalidCompilation.Emit(stream).Success, "Invalid property cannot produce a successful assembly");
         var invalidBody = new File(first.Path, Counter.Replace("Count++;", "Count += ;"));
         var invalidBodyDriver = driver.ReplaceAdditionalText(first, invalidBody).RunGenerators(Empty());
         Assert(invalidBodyDriver.GetRunResult().Diagnostics.Any(d => d.Id == "XUI001"), "Recoverable C# syntax error diagnosed");
