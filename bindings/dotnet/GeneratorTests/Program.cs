@@ -165,6 +165,22 @@ internal static class Program
         var diagnostics = compilation.GetDiagnostics();
         Assert(!diagnostics.Any(d => d.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error),
             "Generated locals cannot shadow user state/handler names: " + string.Join("\n", diagnostics));
+        var options = CSharpParseOptions.Default.WithPreprocessorSymbols("XUI_HOT_RELOAD");
+        var input = Empty().AddSyntaxTrees(CSharpSyntaxTree.ParseText("""
+            namespace Xui.Development {
+                public static class ReloadHost {
+                    public static void Register(Xui.Window window, System.Func<bool> refresh) {}
+                    public static void UpdateApplication(System.Type[]? types) {}
+                }
+            }
+            """, options));
+        GeneratorDriver driver = CSharpGeneratorDriver.Create([new XuiGenerator().AsSourceGenerator()],
+            [new File(@"C:\fixture\LegalComponent.xui", """component XuiGeneratedMetadataHandler { view { VStack() { Text("Legal name"); } } }""")],
+            parseOptions: options);
+        driver.RunGeneratorsAndUpdateCompilation(input, out var debugCompilation, out var generatorDiagnostics);
+        Assert(!generatorDiagnostics.Any(d => d.Severity == DiagnosticSeverity.Error) &&
+            !debugCompilation.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Warning or DiagnosticSeverity.Error),
+            "Debug infrastructure names must use only the reserved __xui prefix");
     }
     private static void TestDiagnostics()
     {

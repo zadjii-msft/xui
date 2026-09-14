@@ -18,8 +18,8 @@ public sealed class XuiGenerator : IIncrementalGenerator
         context.RegisterPostInitializationOutput(output => output.AddSource("Xui.HotReload.g.cs", """
             #nullable enable
             #if XUI_HOT_RELOAD
-            [assembly: System.Reflection.Metadata.MetadataUpdateHandler(typeof(XuiGeneratedMetadataHandler))]
-            internal static class XuiGeneratedMetadataHandler
+            [assembly: System.Reflection.Metadata.MetadataUpdateHandler(typeof(__xuiMetadataUpdateHandler))]
+            internal static class __xuiMetadataUpdateHandler
             {
                 public static void UpdateApplication(System.Type[]? types) => Xui.Development.ReloadHost.UpdateApplication(types);
             }
