@@ -12,6 +12,12 @@ int main() {
         int changes{}; text.on_change([&](const std::wstring&) { ++changes; text.commit_text(L"reentrant"); });
         text.set_text(L"A\r\U0001f642"); require(changes == 0, "Property setters are silent");
         text.set_selection({2, 4}); require(text.selection() == TextSelection{2, 4}, "UTF-16 selection");
+        require(!text.monospace(), "Documents retain proportional text by default");
+        const auto revision = text.revision();
+        text.set_monospace(true); text.set_monospace(true);
+        require(text.monospace() && text.revision() == revision && changes == 0 &&
+            text.selection() == TextSelection{2, 4}, "Monospace changes preserve text, selection and callbacks");
+        text.set_monospace(false); require(!text.monospace(), "Document font can return to proportional text");
         rejects([&] { text.set_selection({2, 3}); });
         rejects([&] { text.set_text(std::wstring(1, 0xd800)); });
         rejects([&] { text.set_text(std::wstring(L"a\0b", 3)); });

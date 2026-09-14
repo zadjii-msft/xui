@@ -618,6 +618,68 @@ int wmain(int argc, wchar_t** argv) {
             choose(static_cast<int>(i));
             require(eventually([&] { return named(automation.Get(), root.Get(), gallery::entries[i].title, UIA_TextControlTypeId) != nullptr; }),
                 "Foundation page builds on first use");
+            const auto& entry = gallery::entries[i];
+            const auto example_name = std::wstring(entry.title) + L" example";
+            auto example = named(automation.Get(), root.Get(), example_name.c_str());
+            auto scroll = pattern<IUIAutomationScrollPattern>(example.Get(), UIA_ScrollPatternId);
+            BOOL scrollable{};
+            check(scroll->get_CurrentVerticallyScrollable(&scrollable), "Read example scrolling");
+            if (scrollable) check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100), "Reveal the code block");
+            const auto code_name = std::wstring(entry.title) + L" C++ code";
+            ComPtr<IUIAutomationElement> code;
+            require(eventually([&] { code = named(automation.Get(), root.Get(), code_name.c_str()); return code != nullptr; }),
+                "Every gallery page exposes a code document");
+            auto code_text = pattern<IUIAutomationTextPattern>(code.Get(), UIA_TextPatternId);
+            ComPtr<IUIAutomationTextRange> range;
+            check(code_text->get_DocumentRange(&range), "Read code document range");
+            BSTR source{};
+            check(range->GetText(-1, &source), "Read code text");
+            std::wstring actual = source ? source : L"";
+            SysFreeString(source);
+            for (std::size_t pos = 0; pos < actual.size(); ++pos) {
+                if (actual[pos] != L'\r') continue;
+                if (pos + 1 < actual.size() && actual[pos + 1] == L'\n') actual.erase(pos + 1, 1);
+                actual[pos] = L'\n';
+            }
+            const std::wstring expected = entry.code;
+            require(actual == expected || actual == expected + L"\n", "Code blocks preserve the complete excerpt and line breaks");
+            VARIANT font{}, readonly{};
+            check(range->GetAttributeValue(UIA_FontNameAttributeId, &font), "Read code font");
+            const bool monospace = font.vt == VT_BSTR && std::wstring_view(font.bstrVal) == L"Consolas";
+            VariantClear(&font);
+            require(monospace, "Every code block uses a real monospace font");
+            check(range->GetAttributeValue(UIA_IsReadOnlyAttributeId, &readonly), "Read code edit policy");
+            const bool is_readonly = readonly.vt == VT_BOOL && readonly.boolVal == VARIANT_TRUE;
+            VariantClear(&readonly);
+            require(is_readonly, "Code blocks are read-only, not disabled");
+            if (i == 0 || i == 17) {
+                check(range->MoveEndpointByRange(TextPatternRangeEndpoint_End, range.Get(), TextPatternRangeEndpoint_Start),
+                    "Collapse code selection");
+                int moved{};
+                check(range->MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 4, &moved),
+                    "Select a code fragment");
+                require(moved == 4, "Code selection advances by characters");
+                check(range->Select(), "Select code text");
+                ComPtr<IUIAutomationTextRangeArray> selections;
+                check(code_text->GetSelection(&selections), "Read native code selection");
+                ComPtr<IUIAutomationTextRange> selected_range;
+                check(selections->GetElement(0, &selected_range), "Read selected code fragment");
+                BSTR selected_text{};
+                check(selected_range->GetText(-1, &selected_text), "Read selected code text");
+                const bool matches = selected_text && std::wstring_view(selected_text) == expected.substr(0, 4);
+                SysFreeString(selected_text);
+                require(matches, "Eager and deferred code blocks support partial text selection");
+                const auto code_hwnd = handle(automation.Get(), code.Get());
+                SendMessageW(code_hwnd, WM_COPY, 0, 0);
+                require(eventually([&] { return OpenClipboard(nullptr) != FALSE; }), "Open copied code");
+                const auto data = GetClipboardData(CF_UNICODETEXT);
+                const auto copied = data ? static_cast<const wchar_t*>(GlobalLock(data)) : nullptr;
+                const bool copied_selection = copied && std::wstring_view(copied) == expected.substr(0, 4);
+                if (copied) GlobalUnlock(data);
+                CloseClipboard();
+                require(copied_selection, "Native copy copies only selected code");
+            }
+            if (scrollable) check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 0), "Restore the example viewport");
         }
         choose(0);
         std::this_thread::sleep_for(std::chrono::milliseconds(150));

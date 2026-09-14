@@ -56,6 +56,10 @@ void DocumentText::set_read_only(bool value) {
     if (read_only_ == value) return;
     read_only_ = value; invalidate(Invalidation::paint);
 }
+void DocumentText::set_monospace(bool value) {
+    if (monospace_ == value) return;
+    monospace_ = value; invalidate(Invalidation::paint);
+}
 void DocumentText::assign_runs(std::vector<TextRun> value) {
     if (value.size() > 4096) throw std::length_error("At most 4096 document runs are supported");
     std::wstring text;

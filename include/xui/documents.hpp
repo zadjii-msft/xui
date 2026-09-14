@@ -26,6 +26,8 @@ public:
     void set_maximum_length(std::size_t value);
     bool read_only() const { return read_only_; }
     void set_read_only(bool value);
+    bool monospace() const { return monospace_; }
+    void set_monospace(bool value);
     bool rich() const { return rich_; }
     std::uint64_t revision() const { return revision_; }
     const std::vector<TextRun>& runs() const { return runs_; }
@@ -47,7 +49,7 @@ private:
     std::wstring text_;
     std::vector<TextRun> runs_;
     std::size_t maximum_{65536};
-    bool rich_{}, read_only_{}, notifying_{};
+    bool rich_{}, read_only_{}, monospace_{}, notifying_{};
     std::uint64_t revision_{1}, selection_revision_{};
     TextSelection selection_;
     std::function<void(const std::wstring&)> change_;
