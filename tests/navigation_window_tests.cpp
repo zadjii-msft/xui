@@ -23,6 +23,57 @@ HWND child(HWND root, const wchar_t* name) {
     }, reinterpret_cast<LPARAM>(&state)); require(state.result != nullptr, "Owned native control exists"); return state.result;
 }
 void flush(HWND hwnd) { SendMessageW(hwnd, WM_APP + 12, 0, 0); InvalidateRect(hwnd, nullptr, FALSE); UpdateWindow(hwnd); }
+void verify_caption(HWND hwnd, const TitleBar& caption, ThemeMode theme, UINT dpi) {
+    const auto close = child(hwnd, L"Close window");
+    require(!(GetWindowLongPtrW(close, GWL_STYLE) & WS_TABSTOP), "Caption buttons stay out of client tab order");
+    const auto bounds = caption.close()->bounds();
+    const auto palette = Palette::system(theme);
+    const auto native_color = [](D2D1_COLOR_F color) {
+        return RGB(std::lround(color.r * 255), std::lround(color.g * 255), std::lround(color.b * 255));
+    };
+    const auto pixel = [&](float x, float y) {
+        flush(hwnd);
+        const auto dc = GetDC(hwnd);
+        require(dc != nullptr, "Read owned caption pixels");
+        const auto result = GetPixel(dc, static_cast<int>((bounds.x + x) * dpi / 96),
+            static_cast<int>((bounds.y + y) * dpi / 96));
+        ReleaseDC(hwnd, dc);
+        require(result != CLR_INVALID, "Caption pixel exists");
+        return result;
+    };
+    SendMessageW(close, WM_NCMOUSELEAVE, 0, 0);
+    require(pixel(3, 12) == native_color(palette.background), "Resting caption has no button surface or border");
+    POINT screen{static_cast<LONG>((bounds.x + bounds.width / 2) * dpi / 96),
+        static_cast<LONG>((bounds.y + bounds.height / 2) * dpi / 96)};
+    ClientToScreen(hwnd, &screen);
+    const auto position = MAKELPARAM(screen.x, screen.y);
+    SendMessageW(close, WM_NCMOUSEMOVE, HTCLOSE, position);
+    require(caption.close()->hovered(), "Nonclient hover reaches retained caption");
+    const auto hot = palette.high_contrast ? native_color(palette.selection) : RGB(0xe8, 0x11, 0x23);
+    require(pixel(3, 12) == hot && pixel(1, 1) == hot, "Close hover uses an edge-to-edge rectangular highlight");
+    SendMessageW(close, WM_NCLBUTTONDOWN, HTCLOSE, position);
+    require(caption.close()->pressed() && GetCapture() == close, "Caption press captures pointer without native modal tracking");
+    require(pixel(3, 12) == (palette.high_contrast ? hot : RGB(0xc5, 0x0f, 0x1f)), "Close pressed color");
+    SendMessageW(close, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(-10, -10));
+    require(!caption.close()->hovered() && pixel(3, 12) == native_color(palette.background), "Dragging outside removes caption highlight");
+    SendMessageW(close, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(MulDiv(23, dpi, 96), MulDiv(16, dpi, 96)));
+    require(caption.close()->pressed(), "Dragging back inside restores caption press");
+    SendMessageW(close, WM_LBUTTONUP, 0, MAKELPARAM(-10, -10));
+    require(!caption.close()->captured() && !caption.close()->hovered() && GetCapture() != close &&
+        IsWindow(hwnd), "Release outside cancels close and clears hover");
+    SendMessageW(close, WM_NCMOUSEMOVE, HTCLOSE, position);
+    SendMessageW(close, WM_NCLBUTTONDOWN, HTCLOSE, position);
+    SendMessageW(close, WM_CANCELMODE, 0, 0);
+    require(!caption.close()->captured() && GetCapture() != close, "Cancelled caption press releases capture");
+    caption.close()->set_enabled(false);
+    SendMessageW(close, WM_NCMOUSEMOVE, HTCLOSE, position);
+    SendMessageW(close, WM_NCLBUTTONDOWN, HTCLOSE, position);
+    require(!caption.close()->hovered() && !caption.close()->pressed() &&
+        pixel(3, 12) == native_color(palette.background), "Disabled captions have no pointer highlight or action");
+    caption.close()->set_enabled(true);
+    SendMessageW(close, WM_NCMOUSELEAVE, 0, 0);
+    require(!caption.close()->hovered(), "Nonclient leave clears caption hover");
+}
 void verify_native_print_clip(HWND hwnd) {
     RECT bounds{}; GetClientRect(hwnd, &bounds);
     struct Canvas {
@@ -108,6 +159,23 @@ int client(HWND hwnd) {
     eventually([&] { return IsZoomed(hwnd) != FALSE; }, "OS maximize state");
     success(maximize_action->Invoke(), "Invoke real restore");
     eventually([&] { return IsZoomed(hwnd) == FALSE; }, "OS restore state");
+    const auto click_caption = [&](HWND button, WPARAM hit) {
+        RECT bounds{}; GetClientRect(button, &bounds);
+        POINT center{bounds.right / 2, bounds.bottom / 2}, screen = center;
+        ClientToScreen(button, &screen);
+        SendMessageW(button, WM_NCMOUSEMOVE, hit, MAKELPARAM(screen.x, screen.y));
+        SendMessageW(button, WM_NCLBUTTONDOWN, hit, MAKELPARAM(screen.x, screen.y));
+        SendMessageW(button, WM_LBUTTONUP, 0, MAKELPARAM(center.x, center.y));
+    };
+    const auto maximize_button = child(hwnd, L"Maximize");
+    click_caption(maximize_button, HTMAXBUTTON);
+    eventually([&] { return IsZoomed(hwnd) != FALSE; }, "Caption pointer click maximizes");
+    click_caption(maximize_button, HTMAXBUTTON);
+    eventually([&] { return IsZoomed(hwnd) == FALSE; }, "Caption pointer click restores");
+    click_caption(child(hwnd, L"Minimize"), HTMINBUTTON);
+    eventually([&] { return IsIconic(hwnd) != FALSE; }, "Caption pointer click minimizes");
+    PostMessageW(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
+    eventually([&] { return IsIconic(hwnd) == FALSE; }, "System command restores minimized caption window");
     PostMessageW(hwnd, WM_KEYDOWN, VK_F10, 0);
     Sleep(80);
     return 0;
@@ -156,6 +224,10 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
             require(SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(outer.left + 1, outer.top + 1)) == HTTOPLEFT,
                 "Custom frame retains native resize corners");
             require(native->bounds().y >= TitleBar::height, "Nonclient layout preserves content");
+            verify_caption(hwnd, *caption, theme, dpi);
+            window.focus(*caption->tabs());
+            SendMessageW(hwnd, WM_NEXTDLGCTL, 0, FALSE);
+            require(GetFocus() == child(hwnd, L"Commands anchor"), "Tab navigation skips caption buttons");
             auto current_segment = std::static_pointer_cast<Control>(path->retained_children()[3]);
             auto previous_segment = std::static_pointer_cast<Control>(path->retained_children()[2]);
             window.focus(*current_segment);
