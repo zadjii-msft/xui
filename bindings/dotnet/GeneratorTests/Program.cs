@@ -42,7 +42,7 @@ internal static class Program
               Button("Increment", click: Increment, id: "increment");
               Toggle("Active", checked: Active, change: SetActive, id: "active");
               TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
-              Text("Constant", id: "constant");
+              Text(global::ExpressionProbe.Constant(), id: "constant");
             }
           }
           code csharp {
@@ -81,9 +81,11 @@ internal static class Program
         var toggle = window.Elements.OfType<Xui.Toggle>().Single();
         var root = window.Elements.OfType<Xui.Stack>().Single();
         Assert(label.Text == "Count: 0" && root.CurrentSpacing == 8 && root.CurrentPadding == 16, "Initial direct setters");
+        Assert(ExpressionProbe.ConstantReads == 1, "Independent expression evaluated during construction");
         button.Invoke();
         Assert(label.Text == "Count: 1", "Named handler updates state and dependent label");
         Assert(constant.TextSets == 1 && root.SpacingSets == 1, "No unrelated native property updates");
+        Assert(ExpressionProbe.ConstantReads == 1, "State mutation does not evaluate unrelated expressions");
         var state = type.GetProperty("Count")!;
         state.SetValue(counter, 1);
         Assert(label.TextSets == 2, "Equal state value causes no setter");
@@ -102,6 +104,7 @@ internal static class Program
         Assert(threadError, "State enforces UI thread");
         Assert(assembly.GetReferencedAssemblies().All(a => a.Name != "Xui.Development"), "Release omits development assembly");
         Assert(type.GetMethod("__xuiReload", BindingFlags.Instance | BindingFlags.NonPublic) is null, "Release omits reload method");
+        Assert(type.GetField("__xuiOriginalShape", BindingFlags.Instance | BindingFlags.NonPublic) is null, "Release omits reload tracking");
         context.Unload();
     }
     private static void TestParsing()
@@ -155,6 +158,8 @@ internal static class Program
         Invalid("component Bad { state int X=0; view { VStack() { Text($\"{X++}\"); } } }");
         Invalid("component Bad { view { VStack() {} } code csharp { int field=0; } }");
         Invalid("component Bad { view { VStack() {} } } component Second {}");
+        Invalid("component @__xuiBad { view { VStack() {} } }");
+        Invalid("component Bad { state int @Count=0; state int Count=1; view { VStack() {} } }");
         var (_, compilation) = Generate(new File(@"C:\fixture\TypeError.xui",
             "component Bad {\n view {\n VStack() {\n Text(42);\n }\n }\n}"));
         var typeError = compilation.GetDiagnostics().First(d => d.Id == "CS0029");
@@ -189,4 +194,10 @@ internal static class Program
         Assert(driver.GetRunResult().Diagnostics.Length == 0 && driver.GetRunResult().Results.Single().GeneratedSources.Length == 3,
             "Malformed edit recovery restores component");
     }
+}
+
+public static class ExpressionProbe
+{
+    public static int ConstantReads;
+    public static string Constant() { ConstantReads++; return "Constant"; }
 }

@@ -35,7 +35,7 @@ internal sealed class Parser(string text)
     {
         if (!Peek().IsKind(SyntaxKind.IdentifierToken)) throw new ParseError("Expected an identifier.", Offset);
         var name = Take().Text;
-        if (name.StartsWith("__xui", StringComparison.Ordinal))
+        if (name.TrimStart('@').StartsWith("__xui", StringComparison.Ordinal))
             throw new ParseError("Names starting with '__xui' are reserved.", position);
         return name;
     }
