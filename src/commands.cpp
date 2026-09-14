@@ -4,6 +4,8 @@
 
 namespace xui {
 namespace {
+constexpr auto command_help = L"↑ ↓ Select   Enter Run   Esc Close";
+constexpr auto menu_help = L"↑ ↓ Select   → Submenu   F2 Pin   Esc Close";
 std::wstring fold(std::wstring value) {
     std::transform(value.begin(), value.end(), value.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
     return value;
@@ -13,11 +15,47 @@ public:
     CommandRows(std::shared_ptr<const CommandSet> set, CommandId parent, const std::wstring& query,
         std::optional<CommandId> expanded = {}) : set_(std::move(set)), expanded_(expanded) {
         const auto needle = fold(query);
+        std::map<CommandId, CommandId> sections;
+        std::map<CommandId, std::vector<CommandId>> matches;
         for (const auto& record : set_->records()) {
+            if (record.kind == CommandKind::section) { sections[record.parent] = record.id; continue; }
             if (needle.empty() ? record.parent != parent : record.kind != CommandKind::action ||
                 fold(record.label).find(needle) == std::wstring::npos) continue;
-            index_.emplace(record.id, ids_.size()); ids_.push_back(record.id);
+            matches[sections[record.parent]].push_back(record.id);
         }
+        const auto append = [&](CommandId id) {
+            index_.emplace(id, ids_.size()); ids_.push_back(id);
+            const auto kind = set_->find(id)->kind;
+            const auto previous = offsets_.back();
+            offsets_.push_back({previous.first + (kind == CommandKind::action || kind == CommandKind::submenu ? 1 : 0),
+                previous.second + (kind == CommandKind::section ? 32 : kind == CommandKind::separator ? 12 : 0)});
+        };
+        const auto append_section = [&](CommandId section) {
+            const auto found = matches.find(section);
+            if (found == matches.end()) return;
+            const bool has_commands = std::any_of(found->second.begin(), found->second.end(),
+                [&](auto id) { return set_->find(id)->kind != CommandKind::separator; });
+            if (section && !has_commands) return;
+            if (section) append(section);
+            for (auto id : found->second) append(id);
+        };
+        append_section(0);
+        for (const auto& record : set_->records()) {
+            if (record.kind == CommandKind::section) append_section(record.id);
+        }
+    }
+    double row_start(std::size_t index, double row_height) const override {
+        const auto [rows, decoration] = offsets_.at(std::min(index, size()));
+        return rows * row_height + decoration;
+    }
+    std::size_t row_at(double offset, double row_height) const override {
+        std::size_t first{}, last = size();
+        while (first < last) {
+            const auto middle = first + (last - first) / 2;
+            if (row_start(middle + 1, row_height) <= offset) first = middle + 1;
+            else last = middle;
+        }
+        return first;
     }
     std::size_t size() const override { return ids_.size(); }
     ItemKey key(std::size_t i) const override { return {ids_.at(i), 1}; }
@@ -27,7 +65,7 @@ public:
     }
     bool selectable(std::size_t i) const override {
         const auto& record = *set_->find(ids_.at(i));
-        return record.kind != CommandKind::separator && set_->enabled(record.id);
+        return (record.kind == CommandKind::action || record.kind == CommandKind::submenu) && set_->enabled(record.id);
     }
     ItemContent item(std::size_t i) const override {
         const auto& record = *set_->find(ids_.at(i));
@@ -40,6 +78,7 @@ public:
     }
     ItemHierarchy hierarchy(std::size_t i) const override {
         ItemHierarchy result;
+        result.group = set_->find(ids_.at(i))->kind == CommandKind::section;
         result.expandable = set_->find(ids_.at(i))->kind == CommandKind::submenu;
         result.expanded = expanded_ == ids_.at(i);
         return result;
@@ -49,13 +88,15 @@ private:
     std::vector<CommandId> ids_;
     std::map<CommandId, std::size_t> index_;
     std::optional<CommandId> expanded_;
+    std::vector<std::pair<std::size_t, double>> offsets_{{0, 0}};
 };
 }
 CommandSet::CommandSet(std::vector<CommandRecord> records) : records_(std::move(records)) {
     if (records_.size() > maximum_commands) throw std::length_error("Too many commands");
     for (std::size_t i = 0; i < records_.size(); ++i) {
         const auto& r = records_[i];
-        if (r.kind != CommandKind::action && r.kind != CommandKind::submenu && r.kind != CommandKind::separator)
+        if (r.kind != CommandKind::action && r.kind != CommandKind::submenu &&
+            r.kind != CommandKind::separator && r.kind != CommandKind::section)
             throw std::invalid_argument("Unknown command kind");
         if (!r.id || !index_.emplace(r.id, i).second) throw std::invalid_argument("Command IDs must be unique and nonzero");
         if (r.label.size() > 1024 || r.pin_label.size() > 128 || r.shortcut_hints.size() > 8)
@@ -63,6 +104,8 @@ CommandSet::CommandSet(std::vector<CommandRecord> records) : records_(std::move(
         for (const auto& hint : r.shortcut_hints) if (hint.size() > 64) throw std::length_error("Shortcut hint exceeds its limit");
         if (bool(r.pin) != !r.pin_label.empty() || (r.kind != CommandKind::action && (r.action || r.pin)))
             throw std::invalid_argument("Invalid command action");
+        if (r.kind == CommandKind::section && (r.checked || r.icon != ButtonIcon::none || !r.shortcut_hints.empty()))
+            throw std::invalid_argument("Section headers cannot have command adornments");
         if (r.kind != CommandKind::separator && r.label.empty()) throw std::invalid_argument("Command label is empty");
     }
     for (const auto& r : records_) {
@@ -126,6 +169,7 @@ void CommandMenu::set_commands(std::shared_ptr<const CommandSet> commands, Comma
         selected.select(source(), *selected.focused(), SelectionGesture::replace);
         set_selection(std::move(selected));
     }
+    invalidate(Invalidation::layout);
 }
 void CommandMenu::set_expanded(std::optional<CommandId> command) {
     if (expanded_ == command) return;
@@ -174,7 +218,7 @@ std::vector<CollectionRow> CommandMenu::visible_content() const {
     auto rows = VirtualCollection::visible_content();
     for (auto& row : rows) {
         const auto hierarchy = source()->hierarchy(row.index);
-        row.expandable = hierarchy.expandable; row.expanded = hierarchy.expanded;
+        row.group = hierarchy.group; row.expandable = hierarchy.expandable; row.expanded = hierarchy.expanded;
     }
     return rows;
 }
@@ -191,24 +235,46 @@ void CommandMenu::horizontal(bool right, SelectionGesture) {
 }
 CommandSurface::CommandSurface(std::wstring name, bool searchable) {
     auto content = std::make_shared<Stack>(Axis::vertical);
-    content->set_padding({8, 8, 8, 8}); content->set_spacing(4); content->set_preferred_size({376, searchable ? 382.0f : 334.0f});
+    content->set_padding({16, 16, 16, 16}); content->set_spacing(12);
     menu_ = std::make_shared<CommandMenu>(name);
     if (searchable) {
+        auto header = std::make_shared<Stack>(Axis::horizontal);
+        header->set_spacing(12);
+        auto title = std::make_shared<Label>(name);
+        title->set_heading(true); title->set_preferred_size({448, 32});
+        header->add(title, 1);
+        close_ = std::make_shared<Button>(L"Close command palette");
+        close_->set_icon(ButtonIcon::close); close_->set_fixed_size({32, 32});
+        close_->on_click([this] { menu_->horizontal(false, SelectionGesture::replace); });
+        header->add(close_); content->add(header);
         editor_ = std::make_shared<TextInput>(L"Search commands");
-        editor_->set_search_style(true); editor_->set_maximum_length(256); editor_->set_fixed_size({360, 40});
+        editor_->set_search_style(true); editor_->set_maximum_length(256);
+        editor_->set_preferred_size({448, 48});
+        editor_->set_placeholder(L"Type a command...");
         editor_->on_change([this](const std::wstring& text) { request(text); });
         editor_->on_submit([this] { if (auto key = menu_->selection().focused()) menu_->execute(key->id); });
         content->add(editor_);
     }
-    content->add(menu_, 1);
-    status_ = std::make_shared<Label>(L"↑ ↓ Select   → Submenu   F2 Pin   Esc Cancel");
-    status_->set_caption(true); content->add(status_);
+    auto results = std::make_shared<Stack>(Axis::vertical);
+    results->add(menu_, 1); results->set_separator_after(true);
+    content->add(results, 1);
+    status_ = std::make_shared<Label>(searchable ? command_help : menu_help);
+    status_->set_caption(true); status_->set_tone(TextTone::secondary);
+    status_->set_preferred_size({448, 24}); content->add(status_);
     popup_ = std::make_shared<Popup>(content, std::move(name));
-    popup_->set_preferred_size({376, searchable ? 382.0f : 334.0f});
+    popup_->set_preferred_size({searchable ? 480.0f : 400.0f, searchable ? 460.0f : 356.0f});
     popup_->on_dismiss([this](PopupDismissReason) { cancel(); });
+}
+Size CommandSurface::measure(Size available) const {
+    auto desired = popup_->measure(available);
+    const auto source = menu_->source();
+    const auto rows = source ? source->row_start(source->size(), menu_->item_size().height) : 0;
+    desired.height = std::min(desired.height, (editor_ ? 172.0f : 68.0f) + static_cast<float>(std::max(48.0, rows)));
+    return desired;
 }
 CommandSurface::~CommandSurface() {
     cancel(); popup_->on_dismiss({});
+    if (close_) close_->on_click({});
     if (editor_) { editor_->on_change({}); editor_->on_submit({}); }
 }
 void CommandSurface::set_commands(std::shared_ptr<const CommandSet> commands, CommandId parent) {
@@ -234,7 +300,8 @@ bool CommandSurface::complete(const CommandQuery& request, std::shared_ptr<const
         menu_->set_commands(commands, menu_->parent()); commands_ = std::move(commands);
     }
     cancel();
-    error_ = std::move(error); status_->set_text(error_.empty() ? L"↑ ↓ Select   → Submenu   F2 Pin   Esc Cancel" : error_);
+    error_ = std::move(error); status_->set_text(error_.empty() ? (editor_ ? command_help : menu_help) : error_);
+    status_->set_tone(error_.empty() ? TextTone::secondary : TextTone::error);
     return true;
 }
 void CommandSurface::cancel() { stop_.request_stop(); ++generation_; }
@@ -248,7 +315,7 @@ void CommandBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     std::vector<std::shared_ptr<Element>> children;
     std::vector<CommandId> ids;
     for (const auto& r : commands->records()) {
-        if (r.parent || r.kind == CommandKind::separator) continue;
+        if (r.parent || r.kind == CommandKind::separator || r.kind == CommandKind::section) continue;
         if (r.kind != CommandKind::action) throw std::invalid_argument("Command bar roots must be actions");
         auto button = std::make_shared<Button>(r.label); button->set_enabled(r.enabled);
         button->set_icon(r.icon);

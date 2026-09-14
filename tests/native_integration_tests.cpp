@@ -1,4 +1,5 @@
 #include "xui/application.hpp"
+#include "xui/native_edit.hpp"
 #include "../src/drawing.hpp"
 #include <windows.h>
 #include <imm.h>
@@ -20,6 +21,81 @@ struct DrawingTestAccess {
 namespace {
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
+}
+void native_vertical_centering() {
+    const auto host = CreateWindowExW(0, L"STATIC", L"", WS_POPUP,
+        0, 0, 800, 200, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    require(host != nullptr, "Create native geometry host");
+    struct Host { HWND value; ~Host() { DestroyWindow(value); } } lifetime{host};
+    xui::NativeEditBridge bridge;
+    bridge.attach(host, 100);
+    bridge.set_insets({10, 10, 10, 10});
+    bridge.set_placeholder(L"Ag");
+    const xui::Rect field{20, 16, 300, 48};
+    bridge.arrange(field);
+    const auto edit = bridge.window();
+    const auto ink_rows = [&] {
+        RECT client{};
+        require(GetClientRect(edit, &client), "Read native line client");
+        const auto screen = GetDC(edit);
+        const auto dc = CreateCompatibleDC(screen);
+        const auto bitmap = CreateCompatibleBitmap(screen, client.right, client.bottom);
+        ReleaseDC(edit, screen);
+        require(dc && bitmap, "Create native line capture");
+        const auto previous = SelectObject(dc, bitmap);
+        FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+        SendMessageW(edit, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_ERASEBKGND);
+        const auto background = GetPixel(dc, client.right - 1, 0);
+        int first = client.bottom, last = -1;
+        for (int y = 0; y < client.bottom; ++y) {
+            for (int x = 0; x < client.right; ++x) {
+                if (GetPixel(dc, x, y) != background) {
+                    first = std::min(first, y);
+                    last = y;
+                }
+            }
+        }
+        SelectObject(dc, previous);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+        require(last >= first, "Native line capture contains visible text");
+        return std::pair{first, last};
+    };
+    for (const UINT dpi : {96u, 144u, 192u}) {
+        bridge.set_dpi(dpi);
+        const auto font = reinterpret_cast<HFONT>(SendMessageW(edit, WM_GETFONT, 0, 0));
+        const auto dc = GetDC(edit);
+        const auto previous = SelectObject(dc, font);
+        TEXTMETRICW metrics{};
+        const auto measured = GetTextMetricsW(dc, &metrics);
+        SelectObject(dc, previous);
+        ReleaseDC(edit, dc);
+        require(measured, "Read actual native line metrics");
+        RECT rect{}, format{};
+        require(GetWindowRect(edit, &rect), "Read native line bounds");
+        MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&rect), 2);
+        SendMessageW(edit, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&format));
+        require(rect.bottom - rect.top == metrics.tmHeight, "Native EDIT height matches its measured line");
+        const int center = MulDiv(static_cast<int>(2 * field.y + field.height), dpi, 96);
+        require(std::abs(rect.top + rect.bottom - center) <= 1,
+            "Native line is vertically centered in the 48 DIP field at each DPI");
+        require(bridge.bounds().y == field.y && bridge.bounds().height == field.height,
+            "Native line centering preserves external field bounds");
+        const int placeholder_baseline = rect.top + format.top + metrics.tmAscent;
+        SetWindowTextW(edit, L"");
+        const auto placeholder = ink_rows();
+        for (const wchar_t ch : std::wstring_view(L"Ag")) SendMessageW(edit, WM_CHAR, ch, 0);
+        const auto position = SendMessageW(edit, EM_POSFROMCHAR, 0, 0);
+        require(position != -1 && rect.top + static_cast<short>(HIWORD(position)) + metrics.tmAscent ==
+            placeholder_baseline, "Placeholder and native text share the measured baseline");
+        require(ink_rows() == placeholder, "Placeholder and typed text have identical vertical ink bounds");
+        SetWindowTextW(edit, L"");
+        bridge.arrange({field.x, field.y, field.width, 22});
+        RECT clipped{};
+        GetClientRect(edit, &clipped);
+        require(clipped.bottom <= MulDiv(2, dpi, 96), "Short fields clamp the line to available inset height");
+        bridge.arrange(field);
+    }
 }
 template<class F> void wait(F&& predicate, const char* message) {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(8);
@@ -306,6 +382,11 @@ void input_environment() {
 }
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--geometry") {
+            native_vertical_centering();
+            std::cout << "Native vertical centering passed at 96, 144 and 192 DPI\n";
+            return 0;
+        }
         if (argc == 2 && std::wstring_view(argv[1]) == L"--clipboard") {
             PrivateDesktop desktop;
             run_window(desktop.desktop);
@@ -318,6 +399,7 @@ int wmain(int argc, wchar_t** argv) {
         catch (const std::logic_error&) { rejected = true; }
         require(rejected, "Clipboard API rejects a window without a clipboard owner");
         input_environment();
+        native_vertical_centering();
         run_window();
         isolated_process(L"--clipboard");
         std::cout << "Native integration passed: editing, composition guards, DPI fonts, contrast, injected device loss, isolated clipboard\n";

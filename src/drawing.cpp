@@ -63,6 +63,10 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         fill({b.x + 10, b.y + b.height / 2, std::max(0.0f, b.width - 20), 1}, palette.border);
         return;
     }
+    if (row.group && !row.expandable) {
+        text(row.content.primary, {b.x + 10, b.y, std::max(0.0f, b.width - 20), b.height}, palette.secondary, true);
+        return;
+    }
     const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
     if (selected || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, selected ? palette.selection : palette.surface);
     float left = b.x + 10 + std::min(static_cast<float>(row.depth) * 20, b.width / 3);
@@ -73,7 +77,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink); left += 24;
     }
     if (row.content.icon != ButtonIcon::none) {
-        button_icon({left, b.y + 10, 20, 20}, ink, row.content.icon); left += 28;
+        button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon); left += 28;
     }
     const bool action_visible = !row.content.action.empty() && b.width >= 160;
     const bool secondary_visible = !row.content.secondary.empty() && b.height >= 48;
