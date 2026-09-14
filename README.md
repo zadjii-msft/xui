@@ -535,7 +535,8 @@ First paint took 203.64 ms, compared with 199.85 ms before.
 Warm selection, scroll, and a forced full paint took 17.91 ms. Idle caused no additional paints.
 The larger Task Manager window is not a same-size memory comparison.
 Earlier explorer experiments at larger extents also reached approximately 94 MiB of private commit.
-The size investigation below attributes the main increase to graphics-driver allocations.
+The size investigation below locates the main increase in the graphics path.
+It does not establish that this footprint is unavoidable or identify every allocator.
 
 Screenshots cover standard and narrow layouts at 96, 144, and 192 injected window DPI.
 They include Processes, Performance, selected Details, light colors, and high-contrast colors.
@@ -575,7 +576,8 @@ Initial process CPU time decreased from 312.50 to 218.75 ms.
 Settled gallery and Explorer windows produced zero idle paints.
 
 The gallery workload did not load media or browser engines. Separate native tests cover those engines and their shutdown.
-The 64 MiB Qualcomm driver allocation cliff remains. These results do not attribute driver retention to framework caches.
+The approximately 64 MiB allocation jump remained in that renderer configuration.
+These measurements did not isolate ownership between Direct2D and the driver.
 The full native suite passed all 36 tests, including C ABI, native composition, retained editor undo, and real host cleanup.
 Raw samples, ranges, hashes, and commands are under `build\controls\memory-evidence`.
 The complete report is `build\controls\memory-delivery.json`.
@@ -591,17 +593,40 @@ A separate six-run gallery comparison used normal input updates instead of extra
 Its uncertainty interval also did not establish performance equivalence.
 The final build therefore uses the original hardware target configuration.
 
-Other target properties and a separate flip-model probe did not remove the 64 MiB driver allocation cliff.
+Other target properties and a raw flip-model probe retained substantial memory in fixed-size experiments.
+The flip probe did not exercise application resize cycles or the later `explicit-swap-chain` implementation.
+The earlier conclusion that flip-model rendering cannot solve resize retention exceeded the evidence.
+The performance rejection concerned the GDI-compatible target, not the explicit-swap-chain branch.
+The [dedicated report](docs/windows-gui-memory.md#audit-of-the-earlier-flip-model-claim) records this correction.
 The measurements separate private commit, private working set, process CPU time, and process cycles.
 They include per-interaction percentiles and paired-run uncertainty intervals.
 The complete evidence and rejection reasons are in `build\memory-tight\delivery.json`.
 The measurement script supports `-Performance` with `-Sizes @()` to retain each initial client size.
 
+#### Explicit swap-chain branch comparison
+
+The review compared Leonard Hecker's `explicit-swap-chain` commit `4c1f9ab` with its baseline `74bc1f8`.
+Both exact source snapshots built as ARM64 Release.
+Three matched resize runs per variant showed a transient private-working-set improvement at the first enlargement: **70.22 → 53.13 MiB**.
+However, final private commit after shrinking and 30 seconds of idle was **99.80 → 102.32 MiB**.
+The branch did not remove retained commit in this workload on the measured Qualcomm driver.
+This result does not rule out other configurations or hardware.
+
+Median synchronous fixed-resize time was **25.51 → 30.22 ms**, not an input-to-photon measurement.
+No performance threshold stopped the comparison.
+The branch passed 32/37 native tests, with unresolved capture and interaction failures.
+Owned-window Graphics Capture showed the demo at five sizes.
+The review also identified a source-level device-loss recovery gap and a change in default text antialiasing.
+The [full comparison](docs/windows-gui-memory.md#matched-branch-results) separates these findings and their limits.
+Commands, hashes, and raw results remain in `build\swapchain-review\benchmark-delivery.json`.
+The review did not merge the branch or change production code.
+
 #### Earlier window-size memory investigation
 
 That investigation did not change the production renderer or sample binaries.
-It found no safe framework-local correction for the driver allocation cliff.
-The extra 64 MiB came from the Direct2D hardware rendering path, not process-row storage or hidden controls.
+It did not identify a correction within the approaches it exercised.
+That result did not rule out a different swap-chain implementation.
+The extra 64 MiB reproduced in the graphics path without process-row storage or hidden controls.
 
 The measured driver is `qcdx11arm64xum.dll`, version `31.0.133.1`.
 At 96 DPI and a 780-pixel client height, one additional client pixel crossed the allocation threshold.

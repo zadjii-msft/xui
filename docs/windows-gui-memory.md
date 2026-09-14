@@ -4,7 +4,17 @@
 
 How small can a useful Windows application remain without sacrificing text input, accessibility, or responsive interaction?
 XUI explores that question with a native C++20 framework, a file browser, a Task Manager sample, and a control gallery.
-This report covers measurements through September 13, 2026, at 09:36 local time.
+This report includes September 13, 2026 measurements, the subsequent resize investigation, and an audit of the earlier flip-model claim.
+
+**Correction:** the earlier flip-model experiment did not establish that an explicit swap chain cannot fix resize retention.
+It measured a different raw-renderer configuration at one fixed size, not the application through grow/shrink cycles.
+The statement that flip-model rendering failed to solve the resize problem exceeded that evidence.
+The [claim audit](#audit-of-the-earlier-flip-model-claim) records the implementation differences and preserved run files.
+
+The subsequent matched comparison used the exact `explicit-swap-chain` branch and its baseline.
+The branch reduced transient private working set, but did not eliminate retained private commit on this machine.
+After resize cycles and 30 seconds at the original small size, median commit was **99.80 MiB baseline versus 102.32 MiB branch**.
+The [branch results](#matched-branch-results) separate these counters, performance observations, and incomplete regression coverage.
 
 The result is not a claim of the smallest possible GUI.
 A blank HWND is smaller, but it does not provide a usable application.
@@ -231,8 +241,10 @@ It did not establish equivalence, nor did it prove a universal slowdown.
 The candidate was therefore reverted.
 All four final production `.text` sections matched the preserved baseline.
 **This pass delivered no new runtime memory improvement.**
-Retain-contents, minimum feature level 9, bitmap remoting, immediate presentation, and a raw flip-sequential target also failed to remove the large allocation jump.
-Those observations apply to this device and these experiments, not every Windows system.
+Retain-contents, minimum feature level 9, bitmap remoting, and immediate presentation produced no established improvement in the exploratory fixed-size runs.
+A raw flip-sequential target also retained substantial memory at 1080x780.
+That result did not cover changed-size cycles or an explicit swap chain integrated into XUI.
+The performance-based rejection applied to the GDI-compatible target, not an application-level flip-model implementation.
 
 ## The hardware allocation boundary
 
@@ -260,7 +272,8 @@ A cache retains reusable resources.
 A high-water allocation retains capacity after peak demand.
 A leak retains resources without a valid continuing owner.
 Those definitions do not diagnose a particular memory curve.
-The new report of growth after repeated resizing remains a **pending, separate investigation**.
+The [resize investigation](#resize-investigation--september-13-2026) examines growth through repeated size changes.
+Its release-boundary evidence does not establish that this footprint is unavoidable with another graphics configuration.
 
 ## Reproduce the measurements
 
@@ -579,3 +592,174 @@ Local evidence remains under `build\resize-memory`:
 - `summary.json`, `summarize.py`, `verification.json`, and `verify.py`: aggregates and evidence checks.
 - `window-tests-final.log`: the two successful native regressions.
 - `raw.json` and `window-tests.log`: the failed harness attempt and the initial empty test selection.
+
+## Audit of the earlier flip-model claim
+
+The `explicit-swap-chain` branch prompted a review of the earlier claim.
+Leonard Hecker supplied commit `4c1f9ab21d7e72c9f105176537a941c58e28aece`, based on `74bc1f8d64a8f4b889b52017eab7932d8dc0126b`.
+The accompanying account reports WPR allocation traces through `ID2D1HwndRenderTarget::Resize`.
+That trace attribution is supplied evidence, not an independently inspected trace in this report.
+
+### What the earlier experiment actually did
+
+The earlier probe was real.
+`tests\window_memory_probe.cpp::paint` creates a D3D11 device, a flip-sequential swap chain, and a Direct2D surface render target.
+The preserved build log and two output files record the flip path.
+The later output also reports `hardware_supported=1`.
+
+The final recorded invocation was:
+
+```text
+xui_window_memory_probe.exe flip 1080 780 0 0
+```
+
+`build\memory-tight\raw-flip-final.json` records 93,528,064 bytes of initial private commit, or 89.20 MiB.
+Its executable hash is `545FF967335DE0ED36B7BC4B7BFB884471592F53B1BC83E8E07E2FEC96963A41`.
+The earlier `raw-flip.json` records an initial sample and another sample at the same 1080x780 size.
+Neither file establishes behavior through a changed-size cycle.
+The small reduction in that experiment was not a performance-based rejection of the later branch.
+
+### Why it is not the same experiment
+
+| Property | Earlier raw probe | `explicit-swap-chain` branch |
+|---|---|---|
+| Scope | Rectangle fixture at fixed size | Integrated XUI renderer |
+| D3D11 creation flags | `BGRA_SUPPORT` | Also `SINGLETHREADED` and `PREVENT_INTERNAL_THREADING_OPTIMIZATIONS` |
+| Swap effect | `FLIP_SEQUENTIAL` | `FLIP_SEQUENTIAL` |
+| Buffer count | 2 | 3 |
+| Scaling | Default `STRETCH` | `NONE` |
+| D2D target type | `HARDWARE` | `DEFAULT` |
+| D2D alpha mode | `IGNORE` | `PREMULTIPLIED` |
+| Presentation | `Present(1, 0)` | `Present1(1, 0, ...)` |
+| Resize evidence | No changed-size samples in the cited runs | Matched application cycles described below |
+
+The branch releases target-dependent resources before `ResizeBuffers` and explicitly manages presentation.
+The old application instead called `ID2D1HwndRenderTarget::Resize`.
+This is a substantive renderer change, not the rejected GDI-compatible target flag.
+
+The original writeup generalized from one raw configuration to a class of solutions.
+That was an error in experimental scope and interpretation.
+A high memory result in the earlier probe cannot establish that this branch has the same behavior.
+Likewise, several changed properties prevent attribution of any improvement to the swap effect alone without a controlled comparison.
+
+The earlier measurements remain in the report as historical evidence, not as grounds to reject the branch.
+The subsequent comparison separates memory savings, performance costs, and rendering correctness.
+
+### Matched branch results
+
+Both builds used the exact commits identified earlier, exported with `git archive`.
+Neither source snapshot contained renderer edits or diagnostic instrumentation.
+The builds used ARM64 Release, MSVC 19.44.35228, Windows SDK 10.0.26100.0, `/MT`, and LTO.
+Both enabled the existing optional WebView2 SDK for the regression suite.
+The memory workload did not initialize WebView2.
+
+The machine used Qualcomm Adreno X1-85 graphics, driver 31.0.133.1, and 96 DPI.
+Module snapshots from both measured demo processes contained the Qualcomm D3D11 driver.
+Neither snapshot contained the WARP module.
+This supports hardware rendering, but does not replace a direct device query or an ETW trace.
+The measurement procedure did not force WARP.
+
+Three fresh demo processes per variant used the same 60-file fixture.
+The run order was baseline, branch, branch, baseline, baseline, branch.
+Each process completed 24 fixed grow/shrink cycles and 24 varied-size cycles.
+The fixed client sizes were 800x600 and 1100x850 pixels.
+The varied workload also included 1400x500 and 800x1000 sizes.
+Final samples followed 0.5, 2, 10, and 30 seconds at 800x600.
+
+The table reports medians across the three processes, in MiB.
+Private commit and private working set are separate counters.
+
+| Observation | Baseline commit | Branch commit | Baseline private working set | Branch private working set |
+|---|---:|---:|---:|---:|
+| Small window after 30 same-size paints | 34.25 | 37.07 | 18.02 | 20.89 |
+| First enlargement | 102.35 | 101.39 | 70.22 | 53.13 |
+| After the varied-size batch | 113.70 | 104.85 | 97.57 | 88.73 |
+| Small window after 30 seconds of idle | 99.80 | 102.32 | 83.29 | 86.03 |
+
+The first enlargement used **17.09 MiB less private working set** with the branch.
+The varied-batch sample used **8.85 MiB less private commit**.
+These are real improvements at those observation points, not proof of a lower continuous peak.
+Neither improvement persisted in the final settled counters.
+Final commit ranged from **99.73 to 100.24 MiB** for the baseline and **102.16 to 104.32 MiB** for the branch.
+
+Thus, the exact branch did not remove the retained-commit increase in this workload.
+This result does not disprove the supplied WPR attribution.
+Allocation stacks and retained process counters answer different questions.
+It also does not rule out another swap-chain configuration or a different hardware result.
+No configuration ablation isolated the effects of the device flags, buffer count, scaling, target type, or alpha mode.
+
+### Performance observations
+
+The fixed-resize workload produced 144 synchronous timing observations per variant, across three processes.
+Median wall time was **25.51 ms baseline versus 30.22 ms branch**.
+The 95th percentile was **39.84 ms versus 53.30 ms**.
+These observations include layout, the requested repaint, and presentation waits.
+They are not input-to-photon measurements or 144 independent process runs.
+
+Separate interaction profiles completed three runs per variant for Explorer and Task Manager.
+The gallery completed three baseline runs and two branch runs.
+Foreground loss interrupted additional attempts.
+The evidence retains those attempts but excludes them from numerical aggregates.
+Other system activity remained uncontrolled, so these samples do not establish performance equivalence.
+No performance threshold stopped the branch comparison or caused its rejection.
+
+### Rendering and recovery findings
+
+The unmodified branch passed **32 of 37 native tests**.
+The five corresponding baseline tests passed.
+All five branch retries failed, although some assertions depend on capture or desktop interaction rather than renderer correctness alone.
+
+| Test | Observed failure and limit |
+|---|---|
+| `xui_thumbnail_tests` | Pixel-color assertion. Its `GetDC`/`GetPixel` capture does not establish the contents of a flip-presented frame. |
+| `xui_shell_thumbnail_tests` | The same capture limitation applies to the Shell pixel-color assertion. |
+| `xui_flicker_tests` | First run timed out. The retry failed the visible-glyph reference setup. Cause remains unresolved. |
+| `xui_task_manager_smoke` | Drag-order and cursor assertions failed. Both depend on desktop interaction. Cause remains unresolved. |
+| `xui_hosts_window_tests` | Fixture cleanup failed initially. The retry failed suggestion-window capture. Earlier media and WebView2 checks passed. |
+
+Separate Windows Graphics Capture checks used only each test process's root HWND.
+They showed the unmodified demo at five physical sizes, with visible labels and file icons, followed by normal exit.
+The document-control test also passed native text composition, UIA, target recreation, and nine theme/DPI cases.
+Those results do not replace the incomplete flicker and Shell-thumbnail coverage.
+The suite is not a clean pass, and the capture failures do not prove that users see missing icons.
+
+Source inspection found a recovery gap in `Drawing::begin`, at branch `src\drawing.cpp:203-205`.
+If `ResizeBuffers` returns `DXGI_ERROR_DEVICE_REMOVED` or `DXGI_ERROR_DEVICE_RESET`, the method discards graphics resources and returns `false`.
+`Native::paint` in `src\application.cpp` then calls `EndPaint` without scheduling another paint.
+An unrelated later event can trigger recovery, but this failure path does not request recovery itself.
+This is a source finding, not a reproduced device-loss event.
+Existing target-recreation tests do not establish coverage of that new path.
+
+The branch also changes the Direct2D alpha mode from `IGNORE` to `PREMULTIPLIED`.
+Microsoft documents that a non-`IGNORE` alpha mode changes default text antialiasing from ClearType to grayscale.
+The branch does not explicitly override that default.
+This is a rendering behavior change, not by itself a reason to reject the branch.
+The reference is [ClearType and alpha modes](https://learn.microsoft.com/en-us/windows/win32/direct2d/supported-pixel-formats-and-alpha-modes#cleartype-and-alpha-modes).
+
+### Branch evidence and reproduction
+
+The checkout remains on `main`.
+This review did not merge the branch, edit production code, or create a commit.
+The baseline demo is 1,403,392 bytes, and the branch demo is 1,405,440 bytes.
+Their local paths are:
+
+```text
+D:\dev\private\xui\build\swapchain-review\baseline-build\Release\xui_demo.exe
+D:\dev\private\xui\build\swapchain-review\branch-build\Release\xui_demo.exe
+```
+
+`build\swapchain-review\benchmark-delivery.json` records commands, source archives, binary hashes, measurements, test results, and limitations.
+The six `resize-*.json` files contain the raw resize samples.
+The `perf-*.json` files contain the completed interaction profiles.
+The `branch-tests.log`, `baseline-diagnostic-tests.log`, and `branch-diagnostic-tests.log` files retain every regression result.
+The `compositor-*.bmp` files contain the owned-window captures.
+Git does not track these local artifacts.
+
+For an additional measurement with the existing branch build, use a fresh output filename:
+
+```powershell
+& .\tests\measure-resize-memory.ps1 `
+  -Executable build\swapchain-review\branch-build\Release\xui_demo.exe `
+  -Kind demo -Fixture build\swapchain-review\fixture -Runs 1 -Cycles 24 `
+  -Output build\swapchain-review\additional-branch-resize.json
+```
