@@ -3120,6 +3120,37 @@ The API does not include C bindings, a general scroll container, or arbitrary ro
 
 ## Feature bindings (1.1 extension)
 
+### Fluent C# setters
+
+C# configuration methods return the original object, with its concrete type.
+Size methods and shared control methods preserve this type throughout a chain.
+
+```csharp
+var map = w.MapView("Offline map")
+    .SetView(new(47.6, -122.3), 4)
+    .SetMarkers([new(1, new(47.6, -122.3), "Seattle")])
+    .FixedSize(650, 180);
+
+var range = w.RangeInput("Zoom")
+    .FixedSize(200, 24)
+    .SetRange(new(0, 100))
+    .SetValue(20);
+```
+
+Writable properties retain their assignment syntax and also have `Set<Property>` methods.
+For example, `range.Value = 20` and `range.SetValue(20)` use the same setter.
+`SetText` uses the document setter for rich and multiline text controls, including references typed as `Control`.
+Setters retain their validation and UI-thread requirements.
+They return the receiver only after the operation succeeds.
+Events, lifecycle methods, and methods that return resources retain their existing contracts.
+
+The native ABI does not change.
+The managed method signatures change, so consumers must rebuild.
+Size methods are now generic extension methods in the `Xui` namespace.
+Void delegate assignments can require a lambda, such as `Action apply = () => range.SetValue(20);`.
+
+### Feature extension
+
 This extension supersedes earlier statements that the new controls have C++ APIs only.
 The original nine control kinds remain available.
 The extension adds 35 typed constructors to both C# and Rust.

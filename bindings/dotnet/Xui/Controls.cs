@@ -10,21 +10,52 @@ public abstract class Element
         Window.Guard();
         if (!ReferenceEquals(window, Window)) throw new ArgumentException("Elements belong to different windows.");
     }
-    public void FixedSize(float width, float height) => Window.Update(new Property(this, PropertyKind.FixedSize, A: width, B: height));
-    public void MinimumSize(float width, float height) => Window.Update(new Property(this, PropertyKind.MinimumSize, A: width, B: height));
-    public void MaximumSize(float width, float height) => Window.Update(new Property(this, PropertyKind.MaximumSize, A: width, B: height));
-    public void PreferredSize(float width, float height) => Window.Update(new Property(this, PropertyKind.PreferredSize, A: width, B: height));
-    public void AutoSize(bool value) => Window.Update(new Property(this, PropertyKind.AutoSize, Integer: value ? 1u : 0u));
+}
+public static class ElementExtensions
+{
+    public static T FixedSize<T>(this T element, float width, float height) where T : Element
+    { element.Window.Update(new Property(element, PropertyKind.FixedSize, A: width, B: height)); return element; }
+    public static T MinimumSize<T>(this T element, float width, float height) where T : Element
+    { element.Window.Update(new Property(element, PropertyKind.MinimumSize, A: width, B: height)); return element; }
+    public static T MaximumSize<T>(this T element, float width, float height) where T : Element
+    { element.Window.Update(new Property(element, PropertyKind.MaximumSize, A: width, B: height)); return element; }
+    public static T PreferredSize<T>(this T element, float width, float height) where T : Element
+    { element.Window.Update(new Property(element, PropertyKind.PreferredSize, A: width, B: height)); return element; }
+    public static T AutoSize<T>(this T element, bool value) where T : Element
+    { element.Window.Update(new Property(element, PropertyKind.AutoSize, Integer: value ? 1u : 0u)); return element; }
+}
+public static class ControlExtensions
+{
+    public static T Focus<T>(this T control, bool selectAll = false) where T : Control
+    { control.Window.Guard(); control.Window.Check(Native.Focus(control.Handle, selectAll ? 1u : 0u)); return control; }
+    public static T SetName<T>(this T control, string value) where T : Control
+    { control.Name = value; return control; }
+    public static T SetAutomationId<T>(this T control, string value) where T : Control
+    { control.AutomationId = value; return control; }
+    public static T SetEnabled<T>(this T control, bool value) where T : Control
+    { control.Enabled = value; return control; }
+    public static T SetText<T>(this T control, string value) where T : Control
+    {
+        // Document controls hide Control.Text and require their document setter.
+        switch (control)
+        {
+            case MultilineText document: document.Text = value; break;
+            case RichText document: document.Text = value; break;
+            default: control.Text = value; break;
+        }
+        return control;
+    }
 }
 public sealed class Stack : Element
 {
     internal Stack(Window window, ulong handle) : base(window, handle) { }
-    public void Add(Element child, float flex = 0)
+    public Stack Add(Element child, float flex = 0)
     {
         Window.Guard(); child.BelongsTo(Window); Window.Check(Native.StackAdd(Handle, child.Handle, flex));
+        return this;
     }
-    public void Spacing(float value) => Window.Update(new Property(this, PropertyKind.Spacing, A: value));
-    public void Padding(float value) => Window.Update(new Property(this, PropertyKind.Padding, A: value, B: value, C: value, D: value));
+    public Stack Spacing(float value) { Window.Update(new Property(this, PropertyKind.Spacing, A: value)); return this; }
+    public Stack Padding(float value) { Window.Update(new Property(this, PropertyKind.Padding, A: value, B: value, C: value, D: value)); return this; }
 }
 public abstract unsafe class Control : Element
 {
@@ -46,7 +77,6 @@ public abstract unsafe class Control : Element
         }
         set => Window.Update(new Property(this, PropertyKind.Text, value));
     }
-    public void Focus(bool selectAll = false) { Window.Guard(); Window.Check(Native.Focus(Handle, selectAll ? 1u : 0u)); }
     public event Action<UiEvent> Event
     {
         add { Window.SetSubscription(Handle, e => handlers?.Invoke(e)); handlers += value; }
@@ -77,6 +107,7 @@ public sealed class Toggle : Control
         remove { Window.Guard(); changed -= value; if (changed is null) Event -= OnEvent; }
     }
     public bool Checked { set => Window.Update(new Property(this, PropertyKind.Checked, Integer: value ? 1u : 0u)); }
+    public Toggle SetChecked(bool value) { Checked = value; return this; }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
 }
 public sealed class TextInput : Control
@@ -101,17 +132,19 @@ public sealed class ScrollView : Control
 {
     internal ScrollView(Window w, ulong h) : base(w, h) { }
     public float Offset { set => Window.Update(new Property(this, PropertyKind.ScrollOffset, A: value)); }
+    public ScrollView SetOffset(float value) { Offset = value; return this; }
 }
 public enum ImageStatus : uint { Empty, Loading, Ready, Error }
 public sealed unsafe class Image : Control
 {
     internal Image(Window w, ulong h) : base(w, h) { }
-    public void Source(string path, uint width = 192, uint height = 144)
+    public Image Source(string path, uint width = 192, uint height = 144)
     {
         Window.Guard(); var bytes = Window.Utf8(path);
         fixed (byte* p = bytes) Window.Check(Native.ImageSource(Handle, Window.Span(p, bytes), width, height));
+        return this;
     }
-    public void Unload() => Source("");
+    public Image Unload() => Source("");
     public ImageStatus Status
     {
         get { Window.Guard(); Window.Check(Native.ImageState(Handle, out uint value)); return (ImageStatus)value; }
@@ -121,7 +154,7 @@ public readonly record struct FileItem(ulong Id, string Name, string Path, bool 
 public sealed unsafe class FileList : Control
 {
     internal FileList(Window w, ulong h) : base(w, h) { }
-    public void SetItems(ReadOnlySpan<FileItem> items)
+    public FileList SetItems(ReadOnlySpan<FileItem> items)
     {
         Window.Guard();
         if (items.Length > 1000000) throw new ArgumentOutOfRangeException(nameof(items));
@@ -137,13 +170,15 @@ public sealed unsafe class FileList : Control
                 Path = pins.Text(items[i].Path)
             };
         fixed (Native.Item* p = rows) Window.Check(Native.ListItems(Handle, p, (uint)rows.Length));
+        return this;
     }
-    public void Filter(string query)
+    public FileList Filter(string query)
     {
         Window.Guard(); var bytes = Window.Utf8(query);
         fixed (byte* p = bytes) Window.Check(Native.ListFilter(Handle, Window.Span(p, bytes)));
+        return this;
     }
-    public void Select(uint? index) { Window.Guard(); Window.Check(Native.ListSelect(Handle, index ?? uint.MaxValue)); }
+    public FileList Select(uint? index) { Window.Guard(); Window.Check(Native.ListSelect(Handle, index ?? uint.MaxValue)); return this; }
     public (uint Count, ulong? SelectedId) State
     {
         get

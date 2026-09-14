@@ -13,30 +13,44 @@ internal static class FeatureDemo
     internal static void Run(bool fail)
     {
         using var w = new Window("XUI feature bindings", 700, 800);
-        var root = w.Stack(); root.Padding(16); root.Spacing(8);
+        var root = w
+            .Stack()
+            .Padding(16)
+            .Spacing(8);
         var status = w.Label("F6: dialog. Escape: cancel. F8: change range. F12: close.");
-        var combo = w.ComboBox("Presentation"); combo.SetItems([new(1,"List"),new(2,"Tiles")],1);
-        var range = w.RangeInput("Zoom"); range.Range = new(0,100); range.Value = 20;
+        var combo = w.ComboBox("Presentation")
+            .SetItems([new(1,"List"),new(2,"Tiles")],1);
+        var range = w.RangeInput("Zoom")
+            .SetRange(new(0,100))
+            .SetValue(20);
         var data = new Rows();
         var items = w.ItemsView("One million rows");
-        using (var source = w.ImmutableSource(data)) items.SetSource(source);
-        var map = w.MapView("Offline map"); map.SetView(new(47.6,-122.3),4); map.SetMarkers([new(1,new(47.6,-122.3),"Seattle")]); map.FixedSize(650,180);
+        using (var source = w.ImmutableSource(data)) items = items.SetSource(source);
+        var map = w.MapView("Offline map")
+            .SetView(new(47.6,-122.3),4)
+            .SetMarkers([new(1,new(47.6,-122.3),"Seattle")])
+            .FixedSize(650,180);
         var edit = w.Button("Edit document");
-        var form = w.Stack(); form.Spacing(8);
-        var document = w.MultilineText("Notes"); document.Text = "Authored text 😀"; document.FixedSize(390,80);
-        var color = w.ColorPicker("Accent"); color.Value = new(30,100,220);
-        form.Add(document); form.Add(color);
+        var document = w.MultilineText("Notes")
+            .SetText("Authored text 😀")
+            .FixedSize(390,80);
+        var color = w.ColorPicker("Accent")
+            .SetValue(new(30,100,220));
+        var form = w.Stack()
+            .Spacing(8)
+            .Add(document)
+            .Add(color);
         var dialog = w.ContentDialog("Document and color",form);
-        dialog.OnResult(accepted => status.Text = accepted ? "Accepted" : "Canceled");
+        dialog.OnResult(accepted => status.SetText(accepted ? "Accepted" : "Canceled"));
         edit.Click += () => dialog.Show(edit);
         range.Event += e =>
         {
             if (e.Kind != EventKind.Change) return;
             if (fail) throw new InvalidOperationException("Feature callback sentinel");
-            status.Text = $"Range: {range.Value}";
+            status.SetText($"Range: {range.Value}");
         };
-        combo.Event += e => items.Presentation = e.Value == 1 ? ItemsPresentation.List : ItemsPresentation.Tiles;
-        root.Add(status); root.Add(combo); root.Add(range); root.Add(edit); root.Add(map); root.Add(items,1); w.SetContent(root);
+        combo.Event += e => items.SetPresentation(e.Value == 1 ? ItemsPresentation.List : ItemsPresentation.Tiles);
+        w.SetContent(root.Add(status).Add(combo).Add(range).Add(edit).Add(map).Add(items,1));
         w.Key += e =>
         {
             switch (e.Value & 0xffff)

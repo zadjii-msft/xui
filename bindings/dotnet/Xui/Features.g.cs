@@ -40,9 +40,13 @@ public HistoryChart HistoryChart(string name) => new(this, FeatureCreate(44, nam
 public sealed unsafe partial class RangeInput : Control {
 internal RangeInput(Window w, ulong h) : base(w,h) { }
 public NumericRange Range { get { var v = Features.Get(this,1); return new(v.A,v.B,v.C,v.D); } set => Features.Set(this,1,a: value.Minimum, b: value.Maximum, c: value.SmallStep, d: value.LargeStep); }
+public RangeInput SetRange(NumericRange value) { Range = value; return this; }
 public double Value { get { var v = Features.Get(this,2); return v.A; } set => Features.Set(this,2,a: value); }
+public RangeInput SetValue(double value) { Value = value; return this; }
 public Axis Orientation { set => Features.Set(this,3,first: (uint)value); }
+public RangeInput SetOrientation(Axis value) { Orientation = value; return this; }
 public bool Reversed { set => Features.Set(this,4,first: value ? 1u : 0u); }
+public RangeInput SetReversed(bool value) { Reversed = value; return this; }
 }
 public sealed unsafe partial class RadioGroup : Control {
 internal RadioGroup(Window w, ulong h) : base(w,h) { }
@@ -53,17 +57,23 @@ internal ComboBox(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class NumericInput : Control {
 internal NumericInput(Window w, ulong h) : base(w,h) { }
 public NumericRange Range { get { var v = Features.Get(this,1); return new(v.A,v.B,v.C,v.D); } set => Features.Set(this,1,a: value.Minimum, b: value.Maximum, c: value.SmallStep, d: value.LargeStep); }
+public NumericInput SetRange(NumericRange value) { Range = value; return this; }
 public double Value { get { var v = Features.Get(this,2); return v.A; } set => Features.Set(this,2,a: value); }
+public NumericInput SetValue(double value) { Value = value; return this; }
 }
 public sealed unsafe partial class Expander : Control {
 internal Expander(Window w, ulong h) : base(w,h) { }
 public bool Expanded { get { var v = Features.Get(this,5); return v.First != 0; } set => Features.Set(this,5,first: value ? 1u : 0u); }
+public Expander SetExpanded(bool value) { Expanded = value; return this; }
 }
 public sealed unsafe partial class Progress : Control {
 internal Progress(Window w, ulong h) : base(w,h) { }
 public NumericRange Range { get { var v = Features.Get(this,1); return new(v.A,v.B,v.C,v.D); } set => Features.Set(this,1,a: value.Minimum, b: value.Maximum, c: value.SmallStep, d: value.LargeStep); }
+public Progress SetRange(NumericRange value) { Range = value; return this; }
 public double Value { get { var v = Features.Get(this,2); return v.A; } set => Features.Set(this,2,a: value); }
+public Progress SetValue(double value) { Value = value; return this; }
 public ProgressState State { get { var v = Features.Get(this,6); return (ProgressState)v.First; } set => Features.Set(this,6,first: (uint)value); }
+public Progress SetState(ProgressState value) { State = value; return this; }
 }
 public sealed unsafe partial class Popup : Control {
 internal Popup(Window w, ulong h) : base(w,h) { }
@@ -75,13 +85,17 @@ internal SplitButton(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class ItemsView : Control {
 internal ItemsView(Window w, ulong h) : base(w,h) { }
 public ItemsPresentation Presentation { set => Features.Set(this,28,first: (uint)value); }
+public ItemsView SetPresentation(ItemsPresentation value) { Presentation = value; return this; }
 public double Offset { set => Features.Set(this,29,a: value); }
+public ItemsView SetOffset(double value) { Offset = value; return this; }
 public void SelectAll() => Features.Action(this,15);
 }
 public sealed unsafe partial class TreeView : Control {
 internal TreeView(Window w, ulong h) : base(w,h) { }
 public ItemsPresentation Presentation { set => Features.Set(this,28,first: (uint)value); }
+public TreeView SetPresentation(ItemsPresentation value) { Presentation = value; return this; }
 public double Offset { set => Features.Set(this,29,a: value); }
+public TreeView SetOffset(double value) { Offset = value; return this; }
 public void SelectAll() => Features.Action(this,15);
 }
 public sealed unsafe partial class Grid : Element {
@@ -90,13 +104,18 @@ internal Grid(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class Wrap : Element {
 internal Wrap(Window w, ulong h) : base(w,h) { }
 public double ItemWidth { set => Features.Set(this,30,a: value); }
+public Wrap SetItemWidth(double value) { ItemWidth = value; return this; }
 }
 public sealed unsafe partial class AdaptiveLayout : Element {
 internal AdaptiveLayout(Window w, ulong h) : base(w,h) { }
 public double Breakpoint { set => Features.Set(this,31,a: value); }
+public AdaptiveLayout SetBreakpoint(double value) { Breakpoint = value; return this; }
 public double NavigationExtent { set => Features.Set(this,32,a: value); }
+public AdaptiveLayout SetNavigationExtent(double value) { NavigationExtent = value; return this; }
 public bool NavigationOpen { set => Features.Set(this,33,first: value ? 1u : 0u); }
+public AdaptiveLayout SetNavigationOpen(bool value) { NavigationOpen = value; return this; }
 public CompactNavigation CompactNavigation { set => Features.Set(this,34,first: (uint)value); }
+public AdaptiveLayout SetCompactNavigation(CompactNavigation value) { CompactNavigation = value; return this; }
 }
 public sealed unsafe partial class CommandBar : Control {
 internal CommandBar(Window w, ulong h) : base(w,h) { }
@@ -122,21 +141,31 @@ public void Dismiss() => Features.Action(this,5);
 public sealed unsafe partial class MultilineText : Control {
 internal MultilineText(Window w, ulong h) : base(w,h) { }
 public string Document { set => Features.Set(this,12,text: value); }
+public MultilineText SetDocument(string value) { Document = value; return this; }
 public bool ReadOnly { get { var v = Features.Get(this,13); return v.First != 0; } set => Features.Set(this,13,first: value ? 1u : 0u); }
+public MultilineText SetReadOnly(bool value) { ReadOnly = value; return this; }
 public ulong MaximumLength { set => Features.Set(this,14,first: value); }
+public MultilineText SetMaximumLength(ulong value) { MaximumLength = value; return this; }
 public TextSelection Selection { get { var v = Features.Get(this,15); return new(v.First,v.Second); } set => Features.Set(this,15,first: value.Start, second: value.End); }
+public MultilineText SetSelection(TextSelection value) { Selection = value; return this; }
 }
 public sealed unsafe partial class RichText : Control {
 internal RichText(Window w, ulong h) : base(w,h) { }
 public string Document { set => Features.Set(this,12,text: value); }
+public RichText SetDocument(string value) { Document = value; return this; }
 public bool ReadOnly { get { var v = Features.Get(this,13); return v.First != 0; } set => Features.Set(this,13,first: value ? 1u : 0u); }
+public RichText SetReadOnly(bool value) { ReadOnly = value; return this; }
 public ulong MaximumLength { set => Features.Set(this,14,first: value); }
+public RichText SetMaximumLength(ulong value) { MaximumLength = value; return this; }
 public TextSelection Selection { get { var v = Features.Get(this,15); return new(v.First,v.Second); } set => Features.Set(this,15,first: value.Start, second: value.End); }
+public RichText SetSelection(TextSelection value) { Selection = value; return this; }
 }
 public sealed unsafe partial class PasswordInput : Element {
 internal PasswordInput(Window w, ulong h) : base(w,h) { }
 public ulong MaximumLength { set => Features.Set(this,14,first: value); }
+public PasswordInput SetMaximumLength(ulong value) { MaximumLength = value; return this; }
 public bool RevealAllowed { set => Features.Set(this,17,first: value ? 1u : 0u); }
+public PasswordInput SetRevealAllowed(bool value) { RevealAllowed = value; return this; }
 }
 public sealed unsafe partial class DateTimePicker : Control {
 internal DateTimePicker(Window w, ulong h) : base(w,h) { }
@@ -144,12 +173,14 @@ internal DateTimePicker(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class InlineStatus : Control {
 internal InlineStatus(Window w, ulong h) : base(w,h) { }
 public bool Dismissible { set => Features.Set(this,21,first: value ? 1u : 0u); }
+public InlineStatus SetDismissible(bool value) { Dismissible = value; return this; }
 public void Dismiss() => Features.Action(this,5);
 public void Show() => Features.Action(this,6);
 }
 public sealed unsafe partial class ColorPicker : Control {
 internal ColorPicker(Window w, ulong h) : base(w,h) { }
 public RgbaColor Value { get { var v = Features.Get(this,19); return RgbaColor.FromPacked(v.First); } set => Features.Set(this,19,first: value.Packed); }
+public ColorPicker SetValue(RgbaColor value) { Value = value; return this; }
 }
 public sealed unsafe partial class ContentDialog : Element {
 internal ContentDialog(Window w, ulong h) : base(w,h) { }
@@ -165,6 +196,7 @@ internal MapView(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class MediaPlayback : Control {
 internal MediaPlayback(Window w, ulong h) : base(w,h) { }
 public double Volume { set => Features.Set(this,24,a: value); }
+public MediaPlayback SetVolume(double value) { Volume = value; return this; }
 public void Play() => Features.Action(this,9);
 public void Pause() => Features.Action(this,10);
 public void Stop() => Features.Action(this,11);
@@ -183,10 +215,12 @@ internal TabStrip(Window w, ulong h) : base(w,h) { }
 public sealed unsafe partial class SplitView : Control {
 internal SplitView(Window w, ulong h) : base(w,h) { }
 public double Ratio { set => Features.Set(this,35,a: value); }
+public SplitView SetRatio(double value) { Ratio = value; return this; }
 }
 public sealed unsafe partial class PageView : Element {
 internal PageView(Window w, ulong h) : base(w,h) { }
 public ulong SelectedPage { set => Features.Set(this,36,first: value); }
+public PageView SetSelectedPage(ulong value) { SelectedPage = value; return this; }
 }
 public sealed unsafe partial class DataGrid : Control {
 internal DataGrid(Window w, ulong h) : base(w,h) { }

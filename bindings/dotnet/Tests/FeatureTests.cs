@@ -37,6 +37,7 @@ internal static class FeatureTests
     }
     internal static void Run()
     {
+        FluentSetters();
         using (var w = new Window(customTitlebar: true))
         {
             var range = w.RangeInput("Range"); range.Range = new(-10, 10, .5, 2); range.Value = 2.5; Expect(range.Value == 2.5);
@@ -127,5 +128,75 @@ internal static class FeatureTests
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); Expect(!attached.IsAlive);
         }
         Console.WriteLine($"C# feature assertions: {assertions}; all 35 feature constructors; bounded million-row source.");
+    }
+    private static void FluentSetters()
+    {
+        using var w = new Window();
+        var map = w.MapView("Offline map")
+                        .SetView(new(47.6,-122.3),4)
+                        .SetMarkers([new(1,new(47.6,-122.3),"Seattle")])
+                        .FixedSize(650,180);
+        Expect(map.View == (new GeoPoint(47.6, -122.3), 4));
+        Expect(ReferenceEquals(map, map.SetView(new(47, -122), 3)));
+        Expect(ReferenceEquals(map, map.SetMarkers([])));
+        Expect(ReferenceEquals(map, map.FixedSize(650, 180)));
+        Expect(ReferenceEquals(map, map.MinimumSize(10, 10)));
+        Expect(ReferenceEquals(map, map.MaximumSize(900, 900)));
+        Expect(ReferenceEquals(map, map.PreferredSize(650, 180)));
+        Expect(ReferenceEquals(map, map.AutoSize(false)));
+        var resized = map.FixedSize(600, 160).Help("Map").TooltipDelay(500).Visible(true)
+            .SetName("Renamed map").SetAutomationId("fluent-map").SetEnabled(true)
+            .SetView(new(48, -123), 5).Pan(0, 0);
+        Expect(ReferenceEquals(map, resized) && resized.View.Zoom == 5);
+        Element element = map;
+        Control control = map;
+        Expect(ReferenceEquals(map, element.FixedSize(650, 180)));
+        Expect(ReferenceEquals(map, control.Help("Map")));
+        Fails(() => map.SetView(new(48, -123), double.NaN).SetView(new(0, 0), 1));
+        Fails(() => map.FixedSize(float.NaN, 180).SetView(new(0, 0), 1));
+        Expect(map.View.Zoom == 5);
+        try { map.SetMarkers(new MapMarker[257]).SetView(new(0, 0), 1); throw new Exception("Expected marker limit."); }
+        catch (ArgumentOutOfRangeException) { ++assertions; }
+        Expect(map.View.Zoom == 5);
+        Task.Run(() => Fails(() => map.FixedSize(100, 100))).GetAwaiter().GetResult();
+
+        var range = w.RangeInput("Range").FixedSize(120, 24).SetRange(new(0, 100))
+            .SetValue(20).SetOrientation(Axis.Horizontal).SetReversed(false);
+        Expect(range.Value == 20);
+        Expect(ReferenceEquals(range, range.SetRange(new(0, 50))));
+        Expect(ReferenceEquals(range, range.SetValue(25)));
+        Fails(() => range.SetValue(double.NaN));
+        Expect(range.Value == 25);
+        var combo = w.ComboBox("Choice").FixedSize(120, 24).SetItems([new(1, "One")], 1);
+        Expect(ReferenceEquals(combo, combo.SetItems([new(2, "Two")], 2).Select(2)));
+        var grid = w.Grid("Grid").FixedSize(120, 100).SetTracks([new GridTrack()], [new GridTrack()]);
+        Expect(ReferenceEquals(grid, grid.Add(w.Label("Cell"))));
+
+        var doc = w.MultilineText("Document").SetText("A😀Z").SetSelection(new(1, 3)).FixedSize(120, 60);
+        Expect(doc.Text == "A😀Z" && doc.Selection == new TextSelection(1, 3));
+        Expect(ReferenceEquals(doc, doc.SetDocument("Document")));
+        Control baseDoc = doc;
+        Expect(ReferenceEquals(doc, baseDoc.SetText("Base document")));
+        Expect(doc.Text == "Base document");
+        var rich = w.RichText("Rich").SetText("Rich document").SetSelection(new(0, 4));
+        Expect(rich.Text == "Rich document" && rich.Selection.End == 4);
+        Control baseRich = rich;
+        Expect(ReferenceEquals(rich, baseRich.SetText("Base rich")));
+        Expect(rich.Text == "Base rich");
+        Expect(ReferenceEquals(rich, rich.SetRuns([new("Bold", Bold: true)])));
+        Expect(rich.Text == "Bold");
+        var password = w.PasswordInput("Secret").FixedSize(120, 24).SetMaximumLength(32).SetPassword("secret");
+        Expect(ReferenceEquals(password, password.SetPassword("safe")));
+        password.WithPassword(bytes => Expect(bytes.SequenceEqual("safe"u8)));
+        var color = w.ColorPicker("Color").SetValue(new(1, 2, 3));
+        Expect(ReferenceEquals(color, color.SetValue(new(4, 5, 6))) && color.Value == new RgbaColor(4, 5, 6));
+        var date = w.DateTimePicker("Date").SetValue(new DateTime(2028, 2, 29));
+        Expect(date.Value.Day == 29 && ReferenceEquals(date, date.SetValue(new DateTime(2028, 3, 1))));
+
+        w.Dispose();
+        try { map.FixedSize(100, 100); throw new Exception("Expected disposed element."); }
+        catch (ObjectDisposedException) { ++assertions; }
+        try { range.SetValue(1); throw new Exception("Expected disposed element."); }
+        catch (ObjectDisposedException) { ++assertions; }
     }
 }

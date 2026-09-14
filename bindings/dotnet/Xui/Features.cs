@@ -123,16 +123,21 @@ public sealed unsafe partial class Window
 }
 public static class ControlFeatures
 {
-    public static void Help(this Control control, string text) => Features.Set(control, 7, text: text);
-    public static void TooltipDelay(this Control control, uint milliseconds) => Features.Set(control, 8, first: milliseconds);
-    public static void Visible(this Control control, bool visible) => Features.Set(control, 37, first: visible ? 1u : 0u);
-    public static void Behavior(this Button button, ButtonBehavior behavior) => Features.Set(button, 9, first: (uint)behavior);
+    public static T Help<T>(this T control, string text) where T : Control
+    { Features.Set(control, 7, text: text); return control; }
+    public static T TooltipDelay<T>(this T control, uint milliseconds) where T : Control
+    { Features.Set(control, 8, first: milliseconds); return control; }
+    public static T Visible<T>(this T control, bool visible) where T : Control
+    { Features.Set(control, 37, first: visible ? 1u : 0u); return control; }
+    public static Button Behavior(this Button button, ButtonBehavior behavior)
+    { Features.Set(button, 9, first: (uint)behavior); return button; }
     public static bool IsChecked(this Button button) => Features.Get(button, 10).First != 0;
-    public static void RepeatTiming(this Button button, uint delay, uint interval) => Features.Set(button, 11, first: delay, second: interval);
+    public static Button RepeatTiming(this Button button, uint delay, uint interval)
+    { Features.Set(button, 11, first: delay, second: interval); return button; }
 }
 public sealed partial class RangeInput
 {
-    public void ChangeValue(double value) => Features.Action(this, 2, BitConverter.DoubleToUInt64Bits(value));
+    public RangeInput ChangeValue(double value) { Features.Action(this, 2, BitConverter.DoubleToUInt64Bits(value)); return this; }
     public void OnChange(Action<double> callback)
     { ArgumentNullException.ThrowIfNull(callback); Event += e => { if (e.Kind == EventKind.Change) callback(BitConverter.UInt64BitsToDouble(e.Value)); }; }
 }
@@ -140,25 +145,25 @@ public sealed partial class NumericInput
 {
     public void OnChange(Action<double> callback)
     { ArgumentNullException.ThrowIfNull(callback); Event += e => { if (e.Kind == EventKind.Change) callback(BitConverter.UInt64BitsToDouble(e.Value)); }; }
-    public void ChangeValue(double value) => Features.Action(this, 2, BitConverter.DoubleToUInt64Bits(value));
+    public NumericInput ChangeValue(double value) { Features.Action(this, 2, BitConverter.DoubleToUInt64Bits(value)); return this; }
     public void Step(bool increase) => Features.Action(this, 3, increase ? 1u : 0u);
 }
 public sealed partial class RadioGroup
 {
-    public void SetItems(ReadOnlySpan<Choice> items, ulong? selected = null) => Features.Choices(this, items, selected);
-    public void Select(ulong id) => Features.Action(this, 1, id);
+    public RadioGroup SetItems(ReadOnlySpan<Choice> items, ulong? selected = null) { Features.Choices(this, items, selected); return this; }
+    public RadioGroup Select(ulong id) { Features.Action(this, 1, id); return this; }
 }
 public sealed partial class ComboBox
 {
-    public void SetItems(ReadOnlySpan<Choice> items, ulong? selected = null) => Features.Choices(this, items, selected);
-    public void Select(ulong id) => Features.Action(this, 1, id);
+    public ComboBox SetItems(ReadOnlySpan<Choice> items, ulong? selected = null) { Features.Choices(this, items, selected); return this; }
+    public ComboBox Select(ulong id) { Features.Action(this, 1, id); return this; }
 }
 public sealed partial class TabStrip
 {
-    public void SetTabs(ReadOnlySpan<Choice> items, ulong? selected = null) => Features.Choices(this, items, selected);
-    public void Select(ulong id) => Features.Action(this, 1, id);
+    public TabStrip SetTabs(ReadOnlySpan<Choice> items, ulong? selected = null) { Features.Choices(this, items, selected); return this; }
+    public TabStrip Select(ulong id) { Features.Action(this, 1, id); return this; }
 }
-public sealed partial class Breadcrumb { public void SetSegments(ReadOnlySpan<Choice> segments) => Features.Choices(this, segments, null); }
+public sealed partial class Breadcrumb { public Breadcrumb SetSegments(ReadOnlySpan<Choice> segments) { Features.Choices(this, segments, null); return this; } }
 public sealed partial class SplitButton
 {
     private Button? primary, secondary;
@@ -169,10 +174,11 @@ public sealed partial class Popup { public void Show(Control anchor) => Features
 public sealed partial class ContentDialog
 {
     private Button? primary, cancel;
-    public void SetValidationMessage(string message)
+    public ContentDialog SetValidationMessage(string message)
     {
         Window.Guard(); using var pins = new Window.Pins();
         Window.Check(Native.DialogValidation(Handle, pins.Text(message)));
+        return this;
     }
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public Button Primary => primary ??= new(Window, Features.Child(this, 0));
@@ -198,16 +204,16 @@ public sealed partial class ViewPicker
 public sealed partial class CommandSurface
 {
     public void Show(Control anchor) => Features.Popup(this, anchor);
-    public void SetCommands(ReadOnlySpan<Command> commands) => Features.Commands(this, commands);
+    public CommandSurface SetCommands(ReadOnlySpan<Command> commands) { Features.Commands(this, commands); return this; }
     public void OnCommand(Action<ulong, bool> action) => Window.SetSubscription(Handle, e => action(e.Value, (uint)e.Kind == 9));
     public void Invoke(ulong id, bool pin = false) => Features.InvokeCommand(this, id, pin);
-    public void Bind(ulong id, uint virtualKey, KeyModifiers modifiers) => Features.BindCommand(this, id, virtualKey, modifiers);
+    public CommandSurface Bind(ulong id, uint virtualKey, KeyModifiers modifiers) { Features.BindCommand(this, id, virtualKey, modifiers); return this; }
 }
 public sealed partial class CommandBar
 {
-    public void SetCommands(ReadOnlySpan<Command> commands) => Features.Commands(this, commands);
+    public CommandBar SetCommands(ReadOnlySpan<Command> commands) { Features.Commands(this, commands); return this; }
     public void Invoke(ulong id, bool pin = false) => Features.InvokeCommand(this, id, pin);
-    public void Bind(ulong id, uint virtualKey, KeyModifiers modifiers) => Features.BindCommand(this, id, virtualKey, modifiers);
+    public CommandBar Bind(ulong id, uint virtualKey, KeyModifiers modifiers) { Features.BindCommand(this, id, virtualKey, modifiers); return this; }
 }
 public sealed partial class MultilineText
 {
@@ -218,7 +224,7 @@ public sealed unsafe partial class RichText
 {
     public new string Text { get => base.Text; set => Document = value; }
     public void Command(TextCommand command) => Features.Action(this, 4, (uint)command);
-    public void SetRuns(ReadOnlySpan<TextRun> runs)
+    public RichText SetRuns(ReadOnlySpan<TextRun> runs)
     {
         Window.Guard(); if (runs.Length > 4096) throw new ArgumentOutOfRangeException(nameof(runs));
         using var pins = new Window.Pins(); var values = new Native.TextRun[runs.Length];
@@ -226,6 +232,7 @@ public sealed unsafe partial class RichText
             Text = pins.Text(runs[i].Text), Link = pins.Text(runs[i].Link),
             Flags = (runs[i].Bold ? 1u : 0u) | (runs[i].Italic ? 2u : 0u) | (runs[i].Underline ? 4u : 0u) };
         fixed (Native.TextRun* p = values) Window.Check(Native.RichRuns(Handle, p, (uint)values.Length));
+        return this;
     }
 }
 public delegate void PasswordReceiver(ReadOnlySpan<byte> utf8);
@@ -234,7 +241,7 @@ public sealed unsafe partial class PasswordInput
     public ulong Length => Features.Get(this, 16).First;
     public void OnChange(Action callback)
     { ArgumentNullException.ThrowIfNull(callback); Window.SetSubscription(Handle, _ => callback()); }
-    public void SetPassword(ReadOnlySpan<char> password)
+    public PasswordInput SetPassword(ReadOnlySpan<char> password)
     {
         Window.Guard();
         if (password.Length > 4096 || password.Contains('\0')) throw new ArgumentException("Invalid password length or NUL.", nameof(password));
@@ -245,6 +252,7 @@ public sealed unsafe partial class PasswordInput
             fixed (byte* p = bytes) { var v = Features.Value(); v.Text = Window.Span(p, bytes); Window.Check(Native.FeatureSet(Handle, 16, &v)); }
         }
         finally { CryptographicOperations.ZeroMemory(bytes); }
+        return this;
     }
     private sealed record SecretCall(Window Window, PasswordReceiver Receiver);
     public void WithPassword(PasswordReceiver receiver)
@@ -271,6 +279,7 @@ public sealed unsafe partial class PasswordInput
 }
 public sealed partial class DateTimePicker
 {
+    public DateTimePicker SetValue(DateTime value) { Value = value; return this; }
     public DateTime Value
     {
         get { var v = Features.Get(this, 18); return new((int)(v.First / 10000), (int)(v.First / 100 % 100), (int)(v.First % 100),
@@ -284,24 +293,25 @@ public sealed partial class DateTimePicker
     }
 }
 public sealed partial class InlineStatus
-{ public void SetMessage(string message, StatusSeverity severity = StatusSeverity.Information) => Features.Set(this, 20, text: message, first: (uint)severity); }
+{ public InlineStatus SetMessage(string message, StatusSeverity severity = StatusSeverity.Information) { Features.Set(this, 20, text: message, first: (uint)severity); return this; } }
 public sealed partial class MediaPlayback
 {
     public HostState State => (HostState)Features.Get(this, 38).First;
-    public void LoadLocal(string path) => Features.Set(this, 23, text: path);
-    public void Seek(double seconds) => Features.Set(this, 40, a: seconds);
+    public MediaPlayback LoadLocal(string path) { Features.Set(this, 23, text: path); return this; }
+    public MediaPlayback Seek(double seconds) { Features.Set(this, 40, a: seconds); return this; }
 }
 public sealed unsafe partial class WebContent
 {
     public HostState State => (HostState)Features.Get(this, 38).First;
-    public void SetHtml(string html) => Features.Set(this, 25, text: html);
-    public void SetProfileRoot(string path) => Features.Set(this, 26, text: path);
-    public void SetAllowedOrigins(ReadOnlySpan<string> origins)
+    public WebContent SetHtml(string html) { Features.Set(this, 25, text: html); return this; }
+    public WebContent SetProfileRoot(string path) { Features.Set(this, 26, text: path); return this; }
+    public WebContent SetAllowedOrigins(ReadOnlySpan<string> origins)
     {
         Window.Guard(); if (origins.Length > 16) throw new ArgumentOutOfRangeException(nameof(origins));
         using var pins = new Window.Pins(); var values = new Native.Text[origins.Length];
         for (int i = 0; i < origins.Length; ++i) values[i] = pins.Text(origins[i]);
         fixed (Native.Text* p = values) Window.Check(Native.WebOrigins(Handle, p, (uint)values.Length));
+        return this;
     }
     public void Navigate(string uri)
     {
@@ -332,13 +342,13 @@ public sealed unsafe class WebEvaluation : IDisposable
     }
     public void Dispose() { if (handle == 0) return; if (window.Handle != 0) { window.Guard(); window.Check(Native.RequestCancel(handle)); } handle = 0; }
 }
-public sealed partial class HistoryChart { public void Append(double value) => Features.Set(this, 2, a: value); }
-public sealed partial class Wrap { public void Add(Element child) => Features.Add(this, child); }
-public sealed partial class PageView { public void Add(Element child) => Features.Add(this, child); }
+public sealed partial class HistoryChart { public void Append(double value) => Features.Set(this,2, a: value); }
+public sealed partial class Wrap { public Wrap Add(Element child) { Features.Add(this, child); return this; } }
+public sealed partial class PageView { public PageView Add(Element child) { Features.Add(this, child); return this; } }
 public sealed unsafe partial class Grid
 {
-    public void Add(Element child, uint row = 0, uint column = 0, uint rowSpan = 1, uint columnSpan = 1) => Features.Add(this, child, row, column, rowSpan, columnSpan);
-    public void SetTracks(ReadOnlySpan<GridTrack> rows, ReadOnlySpan<GridTrack> columns)
+    public Grid Add(Element child, uint row = 0, uint column = 0, uint rowSpan = 1, uint columnSpan = 1) { Features.Add(this, child, row, column, rowSpan, columnSpan); return this; }
+    public Grid SetTracks(ReadOnlySpan<GridTrack> rows, ReadOnlySpan<GridTrack> columns)
     {
         Window.Guard();
         static Native.GridTrack[] Convert(ReadOnlySpan<GridTrack> tracks)
@@ -351,53 +361,55 @@ public sealed unsafe partial class Grid
         }
         var r = Convert(rows); var c = Convert(columns);
         fixed (Native.GridTrack* rp = r, cp = c) Window.Check(Native.GridTracks(Handle, rp, (uint)r.Length, cp, (uint)c.Length));
+        return this;
     }
 }
 public sealed unsafe partial class DataGrid
 {
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
-    public void SetFilter(uint sourceColumn, string query)
-    { Window.Guard(); using var pins = new Window.Pins(); Window.Check(Native.GridFilter(Handle, sourceColumn, pins.Text(query))); }
-    public void SetSort(uint sourceColumn, bool descending)
-    { Window.Guard(); Window.Check(Native.GridSort(Handle, sourceColumn, descending ? 1u : 0u)); }
-    public void SetChecked(ItemKey key, bool value)
-    { Window.Guard(); Window.Check(Native.GridCheck(Handle, key.Id, key.Version, value ? 1u : 0u)); }
-    public void SetSource(ImmutableSource source) => Features.Source(this, source);
-    public void Select(ItemKey key) => Features.Action(this, 1, key.Id, key.Version);
-    public void SetColumns(ReadOnlySpan<GridColumn> columns)
+    public DataGrid SetFilter(uint sourceColumn, string query)
+    { Window.Guard(); using var pins = new Window.Pins(); Window.Check(Native.GridFilter(Handle, sourceColumn, pins.Text(query))); return this; }
+    public DataGrid SetSort(uint sourceColumn, bool descending)
+    { Window.Guard(); Window.Check(Native.GridSort(Handle, sourceColumn, descending ? 1u : 0u)); return this; }
+    public DataGrid SetChecked(ItemKey key, bool value)
+    { Window.Guard(); Window.Check(Native.GridCheck(Handle, key.Id, key.Version, value ? 1u : 0u)); return this; }
+    public DataGrid SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
+    public DataGrid Select(ItemKey key) { Features.Action(this, 1, key.Id, key.Version); return this; }
+    public DataGrid SetColumns(ReadOnlySpan<GridColumn> columns)
     {
         Window.Guard(); if (columns.Length > 256) throw new ArgumentOutOfRangeException(nameof(columns));
         using var pins = new Window.Pins(); var values = new Native.Column[columns.Length];
         for (int i = 0; i < values.Length; ++i) values[i] = new() { Size = (uint)sizeof(Native.Column), Name = pins.Text(columns[i].Name), Width = columns[i].Width,
             Flags = (columns[i].Numeric ? 1u : 0u) | (columns[i].Filterable ? 2u : 0u) | (columns[i].Checkable ? 4u : 0u) };
         fixed (Native.Column* p = values) Window.Check(Native.GridColumns(Handle, p, (uint)values.Length));
+        return this;
     }
-    public void SetColumnWidth(uint column, float width) { Window.Guard(); Window.Check(Native.GridColumnWidth(Handle, column, width)); }
-    public void SetColumnOrder(ReadOnlySpan<uint> order)
-    { Window.Guard(); if (order.Length > 256) throw new ArgumentOutOfRangeException(nameof(order)); fixed (uint* p = order) Window.Check(Native.GridColumnOrder(Handle, p, (uint)order.Length)); }
+    public DataGrid SetColumnWidth(uint column, float width) { Window.Guard(); Window.Check(Native.GridColumnWidth(Handle, column, width)); return this; }
+    public DataGrid SetColumnOrder(ReadOnlySpan<uint> order)
+    { Window.Guard(); if (order.Length > 256) throw new ArgumentOutOfRangeException(nameof(order)); fixed (uint* p = order) Window.Check(Native.GridColumnOrder(Handle, p, (uint)order.Length)); return this; }
 }
 public sealed partial class ItemsView
 {
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
-    public void SetSource(ImmutableSource source) => Features.Source(this, source);
-    public void Select(ItemKey key) => Features.Action(this, 1, key.Id, key.Version);
-    public void ItemSize(double width, double height) => Features.Set(this, 27, a: width, b: height);
+    public ItemsView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
+    public ItemsView Select(ItemKey key) { Features.Action(this, 1, key.Id, key.Version); return this; }
+    public ItemsView ItemSize(double width, double height) { Features.Set(this, 27, a: width, b: height); return this; }
 }
 public sealed partial class NavigationPane
 {
     private ItemsView? items;
-    public void SetSource(ImmutableSource source) => Features.Source(this, source);
+    public NavigationPane SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
     public ItemsView Items => items ??= new(Window, Features.Child(this, 0));
 }
 public sealed unsafe partial class TreeView
 {
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
-    public void SetSource(ImmutableSource source) => Features.Source(this, source);
-    public void Expand(ItemKey key, bool expanded = true)
-    { Window.Guard(); Window.Check(Native.TreeExpand(Handle, key.Id, key.Version, expanded ? 1u : 0u)); }
+    public TreeView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
+    public TreeView Expand(ItemKey key, bool expanded = true)
+    { Window.Guard(); Window.Check(Native.TreeExpand(Handle, key.Id, key.Version, expanded ? 1u : 0u)); return this; }
     public void OnRequest(Action<TreeRequest> callback)
     { ArgumentNullException.ThrowIfNull(callback); Event += e => { if ((uint)e.Kind == 11) callback(new(this, e.Value)); }; }
 }
@@ -512,9 +524,9 @@ public sealed unsafe partial class Window
 }
 public sealed unsafe partial class MapView
 {
-    public void SetView(GeoPoint center, double zoom) => Features.Set(this, 22, a: center.Latitude, b: center.Longitude, c: zoom);
+    public MapView SetView(GeoPoint center, double zoom) { Features.Set(this, 22, a: center.Latitude, b: center.Longitude, c: zoom); return this; }
     public (GeoPoint Center, double Zoom) View { get { var v = Features.Get(this, 22); return (new(v.A, v.B), v.C); } }
-    public void Pan(double x, double y) => Features.Set(this, 39, a: x, b: y);
+    public MapView Pan(double x, double y) { Features.Set(this, 39, a: x, b: y); return this; }
     internal Native.MapMarker[] Markers(ReadOnlySpan<MapMarker> markers, Window.Pins pins)
     {
         Window.Guard(); if (markers.Length > 256) throw new ArgumentOutOfRangeException(nameof(markers));
@@ -523,10 +535,11 @@ public sealed unsafe partial class MapView
             Latitude = markers[i].Location.Latitude, Longitude = markers[i].Location.Longitude, Name = pins.Text(markers[i].Name) };
         return values;
     }
-    public void SetMarkers(ReadOnlySpan<MapMarker> markers)
+    public MapView SetMarkers(ReadOnlySpan<MapMarker> markers)
     {
         using var pins = new Window.Pins(); var values = Markers(markers, pins);
         fixed (Native.MapMarker* p = values) Window.Check(Native.MapMarkers(Handle, p, (uint)values.Length));
+        return this;
     }
     public MapRequest RequestOverlay()
     { Window.Guard(); ulong token; Window.Check(Native.MapRequest(Handle, &token)); return new(this, token); }
@@ -547,7 +560,7 @@ public sealed unsafe class MapRequest : IDisposable
 }
 public sealed unsafe partial class VectorCanvas
 {
-    public void SetScene(IReadOnlyList<VectorShape> shapes)
+    public VectorCanvas SetScene(IReadOnlyList<VectorShape> shapes)
     {
         Window.Guard(); ArgumentNullException.ThrowIfNull(shapes);
         if (shapes.Count > 4096) throw new ArgumentOutOfRangeException(nameof(shapes));
@@ -573,5 +586,6 @@ public sealed unsafe partial class VectorCanvas
             fixed (Native.Shape* p = values) Window.Check(Native.CanvasScene(Handle, p, (uint)values.Length));
         }
         finally { foreach (var pin in pointPins) pin.Free(); }
+        return this;
     }
 }

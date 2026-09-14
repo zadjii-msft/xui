@@ -165,6 +165,7 @@ for name, kind, category in manifest["controls"]:
             rg = f"{rt}::from_native(v.first)?"
         gs = f"get {{ var v = Features.Get(this,{prop}); return {cg}; }} " if getter else ""
         cs.append(f"public {ct} {member} {{ {gs}set => Features.Set(this,{prop},{cexpr}); }}")
+        cs.append(f"public {name} Set{member}({ct} value) {{ {member} = value; return this; }}")
         rs.append(f"impl {name} {{ pub fn set_{snake(member)}(&self, value: {rt}) -> Result<()> {{ self.0.feature_set({prop}, sys::FeatureValue {{ {rexpr}, ..value_record() }}) }} }}")
         if getter:
             result = rg[:-1] if rg.endswith("?") else f"Ok({rg})"

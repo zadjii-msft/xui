@@ -94,14 +94,15 @@ public sealed unsafe partial class Window : IDisposable
     public ScrollView ScrollView(Element content, string name) => new(this, Create(7, name, content));
     public Image Image(string name) => new(this, Create(8, name));
     public FileList FileList(string name) => new(this, Create(9, name));
-    public void SetContent(Stack root) { Guard(); root.BelongsTo(this); Check(Native.Content(Handle, root.Handle)); }
-    public void SetTheme(Theme theme)
+    public Window SetContent(Stack root) { Guard(); root.BelongsTo(this); Check(Native.Content(Handle, root.Handle)); return this; }
+    public Window SetTheme(Theme theme)
     {
         Guard();
         var p = new Native.Property { Size = (uint)sizeof(Native.Property), Kind = 13, Target = Handle, Integer = (uint)theme };
         Check(Native.Update(Handle, &p, 1));
+        return this;
     }
-    public void Update(params ReadOnlySpan<Property> properties)
+    public Window Update(params ReadOnlySpan<Property> properties)
     {
         Guard();
         if (properties.Length > 4096) throw new ArgumentOutOfRangeException(nameof(properties));
@@ -124,6 +125,7 @@ public sealed unsafe partial class Window : IDisposable
             };
         }
         fixed (Native.Property* p = native) Check(Native.Update(Handle, p, (uint)native.Length));
+        return this;
     }
     public event Action<UiEvent> Key
     {
