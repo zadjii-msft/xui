@@ -1,0 +1,7 @@
+.gitignore
+.vscodeignore
+node_modules/**
+dist/**
+test/**
+scripts/**
+package-lock.json

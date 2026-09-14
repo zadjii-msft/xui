@@ -1,0 +1,70 @@
+{
+  "name": "xui",
+  "displayName": "XUI Syntax",
+  "description": "Syntax highlighting and snippets for the XUI declarative UI language.",
+  "version": "0.1.0",
+  "publisher": "zadjii-msft",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=22"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "xui",
+    "declarative",
+    "csharp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zadjii-msft/xui.git",
+    "directory": "integrations/vscode-xui"
+  },
+  "scripts": {
+    "pretest": "node scripts/fetch-test-grammar.mjs",
+    "test": "node --test test/*.test.mjs",
+    "package": "npm test && node scripts/package.mjs && npm run check:package",
+    "check:package": "node scripts/check-package.mjs"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "xui",
+        "aliases": [
+          "XUI",
+          "xui"
+        ],
+        "extensions": [
+          ".xui"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xui",
+        "scopeName": "source.xui",
+        "path": "./syntaxes/xui.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.csharp": "csharp",
+          "meta.embedded.expression.csharp": "csharp"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "xui",
+        "path": "./snippets/xui.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.0.0",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2",
+    "yauzl": "3.4.0"
+  }
+}
