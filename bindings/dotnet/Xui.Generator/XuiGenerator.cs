@@ -37,13 +37,19 @@ public sealed class XuiGenerator : IIncrementalGenerator
             }
             try
             {
-                var component = new Parser(file.Text.ToString()).Parse();
+                var parser = new Parser(file.Text.ToString());
+                var component = parser.Parse();
                 var emitter = new Emitter(component, file.Path, file.Text);
+                var generated = emitter.Emit();
+                // Keep recoverable declarations: deleting them makes dotnet watch restart
+                // before displaying generator errors. Error diagnostics still block emission.
+                foreach (var error in parser.Errors.Concat(emitter.Errors)) Report(error);
                 string identity = component.Namespace + "." + component.Name;
                 string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
-                output.AddSource(identity.Replace("@", "") + "." + suffix + ".g.cs", emitter.Emit());
+                output.AddSource(identity.Replace("@", "") + "." + suffix + ".g.cs", generated);
             }
-            catch (ParseError error)
+            catch (ParseError error) { Report(error); }
+            void Report(ParseError error)
             {
                 int offset = Math.Clamp(error.Offset, 0, file.Text.Length);
                 var span = new TextSpan(offset, offset < file.Text.Length ? 1 : 0);
@@ -56,6 +62,7 @@ public sealed class XuiGenerator : IIncrementalGenerator
 
 internal sealed class Emitter(Component component, string path, SourceText source)
 {
+    internal List<ParseError> Errors { get; } = [];
     private readonly StringBuilder output = new();
     private readonly List<Node> nodes = [];
     private readonly List<Binding> bindings = [];
@@ -83,11 +90,11 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
                 .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
             if (methods.Any(identifiers.Contains))
-                throw new ParseError("View expressions cannot call component methods. Use state directly; computed dependencies must be explicit.", value.Offset);
+                Errors.Add(new ParseError("View expressions cannot call component methods. Use state directly; computed dependencies must be explicit.", value.Offset));
             if (expression.DescendantNodesAndSelf().Any(n => n is AssignmentExpressionSyntax or AnonymousFunctionExpressionSyntax or AwaitExpressionSyntax ||
                 n.IsKind(SyntaxKind.PreIncrementExpression) || n.IsKind(SyntaxKind.PreDecrementExpression) ||
                 n.IsKind(SyntaxKind.PostIncrementExpression) || n.IsKind(SyntaxKind.PostDecrementExpression)))
-                throw new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset);
+                Errors.Add(new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset));
             bindings.Add(new($"__xuiB{index}_{name}", index, type, setter, value,
                 component.States.Where(s => identifiers.Contains(s.Name.TrimStart('@'))).Select(s => s.Name).ToArray()));
         }

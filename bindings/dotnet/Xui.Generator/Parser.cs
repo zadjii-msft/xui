@@ -17,6 +17,7 @@ internal sealed class ParseError(string message, int offset) : Exception(message
 internal sealed class Parser(string text)
 {
     private int position;
+    internal List<ParseError> Errors { get; } = [];
     private SyntaxToken Peek() => SyntaxFactory.ParseToken(text, position);
     private bool Is(string value) => Peek().Text == value;
     private SyntaxToken Take()
@@ -42,7 +43,7 @@ internal sealed class Parser(string text)
     private void Check(SyntaxNode node, int start)
     {
         var error = node.GetDiagnostics().FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
-        if (error is not null) throw new ParseError(error.GetMessage(), start + error.Location.SourceSpan.Start);
+        if (error is not null) Errors.Add(new ParseError(error.GetMessage(), start + error.Location.SourceSpan.Start));
     }
     internal Component Parse()
     {
@@ -110,7 +111,7 @@ internal sealed class Parser(string text)
                 var cls = (ClassDeclarationSyntax)wrapper.Members[0];
                 var error = wrapper.GetDiagnostics().FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
                 if (error is not null)
-                    throw new ParseError(error.GetMessage(), contentStart + Math.Max(0, error.Location.SourceSpan.Start - 9));
+                    Errors.Add(new ParseError(error.GetMessage(), contentStart + Math.Max(0, error.Location.SourceSpan.Start - 9)));
                 if (cls.Members.Any(m => m is not MethodDeclarationSyntax))
                     throw new ParseError("code csharp supports method declarations only; declare persistent fields with state.", contentStart);
                 hasCode = true;
@@ -155,7 +156,7 @@ internal sealed class Parser(string text)
                 if (stack || arguments.Count != 0) throw new ParseError("Only the first control argument may be positional.", argStart);
                 key = "value";
             }
-            if (!allowed.Contains(key)) throw new ParseError($"Unsupported property '{key}' on {kind}.", argStart);
+            if (!allowed.Contains(key)) Errors.Add(new ParseError($"Unsupported property '{key}' on {kind}.", argStart));
             if (arguments.ContainsKey(key)) throw new ParseError($"Duplicate property '{key}'.", argStart);
             int expressionStart = position;
             var expression = SyntaxFactory.ParseExpression(text, position, consumeFullText: false);

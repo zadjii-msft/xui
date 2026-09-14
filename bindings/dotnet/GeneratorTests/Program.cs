@@ -180,6 +180,16 @@ internal static class Program
         var second = new File(@"C:\fixture\Second.xui", "component Second { view { VStack() { Text(\"Second\"); } } }");
         var (driver, _) = Generate(first, second);
         var initial = driver.GetRunResult().Results.Single().GeneratedSources;
+        var badProperty = new File(first.Path, Counter.Replace("spacing: 8", "spacing: 8, unknownArgument: 1"));
+        var invalidDriver = driver.ReplaceAdditionalText(first, badProperty).RunGenerators(Empty());
+        Assert(invalidDriver.GetRunResult().Diagnostics.Any(d => d.Id == "XUI001"), "Recoverable invalid property blocks compilation");
+        Assert(invalidDriver.GetRunResult().Results.Single().GeneratedSources.Length == initial.Length,
+            "Recoverable invalid property does not delete generated component during watch");
+        var invalidBody = new File(first.Path, Counter.Replace("Count++;", "Count += ;"));
+        var invalidBodyDriver = driver.ReplaceAdditionalText(first, invalidBody).RunGenerators(Empty());
+        Assert(invalidBodyDriver.GetRunResult().Diagnostics.Any(d => d.Id == "XUI001"), "Recoverable C# syntax error diagnosed");
+        Assert(invalidBodyDriver.GetRunResult().Results.Single().GeneratedSources.Length == initial.Length,
+            "Recoverable C# error retains component declarations");
         var changed = new File(first.Path, Counter.Replace("spacing: 8", "spacing: 12"));
         driver = driver.ReplaceAdditionalText(first, changed).RunGenerators(Empty());
         var edited = driver.GetRunResult().Results.Single().GeneratedSources;
