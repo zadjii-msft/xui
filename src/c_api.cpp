@@ -104,6 +104,8 @@ struct Node {
     bool attached{};
     xui_key_handler key_handler{};
     void* key_context{};
+    xui_navigation_handler navigation_handler{};
+    void* navigation_context{};
     xui_callback menu_callback{};
     void* menu_context{};
     bool menu_requesting{};
@@ -162,6 +164,15 @@ bool feature_key(const std::shared_ptr<Node>& n, const xui::KeyEvent& e);
 void callback_result(const std::shared_ptr<State>& state) {
     require(!state->callback_failure, XUI_CALLBACK_FAILED, "A foreign callback failed. The window was closed.");
 }
+xui_handle event_target(const std::shared_ptr<State>& owner, const xui::Control* target) {
+    if (!target) return 0;
+    std::lock_guard lock(registry_mutex);
+    for (auto h : owner->handles) {
+        const auto child = registry.find(h);
+        if (child != registry.end() && child->second->element.get() == target) return h;
+    }
+    return 0;
+}
 void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0) noexcept {
     auto n = weak.lock();
     if (!n || !n->callback || n->owner->closed || n->owner->callback_failure) return;
@@ -183,14 +194,7 @@ void wire(const std::shared_ptr<Node>& n) {
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
             if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
-                xui_handle target{};
-                {
-                    std::lock_guard lock(registry_mutex);
-                    for (auto h : node->owner->handles) {
-                        const auto child = registry.find(h);
-                        if (child != registry.end() && child->second->element.get() == e.target) { target = h; break; }
-                    }
-                }
+                const auto target = event_target(node->owner, e.target);
                 const xui_key_event event{sizeof(xui_key_event), static_cast<uint32_t>(e.key),
                     uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, 0, target};
                 uint32_t handled{};

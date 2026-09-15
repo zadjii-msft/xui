@@ -32,8 +32,10 @@ enum {
     XUI_A_SELECT = 1, XUI_A_CHANGE_VALUE, XUI_A_STEP, XUI_A_TEXT_COMMAND,
     XUI_A_DISMISS, XUI_A_SHOW, XUI_A_ACCEPT, XUI_A_CANCEL, XUI_A_PLAY,
     XUI_A_PAUSE, XUI_A_STOP, XUI_A_UNLOAD, XUI_A_RELOAD, XUI_A_FOCUS,
-    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP
+    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP, XUI_A_GRID_NAVIGATE
 };
+/* GRID_NAVIGATE: first = previous/next/page previous/page next/first/last (0..5),
+   second = control (1) | shift (2). Moves selection without moving input focus. */
 typedef struct xui_navigation_entry {
     uint32_t size, flags; /* disabled=1, not-selectable=2, collapsed=4 */
     uint64_t id, parent;
@@ -51,12 +53,20 @@ typedef struct xui_key_event {
     xui_handle target;
 } xui_key_event;
 typedef xui_status (XUI_CALL *xui_key_handler)(void*, const xui_key_event*, uint32_t*);
+typedef struct xui_navigation_event {
+    uint32_t size, direction, has_position, reserved; /* back=0, forward=1 */
+    xui_handle target;
+    float x, y; /* Window-local DIPs: pointer position or source control center. */
+} xui_navigation_event;
+typedef xui_status (XUI_CALL *xui_navigation_handler)(void*, const xui_navigation_event*, uint32_t*);
 typedef xui_status (XUI_CALL *xui_post_callback)(void*, uint32_t);
 XUI_API xui_status XUI_CALL xui_navigation_items(xui_handle target,
     const xui_navigation_entry* items, uint32_t count) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_title(xui_handle window, xui_string title) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_key_handler(xui_handle window,
     xui_key_handler callback, void* context) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_navigation_handler(xui_handle window,
+    xui_navigation_handler callback, void* context) XUI_NOEXCEPT;
 /* The only cross-thread window operation. On success callback runs exactly once:
    execute=1 on the UI thread, or execute=0 when discarded. Rejection does not call it.
    Callbacks must not throw. Close rejects further posts with XUI_CLOSED. */

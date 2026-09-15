@@ -56,6 +56,7 @@ internal sealed class ExplorerApplication : IDisposable
         Window.SetTitlebarLayout(Left.Root, Right.Root);
         Commands = CreateCommands();
         Window.KeyHandler = HandleKey;
+        Window.NavigationHandler = HandleNavigation;
         Sidebar.Refresh();
         UpdateTitle();
     }
@@ -213,11 +214,31 @@ internal sealed class ExplorerApplication : IDisposable
         new("Close window", "Alt+F4", Window.Close)
     ];
 
+    private bool HandleNavigation(UiNavigationEvent navigation)
+    {
+        if (Palettes.IsOpen) return true;
+        var pane = Active;
+        if (navigation.Position is { } point)
+        {
+            if (split.Expanded && (Contains(Right.Root.GetBounds(), point) || Contains(Right.Tabs.GetBounds(), point))) pane = Right;
+            else if (Contains(Left.Root.GetBounds(), point) || Contains(Left.Tabs.GetBounds(), point)) pane = Left;
+        }
+        if (ReferenceEquals(pane, Right) && !split.Expanded) pane = Left;
+        Activate(pane);
+        pane.MoveHistory(navigation.Direction == NavigationDirection.Back ? -1 : 1);
+        return true;
+
+        static bool Contains(ElementBounds bounds, NavigationPoint point) =>
+            point.X >= bounds.X && point.X < bounds.X + bounds.Width &&
+            point.Y >= bounds.Y && point.Y < bounds.Y + bounds.Height;
+    }
+
     private bool HandleKey(UiKeyEvent key)
     {
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
+        if (Active.HandleFindKey(key)) return true;
         if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x50)
         {
             Palettes.ShowCommands(); return true;

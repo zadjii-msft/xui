@@ -1102,6 +1102,11 @@ int main(int argc, char** argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--resources") { resource_lifecycle(true); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--split-resources") { resource_lifecycle(false, false, true); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--navigation-input") {
+            navigation_input();
+            std::cout << "Mouse and application-command navigation tests passed\n";
+            return 0;
+        }
         text_presentation();
         window_lifecycle();
         retained_page_resources();

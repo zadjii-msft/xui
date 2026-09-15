@@ -8,6 +8,11 @@ public readonly record struct NavigationEntry(ulong Id, string Label, ulong Pare
     string Keywords = "", bool Selectable = true, bool Expanded = true, bool Enabled = true,
     ButtonIcon Icon = ButtonIcon.None, string ImagePath = "");
 public readonly record struct UiKeyEvent(uint VirtualKey, KeyModifiers Modifiers, ulong TargetId);
+public enum NavigationDirection : uint { Back, Forward }
+public readonly record struct NavigationPoint(float X, float Y);
+/// <summary>Back/Forward input with a window-local pointer position or source control center, when available.</summary>
+public readonly record struct UiNavigationEvent(NavigationDirection Direction, ulong TargetId, NavigationPoint? Position);
+public enum GridNavigation : uint { Previous, Next, PagePrevious, PageNext, First, Last }
 public enum ButtonIcon : uint
 {
     None, Back, Forward, Up, Refresh, Split, Theme, Add, Minimize, Maximize, Restore, Close, More,
@@ -54,12 +59,20 @@ public sealed partial class ItemsView
 {
     public ItemsView Step(int delta) { Features.Action(this, 16, unchecked((uint)delta)); return this; }
 }
+public sealed partial class DataGrid
+{
+    /// <summary>Moves row selection without moving input focus. Supports Control and Shift selection gestures.</summary>
+    public DataGrid Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
+    { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }
+}
 public sealed unsafe partial class Window
 {
     private TabStrip? titlebarTabs, titlebarSecondaryTabs;
     private Button? titlebarLeading;
     private GCHandle keyRoot;
     private Func<UiKeyEvent, bool>? keyHandler;
+    private GCHandle navigationRoot;
+    private Func<UiNavigationEvent, bool>? navigationHandler;
     public TabStrip TitlebarTabs => titlebarTabs ??= new(this, TitlebarChild(0));
     public TabStrip TitlebarSecondaryTabs => titlebarSecondaryTabs ??= new(this, TitlebarChild(2));
     public Button TitlebarLeading
@@ -97,6 +110,37 @@ public sealed unsafe partial class Window
             if (window is null) return 8;
             ++window.callbacks;
             try { *handled = window.keyHandler?.Invoke(new(e->VirtualKey, (KeyModifiers)e->Modifiers, e->Target)) == true ? 1u : 0u; }
+            finally { --window.callbacks; }
+            return 0;
+        }
+        catch (Exception error) { if (window is not null) window.callbackError = error; return 8; }
+    }
+    /// <summary>Handles mouse Back/Forward and browser application commands. Return true to consume the event.</summary>
+    public Func<UiNavigationEvent, bool>? NavigationHandler
+    {
+        get { Guard(); return navigationHandler; }
+        set
+        {
+            Guard();
+            if (!navigationRoot.IsAllocated) navigationRoot = GCHandle.Alloc(this, GCHandleType.Weak);
+            Check(Native.WindowNavigationHandler(Handle, value is null ? null : &NavigationTrampoline, GCHandle.ToIntPtr(navigationRoot)));
+            navigationHandler = value;
+        }
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int NavigationTrampoline(nint context, Native.NavigationEvent* e, uint* handled)
+    {
+        Window? window = null;
+        try
+        {
+            window = GCHandle.FromIntPtr(context).Target as Window;
+            if (window is null) return 8;
+            ++window.callbacks;
+            try
+            {
+                *handled = window.navigationHandler?.Invoke(new((NavigationDirection)e->Direction, e->Target,
+                    e->HasPosition != 0 ? new NavigationPoint(e->X, e->Y) : null)) == true ? 1u : 0u;
+            }
             finally { --window.callbacks; }
             return 0;
         }

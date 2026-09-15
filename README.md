@@ -166,12 +166,18 @@ It has no title header.
 Its filter searches item names and paths.
 The folder tree shows the ancestors and immediate child folders of the active location.
 Selecting a folder updates the tree.
+Unchanged navigation rows retain their loaded icons and pending image requests across folder changes.
 The collapsed navigation pane is completely hidden.
 The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
 
 Each pane has its own tabs, navigation history, details view, and Find bar.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
+While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
+Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
+Left, Right, Home, and End retain their text-editing behavior.
+Mouse Back and Forward use the history of the pane under the pointer, including its native Find field and title tabs.
+Outside either pane, these buttons use the active pane. An open palette blocks mouse history navigation.
 Each tab retains its folder, filter, sort order, selection, and scroll position.
 Column headers support sorting and width adjustment.
 File and folder rows highlight under the pointer without changing the selection.
