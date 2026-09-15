@@ -139,6 +139,8 @@ Clicking a tab selects it and moves focus into its file pane, including clicks o
 Keyboard users can focus the tab strip and select tabs with the arrow keys.
 Enter or Space moves focus into the selected pane.
 The tab focus rectangle appears only during keyboard navigation.
+The tab row inherits its parent background, including unused space after the last tab.
+The gallery and explorer do not need a separate background rectangle for their tab rows.
 The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
@@ -253,6 +255,32 @@ This first version does not provide file copy, move, rename, delete, drag-and-dr
 It does not claim full File Pilot parity.
 The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
 The details view still exposes all entries from the folder scan.
+
+### Tab colors
+
+`TabColors` provides optional colors for the row, selected tab, inactive tabs, hover state, and borders.
+Selected and inactive tabs each have separate background and text colors.
+"Selected" identifies the active page, not keyboard focus.
+Each color uses `0xRRGGBB`. Alpha values are not supported.
+Unset colors follow the current theme, and high contrast uses system colors instead of overrides.
+
+```cpp
+xui::TabColors colors;
+colors.selected_background = 0x26465e;
+colors.selected_text = 0xffffff;
+tabs->set_colors(colors); // The row still inherits its parent background.
+tabs->set_colors({});     // Restore theme colors.
+```
+
+The .NET binding provides `TabStrip.Colors` and `SetColors(new TabColors(...))`.
+Nullable fields restore individual theme colors, and `SetColors(default)` clears all overrides.
+Rust provides `TabStrip::set_colors` and `colors`, with `Option<u32>` fields.
+The C ABI provides `xui_tab_set_colors` and `xui_tab_get_colors` in `xui_layout.h`.
+Its versioned record uses a mask to distinguish an unset color from black.
+
+Applications must pair custom backgrounds with readable text colors.
+Explicit colors stay unchanged across theme switches until the application replaces or clears them.
+The gallery's Tabs page includes a **Custom tab colors** toggle.
 
 ### Automated checks
 

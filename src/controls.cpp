@@ -330,6 +330,14 @@ void TextInput::set_maximum_length(std::size_t value) {
     invalidate(Invalidation::paint);
 }
 
+void TabStrip::set_colors(TabColors colors) {
+    for (const auto value : {colors.row_background, colors.selected_background, colors.selected_text,
+        colors.inactive_background, colors.inactive_text, colors.hover_background, colors.border})
+        if (value && *value > 0xffffff) throw std::invalid_argument("Tab colors must be 0xRRGGBB values");
+    if (colors_ == colors) return;
+    colors_ = colors;
+    invalidate(Invalidation::paint);
+}
 void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected) {
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         if (!tabs[i].id || tabs[i].id > static_cast<std::uint64_t>(std::numeric_limits<std::intptr_t>::max()) - 100)

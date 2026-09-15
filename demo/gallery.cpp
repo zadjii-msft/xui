@@ -400,6 +400,12 @@ private:
                 auto items = tabs->tabs(); auto id = ++*next; items.push_back({id, L"Document " + std::to_wstring(id)});
                 tabs->set_tabs(std::move(items), id); output->set_text(L"Events: document added.");
             });
+            auto custom_colors = std::make_shared<Toggle>(L"Custom tab colors");
+            demo->add(custom_colors);
+            custom_colors->on_change([tabs](bool enabled) {
+                tabs->set_colors(enabled ? TabColors{0x18222e, 0x26465e, 0xffffff,
+                    0x202e3d, 0xcbd9e8, 0x34536c, 0x6687a3} : TabColors{});
+            });
             break;
         }
         case 11: {

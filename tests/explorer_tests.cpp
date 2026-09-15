@@ -100,6 +100,15 @@ void state_tests() {
 }
 void control_tests() {
     TabStrip tabs;
+    const TabColors custom{0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789};
+    tabs.set_colors(custom);
+    require(tabs.colors() == custom, "Tab color overrides preserve black and all authored channels");
+    bool invalid_colors{};
+    try { auto invalid = custom; invalid.border = 0xff123456; tabs.set_colors(invalid); }
+    catch (const std::invalid_argument&) { invalid_colors = true; }
+    require(invalid_colors && tabs.colors() == custom, "Invalid tab colors are rejected transactionally");
+    tabs.set_colors({});
+    require(tabs.colors() == TabColors{}, "Clearing overrides restores theme-derived tab colors");
     tabs.arrange({0, 0, 420, 38});
     int selected{}, closed{};
     tabs.on_select([&](auto) { ++selected; });
