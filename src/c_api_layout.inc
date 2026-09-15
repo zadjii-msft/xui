@@ -44,6 +44,21 @@ xui_status XUI_CALL xui_tab_get_colors(xui_handle target, xui_tab_colors* colors
     });
 }
 
+xui_status XUI_CALL xui_window_visual_style_set(xui_handle window, uint32_t style) noexcept {
+    return boundary([&] {
+        auto w = get(window, XUI_WINDOW); editable(w->owner);
+        require(style <= XUI_STYLE_WINUI, XUI_INVALID_ARGUMENT, "Invalid visual style.");
+        w->owner->window->set_visual_style(static_cast<xui::VisualStyle>(style));
+    });
+}
+xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint32_t* style) noexcept {
+    return boundary([&] {
+        require(style != nullptr, XUI_INVALID_ARGUMENT, "Missing visual style output.");
+        auto w = get(window, XUI_WINDOW);
+        *style = static_cast<uint32_t>(w->owner->window->visual_style());
+    });
+}
+
 xui_status XUI_CALL xui_popup_placement(xui_handle target, uint32_t placement) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_POPUP); editable(n->owner);

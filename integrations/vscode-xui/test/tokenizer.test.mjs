@@ -76,6 +76,30 @@ function closed(document) {
 const counter = await readFile(new URL("./fixtures/counter.xui", import.meta.url), "utf8");
 const nested = await readFile(new URL("./fixtures/nested.xui", import.meta.url), "utf8");
 
+test("constructor parameters and native composition nodes have XUI scopes", () => {
+  const doc = tokenize(`component Composition {
+    param string Title;
+    param Xui.Element Body;
+    view { Grid(Title, ref: Layout, columns: [new(Xui.TrackSizing.Star, 1)]) {
+      NavigationView("Navigation", headerVisible: false);
+      DataGrid("Details", columns: []);
+      ItemsView("Files");
+      SplitView("Panes") {
+        ScrollView("Content") { Content(Body); }
+        Popup("Details") { Text("Body"); }
+      }
+    } }
+  }`);
+  has(doc, "param", "keyword.declaration.param.xui");
+  has(doc, "Title;", "variable.other.readonly.param.xui");
+  has(doc, "Body;", "variable.other.readonly.param.xui");
+  for (const node of ["Grid(", "NavigationView(", "DataGrid(", "ItemsView(", "SplitView(", "ScrollView(", "Content(", "Popup("])
+    has(doc, node, "support.class.node.xui");
+  has(doc, "ref:", "variable.parameter.named.xui");
+  has(doc, "columns:", "variable.parameter.named.xui");
+  closed(doc);
+});
+
 test("canonical component scopes keywords, names, state, arguments, and C# members", () => {
   const doc = tokenize(counter);
   has(doc, "namespace", "keyword.other.namespace.xui");

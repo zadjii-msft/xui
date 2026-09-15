@@ -19,6 +19,14 @@ typedef struct xui_tab_colors {
 } xui_tab_colors;
 XUI_API xui_status XUI_CALL xui_tab_set_colors(xui_handle tabs, const xui_tab_colors* colors) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_tab_get_colors(xui_handle tabs, xui_tab_colors* colors) XUI_NOEXCEPT;
+typedef enum xui_visual_style {
+    XUI_STYLE_CLASSIC = 0,
+    XUI_STYLE_WINUI = 1
+} xui_visual_style;
+/* Visual style is independent of the light/dark/high-contrast theme.
+   Existing window creation functions continue to default to classic. */
+XUI_API xui_status XUI_CALL xui_window_visual_style_set(xui_handle window, uint32_t style) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint32_t* style) XUI_NOEXCEPT;
 /* Pane bounds determine the tab bands after each content layout. The OS window
    title is independent of show_title. Pane handles must belong to the window. */
 XUI_API xui_status XUI_CALL xui_window_titlebar_layout(xui_handle window,

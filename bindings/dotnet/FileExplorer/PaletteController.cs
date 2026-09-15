@@ -25,20 +25,12 @@ internal sealed class PaletteController
     public PaletteController(ExplorerApplication app)
     {
         this.app = app;
-        var window = app.Window;
-        editor = window.TextInput("Go to folder").SetAutomationId("palette-query")
-            .SetCaptionVisible(false).PreferredSize(740, 44);
-        results = window.ItemsView("Palette results").SetAutomationId("palette-results");
-        message = window.Label("").SetAutomationId("palette-status");
-        statusHost = window.ScrollView(window.Stack().Padding(4).Add(message), "Palette status")
-            .PreferredSize(740, 0).Visible(false);
-        var layout = window.Grid("Palette content")
-            .SetTracks([new(TrackSizing.Fixed, 44), new(TrackSizing.Fixed, 8),
-                new(TrackSizing.Star), new(TrackSizing.Automatic)], [new(TrackSizing.Star)])
-            .Add(editor).Add(results, row: 2).Add(statusHost, row: 3);
-        var content = window.Stack().Padding(12).Add(layout, 1);
-        popup = window.Popup("Explorer palette", content).SetAutomationId("explorer-palette")
-            .PreferredSize(760, 420).SetPlacement(PopupPlacement.Center).SetWindowBackground(true);
+        var layout = new PaletteLayout(app.Window, attach: false);
+        editor = layout.Editor;
+        results = layout.Results;
+        message = layout.Message;
+        statusHost = layout.StatusHost;
+        popup = layout.Root;
         popup.Event += e => { if (e.Kind == EventKind.Dismiss) suggestions.Cancel(); };
         editor.Changed += _ => { if (!updating) Query(); };
         editor.Submitted += () => Accept(false);

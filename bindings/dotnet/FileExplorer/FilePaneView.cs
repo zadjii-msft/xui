@@ -6,11 +6,9 @@ internal sealed class FilePaneView
 {
     private readonly ExplorerApplication app;
     private readonly Window window;
-    private readonly int number;
     private Dictionary<string, ulong> identities = new(StringComparer.OrdinalIgnoreCase);
     private readonly Button back, forward, up;
-    private const float FindFieldHeight = 44;
-    private const float FindBarHeight = FindFieldHeight + 12;
+    private readonly FilePaneLayout layout;
     private readonly Stack findHost;
     private readonly Button closeFind;
     private readonly Label status;
@@ -27,43 +25,32 @@ internal sealed class FilePaneView
     {
         this.app = app;
         window = app.Window;
-        this.number = number;
         Model = new(path);
         Tabs = tabs;
         Tabs.SetAutomationId($"pane-{number}-tabs");
-        BackButton = back = Button("Back", "back", () => MoveHistory(-1));
-        forward = Button("Forward", "forward", () => MoveHistory(1));
-        up = Button("Up", "up", Up);
-        back.SetIcon(ButtonIcon.Back).FixedSize(36, 36);
-        forward.SetIcon(ButtonIcon.Forward).FixedSize(36, 36);
-        up.SetIcon(ButtonIcon.Up).FixedSize(36, 36);
-        Address = Button(path, "address", () => app.Palettes.ShowNavigation(this));
-        Address.Help("Go to a folder (Ctrl+L)");
-        var refresh = Button("Refresh", "refresh", Refresh);
-        refresh.SetIcon(ButtonIcon.Refresh).FixedSize(36, 36);
-        var addTab = Button("New tab", "new-tab", () => NewTab()).SetIcon(ButtonIcon.Add).FixedSize(36, 36).Help("New tab (Ctrl+T)");
-        var commands = Button("Commands", "commands", () => app.Palettes.ShowCommands())
-            .SetIcon(ButtonIcon.More).FixedSize(36, 36).Help("Commands (Ctrl+Shift+P)");
-        var toolbar = window.Stack(Axis.Horizontal).Spacing(4).Padding(8)
-            .Add(back).Add(forward).Add(up).Add(Address, 1).Add(refresh).Add(addTab).Add(commands);
-
-        Grid = window.DataGrid($"Files in pane {number}").SetAutomationId($"pane-{number}-files")
-            .SetColumns([new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)]);
+        layout = new(window, number, path, attach: false);
+        Root = layout.Root;
+        BackButton = back = layout.Back;
+        forward = layout.Forward;
+        up = layout.Up;
+        Address = layout.Address;
+        WireButton(back, () => MoveHistory(-1));
+        WireButton(forward, () => MoveHistory(1));
+        WireButton(up, Up);
+        WireButton(Address, () => app.Palettes.ShowNavigation(this));
+        WireButton(layout.Refresh, Refresh);
+        WireButton(layout.NewTab, () => NewTab());
+        WireButton(layout.Commands, () => app.Palettes.ShowCommands());
+        Grid = layout.Files;
         ContextMenu = new(app, this);
         Grid.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
             ShellMenuPresentation.Xui);
         rows = new([], Identify);
-        find = window.TextInput("Find").SetAutomationId($"pane-{number}-find")
-            .SetCaptionVisible(false).SetPlaceholder("Find")
-            .PreferredSize(320, FindFieldHeight).Visible(false);
-        closeFind = Button("Close find", "close-find", HideFind)
-            .SetIcon(ButtonIcon.Close).FixedSize(FindFieldHeight, FindFieldHeight)
-            .Help("Close find (Escape)").Visible(false);
-        findHost = window.Stack(Axis.Horizontal).Padding(6).Spacing(8).Add(find, 1).Add(closeFind);
-        status = window.Label("Loading folder...").SetAutomationId($"pane-{number}-status");
-        Root = window.Grid($"Pane {number} layout").SetTracks(PaneRows(false), [new(TrackSizing.Star)])
-            .Add(toolbar).Add(Grid, row: 1).Add(findHost, row: 2)
-            .Add(window.Stack().Padding(6).Add(status), row: 3);
+        find = layout.Find;
+        closeFind = layout.CloseFind;
+        WireButton(closeFind, HideFind);
+        findHost = layout.FindHost;
+        status = layout.Status;
 
         Tabs.Event += e =>
         {
@@ -121,12 +108,10 @@ internal sealed class FilePaneView
     public int VisibleCount => checked((int)rows.Count);
     public FileEntry? SelectedEntry => Grid.Selection.Focused is { } key ? rows.Entry(key.Id) : null;
 
-    private Button Button(string label, string id, Action action)
+    private void WireButton(Button button, Action action)
     {
-        var button = window.Button(label).SetAutomationId($"pane-{number}-{id}");
         button.Click += () => { Activate(); action(); };
         button.FocusEntered += Activate;
-        return button;
     }
 
     private ulong Identify(string path)
@@ -274,16 +259,7 @@ internal sealed class FilePaneView
         ApplyFilter();
     }
 
-    private static GridTrack[] PaneRows(bool findVisible) =>
-        [new(TrackSizing.Automatic), new(TrackSizing.Star),
-            new(TrackSizing.Fixed, findVisible ? FindBarHeight : 0), new(TrackSizing.Automatic)];
-
-    private void SetFindVisible(bool visible)
-    {
-        Root.SetTracks(PaneRows(visible), [new(TrackSizing.Star)]);
-        find.Visible(visible);
-        closeFind.Visible(visible);
-    }
+    private void SetFindVisible(bool visible) => layout.FindOpen = visible;
 
     private void ApplyFilter()
     {

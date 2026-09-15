@@ -1,0 +1,22 @@
+namespace Xui.FileExplorer;
+
+component PaletteLayout {
+    view {
+        Popup("Explorer palette", id: "explorer-palette", preferredSize: (760, 420),
+            placement: global::Xui.PopupPlacement.Center, windowBackground: true) {
+            VStack(padding: 12) {
+                Grid("Palette content", flex: 1,
+                    rows: [new(global::Xui.TrackSizing.Fixed, 44), new(global::Xui.TrackSizing.Fixed, 8),
+                        new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Automatic)]) {
+                    TextInput("Go to folder", ref: Editor, id: "palette-query", captionVisible: false, preferredSize: (740, 44));
+                    ItemsView("Palette results", ref: Results, id: "palette-results", row: 2);
+                    ScrollView("Palette status", ref: StatusHost, preferredSize: (740, 0), visible: false, row: 3) {
+                        VStack(padding: 4) {
+                            Text("", ref: Message, id: "palette-status");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

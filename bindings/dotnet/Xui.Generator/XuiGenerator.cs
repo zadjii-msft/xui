@@ -92,62 +92,140 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     {
         "VStack" or "HStack" => "Stack",
         "Text" => "Label",
+        "Content" => "Element",
         _ => node.Kind
     };
-    private void Collect(Node node)
+    private string[] Dependencies(Expression value)
+    {
+        var expression = SyntaxFactory.ParseExpression(value.Text);
+        var identifiers = expression.DescendantNodesAndSelf().OfType<SimpleNameSyntax>().Select(n => n.Identifier.ValueText).ToHashSet();
+        var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
+            .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
+        if (methods.Any(identifiers.Contains))
+            Errors.Add(new ParseError("View expressions cannot call component methods. Use state directly; computed dependencies must be explicit.", value.Offset));
+        if (expression.DescendantNodesAndSelf().Any(n => n is AssignmentExpressionSyntax or AnonymousFunctionExpressionSyntax or AwaitExpressionSyntax ||
+            n.IsKind(SyntaxKind.PreIncrementExpression) || n.IsKind(SyntaxKind.PreDecrementExpression) ||
+            n.IsKind(SyntaxKind.PostIncrementExpression) || n.IsKind(SyntaxKind.PostDecrementExpression)))
+            Errors.Add(new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset));
+        return component.States.Where(s => identifiers.Contains(s.Name.TrimStart('@'))).Select(s => s.Name).ToArray();
+    }
+    private void Collect(Node node, Node? parent = null)
     {
         int index = nodes.Count;
         nodes.Add(node);
         void Bind(string name, string type, string setter, string fallback, bool staticCall = false)
         {
             var value = node.Arguments.GetValueOrDefault(name) ?? new Expression(fallback, node.Offset);
-            var expression = SyntaxFactory.ParseExpression(value.Text);
-            var identifiers = expression.DescendantNodesAndSelf().OfType<SimpleNameSyntax>().Select(n => n.Identifier.ValueText).ToHashSet();
-            var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
-                .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
-            if (methods.Any(identifiers.Contains))
-                Errors.Add(new ParseError("View expressions cannot call component methods. Use state directly; computed dependencies must be explicit.", value.Offset));
-            if (expression.DescendantNodesAndSelf().Any(n => n is AssignmentExpressionSyntax or AnonymousFunctionExpressionSyntax or AwaitExpressionSyntax ||
-                n.IsKind(SyntaxKind.PreIncrementExpression) || n.IsKind(SyntaxKind.PreDecrementExpression) ||
-                n.IsKind(SyntaxKind.PostIncrementExpression) || n.IsKind(SyntaxKind.PostDecrementExpression)))
-                Errors.Add(new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset));
             bindings.Add(new($"__xuiB{index}_{name}", index, type, staticCall ? setter : $"__xuiN{index}." + setter, value,
-                component.States.Where(s => identifiers.Contains(s.Name.TrimStart('@'))).Select(s => s.Name).ToArray()));
+                Dependencies(value)));
+        }
+        foreach (string key in new[] { "row", "column", "rowSpan", "columnSpan", "flex" })
+        {
+            if (!node.Arguments.TryGetValue(key, out var placement)) continue;
+            if (key == "flex" ? parent?.Kind is not ("VStack" or "HStack") : parent?.Kind != "Grid")
+                Errors.Add(new ParseError($"'{key}' requires a {(key == "flex" ? "Stack" : "Grid")} parent.", placement.Offset));
+            if (Dependencies(placement).Length != 0)
+                Errors.Add(new ParseError($"'{key}' cannot depend on state. Placement is fixed for the component lifetime.", placement.Offset));
+            if (key != "flex" && int.TryParse(placement.Text, out int literal) && literal < (key.EndsWith("Span") ? 1 : 0))
+                Errors.Add(new ParseError($"'{key}' must be {(key.EndsWith("Span") ? "positive" : "nonnegative")}.", placement.Offset));
         }
         if (node.Kind is "VStack" or "HStack")
         {
             Bind("spacing", "float", "Spacing({0})", "0");
             Bind("padding", "float", "Padding({0})", "0");
         }
-        else
+        else if (node.Kind is not ("Content" or "Grid"))
         {
-            if (node.Kind != "TextInput") Bind("value", "string", "Text = {0}", "\"\"");
+            if (node.Kind != "TextInput")
+                Bind("value", "string", node.Kind is "Text" or "Button" or "Toggle" ? "Text = {0}" : "Name = {0}", "\"\"");
             else
             {
                 // Other controls alias Name and Text; only TextInput has a separate name.
                 if (!node.Arguments.ContainsKey("name")) node.Arguments["name"] = node.Arguments["value"];
                 Bind("name", "string", "Name = {0}", "\"\"");
             }
-            Bind("id", "string", "AutomationId = {0}", "\"\"");
-            Bind("enabled", "bool", "Enabled = {0}", "true");
-            if (node.Kind == "Toggle") Bind("checked", "bool", "Checked = {0}", "false");
-            if (node.Kind == "TextInput") Bind("text", "string", "Text = {0}", "\"\"");
+            if (node.Arguments.ContainsKey("id")) Bind("id", "string", "AutomationId = {0}", "\"\"");
+            if (node.Arguments.ContainsKey("enabled")) Bind("enabled", "bool", "Enabled = {0}", "true");
+            if (node.Kind == "Toggle" && node.Arguments.ContainsKey("checked")) Bind("checked", "bool", "Checked = {0}", "false");
+            if (node.Kind == "TextInput" && node.Arguments.ContainsKey("text")) Bind("text", "string", "Text = {0}", "\"\"");
+            if (node.Arguments.ContainsKey("visible"))
+                Bind("visible", "bool", $"global::Xui.ControlFeatures.Visible(__xuiN{index}, {{0}})", "true", staticCall: true);
             if (node.Arguments.ContainsKey("help"))
                 Bind("help", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
+        }
+        else if (Dependencies(node.Arguments["value"]).Length != 0)
+            Errors.Add(new ParseError($"{node.Kind} positional input cannot depend on state. This constructor input is fixed for the component lifetime.", node.Arguments["value"].Offset));
+        foreach (var option in new[]
+        {
+            ("icon", "global::Xui.ButtonIcon", "SetIcon({0})"),
+            ("captionVisible", "bool", "SetCaptionVisible({0})"),
+            ("placeholder", "string", "SetPlaceholder({0})"),
+            ("headerVisible", "bool", "SetHeaderVisible({0})"),
+            ("secondVisible", "bool", "SetSecondVisible({0})"),
+            ("placement", "global::Xui.PopupPlacement", "SetPlacement({0})"),
+            ("windowBackground", "bool", "SetWindowBackground({0})")
+        })
+            if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
+        if (node.Kind == "Grid")
+        {
+            const string tracks = "new global::Xui.GridTrack[] { new(global::Xui.TrackSizing.Star, 1) }";
+            var rows = node.Arguments.GetValueOrDefault("rows") ?? new Expression(tracks, node.Offset);
+            var columns = node.Arguments.GetValueOrDefault("columns") ?? new Expression(tracks, node.Offset);
+            bindings.Add(new($"__xuiB{index}_tracks", index,
+                "(global::Xui.GridTrack[] Rows, global::Xui.GridTrack[] Columns)",
+                $"__xuiN{index}.SetTracks({{0}}.Rows, {{0}}.Columns)",
+                new($"({rows.Text}, {columns.Text})", rows.Offset),
+                Dependencies(rows).Concat(Dependencies(columns)).Distinct().ToArray()));
+        }
+        if (node.Kind == "DataGrid" && node.Arguments.ContainsKey("columns"))
+            Bind("columns", "global::Xui.GridColumn[]", "SetColumns({0})", "[]");
+        if (node.Kind == "NavigationView")
+        {
+            if (node.Arguments.ContainsKey("searchId"))
+                Bind("searchId", "string", "Search.AutomationId = {0}", "\"\"");
+            if (node.Arguments.ContainsKey("searchHelp"))
+                Bind("searchHelp", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}.Search, {{0}})", "\"\"", staticCall: true);
         }
         if (node.Arguments.ContainsKey("size"))
             Bind("size", "(float Width, float Height)",
                 $"global::Xui.ElementExtensions.FixedSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
-        foreach (var child in node.Children) Collect(child);
+        if (node.Arguments.ContainsKey("preferredSize"))
+            Bind("preferredSize", "(float Width, float Height)",
+                $"global::Xui.ElementExtensions.PreferredSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
+        foreach (var child in node.Children) Collect(child, node);
     }
     private static string Part(string value) => value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + value;
     private string Shape(Node node) => Part(node.Kind) + Part(node.Arguments.GetValueOrDefault("id")?.Text ?? "") +
-        Part(string.Join(",", node.Arguments.Keys.Where(k => k is "click" or "change" or "submit" or "size" or "help").Order())) +
+        Part(node.Arguments.GetValueOrDefault("searchId")?.Text ?? "") +
+        Part(string.Join(",", node.Arguments.Keys.Order())) +
+        string.Concat(new[] { "ref", "row", "column", "rowSpan", "columnSpan", "flex" }
+            .Select(key => Part(node.Arguments.GetValueOrDefault(key)?.Text ?? ""))) +
+        Part(node.Kind is "Content" or "Grid" ? node.Arguments["value"].Text : "") +
         Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
     internal string Emit()
     {
         Collect(component.Root);
+        var names = new HashSet<string>(StringComparer.Ordinal) { "Root", component.Name.TrimStart('@') };
+        void Reserve(string name, int offset)
+        {
+            name = name.TrimStart('@');
+            if (name.StartsWith("__xui", StringComparison.Ordinal) || !names.Add(name))
+                Errors.Add(new ParseError($"Member name '{name}' is reserved or duplicated.", offset));
+        }
+        foreach (var state in component.States) Reserve(state.Name, state.Offset);
+        foreach (var parameter in component.Parameters)
+        {
+            Reserve(parameter.Name, parameter.Offset);
+            if (parameter.Name.TrimStart('@') is "window" or "attach")
+                Errors.Add(new ParseError("Parameter names 'window' and 'attach' are reserved.", parameter.Offset));
+        }
+        foreach (var method in SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
+            .DescendantNodes().OfType<ClassDeclarationSyntax>().First().Members.OfType<MethodDeclarationSyntax>()
+            .GroupBy(m => m.Identifier.ValueText))
+            Reserve(method.Key, component.Code.Offset);
+        foreach (var node in nodes)
+            if (node.Arguments.TryGetValue("ref", out var reference)) Reserve(reference.Text, reference.Offset);
         Line("// <auto-generated/>");
         Line("#nullable enable");
         if (component.Namespace.Length != 0) Line($"namespace {component.Namespace};");
@@ -156,6 +234,16 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("{");
         Line("private readonly global::Xui.Window __xuiWindow;");
+        Line($"public global::Xui.{Type(component.Root)} Root => __xuiN0;");
+        foreach (var parameter in component.Parameters)
+        {
+            Map(parameter.Offset);
+            Line($"public {parameter.Type} {parameter.Name} {{ get; }}");
+            Unmap();
+        }
+        for (int i = 0; i < nodes.Count; i++)
+            if (nodes[i].Arguments.TryGetValue("ref", out var reference))
+                Line($"public global::Xui.{Type(nodes[i])} {reference.Text} => __xuiN{i};");
         if (component.States.Count != 0) Line("private bool __xuiReady;");
         foreach (var state in component.States)
         {
@@ -189,6 +277,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("#if XUI_HOT_RELOAD");
         Line("private readonly string __xuiOriginalShape;");
         Line("private string __xuiShape() => " + Literal(Part(Shape(component.Root)) +
+            string.Concat(component.Parameters.Select(p => Part(p.Type) + Part(p.Name))) +
             string.Concat(component.States.Select(s => Part(s.Type) + Part(s.Name) + Part(s.Initializer.Text)))) + ";");
         Line("private bool __xuiReload()");
         Line("{");
@@ -198,26 +287,73 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("return true;");
         Line("}");
         Line("#endif");
-        Line($"public {component.Name}(global::Xui.Window window)");
+        Line($"public {component.Name}(global::Xui.Window window{string.Concat(component.Parameters.Select(p => $", {p.Type} {p.Name}"))}, bool attach = true)");
         Line("{");
         Line("global::System.ArgumentNullException.ThrowIfNull(window);");
         Line("window.VerifyAccess();");
+        if (component.Root.Kind is not ("VStack" or "HStack"))
+            Line("if (attach) throw new global::System.ArgumentException(\"Only a Stack root can attach to a window. Use attach: false for this component.\", nameof(attach));");
         Line("__xuiWindow = window;");
-        for (int i = 0; i < nodes.Count; i++)
+        foreach (var parameter in component.Parameters) Line($"this.{parameter.Name} = {parameter.Name};");
+        for (int i = nodes.Count - 1; i >= 0; i--)
         {
             var node = nodes[i];
+            string Child(int child) => $"__xuiN{nodes.IndexOf(node.Children[child])}";
             var create = node.Kind switch
             {
                 "VStack" => "Stack(global::Xui.Axis.Vertical)",
                 "HStack" => "Stack(global::Xui.Axis.Horizontal)",
                 "Text" => "Label(\"\")",
+                "Grid" => $"Grid({node.Arguments["value"].Text})",
+                "ScrollView" => $"ScrollView({Child(0)}, \"\")",
+                "Popup" => $"Popup(\"\", {Child(0)})",
+                "SplitView" => $"SplitView(\"\", {Child(0)}, {Child(1)})",
                 _ => node.Kind + "(\"\")"
             };
-            Line($"__xuiN{i} = window.{create};");
+            if (node.Kind == "Content")
+            {
+                Line($"__xuiN{i} =");
+                Map(node.Arguments["value"].Offset);
+                Line(node.Arguments["value"].Text + ";");
+                Unmap();
+                Line($"global::System.ArgumentNullException.ThrowIfNull(__xuiN{i});");
+            }
+            else
+            {
+                Map(node.Arguments.GetValueOrDefault("value")?.Offset ?? node.Offset);
+                Line($"__xuiN{i} = window.{create};");
+                Unmap();
+            }
         }
-        for (int i = 0; i < nodes.Count; i++)
-            foreach (var child in nodes[i].Children) Line($"__xuiN{i}.Add(__xuiN{nodes.IndexOf(child)});");
         Line("__xuiRefresh();");
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            var node = nodes[i];
+            if (node.Kind is not ("VStack" or "HStack" or "Grid")) continue;
+            foreach (var child in node.Children)
+            {
+                int childIndex = nodes.IndexOf(child);
+                if (node.Kind == "Grid")
+                {
+                    foreach (string key in new[] { "row", "column", "rowSpan", "columnSpan" })
+                    {
+                        var value = child.Arguments.GetValueOrDefault(key) ?? new Expression(key.EndsWith("Span") ? "1" : "0", child.Offset);
+                        Line($"int __xuiP{childIndex}_{key} =");
+                        Map(value.Offset);
+                        Line(value.Text + ";");
+                        Unmap();
+                        Line($"if (__xuiP{childIndex}_{key} < {(key.EndsWith("Span") ? 1 : 0)}) throw new global::System.ArgumentOutOfRangeException(\"{key}\");");
+                    }
+                    Line($"__xuiN{i}.Add(__xuiN{childIndex}, (uint)__xuiP{childIndex}_row, (uint)__xuiP{childIndex}_column, (uint)__xuiP{childIndex}_rowSpan, (uint)__xuiP{childIndex}_columnSpan);");
+                }
+                else
+                {
+                    Map(child.Arguments.GetValueOrDefault("flex")?.Offset ?? child.Offset);
+                    Line($"__xuiN{i}.Add(__xuiN{childIndex}, {child.Arguments.GetValueOrDefault("flex")?.Text ?? "0"});");
+                    Unmap();
+                }
+            }
+        }
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
@@ -228,7 +364,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Line($"__xuiN{i}.{eventName} += __xuiEvent{i}_{key};");
             }
         }
-        Line("window.SetContent(__xuiN0);");
+        if (component.Root.Kind is "VStack" or "HStack") Line("if (attach) window.SetContent(__xuiN0);");
         if (component.States.Count != 0) Line("__xuiReady = true;");
         Line("#if XUI_HOT_RELOAD");
         Line("__xuiOriginalShape = __xuiShape();");
@@ -247,7 +383,12 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Map(binding.Value.Offset);
             Line(binding.Value.Text + ";");
             Unmap();
-            Line($"if (!{binding.Name}_set || !global::System.Collections.Generic.EqualityComparer<{binding.Type}>.Default.Equals({binding.Name}_last, __xuiValue))");
+            string equal = binding.Type.EndsWith("[]")
+                ? $"global::System.Linq.Enumerable.SequenceEqual({binding.Name}_last, __xuiValue)"
+                : binding.Name.EndsWith("_tracks")
+                    ? $"(global::System.Linq.Enumerable.SequenceEqual({binding.Name}_last.Rows, __xuiValue.Rows) && global::System.Linq.Enumerable.SequenceEqual({binding.Name}_last.Columns, __xuiValue.Columns))"
+                    : $"global::System.Collections.Generic.EqualityComparer<{binding.Type}>.Default.Equals({binding.Name}_last, __xuiValue)";
+            Line($"if (!{binding.Name}_set || !{equal})");
             Line("{");
             Line(string.Format(System.Globalization.CultureInfo.InvariantCulture, binding.Setter, "__xuiValue") + ";");
             Line($"{binding.Name}_last = __xuiValue;");

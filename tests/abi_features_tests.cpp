@@ -55,6 +55,21 @@ void explorer_contracts() {
     static_assert(sizeof(xui_key_event) == 24);
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Explorer primitives"), 600, 400};
     xui_handle window{}; ok(xui_window_create_features(&options, 1, &window));
+    uint32_t style{};
+    ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_CLASSIC);
+    ok(xui_window_visual_style_set(window, XUI_STYLE_WINUI));
+    ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_WINUI);
+    expect(xui_window_visual_style_set(window, 2) == XUI_INVALID_ARGUMENT);
+    ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_WINUI);
+    expect(xui_window_visual_style_get(window, nullptr) == XUI_INVALID_ARGUMENT);
+    std::thread style_worker([&] {
+        uint32_t worker_style{};
+        expect(xui_window_visual_style_set(window, XUI_STYLE_CLASSIC) == XUI_WRONG_THREAD);
+        expect(xui_window_visual_style_get(window, &worker_style) == XUI_WRONG_THREAD);
+    });
+    style_worker.join();
+    ok(xui_window_visual_style_set(window, XUI_STYLE_CLASSIC));
+    ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_CLASSIC);
     ok(xui_window_title(window, text("Updated title")));
     xui_handle tabs{}, leading{}, second{}, again{};
     ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
@@ -90,6 +105,8 @@ void explorer_contracts() {
     expect(xui_feature_child(window, 3, &again) == XUI_INVALID_ARGUMENT);
     auto navigation = create(window, XUI_NAVIGATION_VIEW);
     auto first_pane = create(window, XUI_GRID), second_pane = create(window, XUI_GRID);
+    expect(xui_window_visual_style_set(first_pane, XUI_STYLE_WINUI) == XUI_WRONG_KIND);
+    expect(xui_window_visual_style_get(first_pane, &style) == XUI_WRONG_KIND);
     ok(xui_window_titlebar_layout(window, first_pane, second_pane, 0));
     expect(xui_window_titlebar_layout(window, first_pane, first_pane, 0) == XUI_INVALID_ARGUMENT);
     expect(xui_window_titlebar_layout(window, first_pane, second_pane, 2) == XUI_INVALID_ARGUMENT);
@@ -169,6 +186,8 @@ void explorer_contracts() {
     ok(xui_window_close(window)); expect(counts.first == 0 && counts.second == 1);
     expect(xui_window_post(window, posted, &counts) == XUI_CLOSED);
     ok(xui_window_destroy(window));
+    expect(xui_window_visual_style_set(window, XUI_STYLE_WINUI) == XUI_INVALID_HANDLE);
+    expect(xui_window_visual_style_get(window, &style) == XUI_INVALID_HANDLE);
     expect(xui_window_post(window, posted, &counts) == XUI_INVALID_HANDLE);
     expect(counts.first == 0 && counts.second == 1);
 }

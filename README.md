@@ -98,7 +98,11 @@ Catalog-wide paint coverage does not establish pixel or behavior parity with Win
 It does not implement Mica, acrylic, animation, automatic system accent selection, or WinUI API compatibility.
 Indeterminate progress uses a static segment, not an animation timer.
 Date/time controls, native suggestion lists, native editor scrollbars, disabled RichEdit backgrounds, and third-party Shell menus retain platform-owned visuals.
-The new style API is C++ only. The C ABI and its binding defaults remain unchanged.
+The C ABI exposes window style selection through `xui_window_visual_style_set` and `xui_window_visual_style_get` in `xui_layout.h`.
+The .NET binding accepts `visualStyle: VisualStyle.WinUI` in the `Window` constructor.
+`Window.SetVisualStyle` changes the style, and `Window.Style` returns the selected style.
+These additions preserve the C ABI layouts and the classic default.
+The Rust wrapper does not expose style selection.
 The [design plan](docs/winui-design-plan.md) describes the remaining stages and measurement requirements.
 
 **Declarative C#:** [The `.xui` language](docs/xui-language.md) compiles UI blocks into retained XUI controls.
@@ -110,6 +114,10 @@ The [Minesweeper sample](bindings/dotnet/Minesweeper/README.md) uses `.xui` for 
 
 `bindings\dotnet\FileExplorer` contains the C# explorer demo.
 It uses the XUI controls through the public .NET bindings.
+Its `.xui` files define the workspace, reusable file panes, navigation sidebar, and palette.
+The C# controllers retain filesystem operations, commands, event handlers, and persistent state.
+The explorer selects `VisualStyle.WinUI` for both light and dark themes.
+Other applications retain the classic style unless they explicitly select WinUI.
 The existing C++ explorer remains available as `xui_demo.exe`.
 
 ### Build and run
@@ -127,6 +135,26 @@ dotnet build bindings\dotnet\FileExplorer -c Release "-p:XuiNativeDir=$PWD\build
 Without a folder argument, the demo opens the current directory.
 For an x64 build, use `-A x64` and add `-r win-x64` to the .NET command.
 The native DLL and the .NET application must use the same architecture.
+The explorer requires a native DLL with the visual-style API in `xui_layout.h`.
+
+### Edit the markup
+
+`ExplorerLayout.xui` composes the sidebar, file panes, and notification.
+`FilePaneLayout.xui` defines each pane, including its toolbar, file grid, Find row, and status.
+`SidebarLayout.xui` defines the navigation control.
+`PaletteLayout.xui` defines the folder and command palette.
+Generated control references connect these layouts to their C# controllers.
+The `FindOpen` state updates the Find row height and control visibility.
+
+After the native build, use restart-on-save for markup changes:
+
+```powershell
+dotnet watch --project bindings\dotnet\FileExplorer --no-hot-reload --non-interactive "-p:XuiNativeDir=$PWD\build\explorer\Release"
+```
+
+The explorer disables in-place hot reload because its controllers own asynchronous work and native event subscriptions.
+A restart reconstructs the complete application and resets transient pane state.
+Bookmarks and recents retain their normal persistence behavior.
 
 ### Explorer controls
 

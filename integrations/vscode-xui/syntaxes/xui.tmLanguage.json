@@ -57,6 +57,7 @@
       "patterns": [
         { "include": "#comments" },
         { "include": "#state" },
+        { "include": "#param" },
         { "include": "#view" },
         { "include": "#code" },
         { "include": "#keywords" }
@@ -74,6 +75,21 @@
         {
           "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:/\\*(?:[^*]|\\*(?!/))*\\*/\\s*)*(?:=|;))",
           "name": "variable.other.readwrite.state.xui"
+        },
+        { "include": "source.cs#type" }
+      ]
+    },
+    "param": {
+      "name": "meta.param.xui",
+      "begin": "\\bparam\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.param.xui" } },
+      "end": ";",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*;)",
+          "name": "variable.other.readonly.param.xui"
         },
         { "include": "source.cs#type" }
       ]
@@ -112,7 +128,7 @@
       "patterns": [
         { "include": "#comments" },
         {
-          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput)\\b",
+          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Content)\\b",
           "name": "support.class.node.xui"
         },
         { "include": "#keywords" },
@@ -208,7 +224,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(?:component|state|view|code|csharp|namespace)\\b",
+      "match": "\\b(?:component|state|param|view|code|csharp|namespace)\\b",
       "name": "keyword.other.xui"
     }
   }
