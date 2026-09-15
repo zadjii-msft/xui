@@ -87,7 +87,7 @@ test("named style declarations retain XUI scopes and return to view and C# conte
   has(doc, "style DangerButton", "keyword.declaration.style.xui");
   has(doc, "DangerButton for", "entity.name.type.style.xui");
   has(doc, "basedOn", "keyword.other.style.xui");
-  has(doc, "BaseButton {", "entity.name.type.style.xui");
+  has(doc, "BaseButton {", "variable.other.style.xui");
   has(doc, "background:", "support.type.property-name.xui");
   has(doc, "resource(DangerFill)", "support.function.color.xui");
   has(doc, "resource(DangerFill)", "variable.other.resource.xui", "resource(".length);
@@ -97,6 +97,157 @@ test("named style declarations retain XUI scopes and return to view and C# conte
   has(doc, "Button(\"Delete\"", "support.class.node.xui");
   has(doc, "style:", "variable.parameter.named.xui");
   has(doc, "void SetEntry", "meta.embedded.block.csharp");
+  closed(doc);
+});
+
+test("style headers, references, state rules and colors tolerate comments and line breaks", () => {
+  const doc = tokenize(`component Styled {
+  resources /* { */ {
+    @Base: 0b1010_0011u;
+    Alias: resource /* ) */ (
+      // not a theme label
+      @Base);
+    Pair: @theme /* ( */ (
+      light /* : */ : 0xAABBCCu,
+      dark: 123UL);
+  }
+  style Button for /* target */ Button
+    basedOn /* base */
+      @BaseStyle {
+    borderBrush: resource(Alias);
+    padding: (1.5f, 2m, 3e1, 0);
+    when /* } */
+      hovered /* { */ {
+      background: theme(light: 0, dark: 0xFFFFFF);
+    }
+    when disabled { foreground: 0; }
+  }
+  style @BaseStyle for Button { cornerRadius: 0; }
+  view {
+    Button("Go", style: /* reference */ @BaseStyle,
+      background: resource /* ) */ (Alias), click: Run);
+  }
+  code csharp { void Run() {} }
+}`);
+  has(doc, "style Button", "entity.name.type.style.xui", "style ".length);
+  has(doc, "/* target */ Button", "support.class.node.xui", "/* target */ ".length);
+  has(doc, "@BaseStyle {", "variable.other.style.xui");
+  has(doc, "/* target */", "comment.block");
+  has(doc, "@Base:", "entity.name.constant.resource.xui");
+  has(doc, "@Base);", "variable.other.resource.xui");
+  has(doc, "@theme", "support.function.color.xui");
+  has(doc, "light /*", "variable.parameter.named.xui");
+  for (const literal of ["0b1010_0011u", "0xAABBCCu", "123UL", "1.5f", "2m", "3e1"])
+    has(doc, literal, "constant.numeric");
+  for (const state of ["hovered /*", "disabled {"])
+    has(doc, state, "constant.language.style-state.xui");
+  has(doc, "/* reference */ @BaseStyle", "variable.other.style.xui", "/* reference */ ".length);
+  has(doc, "background: resource", "support.function.color.xui", "background: ".length);
+  has(doc, "click:", "variable.parameter.named.xui");
+  has(doc, "void Run", "meta.embedded.block.csharp");
+  closed(doc);
+});
+
+test("style color syntax does not override ordinary C# calls, strings or comments", () => {
+  const doc = tokenize(String.raw`component Calls {
+  state object First = theme("light: )", resource("name"));
+  state object Second = resource(@"dark: )", /* ) */ () => { return theme(1); });
+  view {
+    Text(theme("caption"), id: "theme(resource)");
+    Button(resource("label"), click: Handle,
+      enabled: theme(true), background: theme(light: 0, dark: 1));
+  }
+  code csharp {
+    object Handle() => resource(theme("code"));
+  }
+}`);
+  for (const needle of ['theme("light:', 'resource("name"', 'resource(@"dark:', 'theme("caption"',
+    'resource("label"', "theme(true)", 'resource(theme("code"']) {
+    has(doc, needle, "entity.name.function");
+    assert.ok(!scopesAt(doc, needle).includes("support.function.color.xui"), needle);
+  }
+  has(doc, 'light: )', "string");
+  has(doc, 'dark: )', "string");
+  has(doc, "/* ) */", "comment.block");
+  has(doc, "theme(light:", "support.function.color.xui");
+  closed(doc);
+});
+
+test("invalid style strings and nested expressions retain C# lexical protection", () => {
+  const doc = tokenize(String.raw`component Editing {
+  resources {
+    Broken: theme(light: "}; // dark: resource(Fake)", dark: 0);
+    Alias: resource(/* ) } */ "NotAName)");
+    Valid: 1;
+  }
+  style Editing for Button {
+    background: theme(light: Pick(")", new[] { 1, 2 })[0], dark: 1);
+    foreground: resource(@"quoted "" } ); text");
+    padding: (() => { return (1, 2, 3, 4); })();
+    when hovered { background: 1; }
+  }
+  view { Button("Recovered"); }
+}`);
+  for (const needle of ["}; // dark:", "NotAName)", 'quoted "" } ); text'])
+    has(doc, needle, "string");
+  has(doc, "/* ) } */", "comment.block");
+  has(doc, "Pick(", "entity.name.function");
+  has(doc, "Valid:", "entity.name.constant.resource.xui");
+  has(doc, "when hovered", "keyword.control.when.xui");
+  has(doc, 'Button("Recovered"', "support.class.node.xui");
+  closed(doc);
+});
+
+test("missing style values and terminators recover at the next property or closing block", () => {
+  const doc = tokenize(`component Incomplete {
+  resources {
+    Missing:
+    Recovered: 1;
+    Unclosed: theme(light: 0, dark: 1;
+    Last: 2
+  }
+  style Editing for Button {
+    background:
+    foreground: 1;
+    when hov { borderBrush: 2 }
+    when /* incomplete state */ { padding: 1; }
+    when hovered { cornerRadius: }
+    when pressed { background: resource(Missing; }
+    padding: 3
+  }
+  view { Button("Recovered", style: Editing); }
+}
+component After { view { Text("After"); } }`);
+  has(doc, "Recovered:", "entity.name.constant.resource.xui");
+  has(doc, "Last:", "entity.name.constant.resource.xui");
+  has(doc, "foreground:", "support.type.property-name.xui");
+  assert.ok(!scopesAt(doc, "hov {").includes("constant.language.style-state.xui"));
+  has(doc, "cornerRadius:", "support.type.property-name.xui");
+  has(doc, "padding: 3", "support.type.property-name.xui");
+  has(doc, 'Button("Recovered"', "support.class.node.xui");
+  has(doc, "After {", "entity.name.type.component.xui");
+  closed(doc);
+});
+
+test("unfinished style documents keep stable incremental stacks without declaring unsupported tokens", () => {
+  for (const tail of ["style ", "style Draft for ", "style Draft for Button basedOn ",
+    "style Draft for Button { when ", "style Draft for Button { when hovered { background: theme(light:",
+    "resources { Color: resource(/*", 'resources { Color: theme(light: "']) {
+    const doc = tokenize(`component Draft {\n${tail}`);
+    assert.ok(doc.stack.depth > 1);
+    assert.deepEqual(doc.tokens, tokenize(`component Draft {\r\n${tail}`).tokens);
+  }
+  const doc = tokenize(`component Unsupported {
+    style Unknown for NotAControl {
+      unknownProperty: 1;
+      when unknownState { background: 2; }
+    }
+    view { Button("Known"); }
+  }`);
+  assert.ok(!scopesAt(doc, "NotAControl").includes("support.class.node.xui"));
+  assert.ok(!scopesAt(doc, "unknownProperty").includes("support.type.property-name.xui"));
+  assert.ok(!scopesAt(doc, "unknownState").includes("constant.language.style-state.xui"));
+  has(doc, 'Button("Known"', "support.class.node.xui");
   closed(doc);
 });
 

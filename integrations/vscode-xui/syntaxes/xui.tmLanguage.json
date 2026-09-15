@@ -75,6 +75,7 @@
         { "include": "#comments" },
         {
           "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
           "end": "(?=\\})",
           "patterns": [
             { "include": "#comments" },
@@ -92,11 +93,29 @@
       "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
       "patterns": [
         { "include": "#comments" },
-        { "match": "\\b(?:for|basedOn)\\b", "name": "keyword.other.style.xui" },
-        { "match": "\\bButton\\b", "name": "support.class.node.xui" },
+        {
+          "begin": "\\bfor\\b",
+          "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
+          "end": "(?=\\bbasedOn\\b|[{}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "\\bButton\\b", "name": "support.class.node.xui" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.xui" }
+          ]
+        },
+        {
+          "begin": "\\bbasedOn\\b",
+          "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
+          "end": "(?=[{}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.style.xui" }
+          ]
+        },
         { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.style.xui" },
         {
           "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
           "end": "(?=\\})",
           "patterns": [
             { "include": "#comments" },
@@ -108,15 +127,22 @@
     },
     "style-rule": {
       "name": "meta.style-rule.xui",
-      "begin": "\\b(when)\\b\\s+(focused|checked|hovered|pressed|disabled)\\b",
-      "beginCaptures": {
-        "1": { "name": "keyword.control.when.xui" },
-        "2": { "name": "constant.language.style-state.xui" }
-      },
+      "begin": "\\bwhen\\b",
+      "beginCaptures": { "0": { "name": "keyword.control.when.xui" } },
       "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
       "patterns": [
         { "include": "#comments" },
-        { "include": "#style-properties" }
+        { "match": "\\b(?:focused|checked|hovered|pressed|disabled)\\b", "name": "constant.language.style-state.xui" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-properties" }
+          ]
+        }
       ]
     },
     "style-properties": {
@@ -128,7 +154,7 @@
     "style-value": {
       "begin": ":",
       "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
-      "end": ";",
+      "end": ";|(?=\\})|^(?=\\s*(?:when\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
       "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
       "patterns": [
         { "include": "#comments" },
@@ -139,14 +165,45 @@
     "color-functions": {
       "patterns": [
         {
-          "begin": "\\b(resource|theme)\\b\\s*\\(",
-          "beginCaptures": { "1": { "name": "support.function.color.xui" } },
-          "end": "\\)",
+          "name": "meta.color.resource.xui",
+          "begin": "(?<![\\w.@])@?resource\\b",
+          "beginCaptures": { "0": { "name": "support.function.color.xui" } },
+          "end": "\\)|(?=[;}])",
+          "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
           "patterns": [
             { "include": "#comments" },
-            { "match": "\\b(?:light|dark)\\b(?=\\s*:)", "name": "variable.parameter.named.xui" },
-            { "match": "0[xX][0-9a-fA-F_]+|[0-9]+", "name": "constant.numeric.xui" },
-            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.resource.xui" }
+            {
+              "begin": "\\(",
+              "beginCaptures": { "0": { "name": "punctuation.section.arguments.begin.xui" } },
+              "end": "(?=[);}])",
+              "patterns": [
+                { "include": "#comments" },
+                { "match": "@?[A-Za-z_][A-Za-z0-9_]*(?![\\w\"])", "name": "variable.other.resource.xui" },
+                { "include": "#expression" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "meta.color.theme.xui",
+          "begin": "(?<![\\w.@])@?theme\\b",
+          "beginCaptures": { "0": { "name": "support.function.color.xui" } },
+          "end": "\\)|(?=[;}])",
+          "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
+          "patterns": [
+            { "include": "#comments" },
+            {
+              "begin": "\\(",
+              "beginCaptures": { "0": { "name": "punctuation.section.arguments.begin.xui" } },
+              "end": "(?=[);}])",
+              "patterns": [
+                { "include": "#comments" },
+                { "match": "(?<![\\w@])@?(?:light|dark)\\b", "name": "variable.parameter.named.xui" },
+                { "match": ":", "name": "punctuation.separator.key-value.xui" },
+                { "match": ",", "name": "punctuation.separator.arguments.xui" },
+                { "include": "#expression" }
+              ]
+            }
           ]
         }
       ]
@@ -238,6 +295,33 @@
       "contentName": "meta.embedded.expression.csharp",
       "patterns": [
         {
+          "name": "meta.style-reference.xui",
+          "begin": "\\b(style)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*(?![\\w\"])", "name": "variable.other.style.xui" },
+            { "include": "#expression" }
+          ]
+        },
+        {
+          "begin": "\\b(background|foreground|borderBrush)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#color-functions" },
+            { "include": "#expression" }
+          ]
+        },
+        {
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(:)(?!:)",
           "captures": {
             "1": { "name": "variable.parameter.named.xui" },
@@ -249,7 +333,6 @@
     },
     "expression": {
       "patterns": [
-        { "include": "#color-functions" },
         { "include": "#expression-braces" },
         { "include": "#expression-parentheses" },
         { "include": "#expression-brackets" },

@@ -55,6 +55,21 @@
     "body": ["when ${1:hovered} {", "\tbackground: resource(${2:DangerHover});", "\t$0", "}"],
     "description": "Button style state override"
   },
+  "Derived Button style": {
+    "prefix": "stylebasedon",
+    "body": [
+      "style ${1:CompactDanger} for Button basedOn ${2:DangerButton} {",
+      "\tpadding: (8, 2, 8, 2);",
+      "\t$0",
+      "}"
+    ],
+    "description": "Sparse Button style derived from a declared base style"
+  },
+  "Styled Button": {
+    "prefix": "styledbutton",
+    "body": "Button(\"${1:Delete}\", style: ${2:DangerButton});",
+    "description": "Button with a declared named style"
+  },
   "View": {
     "prefix": "view",
     "body": ["view {", "\t$0", "}"],

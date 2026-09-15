@@ -51,12 +51,13 @@ component Counter {
 The namespace is optional. The compiler accepts one component per file.
 The grammar can highlight multiple components, but this does not imply compiler support.
 The grammar recognizes `namespace`, `component`, `param`, `state`, `view`, `code`, `csharp`, `resources`, `style`, `basedOn`, and `when`.
-It recognizes the native node names in the [language guide](../../docs/specs/xui-language.md).
+It recognizes the native node names in the [language guide](https://github.com/zadjii-msft/xui/blob/main/docs/specs/xui-language.md).
 Other node names receive a generic node scope. This highlighting does not imply compiler support for custom components.
 
 The grammar includes C# expressions in control arguments and state initializers.
 It includes C# members in `code csharp` blocks.
 Nested braces, strings, interpolation, and comments retain their C# scopes.
+Ordinary C# calls named `theme` or `resource` retain their C# scopes outside style values and color arguments.
 
 VS Code supplies the built-in `source.cs` grammar.
 Keep the built-in **C# Language Basics** extension enabled for embedded highlighting.
@@ -81,13 +82,19 @@ style DangerButton for Button {
   borderThickness: (3, 0, 0, 0);
   when hovered { cornerRadius: 0; }
 }
+style CompactDanger for Button basedOn DangerButton {
+  padding: (8, 2, 8, 2);
+}
 ```
 
 These declarations belong inside a component, beside its `view` block.
 `Button("Delete", style: DangerButton);` applies the named style.
 The grammar recognizes `focused`, `checked`, `hovered`, `pressed`, and `disabled` state blocks.
 It also recognizes `basedOn` derivation, sparse properties, resource aliases, and the `theme` color function.
-The [style grammar](../../docs/specs/xui-language.md#declare-button-styles-and-resources) defines the compiler limits.
+Style declarations and style references receive separate scopes.
+Comments and line breaks can separate style headers, state names, and color function arguments.
+Color literals retain their C# numeric scopes, including hexadecimal, binary, decimal, and integer suffixes.
+The [style grammar](https://github.com/zadjii-msft/xui/blob/main/docs/specs/xui-language.md#declare-button-styles-and-resources) defines the compiler limits.
 Highlighting does not check resource names, cycles, property types, or numeric bounds.
 
 ## Editor support
@@ -97,12 +104,15 @@ indentation rules, and indentation-based folding.
 Folding markers support `// region` and `// endregion`, plus C# `#region` and `#endregion`.
 The indentation rules use line patterns, not a parser. Braces inside multiline strings can affect indentation.
 Incomplete strings or blocks can affect highlighting until their closing delimiter appears.
+Style values recover at a closing brace or a new property line after a missing semicolon.
+This recovery aids editing. It does not make incomplete syntax valid.
 
 Snippet prefixes are `component`, `namespace`, `state`, `view`, `code`, `vstack`,
-`hstack`, `text`, `button`, `toggle`, `textinput`, `resources`, `style`, and `when`.
+`hstack`, `text`, `button`, `toggle`, `textinput`, `resources`, `style`, `when`, `stylebasedon`, and `styledbutton`.
 The component snippet supplies a counter with a named method handler.
 Control snippets use placeholders for state and named method handlers.
 They do not declare that state or those methods.
+The style snippets refer to resources or base styles that the component must declare.
 
 ## Development
 
@@ -119,6 +129,7 @@ The upstream revision and attribution are in `test\fixtures\NOTICE.md`.
 
 The tests cover embedded scopes, nested delimiters, interpolation, comments, snippets,
 and recovery into XUI after C# blocks.
+Style tests cover references, theme colors, numeric literals, incomplete declarations, and recovery after missing delimiters.
 Some tokenizer fixtures exceed the compiler subset to exercise lexical recovery.
 The VSIX contains only the manifest, grammar, language configuration, snippets, README, license, and VSIX metadata.
 

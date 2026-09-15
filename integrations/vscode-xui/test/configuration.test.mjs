@@ -36,7 +36,9 @@ test("language configuration supplies brackets, comments, closing pairs, indenta
   for (const pair of config.autoClosingPairs) assert.deepEqual(pair.notIn, ["string", "comment"]);
   const increase = new RegExp(config.indentationRules.increaseIndentPattern);
   const decrease = new RegExp(config.indentationRules.decreaseIndentPattern);
-  for (const line of ["component Counter {", "  VStack() { // children", "Text(", "  var values = ["]) {
+  for (const line of ["component Counter {", "  VStack() { // children", "Text(", "  var values = [",
+    "  resources {", "  style Compact for Button basedOn Base {", "    when hovered {",
+    "    Color: theme("]) {
     assert.ok(increase.test(line), line);
   }
   for (const line of ["// {", "  // (", 'Text("{");', 'state string Brace = "{";']) {
@@ -62,7 +64,8 @@ test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets.Toggle.body), 'Toggle("Enabled", checked: IsEnabled, change: OnChanged, id: "enabled");');
   assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
-    ["component", "namespace", "state", "resources", "style", "when", "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+    ["component", "namespace", "state", "resources", "style", "when", "stylebasedon", "styledbutton",
+      "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
 });
 
 test("styling snippets use named declarations and dual-theme colors", () => {
@@ -70,4 +73,6 @@ test("styling snippets use named declarations and dual-theme colors", () => {
   assert.ok(expand(snippets["Button style"].body).includes("style DangerButton for Button {"));
   assert.ok(expand(snippets["Button style"].body).includes("background: resource(DangerFill);"));
   assert.ok(expand(snippets["Style state"].body).startsWith("when hovered {"));
+  assert.ok(expand(snippets["Derived Button style"].body).startsWith("style CompactDanger for Button basedOn DangerButton {"));
+  assert.equal(expand(snippets["Styled Button"].body), 'Button("Delete", style: DangerButton);');
 });
