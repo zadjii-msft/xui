@@ -6,6 +6,68 @@ Examples in this reference use C++ unless stated otherwise.
 
 ## Feature bindings (1.1 extension)
 
+### Windows file transfers
+
+The C# library supports filesystem clipboard transfers and native OLE drag-and-drop without Windows Forms or WPF.
+The declarations are in `include\xui\xui_file_transfer.h`, included by `xui.h`.
+The .NET declarations are handwritten in `Native.FileTransfers.cs`. The generated feature files remain unchanged.
+The [collection contract](collections.md#file-drag-and-drop) describes grid selection and target behavior.
+
+```csharp
+[Flags]
+public enum FileTransferEffect { None = 0, Copy = 1, Move = 2 }
+public sealed record FileClipboardContent(string[] Paths, FileTransferEffect Effect);
+
+window.SetFileClipboard(paths, FileTransferEffect.Copy); // Move means cut.
+FileClipboardContent? clipboard = window.GetFileClipboard();
+window.SetClipboardText("A path or other text");
+bool complete = window.TransferFiles(paths, destination, FileTransferEffect.Move);
+bool? pasted = window.PasteFiles(destination);
+```
+
+All methods require the creating UI thread. They work before or during `Run`, but not after closure.
+`SetFileClipboard` accepts Copy or Move, not a combination.
+Cut places paths on the clipboard without deleting files.
+The clipboard contains Unicode `CF_HDROP` and `Preferred DropEffect`.
+XUI flushes its OLE clipboard data, so the paths remain available after application exit.
+Clipboard calls retry temporary contention for at most two seconds per call, then report an explicit error.
+`SetClipboardText` supplies `CF_UNICODETEXT` and does not intercept editor keyboard input.
+The C++ counterpart is `set_clipboard_text`. The existing `copy_text` method still requires a running window.
+
+`GetFileClipboard` returns null for a clipboard without filesystem paths.
+Its result is a snapshot, not ownership of the clipboard.
+`PasteFiles` retains the original `IDataObject` throughout the transfer.
+It returns null for no file clipboard, true for complete work, or false for cancellation or skipped work.
+After success, it sends the Shell completion formats to that original object.
+Foreign sources can reject optional notification formats. XUI never requests source-side deletion.
+It clears a completed cut only when the clipboard sequence still matches, with the comparison inside the clipboard lock.
+
+`TransferFiles` uses Windows `IFileOperation` with normal conflict, progress, and elevation UI.
+It returns true only when every requested item completes without reported cancellation, skipped work, or errors.
+Native errors throw `XuiException`. Cancellation and skipped work return false.
+The operation runs synchronously in the UI STA. Shell dialogs can dispatch nested window messages.
+XUI rejects another transfer on that thread until the current transfer returns.
+Closure requests cancel remaining work. Earlier completed copies or moves are not rolled back.
+
+CAUTION: Do not delete source files in completion callbacks or after a false result.
+The Shell owns each copy or move, including source deletion.
+After a partial result, refresh both locations before another attempt.
+`GetFileClipboard` plus `TransferFiles` does not supply clipboard completion notifications. Use `PasteFiles` for clipboard paste.
+
+Each transfer accepts 1 to 4,096 absolute filesystem paths.
+Each path has a limit of 32,767 UTF-16 units. The complete `CF_HDROP` payload has a 16 MiB limit.
+Each ABI UTF-8 span also has the existing 1 MiB limit.
+An empty drag snapshot cancels the drag. Relative paths, embedded NULs, and link effects are not supported.
+The clipboard reader accepts Unicode and ANSI `CF_HDROP`, but not virtual files in `FILECONTENTS`.
+
+The ABI uses borrowed path spans in `xui_file_receiver` and `xui_file_drop_handler`.
+Callback consumers must copy paths before the callback returns.
+The clipboard receiver receives zero paths for no file clipboard.
+`xui_window_transfer_files` writes 1 for complete or 0 for cancellation or skipped work.
+`xui_window_paste_files` writes 0 for no files, 1 for complete, or 2 for cancellation or skipped work.
+The standard status result remains separate and reports errors.
+Callback exceptions use the existing callback-error contract and close the owning window.
+
 ### Fluent C# setters
 
 C# configuration methods return the original object, with its concrete type.

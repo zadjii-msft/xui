@@ -124,6 +124,7 @@ XUI_API xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count,
     uint64_t* selected_id, uint32_t* has_selection) XUI_NOEXCEPT;
 
 #include "xui_features.h"
+#include "xui_file_transfer.h"
 
 #ifdef __cplusplus
 }

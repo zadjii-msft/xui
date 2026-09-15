@@ -60,6 +60,63 @@ The controls use the existing window render target and theme palette.
 
 The [binding reference](bindings.md#current-coverage) describes the available grid, chart, and page APIs in C# and Rust.
 
+## File drag and drop
+
+`DataGrid` supports native OLE file drag sources and drop targets on Windows.
+The C++ methods are `on_file_drag` and `on_file_drop`.
+The equivalent C# methods return the same grid for fluent configuration:
+
+```csharp
+grid.OnFileDrag(
+    () => SelectedPaths(),
+    effect => RefreshLocations());
+
+grid.OnFileDrop(
+    (key, requested) => CanReceiveFiles(key) ? requested : FileTransferEffect.None,
+    (key, paths, requested) =>
+        window.TransferFiles(paths, DestinationFor(key), requested)
+            ? requested : FileTransferEffect.None);
+```
+
+The query callback decides acceptance without filesystem work.
+The drop callback runs only after release over an accepted target.
+It returns the requested effect only after all work completes, or None for cancellation or skipped work.
+An error can throw through the existing callback-error contract. Applications can catch errors to display their own status.
+
+The key identifies the source row under the pointer, not its display ordinal.
+A null key identifies empty grid body space.
+Headers, scrollbars, disabled controls, hidden controls, and nonselectable rows reject the drop before the query callback.
+The query must reject nonfolder rows and locations that are not ready.
+XUI repeats the query at drop time rather than reusing an earlier acceptance result.
+
+A left-button press on a selected row preserves the current multiselection.
+A release without a drag applies ordinary click selection.
+Ctrl and Shift retain their selection gestures.
+The path factory runs once after movement reaches the Windows drag threshold.
+XUI then releases pointer capture before the OLE message loop starts.
+Escape, capture loss before drag, closure, and hidden or disabled sources cancel the gesture.
+
+The source allows Copy and Move, but never Link.
+A same-process XUI pane drop defaults to Move.
+An external drop defaults to Copy unless its data object supplies a preferred effect.
+Ctrl requests Copy, and Shift requests Move.
+Ctrl+Shift and Alt reject the drop because link operations are not supported.
+The accepted effect must also exist in the source effect mask.
+
+The target reports completion only after its drop callback succeeds.
+For a completed move, XUI uses Shell optimized-move notifications so an external source does not delete files again.
+The source completion callback reports the logical effect when the target supplies it.
+The completion callback must not delete source files.
+External target completion depends on the target's OLE result and Shell notifications.
+XUI supports optimized filesystem moves, as used by Windows Explorer.
+For a conventional target that requests source-side deletion, XUI retains the originals and reports Copy instead of an unfinished Move.
+
+`Selection` reports focus, not the complete selected set.
+Applications can enumerate their immutable row model and use `DataGrid.Contains(key)` to obtain exact membership.
+A context-menu press on a selected row also preserves multiselection.
+`ClearFileTransferCallbacks` removes both managed drag and drop callbacks.
+The [binding reference](bindings.md#windows-file-transfers) defines clipboard methods, path limits, cancellation, and error behavior.
+
 ## Virtual lists and asynchronous delivery
 
 `FileList` derives from `Control`. A `Window` accepts it beside labels, buttons, toggles, and text inputs.

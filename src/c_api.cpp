@@ -114,6 +114,12 @@ struct Node {
     std::vector<std::wstring> menu_shell_paths;
     std::function<bool()> menu_current;
     xui::ShellMenuPresentation menu_presentation{};
+    xui_callback file_drag_callback{};
+    void* file_drag_context{};
+    xui_file_drop_handler file_drop_callback{};
+    void* file_drop_context{};
+    bool file_requesting{}, file_dispatching{};
+    std::vector<std::wstring> file_paths;
 };
 std::mutex registry_mutex;
 std::unordered_map<xui_handle, std::shared_ptr<Node>> registry;
@@ -509,3 +515,4 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
 #include "c_api_text.inc"
+#include "c_api_file_transfer.inc"

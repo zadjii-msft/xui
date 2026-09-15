@@ -9,11 +9,60 @@ namespace xui {
 void DataGrid::prepare_context_menu(std::optional<Point> position) {
     if (position) {
         const auto row = position->x >= 0 && position->x < viewport_width() ? row_at(position->y) : std::nullopt;
-        if (row && source_) select(source_->key(*row), false);
+        if (row && source_) {
+            const auto key = source_->key(*row);
+            select(key, selection_.contains(key) ? SelectionGesture::focus_only : SelectionGesture::replace, false);
+        }
         else clear_selection();
     } else if (selected_ && (!source_ || !source_->find(*selected_))) clear_selection();
 }
 DataGrid::DataGrid(std::wstring name) : Control(ControlRole::data_grid, std::move(name), {640, 360}) {}
+bool DataGrid::file_drop_hit(Point point, std::optional<RowKey>& key) const {
+    key.reset();
+    if (!enabled() || !visible() || !std::isfinite(point.x) || !std::isfinite(point.y) ||
+        point.x < 0 || point.x >= viewport_width() || point.y < header_height ||
+        point.y >= header_height + viewport_height()) return false;
+    if (auto row = row_at(point.y)) {
+        if (!source_->selectable(*row)) return false;
+        key = source_->key(*row);
+    }
+    return true;
+}
+FileTransferEffect DataGrid::query_file_drop(Point point, FileTransferEffect effect) const {
+    std::optional<RowKey> key;
+    auto callback = drop_query_;
+    if (!callback || !file_drop_ || !file_drop_hit(point, key)) return FileTransferEffect::none;
+    const auto source = source_;
+    const auto result = callback(key, effect);
+    std::optional<RowKey> current;
+    return source_ == source && file_drop_hit(point, current) && current == key ? result : FileTransferEffect::none;
+}
+FileTransferEffect DataGrid::drop_files(Point point, const std::vector<std::wstring>& paths, FileTransferEffect effect) {
+    std::optional<RowKey> key;
+    auto callback = file_drop_;
+    return callback && file_drop_hit(point, key) ? callback(key, paths, effect) : FileTransferEffect::none;
+}
+bool DataGrid::begin_file_press(Point point, SelectionGesture gesture) {
+    end_file_press(false);
+    std::optional<RowKey> key;
+    if (!file_drag_enabled() || !file_drop_hit(point, key) || !key) return false;
+    const bool preserve = selection_.contains(*key) && gesture == SelectionGesture::replace;
+    const auto source = source_;
+    select(*key, preserve ? SelectionGesture::focus_only : gesture, false);
+    if (!enabled() || !visible() || source != source_ || !selection_.contains(*key)) return false;
+    file_press_ = point; file_press_key_ = key; file_press_replace_ = preserve;
+    return true;
+}
+bool DataGrid::file_drag_threshold(Point point, Size threshold) const {
+    return file_press_ && (std::abs(point.x - file_press_->x) >= threshold.width ||
+        std::abs(point.y - file_press_->y) >= threshold.height);
+}
+void DataGrid::end_file_press(bool click) {
+    const auto key = file_press_key_;
+    const bool replace = file_press_replace_;
+    file_press_.reset(); file_press_key_.reset(); file_press_replace_ = false;
+    if (click && replace && key) select(*key, false);
+}
 void DataGrid::set_columns(std::vector<GridColumn> value) {
     if (value.empty() || value.size() > 64) throw std::invalid_argument("Grid requires 1 to 64 columns");
     for (auto& c : value) if (!std::isfinite(c.width) || c.width < 48 || c.width > 2000)
@@ -166,6 +215,7 @@ bool DataGrid::complete_filter(GridFilterRequest request, std::shared_ptr<const 
     filter_pending_ = false; set_source(std::move(source)); invalidate(Invalidation::paint); return true;
 }
 void DataGrid::cancel() {
+    end_file_press(false);
     hover_pointer({});
     Control::cancel(); filter_stop_.request_stop(); ++filter_generation_;
     if (filter_pending_) { filter_pending_ = false; invalidate(Invalidation::paint); }

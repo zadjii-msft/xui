@@ -5,26 +5,44 @@ namespace Xui.FileExplorer;
 internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane)
 {
     internal const ulong Open = 1, NewTab = 2, OtherPane = 3, Bookmark = 4, Refresh = 5;
+    internal const ulong Copy = 6, Cut = 7, Paste = 8, CopyPaths = 9;
     private FileEntry? target;
+    private string[] paths = [];
+    private string destination = "";
     private Command[] commands = [];
 
     public Command[] GetCommands()
     {
         pane.Activate();
-        target = pane.SelectedEntry;
-        if (target is null || !target.IsDirectory) return commands = [new(Refresh, "Refresh", ShortcutHint: "F5")];
-        bool saved = app.State.Bookmarks.Contains(target.FullPath, StringComparer.OrdinalIgnoreCase);
-        return commands =
-        [
-            new(Open, "Open in this pane"),
-            new(NewTab, "Open in new tab"),
-            new(OtherPane, "Open in other pane"),
-            new(Bookmark, saved ? "Remove bookmark" : "Bookmark folder"),
-            new(Refresh, "Refresh", ShortcutHint: "F5")
-        ];
+        var entries = pane.SelectedEntries;
+        target = entries.Length == 1 ? entries[0] : null;
+        paths = entries.Select(entry => entry.FullPath).ToArray();
+        destination = target is { IsDirectory: true } ? target.FullPath : pane.Model.Active.Path;
+        List<Command> result = [];
+        if (target is { IsDirectory: true })
+        {
+            bool saved = app.State.Bookmarks.Contains(target.FullPath, StringComparer.OrdinalIgnoreCase);
+            result.AddRange([
+                new(Open, "Open in this pane"),
+                new(NewTab, "Open in new tab"),
+                new(OtherPane, "Open in other pane"),
+                new(Bookmark, saved ? "Remove bookmark" : "Bookmark folder")
+            ]);
+        }
+        bool ready = app.Transfers.CanTransfer(pane);
+        if (paths.Length > 0)
+        {
+            result.Add(new(Copy, "Copy files", Enabled: ready, ShortcutHint: "Ctrl+C"));
+            result.Add(new(Cut, "Cut files", Enabled: ready, ShortcutHint: "Ctrl+X"));
+            result.Add(new(CopyPaths, "Copy paths", Enabled: ready, ShortcutHint: "Ctrl+Shift+C"));
+        }
+        result.Add(new(Paste, target is { IsDirectory: true } ? "Paste into this folder" : "Paste",
+            Enabled: ready, ShortcutHint: "Ctrl+V"));
+        result.Add(new(Refresh, "Refresh", ShortcutHint: "F5"));
+        return commands = result.ToArray();
     }
 
-    public string[] GetShellPaths() => target is null ? [] : [target.FullPath];
+    public string[] GetShellPaths() => paths.Length <= 256 ? paths : [];
 
     public void Invoke(ulong id)
     {
@@ -35,6 +53,10 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         }
         pane.Activate();
         if (id == Refresh) { pane.Refresh(); return; }
+        if (id == Copy) { app.Transfers.Copy(paths, cut: false); return; }
+        if (id == Cut) { app.Transfers.Copy(paths, cut: true); return; }
+        if (id == CopyPaths) { app.Transfers.CopyPaths(paths); return; }
+        if (id == Paste) { app.Transfers.Paste(pane, destination); return; }
         if (target is not { } entry)
         {
             app.Report("The selected item is no longer available.");
