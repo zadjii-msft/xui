@@ -23,6 +23,8 @@ Its optional `--global-focus-events` argument also subscribes to desktop-wide fo
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Navigation checks cover exact-directory Enter, trailing-slash child results, cached completion, Tab, parent queries, and query history.
+The model checks compare cached and scanned suggestions for relative, quoted, expanded, and slash-terminated paths.
 Command snapshot checks require eager availability evaluation, stable row content, and no action execution during source callbacks.
 The smoke opens and filters Copy/Cut commands with selected entries in both Details and Columns views.
 These checks cover the native callback guard that rejects selection queries from an immutable source callback.

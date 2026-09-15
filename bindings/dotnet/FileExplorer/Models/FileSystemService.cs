@@ -18,6 +18,9 @@ public sealed record NavigationSuggestions(DirectorySnapshot Snapshot, IReadOnly
 public sealed class FileSystemService
 {
     public static string ResolvePath(string path, string basePath)
+        => ResolvePath(path, basePath, out _);
+
+    private static string ResolvePath(string path, string basePath, out bool directoryQuery)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(basePath);
@@ -37,6 +40,7 @@ public sealed class FileSystemService
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 path.Length > 1 ? path[2..] : "");
         }
+        directoryQuery = path.Length == 0 || System.IO.Path.EndsInDirectorySeparator(path);
         return System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(
             path.Length == 0 ? "." : path, System.IO.Path.GetFullPath(basePath)));
     }
@@ -55,36 +59,7 @@ public sealed class FileSystemService
         => Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var resolved = ResolvePath(query, basePath);
-            string directory;
-            string term;
-            try
-            {
-                var attributes = File.GetAttributes(resolved);
-                if ((attributes & FileAttributes.Directory) != 0)
-                {
-                    directory = resolved;
-                    term = "";
-                }
-                else
-                {
-                    directory = System.IO.Path.GetDirectoryName(resolved)!;
-                    term = System.IO.Path.GetFileName(resolved);
-                }
-            }
-            catch (FileNotFoundException)
-            {
-                directory = System.IO.Path.GetDirectoryName(resolved)
-                    ?? throw new DirectoryNotFoundException($"Cannot find the parent directory of '{resolved}'.");
-                term = System.IO.Path.GetFileName(resolved);
-            }
-            catch (DirectoryNotFoundException)
-            {
-                directory = System.IO.Path.GetDirectoryName(resolved)
-                    ?? throw new DirectoryNotFoundException($"Cannot find the parent directory of '{resolved}'.");
-                term = System.IO.Path.GetFileName(resolved);
-            }
-
+            var (directory, term) = SuggestionTarget(query, basePath);
             var snapshot = new DirectorySnapshot(directory, ReadEntries(directory, cancellationToken));
             var suggestions = FilterSuggestions(snapshot, term);
             cancellationToken.ThrowIfCancellationRequested();
@@ -93,16 +68,18 @@ public sealed class FileSystemService
 
     public static NavigationSuggestions? SuggestFromSnapshot(DirectorySnapshot snapshot, string query, string basePath)
     {
-        var resolved = ResolvePath(query, basePath);
-        if (StringComparer.OrdinalIgnoreCase.Equals(resolved, snapshot.Path))
-            return FilterSuggestions(snapshot, "");
-        if (!StringComparer.OrdinalIgnoreCase.Equals(System.IO.Path.GetDirectoryName(resolved), snapshot.Path))
+        var (directory, term) = SuggestionTarget(query, basePath);
+        if (!StringComparer.OrdinalIgnoreCase.Equals(directory, snapshot.Path))
             return null;
-        // An exact child folder needs its own snapshot, not a filter of its parent's entries.
-        if (snapshot.Entries.Any(entry => entry.IsDirectory &&
-            StringComparer.OrdinalIgnoreCase.Equals(entry.FullPath, resolved)))
-            return null;
-        return FilterSuggestions(snapshot, System.IO.Path.GetFileName(resolved));
+        return FilterSuggestions(snapshot, term);
+    }
+
+    private static (string Directory, string Term) SuggestionTarget(string query, string basePath)
+    {
+        var resolved = ResolvePath(query, basePath, out bool directoryQuery);
+        if (directoryQuery) return (resolved, "");
+        var parent = System.IO.Path.GetDirectoryName(resolved);
+        return parent is null ? (resolved, resolved) : (parent, System.IO.Path.GetFileName(resolved));
     }
 
     private static NavigationSuggestions FilterSuggestions(DirectorySnapshot snapshot, string term) => new(snapshot,

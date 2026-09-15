@@ -73,7 +73,10 @@ internal static class Program
         try
         {
             Equal(directory, FileSystemService.ResolvePath($"%{variable}%\\Alpha folder", fixture));
-            Equal(2, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\"", fixture, None)).Entries.Count);
+            Equal(directory, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\"", fixture, None)).Entries.Single().FullPath);
+            Equal(2, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\\\"", fixture, None)).Entries.Count);
+            Equal(root, (await service.SuggestAsync($"%{variable}%", fixture, None)).Entries.Single().FullPath);
+            Equal(6, (await service.SuggestAsync($"%{variable}%\\", fixture, None)).Entries.Count);
         }
         finally
         {
@@ -89,12 +92,13 @@ internal static class Program
         Sequence(Directory.GetFileSystemEntries(cwd).Select(Path.GetFileName).Order(),
             cwdSuggestions.Entries.Select(entry => entry.Name).Order());
         var exact = await service.SuggestAsync("Alpha folder", root, None);
-        Equal(directory, exact.Directory);
-        Equal(2, exact.Entries.Count);
+        Equal(root, exact.Directory);
+        Equal(directory, exact.Entries.Single().FullPath);
         var partial = await service.SuggestAsync("aLpHa", root, None);
         Sequence(new[] { "Alpha folder", "alpha small.txt", "My alpha" }, partial.Entries.Select(entry => entry.Name));
         Equal(6, partial.Snapshot.Entries.Count);
-        foreach (string query in new[] { "", "aLpHa", "lPhA", "alpha small.txt", "nothing-matches", "資", root + "\\" })
+        foreach (string query in new[] { "", "aLpHa", "lPhA", "Alpha folder", directory, $" \"{directory}\" ",
+            "'Alpha folder'", "alpha small.txt", "nothing-matches", "資", root + "\\", root + "/" })
         {
             var cached = FileSystemService.SuggestFromSnapshot(read, query, root)
                 ?? throw new Exception("A same-directory query unexpectedly required I/O.");
@@ -103,7 +107,19 @@ internal static class Program
             Sequence(scanned.Entries.Select(entry => entry.FullPath), cached.Entries.Select(entry => entry.FullPath));
             True(ReferenceEquals(read, cached.Snapshot));
         }
-        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, directory, root));
+        Equal(directory, FileSystemService.SuggestFromSnapshot(read, directory, root)!.Entries.Single().FullPath);
+        var children = await service.ReadDirectoryAsync(directory, root, None);
+        foreach (string query in new[] { directory + "\\", directory + "/", "Alpha folder\\", "\"Alpha folder/\"", "'Alpha folder\\'" })
+        {
+            var scanned = await service.SuggestAsync(query, root, None);
+            var cached = FileSystemService.SuggestFromSnapshot(children, query, root)!;
+            Equal(directory, scanned.Directory);
+            Sequence(children.Entries.Select(entry => entry.FullPath), scanned.Entries.Select(entry => entry.FullPath));
+            Sequence(scanned.Entries.Select(entry => entry.FullPath), cached.Entries.Select(entry => entry.FullPath));
+        }
+        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(children, directory, root));
+        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, root, root));
+        Equal(root, (await service.SuggestAsync(root, root, None)).Entries.Single().FullPath);
         Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, directory + "\\", root));
         Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, @"absent\child", root));
         Sequence(read.Entries.Select(entry => entry.Name),
@@ -111,6 +127,12 @@ internal static class Program
         var memoryOnly = new DirectorySnapshot(Path.Combine(root, "not-on-disk"),
             [new(Path.Combine(root, "not-on-disk", "cached.txt"), "cached.txt", false, 1, DateTime.UnixEpoch)]);
         Equal("cached.txt", FileSystemService.SuggestFromSnapshot(memoryOnly, "cache", memoryOnly.Path)!.Entries.Single().Name);
+        var share = new DirectorySnapshot(@"\\server\share",
+            [new(@"\\server\share\child", "child", true, 0, DateTime.UnixEpoch)]);
+        Equal(0, FileSystemService.SuggestFromSnapshot(share, share.Path, root)!.Entries.Count);
+        Equal("child", FileSystemService.SuggestFromSnapshot(share, share.Path + "\\", root)!.Entries.Single().Name);
+        var drive = new DirectorySnapshot(Path.GetPathRoot(root)!, []);
+        True(FileSystemService.SuggestFromSnapshot(drive, drive.Path, root) is not null);
         Throws<ArgumentException>(() => FileSystemService.SuggestFromSnapshot(read, "\0", root));
         var contains = await service.SuggestAsync("lPhA", root, None);
         Equal(3, contains.Entries.Count);
@@ -121,6 +143,8 @@ internal static class Program
         Equal(1, (await service.SuggestAsync("資", root, None)).Entries.Count);
         await ThrowsAsync<DirectoryNotFoundException>(() => service.ReadDirectoryAsync("absent", root, None));
         await ThrowsAsync<DirectoryNotFoundException>(() => service.SuggestAsync(@"absent\also-absent", root, None));
+        await ThrowsAsync<DirectoryNotFoundException>(() => service.SuggestAsync("absent\\", root, None));
+        await ThrowsAsync<IOException>(() => service.SuggestAsync(small.FullPath + "\\", root, None));
         await ThrowsAsync<IOException>(() => service.ReadDirectoryAsync(small.FullPath, root, None));
         await ThrowsAsync<ArgumentException>(() => service.ReadDirectoryAsync("\0", root, None));
 

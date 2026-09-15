@@ -184,11 +184,14 @@ Row callbacks read that snapshot without querying native controls.
 The controller checks current availability again before it executes a command.
 Status messages appear only for pending requests, empty results, and errors.
 Keyboard history, completion, acceptance, and dismissal remain available.
-The navigation palette initially shows the children of the current folder.
+The navigation palette initially adds a trailing slash to the current folder and shows its children.
 Typed paths support relative paths, quoted paths, environment variables, and UNC paths.
-A partial final component filters the parent folder by name.
+Without a trailing slash, the final component filters the parent folder by name, even for an exact directory match.
+Enter on an exact directory match opens that directory, not its first child.
+A trailing `\` or `/` lists the directory's children.
+The same rule applies after quote removal and environment-variable expansion.
 Prefix matches appear before other substring matches.
-Tab completion leaves the caret at the end of the completed path.
+Tab completion adds a trailing slash to a directory and leaves the caret at the end of the completed path.
 Within a loaded folder, the palette filters its snapshot immediately without a delay or an empty intermediate view.
 For a different folder, the existing rows remain visible but cannot activate until the new scan finishes.
 With no selected result, Enter attempts to open the typed folder.

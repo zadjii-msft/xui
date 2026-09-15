@@ -204,7 +204,7 @@ internal static class ExplorerSmoke
 
                 await Ui(() => Shortcut(0x4c, KeyModifiers.Control));
                 await Until(() => !app.Palettes.Pending);
-                await Check(() => app.Palettes.IsOpen && app.Palettes.QueryText == fixture && app.Palettes.ResultCount == 4,
+                await Check(() => app.Palettes.IsOpen && app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar && app.Palettes.ResultCount == 4,
                     "Navigation palette opens at CWD");
                 await Ui(() =>
                 {
@@ -219,9 +219,9 @@ internal static class ExplorerSmoke
                     && app.Palettes.StatusHeight == 0, "Palette centers in the window without a redundant result-count footer");
                 await Ui(() =>
                 {
-                    foreach (var (query, count) in new[] { ("al", 2), ("alp", 1), ("AL", 2), ("nothing-matches", 0), ("", 4) })
+                    foreach (var (query, count) in new[] { ("al", 2), ("alp", 1), ("alpha", 1), ("AL", 2), ("nothing-matches", 0), ("", 4) })
                     {
-                        app.Palettes.EditQuery(Path.Combine(fixture, query));
+                        app.Palettes.EditQuery(query.Length == 0 ? fixture + Path.DirectorySeparatorChar : Path.Combine(fixture, query));
                         if (app.Palettes.Pending || app.Palettes.ResultCount != count)
                             throw new InvalidOperationException("Cached suggestions must update synchronously without an empty intermediate view.");
                     }
@@ -239,11 +239,25 @@ internal static class ExplorerSmoke
                     (ulong)app.Palettes.QueryText.Length), "Completion leaves the caret at the end of the path");
                 await Ui(() => Shortcut(0x25, KeyModifiers.Alt));
                 await Until(() => !app.Palettes.Pending);
-                await Check(() => app.Palettes.QueryText == fixture, "Palette history works without a Back button");
+                await Check(() => app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar, "Palette history works without a Back button");
                 await Ui(() => Shortcut(0x27, KeyModifiers.Alt));
                 await Until(() => !app.Palettes.Pending);
                 await Check(() => app.Palettes.QueryText == Path.Combine(fixture, "alpha") + Path.DirectorySeparatorChar,
                     "Palette history works without a Forward button");
+                await Ui(() => app.Palettes.EditQuery(Path.Combine(fixture, "alpha")));
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() => Shortcut(0x0d));
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "alpha") && !app.Palettes.IsOpen,
+                    "Enter on an exact directory without a slash opens that directory, not its first child");
+                await Ui(() => app.Palettes.ShowNavigation(app.Left));
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() => Shortcut(0x26, KeyModifiers.Alt));
+                await Until(() => !app.Palettes.Pending);
+                await Check(() => app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar && app.Palettes.ResultCount == 4,
+                    "Parent query appends a slash and lists the parent directory's children");
+                await Ui(() => app.Palettes.EditQuery(Path.Combine(fixture, "alpha") + "/"));
+                await Until(() => !app.Palettes.Pending);
                 await Ui(() => Shortcut(0x0d));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "alpha", "child") && !app.Palettes.IsOpen,
@@ -252,11 +266,11 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     app.Palettes.ShowNavigation(app.Left);
-                    app.Palettes.EditQuery(Path.Combine(fixture, "alpha"));
-                    app.Palettes.EditQuery(Path.Combine(fixture, "beta"));
+                    app.Palettes.EditQuery(Path.Combine(fixture, "alpha") + Path.DirectorySeparatorChar);
+                    app.Palettes.EditQuery(Path.Combine(fixture, "beta") + Path.DirectorySeparatorChar);
                 });
                 await Until(() => !app.Palettes.Pending);
-                await Check(() => app.Palettes.QueryText == Path.Combine(fixture, "beta") && app.Palettes.ResultCount == 0,
+                await Check(() => app.Palettes.QueryText == Path.Combine(fixture, "beta") + Path.DirectorySeparatorChar && app.Palettes.ResultCount == 0,
                     "Only the latest folder suggestions replace the displayed rows");
                 await Ui(app.Palettes.Dismiss);
 
