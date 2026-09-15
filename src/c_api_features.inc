@@ -233,6 +233,36 @@ xui_status XUI_CALL xui_window_key_handler(xui_handle window, xui_key_handler ca
         n->key_handler = callback; n->key_context = context; wire(n);
     });
 }
+xui_status XUI_CALL xui_window_navigation_handler(xui_handle window, xui_navigation_handler callback, void* context) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        n->navigation_handler = callback; n->navigation_context = context;
+        if (!callback) { n->owner->window->on_navigation({}); return; }
+        n->owner->window->on_navigation([weak = std::weak_ptr<Node>(n)](const xui::NavigationEvent& e) {
+            const auto node = weak.lock();
+            if (!node || !node->navigation_handler || node->owner->closed || node->owner->callback_failure) return false;
+            auto position = e.position;
+            if (!position && e.target) {
+                const auto bounds = e.target->bounds();
+                position = xui::Point{bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
+            }
+            const xui_navigation_event event{sizeof(xui_navigation_event), static_cast<uint32_t>(e.direction),
+                position ? 1u : 0u, 0, event_target(node->owner, e.target),
+                position ? position->x : 0, position ? position->y : 0};
+            uint32_t handled{};
+            ++node->owner->callbacks;
+            xui_status status{};
+            try { status = node->navigation_handler(node->navigation_context, &event, &handled); }
+            catch (...) { status = XUI_CALLBACK_FAILED; }
+            --node->owner->callbacks;
+            if (status || handled > 1) {
+                node->owner->callback_failure = status ? status : XUI_INVALID_ARGUMENT;
+                node->owner->window->close(); return true;
+            }
+            return handled != 0;
+        });
+    });
+}
 xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callback, void* context) noexcept {
     return boundary([&] {
         require(callback != nullptr, XUI_INVALID_ARGUMENT, "Missing post callback.");
@@ -489,8 +519,8 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
 xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint64_t first, uint64_t second) noexcept {
     return boundary([&] {
         auto n = get(target); editable(n->owner);
-        require(action == XUI_A_SELECT || !second, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
-        require(action <= XUI_A_TEXT_COMMAND || action == XUI_A_COLLECTION_STEP || !first, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
+        require(action == XUI_A_SELECT || action == XUI_A_GRID_NAVIGATE || !second, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
+        require(action <= XUI_A_TEXT_COMMAND || action == XUI_A_COLLECTION_STEP || action == XUI_A_GRID_NAVIGATE || !first, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
         switch (action) {
         case XUI_A_SELECT:
             if (n->kind == XUI_RADIO_GROUP) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::RadioGroup>(n).select(first); }
@@ -524,6 +554,18 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
         case XUI_A_COLLECTION_STEP:
             require(!second && first <= UINT32_MAX, XUI_INVALID_ARGUMENT, "Invalid step.");
             feature<xui::VirtualCollection>(n).step(std::bit_cast<int32_t>(uint32_t(first))); break;
+        case XUI_A_GRID_NAVIGATE: {
+            limit(first, 5); limit(second, 3);
+            auto& grid = feature<xui::DataGrid>(n);
+            const auto gesture = second & 2 ? (second & 1 ? xui::SelectionGesture::add_range : xui::SelectionGesture::extend) :
+                second & 1 ? xui::SelectionGesture::focus_only : xui::SelectionGesture::replace;
+            if (first >= 4) grid.edge(first == 5, gesture);
+            else {
+                const auto distance = first >= 2 ? std::max(1, static_cast<int>(grid.viewport_height() / xui::DataGrid::row_height)) : 1;
+                grid.step((first % 2 ? 1 : -1) * distance, gesture);
+            }
+            break;
+        }
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature action."};
         }
         callback_result(n->owner);

@@ -8,6 +8,8 @@ internal static class ExplorerSmoke
     private static extern nint GetFocus();
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
 
     private static void ClickFirstTab(FilePaneView pane)
     {
@@ -107,6 +109,62 @@ internal static class ExplorerSmoke
                     && app.Left.VisibleCount == 4 && app.Left.Grid.GetBounds().Height == unfilteredHeight
                     && app.Left.Grid.Focused, "X clears Find, restores row space, and returns focus to the files");
 
+                await Ui(() => { app.Left.ShowFind(); app.Left.SetFilter(".txt"); });
+                await Ready(app.Left);
+                ItemKey? firstFindKey = null;
+                await Ui(() =>
+                {
+                    app.Left.Grid.Navigate(GridNavigation.First);
+                    firstFindKey = app.Left.Grid.Selection.Focused;
+                    if (!PostMessageW(GetFocus(), 0x100, 0x28, 0))
+                        throw new InvalidOperationException("Could not post Down to the native Find editor.");
+                });
+                await Until(() => app.Left.SelectedEntry?.Name == "small.txt");
+                await Check(() => app.Left.FindInput.Focused && app.Left.FindInput.Text == ".txt",
+                    "Down from native Find moves list selection without changing the query or focus");
+                await Ui(() => Shortcut(0x26));
+                await Check(() => app.Left.SelectedEntry?.Name == "large.txt", "Find Up selects the previous filtered file");
+                await Ui(() => Shortcut(0x22));
+                await Check(() => app.Left.SelectedEntry?.Name == "small.txt", "Find PageDown reaches the last filtered file");
+                await Ui(() => Shortcut(0x21));
+                await Check(() => app.Left.SelectedEntry?.Name == "large.txt", "Find PageUp reaches the first filtered file");
+                await Ui(() =>
+                {
+                    Shortcut(0x28, KeyModifiers.Shift);
+                    if (firstFindKey is not { } firstKey || !app.Left.Grid.Contains(firstKey) ||
+                        app.Left.Grid.Selection.Focused is not { } lastKey || firstKey == lastKey || !app.Left.Grid.Contains(lastKey))
+                        throw new InvalidOperationException("Find Shift+Down must extend the file selection.");
+                    Shortcut(0x24, KeyModifiers.Control);
+                });
+                await Check(() => app.Left.SelectedEntry?.Name == "large.txt", "Find Ctrl+Home selects the first file");
+                await Ui(() => Shortcut(0x23, KeyModifiers.Control));
+                await Check(() => app.Left.SelectedEntry?.Name == "small.txt" && app.Left.FindInput.Focused,
+                    "Find Ctrl+End selects the last file without leaving the editor");
+                await Ui(() =>
+                {
+                    foreach (uint key in new uint[] { 0x25, 0x27, 0x24, 0x23 })
+                        if (app.Window.KeyHandler?.Invoke(new(key, KeyModifiers.None, app.Left.FindInput.Id)) == true)
+                            throw new InvalidOperationException("Left, Right, Home and End must remain native query-editing keys.");
+                    app.Left.SetFilter("no matching files");
+                });
+                await Ready(app.Left);
+                await Ui(() => { Shortcut(0x28); Shortcut(0x21); Shortcut(0x23, KeyModifiers.Control); });
+                await Check(() => app.Left.VisibleCount == 0 && app.Left.SelectedEntry is null && app.Left.FindInput.Focused,
+                    "Find navigation safely handles no matches");
+                await Ui(app.Left.HideFind);
+                await Ready(app.Left);
+
+                await Ui(() => app.Left.Navigate(Path.Combine(fixture, "alpha")));
+                await Ready(app.Left);
+                await Ui(() => MouseTravel(app.Left.Grid, NavigationDirection.Back));
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Path == fixture, "Mouse Back navigates the file pane");
+                await Ui(() => MouseTravel(app.Left.Grid, NavigationDirection.Forward));
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "alpha"), "Mouse Forward restores the next location");
+                await Ui(() => MouseTravel(app.Left.Grid, NavigationDirection.Back));
+                await Ready(app.Left);
+
                 await Ui(() => app.Left.Navigate(Path.Combine(fixture, "missing")));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == fixture && app.Left.VisibleCount == 4 && app.Left.Error is not null,
@@ -116,6 +174,12 @@ internal static class ExplorerSmoke
                 await Until(() => !app.Palettes.Pending);
                 await Check(() => app.Palettes.IsOpen && app.Palettes.QueryText == fixture && app.Palettes.ResultCount == 4,
                     "Navigation palette opens at CWD");
+                await Ui(() =>
+                {
+                    if (SendMessageW(GetFocus(), 0x319, (nuint)GetFocus(), 1 << 16) != 1 ||
+                        app.Left.IsLoading || !app.Palettes.IsOpen || app.Left.Model.Active.Path != fixture)
+                        throw new InvalidOperationException("Mouse/browser navigation must not change the folder behind an open palette.");
+                });
                 ElementBounds firstPaletteBounds = default;
                 await Ui(() => firstPaletteBounds = app.Palettes.Bounds);
                 await Check(() => Math.Abs(firstPaletteBounds.X + firstPaletteBounds.Width / 2
@@ -178,6 +242,19 @@ internal static class ExplorerSmoke
                 await Check(() => app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X
                     && app.Window.TitlebarSecondaryTabs.GetBounds().Width > 0, "Each split has a pane-aligned tab band");
                 await Ui(() => ClickFirstTab(app.Right));
+                await Ui(() => app.Right.Navigate(Path.Combine(fixture, "alpha")));
+                await Ready(app.Right);
+                await Ui(() =>
+                {
+                    app.Right.ShowFind();
+                    MouseTravel(app.Right.FindInput, NavigationDirection.Back, app.Left.Focus);
+                });
+                await Ready(app.Right);
+                await Check(() => ReferenceEquals(app.Active, app.Right) && app.Right.Model.Active.Path == Path.Combine(fixture, "beta")
+                    && app.Left.Model.Active.Path == Path.Combine(fixture, "alpha", "child"),
+                    "Mouse Back over the inactive pane's native Find editor activates only that pane");
+                await Ui(app.Right.HideFind);
+                await Ready(app.Right);
                 await Ui(() => app.Palettes.ShowNavigation(app.Right));
                 await Check(() => app.Palettes.Bounds == firstPaletteBounds && app.Palettes.StatusHeight > 0,
                     "Second-pane navigation uses the same centered bounds and retains empty-state feedback");
@@ -299,6 +376,18 @@ internal static class ExplorerSmoke
         {
             if (app.Window.KeyHandler?.Invoke(new(key, modifiers, 0)) != true)
                 throw new InvalidOperationException($"Shortcut {key:X}/{modifiers} was not handled.");
+        }
+
+        static void MouseTravel(Control target, NavigationDirection direction, Action? beforeClick = null)
+        {
+            target.Focus();
+            nint peer = GetFocus();
+            beforeClick?.Invoke();
+            uint button = direction == NavigationDirection.Back ? 1u : 2u;
+            nuint flags = (nuint)((button << 16) | (button == 1 ? 0x20u : 0x40u));
+            if (SendMessageW(peer, 0x20B, flags, (12 << 16) | 12) != 1 ||
+                SendMessageW(peer, 0x20C, (nuint)(button << 16), (12 << 16) | 12) != 1)
+                throw new InvalidOperationException("Mouse navigation messages were not consumed.");
         }
 
         static bool FindFits(FilePaneView pane)

@@ -234,6 +234,26 @@ internal sealed class FilePaneView
         Grid.Focus();
     }
 
+    public bool HandleFindKey(UiKeyEvent key)
+    {
+        if (!Model.Active.FindOpen || !find.Focused || (key.Modifiers & KeyModifiers.Alt) != 0) return false;
+        GridNavigation? direction = key.VirtualKey switch
+        {
+            0x26 => GridNavigation.Previous,
+            0x28 => GridNavigation.Next,
+            0x21 => GridNavigation.PagePrevious,
+            0x22 => GridNavigation.PageNext,
+            0x24 when (key.Modifiers & KeyModifiers.Control) != 0 => GridNavigation.First,
+            0x23 when (key.Modifiers & KeyModifiers.Control) != 0 => GridNavigation.Last,
+            _ => null
+        };
+        if (direction is null) return false;
+        // Ctrl+Home/End selects the edge; unmodified Home/End still edit the query.
+        var modifiers = key.VirtualKey is 0x24 or 0x23 ? key.Modifiers & ~KeyModifiers.Control : key.Modifiers;
+        Grid.Navigate(direction.Value, modifiers);
+        return true;
+    }
+
     private void SaveViewport()
     {
         if (displayedTab != Model.Active.Id) return;

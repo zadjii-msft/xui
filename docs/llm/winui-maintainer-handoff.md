@@ -2,6 +2,10 @@
 
 Status date: September 15, 2026.
 
+This handoff records an earlier development checkout.
+Its branch, uncommitted-state warning, and local results are historical, not the state of the current checkout.
+Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build commands.
+
 ## Current state
 
 The optional WinUI style covers the custom control catalog and has several reference-based fidelity passes.
@@ -9,7 +13,7 @@ It is more than a palette change, but it is not a pixel-exact or behavior-comple
 The user wants controls that pass visually as WinUI, without losing XUI's lightweight rendering or native editing.
 The latest pass adds Segoe Fluent Icons and corrects button, checkbox, radio, navigation, and breadcrumb presentation.
 
-The [design plan](winui-design-plan.md) contains the original proposal, source references, and detailed implementation notes.
+The [design plan](../specs/winui-design-plan.md) contains the original proposal, source references, and detailed implementation notes.
 Its implementation sequence includes both completed work and future work.
 This handoff separates those states and identifies the next practical tasks.
 
@@ -197,7 +201,7 @@ Those limits remain acceptance targets, not measured results.
 5. Account explicitly for the lazy clear-button peer.
 
 Existing starting points are `tests\measure-window-memory.ps1`, `tests\measure-resize-memory.ps1`, and `xui_window_memory_probe`.
-The [memory report](windows-gui-memory.md) describes driver-sensitive allocation behavior.
+The [memory report](../specs/windows-gui-memory.md) describes driver-sensitive allocation behavior.
 Working-set trimming is not a substitute for matched measurements.
 
 ### 4. Add motion and materials as separate experiments

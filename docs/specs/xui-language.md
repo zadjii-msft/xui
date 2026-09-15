@@ -6,7 +6,7 @@ It does not add a runtime parser, virtual tree, or reconciler.
 
 The initial implementation supports fixed compositions.
 It does not support arbitrary dynamic children, custom row templates, or a complete styling language.
-The [engineering plan](xui-language-plan.md) defines the implementation and acceptance checks.
+The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
 
 ## Author a component
 
@@ -208,45 +208,9 @@ The development host does not change that rule.
 
 ## Run the sample
 
-The commands use Windows ARM64.
-They require the .NET 10 SDK and Visual Studio C++ build tools.
-The `cmake` command must be available in the shell.
-
-1. Build the native library:
-
-   ```powershell
-   cmake -S . -B build\xui-language -A ARM64
-   cmake --build build\xui-language --config Release --target xui
-   ```
-
-2. Add the library directory to this shell's DLL search path:
-
-   ```powershell
-   $env:PATH = (Resolve-Path build\xui-language\Release).Path + ";" + $env:PATH
-   ```
-
-3. Run the sample with the watcher:
-
-   ```powershell
-   dotnet watch --project bindings\dotnet\DeclarativeSample\DeclarativeSample.csproj --non-interactive
-   ```
-
-4. Edit `bindings\dotnet\DeclarativeSample\Counter.xui`.
-
-The watcher observes `.xui` inputs.
-Generated files do not require manual edits.
-The native library does not rebuild for each `.xui` change.
-The application uses its generated executable, which contains the native-control manifest.
-Running its `.dll` through `dotnet` directly does not apply that executable manifest.
-
-If you change the compiler itself, stop the watcher before you rebuild the compiler.
-The watcher can hold the analyzer assembly open on Windows.
-
-For restart-on-save without .NET Hot Reload, use this command:
-
-```powershell
-dotnet watch --project bindings\dotnet\DeclarativeSample\DeclarativeSample.csproj --no-hot-reload
-```
+Use the [C# build and watch commands](../../CONTRIBUTING.md#c-and-declarative-samples).
+Edit `bindings\dotnet\DeclarativeSample\Counter.xui` while the watcher runs.
+The native library does not rebuild for each markup change.
 
 ## Understand reload behavior
 
@@ -290,24 +254,13 @@ A later valid edit recovers without deletion of generated files, but a restarted
 
 ## Publish a native executable
 
-1. Publish the sample:
-
-   ```powershell
-   dotnet publish bindings\dotnet\DeclarativeSample\DeclarativeSample.csproj -c Release -p:PublishAot=true
-   ```
-
-2. Copy the native XUI library beside the executable:
-
-   ```powershell
-   Copy-Item build\xui-language\Release\xui.dll bindings\dotnet\DeclarativeSample\bin\Release\net10.0\win-arm64\publish\
-   ```
-
-The published executable does not use the development reload host.
+Use the [NativeAOT instructions](../../CONTRIBUTING.md#nativeaot-and-deployment).
+The published executable excludes the development reload host.
 The executable and `xui.dll` must use the same architecture.
 
 ## Play Minesweeper
 
-The [Minesweeper sample](../bindings/dotnet/Minesweeper/README.md) uses `.xui` for a complete game interface.
+The [Minesweeper sample](../../bindings/dotnet/Minesweeper/README.md) uses `.xui` for a complete game interface.
 It includes first-click safety, flood reveal, flags, win/loss states, and restart.
 Its immutable C# model supplies values for a fixed native board.
 
@@ -320,7 +273,7 @@ dotnet watch --project bindings\dotnet\Minesweeper\Minesweeper.csproj --non-inte
 ## Install VS Code syntax support
 
 The extension is in `integrations\vscode-xui`.
-Its [README](../integrations/vscode-xui/README.md) contains the package and installation commands.
+Its [README](../../integrations/vscode-xui/README.md) contains the package and installation commands.
 
 The extension supplies `.xui` highlighting, embedded C# highlighting, brackets, comments, and snippets.
 It is a syntax package.
@@ -328,35 +281,8 @@ It does not provide a language server, semantic completion, or a visual designer
 
 ## Run the integration checks
 
-The native probe reads controls through UI Automation.
-It targets the fixture's process ID.
-It does not move the pointer or activate another application.
-
-1. Build the native library and probe:
-
-   ```powershell
-   cmake --build build\xui-language --config Release --target xui xui_language_probe
-   ```
-
-2. Run the edit-loop checks:
-
-   ```powershell
-   .\tests\xui-language.ps1
-   ```
-
-The script creates an isolated fixture under `build\xui-language-check`.
-It starts `dotnet watch` and changes the fixture, not the tracked sample.
-It checks text, layout, input preservation, event behavior, invalid-edit recovery, and structural fallback.
-It also checks input addition, renaming, deletion, no-op builds, and release references.
-Logs and edit durations remain in the fixture directory.
-The script stops the processes that it starts.
-
-The compiler and MSBuild checks do not open a native window:
-
-```powershell
-dotnet run --project bindings\dotnet\GeneratorTests\GeneratorTests.csproj -c Release
-.\bindings\dotnet\GeneratorTests\BuildTests.ps1
-```
+Use the [compiler and integration commands](../../CONTRIBUTING.md#tests).
+The [fixture reference](../llm/testing.md#declarative-integration-fixtures) describes the native probes and isolated edit loop.
 
 ## Performance boundary
 

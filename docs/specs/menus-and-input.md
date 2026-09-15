@@ -1,0 +1,242 @@
+# Context menus, tabs, and input
+
+Build and test commands are in [CONTRIBUTING](../../CONTRIBUTING.md).
+See the [reference index](README.md) for related APIs.
+Examples in this reference use C++ unless stated otherwise.
+For C# and Rust coverage, use the [binding reference](bindings.md).
+
+## Shared context menus
+
+Every `Control::on_context_menu` callback uses the same Windows menu backend.
+This includes buttons, native text inputs, file lists, and data grids. Applications do not supply colors, drawing code, or HWNDs.
+`WindowOptions::theme` and `Window::set_theme` select the shared palette.
+System high contrast overrides dark and light colors.
+
+The backend keeps `HMENU` and the native `#32768` popup.
+Owner drawing supplies Segoe UI text, DPI-scaled padding, a checkmark column, right-aligned shortcut labels, separators, and selection colors.
+The popup uses the shared surface color and a one-pixel border.
+Its outer frame is square. Selected rows have rounded corners outside high contrast.
+Windows retains menu placement, capture, dismissal, and accessibility.
+
+```cpp
+control->on_context_menu([&] {
+    return std::vector<xui::MenuItem>{
+        {L"&Refresh\tF5", refresh},
+        {L"Copy path\tCtrl+C", copy_path, has_selection()},
+        {L"", {}, true, false, true},
+        {L"Dark theme", select_dark_theme, true, dark_theme()}
+    };
+});
+```
+
+The first tab separates the command name from its shortcut label.
+A shortcut label does not register a keyboard shortcut. `Window::on_key` can call the same command function.
+An ampersand marks a mnemonic. Two ampersands display one literal ampersand.
+Other letters select commands by their first letter. Repeated letters cycle through matching commands.
+Up, Down, Home, End, Enter, Escape, the context-menu key, and Shift+F10 use the same menu.
+Home and End select the first and last enabled commands through the native menu-selection protocol.
+Native arrow navigation can focus a disabled command. Enter dismisses that menu without a command call.
+Separators do not run commands. UIA invocation rejects disabled commands.
+
+The menu factory and its returned items are snapshots.
+The backend closes the native menu and releases its resources before it calls the selected action.
+An action can change the theme, open another context menu, close the window, or delete its public `Window`.
+The backend remains alive until the active dispatch returns.
+Callback exceptions and reported native API failures reach `Window::error` and a nonzero `Application::run` result.
+
+A context menu cancels visible and pending suggestions before it opens.
+Late suggestion results cannot reopen the dropdown over the menu.
+A custom text-input menu does not open during IME composition.
+Menu dismissal preserves native EDIT selection. Focus returns to the previous control only while the same host remains in the foreground.
+Outside clicks, host deactivation, host closure, and theme or DPI changes cancel the menu.
+Windows places the popup within the destination monitor's work area.
+
+Menu fonts, brushes, thread hooks, and owner subclasses exist only for the active popup.
+Closed menus retain no menu resources and schedule no timers or paints.
+The backend creates no Direct2D targets.
+Native MSAA menu metadata preserves command names and checked state. UIA retains native `Menu`, `MenuItem`, focus, and Invoke behavior.
+The current model is flat. Submenus, menu bars, dropdown buttons, and Windows Shell extension menus are not part of this change.
+
+PNG copies permit image review without changes to the BMP capture tests.
+The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
+If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.
+
+The C++ API provides `Window::set_title` and `Window::title`.
+The setter runs on the window owner thread before or during `Application::run`. Repeated values do not update the native caption.
+A closed window rejects changes. The getter retains the last title after closure.
+Invalid strings, wrong-thread calls, and native title failures throw exceptions.
+`Button::set_icon` selects an icon-only presentation without changing the accessible name.
+`ButtonIcon::none` restores text. Icon buttons retain standard focus, hover, pressed, disabled, and high-contrast states.
+`TextInput::set_caption_visible(false)` hides the native caption without a search icon.
+The native label remains available for EDIT naming. The default caption and search presentations remain unchanged.
+The C# explorer also uses icon and caption controls through the bindings.
+See the [binding reference](bindings.md) for the available language surface.
+
+## Tabs, split panes, and activation
+
+`TabStrip::set_tabs(items, selected_id)` replaces tab data without a native tree replacement.
+It rejects zero IDs, duplicate IDs, and an unknown selected ID before a state change.
+IDs represent stable tab identities, not display positions. An application must not reuse an ID for a different tab.
+`select`, `step`, and `request_close` share the public action callbacks.
+Property assignment does not call `on_select`. `on_close` requests closure without an automatic data change.
+
+Tab selection and content activation are separate operations.
+C++ hosts use `TabStrip::on_activate` to focus their selected content after a click, Enter, or Space.
+The C ABI reports activation as `XUI_CLICK`. The .NET explorer handles `EventKind.Click` by focusing the file grid.
+Arrow-key selection does not activate content or move focus out of the strip.
+The focus rectangle appears only during keyboard navigation and stays inside the selected tab.
+
+Classic and WinUI tabs have rounded top corners and an open selected bottom edge.
+Inactive tabs share a continuous strip instead of separate button outlines. The close button highlights under the pointer.
+The row inherits its parent background, including unused space after the last tab.
+Empty rows draw no baseline. A populated row's baseline stops at the selected tab, which opens into its content.
+
+The tab strip exposes UIA `Tab`, `TabItem`, `SelectionPattern`, and `SelectionItemPattern`.
+It publishes structure, selection, and focus changes. A removed tab provider rejects later actions.
+`SplitView` exposes a divider through `RangeValuePattern`, with a ratio from 10 to 90 percent.
+The layout also enforces pane minima. A requested ratio can therefore differ from the physical split near the minimum width.
+Native children and custom pixels stay inside their content host.
+Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
+
+### Tab colors
+
+`TabColors` provides optional colors for the row, selected tab, inactive tabs, hover state, and borders.
+Selected and inactive tabs each have separate background and text colors.
+"Selected" identifies the active page, not keyboard focus.
+Each color uses `0xRRGGBB`. Alpha values are not supported.
+Unset colors follow the current theme, and high contrast uses system colors instead of overrides.
+
+```cpp
+xui::TabColors colors;
+colors.selected_background = 0x26465e;
+colors.selected_text = 0xffffff;
+tabs->set_colors(colors); // The row still inherits its parent background.
+tabs->set_colors({});     // Restore theme colors.
+```
+
+The .NET binding provides `TabStrip.Colors` and `SetColors(new TabColors(...))`.
+Nullable fields restore individual theme colors, and `SetColors(default)` clears all overrides.
+Rust provides `TabStrip::set_colors` and `colors`, with `Option<u32>` fields.
+The C ABI provides `xui_tab_set_colors` and `xui_tab_get_colors` in `xui_layout.h`.
+Its versioned record uses a mask to distinguish an unset color from black.
+
+Applications must pair custom backgrounds with readable text colors.
+Explicit colors stay unchanged across theme switches until the application replaces or clears them.
+The gallery's Tabs page includes a **Custom tab colors** toggle.
+
+### File activation
+
+`FileList::on_activate` receives a copied `FileItem` and a `FileActivation` reason.
+The reasons distinguish Enter, double-click, and an application command.
+`activate_selected` rejects disabled lists and hidden selections.
+`restore_state` restores selection, independent item focus, and scroll offset against the current snapshot.
+It preserves hidden identities that still exist in the source.
+
+C# and Rust expose workspace controls through the [feature extension](bindings.md#current-coverage).
+The extension preserves existing ABI entry points and layouts.
+
+## Address suggestions
+
+Both explorer address fields provide folder suggestions. The search fields remain separate filters.
+Typing does not navigate. A mouse click or Enter accepts the selected folder and submits the address once.
+Tab accepts a selected folder without submission. Without a selected folder, Tab keeps its normal focus behavior.
+Shift+Tab keeps reverse focus traversal. Escape first closes suggestions without a text change.
+Another Escape restores the current explorer path or cancels a pending navigation.
+Down can open suggestions without a text change. Ctrl+L alone does not enumerate folders or network drives.
+
+The public C++ API is optional:
+
+```cpp
+#include "xui\application.hpp"
+#include "xui\suggestions.hpp"
+
+auto address = std::make_shared<xui::TextInput>(L"Folder address");
+address->set_maximum_length(32767);
+address->set_suggestions(xui::folder_suggestions());
+address->set_suggestion_context(L"D:\\Documents");
+```
+
+The context is the absolute base folder for relative text. Each explorer pane updates this context from its active tab.
+`set_text`, context changes, and source changes cancel old suggestions. Even a same-value `set_text` cancels an open dropdown.
+These property updates do not open a dropdown. `set_suggestions(nullptr)` disables the feature.
+The C ABI and language bindings do not expose this optional API yet.
+
+`SuggestionSource::suggest` receives text, context, an explicit-request flag, and a cancellation function.
+The worker calls the source outside the UI thread. Source implementations must not access controls or retain window callbacks.
+The source can outlive the control during cancellation. Its destructor must not require the UI thread.
+A source must bound its own work and allocations. Results contain at most 64 strings, each with at most 32,767 UTF-16 units.
+The delivery boundary also enforces these limits. It limits status text to 256 units and excludes values that exceed the input limit.
+Custom COM sources require their own apartment and correct marshaling. XUI does not transfer COM interfaces between threads for this feature.
+
+### Filesystem source and cancellation
+
+The filesystem source calls `FindFirstFileExW` and `FindNextFileW` on the worker.
+The search pattern contains the typed prefix. A second ordinal, case-insensitive comparison excludes DOS wildcard aliases.
+Results contain directories, not executable files, URL history, or shell commands.
+Supported input includes Unicode, spaces, folder names with dots, drive roots, absolute paths, relative paths, and both separator forms.
+Dot and dot-dot expand against the current base folder. Quoted paths match the explorer navigation rules.
+Environment references use `%name%`. Navigation and suggestions share `xui::expand_path_input` from `xui\path_input.hpp`.
+The helper reads Unicode environment values through `GetEnvironmentVariableW`. It expands each reference once, without shell execution or process-directory changes.
+Relative expanded paths use the current tab folder. Suggestions display complete expanded paths.
+Unknown paired references report an error without a folder scan. A component such as `%USERPRO` reports an incomplete reference.
+Unpaired percent signs inside names, a trailing `%`, and `%%` remain literal.
+Other paired percent signs denote environment references, not literal filename characters.
+Input and expanded output each have a 32,767-unit limit, including the terminator. Windows getter errors remain visible.
+The suggestion worker reads environment values outside the UI thread. Navigation reads them when the address is submitted.
+Drive-relative paths such as `C:folder` remain unsupported.
+UNC share paths are valid. Server-only paths do not enumerate network shares.
+An explicit request with empty text and empty context returns drive names without a scan of their contents.
+
+An 80-ms timer combines successive edits. Only the focused input keeps an active timer.
+An open dropdown retains its rows and size during the next request, then replaces the results in place.
+Typing clears the old selection. Pending rows cannot accept keyboard or mouse actions for an outdated query.
+The loading message appears only when the dropdown first opens, not between successive results.
+One shared worker callback runs at a time. It retains one pending request, which the latest request replaces.
+Generation checks reject old results after typing, tab changes, focus loss, or closure.
+Each scan retains at most 64 paths and examines at most 4,096 matching entries.
+A 100-ms elapsed-time budget stops the scan between filesystem calls. A status explains partial results or errors.
+The retained subset is sorted, not the complete directory. More specific text narrows the next scan.
+There is no directory cache, polling loop, thread per keystroke, or new Direct2D target.
+
+One Windows filesystem call can block beyond the elapsed-time budget, especially on a network path.
+Cancellation cannot interrupt that call. The UI remains responsive, but the latest request waits for the single worker.
+Window closure revokes delivery without a UI-thread join. The worker owns its pending resources until the call returns.
+The implementation does not start replacement workers to bypass a blocked network call.
+
+### Native input and popup
+
+The real Windows EDIT retains text, caret, selection, clipboard, undo, IME, and native text accessibility.
+The popup contains a native LISTBOX and a separate native status label. The status is not a selectable folder.
+UIA exposes the native List and SelectionItem patterns, full path names, and selection state.
+The native LegacyIAccessible default action accepts a folder and submits the address.
+The popup does not take EDIT focus. It uses the complete field bounds and clamps its position to the monitor work area.
+Focus loss, pane hiding, window movement, resize, minimize, and destruction close the popup.
+IME composition closes suggestions and suppresses application shortcuts. Committed input can start a new request.
+Disabled and read-only inputs do not open suggestions.
+
+### Browser mouse navigation
+
+`Window::on_navigation` receives a `NavigationEvent` with a direction, a target control, and an optional mouse position in client DIPs.
+The handler returns `true` to consume the event. This public C++ callback does not change focus or text selection.
+The C ABI and language bindings do not expose this callback.
+`WM_XBUTTONUP` dispatches Back for `XBUTTON1` and Forward for `XBUTTON2`.
+The host consumes button-down and double-click messages without a second navigation. Parent notifications do not dispatch navigation.
+Native EDIT, FileList, tab, and custom control peers use the same host callback.
+`WM_APPCOMMAND` supports browser Back and Forward. Non-mouse commands identify the source control or the focused control.
+The explorer activates the target pane and uses its active tab history. Unavailable history causes no folder request.
+Alt+Left and Alt+Right retain their existing keyboard behavior.
+
+The list and status use the application text and background colors, including system high-contrast colors.
+Windows retains control of the selection highlight, scrollbar, and border appearance.
+The popup is not a pixel-identical copy of a particular Explorer version.
+
+The Shell APIs were considered:
+[IACList::Expand](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-iaclist-expand)
+requests candidates,
+[IACList2::SetOptions](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-iaclist2-setoptions)
+controls the source, and
+[IAutoComplete2](https://learn.microsoft.com/en-us/windows/win32/api/shldisp/nn-shldisp-iautocomplete2)
+controls Shell autocomplete behavior.
+These contracts do not establish bounded filesystem latency or cancellation for a slow UNC request.
+XUI therefore uses the asynchronous source and native popup described here, not `IACList2` or `IAutoComplete2`.
+This choice does not establish which implementation any particular Explorer version uses.

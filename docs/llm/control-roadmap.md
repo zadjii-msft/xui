@@ -89,7 +89,7 @@ The extension adds 35 typed constructors, including compositions and the earlier
 It preserves the original nine kinds and their record layouts.
 Coverage includes numeric values, choices, virtual sources, lazy trees, commands, dialogs, documents, scenes, maps, and explicit native-host loads.
 It does not expose every C++ method or every gallery recipe.
-The [binding coverage section](../README.md#feature-bindings-11-extension) lists the remaining advanced API gaps and validation commands.
+The [binding coverage section](../specs/bindings.md#feature-bindings-11-extension) lists the remaining advanced API gaps and validation commands.
 
 ## Deduplication rules
 
@@ -237,7 +237,8 @@ Editable ComboBox text remains separate from its selected ID.
 Invalid numeric text remains visible without replacing the last valid value.
 Indeterminate progress is static; progress rings and animated progress remain optional presentations, not delivered animation features.
 No new C ABI, C#, or Rust bindings are included in this batch.
-See the README foundation section for contracts and `build\controls` build/test commands.
+See the [foundation reference](../specs/foundation-controls.md) for contracts.
+Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 
 ### Collection delivery limits
 

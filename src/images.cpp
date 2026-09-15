@@ -467,7 +467,8 @@ std::shared_ptr<const ImagePixels> RowImages::pixels(ItemKey key) const {
     return found == slots_.end() ? nullptr : (*found)->pixels;
 }
 bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
-    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining) {
+    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
+    bool retain_on_source_change) {
     if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
     if (rows.size() > maximum_rows) throw std::length_error("Too many visible row visuals");
     for (const auto& row : rows) {
@@ -477,9 +478,10 @@ bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<
     }
     const auto pixels = std::clamp(static_cast<UINT>(std::lround(24.0 * dpi / 96.0)), 1u, ImageLimits::output_dimension);
     bool changed{};
-    if (source_.lock() != source || pixels_ != pixels) {
-        changed = !slots_.empty(); clear(); source_ = source; pixels_ = pixels;
+    if ((!retain_on_source_change && source_.lock() != source) || pixels_ != pixels) {
+        changed = !slots_.empty(); clear(); pixels_ = pixels;
     }
+    source_ = source;
     rows_ = std::move(rows);
     std::vector<const RowVisual*> wanted;
     const auto limit = std::min(maximum_images, remaining);
@@ -493,9 +495,11 @@ bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<
     const auto matches = [&](const Slot& slot, const RowVisual& row) {
         return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row);
     };
-    std::erase_if(slots_, [&](const auto& slot) {
+    // Navigation snapshots opt into visual identity; other source refreshes still reload changed files.
+    const auto removed = std::erase_if(slots_, [&](const auto& slot) {
         return std::none_of(wanted.begin(), wanted.end(), [&](const auto* row) { return matches(*slot, *row); });
     });
+    changed = removed != 0 || changed;
     for (const auto* row : wanted) {
         auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return matches(*slot, *row); });
         if (found == slots_.end()) {

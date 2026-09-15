@@ -51,12 +51,14 @@ class RowImages {
 public:
     static constexpr std::size_t maximum_rows = 512, maximum_images = 24;
     bool sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
-        const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining);
+        const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
+        bool retain_on_source_change = false);
     void clear();
     ItemVisual visual(ItemKey key) const;
     std::shared_ptr<const ImagePixels> pixels(ItemKey key) const;
     std::size_t count() const { return slots_.size(); }
 private:
+    friend struct RowImagesTestAccess;
     struct Slot {
         ItemKey key;
         std::wstring path;
