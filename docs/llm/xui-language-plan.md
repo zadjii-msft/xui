@@ -1,5 +1,9 @@
 # `.xui` language and development reload
 
+This plan records the initial implementation and its acceptance evidence.
+The [language guide](../specs/xui-language.md) describes the current syntax and expanded control set.
+Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.
@@ -229,7 +233,8 @@ Per-file generation does not eliminate those costs.
 
 The compiler, development host, VS Code package, and integration checks are complete.
 The native ABI and its topology rules remain unchanged.
-The [user guide](xui-language.md) contains the build, watch, and installation instructions.
+The [user guide](../specs/xui-language.md) describes the syntax and reload behavior.
+[CONTRIBUTING](../../CONTRIBUTING.md) contains the build and watch commands.
 
 Acceptance checks passed on Windows ARM64 with .NET SDK 10.0.401:
 

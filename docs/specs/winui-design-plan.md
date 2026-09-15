@@ -1,6 +1,6 @@
 # A Windows 11 appearance for XUI
 
-The [maintainer handoff](winui-maintainer-handoff.md) separates completed work from remaining tasks and includes build commands and the latest regression results.
+The [maintainer handoff](../llm/winui-maintainer-handoff.md) separates completed work from remaining tasks and includes build commands and the latest regression results.
 
 ## Recommendation and scope
 
@@ -15,7 +15,8 @@ File Explorer is an application reference, not a specification for all WinUI con
 The existing XUI interaction model, native text input, virtualization, and UI Automation remain in place.
 
 Status: the opt-in solid-surface style now covers the custom control catalog, not only the compact experiment.
-The [README](../README.md#winui-style-gallery-experiment) contains build instructions and the current scope.
+The [style reference](winui-style.md) describes the current scope.
+[CONTRIBUTING](../../CONTRIBUTING.md#gallery) contains the build instructions.
 The style includes state tokens, button variants, fields, selection marks, sliders, grids, status surfaces, and popup geometry.
 It retains the renderer and native text input. Classic retains its vector icons.
 The fidelity pass also gives core controls distinct WinUI measurement and part layout.
