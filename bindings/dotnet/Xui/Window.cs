@@ -57,6 +57,7 @@ public sealed unsafe partial class Window : IDisposable
         if (thread != Environment.CurrentManagedThreadId) throw new XuiException(4, "Use the creating UI thread.");
         ObjectDisposedException.ThrowIf(Handle == 0, this);
     }
+    public void VerifyAccess() => Guard();
     internal static byte[] Utf8(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
