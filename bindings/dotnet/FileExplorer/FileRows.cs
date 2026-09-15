@@ -23,6 +23,7 @@ internal sealed class FileRows : IReadOnlyImmutableSource
     }
 
     public ulong Count => (ulong)entries.Count;
+    public bool HasChildren(ItemKey key) => Entry(key.Id)?.IsDirectory == true;
     public ItemKey Key(ulong index) => keys[checked((int)index)];
     public ulong? Find(ItemKey key) => indices.TryGetValue(key.Id, out int index) ? (ulong)index : null;
     public FileEntry? Entry(ulong id) => indices.TryGetValue(id, out int index) ? entries[index] : null;

@@ -37,6 +37,7 @@ public PageView PageView(string name) => new(this, FeatureCreate(42, name));
 public DataGrid DataGrid(string name) => new(this, FeatureCreate(43, name));
 public HistoryChart HistoryChart(string name) => new(this, FeatureCreate(44, name));
 public NavigationView NavigationView(string name) => new(this, FeatureCreate(45, name));
+public MillerColumns MillerColumns(string name) => new(this, FeatureCreate(46, name));
 }
 public sealed unsafe partial class RangeInput : Control {
 internal RangeInput(Window w, ulong h) : base(w,h) { }
@@ -238,4 +239,7 @@ public sealed unsafe partial class NavigationView : Control {
 internal NavigationView(Window w, ulong h) : base(w,h) { }
 public bool Expanded { get { var v = Features.Get(this,5); return v.First != 0; } set => Features.Set(this,5,first: value ? 1u : 0u); }
 public NavigationView SetExpanded(bool value) { Expanded = value; return this; }
+}
+public sealed unsafe partial class MillerColumns : Control {
+internal MillerColumns(Window w, ulong h) : base(w,h) { }
 }

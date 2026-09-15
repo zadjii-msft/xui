@@ -14,6 +14,7 @@ internal static class Program
         {
             await FileSystemTests(fixture);
             TabTests(fixture);
+            ColumnTests(fixture);
             PaneTests(fixture);
             StateTests(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
@@ -172,6 +173,102 @@ internal static class Program
         Sequence(new[] { "folder", "z.bin", "b.txt" },
             FileSystemService.FilterAndSort(dates, "", 0, true).Select(entry => entry.Name));
         Throws<ArgumentOutOfRangeException>(() => FileSystemService.FilterAndSort(entries, "", 4, false));
+    }
+
+    private static void ColumnTests(string fixture)
+    {
+        var root = Path.Combine(fixture, "columns");
+        FileEntry Folder(string parent, string name) => new(Path.Combine(parent, name), name, true, 0, DateTime.UnixEpoch);
+        FileEntry FileRow(string parent, string name) => new(Path.Combine(parent, name), name, false, 1, DateTime.UnixEpoch);
+        var alpha = Folder(root, "alpha");
+        var beta = Folder(root, "beta");
+        var leaf = FileRow(root, "leaf.txt");
+        var child = Folder(alpha.FullPath, "child");
+        var tab = new ExplorerTab(1, root);
+        True(!tab.HasSnapshot);
+        tab.Commit(new(root, [alpha, beta, leaf]));
+        True(tab.HasSnapshot);
+        Equal(ExplorerViewMode.Details, tab.ViewMode);
+        Equal(0, tab.Columns.Count);
+        tab.Filter = "leaf";
+        tab.SelectedPath = leaf.FullPath;
+        tab.ScrollOffset = 80;
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        Equal(root, tab.Columns.Single().Snapshot.Path);
+        Equal(leaf.FullPath, tab.Columns[0].SelectedPath);
+        Equal(80d, tab.Columns[0].ScrollOffset);
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        var ancestor = tab.Columns[0];
+        tab.CommitColumn(0, new(alpha.FullPath, [child]));
+        Equal(2, tab.Columns.Count);
+        True(ReferenceEquals(ancestor, tab.Columns[0]));
+        Equal(alpha.FullPath, tab.Path);
+        Equal(alpha.FullPath, tab.Columns[0].SelectedPath);
+        Equal("leaf", tab.Filter);
+        tab.CommitColumn(1, new(child.FullPath, []));
+        Equal(3, tab.Columns.Count);
+        var committed = tab.Entries;
+        Throws<InvalidOperationException>(() => tab.CommitColumn(0, new(child.FullPath, [])));
+        Throws<ArgumentException>(() => tab.CommitColumn(1, new("", [])));
+        Equal(child.FullPath, tab.Path);
+        True(ReferenceEquals(committed, tab.Entries));
+        Equal(3, tab.Columns.Count);
+        tab.CommitColumn(0, new(beta.FullPath, []));
+        Equal(2, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Path);
+        True(ReferenceEquals(ancestor, tab.Columns[0]));
+        Equal(beta.FullPath, tab.Columns[0].SelectedPath);
+        tab.SelectColumnLeaf(0, leaf.FullPath);
+        Equal(root, tab.Path);
+        Equal(1, tab.Columns.Count);
+        Equal(leaf.FullPath, tab.SelectedPath);
+        Throws<InvalidOperationException>(() => tab.SelectColumnLeaf(0, alpha.FullPath));
+        Equal(leaf.FullPath, tab.SelectedPath);
+        True(tab.TryGetHistory(-1, out var history));
+        Equal(beta.FullPath, history);
+        tab.CommitHistory(new(beta.FullPath, []), -1);
+        Equal(1, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Columns[0].Snapshot.Path);
+        tab.SetViewMode(ExplorerViewMode.Details);
+        Equal(0, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Path);
+        Equal("leaf", tab.Filter);
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        tab.Commit(new(root, [alpha]));
+        Equal(root, tab.Columns.Single().Snapshot.Path);
+        tab.CommitColumn(0, new(alpha.FullPath, [child]));
+        tab.Commit(new(alpha.FullPath, []));
+        Equal(1, tab.Columns.Count);
+        Equal(0, tab.Columns[0].Snapshot.Entries.Count);
+
+        var bounded = new ExplorerTab(2, root);
+        bounded.Commit(new(root, [Folder(root, "next")]));
+        bounded.SetViewMode(ExplorerViewMode.Columns);
+        for (int i = 1; i < ExplorerTab.ColumnLimit; i++)
+        {
+            string next = Path.Combine(bounded.Path, "next");
+            bounded.CommitColumn(i - 1, new(next, [Folder(next, "next")]));
+        }
+        Equal(ExplorerTab.ColumnLimit, bounded.Columns.Count);
+        string last = bounded.Path;
+        Throws<InvalidOperationException>(() => bounded.CommitColumn(ExplorerTab.ColumnLimit - 1,
+            new(Path.Combine(last, "next"), [])));
+        Equal(last, bounded.Path);
+        Equal(ExplorerTab.ColumnLimit, bounded.Columns.Count);
+
+        var pane = new ExplorerPane(root);
+        var first = pane.Active;
+        first.Commit(new(root, [alpha]));
+        first.SetViewMode(ExplorerViewMode.Columns);
+        first.CommitColumn(0, new(alpha.FullPath, []));
+        var second = pane.AddTab(root);
+        Equal(ExplorerViewMode.Details, second.ViewMode);
+        pane.SelectTab(first.Id);
+        Equal(ExplorerViewMode.Columns, pane.Active.ViewMode);
+        Equal(2, pane.Active.Columns.Count);
+        Equal(alpha.FullPath, pane.Active.Path);
+        pane.CloseTab(first.Id);
+        True(ReferenceEquals(second, pane.Active));
     }
 
     private static void TabTests(string fixture)

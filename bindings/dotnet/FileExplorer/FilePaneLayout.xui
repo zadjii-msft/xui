@@ -15,11 +15,14 @@ component FilePaneLayout {
                 Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
                 Button(InitialPath, ref: Address, id: $"pane-{Number}-address", flex: 1, help: "Go to a folder (Ctrl+L)");
                 Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
+                Button("Columns", ref: ViewMode, id: $"pane-{Number}-view-mode", help: "Switch between Details and Columns");
                 Button("New tab", ref: NewTab, id: $"pane-{Number}-new-tab", icon: global::Xui.ButtonIcon.Add, size: (36, 36), help: "New tab (Ctrl+T)");
                 Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
             }
-            DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files", row: 1,
-                columns: [new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)]);
+            Grid($"File views in pane {Number}", ref: ContentHost, row: 1) {
+                DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files",
+                    columns: [new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)]);
+            }
             HStack(ref: FindHost, padding: 6, spacing: 8, row: 2) {
                 TextInput("Find", ref: Find, id: $"pane-{Number}-find", captionVisible: false,
                     placeholder: "Find", preferredSize: (320, 44), visible: FindOpen, flex: 1);

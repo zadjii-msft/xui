@@ -23,9 +23,13 @@ int main() {
             require(catalog.items()->source()->find(key).has_value());
             require(*gallery::entries[i].code != L'\0');
         }
-        require(gallery::entries.size() == 47);
+        require(gallery::entries.size() == 48);
         require(std::wstring_view(gallery::entries[45].id) == L"web-content");
         require(std::wstring_view(gallery::entries[46].id) == L"navigation-view");
+        require(std::wstring_view(gallery::entries[47].id) == L"miller-columns");
+        require(std::wstring_view(gallery::entries[47].group) == L"Collections");
+        require(std::wstring_view(gallery::entries[47].code).find(L"xui::MillerColumns") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[47].code).find(L"next.resize(column + 1)") != std::wstring_view::npos);
         for (auto id : {L"radio", L"combo", L"popup", L"tooltip", L"actions", L"number", L"range", L"disclosure", L"progress"})
             require(ids.contains(id));
         require(!gallery::entry_index({999, 1}) && !gallery::entry_index({1, 2}));
@@ -42,13 +46,20 @@ int main() {
         require(catalog.select({1, 1}) && catalog.item_expanded(input_group) && changes == 1);
         catalog.on_filter([&](const auto& query) {
             require(catalog.filter() == query && catalog.search()->text() == query);
-            if (query == L"COLLECTIONS") require(catalog.match_count() == 5);
+            if (query == L"COLLECTIONS") require(catalog.match_count() == 6);
         });
         for (const auto& [query, count] : std::array<std::pair<const wchar_t*, unsigned>, 4>{
-            {{L"COLLECTIONS", 5u}, {L"input", 11u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
+            {{L"COLLECTIONS", 6u}, {L"input", 11u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
             catalog.set_filter(query);
             require(catalog.match_count() == count && catalog.selected() == xui::ItemKey{1, 1});
             require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 1);
+        }
+        for (const auto* query : {L"miller-columns", L"MILLER", L"folder", L"hierarchy", L"immutable",
+                L"horizontal scrolling", L"vertical scrolling"}) {
+            catalog.set_filter(query);
+            require(catalog.item_matches({48, 1}) && catalog.items()->source()->find({48, 1}).has_value());
+            require(catalog.selected() == xui::ItemKey{1, 1});
+            if (std::wstring_view(query) == L"miller-columns") require(catalog.match_count() == 1);
         }
         catalog.set_filter(L"buttons");
         require(catalog.match_count() == 1 && catalog.selected() == xui::ItemKey{1, 1});
@@ -68,6 +79,48 @@ int main() {
         catalog.arrange({0, 0, 260, 600});
         require(catalog.search()->visible() && catalog.items()->source()->find({1, 1}).has_value());
         require(catalog.selected() == gallery::appearance_key);
+        gallery::FixtureMillerPath miller;
+        require(miller.columns().size() == 1 && miller.columns().front().title == L"Projects");
+        const auto roots = miller.columns().front().source;
+        require(roots->size() == 28 && !miller.columns().front().selected);
+        std::set<xui::ItemKey> fixture_keys;
+        for (std::size_t column = 0; column < gallery::FixtureMillerItems::levels; ++column) {
+            const auto source = miller.columns()[column].source;
+            require(source->size() == 28);
+            for (std::size_t row = 0; row < source->size(); ++row) {
+                const auto key = source->key(row);
+                require(fixture_keys.insert(key).second && source->find(key) == row);
+                require(!source->find({key.id, 2}) && !source->item(row).primary.empty());
+                require(source->hierarchy(row).expandable ==
+                    (column + 1 < gallery::FixtureMillerItems::levels && row < 3));
+            }
+            require(!source->find({0, 1}));
+            require(miller.select(column, source->key(0)));
+            require(miller.columns()[column].selected == source->key(0));
+            require(miller.columns()[column].source == source);
+            require(miller.columns().size() == std::min(column + 2, gallery::FixtureMillerItems::levels));
+        }
+        require(miller.columns().size() == 8 && miller.columns().front().source == roots);
+        const auto deep_path = miller.columns();
+        const auto engineering = deep_path[1].source->key(1);
+        require(miller.select(1, engineering));
+        require(miller.columns().size() == 3 && miller.columns()[2].title == L"Engineering");
+        require(miller.columns()[0].selected == deep_path[0].selected);
+        require(miller.columns()[1].selected == engineering && !miller.columns()[2].selected);
+        require(!miller.columns()[2].source->find(deep_path[2].source->key(0)));
+        require(deep_path.size() == 8 && deep_path[1].selected == deep_path[1].source->key(0));
+        const auto replacement = miller.columns()[2].source;
+        require(!miller.select(3, engineering) && !miller.select(1, {engineering.id, 2}));
+        require(miller.columns().size() == 3 && miller.columns()[2].source == replacement);
+        require(miller.select(1, miller.columns()[1].source->key(3)));
+        require(miller.columns().size() == 2 && miller.columns()[1].selected == deep_path[1].source->key(3));
+        require(miller.select(0, roots->key(1)));
+        require(miller.columns().size() == 2 && miller.columns()[1].title == L"Beacon");
+        require(!miller.columns()[1].source->find(deep_path[1].source->key(0)));
+        require(miller.select(0, roots->key(27)));
+        require(miller.columns().size() == 1 && miller.columns().front().selected == roots->key(27));
+        miller = gallery::FixtureMillerPath{};
+        require(miller.columns().size() == 1 && !miller.columns().front().selected);
         gallery::Numbers ascending, descending(true);
         require(ascending.size() == 100000 && sizeof(ascending) <= 32);
         for (std::size_t i = 0; i < ascending.size(); ++i) {
@@ -99,7 +152,7 @@ int main() {
         require(active->calls == hidden_calls && active->bounds().width == 0);
         pages.select(0); pages.arrange({0, 0, 500, 300});
         require(active->bounds().width == 500);
-        std::cout << "Gallery navigation metadata, hierarchy, filtering, pinned selection, and grid fixtures passed\n";
+        std::cout << "Gallery metadata, filtering, pinned selection, Miller hierarchy, and grid fixtures passed\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -989,6 +989,54 @@ private:
                 TextTone::secondary);
             break;
         }
+        case 47: {
+            label(demo, L"Select a folder to show its children. Select a document to remove later columns.", TextTone::secondary);
+            label(demo, L"Use Left and Right between columns. Enter or double-click reports activation without an external action.",
+                TextTone::secondary);
+            auto path = std::make_shared<gallery::FixtureMillerPath>();
+            auto columns = std::make_shared<MillerColumns>(L"Project library");
+            columns->set_automation_id(L"gallery-miller-columns");
+            columns->set_column_width(200);
+            columns->set_preferred_size({640, 300});
+            columns->set_columns(path->columns());
+            columns->on_selection([this, index, view = columns.get(), path, output](std::size_t column, ItemKey key) {
+                if (!path->select(column, key)) return;
+                view->set_columns(path->columns());
+                targets_[index] = view->column_list(view->active_column());
+                const auto& source = path->columns()[column].source;
+                const auto row = source->find(key);
+                output->set_text(L"Events: selected " + source->item(*row).primary + L" in column " +
+                    std::to_wstring(column + 1) + L". " + std::to_wstring(path->columns().size()) + L" columns.");
+            });
+            columns->on_activate([view = columns.get(), output](std::size_t column, ItemKey key) {
+                const auto& source = view->columns()[column].source;
+                if (const auto row = source->find(key))
+                    output->set_text(L"Events: activated " + source->item(*row).primary + L" in column " +
+                        std::to_wstring(column + 1) + L". No external action.");
+            });
+            demo->add(columns);
+            targets_[index] = columns->column_list(0);
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            button(actions, L"Show deep path", [this, index, columns, path, output] {
+                *path = gallery::FixtureMillerPath{};
+                for (std::size_t column = 0; column + 1 < gallery::FixtureMillerItems::levels; ++column)
+                    path->select(column, path->columns()[column].source->key(0));
+                columns->set_columns(path->columns());
+                columns->set_active_column(path->columns().size() - 1);
+                targets_[index] = columns->column_list(columns->active_column());
+                output->set_text(L"Events: eight columns. Scroll horizontally to inspect the path.");
+            })->set_automation_id(L"gallery-miller-deep-path");
+            button(actions, L"Reset path", [this, index, columns, path, output] {
+                *path = gallery::FixtureMillerPath{};
+                columns->set_columns(path->columns());
+                columns->set_active_column(0);
+                targets_[index] = columns->column_list(0);
+                output->set_text(L"Events: project library reset.");
+            });
+            label(demo, L"Eight levels and 28 siblings per column use immutable in-memory sources. No filesystem or network access.",
+                TextTone::secondary);
+            break;
+        }
         }
     }
 };

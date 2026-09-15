@@ -23,7 +23,7 @@ internal sealed class ExplorerApplication : IDisposable
         Window = new("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
         Work = new(Window);
         Files = new();
-        store = smoke ? new(Path.Combine(Path.GetTempPath(), $"xui-explorer-smoke-{Guid.NewGuid():N}", "state.json")) : new();
+        store = smoke ? new(Path.Combine(Environment.CurrentDirectory, ".file-explorer-smoke-state", "state.json")) : new();
         string startupMessage = "";
         try
         {
@@ -71,6 +71,7 @@ internal sealed class ExplorerApplication : IDisposable
     public PaletteController Palettes { get; }
     public NavigationSidebar Sidebar { get; }
     public IReadOnlyList<ExplorerCommand> Commands { get; }
+    internal int FileOpenCount { get; private set; }
 
     public void Run()
     {
@@ -153,6 +154,8 @@ internal sealed class ExplorerApplication : IDisposable
     public void Open(FileEntry entry, FilePaneView pane)
     {
         if (entry.IsDirectory) { pane.Navigate(entry.FullPath); return; }
+        FileOpenCount++;
+        if (smoke) return;
         try
         {
             Process.Start(new ProcessStartInfo(entry.FullPath) { UseShellExecute = true });
@@ -200,6 +203,8 @@ internal sealed class ExplorerApplication : IDisposable
         new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
         new("Up to parent folder", "Alt+Up", () => Active.Up()),
         new("Refresh folder", "F5", () => Active.Refresh()),
+        new("Use Details view", "", () => Active.SetViewMode(ExplorerViewMode.Details)),
+        new("Use Columns view", "", () => Active.SetViewMode(ExplorerViewMode.Columns)),
         new("Find in this folder", "Ctrl+F", () => Active.ShowFind()),
         new("Clear folder filter", "Escape", () => Active.HideFind()),
         new("Filter navigation", "Alt+F", Sidebar.FocusFilter),
@@ -255,7 +260,7 @@ internal sealed class ExplorerApplication : IDisposable
                 case 0x09: Active.CycleTab(1); return true;
                 case 0xdc: ToggleSplit(); return true;
                 case 0x75: ToggleTheme(); return true;
-                case 0x0d when Active.Grid.Focused:
+                case 0x0d when Active.FilesFocused:
                     if (Active.SelectedEntry is { } entry && OtherPane(Active, show: true) is { } target) Open(entry, target);
                     return true;
             }
@@ -291,6 +296,8 @@ internal sealed class ExplorerApplication : IDisposable
         Left.Cancel();
         Right.Cancel();
         Work.Dispose();
+        Left.DisposeSources();
+        Right.DisposeSources();
         Window.Dispose();
     }
 }

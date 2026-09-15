@@ -97,6 +97,10 @@ struct Node {
     xui::CommandBindings bindings;
     uint64_t web_generation{};
     std::function<void()> prior_action;
+    std::function<void()> prior_focus;
+    std::weak_ptr<Node> miller_owner;
+    xui_miller_callback miller_callback{};
+    void* miller_context{};
     std::function<void(const std::wstring&)> prior_change;
     unsigned dispatching{};
     xui_callback callback{};
@@ -189,7 +193,10 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
 void wire(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     if (auto* c = dynamic_cast<xui::Control*>(n->element.get()))
-        c->on_focus([weak] { dispatch(weak, XUI_FOCUS_ENTERED); });
+        c->on_focus([weak] {
+            if (auto node = weak.lock(); node && node->prior_focus) node->prior_focus();
+            dispatch(weak, XUI_FOCUS_ENTERED);
+        });
     switch (n->kind) {
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {

@@ -113,6 +113,47 @@ Process exit waits for cleanup. A loader that ignores cancellation can still del
 
 ## Virtual collections and adaptive layout
 
+### Miller columns
+
+`xui/miller_columns.hpp` supplies `MillerColumns` and `MillerColumn`.
+Miller columns display a hierarchy as adjacent lists.
+Each column contains siblings. A selected branch identifies the next column.
+The control is independent of the filesystem.
+
+`set_columns` replaces the complete path without selection or activation callbacks.
+Each descriptor supplies a title, an immutable `ItemsSource`, and an optional selected `ItemKey`.
+A null C++ source displays an empty column.
+`ItemsSource::hierarchy` supplies the `expandable` flag for branch indicators.
+The control retains at most 32 columns and requests content only for visible rows.
+Each column has independent vertical scrolling and single selection.
+
+`on_selection` reports the column index and the complete item key.
+The application loads children and replaces descendants after successful delivery.
+Selection does not activate an item.
+`on_activate` reports explicit activation through Enter or a double-click.
+Applications must cancel obsolete work and reject obsolete results before they call `set_columns`.
+Source methods must not perform filesystem or network work.
+
+`set_active_column` reveals a column horizontally.
+Left and Right move between existing columns. Up and Down move within a column.
+Horizontal wheel input and Shift+wheel scroll the path without changing selection or the active column.
+A bottom scrollbar supports thumb dragging and track paging when the path exceeds the viewport.
+Ordinary wheel input scrolls the current list vertically.
+Manual horizontal positions survive layout updates. Column activation and width changes reveal the active column.
+`horizontal_offset`, `maximum_horizontal`, and `set_horizontal_offset` expose the horizontal position in DIPs.
+`scroll_horizontal` applies a relative movement and clamps the result to the available range.
+
+Column headers identify the sibling lists for accessibility.
+The lists use the existing virtual collection renderer and UIA providers.
+The Miller container exposes the horizontal UIA Scroll pattern.
+The control does not create a native window for each row.
+
+The column width accepts 120 to 2,000 DIPs.
+Invalid widths, indices, sources, selections, and excessive depth produce explicit errors.
+The [binding reference](bindings.md#miller-columns-in-c) describes the C# API.
+
+### Shared collection model
+
 Include `xui/collections.hpp` for `CollectionSelection`, `ItemsSource`, `ItemsView`, `TreeSource`, and `TreeView`.
 Include `xui/adaptive_layout.hpp` for `Grid`, `Wrap`, and `AdaptiveLayout`.
 These controls do not add a native window or render target for each item.

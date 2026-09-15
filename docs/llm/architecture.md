@@ -32,6 +32,18 @@ General runtime tree replacement, control removal, and application-defined contr
 Multiline input uses the native document controls described in [the document reference](../specs/documents.md).
 Tab data can change without these tree operations.
 
+`include\xui\miller_columns.hpp` and `src\miller_columns.cpp` supply the retained Miller columns composition.
+Applications supply a path of immutable sibling sources, not filesystem callbacks.
+Column lists reuse virtual collection drawing, input, image resources, and accessibility.
+The native child tree stays fixed while the source path changes.
+`src\c_api_features.inc` preserves the composition callbacks when bindings subscribe to borrowed column lists.
+`bindings\dotnet\Xui\MillerColumns.cs` supplies typed path records, events, and borrowed child access.
+The FileExplorer controller owns asynchronous directory scans and rejects obsolete results.
+`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, and layout.
+`tests\collections_window_tests.cpp --miller-only` covers native focus, context selection, horizontal reveal, and window closure.
+The binding tests cover borrowed peers, source ownership, and callback errors.
+FileExplorer `--smoke` covers view changes, folder selection, tabs, Find, and cancellation.
+
 ## Performance design
 
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.
