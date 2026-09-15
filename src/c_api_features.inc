@@ -1,5 +1,6 @@
 namespace {
 void prepare_tree(const std::shared_ptr<Node>& n);
+void prepare_miller(const std::shared_ptr<Node>& n);
 bool dispatch_menu(const std::shared_ptr<Node>& node, uint32_t kind, uint64_t value = 0) {
     auto state = node->owner;
     if (!node->menu_callback || state->closed || state->callback_failure) return false;
@@ -47,6 +48,7 @@ void wire_feature(const std::shared_ptr<Node>& n) {
     case XUI_MEDIA_PLAYBACK: case XUI_WEB_CONTENT:
         feature<xui::RuntimeHost>(n).on_state([weak](xui::HostState state) { dispatch(weak, XUI_CHANGE, static_cast<uint64_t>(state)); }); break;
     case XUI_ITEMS_VIEW: case XUI_TREE_VIEW:
+        if (!n->miller_owner.expired()) break;
         feature<xui::VirtualCollection>(n).on_selection([weak] { dispatch(weak, XUI_SELECTION); });
         feature<xui::VirtualCollection>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); });
         feature<xui::VirtualCollection>(n).on_action([weak](xui::ItemKey key) { dispatch(weak, XUI_ACTION, key.id); }); break;
@@ -55,6 +57,7 @@ void wire_feature(const std::shared_ptr<Node>& n) {
     case XUI_NAVIGATION_VIEW:
         as<xui::NavigationView>(n).on_select([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); });
         as<xui::NavigationView>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); }); break;
+    case XUI_MILLER_COLUMNS: break;
     case XUI_TAB_STRIP:
         as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); });
         as<xui::TabStrip>(n).on_activate([weak](uint64_t id) { dispatch(weak, XUI_CLICK, id); });
@@ -96,11 +99,26 @@ void selection_boundary(const std::wstring& text, uint64_t index) {
     require(!index || index == text.size() || !(text[index - 1] >= 0xd800 && text[index - 1] <= 0xdbff &&
         text[index] >= 0xdc00 && text[index] <= 0xdfff), XUI_INVALID_ARGUMENT, "Selection splits a UTF-16 surrogate pair.");
 }
+std::shared_ptr<Node> menu_node(xui_handle target) {
+    auto node = get(target);
+    require(node->kind == XUI_DATA_GRID || dynamic_cast<xui::VirtualCollection*>(node->element.get()),
+        XUI_WRONG_KIND, "Context menus require a grid or virtual collection.");
+    editable(node->owner);
+    return node;
+}
+std::optional<xui::ItemKey> menu_selection(const std::shared_ptr<Node>& node) {
+    return node->kind == XUI_DATA_GRID ? as<xui::DataGrid>(node).selected() :
+        feature<xui::VirtualCollection>(node).selection().focused();
+}
+std::shared_ptr<const xui::CollectionIndex> menu_source(const std::shared_ptr<Node>& node) {
+    if (node->kind == XUI_DATA_GRID) return as<xui::DataGrid>(node).source();
+    return feature<xui::VirtualCollection>(node).source();
+}
 }
 uint32_t XUI_CALL xui_feature_version() noexcept { return XUI_FEATURE_VERSION; }
 xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callback, void* context) noexcept {
     return boundary([&] {
-        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        auto node = menu_node(target);
         require(!node->menu_requesting, XUI_BUSY, "Cannot replace a context menu during its request.");
         node->menu_callback = callback; node->menu_context = context;
         node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = {}; ++node->menu_revision;
@@ -112,17 +130,15 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
             auto node = weak.lock();
             if (!node) return result;
             require(!node->menu_requesting, XUI_BUSY, "A context menu request cannot reenter.");
-            const auto& grid = as<xui::DataGrid>(node);
-            const auto selected = grid.selected();
+            const auto selected = menu_selection(node);
             const auto revision = node->menu_revision;
-            const std::weak_ptr<const xui::GridSource> source = grid.source();
-            const bool source_present = grid.source() != nullptr;
+            const std::weak_ptr<const xui::CollectionIndex> source = menu_source(node);
+            const bool source_present = menu_source(node) != nullptr;
             result.current = [weak, selected, revision, source, source_present] {
                 if (auto node = weak.lock(); node && !node->owner->closed && !node->owner->callback_failure) {
-                    const auto& grid = as<xui::DataGrid>(node);
                     if (node->menu_revision == revision && (!source_present || !source.expired()) &&
-                        grid.source() == source.lock() && grid.selected() == selected &&
-                        (!selected || (grid.source() && grid.source()->find(*selected)))) return true;
+                        control(node).visible() && menu_source(node) == source.lock() && menu_selection(node) == selected &&
+                        (!selected || (menu_source(node) && menu_source(node)->find(*selected)))) return true;
                 }
                 OutputDebugStringW(L"XUI: Context menu cancelled because its owner, source, selection, or subscription changed.\n");
                 return false;
@@ -143,7 +159,7 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
 }
 xui_status XUI_CALL xui_context_menu_items(xui_handle target, const xui_command_record* commands, uint32_t count) noexcept {
     return boundary([&] {
-        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        auto node = menu_node(target);
         require(node->menu_requesting, XUI_BUSY, "Menu items require an active context menu request.");
         require(count <= XUI_MAX_BATCH && (commands || !count), XUI_INVALID_ARGUMENT, "Invalid context menu span.");
         std::vector<xui::MenuItem> items; items.reserve(count);
@@ -171,10 +187,10 @@ xui_status XUI_CALL xui_context_menu_items(xui_handle target, const xui_command_
 }
 xui_status XUI_CALL xui_context_menu_shell_paths(xui_handle target, const xui_string* paths, uint32_t count) noexcept {
     return boundary([&] {
-        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        auto node = menu_node(target);
         require(node->menu_requesting, XUI_BUSY, "Shell paths require an active context menu request.");
         require(count <= 256 && (paths || !count), XUI_INVALID_ARGUMENT, "Invalid Shell path span.");
-        require(!count || as<xui::DataGrid>(node).selected().has_value(), XUI_INVALID_ARGUMENT, "Shell paths require a selected row.");
+        require(!count || menu_selection(node).has_value(), XUI_INVALID_ARGUMENT, "Shell paths require a selected row.");
         std::vector<std::wstring> values; values.reserve(count);
         for (uint32_t i = 0; i < count; ++i) {
             auto path = decode(paths[i]);
@@ -186,7 +202,7 @@ xui_status XUI_CALL xui_context_menu_shell_paths(xui_handle target, const xui_st
 }
 xui_status XUI_CALL xui_context_menu_presentation(xui_handle target, uint32_t presentation) noexcept {
     return boundary([&] {
-        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        auto node = menu_node(target);
         require(node->menu_requesting, XUI_BUSY, "Presentation requires an active context menu request.");
         limit(presentation, 1);
         node->menu_presentation = static_cast<xui::ShellMenuPresentation>(presentation);
@@ -367,11 +383,13 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         case XUI_DATA_GRID: e = std::make_shared<xui::DataGrid>(name); break;
         case XUI_HISTORY_CHART: e = std::make_shared<xui::HistoryChart>(name); break;
         case XUI_NAVIGATION_VIEW: e = std::make_shared<xui::NavigationView>(name); break;
+        case XUI_MILLER_COLUMNS: e = std::make_shared<xui::MillerColumns>(name); break;
         default: throw Failure{XUI_WRONG_KIND, "Unknown feature kind."};
         }
         *out = insert(n->owner, kind, std::move(e));
         get(*out)->resource = std::move(r);
         if (kind == XUI_TREE_VIEW) prepare_tree(get(*out));
+        if (kind == XUI_MILLER_COLUMNS) prepare_miller(get(*out));
         if (c && kind != XUI_VIEW_PICKER) c->attached = true;
         if (s) s->attached = true;
     });
@@ -607,6 +625,9 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
             break;
         }
         case XUI_NAVIGATION_VIEW: limit(index, 0); e = as<xui::NavigationView>(n).search(); kind = XUI_TEXT_INPUT; break;
+        case XUI_MILLER_COLUMNS:
+            limit(index, xui::MillerColumns::maximum_columns - 1);
+            e = as<xui::MillerColumns>(n).column_list(index); kind = XUI_ITEMS_VIEW; break;
         case XUI_SPLIT_BUTTON: limit(index, 1); e = index ? as<xui::SplitButton>(n).secondary() : as<xui::SplitButton>(n).primary(); kind = XUI_BUTTON; break;
         case XUI_CONTENT_DIALOG: limit(index, 1); { auto r = resource<xui::ContentDialog>(n, n->kind); e = index ? r->cancel_button() : r->primary(); kind = XUI_BUTTON; } break;
         case XUI_LOCATION_PICKER: limit(index, 1); { auto r = resource<xui::LocationPicker>(n, n->kind); if (index) { e = r->navigation(); kind = XUI_NAVIGATION_PANE; } else { e = r->editor(); kind = XUI_TEXT_INPUT; } } break;
@@ -617,6 +638,14 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         for (auto h : n->children) if (get(h)->element == e) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
         *out = insert(n->owner, kind, e); get(*out)->attached = true; n->children.push_back(*out);
+        if (n->kind == XUI_MILLER_COLUMNS) {
+            std::weak_ptr<Node> weak = n;
+            get(*out)->miller_owner = n;
+            get(*out)->prior_focus = [weak, index] {
+                if (auto parent = weak.lock(); parent && index < as<xui::MillerColumns>(parent).columns().size())
+                    as<xui::MillerColumns>(parent).set_active_column(index);
+            };
+        }
         if (n->kind == XUI_NAVIGATION_VIEW) {
             std::weak_ptr<Node> weak = n;
             get(*out)->prior_change = [weak](const std::wstring& text) {
@@ -696,6 +725,7 @@ constexpr uint32_t source_kind = 100, request_kind = 101;
 struct ForeignSource final : xui::ItemsSource {
     xui_source_options options;
     xui_source_visual_query visual_query{};
+    std::weak_ptr<const xui::ItemsSource> miller_source;
     std::weak_ptr<State> owner;
     ForeignSource(xui_source_options value, const std::shared_ptr<State>& state) : options(value), owner(state) {
         options.retain(options.context);
@@ -768,6 +798,21 @@ struct ForeignSource final : xui::ItemsSource {
     }
     xui::ItemVisual visual(size_t index) const override { return read_visual(index); }
 };
+struct ForeignMillerSource final : xui::ItemsSource {
+    std::shared_ptr<ForeignSource> source;
+    explicit ForeignMillerSource(std::shared_ptr<ForeignSource> value) : source(std::move(value)) {}
+    size_t size() const override { return source->size(); }
+    xui::ItemKey key(size_t index) const override { return source->key(index); }
+    std::optional<size_t> find(xui::ItemKey key) const override { return source->find(key); }
+    xui::ItemContent item(size_t index) const override { return source->item(index); }
+    xui::ItemVisual visual(size_t index) const override { return source->visual(index); }
+    xui::ItemHierarchy hierarchy(size_t index) const override {
+        const auto node = key(index);
+        xui::ItemHierarchy result;
+        result.expandable = source->read(3, node.id, node.version).index != 0;
+        return result;
+    }
+};
 struct ForeignTree final : xui::TreeSource {
     std::shared_ptr<ForeignSource> source;
     explicit ForeignTree(std::shared_ptr<ForeignSource> s) : source(std::move(s)) {}
@@ -808,6 +853,39 @@ void prepare_tree(const std::shared_ptr<Node>& n) {
             dispatch(weak, XUI_REQUEST, token);
         }
     });
+}
+void prepare_miller(const std::shared_ptr<Node>& n) {
+    std::weak_ptr<Node> weak = n;
+    const auto send = [weak](uint32_t kind, size_t column, xui::ItemKey key) {
+        auto node = weak.lock();
+        if (!node || node->owner->closed || node->owner->callback_failure) return;
+        auto state = node->owner;
+        if (node->dispatching) {
+            state->callback_failure = XUI_BUSY; state->window->close(); return;
+        }
+        if (node->miller_callback) {
+            const xui_miller_event event{sizeof(xui_miller_event), kind, static_cast<uint32_t>(column), 0, key.id, key.version};
+            ++state->callbacks; ++node->dispatching;
+            xui_status result{};
+            try { result = node->miller_callback(node->miller_context, &event); }
+            catch (...) { result = XUI_CALLBACK_FAILED; }
+            --state->callbacks; --node->dispatching;
+            if (result) { state->callback_failure = result; state->window->close(); }
+        }
+        // A managed handler can replace the path; never deliver a stale child action afterward.
+        auto& columns = as<xui::MillerColumns>(node);
+        if (state->closed || state->callback_failure || column >= columns.columns().size()) return;
+        const auto list = columns.column_list(column);
+        if (!list->source() || !list->source()->find(key) || list->selection().focused() != key) return;
+        const auto children = node->children;
+        for (auto handle : children) {
+            const auto child = get(handle);
+            if (child->element == list) { dispatch(child, kind, key.id); break; }
+        }
+    };
+    auto& columns = as<xui::MillerColumns>(n);
+    columns.on_selection([send](size_t column, xui::ItemKey key) { send(XUI_SELECTION, column, key); });
+    columns.on_activate([send](size_t column, xui::ItemKey key) { send(XUI_CLICK, column, key); });
 }
 bool feature_key(const std::shared_ptr<Node>& n, const xui::KeyEvent& e) {
     // Copy handles because a command can create controls before the first run.
@@ -853,7 +931,7 @@ xui_status XUI_CALL xui_source_attach(xui_handle target, xui_handle source) noex
     return boundary([&] {
         auto n = get(target); auto s = get(source, source_kind); same(n, s); editable(n->owner);
         auto value = resource<ForeignSource>(s, source_kind);
-        if (n->kind == XUI_ITEMS_VIEW) as<xui::ItemsView>(n).set_items(value);
+        if (n->kind == XUI_ITEMS_VIEW) feature<xui::ItemsView>(n).set_items(value);
         else if (n->kind == XUI_NAVIGATION_PANE) as<xui::NavigationPane>(n).set_items(value);
         else if (n->kind == XUI_TREE_VIEW) as<xui::TreeView>(n).set_tree(std::make_shared<ForeignTree>(value));
         else feature<xui::DataGrid>(n).set_source(std::make_shared<ForeignGrid>(value));
@@ -862,6 +940,81 @@ xui_status XUI_CALL xui_source_attach(xui_handle target, xui_handle source) noex
 }
 xui_status XUI_CALL xui_source_release(xui_handle source) noexcept {
     return boundary([&] { revoke(get(source, source_kind)); });
+}
+xui_status XUI_CALL xui_miller_set_columns(xui_handle target, const xui_miller_column* columns, uint32_t count) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_MILLER_COLUMNS); editable(n->owner);
+        require(count <= xui::MillerColumns::maximum_columns && (columns || !count),
+            XUI_INVALID_ARGUMENT, "Invalid Miller column span.");
+        std::vector<xui::MillerColumn> values;
+        values.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& column = columns[i];
+            require(column.size == sizeof(column) && column.has_selection <= 1 &&
+                (column.has_selection || (!column.selected_id && !column.selected_version)),
+                XUI_INVALID_ARGUMENT, "Invalid Miller column record.");
+            auto s = get(column.source, source_kind); same(n, s);
+            auto source = resource<ForeignSource>(s, source_kind);
+            auto items = source->miller_source.lock();
+            if (!items) {
+                items = std::make_shared<ForeignMillerSource>(source);
+                source->miller_source = items;
+            }
+            const auto selected = column.has_selection ?
+                std::optional{xui::ItemKey{column.selected_id, column.selected_version}} : std::nullopt;
+            require(!selected || items->find(*selected).has_value(), XUI_INVALID_ARGUMENT, "Selected item is not in its column.");
+            values.push_back({decode(column.title), std::move(items), selected});
+        }
+        as<xui::MillerColumns>(n).set_columns(std::move(values));
+        callback_result(n->owner);
+    });
+}
+xui_status XUI_CALL xui_miller_state(xui_handle target, uint32_t* count, uint32_t* active, double* width) noexcept {
+    return boundary([&] {
+        require(count && active && width, XUI_INVALID_ARGUMENT, "Missing Miller state output.");
+        auto n = get(target, XUI_MILLER_COLUMNS);
+        const auto& columns = as<xui::MillerColumns>(n);
+        *count = static_cast<uint32_t>(columns.columns().size());
+        *active = static_cast<uint32_t>(columns.active_column());
+        *width = columns.column_width();
+    });
+}
+xui_status XUI_CALL xui_miller_active(xui_handle target, uint32_t column) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_MILLER_COLUMNS); editable(n->owner);
+        require(column < as<xui::MillerColumns>(n).columns().size(), XUI_INVALID_ARGUMENT, "Column index is out of range.");
+        as<xui::MillerColumns>(n).set_active_column(column);
+    });
+}
+xui_status XUI_CALL xui_miller_width(xui_handle target, double width) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_MILLER_COLUMNS); editable(n->owner);
+        require(std::isfinite(width) && width >= 120 && width <= 2000, XUI_INVALID_ARGUMENT, "Column width must be 120 to 2000 DIPs.");
+        as<xui::MillerColumns>(n).set_column_width(static_cast<float>(width));
+    });
+}
+xui_status XUI_CALL xui_miller_scroll_state(xui_handle target, double* offset, double* maximum) noexcept {
+    return boundary([&] {
+        require(offset && maximum, XUI_INVALID_ARGUMENT, "Missing Miller scroll state output.");
+        auto n = get(target, XUI_MILLER_COLUMNS);
+        const auto& columns = as<xui::MillerColumns>(n);
+        *offset = columns.horizontal_offset(); *maximum = columns.maximum_horizontal();
+    });
+}
+xui_status XUI_CALL xui_miller_scroll(xui_handle target, double offset) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_MILLER_COLUMNS); editable(n->owner);
+        auto& columns = as<xui::MillerColumns>(n);
+        require(std::isfinite(offset) && offset >= 0 && offset <= columns.maximum_horizontal(),
+            XUI_INVALID_ARGUMENT, "Horizontal offset must be within the Miller scroll range.");
+        columns.set_horizontal_offset(offset);
+    });
+}
+xui_status XUI_CALL xui_miller_subscribe(xui_handle target, xui_miller_callback callback, void* context) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_MILLER_COLUMNS); editable(n->owner);
+        n->miller_callback = callback; n->miller_context = context;
+    });
 }
 xui_status XUI_CALL xui_collection_contains(xui_handle target, uint64_t id, uint64_t version, uint32_t* selected) noexcept {
     return boundary([&] {

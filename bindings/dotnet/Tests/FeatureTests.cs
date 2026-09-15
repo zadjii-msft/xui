@@ -36,8 +36,63 @@ internal static class FeatureTests
         using (var source = window.ImmutableSource(data)) items.SetSource(source);
         return new(data);
     }
+    private static void MillerContracts()
+    {
+        using var window = new Window();
+        using var other = new Window();
+        var columns = window.MillerColumns("Folders");
+        var reserved = columns.Column(31);
+        reserved.FocusEntered += () => { };
+        var data = new MillionSource();
+        using var source = window.ImmutableSource(data);
+        using var foreign = other.ImmutableSource(data);
+        Expect(columns.ColumnCount == 0);
+        columns.SetColumns([new("Root", source, new(1, 7)), new("Child", source)]);
+        columns.ActiveColumn = 1;
+        columns.ColumnWidth = 320;
+        Expect(columns.ColumnCount == 2 && columns.ActiveColumn == 1 && columns.ColumnWidth == 320);
+        Expect(columns.HorizontalOffset == 0 && columns.MaximumHorizontalOffset == 0);
+        Expect(ReferenceEquals(columns, columns.SetHorizontalOffset(0)));
+        Fails(() => columns.HorizontalOffset = -1);
+        Fails(() => columns.HorizontalOffset = 1);
+        Fails(() => columns.HorizontalOffset = double.NaN);
+        Fails(() => columns.HorizontalOffset = double.PositiveInfinity);
+        Fails(() => columns.ActiveColumn = 2);
+        Fails(() => columns.ColumnWidth = double.NaN);
+        Fails(() => columns.SetColumns([new("Invalid", source, new(1, 8))]));
+        bool differentWindow = false;
+        try { columns.SetColumns([new("Foreign", foreign)]); }
+        catch (ArgumentException) { differentWindow = true; }
+        Expect(differentWindow && columns.ColumnCount == 2);
+        var child = columns.Column(0);
+        Expect(ReferenceEquals(child, columns.Column(0)));
+        MillerItemEvent? selected = null;
+        int childSelections = 0;
+        child.Event += e => { if (e.Kind == EventKind.Selection) ++childSelections; };
+        child.FocusEntered += () => { };
+        columns.SelectionChanged += e => selected = e;
+        child.Select(new(42, 7));
+        Expect(selected == new MillerItemEvent(0, new(42, 7)) && childSelections == 1);
+        Expect(columns.ActiveColumn == 0 && child.Selection.Focused == new ItemKey(42, 7));
+        Expect(data.Calls < 200 && data.Rows < 100);
+        child.OnContextMenu(() => [new(1, "Inspect")], _ => { });
+        child.ClearContextMenu();
+        Task.Run(() => Fails(() => columns.ActiveColumn = 0)).GetAwaiter().GetResult();
+        columns.SetColumns([]);
+        Expect(columns.ColumnCount == 0);
+        Expect(ReferenceEquals(reserved, columns.Column(31)));
+        using var failedWindow = new Window();
+        var failing = failedWindow.MillerColumns("Callback failure");
+        using var failedSource = failedWindow.ImmutableSource(new MillionSource(2));
+        failing.SetColumns([new("Root", failedSource)]);
+        failing.SelectionChanged += _ => throw new InvalidOperationException("Miller callback sentinel");
+        Fails(() => failing.Column(0).Select(new(1, 7)));
+        Expect(failedWindow.CallbackStatus != 0);
+    }
+
     internal static void Run()
     {
+        MillerContracts();
         VisualTests.Run();
         ExplorerPrimitives();
         FluentSetters();
@@ -333,7 +388,7 @@ internal static class FeatureTests
             using (var empty = w.ImmutableSource(new MillionSource(0))) items.SetSource(empty);
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); Expect(!attached.IsAlive);
         }
-        Console.WriteLine($"C# feature assertions: {assertions}; all 35 feature constructors; bounded million-row source.");
+        Console.WriteLine($"C# feature assertions: {assertions}; feature constructors including Miller columns; bounded million-row source.");
     }
     private static void FluentSetters()
     {

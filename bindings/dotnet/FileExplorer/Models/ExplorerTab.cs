@@ -1,9 +1,20 @@
 namespace Xui.FileExplorer.Models;
 
+public enum ExplorerViewMode { Details, Columns }
+
+public sealed class ExplorerColumn(DirectorySnapshot snapshot)
+{
+    public DirectorySnapshot Snapshot { get; } = snapshot;
+    public string? SelectedPath { get; set; }
+    public double ScrollOffset { get; set; }
+}
+
 public sealed class ExplorerTab
 {
     public const int HistoryLimit = 128;
+    public const int ColumnLimit = 32;
     private readonly List<string> history = [];
+    private readonly List<ExplorerColumn> columns = [];
     private int historyIndex = -1;
 
     public ExplorerTab(ulong id, string path)
@@ -22,9 +33,63 @@ public sealed class ExplorerTab
     public bool SortDescending { get; set; }
     public string? SelectedPath { get; set; }
     public double ScrollOffset { get; set; }
+    public ExplorerViewMode ViewMode { get; private set; }
+    public IReadOnlyList<ExplorerColumn> Columns => columns;
+    public int ActiveColumn { get; set; }
     public IReadOnlyList<FileEntry> Entries { get; private set; } = Array.Empty<FileEntry>();
+    public bool HasSnapshot => historyIndex >= 0;
     public bool CanBack => historyIndex > 0;
     public bool CanForward => historyIndex >= 0 && historyIndex < history.Count - 1;
+
+    public void SetViewMode(ExplorerViewMode mode)
+    {
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (ViewMode == mode) return;
+        ViewMode = mode;
+        ResetColumns();
+    }
+
+    private void ResetColumns()
+    {
+        columns.Clear();
+        ActiveColumn = 0;
+        if (ViewMode == ExplorerViewMode.Columns)
+            columns.Add(new(new(Path, Entries)) { SelectedPath = SelectedPath, ScrollOffset = ScrollOffset });
+    }
+
+    public void CommitColumn(int parent, DirectorySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshot.Path);
+        if (ViewMode != ExplorerViewMode.Columns || parent < 0 || parent >= columns.Count)
+            throw new ArgumentOutOfRangeException(nameof(parent));
+        if (parent + 1 >= ColumnLimit)
+            throw new InvalidOperationException($"A path can contain at most {ColumnLimit} columns. Open the folder directly to start a new path.");
+        if (!columns[parent].Snapshot.Entries.Any(e => e.IsDirectory && PathsEqual(e.FullPath, snapshot.Path)))
+            throw new InvalidOperationException("The folder is not a child of this column.");
+        var ancestors = columns.Take(parent + 1).ToArray();
+        Commit(snapshot);
+        columns.Clear();
+        columns.AddRange(ancestors);
+        columns[parent].SelectedPath = snapshot.Path;
+        columns.Add(new(new(Path, Entries)));
+        ActiveColumn = parent;
+    }
+
+    public void SelectColumnLeaf(int index, string? path)
+    {
+        if (ViewMode != ExplorerViewMode.Columns || index < 0 || index >= columns.Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        if (path is not null && !columns[index].Snapshot.Entries.Any(e => !e.IsDirectory && PathsEqual(e.FullPath, path)))
+            throw new InvalidOperationException("The file is not a leaf in this column.");
+        var retained = columns.Take(index + 1).ToArray();
+        if (index != columns.Count - 1) Commit(retained[index].Snapshot);
+        columns.Clear();
+        columns.AddRange(retained);
+        columns[index].SelectedPath = path;
+        SelectedPath = path;
+        ActiveColumn = index;
+    }
 
     public void Commit(DirectorySnapshot snapshot)
     {
@@ -84,6 +149,7 @@ public sealed class ExplorerTab
             SelectedPath = null;
             ScrollOffset = 0;
         }
+        ResetColumns();
     }
 
     private static bool PathsEqual(string left, string right)

@@ -47,6 +47,8 @@ The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
 
 Each pane has its own tabs, navigation history, details view, and Find bar.
+Each tab also has an optional Columns view.
+Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -72,6 +74,36 @@ Selection or source changes cancel pending menu actions instead of changing thei
 The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
 Canceled or obsolete requests cannot replace the current view.
+
+### Columns view
+
+The toolbar button switches between **Columns** and **Details**.
+Its label names the view that the button will open.
+The command palette also contains **Use Columns view** and **Use Details view**.
+Each tab retains its own view choice.
+
+Columns view starts at the committed folder.
+A single selection of a folder loads its children in the next column.
+Ancestor columns remain visible. A sibling selection replaces the columns to its right.
+A file selection does not open the file.
+Enter or a double-click opens the selected file through its Windows association.
+
+Each column scrolls vertically on its own.
+Left and Right move focus between existing columns.
+The horizontal navigation buttons reveal earlier or later columns.
+Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
+When the path exceeds the pane width, a bottom scrollbar supports thumb dragging and track paging.
+The control supports at most 32 columns in one path.
+The application reports an error at the limit instead of discarding ancestors.
+
+A successful directory scan commits the address, history, and current folder.
+A failed scan preserves the committed folder and displays an error.
+Find filters the rightmost folder. Its navigation keys retain native text-input focus.
+Context menus use the selected row in the column under the pointer.
+Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Mode and tab changes detach obsolete native sources and cancel pending work.
+
+### Keyboard and palettes
 
 | Input | Action |
 | --- | --- |

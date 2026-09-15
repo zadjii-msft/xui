@@ -206,6 +206,7 @@ For a focused native change, select the relevant tests:
 ctest --test-dir $build -C Release -R "xui_(explorer|split_window)" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_abi" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
+ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
 Compiler and model checks do not need a native window:

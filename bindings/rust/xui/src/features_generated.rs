@@ -210,6 +210,12 @@ impl Window {
             .map(NavigationView)
     }
 }
+impl Window {
+    pub fn miller_columns(&self, name: &str) -> Result<MillerColumns> {
+        self.feature_create(46, name, None, None, 0)
+            .map(MillerColumns)
+    }
+}
 #[derive(Clone)]
 pub struct RangeInput(pub(crate) Element);
 pub struct WeakRangeInput(WeakElement);
@@ -1539,5 +1545,24 @@ impl NavigationView {
     pub fn expanded(&self) -> Result<bool> {
         let v = self.0.feature_get(5)?;
         Ok(v.first != 0)
+    }
+}
+#[derive(Clone)]
+pub struct MillerColumns(pub(crate) Element);
+pub struct WeakMillerColumns(WeakElement);
+impl WeakMillerColumns {
+    pub fn upgrade(&self) -> Option<MillerColumns> {
+        self.0.upgrade().map(MillerColumns)
+    }
+}
+impl MillerColumns {
+    pub fn weak(&self) -> WeakMillerColumns {
+        WeakMillerColumns(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for MillerColumns {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
     }
 }
