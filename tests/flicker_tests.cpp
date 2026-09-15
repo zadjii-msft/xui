@@ -156,8 +156,9 @@ LRESULT CALLBACK count_native(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UIN
     if (message == WM_PRINTCLIENT) ++native_prints;
     return DefSubclassProc(hwnd, message, wp, lp);
 }
-void run() {
+void run(xui::VisualStyle style) {
     xui::Window window({L"XUI frame boundary test", {720, 620}});
+    window.set_visual_style(style);
     auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
     auto content = std::make_shared<xui::Stack>(xui::Axis::vertical);
     auto filled = std::make_shared<xui::TextInput>(L"Stable native caption");
@@ -236,6 +237,16 @@ void run() {
             region(host, named(host, L"EDIT", L""), "placeholder");
             region(host, named(host, L"Xui.Control.1", L"Stable custom label"), "label");
             region(host, named(host, L"Xui.Control.1", L"Stable custom button"), "button", true);
+            if (style == xui::VisualStyle::winui && theme != xui::ThemeMode::high_contrast) {
+                for (const auto index : regions.back().ink) {
+                    const auto pixel = reference->pixels[index];
+                    const auto red = static_cast<int>((pixel >> 16) & 255);
+                    const auto green = static_cast<int>((pixel >> 8) & 255);
+                    const auto blue = static_cast<int>(pixel & 255);
+                    require(std::abs(red - green) <= 1 && std::abs(green - blue) <= 1,
+                        "Monochrome Fluent glyphs have no ClearType color fringes");
+                }
+            }
             region(host, named(host, L"Xui.Control.1", boundary->name().c_str()), "viewport-boundary");
             require(!IsWindowVisible(named(host, L"STATIC", L"Hidden search caption")),
                 "Search caption stays hidden");
@@ -333,6 +344,8 @@ void run() {
 int main(int argc, char** argv) {
     try {
         const std::filesystem::path root = argc > 1 ? argv[1] : "build\\flicker\\frames";
+        const auto style = argc > 2 && std::string_view(argv[2]) == "--winui" ?
+            xui::VisualStyle::winui : xui::VisualStyle::classic;
         std::filesystem::create_directories(root);
         samples.open(root / "samples.csv");
         samples << "phase,frame,region,retained,reference\n";
@@ -340,7 +353,7 @@ int main(int argc, char** argv) {
         for (int cycle = 0; cycle < 3; ++cycle) {
             output = root / std::to_string(cycle);
             std::filesystem::create_directories(output);
-            run();
+            run(style);
             require(xui::Drawing::live_targets() == 0, "Closing releases the native-compatible target");
             DWORD handles{};
             GetProcessHandleCount(GetCurrentProcess(), &handles);

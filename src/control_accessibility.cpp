@@ -541,6 +541,10 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
             next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
             const auto b = choices->item_bounds(i);
             next.tab_edges.push_back(b.y); next.tab_edges.push_back(b.y + b.height);
+            if (b.height > 0) {
+                next.choice_left = b.x;
+                next.choice_width = b.width;
+            }
         }
     }
     if (const auto combo = dynamic_cast<const ComboBox*>(&control)) {

@@ -80,6 +80,7 @@ public:
     static constexpr std::size_t maximum_items = 4096, maximum_depth = 64;
 private:
     friend class NavigationList;
+    void presentation_changed() override;
     void rebuild();
     bool effective_enabled(ItemKey key) const;
     bool has_children(ItemKey key) const;

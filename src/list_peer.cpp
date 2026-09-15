@@ -242,6 +242,8 @@ void ListPeer::pointer_move(LPARAM point) {
 }
 void ListPeer::paint(Drawing& drawing) {
     drawing.fill({0, 0, width(), list_->viewport_height()}, palette_.surface);
+    const bool enabled = IsWindowEnabled(window_) != FALSE;
+    const bool winui = palette_.style == VisualStyle::winui;
     const float area = std::max(0.0f, width() - VisualMetrics::gutter);
     const auto range = list_->visible_rows();
     rows_ = range.end - range.begin;
@@ -254,10 +256,12 @@ void ListPeer::paint(Drawing& drawing) {
         const Rect highlight{6, bounds.y + 2, std::max(0.0f, area - 12), bounds.height - 4};
         if (selected) drawing.rounded(highlight, palette_.selection, 4);
         else if (hovered_ == row) drawing.rounded(highlight, palette_.hover, 4);
-        if (GetFocus() == window_ && list_->focused_id() == item.id)
-            drawing.rounded(highlight, palette_.high_contrast && selected ?
+        if (GetFocus() == window_ && list_->focused_id() == item.id) {
+            if (palette_.style == VisualStyle::winui) drawing.focus_ring(highlight, palette_);
+            else drawing.rounded(highlight, palette_.high_contrast && selected ?
                 palette_.selection_text : palette_.accent, 4, true);
-        const auto text = selected ? palette_.selection_text : palette_.text;
+        }
+        const auto text = winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : palette_.text;
         const float kind_width = area > 260 ? 100.0f : 0;
         const auto thumbnail = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {
             return slot->id == item.id && slot->path == item.path;
@@ -271,11 +275,11 @@ void ListPeer::paint(Drawing& drawing) {
             }
         }
         if (!drawn) drawing.icon({14, bounds.y + 8, 18, 18},
-            selected ? palette_.selection_text : item.directory ? palette_.folder : palette_.file, item.directory);
+            winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : item.directory ? palette_.folder : palette_.file, item.directory);
         drawing.text(item.name, {40, bounds.y, std::max(0.0f, area - kind_width - 52), bounds.height}, text);
         if (kind_width) drawing.text(item.directory ? L"Folder" : L"File",
             {area - kind_width, bounds.y, kind_width - 14, bounds.height},
-            selected ? palette_.selection_text : palette_.secondary, true);
+            winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : palette_.secondary, true);
     }
     if (model.visible_indices().empty()) {
         const float top = std::max(10.0f, list_->viewport_height() * 0.35f - 20);
@@ -284,9 +288,9 @@ void ListPeer::paint(Drawing& drawing) {
     }
     if (thumb_.height > 0) {
         const bool active = hover_scrollbar_ || dragging_;
-        drawing.rounded({area + (active ? 4 : 6), 4 + thumb_.top,
-            active ? 8.0f : 4.0f, thumb_.height},
-            active || palette_.high_contrast ? palette_.secondary : palette_.border, 3);
+        const Rect thumb{area + (active ? 4 : 6), 4 + thumb_.top, active ? 8.0f : 4.0f, thumb_.height};
+        if (winui) drawing.scrollbar_thumb(thumb, palette_, active, enabled);
+        else drawing.rounded(thumb, active || palette_.high_contrast ? palette_.secondary : palette_.border, 3);
     }
 }
 LRESULT CALLBACK ListPeer::procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {

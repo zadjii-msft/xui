@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xui/core.hpp"
+#include "xui/theme.hpp"
 #include <span>
 
 namespace xui {
@@ -8,7 +9,7 @@ namespace xui {
 enum class ControlRole { label, button, toggle, text_input, file_list, scroll_view, image, tab_strip, split_view, content_view, data_grid, history_chart,
     popup, radio_group, choice_list, combo_box, numeric_input, range_input, expander, progress, items_view, tree_view, command_menu,
     document_text, password_input, date_time, inline_status, color_picker, vector_canvas, map_view, media_playback, web_content };
-enum class TextStyle { body, caption, heading };
+enum class TextStyle { body, caption, heading, subtitle, body_strong };
 using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
@@ -34,6 +35,9 @@ struct ContextMenuContent {
 class Control : public Element {
 public:
     ControlRole role() const { return role_; }
+    VisualStyle visual_style() const { return visual_style_; }
+    // Backend presentation context. Changing style preserves the control model.
+    void set_visual_style(VisualStyle style);
     const std::wstring& name() const { return name_; }
     const std::wstring& automation_id() const { return automation_id_; }
     void set_automation_id(std::wstring value) { automation_id_ = std::move(value); invalidate(Invalidation::paint); }
@@ -49,6 +53,8 @@ public:
     bool hovered() const { return hovered_; }
     bool pressed() const { return pointer_ ? hovered_ : keyboard_; }
     bool captured() const { return pointer_; }
+    bool tab_stop() const { return tab_stop_; }
+    void set_tab_stop(bool value) { if (tab_stop_ != value) { tab_stop_ = value; invalidate(Invalidation::layout); } }
     bool focusable() const { return enabled_ && role_ != ControlRole::label && role_ != ControlRole::image && role_ != ControlRole::content_view && role_ != ControlRole::history_chart && role_ != ControlRole::popup && role_ != ControlRole::progress && role_ != ControlRole::inline_status && role_ != ControlRole::color_picker; }
     const std::wstring& help_text() const { return help_text_; }
     void set_help_text(std::wstring value);
@@ -85,13 +91,16 @@ protected:
     virtual void activate() {}
     bool actionable() const;
     void text_changed();
+    virtual void presentation_changed() {}
 private:
     ControlRole role_;
+    VisualStyle visual_style_{VisualStyle::classic};
     std::wstring name_;
     std::wstring automation_id_;
     std::wstring help_text_;
     unsigned tooltip_delay_{600};
     bool enabled_{true}, visible_{true}, focused_{}, hovered_{}, pointer_{}, keyboard_{};
+    bool tab_stop_{true};
     std::function<ContextMenuContent()> menu_;
     std::function<void()> focus_;
     TextMeasurer measurer_;
@@ -101,6 +110,7 @@ private:
 
 class Label final : public Control {
 public:
+    using WrappedTextMeasurer = std::function<Size(std::wstring_view, TextStyle, float, std::size_t)>;
     explicit Label(std::wstring text) : Control(ControlRole::label, std::move(text), {320, 28}) { set_auto_size(true); }
     void set_text(std::wstring text) { set_name(std::move(text)); }
     const std::wstring& text() const { return name(); }
@@ -108,7 +118,16 @@ public:
     void set_tone(TextTone value) { tone_ = value; invalidate(Invalidation::paint); }
     bool caption() const { return caption_; }
     void set_caption(bool value) { if (caption_ != value) { caption_ = value; text_changed(); } }
-    TextStyle text_style() const override { return heading_ ? TextStyle::heading : caption_ ? TextStyle::caption : TextStyle::body; }
+    TextStyle text_style() const override { return subtitle_ ? TextStyle::subtitle : heading_ ? TextStyle::heading :
+        body_strong_ ? TextStyle::body_strong : caption_ ? TextStyle::caption : TextStyle::body; }
+    void set_body_strong(bool value) { if (body_strong_ != value) { body_strong_ = value; text_changed(); } }
+    void set_subtitle(bool value) { if (subtitle_ != value) { subtitle_ = value; text_changed(); } }
+    void set_wrapping(bool value, std::size_t maximum_lines = 0);
+    bool wrapping() const { return wrapping_; }
+    void set_wrapped_text_measurer(WrappedTextMeasurer measurer);
+    void discard_wrapped_text() { wrapped_valid_ = false; }
+    Size wrapped_text(float width);
+    Size measure(Size available) override;
     bool heading() const { return heading_; }
     void set_heading(bool heading) {
         if (heading_ == heading) return;
@@ -116,7 +135,17 @@ public:
         text_changed();
     }
 private:
+    void presentation_changed() override { discard_wrapped_text(); }
+    WrappedTextMeasurer wrapped_measurer_;
+    std::wstring wrapped_name_;
+    Size wrapped_size_{};
+    float wrapped_width_{};
+    TextStyle wrapped_style_{};
+    std::size_t maximum_lines_{};
+    bool wrapping_{}, wrapped_valid_{};
     bool heading_{};
+    bool subtitle_{};
+    bool body_strong_{};
     bool caption_{};
     TextTone tone_{};
 };
@@ -127,6 +156,8 @@ public:
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
     ButtonBehavior behavior() const { return behavior_; }
     void set_behavior(ButtonBehavior value);
+    ButtonAppearance appearance() const { return appearance_; }
+    void set_appearance(ButtonAppearance value);
     bool checked() const { return checked_; }
     void set_checked(bool value);
     void on_toggle(std::function<void(bool)> callback) { toggle_ = std::move(callback); }
@@ -140,11 +171,13 @@ public:
     }
     ButtonIcon icon() const { return icon_; }
     Size measure(Size available) override {
-        return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({36, 36}, available);
+        const float size = style_metrics(visual_style()).button_height;
+        return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
     }
 private:
     ButtonIcon icon_{};
     ButtonBehavior behavior_{};
+    ButtonAppearance appearance_{};
     bool checked_{};
     unsigned repeat_delay_{400}, repeat_interval_{80};
     std::function<void(bool)> toggle_;
@@ -172,7 +205,11 @@ public:
     const std::shared_ptr<Element>& content() const { return content_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
-    float offset() const { return offset_; }
+    float offset() const { return passthrough_ ? 0 : offset_; }
+    bool passthrough() const { return passthrough_; }
+    void set_passthrough(bool value) { if (passthrough_ != value) { passthrough_ = value; invalidate(Invalidation::layout); } }
+    bool overlay_scrollbar() const { return overlay_scrollbar_; }
+    void set_overlay_scrollbar(bool value) { if (overlay_scrollbar_ != value) { overlay_scrollbar_ = value; invalidate(Invalidation::layout); } }
     float extent() const { return extent_; }
     float maximum_offset() const;
     void set_offset(float offset);
@@ -182,6 +219,7 @@ public:
     Rect thumb() const;
     static constexpr float bar_width = 12;
 private:
+    bool passthrough_{}, overlay_scrollbar_{};
     std::shared_ptr<Element> content_;
     float offset_{}, extent_{};
 };
@@ -195,6 +233,11 @@ public:
         bool operator==(const Selection&) const = default;
     };
     explicit TextInput(std::wstring name) : Control(ControlRole::text_input, std::move(name), {320, 68}) {}
+    Size measure(Size available) override;
+    float caption_extent() const {
+        const auto metrics = style_metrics(visual_style());
+        return caption_visible() ? metrics.input_header_height + metrics.input_header_spacing : 0;
+    }
     const std::wstring& text() const { return text_; }
     void set_text(std::wstring text);
     Selection selection() const;
