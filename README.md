@@ -40,6 +40,9 @@ The native DLL and the .NET application must use the same architecture.
 
 The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
 Each tab row follows its pane, including splitter and window-size changes.
+The selected tab has rounded top corners and an open bottom edge that joins its pane.
+Inactive tabs share a continuous strip instead of separate button outlines.
+The close button highlights under the pointer. Keyboard focus stays inside the selected tab.
 The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
@@ -262,6 +265,8 @@ The [design plan](docs/winui-design-plan.md) describes the remaining stages and 
 ## Visual milestone
 
 The explorer starts with a dark theme. Its Theme button and Ctrl+F6 switch between dark and light themes.
+The C++ explorer accepts `--style=classic` (the default) or `--style=winui` after an optional folder path.
+Both styles use attached tabs, with the navigation controls directly below the tab strip.
 F6 switches between the two panes. The theme lasts for the current window.
 System high contrast overrides the theme colors.
 `ThemeMode::high_contrast` also uses system high-contrast colors without a change to Windows settings.

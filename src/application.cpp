@@ -75,6 +75,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         bool collection_drag{}, collection_scroll{}, collection_additive{};
         std::optional<ItemKey> collection_anchor;
         std::optional<Point> command_pointer;
+        std::optional<Point> tab_pointer;
         std::optional<std::size_t> hovered_choice;
         std::optional<std::uint64_t> pressed_choice;
         CollectionSelection collection_before;
@@ -2218,32 +2219,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (control.role() == ControlRole::tab_strip) {
             const auto& strip = static_cast<TabStrip&>(control);
-            const bool winui = palette.style == VisualStyle::winui;
-            canvas.fill({0, 0, bounds.width, bounds.height}, palette.background);
-            for (std::size_t i = 0; i < strip.tabs().size(); ++i) {
-                auto b = strip.tab_bounds(i);
-                if (b.width <= 0) continue;
-                const bool selected = strip.selected() == strip.tabs()[i].id;
-                canvas.rounded({b.x + 2, 2, std::max(0.0f, b.width - 4), b.height - 4},
-                    winui ? (selected ? (palette.high_contrast ? palette.selection : palette.surface) : palette.background) :
-                    selected ? palette.selection : palette.surface, winui ? 4.0f : 5.0f);
-                const auto ink = selected ? palette.selection_text : palette.secondary;
-                canvas.text(strip.tabs()[i].title, {b.x + 12, 0, std::max(0.0f, b.width - 42), b.height}, ink, !winui);
-                if (strip.closable() && b.width >= 48) {
-                    if (winui) canvas.symbol(Symbol::close, {b.x + b.width - 30, 0, 24, b.height}, ink, 12);
-                    else {
-                        canvas.line(b.x + b.width - 22, 15, b.x + b.width - 14, 23, ink);
-                        canvas.line(b.x + b.width - 22, 23, b.x + b.width - 14, 15, ink);
-                    }
-                }
-                if (selected && winui)
-                    canvas.rounded({b.x + 12, b.height - 5, std::max(0.0f, b.width - 24), 2}, palette.accent, 1);
-                if (selected && control.focused()) {
-                    const Rect face{b.x + 2, 2, std::max(0.0f, b.width - 4), b.height - 4};
-                    if (winui) canvas.focus_ring(face, palette);
-                    else canvas.rounded(face, palette.accent, 5, true);
-                }
-            }
+            canvas.tab_strip(strip, palette, enabled(peer), peer.surface, peer.tab_pointer);
             return;
         }
         if (peer.image) {
@@ -2580,6 +2556,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (dynamic_cast<TabStrip*>(&control)) {
+                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
+                if (!peer.tab_pointer || peer.tab_pointer->x != point.x || peer.tab_pointer->y != point.y) {
+                    peer.tab_pointer = point;
+                    invalidate(Invalidation::paint);
+                }
+            }
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 const bool hovering = enabled(peer) && !peer.grid_drag && !GetCapture() &&
                     !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
@@ -2675,7 +2658,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) grid->hover_pointer({});
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
             if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
-            peer.tracking = false; peer.command_pointer.reset(); control.pointer_move(false); return 0;
+            peer.tracking = false; peer.command_pointer.reset(); peer.tab_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
@@ -2782,9 +2765,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
                 SetFocus(hwnd);
                 if (auto index = tabs->hit_test(GET_X_LPARAM(lparam) * 96.0f / dpi)) {
-                    const auto b = tabs->tab_bounds(*index);
+                    const auto close = tabs->close_bounds(*index);
                     const auto id = tabs->tabs()[*index].id;
-                    if (tabs->closable() && b.width >= 48 && GET_X_LPARAM(lparam) * 96.0f / dpi >= b.x + b.width - 30)
+                    const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
+                    if (close.width > 0 && x >= close.x && x < close.x + close.width &&
+                        y >= close.y && y < close.y + close.height)
                         tabs->request_close(id);
                     else tabs->select(id);
                 }

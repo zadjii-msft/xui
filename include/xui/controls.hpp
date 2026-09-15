@@ -313,6 +313,7 @@ public:
     void on_close(std::function<void(std::uint64_t)> callback) { close_ = std::move(callback); }
     bool closable() const { return bool(close_); }
     Rect tab_bounds(std::size_t index) const;
+    Rect close_bounds(std::size_t index) const;
     std::optional<std::size_t> hit_test(float x) const;
     void arrange(Rect bounds) override;
 private:

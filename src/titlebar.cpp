@@ -44,9 +44,9 @@ void TitleBar::arrange(Rect b) {
     title_->arrange({b.x + leading + 8, b.y, std::max(0.0f, title - 8), b.height});
     const float tab_width = std::max(0.0f, remaining - leading - title - 36);
     const float first_width = secondary_tabs_->visible() ? tab_width / 2 : tab_width;
-    tabs_->arrange({b.x + leading + title, b.y + 3, first_width, std::max(0.0f, b.height - 6)});
+    tabs_->arrange({b.x + leading + title, b.y + 3, first_width, std::max(0.0f, b.height - 3)});
     secondary_tabs_->arrange({b.x + leading + title + first_width, b.y + 3,
-        secondary_tabs_->visible() ? tab_width - first_width : 0, std::max(0.0f, b.height - 6)});
+        secondary_tabs_->visible() ? tab_width - first_width : 0, std::max(0.0f, b.height - 3)});
     minimize_->arrange({b.x + remaining, b.y, caption, button_height});
     maximize_->arrange({b.x + remaining + caption, b.y, caption, button_height});
     close_->arrange({b.x + remaining + caption * 2, b.y, caption, button_height});
@@ -57,7 +57,7 @@ void TitleBar::arrange(Rect b) {
             const auto p = pane->bounds();
             const float left = std::clamp(p.x, b.x + leading, content_right);
             const float right = std::clamp(p.x + p.width, left, content_right);
-            tabs.arrange({left, b.y + 3, right - left, std::max(0.0f, b.height - 6)});
+            tabs.arrange({left, b.y + 3, right - left, std::max(0.0f, b.height - 3)});
         };
         align(*tabs_, first);
         align(*secondary_tabs_, second_pane_.lock());

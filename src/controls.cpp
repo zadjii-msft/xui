@@ -381,6 +381,11 @@ std::optional<std::size_t> TabStrip::hit_test(float x) const {
     }
     return {};
 }
+Rect TabStrip::close_bounds(std::size_t index) const {
+    const auto b = tab_bounds(index);
+    if (!closable() || b.width < 48 || b.height < 24) return {};
+    return {b.x + b.width - 30, (b.height - 24) / 2, 24, 24};
+}
 void TabStrip::reveal_selected() {
     first_ = std::min(first_, tabs_.empty() ? 0 : tabs_.size() - 1);
     if (!selected_) return;

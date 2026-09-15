@@ -105,6 +105,16 @@ void control_tests() {
     tabs.on_select([&](auto) { ++selected; });
     tabs.on_close([&](auto) { ++closed; });
     tabs.set_tabs({{1, L"First"}, {2, L"Second"}, {3, L"Third"}, {4, L"Fourth"}}, 1);
+    const auto first = tabs.tab_bounds(0), second = tabs.tab_bounds(1);
+    require(first.x + first.width == second.x && first.y == 0 && first.height == tabs.bounds().height,
+        "Tab slots meet and extend to the content edge");
+    for (float height : {24.0f, 38.0f, 41.0f, 56.0f}) {
+        tabs.arrange({0, 0, 420, height});
+        const auto close = tabs.close_bounds(0);
+        require(close.width == 24 && close.y + close.height / 2 == height / 2 &&
+            close.x + close.width <= tabs.tab_bounds(0).width, "Close target is centered within the visible tab");
+    }
+    tabs.arrange({0, 0, 420, 38});
     require(selected == 0, "Tab property updates do not call handlers");
     require(tabs.select(2) && selected == 1, "Tab selection callback");
     tabs.step(-1);
@@ -114,6 +124,12 @@ void control_tests() {
     tabs.request_close(4);
     require(closed == 1, "Close dispatch uses stable identity");
     tabs.set_tabs({{1, L"First"}}, 1);
+    tabs.arrange({0, 0, 47, 38});
+    require(tabs.close_bounds(0).width == 0, "Narrow tabs hide the close target");
+    tabs.arrange({0, 0, 420, 20});
+    require(tabs.close_bounds(0).width == 0, "Short tabs hide the close target");
+    tabs.arrange({0, 0, 420, 38});
+    require(tabs.close_bounds(1).width == 0, "Removed tabs have no close target");
     require(!tabs.select(4), "Removed tab cannot select reused slot");
     bool duplicate{};
     try { tabs.set_tabs({{1, L"A"}, {1, L"B"}}, 1); } catch (const std::invalid_argument&) { duplicate = true; }

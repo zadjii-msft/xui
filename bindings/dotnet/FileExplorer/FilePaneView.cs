@@ -44,7 +44,7 @@ internal sealed class FilePaneView
         var addTab = Button("New tab", "new-tab", () => NewTab()).SetIcon(ButtonIcon.Add).FixedSize(36, 36).Help("New tab (Ctrl+T)");
         var commands = Button("Commands", "commands", () => app.Palettes.ShowCommands())
             .SetIcon(ButtonIcon.More).FixedSize(36, 36).Help("Commands (Ctrl+Shift+P)");
-        var toolbar = window.Stack(Axis.Horizontal).Spacing(4).Padding(6)
+        var toolbar = window.Stack(Axis.Horizontal).Spacing(4).Padding(8)
             .Add(back).Add(forward).Add(up).Add(Address, 1).Add(refresh).Add(addTab).Add(commands);
 
         Grid = window.DataGrid($"Files in pane {number}").SetAutomationId($"pane-{number}-files")

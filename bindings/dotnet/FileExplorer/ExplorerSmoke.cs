@@ -33,6 +33,8 @@ internal static class ExplorerSmoke
                     }
                 });
                 await Until(() => app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X);
+                await Check(() => app.Window.TitlebarTabs.GetBounds().Y + app.Window.TitlebarTabs.GetBounds().Height
+                    == app.Left.Root.GetBounds().Y, "The selected title tab joins the pane without a bottom gap");
                 await Check(() => app.Sidebar.View.Search.GetBounds().Y - app.Sidebar.View.GetBounds().Y == 4,
                     "Navigation has no title header");
                 await Ui(app.Sidebar.Toggle);
@@ -137,6 +139,8 @@ internal static class ExplorerSmoke
                 await Check(() => app.Right.Model.Active.Path == Path.Combine(fixture, "beta")
                     && app.Left.Model.Active.Path == Path.Combine(fixture, "alpha", "child"), "Ctrl+Enter targets other split");
                 await Until(() => app.Window.TitlebarSecondaryTabs.GetBounds().X == app.Right.Root.GetBounds().X);
+                await Check(() => app.Window.TitlebarSecondaryTabs.GetBounds().Y + app.Window.TitlebarSecondaryTabs.GetBounds().Height
+                    == app.Right.Root.GetBounds().Y, "The secondary title tabs join their pane");
                 await Check(() => app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X
                     && app.Window.TitlebarSecondaryTabs.GetBounds().Width > 0, "Each split has a pane-aligned tab band");
                 await Ui(() => app.Palettes.ShowNavigation(app.Right));
