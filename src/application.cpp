@@ -1099,6 +1099,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     bounds.x -= parent.x;
                     bounds.y -= parent.y;
                 }
+                if (peer->control->role() == ControlRole::tab_strip) {
+                    // Round the shared bottom edge, not the height, so tabs meet their content at fractional DPI.
+                    const float scale = dpi / 96.0f;
+                    bounds.height = std::max(0.0f, static_cast<float>(
+                        std::lround((bounds.y + bounds.height) * scale) - std::lround(bounds.y * scale)) / scale);
+                }
                 if (peer->document) {
                     if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
                         bounds.height = std::max(0.0f, bounds.height - 32);
@@ -2216,7 +2222,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (control.role() == ControlRole::tab_strip) {
             const auto& strip = static_cast<TabStrip&>(control);
-            canvas.tab_strip(strip, palette, enabled(peer), peer.surface,
+            canvas.tab_strip(strip, bounds, palette, enabled(peer), peer.surface,
                 control.focused() && keyboard_focus_visible, peer.tab_pointer);
             return;
         }

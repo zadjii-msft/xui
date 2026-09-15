@@ -69,7 +69,7 @@ public:
     void button_icon(Rect bounds, D2D1_COLOR_F color, ButtonIcon icon);
     void caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
         bool active, bool enabled, bool hovered, bool pressed, bool focused);
-    void tab_strip(const TabStrip& strip, const Palette& palette, bool enabled, bool on_surface,
+    void tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
         bool focus_visible, std::optional<Point> pointer = {});
     void heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F color);
     void text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool small_text = false);

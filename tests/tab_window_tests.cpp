@@ -48,6 +48,32 @@ HWND peer(HWND host, const wchar_t* name) {
     require(state.result != nullptr, "Find the owned tab peer");
     return state.result;
 }
+Rect paint_bounds(HWND host, HWND control, UINT dpi) {
+    RECT bounds{}; GetWindowRect(control, &bounds);
+    MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&bounds), 2);
+    return {bounds.left * 96.0f / dpi, bounds.top * 96.0f / dpi,
+        (bounds.right - bounds.left) * 96.0f / dpi, (bounds.bottom - bounds.top) * 96.0f / dpi};
+}
+void require_open_bottom(const owned_window_capture::Pixels& pixels, HWND host, HWND control,
+    Rect tab, UINT dpi, DWORD color) {
+    RECT bounds{}; GetWindowRect(control, &bounds);
+    MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&bounds), 2);
+    const int left = bounds.left + static_cast<int>(std::ceil((tab.x + 4) * dpi / 96));
+    const int right = bounds.left + static_cast<int>(std::floor((tab.x + tab.width - 4) * dpi / 96));
+    for (int y = bounds.bottom - 3; y < bounds.bottom; ++y)
+        for (int x = left; x < right; ++x) {
+            require(x >= 0 && y >= 0 && x < pixels.width && y < pixels.height, "Bottom edge is inside the owned client");
+            const auto actual = pixels.data[y * pixels.width + x] & 0xffffff;
+            const auto channel_matches = [&](int shift) {
+                return std::abs(static_cast<int>((actual >> shift) & 255) - static_cast<int>((color >> shift) & 255)) <= 1;
+            };
+            if (!channel_matches(16) || !channel_matches(8) || !channel_matches(0)) {
+                std::cerr << "Bottom edge at " << dpi << " DPI, pixel (" << x << ", " << y << "): "
+                    << std::hex << actual << " != " << color << std::dec << '\n';
+                throw std::runtime_error("The full selected tab bottom must be open, including fractional-DPI pixels");
+            }
+        }
+}
 void run(const std::filesystem::path& captures) {
     Window window({title, {960, 400}, ThemeMode::dark, {}, true});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -81,9 +107,12 @@ void run(const std::filesystem::path& captures) {
             const auto hwnd = FindWindowW(L"Xui.Window.1", title);
             require(hwnd != nullptr, "Find the owned tab fixture");
             const auto tab_peer = peer(hwnd, L"Title bar tabs");
+            const auto standalone_peer = peer(hwnd, L"Standalone attached tabs");
             for (auto style : {VisualStyle::classic, VisualStyle::winui})
                 for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
-                    for (UINT dpi : {96u, 144u, 192u}) {
+                    for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
+                        std::cout << "Tab pixels: style " << static_cast<int>(style) << ", theme " <<
+                            static_cast<int>(theme) << ", DPI " << dpi << std::endl;
                         window.set_visual_style(style); window.set_theme(theme);
                         RECT rectangle{}; GetWindowRect(hwnd, &rectangle);
                         rectangle.right = rectangle.left + MulDiv(960, dpi, 96);
@@ -95,8 +124,8 @@ void run(const std::filesystem::path& captures) {
                         const auto palette = Palette::system(theme, style);
                         for (std::uint64_t selected : {1u, 2u, 3u}) {
                             tabs->select(selected); flush(hwnd);
-                            const auto b = tabs->bounds(), selected_bounds = tabs->tab_bounds(selected - 1);
-                            require(b.y + b.height == root->bounds().y, "Title tabs attach without a layout gap");
+                            const auto b = paint_bounds(hwnd, tab_peer, dpi), selected_bounds = tabs->tab_bounds(selected - 1);
+                            require(tabs->bounds().y + tabs->bounds().height == root->bounds().y, "Title tabs attach without a layout gap");
                             const auto pixels = owned_window_capture::capture(hwnd);
                             const float bottom = b.y + b.height;
                             require(pixel(pixels, {b.x + b.width - 8, b.y + 12}, dpi) == rgb(palette.background),
@@ -109,7 +138,9 @@ void run(const std::filesystem::path& captures) {
                                 "Resting inactive title tabs inherit the titlebar background");
                             require(pixel(pixels, {b.x + inactive.x + 28, bottom - 0.5f}, dpi) == rgb(palette.border),
                                 "The baseline remains under inactive tabs");
-                            const auto s = standalone->bounds(), active = standalone->tab_bounds(1);
+                            const auto s = paint_bounds(hwnd, standalone_peer, dpi), active = standalone->tab_bounds(1);
+                            require_open_bottom(pixels, hwnd, tab_peer, selected_bounds, dpi, rgb(palette.background));
+                            require_open_bottom(pixels, hwnd, standalone_peer, active, dpi, rgb(palette.surface));
                             require(pixel(pixels, {s.x + s.width - 8, s.y + 12}, dpi) == rgb(palette.surface),
                                 "Unused card tab row inherits the card surface");
                             require(pixel(pixels, {s.x + active.x + 28, s.y + s.height - 0.5f}, dpi) == rgb(palette.surface) &&
@@ -123,7 +154,7 @@ void run(const std::filesystem::path& captures) {
                         tabs->select(2);
                         tabs->set_colors(custom); flush(hwnd);
                         auto custom_pixels = owned_window_capture::capture(hwnd);
-                        const auto band = tabs->bounds(), selected_tab = tabs->tab_bounds(1), inactive_tab = tabs->tab_bounds(0);
+                        const auto band = paint_bounds(hwnd, tab_peer, dpi), selected_tab = tabs->tab_bounds(1), inactive_tab = tabs->tab_bounds(0);
                         const auto expected = [&](std::uint32_t value, D2D1_COLOR_F fallback) {
                             return palette.high_contrast ? rgb(fallback) : value;
                         };
@@ -131,6 +162,8 @@ void run(const std::filesystem::path& captures) {
                             expected(*custom.row_background, palette.background), "Custom row color is live; high contrast uses the system background");
                         require(pixel(custom_pixels, {band.x + selected_tab.x + 8, band.y + 12}, dpi) ==
                             expected(*custom.selected_background, palette.background), "Custom selected tab fill respects high contrast");
+                        require_open_bottom(custom_pixels, hwnd, tab_peer, selected_tab, dpi,
+                            expected(*custom.selected_background, palette.background));
                         require(pixel(custom_pixels, {band.x + inactive_tab.x + 8, band.y + 12}, dpi) ==
                             expected(*custom.inactive_background, palette.background), "Custom inactive tab fill respects high contrast");
                         require(pixel(custom_pixels, {band.x + 28, band.y + band.height - 0.5f}, dpi) ==
@@ -174,7 +207,7 @@ void run(const std::filesystem::path& captures) {
                         const auto inactive = tabs->tab_bounds(0);
                         SendMessageW(tab_peer, WM_MOUSEMOVE, 0, at(inactive.x + 8, 10)); flush(hwnd);
                         auto pixels = owned_window_capture::capture(hwnd);
-                        const auto b = tabs->bounds();
+                        const auto b = paint_bounds(hwnd, tab_peer, dpi);
                         require(pixel(pixels, {b.x + inactive.x + 8, b.y + 10}, dpi) == rgb(palette.hover) &&
                             pixel(pixels, {b.x + inactive.x + 28, b.y + b.height - 0.5f}, dpi) == rgb(palette.border),
                             "An inactive hover keeps its bottom edge closed");
@@ -221,12 +254,16 @@ void run(const std::filesystem::path& captures) {
                             require(editor->focused() && !tabs->focused(), "Enter and Space focus selected tab content");
                         }
                         const auto saved_tabs = standalone->tabs();
-                        standalone->set_tabs({}, {}); flush(hwnd);
+                        const auto saved_title_tabs = tabs->tabs();
+                        standalone->set_tabs({}, {}); tabs->set_tabs({}, {}); flush(hwnd);
                         pixels = owned_window_capture::capture(hwnd);
-                        const auto empty = standalone->bounds();
+                        const auto empty = paint_bounds(hwnd, standalone_peer, dpi);
                         require(pixel(pixels, {empty.x + 28, empty.y + 12}, dpi) == rgb(palette.surface),
                             "An empty tab strip inherits its parent surface");
+                        require_open_bottom(pixels, hwnd, standalone_peer, {0, 0, empty.width, empty.height}, dpi, rgb(palette.surface));
+                        require_open_bottom(pixels, hwnd, tab_peer, {0, 0, b.width, b.height}, dpi, rgb(palette.background));
                         standalone->set_tabs(saved_tabs, 2);
+                        tabs->set_tabs(saved_title_tabs, 2);
                     }
             std::vector<TabItem> many;
             for (std::uint64_t id = 1; id <= 16; ++id) many.push_back({id, L"Folder " + std::to_wstring(id)});
@@ -255,7 +292,7 @@ void run(const std::filesystem::path& captures) {
     const auto result = Application::run(window);
     KillTimer(nullptr, timer);
     if (failure) std::rethrow_exception(failure);
-    require(result == 0 && complete && GetTickCount64() - started < 180000, "Complete the attached tab fixture");
+    require(result == 0 && complete && GetTickCount64() - started < 300000, "Complete the attached tab fixture");
 }
 }
 int wmain(int argc, wchar_t** argv) {

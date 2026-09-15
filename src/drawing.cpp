@@ -67,9 +67,8 @@ void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const 
     if (visual.icon != ButtonIcon::none) button_icon(bounds, ink, visual.icon);
     else if (!visual.image_path.empty()) icon(bounds, ink, false);
 }
-void Drawing::tab_strip(const TabStrip& strip, const Palette& palette, bool enabled, bool on_surface,
+void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
     bool focus_visible, std::optional<Point> pointer) {
-    const auto bounds = strip.bounds();
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const bool winui = palette.style == VisualStyle::winui;
     const auto& colors = strip.colors();
@@ -87,8 +86,9 @@ void Drawing::tab_strip(const TabStrip& strip, const Palette& palette, bool enab
         strip.hit_test(pointer->x) : std::nullopt;
     const auto is_selected = [&](std::size_t index) { return strip.selected() == strip.tabs()[index].id; };
     const auto paint = [&](std::size_t index, bool selected) {
-        const auto b = strip.tab_bounds(index);
+        auto b = strip.tab_bounds(index);
         if (b.width <= 0 || b.height <= 0) return;
+        b.height = bounds.height;
         const bool hot = hovered == index;
         const float top = std::min(selected ? 2.0f : 6.0f, b.height);
         const float radius = std::min({winui ? 4.0f : 5.0f, b.width / 2, (b.height - top) / 2});
@@ -127,7 +127,19 @@ void Drawing::tab_strip(const TabStrip& strip, const Palette& palette, bool enab
     };
     for (std::size_t i = 0; i < strip.tabs().size(); ++i)
         if (!is_selected(i)) paint(i, false);
-    fill({0, std::max(0.0f, bounds.height - 1), bounds.width, 1}, border);
+    if (!strip.tabs().empty()) {
+        float left{}, right{};
+        for (std::size_t i = 0; i < strip.tabs().size(); ++i)
+            if (is_selected(i)) {
+                const auto selected = strip.tab_bounds(i);
+                left = selected.x; right = selected.x + selected.width;
+                break;
+            }
+        // Never paint a baseline under the selected tab: fractional-DPI clips can expose it.
+        const float bottom = std::max(0.0f, bounds.height - 1);
+        if (left > 0) fill({0, bottom, left, 1}, border);
+        if (right < bounds.width) fill({right, bottom, bounds.width - right, 1}, border);
+    }
     for (std::size_t i = 0; i < strip.tabs().size(); ++i)
         if (is_selected(i)) paint(i, true);
 }

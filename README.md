@@ -141,6 +141,7 @@ Enter or Space moves focus into the selected pane.
 The tab focus rectangle appears only during keyboard navigation.
 The tab row inherits its parent background, including unused space after the last tab.
 The gallery and explorer do not need a separate background rectangle for their tab rows.
+Empty tab rows have no baseline. The baseline of a populated row stops at the selected tab, which opens into its content.
 The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
