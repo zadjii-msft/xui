@@ -218,6 +218,7 @@ InlineStatus::InlineStatus(std::wstring message)
     validate_text(name(), 4096);
     for (const auto& child : children_) adopt(child);
     action_->set_visible(false); dismiss_->set_visible(false);
+    dismiss_->set_appearance(ButtonAppearance::subtle);
     dismiss_->set_icon(ButtonIcon::close); dismiss_->on_click([this] { dismiss(); });
 }
 InlineStatus::~InlineStatus() { dismiss_->on_click({}); }
@@ -305,19 +306,168 @@ void ColorPicker::arrange(Rect bounds) {
     for (std::size_t i = 4; i < children_.size(); ++i)
         children_[i]->arrange({bounds.x + (i - 4) * width, bounds.y + 226, std::max(0.0f, width - 4), 36});
 }
+class ContentDialog::Layout final : public Stack {
+    class Body final : public Stack {
+    public:
+        Body(std::shared_ptr<Label> title, std::shared_ptr<Element> content,
+            std::shared_ptr<InlineStatus> validation)
+            : Stack(Axis::vertical), title_(std::move(title)), content_(std::move(content)),
+              validation_(std::move(validation)) {
+            set_spacing(10);
+            add(title_); add(content_); add(validation_);
+        }
+        void set_style(VisualStyle style) {
+            style_ = style;
+            title_->set_subtitle(style == VisualStyle::winui);
+            title_->set_wrapping(style == VisualStyle::winui, style == VisualStyle::winui ? 2 : 0);
+            title_->set_visible(style == VisualStyle::classic || !title_->text().empty());
+            invalidate(Invalidation::layout);
+        }
+        Size measure(Size available) override {
+            if (style_ == VisualStyle::classic) return Stack::measure(available);
+            const auto sizes = measure_children(std::max(0.0f, available.width - 48));
+            const float width = std::max({sizes[0].width, sizes[1].width, sizes[2].width}) + 48;
+            const float height = 49 + sizes[0].height + title_gap(sizes) +
+                sizes[1].height + validation_gap(sizes) + sizes[2].height;
+            return constrain({width, height}, available);
+        }
+        void arrange(Rect rectangle) override {
+            if (style_ == VisualStyle::classic) { Stack::arrange(rectangle); return; }
+            Element::arrange(rectangle);
+            rectangle = bounds();
+            const float width = std::max(0.0f, rectangle.width - 48);
+            const auto sizes = measure_children(width);
+            const float x = rectangle.x + std::min(24.0f, rectangle.width);
+            float y = rectangle.y + std::min(24.0f, rectangle.height);
+            title_->arrange({x, y, width, sizes[0].height});
+            y += sizes[0].height + title_gap(sizes);
+            content_->arrange({x, y, width, sizes[1].height});
+            y += sizes[1].height + validation_gap(sizes);
+            validation_->arrange({x, y, width, sizes[2].height});
+        }
+    private:
+        std::array<Size, 3> measure_children(float width) const {
+            const Size available{width, (std::numeric_limits<float>::max)()};
+            return {title_->measure(available), content_->measure(available), validation_->measure(available)};
+        }
+        static float title_gap(const std::array<Size, 3>& sizes) {
+            return sizes[0].height > 0 && sizes[1].height > 0 ? 12.0f : 0.0f;
+        }
+        static float validation_gap(const std::array<Size, 3>& sizes) {
+            return sizes[2].height > 0 && (sizes[0].height > 0 || sizes[1].height > 0) ? 12.0f : 0.0f;
+        }
+        VisualStyle style_{VisualStyle::classic};
+        std::shared_ptr<Label> title_;
+        std::shared_ptr<Element> content_;
+        std::shared_ptr<InlineStatus> validation_;
+    };
+public:
+    Layout(std::shared_ptr<Label> title, std::shared_ptr<Element> content,
+        std::shared_ptr<InlineStatus> validation, std::shared_ptr<Stack> actions)
+        : Stack(Axis::vertical), body_(std::make_shared<Body>(std::move(title), std::move(content), std::move(validation))),
+          scroll_(std::make_shared<ScrollView>(body_, L"Dialog content")), actions_(std::move(actions)) {
+        set_padding({16, 16, 16, 16}); set_spacing(10);
+        scroll_->set_tab_stop(false);
+        scroll_->set_overlay_scrollbar(true);
+        scroll_->set_passthrough(true);
+        add(scroll_); add(actions_);
+    }
+    void set_style(VisualStyle style) {
+        if (style_ == style) return;
+        style_ = style;
+        body_->set_style(style);
+        scroll_->set_passthrough(style == VisualStyle::classic);
+        footer_ = {};
+        invalidate(Invalidation::layout);
+    }
+    Rect footer_bounds() const { return footer_; }
+    Size measure(Size available) override {
+        if (style_ == VisualStyle::classic) return Stack::measure(available);
+        const auto width_limit = std::min(548.0f, dimension(available.width));
+        const Size inner{std::max(0.0f, width_limit - 48), unlimited};
+        const auto body = body_->measure({width_limit, unlimited});
+        float button_width = 0;
+        for (std::size_t i = 0; i < actions_->child_count(); ++i)
+            button_width = std::max(button_width, actions_->child_at(i)->measure(inner).width);
+        const float width = std::min(width_limit, std::max({320.0f, body.width, 2 * button_width + 56}));
+        const float height = body_->measure({width, unlimited}).height +
+            action_height(std::max(0.0f, width - 48)) + 48;
+        return {width, std::min(dimension(available.height), std::clamp(height, 184.0f, 756.0f))};
+    }
+    void arrange(Rect rectangle) override {
+        if (style_ == VisualStyle::classic) { footer_ = {}; Stack::arrange(rectangle); return; }
+        Element::arrange(rectangle);
+        rectangle = bounds();
+        const float inner_width = std::max(0.0f, rectangle.width - 48);
+        const auto buttons_height = action_height(inner_width);
+        const auto footer_height_here = std::min(buttons_height + 48, rectangle.height);
+        const float body_height = rectangle.height - footer_height_here;
+        footer_ = {rectangle.x, rectangle.y + body_height, rectangle.width, footer_height_here};
+        const float left = std::min(24.0f, rectangle.width);
+        scroll_->arrange({rectangle.x, rectangle.y, rectangle.width, body_height});
+        const float action_top = std::min(24.0f, footer_height_here);
+        actions_->arrange({rectangle.x + left, footer_.y + action_top, inner_width,
+            std::min(buttons_height, std::max(0.0f, footer_height_here - action_top - 24))});
+    }
+private:
+    static constexpr float unlimited = (std::numeric_limits<float>::max)();
+    float action_height(float width) const {
+        float height = 0;
+        const Size column{std::max(0.0f, (width - 8) / 2), unlimited};
+        for (std::size_t i = 0; i < actions_->child_count(); ++i)
+            height = std::max(height, actions_->child_at(i)->measure(column).height);
+        return height;
+    }
+    static float dimension(float value) { return std::isnan(value) ? 0.0f : std::clamp(value, 0.0f, unlimited); }
+    VisualStyle style_{VisualStyle::classic};
+    std::shared_ptr<Body> body_;
+    std::shared_ptr<ScrollView> scroll_;
+    std::shared_ptr<Stack> actions_;
+    Rect footer_;
+};
 ContentDialog::ContentDialog(std::wstring title, std::shared_ptr<Element> content) {
     if (!content) throw std::invalid_argument("Dialog content is required");
-    auto stack = std::make_shared<Stack>(Axis::vertical); stack->set_padding({16, 16, 16, 16}); stack->set_spacing(10);
-    auto heading = std::make_shared<Label>(title); heading->set_heading(true); stack->add(heading); stack->add(content);
-    validation_ = std::make_shared<InlineStatus>(); validation_->set_visible(false); stack->add(validation_);
+    auto heading = std::make_shared<Label>(title); heading->set_heading(true);
+    validation_ = std::make_shared<InlineStatus>(); validation_->set_visible(false);
     auto row = std::make_shared<Stack>(Axis::horizontal); row->set_spacing(8);
     primary_ = std::make_shared<Button>(L"OK"); cancel_ = std::make_shared<Button>(L"Cancel");
-    row->add(primary_, 1); row->add(cancel_, 1); stack->add(row);
-    popup_ = std::make_shared<Popup>(stack, std::move(title)); popup_->set_preferred_size({460, 360});
+    primary_->set_appearance(ButtonAppearance::accent);
+    row->add(primary_, 1); row->add(cancel_, 1);
+    layout_ = std::make_shared<Layout>(heading, std::move(content), validation_, row);
+    popup_ = std::make_shared<Popup>(layout_, std::move(title)); popup_->set_default_size({460, 360});
     popup_->set_dialog_surface(true);
     primary_->on_click([this] { accept(); }); cancel_->on_click([this] { cancel(); });
 }
 ContentDialog::~ContentDialog() { primary_->on_click({}); cancel_->on_click({}); }
+void ContentDialog::set_visual_style(VisualStyle style) {
+    if (style != VisualStyle::classic && style != VisualStyle::winui) throw std::invalid_argument("Invalid visual style");
+    layout_->set_style(style);
+    const auto apply = [style](const auto& self, const std::shared_ptr<Element>& element) -> void {
+        if (auto control = std::dynamic_pointer_cast<Control>(element)) {
+            control->set_visual_style(style);
+            if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) self(self, scroll->content());
+            for (const auto& child : control->retained_children()) self(self, child);
+        } else if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
+            for (std::size_t i = 0; i < stack->child_count(); ++i) self(self, stack->child_at(i));
+        }
+    };
+    apply(apply, popup_);
+}
+Size ContentDialog::measure(Size available) {
+    if (popup_->visual_style() == VisualStyle::classic) return popup_->measure(available);
+    const auto inset = [](float value) {
+        return std::isnan(value) ? 0.0f : std::clamp(value - 48, 0.0f, (std::numeric_limits<float>::max)());
+    };
+    const Size viewport{inset(available.width), inset(available.height)};
+    auto desired = popup_->preferred_size_explicit() ? popup_->measure(viewport) : layout_->measure(viewport);
+    desired.width = std::clamp(desired.width, 320.0f, 548.0f);
+    desired.height = std::clamp(desired.height, 184.0f, 756.0f);
+    desired = popup_->constrain(desired, viewport);
+    desired.width = std::min(548.0f, desired.width);
+    desired.height = std::min(756.0f, desired.height);
+    return desired;
+}
+Rect ContentDialog::footer_bounds() const { return layout_->footer_bounds(); }
 void ContentDialog::accept() {
     auto lifetime = weak_from_this().lock();
     if (!popup_->is_open() || !primary_->enabled()) return;

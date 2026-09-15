@@ -175,6 +175,7 @@ NavigationView::NavigationView(std::wstring name) :
     main_(std::shared_ptr<NavigationList>(new NavigationList(name + L" items", *this))),
     footer_(std::shared_ptr<NavigationList>(new NavigationList(name + L" footer", *this))) {
     toggle_->set_icon(ButtonIcon::menu);
+    toggle_->set_appearance(ButtonAppearance::subtle);
     toggle_->set_help_text(L"Expand or collapse navigation");
     toggle_->on_click([this] { set_expanded(!expanded_); });
     title_->set_heading(true);
@@ -189,6 +190,11 @@ NavigationView::NavigationView(std::wstring name) :
 NavigationView::~NavigationView() {
     toggle_->on_click({}); search_->on_change({});
     for (const auto& list : {header_, main_, footer_}) { list->on_activate({}); list->owner_ = nullptr; }
+}
+void NavigationView::presentation_changed() {
+    const bool winui = visual_style() == VisualStyle::winui;
+    title_->set_heading(!winui);
+    title_->set_body_strong(winui);
 }
 const NavigationItem* NavigationView::find(ItemKey key) const {
     const auto it = index_.find(key);

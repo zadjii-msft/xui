@@ -1,5 +1,7 @@
 #include "drawing.hpp"
+#include <dwrite_3.h>
 #include "platform.hpp"
+#include "window_host.hpp"
 #include "images.hpp"
 #include <algorithm>
 #include <limits>
@@ -57,7 +59,8 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered) {
+void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette,
+    bool hovered, bool command_menu) {
     const auto b = row.bounds;
     if (row.navigation) {
         selected = selected || row.selected_descendant;
@@ -77,18 +80,20 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
             if (!row.content.secondary.empty() && right - left > 120) {
                 const float badge_width = std::min(64.0f, 16 + static_cast<float>(row.content.secondary.size()) * 7);
                 rounded({right - badge_width, b.y + 9, badge_width, b.height - 18}, palette.surface, 8);
-                text(row.content.secondary, {right - badge_width + 7, b.y, badge_width - 14, b.height}, palette.secondary, true);
+                text(row.content.secondary, {right - badge_width + 7, b.y, badge_width - 14, b.height},
+                    palette.style == VisualStyle::winui && (!enabled || !row.content.enabled) ? palette.disabled : palette.secondary, true);
                 right -= badge_width + 6;
             }
             const float text_left = left + (row.content.icon == ButtonIcon::none ? 0 : 28);
             text(row.content.primary, {text_left, b.y, std::max(0.0f, right - text_left), b.height}, ink);
             if (row.expandable) {
-                const float x = b.x + b.width - 21, y = b.y + b.height / 2;
-                if (row.expanded) { line(x - 4, y - 2, x, y + 2, ink, 1.5f); line(x, y + 2, x + 4, y - 2, ink, 1.5f); }
-                else { line(x - 2, y - 4, x + 2, y, ink, 1.5f); line(x + 2, y, x - 2, y + 4, ink, 1.5f); }
+                chevron({b.x + b.width - 33, b.y, 24, b.height}, ink, row.expanded);
             }
         }
-        if (focused) rounded(face, palette.accent, 5, true);
+        if (focused) {
+            if (palette.style == VisualStyle::winui) focus_ring(face, palette);
+            else rounded(face, palette.accent, 5, true);
+        }
         return;
     }
     if (row.content.separator) {
@@ -100,14 +105,26 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         return;
     }
     const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
-    if (selected || hovered || row.group) fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2},
-        selected ? palette.selection : hovered ? palette.hover : palette.surface);
+    const bool winui = palette.style == VisualStyle::winui;
+    const Rect face{b.x + 2, b.y + 2, std::max(0.0f, b.width - 4), std::max(0.0f, b.height - 4)};
+    if (selected || hovered || row.group) {
+        const auto background = selected ? palette.selection : hovered ? palette.hover : palette.surface;
+        if (palette.style == VisualStyle::winui) rounded(face, background, 4);
+        else fill({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, background);
+    }
     float left = b.x + 10 + std::min(static_cast<float>(row.depth) * 20, b.width / 3);
     if (row.content.checked) {
-        text(*row.content.checked ? L"✓" : L"○", {left, b.y, 22, b.height}, ink); left += 24;
+        if (winui && command_menu) {
+            if (*row.content.checked) symbol(Symbol::check, {left, b.y, 16, b.height}, ink, 12);
+        } else if (winui) check_indicator({left, b.y + (b.height - 16) / 2, 16, 16},
+            palette, *row.content.checked, enabled && row.content.enabled);
+        else text(*row.content.checked ? L"✓" : L"○", {left, b.y, 22, b.height}, ink);
+        left += 24;
     }
     if (row.expandable && !row.content.submenu) {
-        text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink); left += 24;
+        if (winui) chevron({left, b.y, 22, b.height}, ink, row.expanded);
+        else text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink);
+        left += 24;
     }
     if (row.content.icon != ButtonIcon::none) {
         button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon); left += 28;
@@ -118,21 +135,30 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
     const float width = std::max(0.0f, right - left);
     text(row.content.primary, {left, b.y + 3, width, secondary_visible ? 26 : b.height - 6}, ink);
     if (secondary_visible) text(row.content.secondary, {left, b.y + 27, width, std::max(0.0f, b.height - 30)},
-        !enabled ? palette.disabled : selected ? palette.selection_text : palette.secondary, true);
+        !enabled || (winui && !row.content.enabled) ? palette.disabled : selected ? palette.selection_text : palette.secondary, true);
     if (row.content.progress && std::isfinite(*row.content.progress)) {
         const Rect track{left, b.y + b.height - 4, width, 2}; fill(track, palette.border);
         fill({track.x, track.y, track.width * static_cast<float>(std::clamp(*row.content.progress, 0.0, 1.0)), track.height}, ink);
     }
     if (action_visible) {
         const Rect action{b.x + b.width - 70, b.y + 8, 64, std::max(0.0f, b.height - 16)};
-        rounded(action, palette.border, 4, true); text(row.content.action, {action.x + 5, action.y, action.width - 10, action.height}, ink, true);
+        const auto action_ink = winui ? button_face(action, palette, ButtonAppearance::standard,
+            enabled && row.content.enabled, false, false, false) : ink;
+        if (!winui) rounded(action, palette.border, 4, true);
+        text(row.content.action, {action.x + 5, action.y, action.width - 10, action.height}, action_ink, true);
     }
-    if (row.content.submenu) text(L"›", {b.x + b.width - 28, b.y, 20, b.height}, ink);
-    if (focused || (hovered && palette.high_contrast))
-        outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
+    if (row.content.submenu) {
+        if (winui) chevron({b.x + b.width - 28, b.y, 20, b.height}, ink, false);
+        else text(L"›", {b.x + b.width - 28, b.y, 20, b.height}, ink);
+    }
+    if (focused || (hovered && palette.high_contrast)) {
+        if (palette.style == VisualStyle::winui) focus_ring(face, palette);
+        else outline({b.x + 1, b.y + 1, std::max(0.0f, b.width - 2), b.height - 2}, palette.accent);
+    }
 }
 thread_local std::size_t Drawing::live_targets_{};
 thread_local std::size_t Drawing::created_text_layouts_{};
+thread_local std::size_t Drawing::created_field_brushes_{};
 thread_local HRESULT Drawing::end_result_override_{S_OK};
 thread_local HRESULT Drawing::native_result_override_{S_OK};
 thread_local void (*Drawing::present_observer_)(HWND){};
@@ -146,9 +172,12 @@ D2D1_COLOR_F color(int system_color) {
 D2D1_RECT_F rectangle(Rect bounds) {
     return D2D1::RectF(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height);
 }
+D2D1_COLOR_F argb_color(uint32_t value) {
+    return D2D1::ColorF(value & 0xffffff, static_cast<float>(value >> 24) / 255);
+}
 }
 
-Palette Palette::system(ThemeMode mode) {
+Palette Palette::system(ThemeMode mode, VisualStyle style) {
     HIGHCONTRASTW contrast{sizeof(contrast)};
     win32_require(SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) != 0,
                   "Read high contrast settings");
@@ -157,27 +186,72 @@ Palette Palette::system(ThemeMode mode) {
                 color(COLOR_HIGHLIGHT), color(COLOR_HIGHLIGHTTEXT), color(COLOR_WINDOWTEXT),
                 color(COLOR_WINDOW), color(COLOR_WINDOW), color(COLOR_WINDOW),
                 color(COLOR_HIGHLIGHT), color(COLOR_WINDOWTEXT), color(COLOR_WINDOWTEXT),
-                color(COLOR_WINDOWTEXT), true, color(COLOR_GRAYTEXT)};
-    const auto theme = theme_colors(mode);
+                color(COLOR_WINDOWTEXT), true, color(COLOR_GRAYTEXT), style, mode};
+    const auto theme = theme_colors(mode, style);
     return {D2D1::ColorF(theme.background), D2D1::ColorF(theme.text), D2D1::ColorF(theme.secondary),
             D2D1::ColorF(theme.selection), D2D1::ColorF(theme.selection_text), D2D1::ColorF(theme.border),
             D2D1::ColorF(theme.surface), D2D1::ColorF(theme.field), D2D1::ColorF(theme.hover),
             D2D1::ColorF(theme.accent), D2D1::ColorF(theme.folder), D2D1::ColorF(theme.file),
-            D2D1::ColorF(theme.error), false, D2D1::ColorF(theme.secondary)};
+            D2D1::ColorF(theme.error), false,
+            D2D1::ColorF(style == VisualStyle::winui ? winui_control_colors(mode).disabled_text : theme.secondary), style, mode};
 }
 
-void Drawing::initialize() {
+D2D1_COLOR_F Palette::input_fill(bool enabled, bool focused, bool hovered, bool on_surface) const {
+    if (style != VisualStyle::winui || high_contrast) return field;
+    const auto parent = platform::native_color(on_surface ? surface : background);
+    const auto rgb = (uint32_t(GetRValue(parent)) << 16) | (uint32_t(GetGValue(parent)) << 8) | GetBValue(parent);
+    return D2D1::ColorF(composite_argb_on_rgb(winui_input_background(mode, enabled, focused, hovered), rgb));
+}
+
+void Drawing::initialize(VisualStyle style) {
     hr_require(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory_.GetAddressOf()),
                "Create Direct2D factory");
     hr_require(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                reinterpret_cast<IUnknown**>(text_factory_.GetAddressOf())), "Create DirectWrite factory");
+    set_visual_style(style);
+}
+
+void Drawing::set_visual_style(VisualStyle style) {
+    if (format_ && visual_style_ == style) return;
+    Microsoft::WRL::ComPtr<IDWriteFactory6> variable_factory;
+    Microsoft::WRL::ComPtr<IDWriteFontCollection2> variable_fonts;
+    variable_font_ = false;
+    if (style == VisualStyle::winui) {
+        wchar_t scripts[128]{};
+        win32_require(GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSCRIPTS, scripts, 128) > 0, "Read UI font locale");
+        if (std::wstring_view(scripts) == L"Latn;") {
+            const auto supported = text_factory_.As(&variable_factory);
+            if (supported != E_NOINTERFACE) hr_require(supported, "Read variable font support");
+            if (variable_factory) {
+                hr_require(variable_factory->GetSystemFontCollection(FALSE, DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC,
+                    &variable_fonts), "Read typographic font collection");
+                UINT32 index{};
+                BOOL exists{};
+                hr_require(variable_fonts->FindFamilyName(L"Segoe UI Variable", &index, &exists), "Find WinUI variable font");
+                variable_font_ = exists != FALSE;
+            }
+        }
+    }
     for (auto entry : {std::pair{std::addressof(format_), VisualMetrics::body_size},
                        std::pair{std::addressof(small_format_), VisualMetrics::caption_size},
-                       std::pair{std::addressof(heading_format_), VisualMetrics::heading_size}}) {
-        hr_require(text_factory_->CreateTextFormat(L"Segoe UI", nullptr,
-            entry.first == std::addressof(heading_format_) ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, entry.second, L"",
-            entry.first->GetAddressOf()), "Create text format");
+                       std::pair{std::addressof(heading_format_), VisualMetrics::heading_size},
+                       std::pair{std::addressof(subtitle_format_), 20.0f},
+                       std::pair{std::addressof(strong_format_), VisualMetrics::body_size}}) {
+        const auto weight = entry.first == std::addressof(heading_format_) || entry.first == std::addressof(subtitle_format_) ||
+            entry.first == std::addressof(strong_format_) ?
+            DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
+        if (variable_font_) {
+            const DWRITE_FONT_AXIS_VALUE axis{DWRITE_FONT_AXIS_TAG_WEIGHT, static_cast<float>(weight)};
+            Microsoft::WRL::ComPtr<IDWriteTextFormat3> format;
+            hr_require(variable_factory->CreateTextFormat(L"Segoe UI Variable", variable_fonts.Get(), &axis, 1,
+                entry.second, L"", &format), "Create WinUI variable text format");
+            hr_require(format->SetAutomaticFontAxes(DWRITE_AUTOMATIC_FONT_AXES_OPTICAL_SIZE), "Set automatic optical sizing");
+            *entry.first = format;
+        } else {
+            hr_require(text_factory_->CreateTextFormat(L"Segoe UI", nullptr, weight,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, entry.second, L"",
+                entry.first->ReleaseAndGetAddressOf()), "Create text format");
+        }
         hr_require((*entry.first)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP), "Set text wrapping");
         hr_require((*entry.first)->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
                    "Set text alignment");
@@ -187,6 +261,67 @@ void Drawing::initialize() {
         DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
         hr_require((*entry.first)->SetTrimming(&trimming, ellipsis.Get()), "Set text trimming");
     }
+    numeric_format_.Reset();
+    if (style == VisualStyle::winui) prepare_symbols();
+    visual_style_ = style;
+}
+
+void Drawing::prepare_symbols() {
+    if (symbol_face_) return;
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+    hr_require(text_factory_->GetSystemFontCollection(&fonts), "Read symbol font collection");
+    UINT32 index{};
+    BOOL exists{};
+    const wchar_t* family = L"Segoe Fluent Icons";
+    hr_require(fonts->FindFamilyName(family, &index, &exists), "Find Segoe Fluent Icons");
+    if (!exists) {
+        family = L"Segoe MDL2 Assets";
+        hr_require(fonts->FindFamilyName(family, &index, &exists), "Find compatible symbol font");
+        if (!exists) throw std::runtime_error("WinUI icons require Segoe Fluent Icons or Segoe MDL2 Assets");
+        OutputDebugStringW(L"XUI: Segoe Fluent Icons is not installed; using Segoe MDL2 Assets.\n");
+    }
+    Microsoft::WRL::ComPtr<IDWriteFontFamily> font_family;
+    Microsoft::WRL::ComPtr<IDWriteFont> font;
+    Microsoft::WRL::ComPtr<IDWriteFontFace> face;
+    hr_require(fonts->GetFontFamily(index, &font_family), "Read symbol font family");
+    hr_require(font_family->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL, &font), "Read symbol font");
+    hr_require(font->CreateFontFace(&face), "Create symbol font face");
+    hr_require(face->GetGlyphIndices(symbol_codepoints.data(), static_cast<UINT32>(symbol_codepoints.size()),
+        symbol_indices_.data()), "Resolve symbol glyphs");
+    for (std::size_t i = 1; i < symbol_indices_.size(); ++i)
+        if (!symbol_indices_[i]) throw std::runtime_error("The installed symbol font is missing a required XUI icon");
+    hr_require(face->GetDesignGlyphMetrics(symbol_indices_.data(), static_cast<UINT32>(symbol_indices_.size()),
+        symbol_metrics_.data()), "Measure symbol glyphs");
+    face->GetMetrics(&symbol_font_metrics_);
+    symbol_face_ = std::move(face);
+    symbol_family_ = family;
+    ++created_symbol_faces_;
+}
+
+bool Drawing::has_symbol(Symbol value) const {
+    const auto index = static_cast<std::size_t>(value);
+    return symbol_face_ && index > 0 && index < symbol_indices_.size() && symbol_indices_[index] != 0;
+}
+
+void Drawing::symbol(Symbol value, Rect bounds, D2D1_COLOR_F color, float size) {
+    if (value == Symbol::none || bounds.width <= 0 || bounds.height <= 0) return;
+    if (!std::isfinite(size) || size <= 0) throw std::invalid_argument("Invalid symbol size");
+    prepare_symbols();
+    if (!has_symbol(value)) throw std::invalid_argument("Invalid symbol");
+    const auto index = static_cast<std::size_t>(value);
+    const float em = std::min({size, bounds.width, bounds.height});
+    const float scale = em / symbol_font_metrics_.designUnitsPerEm;
+    const float advance = symbol_metrics_[index].advanceWidth * scale;
+    const float height = (symbol_font_metrics_.ascent + symbol_font_metrics_.descent) * scale;
+    const DWRITE_GLYPH_RUN run{symbol_face_.Get(), em, 1, &symbol_indices_[index], &advance, nullptr, FALSE, 0};
+    brush_->SetColor(color);
+    const auto antialias = target_->GetTextAntialiasMode();
+    target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    target_->DrawGlyphRun(D2D1::Point2F(bounds.x + (bounds.width - advance) / 2,
+        bounds.y + (bounds.height - height) / 2 + symbol_font_metrics_.ascent * scale),
+        &run, brush_.Get(), DWRITE_MEASURING_MODE_NATURAL);
+    target_->SetTextAntialiasMode(antialias);
 }
 
 bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background) {
@@ -336,6 +471,8 @@ void Drawing::discard() {
     scene_stroke_.Reset();
     while (!bitmaps_.empty()) erase_bitmap(bitmaps_.size() - 1);
     brush_.Reset();
+    for (auto& border : field_borders_) border.value.Reset();
+    for (auto& border : button_borders_) border.value.Reset();
     native_bitmaps_.clear();
     if (native_dc_) DeleteDC(std::exchange(native_dc_, nullptr));
     if (native_buffer_) DeleteObject(std::exchange(native_buffer_, nullptr));
@@ -383,9 +520,13 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
 }
 void Drawing::release() {
     discard();
+    symbol_face_.Reset();
+    symbol_family_ = L"";
     caption_format_.Reset();
     numeric_format_.Reset();
     heading_format_.Reset();
+    subtitle_format_.Reset();
+    strong_format_.Reset();
     small_format_.Reset();
     format_.Reset();
     text_factory_.Reset();
@@ -409,12 +550,181 @@ void Drawing::rounded(Rect bounds, D2D1_COLOR_F value, float radius, bool stroke
     else target_->FillRoundedRectangle(shape, brush_.Get());
 }
 
+void Drawing::focus_ring(Rect bounds, const Palette& palette, float radius) {
+    rounded(bounds, palette.text, radius, true);
+    if (bounds.width > 2 && bounds.height > 2)
+        rounded({bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2},
+            palette.background, std::max(0.0f, radius - 1), true);
+}
+
+void Drawing::field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid,
+    std::optional<D2D1_COLOR_F> fill) {
+    const bool winui = palette.style == VisualStyle::winui && !palette.high_contrast;
+    const auto radius = style_metrics(palette.style).control_radius;
+    rounded(bounds, fill.value_or(palette.field), radius);
+    if (!winui || invalid) {
+        const auto stroke = invalid ? palette.error : focused ? palette.accent : palette.border;
+        rounded(bounds, stroke, radius, true);
+        if (palette.style == VisualStyle::winui && palette.high_contrast && bounds.width > 2 && bounds.height > 2)
+            rounded({bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2}, stroke, radius - 1, true);
+        if (winui && invalid && bounds.width > 8 && bounds.height > 2)
+            line(bounds.x + 4, bounds.y + bounds.height - 0.5f,
+                bounds.x + bounds.width - 4, bounds.y + bounds.height - 0.5f, stroke, 2);
+        return;
+    }
+    const auto tokens = winui_input_strokes(palette.mode);
+    const auto outline = argb_color(tokens.outline);
+    if (!enabled) {
+        rounded(bounds, outline, radius, true);
+        return;
+    }
+    auto& cached = field_borders_[focused ? 1 : 0];
+    const auto accent = platform::native_color(palette.accent);
+    if (!cached.value || cached.mode != palette.mode || (focused && cached.accent != accent)) {
+        const auto elevation = focused ? palette.accent : argb_color(tokens.elevation);
+        const D2D1_GRADIENT_STOP stops[]{{0, elevation}, {focused ? 1.0f : 0.5f, elevation}, {1, outline}};
+        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> collection;
+        hr_require(target_->CreateGradientStopCollection(stops, 3, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, &collection),
+            "Create input elevation stops");
+        Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> next;
+        hr_require(target_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(
+            D2D1::Point2F(0, 0), D2D1::Point2F(0, 2)), collection.Get(), &next), "Create input elevation brush");
+        cached.value = std::move(next);
+        cached.mode = palette.mode;
+        cached.accent = accent;
+        ++created_field_brushes_;
+    }
+    const float bottom = bounds.y + bounds.height + 0.5f;
+    cached.value->SetStartPoint(D2D1::Point2F(0, bottom));
+    cached.value->SetEndPoint(D2D1::Point2F(0, bottom - 2));
+    target_->DrawRoundedRectangle(D2D1::RoundedRect(rectangle(bounds), radius, radius), cached.value.Get(), 1);
+    if (focused && bounds.width > 2 && bounds.height > 2) {
+        push_clip({bounds.x - 0.5f, bottom - 2, bounds.width + 1, 2});
+        target_->DrawRoundedRectangle(D2D1::RoundedRect(rectangle(
+            {bounds.x + 1, bounds.y + 1, bounds.width - 2, bounds.height - 2}), radius - 1, radius - 1),
+            cached.value.Get(), 1);
+        pop_clip();
+    }
+}
+
+void Drawing::surface_frame(Rect bounds, const Palette& palette) {
+    const auto radius = style_metrics(palette.style).surface_radius;
+    rounded(bounds, palette.surface, radius);
+    rounded(bounds, palette.border, radius, true);
+}
+
+D2D1_COLOR_F Drawing::check_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool mixed,
+    bool hovered, bool pressed) {
+    const bool marked = checked || mixed;
+    const auto mark = !enabled ? palette.disabled : palette.high_contrast ? palette.selection : palette.accent;
+    const bool fluent = palette.style == VisualStyle::winui && !palette.high_contrast;
+    const auto visual = winui_indicator_brushes(palette.mode, marked, enabled, hovered, pressed);
+    const auto label = fluent ? argb_color(visual.text) : enabled ? palette.text : palette.disabled;
+    rounded(bounds, fluent ? argb_color(visual.fill) : marked ? mark : palette.field, 4);
+    rounded(bounds, fluent ? argb_color(visual.stroke) : !enabled ? palette.disabled : marked ? mark : palette.secondary, 4, true);
+    if (!marked) return label;
+    const auto ink = fluent ? argb_color(visual.mark) : palette.high_contrast ? palette.selection_text :
+        D2D1::ColorF(winui_control_colors(palette.mode).accent_text);
+    if (visual_style_ == VisualStyle::winui) {
+        symbol(mixed ? Symbol::indeterminate : Symbol::check,
+            {bounds.x, bounds.y + (mixed ? 0 : 1), bounds.width, bounds.height}, ink, 12);
+    } else if (mixed) {
+        line(bounds.x + bounds.width * 0.25f, bounds.y + bounds.height / 2,
+            bounds.x + bounds.width * 0.75f, bounds.y + bounds.height / 2, ink, 2);
+    } else {
+        line(bounds.x + bounds.width * 0.22f, bounds.y + bounds.height * 0.5f,
+            bounds.x + bounds.width * 0.44f, bounds.y + bounds.height * 0.72f, ink, 2);
+        line(bounds.x + bounds.width * 0.44f, bounds.y + bounds.height * 0.72f,
+            bounds.x + bounds.width * 0.78f, bounds.y + bounds.height * 0.28f, ink, 2);
+    }
+    return label;
+}
+
+D2D1_COLOR_F Drawing::radio_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool hovered, bool pressed) {
+    const auto radius = std::min(bounds.width, bounds.height) / 2;
+    const auto ink = !enabled ? palette.disabled : checked ? palette.accent : palette.secondary;
+    const bool fluent = palette.style == VisualStyle::winui && !palette.high_contrast;
+    const auto visual = winui_indicator_brushes(palette.mode, checked, enabled, hovered, pressed, true);
+    rounded(bounds, fluent ? argb_color(visual.fill) : checked ? ink : palette.field, radius);
+    rounded(bounds, fluent ? argb_color(visual.stroke) : ink, radius, true);
+    const float diameter = std::min(std::min(bounds.width, bounds.height), winui_radio_dot(enabled, hovered, pressed));
+    if (checked && diameter > 0)
+        rounded({bounds.x + (bounds.width - diameter) / 2, bounds.y + (bounds.height - diameter) / 2, diameter, diameter},
+            fluent ? argb_color(visual.mark) : palette.high_contrast ? palette.selection_text :
+                D2D1::ColorF(winui_control_colors(palette.mode).accent_text),
+            diameter / 2);
+    return fluent ? argb_color(visual.text) : enabled ? palette.text : palette.disabled;
+}
+
+void Drawing::chevron(Rect bounds, D2D1_COLOR_F color, bool expanded) {
+    if (visual_style_ == VisualStyle::winui) {
+        symbol(expanded ? Symbol::chevron_down : Symbol::chevron_right, bounds, color, 12);
+        return;
+    }
+    const auto x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    if (expanded) {
+        line(x - 4, y - 2, x, y + 2, color, 1.5f);
+        line(x, y + 2, x + 4, y - 2, color, 1.5f);
+    } else {
+        line(x - 2, y - 4, x + 2, y, color, 1.5f);
+        line(x + 2, y, x - 2, y + 4, color, 1.5f);
+    }
+}
+
+void Drawing::scrollbar_thumb(Rect bounds, const Palette& palette, bool active, bool enabled) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    rounded(bounds, !enabled ? palette.disabled : active ? palette.text : palette.secondary,
+        std::min(bounds.width, bounds.height) / 2);
+}
+
+D2D1_COLOR_F Drawing::button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
+    bool enabled, bool hovered, bool pressed, bool checked) {
+    if (palette.high_contrast) {
+        const bool selected = enabled && (pressed || checked || appearance == ButtonAppearance::accent);
+        rounded(bounds, selected ? palette.selection : palette.surface, 4);
+        rounded(bounds, enabled ? palette.text : palette.disabled, 4, true);
+        return !enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
+    }
+    const auto visual = winui_button_brushes(palette.mode, appearance, enabled, hovered, pressed, checked);
+    if (visual.fill >> 24) {
+        const float inset = visual.accent ? -0.5f : 0.5f;
+        rounded({bounds.x + inset, bounds.y + inset, std::max(0.0f, bounds.width - 2 * inset),
+            std::max(0.0f, bounds.height - 2 * inset)}, argb_color(visual.fill), visual.accent ? 4.0f : 3.0f);
+    }
+    if (visual.elevated) {
+        auto& cached = button_borders_[visual.accent ? 1 : 0];
+        if (!cached.value || cached.mode != palette.mode) {
+            const D2D1_GRADIENT_STOP stops[]{{0.33f, argb_color(visual.elevation)}, {1, argb_color(visual.stroke)}};
+            Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> collection;
+            hr_require(target_->CreateGradientStopCollection(stops, 2, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
+                &collection), "Create button elevation stops");
+            Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> next;
+            hr_require(target_->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(
+                D2D1::Point2F(0, 0), D2D1::Point2F(0, 3)), collection.Get(), &next), "Create button elevation brush");
+            cached.value = std::move(next);
+            cached.mode = palette.mode;
+        }
+        const bool bottom = visual.accent || palette.mode == ThemeMode::light;
+        const float edge = bottom ? bounds.y + bounds.height + 0.5f : bounds.y - 0.5f;
+        cached.value->SetStartPoint(D2D1::Point2F(0, edge));
+        cached.value->SetEndPoint(D2D1::Point2F(0, edge + (bottom ? -3 : 3)));
+        target_->DrawRoundedRectangle(D2D1::RoundedRect(rectangle(bounds), 4, 4), cached.value.Get(), 1);
+    } else if (visual.stroke >> 24) {
+        rounded(bounds, argb_color(visual.stroke), 4, true);
+    }
+    return argb_color(visual.text);
+}
+
 void Drawing::line(float x1, float y1, float x2, float y2, D2D1_COLOR_F value, float thickness) {
     brush_->SetColor(value);
     target_->DrawLine(D2D1::Point2F(x1, y1), D2D1::Point2F(x2, y2), brush_.Get(), thickness);
 }
 
 void Drawing::icon(Rect box, D2D1_COLOR_F value, bool folder) {
+    if (visual_style_ == VisualStyle::winui) {
+        symbol(folder ? Symbol::folder : Symbol::document, box, value, std::min(box.width, box.height));
+        return;
+    }
     if (folder) {
         rounded({box.x, box.y + 2, box.width * 0.5f, 6}, value, 1.5f);
         rounded({box.x, box.y + 5, box.width, box.height - 6}, value, 2);
@@ -426,6 +736,10 @@ void Drawing::icon(Rect box, D2D1_COLOR_F value, bool folder) {
 }
 
 void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
+    if (visual_style_ == VisualStyle::winui) {
+        symbol(Symbol::search, box, value);
+        return;
+    }
     brush_->SetColor(value);
     target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + 7, box.y + 7), 5, 5), brush_.Get(), 1.5f);
     line(box.x + 11, box.y + 11, box.x + 16, box.y + 16, value, 1.5f);
@@ -433,7 +747,7 @@ void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
 
 void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
     bool active, bool enabled, bool hovered, bool pressed, bool focused) {
-    if (!caption_format_) {
+    if (!caption_format_ && palette.style != VisualStyle::winui) {
         hr_require(text_factory_->CreateTextFormat(L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10, L"", &caption_format_),
             "Create caption glyph format");
@@ -466,13 +780,21 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
     fill(bounds, background);
     const wchar_t glyph = icon == ButtonIcon::minimize ? L'\ue921' : icon == ButtonIcon::maximize ? L'\ue922' :
         icon == ButtonIcon::restore ? L'\ue923' : L'\ue8bb';
-    brush_->SetColor(ink);
-    target_->DrawText(&glyph, 1, caption_format_.Get(), rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (palette.style == VisualStyle::winui) {
+        symbol(icon == ButtonIcon::close ? Symbol::caption_close : button_symbol(icon), bounds, ink, 10);
+    } else {
+        brush_->SetColor(ink);
+        target_->DrawText(&glyph, 1, caption_format_.Get(), rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
     if (focused) outline({bounds.x + 2.5f, bounds.y + 2.5f, std::max(0.0f, bounds.width - 5),
         std::max(0.0f, bounds.height - 5)}, ink);
 }
 
 void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
+    if (visual_style_ == VisualStyle::winui) {
+        symbol(button_symbol(icon), box, color, std::min(box.width, box.height));
+        return;
+    }
     const auto stroke = [&](float x1, float y1, float x2, float y2) {
         line(box.x + x1 * box.width / 16, box.y + y1 * box.height / 16,
             box.x + x2 * box.width / 16, box.y + y2 * box.height / 16, color, 1.5f);
@@ -552,7 +874,7 @@ void Drawing::text(std::wstring_view value, Rect bounds, D2D1_COLOR_F value_colo
 void Drawing::cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool numeric) {
     if (!numeric) { text(value, bounds, color, true); return; }
     if (!numeric_format_) {
-        hr_require(text_factory_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+        hr_require(text_factory_->CreateTextFormat(edit_font_family(), nullptr, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, VisualMetrics::caption_size, L"", &numeric_format_), "Create numeric text format");
         numeric_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         numeric_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -567,17 +889,34 @@ void Drawing::cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color
         rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
-Microsoft::WRL::ComPtr<IDWriteTextLayout> Drawing::layout(std::wstring_view value, TextStyle style, Size& measured) {
+Microsoft::WRL::ComPtr<IDWriteTextLayout> Drawing::layout(std::wstring_view value, TextStyle style, Size& measured,
+    float wrap_width, std::size_t maximum_lines) {
     Microsoft::WRL::ComPtr<IDWriteTextLayout> result;
-    auto* format = style == TextStyle::heading ? heading_format_.Get() :
+    auto* format = style == TextStyle::body_strong ? strong_format_.Get() :
+        style == TextStyle::subtitle ? subtitle_format_.Get() : style == TextStyle::heading ? heading_format_.Get() :
         style == TextStyle::caption ? small_format_.Get() : format_.Get();
     hr_require(text_factory_->CreateTextLayout(value.data(), static_cast<UINT32>(std::min(value.size(),
         static_cast<size_t>(std::numeric_limits<UINT32>::max()))), format, 10000000, 10000000, &result),
         "Measure control text");
     ++created_text_layouts_;
+    if (wrap_width > 0) {
+        hr_require(result->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP), "Wrap control text");
+        hr_require(result->SetMaxWidth(wrap_width), "Constrain wrapped control text");
+        hr_require(result->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR), "Align wrapped control text");
+    }
     DWRITE_TEXT_METRICS metrics{};
     hr_require(result->GetMetrics(&metrics), "Read control text metrics");
     measured = {std::ceil(metrics.widthIncludingTrailingWhitespace), std::ceil(metrics.height)};
+    if (wrap_width > 0 && maximum_lines) {
+        UINT32 count{};
+        const HRESULT query = result->GetLineMetrics(nullptr, 0, &count);
+        if (query != E_NOT_SUFFICIENT_BUFFER) hr_require(query, "Count wrapped text lines");
+        std::vector<DWRITE_LINE_METRICS> lines(count);
+        if (count) hr_require(result->GetLineMetrics(lines.data(), count, &count), "Measure wrapped text lines");
+        float height{};
+        for (std::size_t i = 0; i < std::min(maximum_lines, lines.size()); ++i) height += lines[i].height;
+        measured.height = std::min(measured.height, std::ceil(height));
+    }
     return result;
 }
 void Drawing::text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color) {

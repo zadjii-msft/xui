@@ -50,6 +50,7 @@ struct ControlSnapshot {
     std::vector<bool> choice_enabled;
     double minimum{}, maximum{100}, value{}, small_step{1}, large_step{10};
     bool vertical_choices{}, expanded{}, read_only{}, invalid{}, toggle_action{};
+    float choice_left{}, choice_width{};
     bool dialog_surface{};
     bool single_selection{};
     bool visible{};

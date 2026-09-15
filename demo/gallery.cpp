@@ -10,6 +10,7 @@
 #include "xui/runtime_hosts.hpp"
 #include "host_fixtures.hpp"
 #include "gallery_catalog.hpp"
+#include "winui_gallery.hpp"
 #include <windows.h>
 #include <shellapi.h>
 #include <algorithm>
@@ -78,6 +79,12 @@ public:
         auto title = label(header, L"XUI Control Gallery");
         title->set_heading(true);
         button(header, L"Theme", [this] { cycle_theme(); });
+        auto style = button(header, window_.visual_style() == VisualStyle::winui ? L"Style: WinUI" : L"Style: Classic", {});
+        style->set_automation_id(L"gallery-style");
+        style->on_click([this, control = style.get()] {
+            window_.set_visual_style(window_.visual_style() == VisualStyle::winui ? VisualStyle::classic : VisualStyle::winui);
+            control->set_name(window_.visual_style() == VisualStyle::winui ? L"Style: WinUI" : L"Style: Classic");
+        });
         root->add(header);
         auto body = panel(Axis::horizontal);
         nav_ = std::make_shared<NavigationView>(L"Control catalog");
@@ -983,6 +990,11 @@ private:
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     std::wstring page = L"forms", image_path;
     WindowOptions options{L"XUI Control Gallery", {1040, 700}};
+    bool experiment = false;
+#ifdef XUI_WINUI_GALLERY
+    options.visual_style = VisualStyle::winui;
+    experiment = true;
+#endif
     options.custom_titlebar = true;
     int argc{};
     auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -993,11 +1005,23 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             else if (arg == L"--image" && i + 1 < argc) image_path = argv[++i];
             else if (arg == L"--light") options.theme = ThemeMode::light;
             else if (arg == L"--high-contrast") options.theme = ThemeMode::high_contrast;
+            else if (arg == L"--winui") {
+                options.visual_style = VisualStyle::winui;
+                experiment = true;
+            }
+            else if (arg == L"--winui-catalog") {
+                options.visual_style = VisualStyle::winui;
+                experiment = false;
+            }
             else if (arg == L"--system-titlebar") options.custom_titlebar = false;
         }
         LocalFree(argv);
     }
     Window window(options);
+    if (experiment) {
+        auto gallery = winui_gallery::compose(window);
+        return Application::run(window);
+    }
     Gallery gallery(window, page, image_path);
     return Application::run(window);
 }

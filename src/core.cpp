@@ -102,9 +102,19 @@ void Element::invalidate(Invalidation kind) {
 }
 
 void Element::set_preferred_size(Size size) {
+    const bool was_explicit = preferred_explicit_;
+    preferred_explicit_ = true;
     size = normalized(size);
-    if (!auto_size_ && preferred_.width == size.width && preferred_.height == size.height) return;
+    if (was_explicit && !auto_size_ && preferred_.width == size.width && preferred_.height == size.height) return;
     auto_size_ = false;
+    preferred_ = size;
+    invalidate(Invalidation::layout);
+}
+
+void Element::set_default_size(Size size) {
+    if (preferred_explicit_) return;
+    size = normalized(size);
+    if (preferred_.width == size.width && preferred_.height == size.height) return;
     preferred_ = size;
     invalidate(Invalidation::layout);
 }
@@ -115,6 +125,7 @@ void Element::set_auto_size(bool value) {
     invalidate(Invalidation::layout);
 }
 void Element::set_fixed_size(Size size) {
+    preferred_explicit_ = true;
     size = normalized(size);
     preferred_ = minimum_ = maximum_ = size;
     auto_size_ = false;

@@ -16,6 +16,7 @@ public:
     ~NativeEditBridge() override;
     void attach(HWND parent, int control_id);
     void set_dpi(UINT dpi);
+    void set_font_family(std::wstring family);
     void set_placeholder_color(COLORREF color);
     void set_placeholder(std::wstring text);
     void set_insets(Insets insets);
@@ -34,6 +35,8 @@ public:
     void on_failure(std::function<void()> callback) { failure_ = std::move(callback); }
     void report_failure() noexcept { if (failure_) { auto callback = failure_; callback(); } }
 private:
+    void update_font(UINT dpi);
+    std::wstring font_family_{L"Segoe UI"};
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     HWND window_{};
     HFONT font_{};

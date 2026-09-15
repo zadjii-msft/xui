@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 #include "uia_events.hpp"
 #include "suggestion_capture.hpp"
 #include "../demo/gallery_catalog.hpp"
@@ -157,6 +158,24 @@ void focus(IUIAutomationElement* element, const char* message) {
         if (!focused(element)) { stable = std::chrono::steady_clock::now(); return false; }
         return std::chrono::steady_clock::now() - stable >= std::chrono::milliseconds(150);
     });
+    if (!arrived) {
+        UIA_HWND native{};
+        const auto native_result = element->get_CurrentNativeWindowHandle(&native);
+        const auto target = reinterpret_cast<HWND>(native);
+        DWORD target_process{}, foreground_process{};
+        const auto target_thread = target ? GetWindowThreadProcessId(target, &target_process) : 0;
+        const auto foreground = GetForegroundWindow();
+        GetWindowThreadProcessId(foreground, &foreground_process);
+        GUITHREADINFO info{sizeof(info)};
+        const auto thread_result = target_thread ? GetGUIThreadInfo(target_thread, &info) : FALSE;
+        BOOL uia_focus{};
+        const auto focus_result = element->get_CurrentHasKeyboardFocus(&uia_focus);
+        std::cerr << "Focus timeout: " << message << "; target=" << target << " target_pid=" << target_process
+            << " native_hr=" << native_result << " gui_ok=" << thread_result << " thread_focus=" << info.hwndFocus
+            << " thread_active=" << info.hwndActive << " foreground=" << foreground
+            << " foreground_pid=" << foreground_process << " test_pid=" << GetCurrentProcessId()
+            << " uia_focus=" << uia_focus << " focus_hr=" << focus_result << '\n';
+    }
     require(arrived, message);
 }
 bool enabled(IUIAutomationElement* element) {
@@ -402,13 +421,212 @@ void palette_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND h
         require(eventually([&] { return SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0; }), "Outside clicks still dismiss the palette");
     }
 }
+void winui_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND hwnd,
+    const std::filesystem::path& captures) {
+    const auto control = [&](const wchar_t* id) {
+        auto element = identified(automation, root, id);
+        require(element != nullptr, "WinUI experiment exposes its named control");
+        return element;
+    };
+    const auto invoke = [&](const wchar_t* id) {
+        check(pattern<IUIAutomationInvokePattern>(control(id).Get(), UIA_InvokePatternId)->Invoke(), "Invoke experiment action");
+    };
+    auto input = control(L"winui-input");
+    auto value = pattern<IUIAutomationValuePattern>(input.Get(), UIA_ValuePatternId);
+    set_value(value.Get(), L"Retained native text");
+    const auto retained_text = [&] {
+        BSTR text{};
+        check(value->get_CurrentValue(&text), "Read experiment input");
+        const bool matches = text && std::wstring_view(text) == L"Retained native text";
+        SysFreeString(text);
+        return matches;
+    };
+    const auto peers = SendMessageW(hwnd, WM_APP + 60, 14, 0);
+    require(SendMessageW(hwnd, WM_APP + 60, 11, 0) == 1, "Experiment uses one shared target");
+    BOOL enabled{};
+    check(control(L"winui-disabled")->get_CurrentIsEnabled(&enabled), "Read disabled example");
+    require(!enabled, "Disabled example remains disabled");
+    auto checkbox = pattern<IUIAutomationTogglePattern>(control(L"winui-toggle").Get(), UIA_TogglePatternId);
+    ToggleState before{}, after{};
+    check(checkbox->get_CurrentToggleState(&before), "Read initial checkbox state");
+    check(checkbox->Toggle(), "Toggle live checkbox");
+    require(eventually([&] { return SUCCEEDED(checkbox->get_CurrentToggleState(&after)) && before != after; }),
+        "Checkbox uses real model state");
+    for (const auto* id : {L"winui-standard", L"winui-accent", L"winui-subtle"}) {
+        const auto previous = name(control(L"winui-events").Get());
+        invoke(id);
+        require(eventually([&] { return name(control(L"winui-events").Get()) != previous; }), "Buttons update the event output");
+    }
+    check(checkbox->get_CurrentToggleState(&after), "Read checkbox after sample actions");
+    if (after != before) check(checkbox->Toggle(), "Restore edit permission");
+    require(eventually([&] {
+        BOOL editable{};
+        return SUCCEEDED(input->get_CurrentIsEnabled(&editable)) && editable;
+    }), "Native input is enabled before the style comparison");
+    set_value(value.Get(), L"Retained native text");
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        const auto previous = name(control(L"winui-style").Get());
+        invoke(L"winui-style");
+        require(eventually([&] { return name(control(L"winui-style").Get()) != previous; }), "Style selector reports the new style");
+        invoke(L"winui-style");
+        require(eventually([&] { return name(control(L"winui-style").Get()) == previous; }), "Style selector returns to WinUI");
+        invoke(L"winui-theme");
+        require(eventually([&] { return SendMessageW(hwnd, WM_APP + 60, 6, 0) == (cycle % 2 == 0 ? 1 : 0); }),
+            "Theme selector applies light and dark themes");
+        require(retained_text(), "Style and theme changes preserve native text");
+        require(SendMessageW(hwnd, WM_APP + 60, 11, 0) == 1 &&
+            SendMessageW(hwnd, WM_APP + 60, 14, 0) == peers, "Style switches do not create targets or control peers");
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        suggestion_capture::bitmap(hwnd, nullptr, captures / (cycle % 2 == 0 ? L"winui-light.bmp" : L"winui-dark.bmp"));
+    }
+    auto high_contrast = pattern<IUIAutomationTogglePattern>(control(L"winui-high-contrast").Get(), UIA_TogglePatternId);
+    check(high_contrast->Toggle(), "Enable explicit high contrast");
+    require(eventually([&] {
+        ToggleState state{};
+        return SUCCEEDED(high_contrast->get_CurrentToggleState(&state)) && state == ToggleState_On;
+    }), "High-contrast selector reflects the active override");
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    suggestion_capture::bitmap(hwnd, nullptr, captures / L"winui-high-contrast.bmp");
+    check(high_contrast->Toggle(), "Restore regular theme");
+    require(eventually([&] {
+        ToggleState state{};
+        return SUCCEEDED(high_contrast->get_CurrentToggleState(&state)) && state == ToggleState_Off;
+    }), "High-contrast selector restores the regular theme");
+    require(retained_text(), "High contrast preserves native text");
+    invoke(L"winui-more");
+    require(eventually([&] { return SendMessageW(hwnd, WM_APP + 60, 24, 0) == 1; }), "Experiment opens a real command popup");
+    require(control(L"winui-command-menu") != nullptr, "Command popup is accessible");
+    suggestion_capture::bitmap(hwnd, nullptr, captures / L"winui-flyout.bmp");
+}
+void catalog_style_roundtrip(IUIAutomation* automation, IUIAutomationElement* root,
+    IUIAutomationElement* example, HWND hwnd) {
+    require(example != nullptr, "Materialized catalog example exists before style switches");
+    auto style = identified(automation, root, L"gallery-style");
+    require(style && name(style.Get()) == L"Style: WinUI", "Full catalog starts each style sweep in WinUI");
+    auto invoke = pattern<IUIAutomationInvokePattern>(style.Get(), UIA_InvokePatternId);
+    ComPtr<IUIAutomationCacheRequest> cache;
+    check(automation->CreateCacheRequest(&cache), "Create catalog state cache");
+    const PROPERTYID properties[]{UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_NativeWindowHandlePropertyId,
+        UIA_IsEnabledPropertyId, UIA_IsPasswordPropertyId, UIA_ValueValuePropertyId,
+        UIA_ValueIsReadOnlyPropertyId, UIA_ToggleToggleStatePropertyId,
+        UIA_SelectionItemIsSelectedPropertyId, UIA_ExpandCollapseExpandCollapseStatePropertyId,
+        UIA_RangeValueValuePropertyId, UIA_RangeValueIsReadOnlyPropertyId,
+        UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId};
+    for (const auto property : properties) check(cache->AddProperty(property), "Cache catalog control state");
+    ComPtr<IUIAutomationCondition> all;
+    check(automation->CreateTrueCondition(&all), "Create catalog subtree condition");
+    const auto elements = [&] {
+        ComPtr<IUIAutomationElementArray> found;
+        check(example->FindAllBuildCache(TreeScope_Subtree, all.Get(), cache.Get(), &found), "Snapshot catalog peers");
+        int count{};
+        check(found->get_Length(&count), "Read catalog subtree size");
+        std::vector<ComPtr<IUIAutomationElement>> result;
+        for (int i = 0; i < count; ++i) {
+            ComPtr<IUIAutomationElement> element;
+            check(found->GetElement(i, &element), "Read catalog snapshot element");
+            BSTR id{};
+            check(element->get_CachedAutomationId(&id), "Read catalog snapshot identity");
+            // A WinUI-only affordance can hide; application controls and their state must remain.
+            const bool clear_action = std::wstring_view(id ? id : L"").starts_with(L"xui-text-clear-");
+            SysFreeString(id);
+            if (!clear_action) result.push_back(std::move(element));
+        }
+        return result;
+    };
+    const auto property_equal = [](IUIAutomationElement* before, IUIAutomationElement* after, PROPERTYID property) {
+        VARIANT a{}, b{};
+        const auto first = before->GetCachedPropertyValue(property, &a);
+        const auto second = after->GetCachedPropertyValue(property, &b);
+        bool equal = a.vt == b.vt;
+        if (equal) {
+            switch (a.vt) {
+            case VT_EMPTY: case VT_UNKNOWN: break; // UIA's reserved unsupported-property value.
+            case VT_I4: equal = a.lVal == b.lVal; break;
+            case VT_BOOL: equal = a.boolVal == b.boolVal; break;
+            case VT_R8: equal = a.dblVal == b.dblVal; break;
+            case VT_BSTR:
+                equal = std::wstring_view(a.bstrVal ? a.bstrVal : L"") ==
+                    std::wstring_view(b.bstrVal ? b.bstrVal : L"");
+                break;
+            default: equal = false; break;
+            }
+        }
+        VariantClear(&a); VariantClear(&b);
+        check(first, "Read original cached catalog property");
+        check(second, "Read current cached catalog property");
+        return equal;
+    };
+    const auto document_state = [](IUIAutomationElement* element) {
+        std::vector<std::wstring> contents;
+        BOOL password{};
+        check(element->get_CurrentIsPassword(&password), "Read catalog password policy");
+        if (password) return contents;
+        ComPtr<IUnknown> supported;
+        check(element->GetCurrentPattern(UIA_TextPatternId, &supported), "Read catalog document support");
+        if (!supported) return contents;
+        ComPtr<IUIAutomationTextPattern> text;
+        check(supported.As(&text), "Read catalog Text pattern");
+        const auto append = [&](IUIAutomationTextRange* range) {
+            BSTR value{};
+            const auto result = range->GetText(-1, &value);
+            contents.emplace_back(value ? value : L"");
+            SysFreeString(value);
+            check(result, "Read retained catalog document text");
+        };
+        ComPtr<IUIAutomationTextRange> document;
+        check(text->get_DocumentRange(&document), "Read catalog document range");
+        append(document.Get());
+        ComPtr<IUIAutomationTextRangeArray> selections;
+        check(text->GetSelection(&selections), "Read catalog text selection");
+        int count{};
+        check(selections->get_Length(&count), "Read catalog selection count");
+        for (int i = 0; i < count; ++i) {
+            ComPtr<IUIAutomationTextRange> selected;
+            check(selections->GetElement(i, &selected), "Read catalog selected range");
+            append(selected.Get());
+        }
+        return contents;
+    };
+    SendMessageW(hwnd, WM_APP + 12, 0, 0);
+    const auto before = elements();
+    const auto count = before.size();
+    require(count > 0, "Style sweep snapshots real catalog controls");
+    std::vector<std::vector<std::wstring>> documents;
+    for (const auto& element : before) documents.push_back(document_state(element.Get()));
+    const auto peers = SendMessageW(hwnd, WM_APP + 60, 14, 0);
+    for (const auto* expected : {L"Style: Classic", L"Style: WinUI"}) {
+        const auto paints = SendMessageW(hwnd, WM_APP + 60, 0, 0);
+        check(invoke->Invoke(), "Switch full catalog visual style through UIA");
+        require(eventually([&] {
+            return name(style.Get()) == expected && SendMessageW(hwnd, WM_APP + 60, 0, 0) > paints;
+        }), "Full catalog reports the new style and paints it");
+        require(SendMessageW(hwnd, WM_APP + 60, 11, 0) == 1 &&
+            SendMessageW(hwnd, WM_APP + 60, 14, 0) == peers, "Style switches retain one target and the existing peers");
+        const auto after = elements();
+        require(after.size() == count, "Style switches preserve the catalog's application controls");
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& original = before[i];
+            const auto& current = after[i];
+            BOOL same{};
+            check(automation->CompareElements(original.Get(), current.Get(), &same), "Compare catalog control identities");
+            require(same, "Style switches retain accessible control identities");
+            for (const auto property : properties)
+                require(property_equal(original.Get(), current.Get(), property),
+                    "Style switches preserve catalog roles, native handles, values, selection and enabled state");
+            require(document_state(current.Get()) == documents[static_cast<std::size_t>(i)],
+                "Style switches preserve native document contents and text selection");
+        }
+    }
+}
 int wmain(int argc, wchar_t** argv) {
     std::cout << std::unitbuf;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
     const bool search_only = argc == 3 && std::wstring_view(argv[2]) == L"--search-disclosure";
     const bool palette_only = argc == 3 && std::wstring_view(argv[2]) == L"--palette";
-    if (argc != 2 && !global_focus_events && !search_only && !palette_only) {
-        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette]\n";
+    const bool winui_only = argc == 3 && std::wstring_view(argv[2]) == L"--winui";
+    const bool winui_catalog = argc == 3 && std::wstring_view(argv[2]) == L"--winui-catalog";
+    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog) {
+        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog]\n";
         return 1;
     }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -419,6 +637,8 @@ int wmain(int argc, wchar_t** argv) {
         Process process;
         std::wstring command = L"\"" + std::wstring(argv[1]) + L"\"";
         if (palette_only) command += L" --page commands";
+        if (winui_only) command += L" --winui";
+        if (winui_catalog) command += L" --winui-catalog";
         STARTUPINFOW startup{sizeof(startup)};
         require(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr,
             nullptr, &startup, &process.info) != 0, "Start gallery");
@@ -433,6 +653,16 @@ int wmain(int argc, wchar_t** argv) {
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (winui_catalog) {
+            auto style = identified(automation.Get(), root.Get(), L"gallery-style");
+            require(style && name(style.Get()) == L"Style: WinUI", "Full gallery launches initially in WinUI");
+        }
+        if (winui_only) {
+            winui_smoke(automation.Get(), root.Get(), process.window,
+                std::filesystem::path(argv[1]).parent_path().parent_path() / L"winui-captures");
+            std::cout << "WinUI gallery interaction, native text, theme, and resource checks passed\n";
+            return 0;
+        }
         if (search_only) {
             search_disclosure(automation.Get(), root.Get());
             std::cout << "Gallery search disclosure UIA checks passed\n";
@@ -534,8 +764,18 @@ int wmain(int argc, wchar_t** argv) {
                 DestroyWindow(other);
                 throw;
             }
+            const auto foreground_before_destroy = GetForegroundWindow();
             DestroyWindow(other);
-            focus(edit.Get(), "External EDIT focus persists after custom focus or minimization");
+            const auto foreground_after_destroy = GetForegroundWindow();
+            try {
+                focus(edit.Get(), "External EDIT focus persists after custom focus or minimization");
+            } catch (...) {
+                std::cerr << "External focus cycle=" << cycle << " minimized=" << (cycle % 3 == 1)
+                    << " host=" << process.window << " probe=" << other
+                    << " foreground_before_destroy=" << foreground_before_destroy
+                    << " foreground_after_destroy=" << foreground_after_destroy << '\n';
+                throw;
+            }
             require(eventually([&] {
                 return native_focus.count > focus_events;
             }), "External native SetFocus delivers an EDIT focus event");
@@ -844,6 +1084,7 @@ int wmain(int argc, wchar_t** argv) {
                 require(copied_selection, "Native copy copies only selected code");
             }
             if (scrollable) check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 0), "Restore the example viewport");
+            if (winui_catalog) catalog_style_roundtrip(automation.Get(), root.Get(), example.Get(), process.window);
         }
         choose(0);
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -1222,6 +1463,31 @@ int wmain(int argc, wchar_t** argv) {
                     require(eventually([&] { return !IsWindowVisible(popup); }), "Escape closes gallery menu");
                     focus(next_element.Get(), "Restore navigation focus after menu");
                 }
+                if (winui_catalog && !round) {
+                    require(eventually([&] { return SendMessageW(process.window, WM_APP + 60, 24, 0) == 0; }),
+                        "Catalog interaction dismisses popups before the style sweep");
+                    auto theme_button = named(automation.Get(), root.Get(), L"Theme", UIA_ButtonControlTypeId);
+                    auto cycle = pattern<IUIAutomationInvokePattern>(theme_button.Get(), UIA_InvokePatternId);
+                    require(SendMessageW(process.window, WM_APP + 60, 6, 0) == 0, "Catalog sweep starts in dark theme");
+                    check(cycle->Invoke(), "Cycle catalog to light theme");
+                    require(eventually([&] {
+                        ToggleState checked{};
+                        return SUCCEEDED(theme->get_CurrentToggleState(&checked)) && checked == ToggleState_On &&
+                            SendMessageW(process.window, WM_APP + 60, 6, 0) == 1;
+                    }), "Catalog light theme is active");
+                    check(cycle->Invoke(), "Cycle catalog to explicit high contrast");
+                    require(eventually([&] {
+                        ToggleState checked{};
+                        return SUCCEEDED(theme->get_CurrentToggleState(&checked)) && checked == ToggleState_Off &&
+                            SendMessageW(process.window, WM_APP + 60, 6, 0) == 1;
+                    }), "Catalog high contrast is active without changing OS settings");
+                    const auto example_name = std::wstring(gallery::entries[i].title) + L" example";
+                    auto example = named(automation.Get(), root.Get(), example_name.c_str());
+                    catalog_style_roundtrip(automation.Get(), root.Get(), example.Get(), process.window);
+                    check(cycle->Invoke(), "Restore dark theme after catalog sweep");
+                    require(eventually([&] { return SendMessageW(process.window, WM_APP + 60, 6, 0) == 0; }),
+                        "Catalog sweep restores the theme for existing smoke checks");
+                }
             }
             choose(0);
             std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -1264,6 +1530,7 @@ int wmain(int argc, wchar_t** argv) {
         suggestion_capture::bitmap(process.window, nullptr, captures / L"forms-contrast.bmp");
         suggestion_capture::memory(process.info.hProcess, "Gallery after repeated page switches");
         std::cout << "Gallery catalog: " << gallery::entries.size() << " pages, search/empty state, real events, 100k grid, fixed peers, GDI/USER, synthetic DPI captures passed\n";
+        if (winui_catalog) std::cout << "WinUI full catalog: per-page style roundtrips, high contrast, UIA state and native text preservation passed\n";
         PostMessageW(process.window, WM_CLOSE, 0, 0);
         require(WaitForSingleObject(process.info.hProcess, 5000) == WAIT_OBJECT_0, "Orderly gallery shutdown");
         DWORD exit{};

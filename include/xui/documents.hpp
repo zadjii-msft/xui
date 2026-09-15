@@ -175,9 +175,16 @@ public:
     ContentDialog(std::wstring title, std::shared_ptr<Element> content);
     ~ContentDialog();
     const std::shared_ptr<Popup>& popup() const { return popup_; }
+    // The default accent action corresponds to WinUI DefaultButton=Primary.
     const std::shared_ptr<Button>& primary() const { return primary_; }
     const std::shared_ptr<Button>& cancel_button() const { return cancel_; }
     const std::shared_ptr<InlineStatus>& validation() const { return validation_; }
+    // Backend presentation uses the same retained content and actions in both styles.
+    void set_visual_style(VisualStyle style);
+    // WinUI reserves a 24-DIP margin within the supplied viewport.
+    Size measure(Size available);
+    // Arranged footer surface, excluding the preceding body separator; empty in Classic.
+    Rect footer_bounds() const;
     void on_validate(std::function<std::wstring()> callback) { validate_ = std::move(callback); }
     void on_result(std::function<void(DialogResult)> callback) { result_ = std::move(callback); }
     // Window binds dismissal while open; callbacks run after the popup closes.
@@ -186,6 +193,8 @@ public:
     void cancel();
     void notify_result(DialogResult result);
 private:
+    class Layout;
+    std::shared_ptr<Layout> layout_;
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<Button> primary_, cancel_;
     std::shared_ptr<InlineStatus> validation_;
