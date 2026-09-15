@@ -25,7 +25,11 @@ std::vector<NavigationItem> fixture() {
         {{40, 1}, {}, L"Settings", ButtonIcon::settings, {}, {}, true, true, true, NavigationSection::footer}};
 }
 void state_and_input() {
-    NavigationView nav(L"Test navigation"); nav.set_items(fixture()); nav.arrange({0, 0, 280, 600});
+    auto entries = fixture(); entries[1].image_path = L"C:\\Workspace";
+    NavigationView nav(L"Test navigation"); nav.set_items(entries); nav.arrange({0, 0, 280, 600});
+    const auto folder = nav.items()->source()->item(*nav.items()->source()->find({10, 1}));
+    require(folder.image_path == L"C:\\Workspace" && folder.icon == ButtonIcon::folder, "Navigation rows preserve image paths and vector icons");
+    require(nav.header_items()->source()->item(0).icon == ButtonIcon::home, "Pinned section vectors remain intact");
     require(nav.header_items()->source()->size() == 1 && nav.footer_items()->source()->size() == 1, "Pinned sections have separate viewports");
     require(nav.items()->source()->size() == 7 && nav.match_count() == 5, "Initial tree hides a closed nested branch");
     require(nav.items()->source()->hierarchy(*nav.items()->source()->find({12, 1})).depth == 1, "Nested item depth");
@@ -210,6 +214,20 @@ void validation_and_lifetime() {
     for (std::uint64_t i = 1; i <= 65; ++i) many.push_back({{i, 1}, i > 1 ? std::optional{ItemKey{i - 1, 1}} : std::nullopt, L"Deep"});
     rejects([&] { nav.set_items(many); });
     nav.set_items(fixture());
+    nav.set_header_visible(false);
+    nav.arrange({0, 0, 280, 600});
+    require(!nav.toggle_button()->visible() && nav.search()->bounds().y == 4, "Hidden header leaves the filter at the top");
+    nav.set_visible(false);
+    require(nav.measure({1000, 600}).width == 0, "A hidden navigation view takes no layout width");
+    nav.arrange({0, 0, 0, 600});
+    for (const auto& child : nav.retained_children())
+        require(!std::static_pointer_cast<Control>(child)->visible() && child->bounds().width == 0,
+            "A hidden navigation view has no icon rail or native child controls");
+    nav.set_visible(true);
+    nav.arrange({0, 0, 280, 600});
+    require(nav.search()->visible() && nav.items()->visible() && !nav.toggle_button()->visible(),
+        "Restoring navigation restores content without its header");
+    nav.set_header_visible(true);
     for (float width : {0.0f, 32.0f, 64.0f, 280.0f}) for (float height : {0.0f, 40.0f, 120.0f, 600.0f}) {
         nav.arrange({0, 0, width, height});
         for (const auto& child : nav.retained_children()) {

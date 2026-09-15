@@ -78,7 +78,7 @@ private:
     std::function<void(std::uint64_t)> change_, accept_;
 };
 
-enum class PopupPlacement { below, above, right, left };
+enum class PopupPlacement { below, above, right, left, center };
 enum class PopupDismissReason { cancel, commit, outside, focus_lost, hidden, owner_closed };
 // Placement is clipped to the intersection of the window client and monitor work area.
 Rect place_popup(Rect anchor, Size desired, Rect viewport, PopupPlacement placement);
@@ -90,6 +90,8 @@ public:
     void arrange(Rect bounds) override;
     bool is_open() const { return open_; }
     bool dialog_surface() const { return dialog_surface_; }
+    bool window_background() const { return window_background_; }
+    void set_window_background(bool value);
     std::uint64_t generation() const { return generation_; }
     bool current(std::uint64_t generation) const { return open_ && generation == generation_; }
     void set_placement(PopupPlacement value);
@@ -106,6 +108,7 @@ private:
     PopupPlacement placement_{PopupPlacement::below};
     bool open_{};
     bool dialog_surface_{};
+    bool window_background_{};
     std::uint64_t generation_{};
     std::function<void(PopupDismissReason)> dismiss_;
 };

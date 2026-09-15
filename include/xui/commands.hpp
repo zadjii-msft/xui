@@ -96,6 +96,8 @@ public:
     CommandQuery request(std::wstring text);
     bool complete(const CommandQuery& request, std::shared_ptr<const CommandSet> commands, std::wstring error = {});
     void cancel();
+    void set_current(std::function<bool()> callback) { current_ = std::move(callback); }
+    bool current() const { return !current_ || current_(); }
     const std::wstring& error() const { return error_; }
 private:
     std::shared_ptr<Popup> popup_;
@@ -108,6 +110,7 @@ private:
     std::uint64_t generation_{};
     std::wstring text_, error_;
     std::function<void(CommandQuery)> query_;
+    std::function<bool()> current_;
 };
 class CommandBar final : public Control {
 public:

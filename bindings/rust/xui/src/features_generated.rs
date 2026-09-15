@@ -204,6 +204,12 @@ impl Window {
             .map(HistoryChart)
     }
 }
+impl Window {
+    pub fn navigation_view(&self, name: &str) -> Result<NavigationView> {
+        self.feature_create(45, name, None, None, 0)
+            .map(NavigationView)
+    }
+}
 #[derive(Clone)]
 pub struct RangeInput(pub(crate) Element);
 pub struct WeakRangeInput(WeakElement);
@@ -585,6 +591,12 @@ impl ItemsView {
     }
 }
 impl ItemsView {
+    pub fn offset(&self) -> Result<f64> {
+        let v = self.0.feature_get(29)?;
+        Ok(v.a)
+    }
+}
+impl ItemsView {
     pub fn select_all(&self) -> Result<()> {
         self.0.feature_action(15, 0, 0)
     }
@@ -628,6 +640,12 @@ impl TreeView {
                 ..value_record()
             },
         )
+    }
+}
+impl TreeView {
+    pub fn offset(&self) -> Result<f64> {
+        let v = self.0.feature_get(29)?;
+        Ok(v.a)
     }
 }
 impl TreeView {
@@ -1374,6 +1392,29 @@ impl SplitView {
         )
     }
 }
+impl SplitView {
+    pub fn ratio(&self) -> Result<f64> {
+        let v = self.0.feature_get(35)?;
+        Ok(v.a)
+    }
+}
+impl SplitView {
+    pub fn set_second_visible(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            44,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl SplitView {
+    pub fn second_visible(&self) -> Result<bool> {
+        let v = self.0.feature_get(44)?;
+        Ok(v.first != 0)
+    }
+}
 #[derive(Clone)]
 pub struct PageView(pub(crate) Element);
 pub struct WeakPageView(WeakElement);
@@ -1424,6 +1465,23 @@ impl std::ops::Deref for DataGrid {
     }
 }
 impl DataGrid {
+    pub fn set_offset(&self, value: f64) -> Result<()> {
+        self.0.feature_set(
+            29,
+            sys::FeatureValue {
+                a: value,
+                ..value_record()
+            },
+        )
+    }
+}
+impl DataGrid {
+    pub fn offset(&self) -> Result<f64> {
+        let v = self.0.feature_get(29)?;
+        Ok(v.a)
+    }
+}
+impl DataGrid {
     pub fn select_all(&self) -> Result<()> {
         self.0.feature_action(15, 0, 0)
     }
@@ -1445,5 +1503,41 @@ impl std::ops::Deref for HistoryChart {
     type Target = Element;
     fn deref(&self) -> &Element {
         &self.0
+    }
+}
+#[derive(Clone)]
+pub struct NavigationView(pub(crate) Element);
+pub struct WeakNavigationView(WeakElement);
+impl WeakNavigationView {
+    pub fn upgrade(&self) -> Option<NavigationView> {
+        self.0.upgrade().map(NavigationView)
+    }
+}
+impl NavigationView {
+    pub fn weak(&self) -> WeakNavigationView {
+        WeakNavigationView(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for NavigationView {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl NavigationView {
+    pub fn set_expanded(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            5,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl NavigationView {
+    pub fn expanded(&self) -> Result<bool> {
+        let v = self.0.feature_get(5)?;
+        Ok(v.first != 0)
     }
 }

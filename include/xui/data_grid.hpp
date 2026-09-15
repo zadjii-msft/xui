@@ -20,6 +20,7 @@ public:
     virtual RowKey key(std::size_t row) const = 0;
     virtual std::optional<std::size_t> find(RowKey key) const = 0;
     virtual std::wstring text(std::size_t row, std::size_t column) const = 0;
+    virtual ItemVisual visual(std::size_t, std::size_t) const { return {}; }
 };
 enum class GridHeaderPart { sort, filter, check };
 struct GridFilterRequest {
@@ -60,6 +61,8 @@ public:
     SelectionState check_state() const { return selection_.state(source_, full_source_); }
     bool reveal(RowKey key);
     void clear_selection();
+    // Pointer coordinates are local DIPs. No position means the keyboard context key.
+    void prepare_context_menu(std::optional<Point> position);
     void step(int delta, SelectionGesture gesture = SelectionGesture::replace);
     void edge(bool last, SelectionGesture gesture = SelectionGesture::replace);
     void activate_selected();
@@ -96,6 +99,8 @@ public:
     float viewport_width() const;
     std::pair<std::size_t, std::size_t> visible_rows() const;
     std::optional<std::size_t> row_at(float y) const;
+    void hover_pointer(std::optional<Point> position);
+    std::optional<std::size_t> hovered_row() const;
     std::optional<std::size_t> column_at(float x) const;
     std::optional<std::size_t> resize_boundary(float x) const;
     Rect vertical_thumb() const;
@@ -117,6 +122,7 @@ private:
     std::vector<GridColumn> columns_;
     std::vector<std::size_t> column_order_;
     std::optional<RowKey> selected_;
+    std::optional<Point> hover_pointer_;
     double offset_{}, horizontal_{};
     std::size_t sort_{}, focused_column_{};
     bool descending_{}, header_focus_{};

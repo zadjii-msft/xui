@@ -42,6 +42,55 @@ void bounds() {
     check(s.gpu_bytes + s.gpu_reserved <= ImageLimits::gpu_bytes && s.gpu_peak <= ImageLimits::gpu_bytes, "GPU budget and peak");
     check(s.queued <= ImageLimits::queue && s.active <= 1 && s.cache_entries <= ImageLimits::cache_entries, "Bounded metadata and worker count");
 }
+void row_image_tests() {
+    struct Source final : ItemsSource {
+        size_t size() const override { return 100; }
+        ItemKey key(size_t index) const override { return {index + 1, 1}; }
+        std::optional<size_t> find(ItemKey key) const override { return key.id && key.id <= 100 ? std::optional<size_t>{key.id - 1} : std::nullopt; }
+        ItemContent item(size_t) const override { return {}; }
+    };
+    auto source = std::make_shared<Source>();
+    check(source->visual(0).image_path.empty() && source->visual(0).icon == ButtonIcon::none, "Old sources have no visuals");
+    auto wake = std::make_shared<TaskWake>();
+    RowImages first, second, third;
+    std::vector<RowVisual> rows;
+    for (size_t i = 0; i < 100; ++i) rows.push_back({source->key(i), {ButtonIcon::none, path(i)}});
+    std::vector<uint64_t> retained;
+    size_t remaining = 48;
+    first.sync(source, rows, 96, wake, retained, remaining);
+    second.sync(source, rows, 96, wake, retained, remaining);
+    third.sync(source, rows, 96, wake, retained, remaining);
+    check(first.count() == 24 && second.count() == 24 && third.count() == 0 && !remaining, "24 per control and 48 shared image slots");
+    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+    retained.clear(); remaining = 48;
+    first.sync(source, rows, 96, wake, retained, remaining);
+    check(first.pixels({1, 1}) && retained.size() == 24, "Visible row completion retains actual pixels");
+    const auto id = first.pixels({1, 1})->id;
+    remaining = 48; retained.clear(); first.sync(source, rows, 192, wake, retained, remaining);
+    check(!first.pixels({1, 1}), "DPI change releases old pixel slots before completion");
+    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+    remaining = 48; first.sync(source, rows, 192, wake, retained, remaining);
+    check(first.pixels({1, 1}) && first.pixels({1, 1})->id != id, "DPI change uses newly sized pixels");
+    rows = {{{1, 2}, {ButtonIcon::none, (directory / L"missing.png").wstring()}}};
+    remaining = 48; first.sync(source, rows, 96, wake, retained, remaining);
+    check(!first.pixels({1, 1}), "Key/version replacement drops stale visuals");
+    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+    remaining = 48; first.sync(source, rows, 96, wake, retained, remaining);
+    const auto failed = ImageResources::statistics();
+    for (int i = 0; i < 10; ++i) { remaining = 48; first.sync(source, rows, 96, wake, retained, remaining); }
+    const auto after = ImageResources::statistics();
+    check(first.count() == 1 && !first.pixels({1, 2}) && !after.queued && !after.active &&
+        after.rejected == failed.rejected, "Failed row images do not retry on each paint");
+    for (auto invalid : {std::wstring(32768, L'x'), std::wstring(L"a\0b", 3)}) {
+        bool rejected{};
+        try { remaining = 48; first.sync(source, {{{1, 1}, {ButtonIcon::none, invalid}}}, 96, wake, retained, remaining); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected, "Invalid row image paths fail before I/O");
+    }
+    remaining = 48; first.sync(source, {}, 96, wake, retained, remaining);
+    check(!first.count(), "Hidden or empty rows release image requests");
+    first.clear(); second.clear(); third.clear(); source.reset(); empty();
+}
 void decode_tests() {
     Image image(L"Preview");
     check(!image.focusable(), "An image does not add a false keyboard action");
@@ -256,7 +305,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
-        decode_tests(); cancellation_tests(); gpu_tests();
+        decode_tests(); cancellation_tests(); row_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted
             << " rejected=" << s.rejected << " cancelled=" << s.cancelled << " cpu_peak=" << s.cpu_peak

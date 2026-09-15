@@ -36,6 +36,7 @@ public SplitView SplitView(string name, Element first, Element second) => new(th
 public PageView PageView(string name) => new(this, FeatureCreate(42, name));
 public DataGrid DataGrid(string name) => new(this, FeatureCreate(43, name));
 public HistoryChart HistoryChart(string name) => new(this, FeatureCreate(44, name));
+public NavigationView NavigationView(string name) => new(this, FeatureCreate(45, name));
 }
 public sealed unsafe partial class RangeInput : Control {
 internal RangeInput(Window w, ulong h) : base(w,h) { }
@@ -86,7 +87,7 @@ public sealed unsafe partial class ItemsView : Control {
 internal ItemsView(Window w, ulong h) : base(w,h) { }
 public ItemsPresentation Presentation { set => Features.Set(this,28,first: (uint)value); }
 public ItemsView SetPresentation(ItemsPresentation value) { Presentation = value; return this; }
-public double Offset { set => Features.Set(this,29,a: value); }
+public double Offset { get { var v = Features.Get(this,29); return v.A; } set => Features.Set(this,29,a: value); }
 public ItemsView SetOffset(double value) { Offset = value; return this; }
 public void SelectAll() => Features.Action(this,15);
 }
@@ -94,7 +95,7 @@ public sealed unsafe partial class TreeView : Control {
 internal TreeView(Window w, ulong h) : base(w,h) { }
 public ItemsPresentation Presentation { set => Features.Set(this,28,first: (uint)value); }
 public TreeView SetPresentation(ItemsPresentation value) { Presentation = value; return this; }
-public double Offset { set => Features.Set(this,29,a: value); }
+public double Offset { get { var v = Features.Get(this,29); return v.A; } set => Features.Set(this,29,a: value); }
 public TreeView SetOffset(double value) { Offset = value; return this; }
 public void SelectAll() => Features.Action(this,15);
 }
@@ -214,8 +215,10 @@ internal TabStrip(Window w, ulong h) : base(w,h) { }
 }
 public sealed unsafe partial class SplitView : Control {
 internal SplitView(Window w, ulong h) : base(w,h) { }
-public double Ratio { set => Features.Set(this,35,a: value); }
+public double Ratio { get { var v = Features.Get(this,35); return v.A; } set => Features.Set(this,35,a: value); }
 public SplitView SetRatio(double value) { Ratio = value; return this; }
+public bool SecondVisible { get { var v = Features.Get(this,44); return v.First != 0; } set => Features.Set(this,44,first: value ? 1u : 0u); }
+public SplitView SetSecondVisible(bool value) { SecondVisible = value; return this; }
 }
 public sealed unsafe partial class PageView : Element {
 internal PageView(Window w, ulong h) : base(w,h) { }
@@ -224,8 +227,15 @@ public PageView SetSelectedPage(ulong value) { SelectedPage = value; return this
 }
 public sealed unsafe partial class DataGrid : Control {
 internal DataGrid(Window w, ulong h) : base(w,h) { }
+public double Offset { get { var v = Features.Get(this,29); return v.A; } set => Features.Set(this,29,a: value); }
+public DataGrid SetOffset(double value) { Offset = value; return this; }
 public void SelectAll() => Features.Action(this,15);
 }
 public sealed unsafe partial class HistoryChart : Control {
 internal HistoryChart(Window w, ulong h) : base(w,h) { }
+}
+public sealed unsafe partial class NavigationView : Control {
+internal NavigationView(Window w, ulong h) : base(w,h) { }
+public bool Expanded { get { var v = Features.Get(this,5); return v.First != 0; } set => Features.Set(this,5,first: value ? 1u : 0u); }
+public NavigationView SetExpanded(bool value) { Expanded = value; return this; }
 }

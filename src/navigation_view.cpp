@@ -214,7 +214,7 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
         if (!item.key.id || !index.emplace(item.key, i).second || item.label.empty() || item.label.size() > 1024 ||
             item.keywords.size() > 4096 || item.badge.size() > 32 ||
             item.section < NavigationSection::header || item.section > NavigationSection::footer ||
-            item.icon < ButtonIcon::none || item.icon > ButtonIcon::library)
+            item.icon < ButtonIcon::none || item.icon > ButtonIcon::drive)
             throw std::invalid_argument("Invalid navigation item");
     }
     for (const auto& item : items) {
@@ -270,6 +270,7 @@ void NavigationView::rebuild() {
                 const bool branch = siblings.contains(item.key);
                 const bool open = branch && expanded_state(item);
                 ItemContent content{item.label, item.badge, item.icon};
+                content.image_path = item.image_path;
                 content.enabled = effective_enabled(item.key);
                 ItemHierarchy hierarchy{parent, depth, !item.selectable, branch, open, false, i + 1, visible.size()};
                 snapshot->index.emplace(item.key, snapshot->rows.size());
@@ -329,6 +330,10 @@ void NavigationView::set_search_visible(bool value) {
     if (search_visible_ == value) return;
     search_visible_ = value; invalidate(Invalidation::layout);
 }
+void NavigationView::set_header_visible(bool value) {
+    if (header_visible_ == value) return;
+    header_visible_ = value; invalidate(Invalidation::layout);
+}
 bool NavigationView::select(ItemKey key) {
     const auto* item = find(key);
     if (!enabled() || !item || !item->selectable || !effective_enabled(key) ||
@@ -366,10 +371,18 @@ void NavigationView::activate_item(ItemKey key) {
     if (select(key) && callback) callback(key);
 }
 Size NavigationView::measure(Size available) {
+    if (!visible()) return {};
     return constrain({expanded_ ? expanded_width_ : collapsed_width_, available.height}, available);
 }
 void NavigationView::arrange(Rect bounds) {
     Element::arrange(bounds); bounds = this->bounds();
+    if (!visible()) {
+        for (const auto& child : children_) {
+            std::static_pointer_cast<Control>(child)->set_visible(false);
+            child->arrange({});
+        }
+        return;
+    }
     const float inset = std::min(6.0f, bounds.width / 2);
     const float width = std::max(0.0f, bounds.width - inset * 2);
     float y = bounds.y + std::min(4.0f, bounds.height);
@@ -380,11 +393,12 @@ void NavigationView::arrange(Rect bounds) {
         child.arrange(height > 0 ? Rect{bounds.x + inset, y, width, height} : Rect{});
         if (height > 0) y += height + 4;
     };
-    const float top = std::min(40.0f, std::max(0.0f, bottom - y));
-    toggle_->arrange({bounds.x + inset, y, std::min(40.0f, width), top});
-    title_->set_visible(expanded_);
-    title_->arrange(expanded_ ? Rect{bounds.x + inset + 44, y, std::max(0.0f, width - 44), top} : Rect{});
-    y += top + 4;
+    const float top = header_visible_ ? std::min(40.0f, std::max(0.0f, bottom - y)) : 0;
+    toggle_->set_visible(header_visible_);
+    toggle_->arrange(header_visible_ ? Rect{bounds.x + inset, y, std::min(40.0f, width), top} : Rect{});
+    title_->set_visible(expanded_ && header_visible_);
+    title_->arrange(expanded_ && header_visible_ ? Rect{bounds.x + inset + 44, y, std::max(0.0f, width - 44), top} : Rect{});
+    if (header_visible_) y += top + 4;
     place(*search_, 40, expanded_ && search_visible_);
     const float remaining = std::max(0.0f, bottom - y);
     const float header_height = std::min(static_cast<float>(header_->source()->size()) * 40, remaining * 0.3f);

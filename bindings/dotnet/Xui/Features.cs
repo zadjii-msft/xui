@@ -78,7 +78,7 @@ internal static unsafe class Features
     { e.Window.Guard(); anchor.BelongsTo(e.Window); e.Window.Check(Native.PopupShow(e.Handle, anchor.Handle)); }
     internal static void Source(Element e, ImmutableSource source)
     { e.Window.Guard(); source.BelongsTo(e.Window); e.Window.Check(Native.SourceAttach(e.Handle, source.Handle)); }
-    internal static void Commands(Element e, ReadOnlySpan<Command> commands)
+    internal static void Commands(Element e, ReadOnlySpan<Command> commands, bool contextMenu = false)
     {
         e.Window.Guard(); if (commands.Length > 4096) throw new ArgumentOutOfRangeException(nameof(commands));
         using var pins = new Window.Pins(); var records = new Native.CommandRecord[commands.Length];
@@ -88,7 +88,8 @@ internal static unsafe class Features
                 Kind = (uint)c.Kind, Label = pins.Text(c.Label), Hint = pins.Text(c.ShortcutHint), PinLabel = pins.Text(c.PinLabel),
                 Flags = (c.Enabled ? 0u : 1u) | (c.Checked == true ? 2u : 0u) | (c.Checked.HasValue ? 4u : 0u) };
         }
-        fixed (Native.CommandRecord* p = records) e.Window.Check(Native.CommandsSet(e.Handle, p, (uint)records.Length));
+        fixed (Native.CommandRecord* p = records)
+            e.Window.Check(contextMenu ? Native.ContextMenuItems(e.Handle, p, (uint)records.Length) : Native.CommandsSet(e.Handle, p, (uint)records.Length));
     }
     internal static void InvokeCommand(Element e, ulong id, bool pin)
     { e.Window.Guard(); e.Window.Check(Native.CommandInvoke(e.Handle, id, pin ? 1u : 0u)); }
@@ -433,7 +434,10 @@ public sealed unsafe class TreeRequest : IDisposable
     }
     public void Dispose() { if (handle == 0) return; if (tree.Window.Handle != 0) { tree.Window.Guard(); tree.Window.Check(Native.RequestCancel(handle)); } handle = 0; }
 }
-public readonly record struct ItemContent(string Primary, string Secondary = "", bool Enabled = true, double? Progress = null, bool? Checked = null);
+/// <summary>Immutable row content. Visible ImagePath values use asynchronous image resources.</summary>
+/// <remarks>DataGrid uses visuals from source column zero. Folder selects Shell decoding and supplies the fallback icon.</remarks>
+public readonly record struct ItemContent(string Primary, string Secondary = "", bool Enabled = true, double? Progress = null,
+    bool? Checked = null, ButtonIcon Icon = ButtonIcon.None, string ImagePath = "");
 public interface IReadOnlyImmutableSource
 {
     ulong Count { get; }
@@ -472,9 +476,33 @@ public sealed unsafe partial class Window
         {
             var options = new Native.SourceOptions { Size = (uint)sizeof(Native.SourceOptions), Version = Features.Version,
                 Count = count, Context = context, Query = &QuerySource, Retain = &RetainSource, Release = &ReleaseSource };
-            ulong handle; Check(Native.SourceCreate(Handle, &options, &handle)); return new(this, handle);
+            ulong handle; Check(Native.SourceCreateVisual(Handle, &options, &QueryVisual, &handle)); return new(this, handle);
         }
         finally { ReleaseSourceCore(context); }
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int QueryVisual(nint context, ulong index, ulong column, uint* icon, byte* output, uint capacity, uint* required)
+    {
+        Window? window = null;
+        try
+        {
+            var pin = (SourcePin)GCHandle.FromIntPtr(context).Target!;
+            if (!pin.Owner.TryGetTarget(out window)) return 11;
+            window.ForeignEnter();
+            try
+            {
+                var item = pin.Source.Item(index, column);
+                if ((uint)item.Icon > (uint)ButtonIcon.Drive) throw new ArgumentException("Invalid item icon.");
+                if (item.ImagePath.Length > 32767) throw new ArgumentException("Image path exceeds 32767 UTF-16 units.");
+                var bytes = Utf8(item.ImagePath);
+                *icon = (uint)item.Icon; *required = (uint)bytes.Length;
+                if (capacity < bytes.Length) return 6;
+                bytes.CopyTo(new Span<byte>(output, bytes.Length));
+                return 0;
+            }
+            finally { window.ForeignExit(); }
+        }
+        catch (Exception error) { window?.ForeignError(error); return 8; }
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void RetainSource(nint context)

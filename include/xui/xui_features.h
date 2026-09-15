@@ -11,9 +11,9 @@ enum {
     XUI_PASSWORD_INPUT, XUI_DATE_TIME_PICKER, XUI_INLINE_STATUS, XUI_COLOR_PICKER,
     XUI_CONTENT_DIALOG, XUI_VECTOR_CANVAS, XUI_MAP_VIEW, XUI_MEDIA_PLAYBACK,
     XUI_WEB_CONTENT, XUI_TAB_STRIP, XUI_SPLIT_VIEW, XUI_PAGE_VIEW, XUI_DATA_GRID,
-    XUI_HISTORY_CHART
+    XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW
 };
-enum { XUI_PREVIEW = 7, XUI_CANCEL = 8, XUI_ACTION = 9, XUI_DISMISS = 10, XUI_REQUEST = 11, XUI_FILTER_OPEN = 12 };
+enum { XUI_PREVIEW = 7, XUI_CANCEL = 8, XUI_ACTION = 9, XUI_DISMISS = 10, XUI_REQUEST = 11, XUI_FILTER_OPEN = 12, XUI_FOCUS_ENTERED = 13 };
 enum {
     XUI_F_RANGE = 1, XUI_F_VALUE, XUI_F_ORIENTATION, XUI_F_REVERSED,
     XUI_F_EXPANDED, XUI_F_PROGRESS_STATE, XUI_F_HELP, XUI_F_TOOLTIP_DELAY,
@@ -25,14 +25,43 @@ enum {
     XUI_F_PRESENTATION, XUI_F_OFFSET, XUI_F_WRAP_WIDTH, XUI_F_BREAKPOINT,
     XUI_F_NAVIGATION_EXTENT, XUI_F_NAVIGATION_OPEN, XUI_F_COMPACT_NAVIGATION,
     XUI_F_SPLIT_RATIO, XUI_F_PAGE, XUI_F_VISIBLE, XUI_F_HOST_STATE,
-    XUI_F_MAP_PAN, XUI_F_MEDIA_POSITION, XUI_F_SELECTION_STATE
+    XUI_F_MAP_PAN, XUI_F_MEDIA_POSITION, XUI_F_SELECTION_STATE, XUI_F_FOCUSED, XUI_F_IS_OPEN,
+    XUI_F_SECOND_VISIBLE, XUI_F_BUTTON_ICON
 };
 enum {
     XUI_A_SELECT = 1, XUI_A_CHANGE_VALUE, XUI_A_STEP, XUI_A_TEXT_COMMAND,
     XUI_A_DISMISS, XUI_A_SHOW, XUI_A_ACCEPT, XUI_A_CANCEL, XUI_A_PLAY,
     XUI_A_PAUSE, XUI_A_STOP, XUI_A_UNLOAD, XUI_A_RELOAD, XUI_A_FOCUS,
-    XUI_A_SELECT_ALL
+    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP
 };
+typedef struct xui_navigation_entry {
+    uint32_t size, flags; /* disabled=1, not-selectable=2, collapsed=4 */
+    uint64_t id, parent;
+    xui_string label, keywords;
+} xui_navigation_entry;
+typedef struct xui_item_visual {
+    uint32_t size, icon;
+    xui_string image_path;
+} xui_item_visual;
+/* Optional parallel visual records. Existing navigation records remain unchanged. */
+XUI_API xui_status XUI_CALL xui_navigation_items_visual(xui_handle target,
+    const xui_navigation_entry* items, const xui_item_visual* visuals, uint32_t count) XUI_NOEXCEPT;
+typedef struct xui_key_event {
+    uint32_t size, virtual_key, modifiers, reserved; /* control=1, shift=2, alt=4 */
+    xui_handle target;
+} xui_key_event;
+typedef xui_status (XUI_CALL *xui_key_handler)(void*, const xui_key_event*, uint32_t*);
+typedef xui_status (XUI_CALL *xui_post_callback)(void*, uint32_t);
+XUI_API xui_status XUI_CALL xui_navigation_items(xui_handle target,
+    const xui_navigation_entry* items, uint32_t count) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_title(xui_handle window, xui_string title) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_key_handler(xui_handle window,
+    xui_key_handler callback, void* context) XUI_NOEXCEPT;
+/* The only cross-thread window operation. On success callback runs exactly once:
+   execute=1 on the UI thread, or execute=0 when discarded. Rejection does not call it.
+   Callbacks must not throw. Close rejects further posts with XUI_CLOSED. */
+XUI_API xui_status XUI_CALL xui_window_post(xui_handle window,
+    xui_post_callback callback, void* context) XUI_NOEXCEPT;
 typedef struct xui_feature_options {
     uint32_t size, version;
     xui_string name;
@@ -72,7 +101,10 @@ XUI_API xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t actio
     uint64_t first, uint64_t second) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items,
     uint32_t count, uint64_t selected, uint32_t has_selection) XUI_NOEXCEPT;
-/* Borrowed child handles remain valid only while their window lives. */
+/* Borrowed child handles remain valid only while their window lives.
+   Window indices: 0 = title tabs, 1 = leading button, 2 = secondary title tabs.
+   Window children require a custom title bar. NavigationView index 0 returns its search input.
+   Secondary tabs and the leading button are hidden by default. */
 XUI_API xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index,
     xui_handle* result) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child,
@@ -105,6 +137,14 @@ typedef struct xui_source_options {
 } xui_source_options;
 XUI_API xui_status XUI_CALL xui_source_create(xui_handle window,
     const xui_source_options* options, xui_handle* result) XUI_NOEXCEPT;
+/* Runs on the UI thread for visible visuals only. Strings are copied before return.
+   The first call has capacity zero. required is the full UTF-8 byte count.
+   Insufficient capacity returns XUI_BUFFER_TOO_SMALL. No truncation is permitted.
+   Uses the source options context and its existing retain/release lifetime. */
+typedef xui_status (XUI_CALL *xui_source_visual_query)(void*, uint64_t, uint64_t,
+    uint32_t*, char*, uint32_t, uint32_t*);
+XUI_API xui_status XUI_CALL xui_source_create_visual(xui_handle window,
+    const xui_source_options* options, xui_source_visual_query visual, xui_handle* result) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_source_attach(xui_handle target, xui_handle source) XUI_NOEXCEPT;
 /* Release the caller's snapshot handle. Attached controls and selection terms retain their own source references. */
 XUI_API xui_status XUI_CALL xui_source_release(xui_handle source) XUI_NOEXCEPT;
@@ -150,6 +190,22 @@ typedef struct xui_command_record {
     xui_string label, hint, pin_label;
     uint32_t flags, icon; /* disabled=1, checked=2, has-check=4 */
 } xui_command_record;
+/* Independent of the control event subscription. Request supplies items synchronously.
+   Action carries the selected command ID. Menus support flat actions and separators.
+   A null callback revokes the menu. Callbacks use the window UI thread. */
+XUI_API xui_status XUI_CALL xui_context_menu_bind(xui_handle target,
+    xui_callback callback, void* context) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_context_menu_items(xui_handle target,
+    const xui_command_record* commands, uint32_t count) XUI_NOEXCEPT;
+/* During Request only. Copies 0..256 paths for native Shell verbs in the same menu.
+   Nonempty paths require a selected row and one common filesystem parent.
+   Selection, source replacement, or subscription changes cancel pending actions.
+   Discovery does not invoke a verb. Native Shell Open keeps its system behavior. */
+XUI_API xui_status XUI_CALL xui_context_menu_shell_paths(xui_handle target,
+    const xui_string* paths, uint32_t count) XUI_NOEXCEPT;
+/* During Request only: 0 = native Windows menu (default), 1 = XUI Shell commands
+   with an explicit Windows-menu fallback. Existing subscriptions remain native. */
+XUI_API xui_status XUI_CALL xui_context_menu_presentation(xui_handle target, uint32_t presentation) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_commands_set(xui_handle target,
     const xui_command_record* commands, uint32_t count) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_command_invoke(xui_handle target,
