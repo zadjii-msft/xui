@@ -32,6 +32,27 @@ After a loss, `!` marks the hit mine, `*` marks other mines, and `X` marks incor
 Each square supplies its row, column, and state through native help text.
 This demo does not include right-click flag placement, chording, a timer, or difficulty selection.
 
+## Cell appearance
+
+Covered squares have raised bottom and right borders.
+Revealed squares have flat, filled faces without borders.
+All squares keep the same size and position.
+Numbers use blue, green, red, indigo, brown, teal, black, and gray for counts from one through eight.
+The dark theme uses lighter equivalents.
+
+During play and after a loss, flags retain their red `F`, including inactive flags.
+After a loss, the hit mine has a red face and a white `!`.
+Other mines have muted red faces and `*` symbols.
+Incorrect flags have amber faces and `X` symbols.
+After a win, the mine flags have green faces.
+The status text also identifies a win or loss.
+
+Inactive covered squares have muted faces.
+Revealed numbers keep their colors when inactive.
+Keyboard focus keeps the native focus indicator.
+High contrast uses the framework's system colors and visible outlines instead of the authored colors and borders.
+Symbols and native help text identify states without color.
+
 ## Edit with hot reload
 
 Run the watcher instead of `dotnet run`:
@@ -60,6 +81,13 @@ An action assigns a replacement `Game` state.
 Generated C# updates changed native properties.
 The game does not create or remove controls during play.
 
+`CellStyles.cs` defines the shared, immutable [Button styles](../../../docs/specs/control-styling.md).
+`Minefield.Presentation.cs` uses explicit cell references and selects styles from the current game state.
+`SetGame` updates both the generated state bindings and the cell styles.
+The program and game handlers use this method for every board replacement.
+Repeated refreshes reuse existing definitions and skip unchanged style assignments.
+The native binding releases styles that no cell uses.
+
 `Program.cs` creates the window, selects the development host, and registers keyboard shortcuts.
 Release output excludes the development host and compiler.
 The sample does not add a UI interpreter or virtual tree.
@@ -68,6 +96,8 @@ The sample does not add a UI interpreter or virtual tree.
 
 Use the [NativeAOT commands](../../../CONTRIBUTING.md#nativeaot-and-deployment) with the Minesweeper project.
 The [test instructions](../../../CONTRIBUTING.md#tests) include game-rule checks and the native integration script.
+The model checks include style selection and number contrast for both themes.
+The test executable accepts `--styles` for additional native style checks and requires the matching `xui.dll` on `PATH`.
 
 The integration script checks cell bindings, geometry, flags, first-click safety, win/loss behavior, and restart.
 It also checks state-preserving edits, binding removal, and a NativeAOT executable.

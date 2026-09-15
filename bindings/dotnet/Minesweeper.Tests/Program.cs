@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Minesweeper;
+using Xui;
 
 internal static class Program
 {
@@ -12,6 +13,7 @@ internal static class Program
         assertions++;
     }
 
+    [STAThread]
     private static void Main(string[] args)
     {
         if (args is ["--layout", var seed, var first])
@@ -30,7 +32,9 @@ internal static class Program
         TestLoss();
         TestWin();
         TestBounds();
-        Console.WriteLine($"Minesweeper rules: {assertions} assertions passed.");
+        TestStyleDefinitions();
+        if (args is ["--styles"]) TestNativeStyles();
+        Console.WriteLine($"Minesweeper rules and styles: {assertions} assertions passed.");
     }
 
     private static void TestPlacement()
@@ -53,6 +57,9 @@ internal static class Program
                 foreach (int i in Indices)
                 {
                     var cell = game.GetCell(i);
+                    Assert(ReferenceEquals(CellStyles.Select(game, i),
+                        cell.Revealed ? CellStyles.Numbers[cell.AdjacentMines] : CellStyles.Covered),
+                        "Only revealed cells receive number styles; covered mines stay indistinguishable.");
                     int neighbors = Indices.Count(n => n != i &&
                         Math.Abs(n / 9 - i / 9) <= 1 && Math.Abs(n % 9 - i % 9) <= 1 && game.GetCell(n).IsMine);
                     Assert(cell.AdjacentMines == neighbors, "Neighbor counts do not wrap between rows.");
@@ -71,6 +78,7 @@ internal static class Program
         var flagged = original.Flag(1);
         Assert(flagged.FlagCount == 1 && flagged.Moves == 1 && flagged.Status == GameStatus.Ready, "Flagging does not place mines.");
         Assert(flagged.CellText(1) == "F" && original.CellText(1) == "?", "Flagging is immutable.");
+        Assert(ReferenceEquals(CellStyles.Select(flagged, 1), CellStyles.Flagged), "A flag has its own covered-cell style.");
         Assert(ReferenceEquals(flagged, flagged.Reveal(1)), "A flag protects its square.");
         var opened = flagged.Reveal(0);
         Assert(opened.GetCell(1).Flagged && !opened.GetCell(1).Revealed && !opened.GetCell(1).IsMine, "Flood reveal respects a safe flagged neighbor.");
@@ -105,6 +113,11 @@ internal static class Program
         Assert(lost.Status == GameStatus.Lost && lost.ExplodedCell == mines[0], "A mine ends the game.");
         Assert(lost.CellText(mines[0]) == "!" && lost.CellText(mines[1]) == "F" && lost.CellText(mines[2]) == "*", "Mine and correct-flag presentation.");
         Assert(lost.CellText(safe) == "X", "Wrong flags are identified after loss.");
+        Assert(ReferenceEquals(CellStyles.Select(lost, mines[0]), CellStyles.Exploded) &&
+            ReferenceEquals(CellStyles.Select(lost, mines[1]), CellStyles.Flagged) &&
+            ReferenceEquals(CellStyles.Select(lost, mines[2]), CellStyles.Mine) &&
+            ReferenceEquals(CellStyles.Select(lost, safe), CellStyles.IncorrectFlag),
+            "Loss styles distinguish the hit mine, correct flags, other mines, and wrong flags.");
         Assert(Indices.All(i => !lost.CanAct(i, true) && !lost.CanAct(i, false)), "A finished board is inactive.");
         Assert(ReferenceEquals(lost, lost.Flag(safe)) && ReferenceEquals(lost, lost.Reveal(safe)), "Loss cannot mutate further.");
         Assert(game.Status == GameStatus.Playing && !game.GetCell(mines[0]).Revealed, "Loss preserves prior snapshots.");
@@ -118,6 +131,9 @@ internal static class Program
         foreach (int safe in Indices.Where(i => !game.GetCell(i).IsMine).ToArray()) game = game.Reveal(safe);
         Assert(game.Status == GameStatus.Won && game.RevealedCount == GameState.SafeCount, "All safe squares win without manual flags.");
         Assert(game.FlagCount == GameState.MineCount && Indices.Where(i => game.GetCell(i).IsMine).All(i => game.CellText(i) == "F"), "Winning flags the remaining mines.");
+        Assert(Indices.All(i => ReferenceEquals(CellStyles.Select(game, i), game.GetCell(i).IsMine ?
+            CellStyles.WonFlag : CellStyles.Numbers[game.GetCell(i).AdjacentMines])),
+            "Win styling changes mine flags without replacing readable safe-cell numbers.");
         Assert(Indices.All(i => !game.CanAct(i, false)), "Won board cannot reveal more cells.");
         var reset = GameState.New(4);
         Assert(reset.Moves == 0 && reset.RevealedCount == 0 && reset.FlagCount == 0 && reset.Status == GameStatus.Ready, "A new game clears game-over state.");
@@ -135,5 +151,122 @@ internal static class Program
         }
         Assert(game.CellDescription(0) == "Row 1, column 1: covered." &&
             game.CellDescription(80) == "Row 9, column 9: covered.", "Help text includes board coordinates.");
+    }
+
+    private static void TestStyleDefinitions()
+    {
+        Assert(CellStyles.Covered.Values.BorderThickness == new Insets(1, 1, 3, 3),
+            "Covered cells have a raised lower/right edge.");
+        Assert(CellStyles.Cleared.Values.BorderThickness == new Insets(0) &&
+            CellStyles.Cleared.Values.Background is not null, "Borderless cells retain a filled face.");
+        Assert(CellStyles.Numbers.Count == 9 && ReferenceEquals(CellStyles.Numbers[0], CellStyles.Cleared),
+            "The number palette includes empty squares and all eight counts.");
+        var colors = new HashSet<ThemeColor>();
+        foreach (var style in CellStyles.Numbers.Skip(1))
+        {
+            Assert(ReferenceEquals(style.BasedOn, CellStyles.Cleared) && style.Rules.Count == 0,
+                "Numbers share flat geometry and do not lose their color when disabled.");
+            var color = style.Values.Foreground!.Value;
+            var face = CellStyles.Cleared.Values.Background!.Value;
+            Assert(colors.Add(color), "Each adjacent-mine count has a distinct theme-aware color.");
+            Assert(Contrast(color.Light, face.Light) >= 4.5 && Contrast(color.Dark, face.Dark) >= 4.5,
+                "Number text meets 4.5:1 contrast in both themes.");
+        }
+    }
+
+    private static double Contrast(uint first, uint second)
+    {
+        static double Luminance(uint rgb)
+        {
+            static double Channel(uint value)
+            {
+                double component = value / 255.0;
+                return component <= 0.04045 ? component / 12.92 : Math.Pow((component + 0.055) / 1.055, 2.4);
+            }
+            return 0.2126 * Channel(rgb >> 16) + 0.7152 * Channel((rgb >> 8) & 255) + 0.0722 * Channel(rgb & 255);
+        }
+        double a = Luminance(first), b = Luminance(second);
+        return (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
+    }
+
+    private static void TestNativeStyles()
+    {
+        using var window = new Window("Minesweeper style tests", 440, 700);
+        var board = new Minefield(window);
+        board.SetGame(GameState.New(17));
+        Assert(board.CellButtons.Count == GameState.CellCount &&
+            board.CellButtons.Select(b => b.Id).Distinct().Count() == GameState.CellCount,
+            "The compiled view exposes all distinct native cells in board order.");
+
+        void CheckBoard()
+        {
+            for (int i = 0; i < GameState.CellCount; i++)
+            {
+                var button = board.CellButtons[i];
+                var style = CellStyles.Select(board.Game, i);
+                var values = button.EffectiveStyleValues;
+                Assert(ReferenceEquals(button.Style, style) && button.Text == board.Game.CellText(i),
+                    "Compiled native text and style agree with the game state.");
+                Assert(values.Background is not null && values.CornerRadius == 0,
+                    "Every native cell retains its square filled face.");
+                if (board.Game.GetCell(i).Revealed && !board.Game.GetCell(i).IsMine)
+                {
+                    Assert(values.BorderThickness == new Insets(0) &&
+                        values.Foreground == (style.Values.Foreground ?? CellStyles.Cleared.Values.Foreground),
+                        "Revealed disabled cells compile to borderless, readable numbers.");
+                }
+            }
+        }
+
+        CheckBoard();
+        board.ToggleFlagMode();
+        board.Square00.Invoke();
+        Assert(board.Game.GetCell(0).Flagged, "A native cell invocation uses its original board index.");
+        board.ToggleFlagMode();
+        Assert(board.Square00.EffectiveStyleValues.Foreground == CellStyles.Flagged.Values.Foreground,
+            "Disabled flags retain their identifying ink.");
+        board.Square44.Invoke();
+        Assert(board.Game.GetCell(40).Revealed, "Native reveal still opens the requested square.");
+        CheckBoard();
+        ulong before = window.Button("Before unchanged refreshes").Id;
+        for (int i = 0; i < 128; i++) board.SetGame(board.Game);
+        Assert(window.Button("After unchanged refreshes").Id == before + 1,
+            "Unchanged refreshes allocate no native style handles.");
+
+        var playing = Playing();
+        int[] mines = Indices.Where(i => playing.GetCell(i).IsMine).ToArray();
+        int wrongFlag = Indices.First(i => !playing.GetCell(i).IsMine && !playing.GetCell(i).Revealed);
+        board.SetGame(playing.Flag(mines[1]).Flag(wrongFlag));
+        board.CellButtons[mines[0]].Invoke();
+        Assert(board.Game.Status == GameStatus.Lost, "Native mine invocation still loses.");
+        CheckBoard();
+        Assert(board.CellButtons[mines[0]].EffectiveStyleValues.Background == CellStyles.Exploded.Values.Background &&
+            board.CellButtons[wrongFlag].EffectiveStyleValues.Foreground == CellStyles.IncorrectFlag.Values.Foreground,
+            "Disabled loss cells retain their error backgrounds and text colors.");
+        board.NewGame();
+        Assert(board.Game.Status == GameStatus.Ready && !board.Flagging, "Reset clears the game and flag mode.");
+        CheckBoard();
+        board.SetGame(playing);
+        foreach (int safe in Indices.Where(i => !playing.GetCell(i).IsMine))
+            if (board.Game.CanAct(safe, false)) board.CellButtons[safe].Invoke();
+        Assert(board.Game.Status == GameStatus.Won, "Native safe-cell invocations still win.");
+        CheckBoard();
+        Assert(board.CellButtons[mines[0]].EffectiveStyleValues.Background == CellStyles.WonFlag.Values.Background,
+            "Disabled win flags use the completed-board style.");
+
+        // Compile every number, including the rare seven/eight cases, through the native binding.
+        var number = window.Button("8").FixedSize(36, 36).SetEnabled(false);
+        foreach (var theme in new[] { Theme.Light, Theme.Dark, Theme.HighContrast })
+        {
+            window.SetTheme(theme);
+            foreach (var style in CellStyles.Numbers)
+            {
+                number.Style = style;
+                Assert(number.EffectiveStyleValues.BorderThickness == new Insets(0) &&
+                    number.EffectiveStyleValues.Foreground == (style.Values.Foreground ?? CellStyles.Cleared.Values.Foreground),
+                    "All number definitions compile natively and preserve theme pairs.");
+            }
+            CheckBoard();
+        }
     }
 }

@@ -76,6 +76,8 @@ try {
     Assert ($LASTEXITCODE -eq 0) "Cannot compute the seeded game."
     $layout = ($layoutOutput -join "`n") | ConvertFrom-Json
     Copy-Item (Join-Path $sample "GameState.cs") $run
+    Copy-Item (Join-Path $sample "CellStyles.cs") $run
+    Copy-Item (Join-Path $sample "Minefield.Presentation.cs") $run
     $program = [IO.File]::ReadAllText((Join-Path $sample "Program.cs"))
     $program = $program.Replace("int? seed = args switch",
         'Console.WriteLine($"Minesweeper fixture process {Environment.ProcessId}");' + "`n            int? seed = args switch")
@@ -118,6 +120,9 @@ try {
     $playing = "Flags: 1/10    Safe squares: $($layout.revealed)/71    Moves: 2"
     Wait-For "first safe reveal" { (Probe "name" "summary" -Retry) -eq $playing }
     Assert ((Probe "help" "cell-5-5") -eq "Row 5, column 5: empty.") "The first reveal did not open an empty square."
+    $clearedBounds = (Probe "bounds" "cell-5-5") | ConvertFrom-Json
+    Assert ($clearedBounds.width -eq $bounds[40].width -and $clearedBounds.height -eq $bounds[40].height -and
+        $clearedBounds.left -eq $bounds[40].left -and $clearedBounds.top -eq $bounds[40].top) "A borderless cleared cell disappeared or changed the grid geometry."
 
     $source = $source.Replace('Text("MINESWEEPER"', 'Text("MINESWEEPER LIVE"')
     Save-Source $source
