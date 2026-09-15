@@ -152,9 +152,11 @@ void run(const std::filesystem::path& captures) {
         return true;
     });
     const auto started = GetTickCount64();
-    const auto timer = SetTimer(nullptr, 0, 20, [](HWND, UINT, UINT_PTR, DWORD) {
-        if (auto hwnd = FindWindowW(L"Xui.Window.1", title); hwnd && IsWindowVisible(hwnd))
+    const auto timer = SetTimer(nullptr, 0, 20, [](HWND, UINT, UINT_PTR timer, DWORD) {
+        if (auto hwnd = FindWindowW(L"Xui.Window.1", title); hwnd && IsWindowVisible(hwnd)) {
+            KillTimer(nullptr, timer);
             PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
+        }
     });
     require(timer != 0, "Start the tab fixture");
     const auto result = Application::run(window);

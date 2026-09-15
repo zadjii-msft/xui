@@ -203,7 +203,9 @@ int wmain(int argc, wchar_t** argv) {
                 for (const auto* action : {L"back", L"forward", L"up", L"refresh"}) {
                     const auto id = std::wstring(side ? L"browser-right-" : L"browser-") + action;
                     const auto b = bounds_of(id.c_str());
-                    require(std::abs((b.top + b.bottom) - (address.top + address.bottom)) <= 2 &&
+                    // WinUI's 6/7-DIP field insets raise the native text center by half a DIP.
+                    const float optical_offset = winui ? dpi_scale : 0;
+                    require(std::abs((b.top + b.bottom) - (address.top + address.bottom) - optical_offset) <= 2 &&
                         b.right <= address.left && b.top > tab.bottom, "Navigation icons and native address share one band");
                 }
             }
