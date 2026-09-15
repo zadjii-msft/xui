@@ -13,7 +13,7 @@ using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
 enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
-    menu, home, folder, settings, search, library };
+    menu, home, folder, settings, search, library, history, bookmark, drive };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 struct MenuItem {
     // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.
@@ -21,6 +21,13 @@ struct MenuItem {
     std::wstring text;
     std::function<void()> action;
     bool enabled{true}, checked{}, separator{};
+};
+enum class ShellMenuPresentation { windows, xui };
+struct ContextMenuContent {
+    std::vector<MenuItem> items;
+    std::vector<std::wstring> shell_paths;
+    std::function<bool()> current;
+    ShellMenuPresentation presentation{ShellMenuPresentation::windows};
 };
 
 // Control state and actions are independent of Windows and the renderer.
@@ -62,12 +69,17 @@ public:
     Size measured_text();
     virtual TextStyle text_style() const { return TextStyle::body; }
     // The Windows backend snapshots flat items, closes the menu, then runs one enabled action.
-    void on_context_menu(std::function<std::vector<MenuItem>()> callback) { menu_ = std::move(callback); }
-    bool has_context_menu() const { return bool(menu_); }
-    std::vector<MenuItem> context_menu() const {
-        auto callback = menu_;
-        return callback ? callback() : std::vector<MenuItem>{};
+    void on_context_menu(std::function<std::vector<MenuItem>()> callback) {
+        if (!callback) { menu_ = {}; return; }
+        menu_ = [callback = std::move(callback)] { return ContextMenuContent{callback()}; };
     }
+    void on_context_menu_content(std::function<ContextMenuContent()> callback) { menu_ = std::move(callback); }
+    bool has_context_menu() const { return bool(menu_); }
+    ContextMenuContent context_menu_content() const {
+        auto callback = menu_;
+        return callback ? callback() : ContextMenuContent{};
+    }
+    std::vector<MenuItem> context_menu() const { return context_menu_content().items; }
 protected:
     Control(ControlRole role, std::wstring name, Size preferred);
     virtual void activate() {}
@@ -80,7 +92,7 @@ private:
     std::wstring help_text_;
     unsigned tooltip_delay_{600};
     bool enabled_{true}, visible_{true}, focused_{}, hovered_{}, pointer_{}, keyboard_{};
-    std::function<std::vector<MenuItem>()> menu_;
+    std::function<ContextMenuContent()> menu_;
     std::function<void()> focus_;
     TextMeasurer measurer_;
     Size text_size_{};
@@ -178,9 +190,19 @@ class SuggestionSource;
 
 class TextInput final : public Control {
 public:
+    struct Selection {
+        std::size_t start{}, end{};
+        bool operator==(const Selection&) const = default;
+    };
     explicit TextInput(std::wstring name) : Control(ControlRole::text_input, std::move(name), {320, 68}) {}
     const std::wstring& text() const { return text_; }
     void set_text(std::wstring text);
+    Selection selection() const;
+    void set_selection(Selection value);
+    // UTF-16 endpoints clamp to the text and never split a surrogate pair.
+    static Selection normalize_selection(std::wstring_view text, Selection value);
+    // Backend boundary. The native reader/writer must enforce peer lifetime and thread affinity.
+    void bind_selection(std::function<Selection()> reader, std::function<void(Selection)> writer);
     void set_maximum_length(std::size_t value);
     std::size_t maximum_length() const { return maximum_length_; }
     void on_change(std::function<void(const std::wstring&)> callback) { change_ = std::move(callback); }
@@ -223,6 +245,9 @@ private:
     std::size_t maximum_length_{1024};
     std::function<void()> submit_;
     std::function<void(const std::wstring&)> change_;
+    Selection selection_;
+    std::function<Selection()> read_selection_;
+    std::function<void(Selection)> write_selection_;
 };
 
 struct TabItem {
@@ -292,6 +317,7 @@ public:
     void set_secondary_visible(bool visible);
     bool secondary_visible() const { return secondary_visible_; }
     bool expanded() const;
+    void on_expanded(std::function<void(bool)> callback) { expanded_callback_ = std::move(callback); }
     Rect divider() const;
     static constexpr float divider_width = 10;
     static constexpr float minimum_pane_width = 300;
@@ -299,6 +325,8 @@ private:
     std::shared_ptr<ContentView> first_, second_;
     float ratio_{0.5f};
     bool secondary_visible_{true};
+    bool arranged_expanded_{};
+    std::function<void(bool)> expanded_callback_;
 };
 
 // Returns null when there are no enabled focus targets. Traversal wraps.

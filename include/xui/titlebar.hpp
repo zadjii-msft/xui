@@ -9,10 +9,16 @@ public:
     explicit TitleBar(std::wstring title);
     ~TitleBar() override;
     const std::shared_ptr<TabStrip>& tabs() const { return tabs_; }
+    const std::shared_ptr<TabStrip>& secondary_tabs() const { return secondary_tabs_; }
+    const std::shared_ptr<Button>& leading() const { return leading_; }
     const std::shared_ptr<Button>& minimize() const { return minimize_; }
     const std::shared_ptr<Button>& maximize() const { return maximize_; }
     const std::shared_ptr<Button>& close() const { return close_; }
     void set_title(std::wstring title);
+    void set_title_visible(bool visible);
+    bool title_visible() const { return title_->visible(); }
+    void set_tab_panes(const std::shared_ptr<Element>& first, const std::shared_ptr<Element>& second = {});
+    bool has_tab_panes() const { return !first_pane_.expired(); }
     void set_maximized(bool maximized);
     void on_caption(std::function<void(CaptionAction)> callback);
     CaptionHit hit_test(Point client) const;
@@ -23,8 +29,11 @@ public:
     static constexpr float caption_height = 32;
 private:
     std::shared_ptr<TabStrip> tabs_;
+    std::shared_ptr<TabStrip> secondary_tabs_;
+    std::shared_ptr<Button> leading_;
     std::shared_ptr<Label> title_;
     std::shared_ptr<Button> minimize_, maximize_, close_;
+    std::weak_ptr<Element> first_pane_, second_pane_;
     std::vector<std::shared_ptr<Element>> children_;
 };
 }

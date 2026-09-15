@@ -101,6 +101,9 @@ public:
     // Explicit native fallback for third-party Shell extensions. No verbs run during discovery.
     void show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths);
     void on_key(std::function<bool(const KeyEvent&)> callback);
+    // Runs on the UI thread. Returns false after close. Close discards queued work.
+    // Worker threads can post while the Window lives. Posted exceptions close the Window.
+    bool post(std::function<void()> callback);
     // Return true to consume browser navigation. This does not change keyboard focus.
     void on_navigation(std::function<bool(const NavigationEvent&)> callback);
     std::shared_ptr<ViewTask> create_view_task(ViewWorker::Loader loader, std::function<void(ViewResult)> receive);

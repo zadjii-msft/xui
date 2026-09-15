@@ -6,7 +6,9 @@
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
 #include "xui/data_grid.hpp"
+#include "xui/titlebar.hpp"
 #include <bit>
+#include <atomic>
 #include <variant>
 #include <windows.h>
 #include <algorithm>
@@ -95,10 +97,21 @@ struct Node {
     xui::CommandBindings bindings;
     uint64_t web_generation{};
     std::function<void()> prior_action;
+    std::function<void(const std::wstring&)> prior_change;
     unsigned dispatching{};
     xui_callback callback{};
     void* context{};
     bool attached{};
+    xui_key_handler key_handler{};
+    void* key_context{};
+    xui_callback menu_callback{};
+    void* menu_context{};
+    bool menu_requesting{};
+    uint64_t menu_revision{};
+    std::vector<xui::MenuItem> menu_items;
+    std::vector<std::wstring> menu_shell_paths;
+    std::function<bool()> menu_current;
+    xui::ShellMenuPresentation menu_presentation{};
 };
 std::mutex registry_mutex;
 std::unordered_map<xui_handle, std::shared_ptr<Node>> registry;
@@ -164,12 +177,38 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
 }
 void wire(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
+    if (auto* c = dynamic_cast<xui::Control*>(n->element.get()))
+        c->on_focus([weak] { dispatch(weak, XUI_FOCUS_ENTERED); });
     switch (n->kind) {
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
+            if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
+                xui_handle target{};
+                {
+                    std::lock_guard lock(registry_mutex);
+                    for (auto h : node->owner->handles) {
+                        const auto child = registry.find(h);
+                        if (child != registry.end() && child->second->element.get() == e.target) { target = h; break; }
+                    }
+                }
+                const xui_key_event event{sizeof(xui_key_event), static_cast<uint32_t>(e.key),
+                    uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, 0, target};
+                uint32_t handled{};
+                ++node->owner->callbacks;
+                xui_status status{};
+                try { status = node->key_handler(node->key_context, &event, &handled); }
+                catch (...) { status = XUI_CALLBACK_FAILED; }
+                --node->owner->callbacks;
+                if (status || handled > 1) {
+                    node->owner->callback_failure = status ? status : XUI_INVALID_ARGUMENT;
+                    node->owner->window->close(); return true;
+                }
+                if (handled) return true;
+            }
             if (auto node = weak.lock(); node && feature_key(node, e)) return true;
             dispatch(weak, XUI_KEY, static_cast<uint64_t>(e.key) |
-                (static_cast<uint64_t>(e.control) << 32) | (static_cast<uint64_t>(e.shift) << 33));
+                (static_cast<uint64_t>(e.control) << 32) | (static_cast<uint64_t>(e.shift) << 33) |
+                (static_cast<uint64_t>(e.alt) << 34));
             return false;
         }); break;
     case XUI_BUTTON: as<xui::Button>(n).on_click([weak] {
@@ -178,7 +217,10 @@ void wire(const std::shared_ptr<Node>& n) {
     }); break;
     case XUI_TOGGLE: as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
     case XUI_TEXT_INPUT:
-        as<xui::TextInput>(n).on_change([weak](const std::wstring&) { dispatch(weak, XUI_CHANGE); });
+        as<xui::TextInput>(n).on_change([weak](const std::wstring& text) {
+            if (auto node = weak.lock(); node && node->prior_change) node->prior_change(text);
+            dispatch(weak, XUI_CHANGE);
+        });
         as<xui::TextInput>(n).on_submit([weak] { dispatch(weak, XUI_SUBMIT); }); break;
     case XUI_FILE_LIST:
         as<xui::FileList>(n).on_selection_change([weak] { dispatch(weak, XUI_SELECTION); });
@@ -461,3 +503,5 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 }
 
 #include "c_api_features.inc"
+#include "c_api_layout.inc"
+#include "c_api_text.inc"

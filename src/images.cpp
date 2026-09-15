@@ -446,6 +446,82 @@ void ImageRequest::cancel() {
     pixels.reset();
     wake.reset();
 }
+ImageKind thumbnail_kind(std::wstring_view path, bool directory) {
+    if (directory) return ImageKind::shell;
+    const auto dot = path.find_last_of(L'.');
+    if (dot != path.npos) {
+        const auto extension = path.substr(dot);
+        for (const auto supported : {L".png", L".jpg", L".jpeg", L".bmp", L".gif", L".tif", L".tiff", L".webp"})
+            if (CompareStringOrdinal(extension.data(), static_cast<int>(extension.size()), supported, -1, TRUE) == CSTR_EQUAL)
+                return ImageKind::wic;
+    }
+    return ImageKind::shell;
+}
+void RowImages::clear() { slots_.clear(); rows_.clear(); source_.reset(); pixels_ = 0; }
+ItemVisual RowImages::visual(ItemKey key) const {
+    const auto found = std::find_if(rows_.begin(), rows_.end(), [&](const auto& row) { return row.key == key; });
+    return found == rows_.end() ? ItemVisual{} : found->visual;
+}
+std::shared_ptr<const ImagePixels> RowImages::pixels(ItemKey key) const {
+    const auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return slot->key == key; });
+    return found == slots_.end() ? nullptr : (*found)->pixels;
+}
+bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
+    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining) {
+    if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
+    if (rows.size() > maximum_rows) throw std::length_error("Too many visible row visuals");
+    for (const auto& row : rows) {
+        if (row.visual.icon < ButtonIcon::none || row.visual.icon > ButtonIcon::drive ||
+            row.visual.image_path.size() > 32767 || row.visual.image_path.find(L'\0') != std::wstring::npos)
+            throw std::invalid_argument("Invalid row visual icon or image path");
+    }
+    const auto pixels = std::clamp(static_cast<UINT>(std::lround(24.0 * dpi / 96.0)), 1u, ImageLimits::output_dimension);
+    bool changed{};
+    if (source_.lock() != source || pixels_ != pixels) {
+        changed = !slots_.empty(); clear(); source_ = source; pixels_ = pixels;
+    }
+    rows_ = std::move(rows);
+    std::vector<const RowVisual*> wanted;
+    const auto limit = std::min(maximum_images, remaining);
+    for (const auto& row : rows_) {
+        if (wanted.size() == limit) break;
+        if (!row.visual.image_path.empty()) wanted.push_back(&row);
+    }
+    const auto kind = [](const RowVisual& row) {
+        return thumbnail_kind(row.visual.image_path, row.directory || row.visual.icon == ButtonIcon::folder);
+    };
+    const auto matches = [&](const Slot& slot, const RowVisual& row) {
+        return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row);
+    };
+    std::erase_if(slots_, [&](const auto& slot) {
+        return std::none_of(wanted.begin(), wanted.end(), [&](const auto* row) { return matches(*slot, *row); });
+    });
+    for (const auto* row : wanted) {
+        auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return matches(*slot, *row); });
+        if (found == slots_.end()) {
+            auto slot = std::make_unique<Slot>();
+            slot->key = row->key; slot->path = row->visual.image_path; slot->kind = kind(*row);
+            slot->request = request_image(slot->path, {pixels, pixels}, wake, slot->kind);
+            slots_.push_back(std::move(slot)); found = std::prev(slots_.end());
+        }
+        auto& slot = **found;
+        if (const auto request = slot.request) {
+            std::lock_guard lock(request->mutex);
+            if (request->done && !request->cancelled) {
+                slot.pixels = request->pixels;
+                if (!slot.pixels) {
+                    const auto message = L"XUI thumbnail: " + slot.path + L": " +
+                        (request->error.empty() ? L"Decoding failed." : request->error) + L"\n";
+                    OutputDebugStringW(message.c_str());
+                }
+                slot.request.reset(); changed = true;
+            }
+        }
+        if (slot.pixels) retained.push_back(slot.pixels->id);
+    }
+    remaining -= slots_.size();
+    return changed;
+}
 std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake, ImageKind kind) {
     auto request = std::make_shared<ImageRequest>();
     request->path = std::move(path); request->size = size; request->wake = std::move(wake); request->kind = kind;

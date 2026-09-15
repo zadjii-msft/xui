@@ -1,16 +1,20 @@
 #include "context_menu.hpp"
 #include "platform.hpp"
+#include "xui/shell_commands.hpp"
+#include "shell_commands_internal.hpp"
 #include <commctrl.h>
 #include <oleacc.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <exception>
+#include <iterator>
 #include <limits>
 
 namespace xui {
+std::atomic<ContextMenuTestAccess::Track> ContextMenuTestAccess::track{};
+std::atomic<ContextMenuTestAccess::Paint> ContextMenuTestAccess::paint{};
 namespace {
-constexpr wchar_t active_menu_property[] = L"Xui.ContextMenu.Active.1";
 COLORREF color(D2D1_COLOR_F value) {
     return RGB(std::lround(value.r * 255), std::lround(value.g * 255), std::lround(value.b * 255));
 }
@@ -29,16 +33,19 @@ struct Menu {
     HBRUSH background{}, border{}, selection{};
     HHOOK hook{}, input_hook{};
     std::exception_ptr failure;
+    std::function<bool()> current;
+    std::function<bool()> refresh;
     int label_width{}, shortcut_width{}, row_height{};
-    bool owner_attached{}, root_attached{}, marked{};
+    bool owner_attached{}, root_attached{}, marked{}, timer{}, refreshing{}, cancelled{}, painted{};
     // The CBT callback has no user-data parameter. This pointer exists only inside
     // TrackPopupMenuEx on this thread, and never supplies another window's palette.
     static thread_local Menu* creating;
 
-    Menu(std::vector<MenuItem> value, HWND window, Palette colors, UINT scale)
+    Menu(std::vector<MenuItem> value, HWND window, Palette colors, UINT scale, std::function<bool()> valid)
         : items(std::move(value)), entries(items.size()), palette(colors), dpi(scale),
-          owner(window), root(GetAncestor(window, GA_ROOT)) {}
+          owner(window), root(GetAncestor(window, GA_ROOT)), current(std::move(valid)) {}
     ~Menu() {
+        if (timer) KillTimer(owner, reinterpret_cast<UINT_PTR>(this));
         if (input_hook) UnhookWindowsHookEx(input_hook);
         if (hook) UnhookWindowsHookEx(hook);
         if (creating == this) creating = nullptr;
@@ -144,6 +151,11 @@ struct Menu {
         win32_require(hook != nullptr, "Attach context menu frame");
         input_hook = SetWindowsHookExW(WH_MSGFILTER, input_proc, nullptr, GetCurrentThreadId());
         win32_require(input_hook != nullptr, "Attach context menu edge keys");
+        if (current || refresh) {
+            win32_require(SetTimer(owner, reinterpret_cast<UINT_PTR>(this), 16, nullptr) != 0,
+                "Observe context menu completion");
+            timer = true;
+        }
     }
     void draw(const DRAWITEMSTRUCT& draw) {
         if (!draw.itemID || draw.itemID > items.size()) return;
@@ -193,6 +205,8 @@ struct Menu {
         }
         complete = RestoreDC(dc, saved) != FALSE && complete;
         win32_require(complete, "Draw context menu command");
+        painted = true;
+        if (const auto observer = ContextMenuTestAccess::paint.load()) observer(handle, owner);
     }
     void frame(HWND window, HDC dc) {
         RECT outer{}, client{};
@@ -243,6 +257,16 @@ struct Menu {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& self = *reinterpret_cast<Menu*>(data);
         try {
+            if ((message == WM_ENTERIDLE || (message == WM_TIMER && wparam == id)) &&
+                self.current && !self.current()) { self.cancelled = true; EndMenu(); }
+            if (message == WM_TIMER && wparam == id) {
+                bool interacting = GetKeyState(VK_LBUTTON) < 0 || GetKeyState(VK_RBUTTON) < 0;
+                for (UINT i = 0; !interacting && i < self.items.size(); ++i)
+                    interacting = (GetMenuState(self.handle, i, MF_BYPOSITION) & MF_HILITE) != 0;
+                const bool ready = !self.cancelled && self.painted && self.refresh && self.refresh();
+                if (!interacting && ready) { self.refreshing = true; EndMenu(); }
+                return 0;
+            }
             if (message == WM_MEASUREITEM) {
                 auto& item = *reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
                 if (item.CtlType == ODT_MENU && item.itemID > 0 && item.itemID <= self.items.size()) {
@@ -263,7 +287,7 @@ struct Menu {
             if (message == WM_CANCELMODE || message == WM_THEMECHANGED || message == WM_SYSCOLORCHANGE ||
                 message == WM_SETTINGCHANGE || message == WM_DPICHANGED || message == WM_DISPLAYCHANGE ||
                 message == WM_DESTROY || (message == WM_ENABLE && !wparam) ||
-                (message == WM_ACTIVATE && LOWORD(wparam) == WA_INACTIVE)) EndMenu();
+                (message == WM_ACTIVATE && LOWORD(wparam) == WA_INACTIVE)) { self.cancelled = true; EndMenu(); }
             if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, owner_proc, id);
         } catch (...) { self.remember_failure(); return 0; }
         return DefSubclassProc(hwnd, message, wparam, lparam);
@@ -310,6 +334,14 @@ struct Menu {
     }
     static LRESULT CALLBACK input_proc(int code, WPARAM wparam, LPARAM lparam) noexcept {
         if (creating && code == MSGF_MENU) {
+            try {
+                if (creating->current && !creating->current()) {
+                    creating->cancelled = true;
+                    EndMenu();
+                    // The native loop must receive its cancellation wakeup.
+                    return CallNextHookEx(nullptr, code, wparam, lparam);
+                }
+            } catch (...) { creating->remember_failure(); return CallNextHookEx(nullptr, code, wparam, lparam); }
             auto& message = *reinterpret_cast<MSG*>(lparam);
             if (message.message == WM_KEYDOWN && (message.wParam == VK_HOME || message.wParam == VK_END)) {
                 // Route edge keys through the documented WM_MENUCHAR/MNC_SELECT
@@ -322,35 +354,173 @@ struct Menu {
     }
 };
 thread_local Menu* Menu::creating{};
+thread_local bool shell_waiting{};
+
+// A native menu pumps window messages, not Window.Post's outer event queue.
+// Completion therefore uses a window timer; no posted callback retains the control.
+struct ShellWait {
+    HWND root;
+    const void* identity;
+    const std::function<bool()>& current;
+    std::exception_ptr failure;
+    bool cancelled{};
+    ShellWait(HWND window, const void* request, const std::function<bool()>& valid)
+        : root(window), identity(request), current(valid) {
+        if (shell_waiting) throw std::logic_error("A Shell action is already pending");
+        win32_require(SetWindowSubclass(root, proc, reinterpret_cast<UINT_PTR>(this),
+            reinterpret_cast<DWORD_PTR>(this)) != FALSE, "Observe Shell action cancellation");
+        if (!SetPropW(root, active_menu_property, this)) {
+            RemoveWindowSubclass(root, proc, reinterpret_cast<UINT_PTR>(this));
+            win32_require(false, "Guard Shell action");
+        }
+        shell_waiting = true;
+    }
+    ~ShellWait() {
+        shell_waiting = false;
+        if (IsWindow(root)) {
+            RemoveWindowSubclass(root, proc, reinterpret_cast<UINT_PTR>(this));
+            if (GetPropW(root, active_menu_property) == this) RemovePropW(root, active_menu_property);
+        }
+    }
+    static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR data) noexcept {
+        auto& self = *reinterpret_cast<ShellWait*>(data);
+        if (message == shell_validation_message()) {
+            if (w != reinterpret_cast<WPARAM>(self.identity) || self.cancelled) return 0;
+            try { return self.current() ? 1 : 0; }
+            catch (...) { self.failure = std::current_exception(); self.cancelled = true; return 0; }
+        }
+        if (message == WM_CANCELMODE || message == WM_DESTROY || (message == WM_ENABLE && !w) ||
+            message == WM_THEMECHANGED || message == WM_SYSCOLORCHANGE || message == WM_SETTINGCHANGE ||
+            message == WM_DPICHANGED || message == WM_DISPLAYCHANGE)
+            self.cancelled = true;
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, proc, id);
+        return DefSubclassProc(hwnd, message, w, l);
+    }
+};
+bool wait_shell(const std::shared_ptr<AsyncShellMenu>& request, HWND root, const std::function<bool()>& current) {
+    ShellWait wait(root, request->identity(), current);
+    while (!request->finished()) {
+        if (wait.failure) std::rethrow_exception(wait.failure);
+        if (wait.cancelled || !current()) { request->cancel(); return false; }
+        MsgWaitForMultipleObjectsEx(0, nullptr, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT) {
+                PostQuitMessage(static_cast<int>(message.wParam)); request->cancel(); return false;
+            }
+            TranslateMessage(&message); DispatchMessageW(&message);
+            if (wait.failure) std::rethrow_exception(wait.failure);
+            if (wait.cancelled || !current()) { request->cancel(); return false; }
+        }
+    }
+    return !wait.cancelled && current();
+}
+struct ShellSnapshot final : ShellCommandProvider {
+    std::shared_ptr<AsyncShellMenu> request;
+    std::function<void(ItemKey)> action;
+    std::vector<ShellCommandInfo> discover(std::stop_token) override {
+        if (const auto error = request->discovery_error(); !error.empty()) throw std::runtime_error(error);
+        return request->commands();
+    }
+    void invoke(ItemKey key) override { action(key); }
+};
 }
 
 void cancel_control_menu(HWND root) {
-    if (GetPropW(root, active_menu_property)) EndMenu();
+    if (GetPropW(root, active_menu_property)) SendMessageW(root, WM_CANCELMODE, 0, 0);
 }
 
 void show_control_menu(Control& control, HWND window, LPARAM position, const Palette& palette, UINT dpi) {
     if (!IsWindow(window) || !control.enabled()) return;
-    if (Menu::creating) return;
+    if (Menu::creating || shell_waiting) return;
     const HWND root = GetAncestor(window, GA_ROOT);
     if (!IsWindowEnabled(root) || !IsWindowEnabled(window) || GetPropW(root, active_menu_property)) return;
     const HWND previous_focus = GetFocus();
     // Cancel pending suggestions as well as visible popups before the factory runs.
     SendMessageW(root, WM_CANCELMODE, 0, 0);
-    auto items = control.context_menu();
-    if (items.empty() || !IsWindow(window) || !IsWindow(root)) return;
+    auto content = control.context_menu_content();
+    if (!IsWindow(window) || !IsWindow(root) || (content.current && !content.current())) return;
+    if (content.items.empty() && content.shell_paths.empty()) return;
     POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
     if (point.x == -1 && point.y == -1) {
         point = {MulDiv(12, dpi, 96), MulDiv(12, dpi, 96)};
         win32_require(ClientToScreen(window, &point) != FALSE, "Locate context menu");
     }
+    std::shared_ptr<AsyncShellMenu> shell;
+    std::function<void()> populate;
+    const auto apps = content.items;
+    if (!content.shell_paths.empty()) {
+        if (content.presentation == ShellMenuPresentation::xui) {
+            if (apps.size() > CommandSet::maximum_commands - 4)
+                throw std::length_error("Too many app commands for a custom Shell menu");
+            const Point location{static_cast<float>(point.x), static_cast<float>(point.y)};
+            const auto current = [root, window, valid = content.current] {
+                return IsWindow(root) && IsWindow(window) && IsWindowEnabled(root) && IsWindowEnabled(window) && (!valid || valid());
+            };
+            shell = AsyncShellMenu::prepare(root, std::move(content.shell_paths));
+            const auto fallback = [shell, root, location, apps, current] {
+                if (!current()) return;
+                shell->windows_menu(location, apps);
+                if (wait_shell(shell, root, current)) {
+                    const auto selected = shell->result();
+                    if (selected && *selected < apps.size() && current() && apps[*selected].action)
+                        apps[*selected].action();
+                }
+            };
+            auto immediate = apps;
+            for (auto& item : immediate) if (item.action) {
+                item.action = [shell, current, action = std::move(item.action)] {
+                    if (!current()) return;
+                    shell->cancel();
+                    action();
+                };
+            }
+            if (!immediate.empty()) immediate.push_back({L"", {}, false, false, true});
+            immediate.push_back({L"Show Windows menu...", fallback});
+            populate = [&, shell, current, fallback, immediate] {
+                auto provider = std::make_shared<ShellSnapshot>();
+                provider->request = shell;
+                provider->action = [shell, root, current](ItemKey key) {
+                    if (!current()) return;
+                    shell->invoke(key);
+                    if (wait_shell(shell, root, current)) shell->result();
+                };
+                auto model = std::make_shared<CustomShellMenu>(std::move(provider), apps, current, fallback);
+                if (!model->discovery_error().empty()) {
+                    OutputDebugStringA(("XUI Shell discovery: " + model->discovery_error() + "\n").c_str());
+                }
+                auto discovered = model->menu_items();
+                discovered.pop_back(); // The explicit fallback already has a stable position.
+                if (!discovered.empty() && discovered.back().separator) discovered.pop_back();
+                discovered.resize(discovered.size() - apps.size());
+                if (!discovered.empty() && discovered.back().separator) discovered.pop_back();
+                content.items = immediate;
+                if (!discovered.empty()) {
+                    content.items.push_back({L"", {}, false, false, true});
+                    content.items.insert(content.items.end(), std::make_move_iterator(discovered.begin()),
+                        std::make_move_iterator(discovered.end()));
+                }
+                content.current = [model] { return model->current(); };
+            };
+            content.current = current;
+            content.items = std::move(immediate);
+            content.items.push_back({L"Loading Windows commands...", {}, false});
+        } else {
+            track_shell_commands(root, content.shell_paths, {static_cast<float>(point.x), static_cast<float>(point.y)},
+                content.items, std::move(content.current));
+            return;
+        }
+    }
     std::function<void()> action;
-    {
-        Menu menu(std::move(items), window, palette, dpi);
+    for (;;) {
+        Menu menu(std::move(content.items), window, palette, dpi, content.current);
+        if (populate) menu.refresh = [shell] { shell->begin(); return shell->ready(); };
         menu.initialize();
         Menu::creating = &menu;
         SetLastError(ERROR_SUCCESS);
-        const UINT chosen = TrackPopupMenuEx(menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-            point.x, point.y, window, nullptr);
+        const auto track = ContextMenuTestAccess::track.load();
+        const UINT chosen = track ? track(menu.handle, window, {static_cast<float>(point.x), static_cast<float>(point.y)}) :
+            TrackPopupMenuEx(menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NOANIMATION, point.x, point.y, window, nullptr);
         const DWORD error = GetLastError();
         if (menu.failure) std::rethrow_exception(menu.failure);
         if (!chosen && error != ERROR_SUCCESS) {
@@ -361,12 +531,19 @@ void show_control_menu(Control& control, HWND window, LPARAM position, const Pal
             auto& item = menu.items[chosen - 1];
             if (item.enabled && !item.separator) action = std::move(item.action);
         }
+        if (!chosen && menu.refreshing && !menu.cancelled && (!content.current || content.current())) {
+            // End and rebuild the HMENU so Windows recomputes its dimensions and
+            // accessibility children. Never mutate owner-draw storage mid-paint.
+            populate(); populate = {};
+            continue;
+        }
+        break;
     }
     if (!IsWindow(window) || !IsWindow(root) || !IsWindowEnabled(window) || !IsWindowEnabled(root)) return;
     if (previous_focus && IsWindow(previous_focus) && IsChild(root, previous_focus) &&
         IsWindowEnabled(previous_focus) && GetForegroundWindow() == root && GetFocus() != previous_focus)
         SetFocus(previous_focus);
     // No menu, HWND, control, or item access after the copied command starts.
-    if (action) action();
+    if (action && (!content.current || content.current())) action();
 }
 }

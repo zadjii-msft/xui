@@ -18,17 +18,6 @@ void ListPeer::detach_thumbnails() {
     thumbnails_.clear();
     thumbnail_source_.reset();
 }
-namespace {
-bool image_path(std::wstring_view path) {
-    const auto dot = path.find_last_of(L'.');
-    if (dot == path.npos) return false;
-    const auto extension = path.substr(dot);
-    for (const auto supported : {L".png", L".jpg", L".jpeg", L".bmp", L".gif", L".tif", L".tiff", L".webp"})
-        if (CompareStringOrdinal(extension.data(), static_cast<int>(extension.size()),
-            supported, -1, TRUE) == CSTR_EQUAL) return true;
-    return false;
-}
-}
 bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<TaskWake>& wake,
     std::vector<std::uint64_t>& retained, std::size_t& remaining) {
     if (!shown || !list_->thumbnails()) { detach_thumbnails(); return false; }
@@ -69,7 +58,7 @@ bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<Task
             slot->id = item->id;
             slot->path = item->path;
             slot->request = request_image(slot->path, {pixels, pixels}, wake,
-                !item->directory && image_path(item->path) ? ImageKind::wic : ImageKind::shell);
+                thumbnail_kind(item->path, item->directory));
             thumbnails_.push_back(std::move(slot));
             found = std::prev(thumbnails_.end());
         }

@@ -217,6 +217,50 @@ void navigation_contracts() {
         caption.hit_test({99, 24}) == CaptionHit::close, "Caption buttons fit constrained and offset layouts");
     int actions{}; caption.on_caption([&](CaptionAction action) { if (action == CaptionAction::maximize_restore) ++actions; });
     caption.maximize()->invoke(); require(actions == 1, "Accessible caption activation boundary");
+    caption.leading()->set_visible(true); caption.secondary_tabs()->set_visible(true);
+    caption.secondary_tabs()->set_tabs({{2, L"Other pane"}}, 2);
+    caption.arrange({0, 0, 900, 44});
+    const auto first_tabs = caption.tabs()->bounds(), second_tabs = caption.secondary_tabs()->bounds();
+    require(first_tabs.width == second_tabs.width && first_tabs.x + first_tabs.width == second_tabs.x, "Two title tab bands share the row");
+    require(caption.hit_test({10, 20}) == CaptionHit::client, "Hamburger is not a drag target");
+    require(caption.hit_test({second_tabs.x + 10, 20}) == CaptionHit::client, "Secondary tabs are not drag targets");
+    require(caption.hit_test({880, 20}) == CaptionHit::close, "Secondary tabs preserve caption hit testing");
+    auto first_pane = std::make_shared<Stack>(Axis::vertical);
+    auto second_pane = std::make_shared<Stack>(Axis::vertical);
+    SplitView aligned(first_pane, second_pane);
+    caption.set_tab_panes(first_pane, second_pane);
+    caption.set_title_visible(false);
+    caption.set_title(L"Still available as the window title");
+    require(!caption.title_visible(), "Updating the window title does not restore its hidden label");
+    for (float sidebar : {0.0f, 280.0f}) for (float width : {700.0f, 1320.0f, 1600.0f}) {
+        aligned.set_ratio(0.35f);
+        aligned.arrange({sidebar, 44, width - sidebar, 600});
+        caption.arrange({0, 0, width, 44});
+        require(caption.tabs()->bounds().x == std::max(44.0f, first_pane->bounds().x),
+            "Primary tabs follow the pane edge, leaving room for the stationary hamburger");
+        require(caption.tabs()->bounds().x + caption.tabs()->bounds().width <= caption.minimize()->bounds().x,
+            "Aligned tabs never overlap caption controls");
+        if (aligned.expanded())
+            require(caption.secondary_tabs()->bounds().x == second_pane->bounds().x,
+                "Secondary tabs follow unequal split widths and sidebar visibility");
+        else require(caption.secondary_tabs()->bounds().width == 0, "A hidden pane has no tab band");
+        const auto toggle = caption.leading()->bounds();
+        require(toggle.x == 0 && toggle.width == 44, "Sidebar visibility never moves the hamburger");
+        require(caption.tabs()->bounds().x >= toggle.x + toggle.width, "The hamburger never overlaps the first tab");
+        require(caption.hit_test({toggle.x + 1, toggle.y + 1}) == CaptionHit::client,
+            "Navigation toggle remains interactive with and without a sidebar");
+        require(caption.hit_test({width - 1, 10}) == CaptionHit::close, "Aligned layouts preserve native caption actions");
+    }
+    SplitView responsive(std::make_shared<Stack>(Axis::vertical), std::make_shared<Stack>(Axis::vertical));
+    std::vector<bool> expansions;
+    responsive.on_expanded([&](bool expanded) { expansions.push_back(expanded); });
+    responsive.arrange({0, 0, 610, 400});
+    require(responsive.expanded() && expansions == std::vector<bool>{true}, "Two minimum panes fit at 610 DIPs");
+    responsive.arrange({0, 0, 609, 400});
+    require(!responsive.expanded() && responsive.second()->bounds().width == 0 &&
+        expansions == std::vector<bool>{true, false}, "Narrow layout reports the hidden secondary pane");
+    responsive.arrange({0, 0, 609, 400});
+    require(expansions.size() == 2, "Unchanged layout does not repeat expansion events");
 }
 }
 int main() {
