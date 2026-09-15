@@ -29,6 +29,12 @@ After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#
 
 The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
 Each tab row follows its pane, including splitter and window-size changes.
+Both styles use attached tabs with rounded top corners and an open selected bottom edge.
+The row inherits its parent background. Empty rows draw no baseline.
+Clicking a tab selects it and moves focus into its file pane, including clicks on the current tab.
+Arrow keys select tabs while focus stays on the strip. Enter or Space moves focus into the selected pane.
+The tab focus rectangle appears only during keyboard navigation.
+See [tab colors and activation](menus-and-input.md#tabs-split-panes-and-activation) for the shared control APIs.
 The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
@@ -131,6 +137,8 @@ The details view still exposes all entries from the folder scan.
 ## C++ explorer appearance
 
 The explorer starts with a dark theme. Its Theme button and Ctrl+F6 switch between dark and light themes.
+The C++ explorer accepts `--style=classic` (the default) or `--style=winui` after an optional folder path.
+Both styles use attached tabs, with the navigation controls directly below the tab strip.
 F6 switches between the two panes. The theme lasts for the current window.
 System high contrast overrides the theme colors.
 `ThemeMode::high_contrast` also uses system high-contrast colors without a change to Windows settings.

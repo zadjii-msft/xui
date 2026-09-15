@@ -12,7 +12,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
     xui::BrowserOptions options;
     try {
-        options.folder = count > 1 ? std::filesystem::path(args[1]) : std::filesystem::current_path();
+        for (int i = 1; i < count; ++i) {
+            const std::wstring_view argument(args[i]);
+            if (argument == L"--style=winui") options.visual_style = xui::VisualStyle::winui;
+            else if (argument == L"--style=classic") options.visual_style = xui::VisualStyle::classic;
+            else if (options.folder.empty() && !argument.starts_with(L"--")) options.folder = args[i];
+            else {
+                LocalFree(args);
+                MessageBoxW(nullptr, L"Use xui_demo.exe [folder] [--style=classic|--style=winui].", L"XUI", MB_ICONERROR);
+                return 1;
+            }
+        }
+        if (options.folder.empty()) options.folder = std::filesystem::current_path();
         options.folder = std::filesystem::absolute(options.folder).lexically_normal();
     } catch (const std::filesystem::filesystem_error&) {
         LocalFree(args);

@@ -57,6 +57,7 @@ void wire_feature(const std::shared_ptr<Node>& n) {
         as<xui::NavigationView>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); }); break;
     case XUI_TAB_STRIP:
         as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); });
+        as<xui::TabStrip>(n).on_activate([weak](uint64_t id) { dispatch(weak, XUI_CLICK, id); });
         as<xui::TabStrip>(n).on_close([weak](uint64_t id) { dispatch(weak, XUI_CANCEL, id); }); break;
     case XUI_DATA_GRID:
         as<xui::DataGrid>(n).on_select([weak] { dispatch(weak, XUI_SELECTION); });

@@ -221,6 +221,8 @@ void navigation_contracts() {
     caption.secondary_tabs()->set_tabs({{2, L"Other pane"}}, 2);
     caption.arrange({0, 0, 900, 44});
     const auto first_tabs = caption.tabs()->bounds(), second_tabs = caption.secondary_tabs()->bounds();
+    require(first_tabs.y + first_tabs.height == 44 && second_tabs.y + second_tabs.height == 44,
+        "Both title tab bands extend to the content edge");
     require(first_tabs.width == second_tabs.width && first_tabs.x + first_tabs.width == second_tabs.x, "Two title tab bands share the row");
     require(caption.hit_test({10, 20}) == CaptionHit::client, "Hamburger is not a drag target");
     require(caption.hit_test({second_tabs.x + 10, 20}) == CaptionHit::client, "Secondary tabs are not drag targets");
@@ -238,6 +240,8 @@ void navigation_contracts() {
         caption.arrange({0, 0, width, 44});
         require(caption.tabs()->bounds().x == std::max(44.0f, first_pane->bounds().x),
             "Primary tabs follow the pane edge, leaving room for the stationary hamburger");
+        require(caption.tabs()->bounds().y + caption.tabs()->bounds().height == first_pane->bounds().y,
+            "Pane-aligned tabs leave no bottom gap");
         require(caption.tabs()->bounds().x + caption.tabs()->bounds().width <= caption.minimize()->bounds().x,
             "Aligned tabs never overlap caption controls");
         if (aligned.expanded())

@@ -7,6 +7,20 @@ pub type Status = i32;
 pub const ABI_VERSION: u32 = 0x10000;
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+pub struct TabColors {
+    pub size: u32,
+    pub version: u32,
+    pub mask: u32,
+    pub row_background: u32,
+    pub selected_background: u32,
+    pub selected_text: u32,
+    pub inactive_background: u32,
+    pub inactive_text: u32,
+    pub hover_background: u32,
+    pub border: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
 pub struct Text {
     pub data: *const u8,
     pub length: u32,
@@ -55,6 +69,8 @@ pub struct FileItem {
 }
 pub type Callback = Option<unsafe extern "C" fn(*mut c_void, *const Event) -> Status>;
 unsafe extern "C" {
+    pub fn xui_tab_set_colors(tabs: Handle, colors: *const TabColors) -> Status;
+    pub fn xui_tab_get_colors(tabs: Handle, colors: *mut TabColors) -> Status;
     pub fn xui_abi_version() -> u32;
     pub fn xui_error_copy(
         buffer: *mut u8,

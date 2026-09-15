@@ -299,28 +299,42 @@ struct TabItem {
     bool operator==(const TabItem&) const = default;
 };
 
+// Optional 0xRRGGBB colors. Unset values follow the theme; high contrast ignores overrides.
+struct TabColors {
+    std::optional<std::uint32_t> row_background, selected_background, selected_text;
+    std::optional<std::uint32_t> inactive_background, inactive_text, hover_background, border;
+    bool operator==(const TabColors&) const = default;
+};
+
 // One retained control and one native peer, regardless of tab count.
 class TabStrip final : public Control {
 public:
     explicit TabStrip(std::wstring name = L"Tabs") : Control(ControlRole::tab_strip, std::move(name), {320, 38}) {}
     const std::vector<TabItem>& tabs() const { return tabs_; }
+    const TabColors& colors() const { return colors_; }
+    void set_colors(TabColors colors);
     std::optional<std::uint64_t> selected() const { return selected_; }
     void set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected);
     bool select(std::uint64_t id);
+    bool activate_tab(std::uint64_t id);
     void step(int delta);
     void request_close(std::uint64_t id);
     void on_select(std::function<void(std::uint64_t)> callback) { select_ = std::move(callback); }
+    // Pointer clicks and Enter/Space activate after selection, including the already-selected tab.
+    void on_activate(std::function<void(std::uint64_t)> callback) { activate_ = std::move(callback); }
     void on_close(std::function<void(std::uint64_t)> callback) { close_ = std::move(callback); }
     bool closable() const { return bool(close_); }
     Rect tab_bounds(std::size_t index) const;
+    Rect close_bounds(std::size_t index) const;
     std::optional<std::size_t> hit_test(float x) const;
     void arrange(Rect bounds) override;
 private:
     void reveal_selected();
     std::vector<TabItem> tabs_;
+    TabColors colors_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
-    std::function<void(std::uint64_t)> select_, close_;
+    std::function<void(std::uint64_t)> select_, close_, activate_;
 };
 
 // A clipped retained subtree. It adds no renderer or independent message loop.

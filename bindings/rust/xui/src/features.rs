@@ -441,6 +441,73 @@ macro_rules! choices {
     )*};
 }
 choices!(RadioGroup, ComboBox, TabStrip);
+
+/// Optional 0xRRGGBB tab colors. None uses the theme; high contrast ignores overrides.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TabColors {
+    pub row_background: Option<u32>,
+    pub selected_background: Option<u32>,
+    pub selected_text: Option<u32>,
+    pub inactive_background: Option<u32>,
+    pub inactive_text: Option<u32>,
+    pub hover_background: Option<u32>,
+    pub border: Option<u32>,
+}
+impl TabStrip {
+    pub fn set_colors(&self, colors: TabColors) -> Result<()> {
+        let values = [
+            colors.row_background,
+            colors.selected_background,
+            colors.selected_text,
+            colors.inactive_background,
+            colors.inactive_text,
+            colors.hover_background,
+            colors.border,
+        ];
+        let mask = values.iter().enumerate().fold(0, |mask, (index, value)| {
+            mask | if value.is_some() { 1 << index } else { 0 }
+        });
+        let value = sys::TabColors {
+            size: size_of::<sys::TabColors>() as u32,
+            version: 0x10000,
+            mask,
+            row_background: colors.row_background.unwrap_or(0),
+            selected_background: colors.selected_background.unwrap_or(0),
+            selected_text: colors.selected_text.unwrap_or(0),
+            inactive_background: colors.inactive_background.unwrap_or(0),
+            inactive_text: colors.inactive_text.unwrap_or(0),
+            hover_background: colors.hover_background.unwrap_or(0),
+            border: colors.border.unwrap_or(0),
+        };
+        self.owner
+            .check(unsafe { sys::xui_tab_set_colors(self.handle, &value) })
+    }
+    pub fn colors(&self) -> Result<TabColors> {
+        let mut value = sys::TabColors {
+            size: size_of::<sys::TabColors>() as u32,
+            version: 0x10000,
+            ..Default::default()
+        };
+        self.owner
+            .check(unsafe { sys::xui_tab_get_colors(self.handle, &mut value) })?;
+        let read = |bit, color| {
+            if value.mask & bit != 0 {
+                Some(color)
+            } else {
+                None
+            }
+        };
+        Ok(TabColors {
+            row_background: read(1, value.row_background),
+            selected_background: read(2, value.selected_background),
+            selected_text: read(4, value.selected_text),
+            inactive_background: read(8, value.inactive_background),
+            inactive_text: read(16, value.inactive_text),
+            hover_background: read(32, value.hover_background),
+            border: read(64, value.border),
+        })
+    }
+}
 impl Breadcrumb {
     pub fn set_segments(&self, items: &[Choice]) -> Result<()> {
         self.0.choices(items, None)

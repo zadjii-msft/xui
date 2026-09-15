@@ -67,6 +67,82 @@ void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const 
     if (visual.icon != ButtonIcon::none) button_icon(bounds, ink, visual.icon);
     else if (!visual.image_path.empty()) icon(bounds, ink, false);
 }
+void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
+    bool focus_visible, std::optional<Point> pointer) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const bool winui = palette.style == VisualStyle::winui;
+    const auto& colors = strip.colors();
+    const auto resolve = [&](std::optional<std::uint32_t> value, D2D1_COLOR_F fallback) {
+        return value && !palette.high_contrast ? D2D1::ColorF(*value) : fallback;
+    };
+    const auto parent = on_surface ? palette.surface : palette.background;
+    const auto content = resolve(colors.selected_background, parent);
+    const auto rail = resolve(colors.row_background, parent);
+    const auto inactive = resolve(colors.inactive_background, rail);
+    const auto hover = resolve(colors.hover_background, palette.hover);
+    const auto border = resolve(colors.border, palette.border);
+    fill({0, 0, bounds.width, bounds.height}, rail);
+    const auto hovered = enabled && pointer && pointer->y >= 0 && pointer->y < bounds.height ?
+        strip.hit_test(pointer->x) : std::nullopt;
+    const auto is_selected = [&](std::size_t index) { return strip.selected() == strip.tabs()[index].id; };
+    const auto paint = [&](std::size_t index, bool selected) {
+        auto b = strip.tab_bounds(index);
+        if (b.width <= 0 || b.height <= 0) return;
+        b.height = bounds.height;
+        const bool hot = hovered == index;
+        const float top = std::min(selected ? 2.0f : 6.0f, b.height);
+        const float radius = std::min({winui ? 4.0f : 5.0f, b.width / 2, (b.height - top) / 2});
+        push_clip(b);
+        if (selected || hot || (colors.inactive_background && !palette.high_contrast)) {
+            // Clip the lower corners and stroke below the rail: the active tab opens into its content.
+            const Rect face{b.x + 0.5f, top + 0.5f, std::max(0.0f, b.width - 1), b.height - top + radius + 1};
+            rounded(face, selected ? content : hot ? hover : inactive, radius);
+            if (selected) rounded(face, border, radius, true);
+        }
+        if (!selected && index + 1 < strip.tabs().size() && !is_selected(index + 1) && b.height > 18)
+            fill({b.x + b.width - 1, 10, 1, b.height - 18}, border);
+        const auto ink = !enabled ? palette.disabled : selected ?
+            resolve(colors.selected_text, palette.text) : resolve(colors.inactive_text, palette.secondary);
+        const auto close = strip.close_bounds(index);
+        const float right = close.width > 0 ? close.x - 4 : b.x + b.width - 10;
+        text(strip.tabs()[index].title, {b.x + 12, top, std::max(0.0f, right - b.x - 12), b.height - top}, ink, !winui);
+        if (close.width > 0) {
+            const bool close_hot = hot && pointer->x >= close.x && pointer->x < close.x + close.width &&
+                pointer->y >= close.y && pointer->y < close.y + close.height;
+            if (close_hot) rounded(close, palette.high_contrast ? palette.selection : hover, 3);
+            const auto close_ink = close_hot && palette.high_contrast ? palette.selection_text : ink;
+            if (winui) symbol(Symbol::close, close, close_ink, 12);
+            else {
+                const float x = close.x + close.width / 2, y = close.y + close.height / 2;
+                line(x - 4, y - 4, x + 4, y + 4, close_ink);
+                line(x - 4, y + 4, x + 4, y - 4, close_ink);
+            }
+        }
+        if (selected && focus_visible && enabled && b.width > 10 && b.height > 12) {
+            const Rect focus{b.x + 4, top + 3, b.width - 8, b.height - top - 7};
+            if (winui) focus_ring(focus, palette, 2);
+            else rounded(focus, palette.accent, 2, true);
+        }
+        pop_clip();
+    };
+    for (std::size_t i = 0; i < strip.tabs().size(); ++i)
+        if (!is_selected(i)) paint(i, false);
+    if (!strip.tabs().empty()) {
+        float left{}, right{};
+        for (std::size_t i = 0; i < strip.tabs().size(); ++i)
+            if (is_selected(i)) {
+                const auto selected = strip.tab_bounds(i);
+                left = selected.x; right = selected.x + selected.width;
+                break;
+            }
+        // Never paint a baseline under the selected tab: fractional-DPI clips can expose it.
+        const float bottom = std::max(0.0f, bounds.height - 1);
+        if (left > 0) fill({0, bottom, left, 1}, border);
+        if (right < bounds.width) fill({right, bottom, bounds.width - right, 1}, border);
+    }
+    for (std::size_t i = 0; i < strip.tabs().size(); ++i)
+        if (is_selected(i)) paint(i, true);
+}
 void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered,
     const std::shared_ptr<const ImagePixels>& pixels, bool trailing_shortcut_badges, bool command_menu) {
     const auto b = row.bounds;

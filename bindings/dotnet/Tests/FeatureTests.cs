@@ -43,6 +43,17 @@ internal static class FeatureTests
         FluentSetters();
         using (var w = new Window(customTitlebar: true))
         {
+            var tabs = w.TitlebarTabs;
+            var tabColors = new TabColors(0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789);
+            Expect(ReferenceEquals(tabs.SetColors(tabColors), tabs) && tabs.Colors == tabColors);
+            bool invalidColors = false;
+            try { tabs.Colors = tabColors with { Border = 0xff123456 }; }
+            catch (ArgumentOutOfRangeException) { invalidColors = true; }
+            Expect(invalidColors && tabs.Colors == tabColors);
+            tabs.Colors = new(SelectedBackground: 0);
+            Expect(tabs.Colors == new TabColors(SelectedBackground: 0));
+            tabs.Colors = default;
+            Expect(tabs.Colors == default);
             var range = w.RangeInput("Range"); range.Range = new(-10, 10, .5, 2); range.Value = 2.5; Expect(range.Value == 2.5);
             range.Orientation = Axis.Vertical; range.Reversed = true; range.Help("Fine adjustment"); range.TooltipDelay(500);
             int changed = 0; range.Event += _ => ++changed;

@@ -106,10 +106,16 @@ struct Process {
 };
 }
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 2 && argc != 3) return 2;
-    const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--global-focus-events";
-    const bool capture_suggestions = argc == 3 && std::wstring_view(argv[2]) == L"--suggestion-capture";
-    const bool capture_header = argc == 3 && std::wstring_view(argv[2]) == L"--header-capture";
+    if (argc < 2) return 2;
+    bool global_focus_events{}, capture_suggestions{}, capture_header{}, winui{};
+    for (int i = 2; i < argc; ++i) {
+        const std::wstring_view argument(argv[i]);
+        if (argument == L"--global-focus-events") global_focus_events = true;
+        else if (argument == L"--suggestion-capture") capture_suggestions = true;
+        else if (argument == L"--header-capture") capture_header = true;
+        else if (argument == L"--style=winui") winui = true;
+        else { std::cerr << "Unknown explorer smoke option\n"; return 2; }
+    }
     const auto captures = std::filesystem::absolute(argv[1]).parent_path().parent_path() / L"captures";
     const auto folder = std::filesystem::current_path() / (L"explorer-desktop-" + std::to_wstring(GetCurrentProcessId()));
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code ec; std::filesystem::remove_all(path, ec); } } cleanup{folder};
@@ -124,6 +130,7 @@ int wmain(int argc, wchar_t** argv) {
         Process process;
         EnvironmentFixture environment(folder.c_str()), missing_environment(nullptr);
         std::wstring command = L"\"" + std::filesystem::absolute(argv[1]).wstring() + L"\" \"" + folder.wstring() + L"\"";
+        if (winui) command += L" --style=winui";
         STARTUPINFOW startup{sizeof(startup)};
         require(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process.info), "Launch explorer");
         require(wait([&] {
@@ -196,7 +203,9 @@ int wmain(int argc, wchar_t** argv) {
                 for (const auto* action : {L"back", L"forward", L"up", L"refresh"}) {
                     const auto id = std::wstring(side ? L"browser-right-" : L"browser-") + action;
                     const auto b = bounds_of(id.c_str());
-                    require(std::abs((b.top + b.bottom) - (address.top + address.bottom)) <= 2 &&
+                    // WinUI's 6/7-DIP field insets raise the native text center by half a DIP.
+                    const float optical_offset = winui ? dpi_scale : 0;
+                    require(std::abs((b.top + b.bottom) - (address.top + address.bottom) - optical_offset) <= 2 &&
                         b.right <= address.left && b.top > tab.bottom, "Navigation icons and native address share one band");
                 }
             }

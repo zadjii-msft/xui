@@ -330,6 +330,14 @@ void TextInput::set_maximum_length(std::size_t value) {
     invalidate(Invalidation::paint);
 }
 
+void TabStrip::set_colors(TabColors colors) {
+    for (const auto value : {colors.row_background, colors.selected_background, colors.selected_text,
+        colors.inactive_background, colors.inactive_text, colors.hover_background, colors.border})
+        if (value && *value > 0xffffff) throw std::invalid_argument("Tab colors must be 0xRRGGBB values");
+    if (colors_ == colors) return;
+    colors_ = colors;
+    invalidate(Invalidation::paint);
+}
 void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected) {
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         if (!tabs[i].id || tabs[i].id > static_cast<std::uint64_t>(std::numeric_limits<std::intptr_t>::max()) - 100)
@@ -352,6 +360,11 @@ bool TabStrip::select(std::uint64_t id) {
     reveal_selected();
     invalidate(Invalidation::paint);
     if (select_) { auto callback = select_; callback(id); }
+    return true;
+}
+bool TabStrip::activate_tab(std::uint64_t id) {
+    if (!select(id) || selected_ != id || !enabled()) return false;
+    if (activate_) { auto callback = activate_; callback(id); }
     return true;
 }
 void TabStrip::step(int delta) {
@@ -380,6 +393,11 @@ std::optional<std::size_t> TabStrip::hit_test(float x) const {
         if (x >= rect.x && x < rect.x + rect.width) return i;
     }
     return {};
+}
+Rect TabStrip::close_bounds(std::size_t index) const {
+    const auto b = tab_bounds(index);
+    if (!closable() || b.width < 48 || b.height < 24) return {};
+    return {b.x + b.width - 30, (b.height - 24) / 2, 24, 24};
 }
 void TabStrip::reveal_selected() {
     first_ = std::min(first_, tabs_.empty() ? 0 : tabs_.size() - 1);

@@ -11,6 +11,7 @@ The explorer adds these regressions:
 | --- | --- |
 | `xui_explorer_tests` | History commits, failed navigation, tab selection and closure, cancellation, bounded state, UNC roots, long Unicode scans, activation, and injected file associations |
 | `xui_explorer_smoke` | The real explorer, address input, history, keyboard shortcuts, context commands, independent panes, tab providers, divider input, clipping, and resource bounds |
+| `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, empty rows, custom colors, content activation, close targets, focus, and overflow |
 | `xui_suggestion_tests` | Folder prefixes, real and synthetic enumeration limits, deterministic cancellation, native EDIT behavior, popup input, themes, and closure during a blocked request |
 | `xui_split_window_tests` | Eight window cycles with tabs, two lists, native fields, capture cancellation, simulated DPI, target recreation, and final resource disposal |
 

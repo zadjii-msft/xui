@@ -100,11 +100,30 @@ void state_tests() {
 }
 void control_tests() {
     TabStrip tabs;
+    const TabColors custom{0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789};
+    tabs.set_colors(custom);
+    require(tabs.colors() == custom, "Tab color overrides preserve black and all authored channels");
+    bool invalid_colors{};
+    try { auto invalid = custom; invalid.border = 0xff123456; tabs.set_colors(invalid); }
+    catch (const std::invalid_argument&) { invalid_colors = true; }
+    require(invalid_colors && tabs.colors() == custom, "Invalid tab colors are rejected transactionally");
+    tabs.set_colors({});
+    require(tabs.colors() == TabColors{}, "Clearing overrides restores theme-derived tab colors");
     tabs.arrange({0, 0, 420, 38});
     int selected{}, closed{};
     tabs.on_select([&](auto) { ++selected; });
     tabs.on_close([&](auto) { ++closed; });
     tabs.set_tabs({{1, L"First"}, {2, L"Second"}, {3, L"Third"}, {4, L"Fourth"}}, 1);
+    const auto first = tabs.tab_bounds(0), second = tabs.tab_bounds(1);
+    require(first.x + first.width == second.x && first.y == 0 && first.height == tabs.bounds().height,
+        "Tab slots meet and extend to the content edge");
+    for (float height : {24.0f, 38.0f, 41.0f, 56.0f}) {
+        tabs.arrange({0, 0, 420, height});
+        const auto close = tabs.close_bounds(0);
+        require(close.width == 24 && close.y + close.height / 2 == height / 2 &&
+            close.x + close.width <= tabs.tab_bounds(0).width, "Close target is centered within the visible tab");
+    }
+    tabs.arrange({0, 0, 420, 38});
     require(selected == 0, "Tab property updates do not call handlers");
     require(tabs.select(2) && selected == 1, "Tab selection callback");
     tabs.step(-1);
@@ -114,10 +133,32 @@ void control_tests() {
     tabs.request_close(4);
     require(closed == 1, "Close dispatch uses stable identity");
     tabs.set_tabs({{1, L"First"}}, 1);
+    tabs.arrange({0, 0, 47, 38});
+    require(tabs.close_bounds(0).width == 0, "Narrow tabs hide the close target");
+    tabs.arrange({0, 0, 420, 20});
+    require(tabs.close_bounds(0).width == 0, "Short tabs hide the close target");
+    tabs.arrange({0, 0, 420, 38});
+    require(tabs.close_bounds(1).width == 0, "Removed tabs have no close target");
     require(!tabs.select(4), "Removed tab cannot select reused slot");
     bool duplicate{};
     try { tabs.set_tabs({{1, L"A"}, {1, L"B"}}, 1); } catch (const std::invalid_argument&) { duplicate = true; }
     require(duplicate && tabs.tabs().size() == 1, "Invalid tab update is transactional");
+    std::vector<std::wstring> tab_events;
+    tabs.on_select([&](auto) { tab_events.push_back(L"select"); });
+    tabs.on_activate([&](auto) { tab_events.push_back(L"activate"); });
+    tabs.set_tabs({{1, L"First"}, {2, L"Second"}}, 1);
+    require(tabs.activate_tab(2) && tab_events == std::vector<std::wstring>{L"select", L"activate"},
+        "Pointer activation selects before transferring content focus");
+    tab_events.clear();
+    require(tabs.activate_tab(2) && tab_events == std::vector<std::wstring>{L"activate"},
+        "Clicking the selected tab still activates its content");
+    tab_events.clear(); tabs.step(-1);
+    require(tab_events == std::vector<std::wstring>{L"select"}, "Arrow selection does not activate content");
+    tabs.set_enabled(false); tab_events.clear();
+    require(!tabs.activate_tab(1) && tab_events.empty(), "Disabled tabs cannot activate content");
+    tabs.set_enabled(true);
+    tabs.on_select([&](auto) { tabs.set_tabs({{1, L"First"}}, 1); });
+    require(!tabs.activate_tab(2) && tab_events.empty(), "Selection callbacks can revoke a stale activation");
     auto a = std::make_shared<TextInput>(L"A"), b = std::make_shared<TextInput>(L"B");
     SplitView split(a, b);
     split.arrange({10, 20, 1000, 500});

@@ -80,12 +80,51 @@ IDs represent stable tab identities, not display positions. An application must 
 `select`, `step`, and `request_close` share the public action callbacks.
 Property assignment does not call `on_select`. `on_close` requests closure without an automatic data change.
 
+Tab selection and content activation are separate operations.
+C++ hosts use `TabStrip::on_activate` to focus their selected content after a click, Enter, or Space.
+The C ABI reports activation as `XUI_CLICK`. The .NET explorer handles `EventKind.Click` by focusing the file grid.
+Arrow-key selection does not activate content or move focus out of the strip.
+The focus rectangle appears only during keyboard navigation and stays inside the selected tab.
+
+Classic and WinUI tabs have rounded top corners and an open selected bottom edge.
+Inactive tabs share a continuous strip instead of separate button outlines. The close button highlights under the pointer.
+The row inherits its parent background, including unused space after the last tab.
+Empty rows draw no baseline. A populated row's baseline stops at the selected tab, which opens into its content.
+
 The tab strip exposes UIA `Tab`, `TabItem`, `SelectionPattern`, and `SelectionItemPattern`.
 It publishes structure, selection, and focus changes. A removed tab provider rejects later actions.
 `SplitView` exposes a divider through `RangeValuePattern`, with a ratio from 10 to 90 percent.
 The layout also enforces pane minima. A requested ratio can therefore differ from the physical split near the minimum width.
 Native children and custom pixels stay inside their content host.
 Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
+
+### Tab colors
+
+`TabColors` provides optional colors for the row, selected tab, inactive tabs, hover state, and borders.
+Selected and inactive tabs each have separate background and text colors.
+"Selected" identifies the active page, not keyboard focus.
+Each color uses `0xRRGGBB`. Alpha values are not supported.
+Unset colors follow the current theme, and high contrast uses system colors instead of overrides.
+
+```cpp
+xui::TabColors colors;
+colors.selected_background = 0x26465e;
+colors.selected_text = 0xffffff;
+tabs->set_colors(colors); // The row still inherits its parent background.
+tabs->set_colors({});     // Restore theme colors.
+```
+
+The .NET binding provides `TabStrip.Colors` and `SetColors(new TabColors(...))`.
+Nullable fields restore individual theme colors, and `SetColors(default)` clears all overrides.
+Rust provides `TabStrip::set_colors` and `colors`, with `Option<u32>` fields.
+The C ABI provides `xui_tab_set_colors` and `xui_tab_get_colors` in `xui_layout.h`.
+Its versioned record uses a mask to distinguish an unset color from black.
+
+Applications must pair custom backgrounds with readable text colors.
+Explicit colors stay unchanged across theme switches until the application replaces or clears them.
+The gallery's Tabs page includes a **Custom tab colors** toggle.
+
+### File activation
 
 `FileList::on_activate` receives a copied `FileItem` and a `FileActivation` reason.
 The reasons distinguish Enter, double-click, and an application command.

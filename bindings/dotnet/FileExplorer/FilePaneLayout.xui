@@ -9,7 +9,7 @@ component FilePaneLayout {
         Grid($"Pane {Number} layout",
             rows: [new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Star),
                 new(global::Xui.TrackSizing.Fixed, FindOpen ? 56 : 0), new(global::Xui.TrackSizing.Automatic)]) {
-            HStack(spacing: 4, padding: 6) {
+            HStack(spacing: 4, padding: 8) {
                 Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
                 Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
                 Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));

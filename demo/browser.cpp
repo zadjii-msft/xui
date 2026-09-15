@@ -86,7 +86,7 @@ class Browser {
     std::size_t active_{};
 public:
     explicit Browser(const BrowserOptions& options)
-        : window_({L"XUI/Files - " + options.folder.wstring(), {924, 641}, options.theme, {460, 420}}) {
+        : window_({L"XUI/Files - " + options.folder.wstring(), {924, 641}, options.theme, {460, 420}, false, options.visual_style}) {
         auto root = std::make_shared<BrowserRoot>([this] {
             if (active_ && split_ && !split_->expanded()) activate(0);
         });
@@ -143,8 +143,7 @@ private:
         auto& p = *panes_[index];
         const auto prefix = index ? L"browser-right-" : L"browser-";
         const auto id = [&](const wchar_t* value) { return std::wstring(prefix) + value; };
-        p.root->set_spacing(7);
-        p.root->set_padding({4, 0, 4, 0});
+        p.root->set_spacing(0);
         auto tab_row = std::make_shared<Stack>(Axis::horizontal);
         tab_row->set_spacing(2);
         p.tabs->set_automation_id(id(L"tabs"));
@@ -162,6 +161,10 @@ private:
             tab_row->add(theme_button);
         }
         p.root->add(tab_row);
+        auto body = std::make_shared<Stack>(Axis::vertical);
+        body->set_padding({8, 8, 8, 0});
+        body->set_spacing(7);
+        p.root->add(body, 1);
         auto navigation = std::make_shared<Stack>(Axis::horizontal);
         navigation->set_spacing(4);
         p.back = button(L"Back", id(L"back"), [this, index] { travel(index, -1); });
@@ -179,8 +182,8 @@ private:
         }
         auto path_bar = std::make_shared<Stack>(Axis::horizontal); path_bar->set_spacing(4);
         path_bar->add(p.breadcrumb, 1);
-        p.root->add(path_bar);
-        p.root->add(navigation);
+        body->add(path_bar);
+        body->add(navigation);
         p.address->set_name(index ? L"Right folder address" : L"Folder address");
         p.address->set_automation_id(id(L"address"));
         p.address->set_maximum_length(32767);
@@ -243,26 +246,27 @@ private:
         p.search->set_preferred_size({0, 40});
         p.search->set_placeholder(L"Filter this folder");
         p.search->set_shortcut_hint(L"Ctrl+F");
-        p.root->add(p.search);
+        body->add(p.search);
         p.list->set_name(index ? L"Right files" : L"Files");
         p.list->set_automation_id(id(L"files"));
         auto surface = std::make_shared<Stack>(Axis::vertical);
         surface->set_surface(true); surface->set_padding({1, 1, 1, 1});
         surface->add(p.list, 1);
-        p.root->add(surface, 1);
+        body->add(surface, 1);
         p.status->set_caption(true);
         p.status->set_preferred_size({0, 26});
         p.status->set_automation_id(id(L"status"));
         p.status->on_context_menu([this, index] {
             return std::vector<MenuItem>{{L"Copy status details", [this, index] { copy(index, panes_[index]->status->text()); }}};
         });
-        p.root->add(p.status);
+        body->add(p.status);
         p.tabs->on_focus([this, index] { activate(index); });
         p.new_tab->on_focus([this, index] { activate(index); });
         p.address->on_focus([this, index] { activate(index); });
         p.search->on_focus([this, index] { activate(index); });
         p.list->on_focus([this, index] { activate(index); });
         p.tabs->on_select([this, index](auto tab) { switch_tab(index, tab); });
+        p.tabs->on_activate([this, index](auto) { activate(index); window_.focus(*panes_[index]->list); });
         p.tabs->on_close([this, index](auto tab) { close_tab(index, tab); });
         p.address->on_submit([this, index] {
             auto& pane = *panes_[index];

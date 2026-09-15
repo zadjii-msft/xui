@@ -48,6 +48,28 @@ impl ReadOnlyImmutableSource for Million {
 #[test]
 fn all_features_and_bounded_sources() -> Result<()> {
     let w = Window::with_titlebar("Feature tests", 600., 600.)?;
+    let tabs = w.tab_strip("Colored tabs")?;
+    let colors = TabColors {
+        row_background: Some(0x123456),
+        selected_background: Some(0),
+        selected_text: Some(0xffffff),
+        inactive_background: Some(0x234567),
+        inactive_text: Some(0xeeeeee),
+        hover_background: Some(0x345678),
+        border: Some(0x456789),
+    };
+    tabs.set_colors(colors)?;
+    assert_eq!(tabs.colors()?, colors);
+    assert!(
+        tabs.set_colors(TabColors {
+            border: Some(0xff123456),
+            ..colors
+        })
+        .is_err()
+    );
+    assert_eq!(tabs.colors()?, colors);
+    tabs.set_colors(TabColors::default())?;
+    assert_eq!(tabs.colors()?, TabColors::default());
     let range = w.range_input("Range")?;
     range.set_range(NumericRange {
         minimum: -10.,

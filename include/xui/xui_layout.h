@@ -4,6 +4,21 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define XUI_TAB_COLORS_VERSION 0x00010000u
+enum {
+    XUI_TAB_ROW_BACKGROUND = 1u, XUI_TAB_SELECTED_BACKGROUND = 2u, XUI_TAB_SELECTED_TEXT = 4u,
+    XUI_TAB_INACTIVE_BACKGROUND = 8u, XUI_TAB_INACTIVE_TEXT = 16u,
+    XUI_TAB_HOVER_BACKGROUND = 32u, XUI_TAB_BORDER = 64u
+};
+/* Each mask bit enables the corresponding 0xRRGGBB value. Other values must be zero.
+   A zero mask resets all colors to the theme. High contrast ignores overrides. */
+typedef struct xui_tab_colors {
+    uint32_t size, version, mask;
+    uint32_t row_background, selected_background, selected_text;
+    uint32_t inactive_background, inactive_text, hover_background, border;
+} xui_tab_colors;
+XUI_API xui_status XUI_CALL xui_tab_set_colors(xui_handle tabs, const xui_tab_colors* colors) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_tab_get_colors(xui_handle tabs, xui_tab_colors* colors) XUI_NOEXCEPT;
 typedef enum xui_visual_style {
     XUI_STYLE_CLASSIC = 0,
     XUI_STYLE_WINUI = 1
