@@ -129,6 +129,20 @@ dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$P
 & ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe" "D:\Documents"
 ```
 
+If the explorer closes unexpectedly, capture its error output and process exit code:
+
+```powershell
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$errorLog = Join-Path $env:TEMP "xui-file-explorer-error.log"
+$process = Start-Process -FilePath $exe -ArgumentList "`"$PWD`"" -PassThru -Wait -RedirectStandardError $errorLog
+Get-Content $errorLog
+$process.ExitCode
+```
+
+PowerShell can return immediately after it starts a GUI executable.
+`$LASTEXITCODE` alone does not prove that the explorer finished successfully.
+The command above waits until the explorer closes and preserves managed error details.
+
 For markup changes, use restart-on-save:
 
 ```powershell
@@ -226,7 +240,9 @@ For declarative UI integration, build the probe and use matching architecture ar
 cmake --build $build --config Release --target xui xui_language_probe
 .\tests\xui-language.ps1 -NativeDirectory "$build\Release" -RuntimeIdentifier $rid
 .\tests\minesweeper.ps1 -NativeDirectory "$build\Release" -RuntimeIdentifier $rid
-& ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe" --smoke
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer smoke failed with exit code $($process.ExitCode)." }
 ```
 
 Build the C# explorer before its smoke run.

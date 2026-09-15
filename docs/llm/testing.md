@@ -23,6 +23,9 @@ Its optional `--global-focus-events` argument also subscribes to desktop-wide fo
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Command snapshot checks require eager availability evaluation, stable row content, and no action execution during source callbacks.
+The smoke opens and filters Copy/Cut commands with selected entries in both Details and Columns views.
+These checks cover the native callback guard that rejects selection queries from an immutable source callback.
 The checks include multi-selection menus, folder-row copy, empty-area move, nested folder content, and refresh in both panes.
 File rows and panes with obsolete rows must reject drops.
 Native text fields must retain their text clipboard shortcuts.
@@ -74,6 +77,17 @@ It also covers scrollbar geometry and text contrast for both built-in palettes.
 `xui_navigation_window_tests` captures command palettes in Classic and WinUI at 96/144/192 DPI, with dark, light, and high-contrast themes.
 Pixel assertions compare the list background with the padding on all four sides and the gap below the search field.
 The same captures cover row hover colors and the shadow outside the frame.
+
+`xui_generic_popup_window_tests` runs the same executable with `--generic-popup`.
+It covers the FileExplorer layout: a generic Popup with 12-DIP padding, a native TextInput, an eight-DIP gap, and an ItemsView.
+The captures cover Classic and WinUI, both popup backgrounds, dark/light/high-contrast themes, and 96/144/192 DPI.
+A magenta vector fills the area behind the popup, so transparent padding cannot pass through a matching window background.
+Pixel assertions cover all four padding edges, the search gap, unselected rows, rounded corners, the outer shadow, and dismissal.
+The test uses owned-window capture and does not capture the desktop.
+
+One WinRT apartment spans the capture matrix.
+The fixture clears cached capture factories before this apartment closes.
+This prevents stale factory references between separate `Application::run` calls.
 
 `xui_control_tests` covers control state, disabled actions, pointer capture, cancellation, focus traversal, invalidation, Unicode limits, and retained controls.
 It also covers injected text metrics, cached measurement, fixed and automatic sizes, size limits, unbounded flex measurement, scroll reveal, and content ownership.

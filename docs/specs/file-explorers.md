@@ -179,6 +179,9 @@ Both palettes appear at the center of the window, independent of the active pane
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
 The palette frame and results share one background color.
 Command shortcuts use separate keycaps on the right, beside each command title.
+Command rows capture their labels, shortcuts, and enabled state when the palette opens or its query changes.
+Row callbacks read that snapshot without querying native controls.
+The controller checks current availability again before it executes a command.
 Status messages appear only for pending requests, empty results, and errors.
 Keyboard history, completion, acceptance, and dismissal remain available.
 The navigation palette initially shows the children of the current folder.

@@ -2,6 +2,8 @@
 #include "xui/navigation.hpp"
 #include "xui/shell_commands.hpp"
 #include "xui/titlebar.hpp"
+#include "xui/adaptive_layout.hpp"
+#include "xui/vector_canvas.hpp"
 #include "../src/drawing.hpp"
 #include "suggestion_capture.hpp"
 #include "owned_window_capture.hpp"
@@ -137,6 +139,118 @@ void verify_native_print_clip(HWND hwnd) {
     SendMessageW(hwnd, WM_PRINT, reinterpret_cast<WPARAM>(canvas.dc), PRF_CLIENT | PRF_ERASEBKGND);
     require(GetPixel(canvas.dc, bounds.right / 2, bounds.bottom / 2) == color, "Native full print respects popup occlusion");
 }
+template<class F> void eventually(F&& callback, const char* text) {
+    for (int i = 0; i < 500; ++i) { if (callback()) return; Sleep(20); } throw std::runtime_error(text);
+}
+void generic_popup_case(ThemeMode theme, UINT dpi) {
+    std::cout << "Generic popup theme=" << static_cast<int>(theme) << " dpi=" << dpi << std::endl;
+    Window window({L"XUI generic popup pixels", {760, 650}, theme});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto backdrop = std::make_shared<VectorCanvas>(L"Popup backdrop");
+    auto shape = VectorShape::rectangle(1, {0, 0, 2000, 2000});
+    shape.fill = {1, 0, 1, 1}; shape.stroke_width = 0;
+    backdrop->set_scene(std::make_shared<const VectorScene>(std::vector<VectorShape>{shape}));
+    root->add(backdrop, 1); window.set_content(root);
+
+    struct Results final : ItemsSource {
+        std::size_t size() const override { return 3; }
+        ItemKey key(std::size_t row) const override { return {row + 1, 1}; }
+        std::optional<std::size_t> find(ItemKey key) const override {
+            return key.version == 1 && key.id && key.id <= size() ?
+                std::optional<std::size_t>{key.id - 1} : std::nullopt;
+        }
+        ItemContent item(std::size_t) const override { return {L"Folder result"}; }
+    };
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->set_padding({12, 12, 12, 12});
+    auto grid = std::make_shared<Grid>();
+    grid->set_tracks({{TrackSizing::fixed, 44}, {TrackSizing::fixed, 8}, {TrackSizing::star}}, {{TrackSizing::star}});
+    auto editor = std::make_shared<TextInput>(L"Generic palette query");
+    editor->set_caption_visible(false); editor->set_preferred_size({576, 44});
+    auto results = std::make_shared<ItemsView>(L"Generic palette results");
+    results->set_items(std::make_shared<Results>());
+    grid->add(editor, 0, 0); grid->add(results, 2, 0); content->add(grid, 1);
+    auto popup = std::make_shared<Popup>(content, L"Generic palette");
+    popup->set_preferred_size({600, 360}); popup->set_placement(PopupPlacement::center);
+    bool done{}; std::string driver_error;
+    window.on_key([&](const KeyEvent& key) {
+        if (key.key != Key::f12) return false;
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI generic popup pixels");
+        RECT outer{}; GetWindowRect(hwnd, &outer);
+        const auto current = GetDpiForWindow(hwnd);
+        outer.right = outer.left + MulDiv(outer.right - outer.left, dpi, current);
+        outer.bottom = outer.top + MulDiv(outer.bottom - outer.top, dpi, current);
+        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&outer)); flush(hwnd);
+        for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+            window.set_visual_style(style);
+            for (const bool window_background : {true, false}) {
+                popup->set_window_background(window_background);
+                window.show_popup(popup, *backdrop, editor.get()); flush(hwnd);
+                require(editor->focused(), "Generic palette retains native search focus");
+                const auto pixels = owned_window_capture::capture(hwnd);
+                const auto pixel = [&](float x, float y) {
+                    const auto px = static_cast<int>(std::lround(x * dpi / 96));
+                    const auto py = static_cast<int>(std::lround(y * dpi / 96));
+                    require(px >= 0 && py >= 0 && px < pixels.width && py < pixels.height, "Generic popup sample is inside the client");
+                    return pixels.data[py * pixels.width + px] & 0xffffff;
+                };
+                const auto color_value = [](D2D1_COLOR_F color) {
+                    return (static_cast<DWORD>(std::lround(color.r * 255)) << 16) |
+                        (static_cast<DWORD>(std::lround(color.g * 255)) << 8) | static_cast<DWORD>(std::lround(color.b * 255));
+                };
+                const auto palette = Palette::system(theme, style);
+                const auto background = color_value(window_background ? palette.background : palette.surface);
+                const auto bounds = popup->bounds(), rows = results->bounds();
+                for (const auto point : {
+                    Point{bounds.x + bounds.width / 2, bounds.y + 6},
+                    Point{bounds.x + bounds.width / 2, bounds.y + bounds.height - 6},
+                    Point{bounds.x + 6, rows.y + 20},
+                    Point{bounds.x + bounds.width - 6, rows.y + 20},
+                    Point{rows.x + rows.width / 2, rows.y - 4}})
+                    require(pixel(point.x, point.y) == background, "Generic popup padding and search gap have the requested opaque background");
+                const auto row_background = color_value(style == VisualStyle::winui && !window_background ?
+                    palette.surface : palette.background);
+                for (std::size_t row = 0; row < results->source()->size(); ++row) {
+                    const auto item = results->item_bounds(row);
+                    require(pixel(rows.x + rows.width - 30, rows.y + item.y + item.height / 2) == row_background,
+                        "Generic popup unselected rows preserve their style and parent background");
+                }
+                const auto x = bounds.x + bounds.width / 2, bottom = bounds.y + bounds.height;
+                require(pixel(x, bottom + 24) == 0xff00ff, "Generic popup does not paint beyond its shadow");
+                if (style == VisualStyle::winui && !palette.high_contrast) {
+                    require(pixel(x, bottom + 2) < pixel(x, bottom + 18) && pixel(x, bottom + 18) <= 0xff00ff,
+                        "Generic WinUI popup retains a fading shadow outside the opaque frame");
+                    require(pixel(bounds.x + 1, bounds.y + 1) != background,
+                        "Generic WinUI popup retains rounded corners");
+                } else
+                    require(pixel(x, bottom + 2) == 0xff00ff, "Classic and high-contrast generic popups do not add a shadow");
+                window.dismiss_popup(*popup); flush(hwnd);
+                const auto restored = owned_window_capture::capture(hwnd);
+                const auto px = static_cast<int>(std::lround((bounds.x + 6) * dpi / 96));
+                const auto py = static_cast<int>(std::lround((rows.y + 20) * dpi / 96));
+                require((restored.data[py * restored.width + px] & 0xffffff) == 0xff00ff,
+                    "Dismissing the generic popup restores the contrasting underlying content");
+            }
+        }
+        done = true; window.close(); return true;
+    });
+    std::jthread driver([&] {
+        HWND hwnd{};
+        try {
+            eventually([&] { hwnd = FindWindowW(L"Xui.Window.1", L"XUI generic popup pixels"); return hwnd != nullptr; },
+                "Generic popup fixture starts");
+            Sleep(100); PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
+            eventually([&] { return !IsWindow(hwnd); }, "Generic popup captures complete");
+        } catch (const std::exception& error) {
+            driver_error = error.what();
+            if (hwnd) PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+    });
+    const auto result = Application::run(window); driver.join();
+    if (!window.error().empty()) std::wcerr << window.error() << L'\n';
+    require(driver_error.empty() && result == 0 && done,
+        driver_error.empty() ? "Generic popup pixel checks failed" : driver_error.c_str());
+}
 ComPtr<IUIAutomationElement> find(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* id) {
     VARIANT value{}; value.vt = VT_BSTR; value.bstrVal = SysAllocString(id);
     ComPtr<IUIAutomationCondition> condition;
@@ -147,9 +261,6 @@ ComPtr<IUIAutomationElement> find(IUIAutomation* automation, IUIAutomationElemen
 }
 template<class T> ComPtr<T> pattern(IUIAutomationElement* element, PATTERNID id) {
     ComPtr<T> result; success(element->GetCurrentPatternAs(id, IID_PPV_ARGS(&result)), "Get real UIA pattern"); return result;
-}
-template<class F> void eventually(F&& callback, const char* text) {
-    for (int i = 0; i < 500; ++i) { if (callback()) return; Sleep(20); } throw std::runtime_error(text);
 }
 int client(HWND hwnd) {
     success(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Client COM");
@@ -597,6 +708,17 @@ void command_lifecycle(int mode) {
 int wmain(int argc, wchar_t** argv) {
     try {
         if (argc == 3 && std::wstring_view(argv[1]) == L"--uia") return client(reinterpret_cast<HWND>(std::stoull(argv[2])));
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--generic-popup") {
+            // Capture factories must outlive every Application::run apartment in this matrix.
+            winrt::init_apartment(winrt::apartment_type::single_threaded);
+            struct Apartment {
+                ~Apartment() { winrt::clear_factory_cache(); winrt::uninit_apartment(); }
+            } apartment;
+            for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+                for (UINT dpi : {96u, 144u, 192u}) generic_popup_case(theme, dpi);
+            require(Drawing::live_targets() == 0, "Generic popup render targets are released");
+            std::cout << "Generic popup pixel checks passed\n"; return 0;
+        }
         wchar_t executable[32768]{}; GetModuleFileNameW(nullptr, executable, 32768);
         for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
             for (UINT dpi : {96u, 144u, 192u}) navigation_view_case(theme, dpi);

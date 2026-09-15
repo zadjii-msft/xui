@@ -12,6 +12,30 @@ internal static class ExplorerSmoke
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
 
+    private static void CheckCommandSnapshot()
+    {
+        bool enabled = true;
+        int evaluations = 0, executions = 0;
+        var command = new ExplorerCommand("Snapshot command", "Ctrl+T", () => executions++,
+            () => { evaluations++; return enabled; });
+        var commands = new List<ExplorerCommand> { command };
+        var rows = new CommandRows(commands);
+        if (evaluations != 1 || executions != 0)
+            throw new InvalidOperationException("Command rows must evaluate availability once before source callbacks, without executing actions.");
+        enabled = false;
+        commands.Clear();
+        for (int i = 0; i < 3; i++)
+            if (rows.Count != 1 || rows.Find(rows.Key(0)) != 0 ||
+                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true) ||
+                evaluations != 1 || executions != 0)
+                throw new InvalidOperationException("Command source callbacks must read only the captured row snapshot.");
+        var refreshed = new CommandRows([command]);
+        if (refreshed.Item(0).Enabled || evaluations != 2 || command.Enabled)
+            throw new InvalidOperationException("A new snapshot and the live execution guard must see current command availability.");
+        if (new CommandRows([]).Count != 0)
+            throw new InvalidOperationException("An empty command snapshot must contain no rows.");
+    }
+
     private static void ClickFirstTab(FilePaneView pane)
     {
         pane.Tabs.Focus();
@@ -31,6 +55,7 @@ internal static class ExplorerSmoke
             string fixture = Path.Combine(Environment.CurrentDirectory, $".xui-explorer-ui-{Guid.NewGuid():N}");
             try
             {
+                CheckCommandSnapshot();
                 Directory.CreateDirectory(Path.Combine(fixture, "alpha", "child"));
                 Directory.CreateDirectory(Path.Combine(fixture, "beta"));
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
@@ -50,6 +75,12 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.VisibleCount == 4, "Folder rows");
                 await Check(() => app.Left.Model.Active.Path == fixture, "Committed address");
+                await Ui(() =>
+                {
+                    app.Left.Focus();
+                    app.Left.Grid.Navigate(GridNavigation.First);
+                });
+                await CommandPaletteChecks();
                 await Ui(() =>
                 {
                     ulong identity = 0;
@@ -410,6 +441,7 @@ internal static class ExplorerSmoke
                 await Check(() => pane.Columns.ColumnCount == 1 && pane.Model.Active.Path == fixture
                     && pane.SelectedEntry?.FullPath == small && app.FileOpenCount == opens,
                     "Selecting a leaf trims descendants but never launches it");
+                await CommandPaletteChecks();
                 await Ui(() =>
                 {
                     pane.Columns.FocusColumn(0);
@@ -530,6 +562,18 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Check(() => !pane.IsColumns && pane.Grid.Focused, "Command palette Details choice restores grid focus");
             }
+        }
+
+        async Task CommandPaletteChecks()
+        {
+            await Ui(app.Palettes.ShowCommands);
+            foreach (var (query, count) in new[] { ("Copy", 2), ("Cut files", 1), ("no matching commands", 0), ("", app.Commands.Count) })
+            {
+                await Ui(() => app.Palettes.EditQuery(query));
+                await Check(() => app.Palettes.IsOpen && app.Palettes.ResultCount == count
+                    && app.Window.CallbackStatus == 0, "Selection-dependent command rows do not reenter the native window");
+            }
+            await Ui(app.Palettes.Dismiss);
         }
 
         async Task Transfers(string fixture)
