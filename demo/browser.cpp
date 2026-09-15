@@ -266,6 +266,7 @@ private:
         p.search->on_focus([this, index] { activate(index); });
         p.list->on_focus([this, index] { activate(index); });
         p.tabs->on_select([this, index](auto tab) { switch_tab(index, tab); });
+        p.tabs->on_activate([this, index](auto) { activate(index); window_.focus(*panes_[index]->list); });
         p.tabs->on_close([this, index](auto tab) { close_tab(index, tab); });
         p.address->on_submit([this, index] {
             auto& pane = *panes_[index];

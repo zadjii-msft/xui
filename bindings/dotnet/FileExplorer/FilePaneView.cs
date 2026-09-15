@@ -70,6 +70,7 @@ internal sealed class FilePaneView
             if (rendering) return;
             Activate();
             if (e.Kind == EventKind.Selection) SelectTab(e.Value);
+            else if (e.Kind == EventKind.Click) Focus();
             else if (e.Kind == EventKind.Cancel) CloseTab(e.Value);
             else if (e.Kind == EventKind.Action) NewTab();
         };

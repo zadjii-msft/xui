@@ -354,6 +354,11 @@ bool TabStrip::select(std::uint64_t id) {
     if (select_) { auto callback = select_; callback(id); }
     return true;
 }
+bool TabStrip::activate_tab(std::uint64_t id) {
+    if (!select(id) || selected_ != id || !enabled()) return false;
+    if (activate_) { auto callback = activate_; callback(id); }
+    return true;
+}
 void TabStrip::step(int delta) {
     if (tabs_.empty()) return;
     auto found = std::find_if(tabs_.begin(), tabs_.end(), [&](const auto& tab) { return selected_ == tab.id; });

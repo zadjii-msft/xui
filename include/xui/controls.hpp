@@ -307,9 +307,12 @@ public:
     std::optional<std::uint64_t> selected() const { return selected_; }
     void set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected);
     bool select(std::uint64_t id);
+    bool activate_tab(std::uint64_t id);
     void step(int delta);
     void request_close(std::uint64_t id);
     void on_select(std::function<void(std::uint64_t)> callback) { select_ = std::move(callback); }
+    // Pointer clicks and Enter/Space activate after selection, including the already-selected tab.
+    void on_activate(std::function<void(std::uint64_t)> callback) { activate_ = std::move(callback); }
     void on_close(std::function<void(std::uint64_t)> callback) { close_ = std::move(callback); }
     bool closable() const { return bool(close_); }
     Rect tab_bounds(std::size_t index) const;
@@ -321,7 +324,7 @@ private:
     std::vector<TabItem> tabs_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
-    std::function<void(std::uint64_t)> select_, close_;
+    std::function<void(std::uint64_t)> select_, close_, activate_;
 };
 
 // A clipped retained subtree. It adds no renderer or independent message loop.

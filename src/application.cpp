@@ -1311,7 +1311,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const bool pointer = msg.message == WM_LBUTTONDOWN || msg.message == WM_RBUTTONDOWN || msg.message == WM_POINTERDOWN;
             if ((keyboard || pointer) && keyboard_focus_visible != keyboard) {
                 keyboard_focus_visible = keyboard;
-                if (options.visual_style == VisualStyle::winui) invalidate(Invalidation::paint);
+                invalidate(Invalidation::paint);
             }
         }
         if ((msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN) || (msg.hwnd != window && !IsChild(window, msg.hwnd))) return false;
@@ -2216,7 +2216,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (control.role() == ControlRole::tab_strip) {
             const auto& strip = static_cast<TabStrip&>(control);
-            canvas.tab_strip(strip, palette, enabled(peer), peer.surface, peer.tab_pointer);
+            canvas.tab_strip(strip, palette, enabled(peer), peer.surface,
+                control.focused() && keyboard_focus_visible, peer.tab_pointer);
             return;
         }
         if (peer.image) {
@@ -2760,7 +2761,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return 0;
             }
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
-                SetFocus(hwnd);
+                keyboard_focus_visible = false;
+                invalidate(Invalidation::paint);
                 if (auto index = tabs->hit_test(GET_X_LPARAM(lparam) * 96.0f / dpi)) {
                     const auto close = tabs->close_bounds(*index);
                     const auto id = tabs->tabs()[*index].id;
@@ -2768,7 +2770,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (close.width > 0 && x >= close.x && x < close.x + close.width &&
                         y >= close.y && y < close.y + close.height)
                         tabs->request_close(id);
-                    else tabs->select(id);
+                    else tabs->activate_tab(id);
                 }
                 return 0;
             }
@@ -3018,7 +3020,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
             }
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
+                keyboard_focus_visible = true;
+                invalidate(Invalidation::paint);
                 if (wparam == VK_LEFT || wparam == VK_RIGHT) { tabs->step(wparam == VK_LEFT ? -1 : 1); return 0; }
+                if ((wparam == VK_RETURN || wparam == VK_SPACE) && !(lparam & (1LL << 30)) && tabs->selected()) {
+                    tabs->activate_tab(*tabs->selected()); return 0;
+                }
                 if (wparam == VK_DELETE && !(lparam & (1LL << 30)) && tabs->selected()) {
                     tabs->request_close(*tabs->selected()); return 0;
                 }

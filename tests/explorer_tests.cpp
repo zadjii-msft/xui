@@ -134,6 +134,22 @@ void control_tests() {
     bool duplicate{};
     try { tabs.set_tabs({{1, L"A"}, {1, L"B"}}, 1); } catch (const std::invalid_argument&) { duplicate = true; }
     require(duplicate && tabs.tabs().size() == 1, "Invalid tab update is transactional");
+    std::vector<std::wstring> tab_events;
+    tabs.on_select([&](auto) { tab_events.push_back(L"select"); });
+    tabs.on_activate([&](auto) { tab_events.push_back(L"activate"); });
+    tabs.set_tabs({{1, L"First"}, {2, L"Second"}}, 1);
+    require(tabs.activate_tab(2) && tab_events == std::vector<std::wstring>{L"select", L"activate"},
+        "Pointer activation selects before transferring content focus");
+    tab_events.clear();
+    require(tabs.activate_tab(2) && tab_events == std::vector<std::wstring>{L"activate"},
+        "Clicking the selected tab still activates its content");
+    tab_events.clear(); tabs.step(-1);
+    require(tab_events == std::vector<std::wstring>{L"select"}, "Arrow selection does not activate content");
+    tabs.set_enabled(false); tab_events.clear();
+    require(!tabs.activate_tab(1) && tab_events.empty(), "Disabled tabs cannot activate content");
+    tabs.set_enabled(true);
+    tabs.on_select([&](auto) { tabs.set_tabs({{1, L"First"}}, 1); });
+    require(!tabs.activate_tab(2) && tab_events.empty(), "Selection callbacks can revoke a stale activation");
     auto a = std::make_shared<TextInput>(L"A"), b = std::make_shared<TextInput>(L"B");
     SplitView split(a, b);
     split.arrange({10, 20, 1000, 500});

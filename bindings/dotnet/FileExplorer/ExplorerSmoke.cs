@@ -1,7 +1,25 @@
+using System.Runtime.InteropServices;
+
 namespace Xui.FileExplorer;
 
 internal static class ExplorerSmoke
 {
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetFocus();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
+
+    private static void ClickFirstTab(FilePaneView pane)
+    {
+        pane.Tabs.Focus();
+        nint target = GetFocus();
+        if (target == 0 || !pane.Tabs.Focused) throw new InvalidOperationException("The tab peer did not receive native focus.");
+        pane.Address.Focus();
+        SendMessageW(target, 0x0201, 1, (20 << 16) | 12);
+        if (!pane.Grid.Focused || pane.Tabs.Focused)
+            throw new InvalidOperationException("A tab click must focus the file pane, not the tab strip.");
+    }
+
     public static Task Start(ExplorerApplication app)
     {
         return Run();
@@ -46,7 +64,7 @@ internal static class ExplorerSmoke
                 await Until(() => app.Sidebar.View.GetBounds().Width > 0 && app.Sidebar.View.Search.GetBounds().Width > 0);
                 await Check(() => app.Sidebar.IsOpen && app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X,
                     "Alt+F restores navigation and aligned tabs");
-                await Ui(app.Left.Focus);
+                await Ui(() => ClickFirstTab(app.Left));
 
                 float unfilteredHeight = 0;
                 await Ui(() =>
@@ -63,6 +81,12 @@ internal static class ExplorerSmoke
                 await Ui(() => Shortcut(0x54, KeyModifiers.Control));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Tabs.Count == 2 && app.Left.VisibleCount == 4, "Independent new tab");
+                await Ui(() => ClickFirstTab(app.Left));
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Filter == "small" && app.Left.Grid.Focused,
+                    "A pointer tab switch restores its state and focuses its file grid");
+                await Ui(() => Shortcut(0x09, KeyModifiers.Control));
+                await Ready(app.Left);
                 await Ui(() => Shortcut(0x09, KeyModifiers.Control | KeyModifiers.Shift));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Filter == "small" && app.Left.VisibleCount == 1, "Restored tab filter");
@@ -143,6 +167,7 @@ internal static class ExplorerSmoke
                     == app.Right.Root.GetBounds().Y, "The secondary title tabs join their pane");
                 await Check(() => app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X
                     && app.Window.TitlebarSecondaryTabs.GetBounds().Width > 0, "Each split has a pane-aligned tab band");
+                await Ui(() => ClickFirstTab(app.Right));
                 await Ui(() => app.Palettes.ShowNavigation(app.Right));
                 await Check(() => app.Palettes.Bounds == firstPaletteBounds && app.Palettes.StatusHeight > 0,
                     "Second-pane navigation uses the same centered bounds and retains empty-state feedback");

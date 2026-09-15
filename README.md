@@ -134,7 +134,11 @@ The title bar contains a navigation button, independent tab strips for each pane
 Each tab row follows its pane, including splitter and window-size changes.
 The selected tab has rounded top corners and an open bottom edge that joins its pane.
 Inactive tabs share a continuous strip instead of separate button outlines.
-The close button highlights under the pointer. Keyboard focus stays inside the selected tab.
+The close button highlights under the pointer. The keyboard focus rectangle stays inside the selected tab.
+Clicking a tab selects it and moves focus into its file pane, including clicks on the current tab.
+Keyboard users can focus the tab strip and select tabs with the arrow keys.
+Enter or Space moves focus into the selected pane.
+The tab focus rectangle appears only during keyboard navigation.
 The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
@@ -239,6 +243,11 @@ Navigation errors preserve the committed folder and its rows.
 `NavigationSidebar` builds the navigation entries.
 `FileContextMenu` supplies commands for the selected file or folder.
 These classes use explicit model updates rather than a separate MVVM package.
+
+Tab selection and content activation are separate operations.
+C++ hosts use `TabStrip::on_activate` to focus their selected content after a click, Enter, or Space.
+The C ABI reports this activation as `XUI_CLICK`. The .NET explorer handles `EventKind.Click` by focusing the file grid.
+Arrow-key selection does not activate content or move focus out of the tab strip.
 
 This first version does not provide file copy, move, rename, delete, drag-and-drop, or recursive search.
 It does not claim full File Pilot parity.

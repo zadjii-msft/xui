@@ -57,12 +57,21 @@ void run(const std::filesystem::path& captures) {
     card->add(standalone);
     auto content = std::make_shared<Stack>(Axis::vertical); content->set_fixed_size({0, 80}); card->add(content);
     root->add(card);
+    auto editor = std::make_shared<TextInput>(L"Tab content");
+    editor->set_caption_visible(false);
+    root->add(editor);
     window.set_content(root);
     auto tabs = window.titlebar()->tabs();
     window.titlebar()->set_title_visible(false);
     tabs->set_tabs({{1, L"Documents"}, {2, L"Pictures"}, {3, L"A long folder name that must stay within its tab"}}, 2);
     int closed{}; std::uint64_t closed_id{};
     tabs->on_close([&](auto id) { ++closed; closed_id = id; });
+    int activated{}, tab_focus{};
+    tabs->on_focus([&] { ++tab_focus; });
+    tabs->on_activate([&](auto) {
+        ++activated;
+        require(window.focus(*editor), "Tab activation transfers focus to its content");
+    });
     std::exception_ptr failure;
     bool complete{};
     window.on_key([&](const KeyEvent& event) {
@@ -79,7 +88,8 @@ void run(const std::filesystem::path& captures) {
                         rectangle.right = rectangle.left + MulDiv(960, dpi, 96);
                         rectangle.bottom = rectangle.top + MulDiv(440, dpi, 96);
                         SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rectangle));
-                        tabs->set_enabled(true); tabs->set_focused(false);
+                        tabs->set_enabled(true);
+                        require(window.focus(*editor), "Start with focus inside tab content");
                         SendMessageW(tab_peer, WM_MOUSELEAVE, 0, 0);
                         const auto palette = Palette::system(theme, style);
                         for (std::uint64_t selected : {1u, 2u, 3u}) {
@@ -120,6 +130,15 @@ void run(const std::filesystem::path& captures) {
                         require(pixel(pixels, {b.x + close.x + 3, b.y + close.y + 3}, dpi) ==
                             rgb(palette.high_contrast ? palette.selection : palette.hover), "Close hover paints only its target");
                         const auto before = closed;
+                        const auto before_activation = activated, before_focus = tab_focus;
+                        SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON, at(inactive.x + 12, 20));
+                        require(tabs->selected() == 1 && editor->focused() && !tabs->focused() &&
+                            activated == before_activation + 1 && tab_focus == before_focus,
+                            "Clicking another tab focuses content without transient tab focus");
+                        SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON, at(inactive.x + 12, 20));
+                        require(editor->focused() && activated == before_activation + 2 && tab_focus == before_focus,
+                            "Clicking the current tab reactivates content without tab focus");
+                        tabs->select(2);
                         SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON, at(close.x + 12, 1));
                         require(closed == before, "The top of a tab is not part of its close button");
                         SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON, at(close.x + 12, close.y + 12));
@@ -137,6 +156,17 @@ void run(const std::filesystem::path& captures) {
                         const auto focused = tabs->tab_bounds(2);
                         require(pixel(pixels, {b.x + focused.x + 28, b.y + b.height - 0.5f}, dpi) == rgb(palette.background),
                             "The focus ring does not close the attached bottom edge");
+                        const Point ring{b.x + focused.x + 28, b.y + 5};
+                        require(pixel(pixels, ring, dpi) != rgb(palette.background), "Keyboard tab focus has a visible rectangle");
+                        SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON, at(focused.x + 28, 20));
+                        flush(hwnd); pixels = owned_window_capture::capture(hwnd);
+                        require(editor->focused() && !tabs->focused() && pixel(pixels, ring, dpi) == rgb(palette.background),
+                            "A pointer click removes the keyboard rectangle and returns focus to content");
+                        for (auto key : {VK_RETURN, VK_SPACE}) {
+                            require(window.focus(*tabs), "Focus the strip for keyboard activation");
+                            SendMessageW(tab_peer, WM_KEYDOWN, key, 0);
+                            require(editor->focused() && !tabs->focused(), "Enter and Space focus selected tab content");
+                        }
                     }
             std::vector<TabItem> many;
             for (std::uint64_t id = 1; id <= 16; ++id) many.push_back({id, L"Folder " + std::to_wstring(id)});

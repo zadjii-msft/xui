@@ -70,7 +70,7 @@ public:
     void caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
         bool active, bool enabled, bool hovered, bool pressed, bool focused);
     void tab_strip(const TabStrip& strip, const Palette& palette, bool enabled, bool on_surface,
-        std::optional<Point> pointer = {});
+        bool focus_visible, std::optional<Point> pointer = {});
     void heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F color);
     void text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool small_text = false);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout(std::wstring_view value, TextStyle style, Size& measured,

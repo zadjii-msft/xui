@@ -68,7 +68,7 @@ void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const 
     else if (!visual.image_path.empty()) icon(bounds, ink, false);
 }
 void Drawing::tab_strip(const TabStrip& strip, const Palette& palette, bool enabled, bool on_surface,
-    std::optional<Point> pointer) {
+    bool focus_visible, std::optional<Point> pointer) {
     const auto bounds = strip.bounds();
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const bool winui = palette.style == VisualStyle::winui;
@@ -109,7 +109,7 @@ void Drawing::tab_strip(const TabStrip& strip, const Palette& palette, bool enab
                 line(x - 4, y + 4, x + 4, y - 4, close_ink);
             }
         }
-        if (selected && strip.focused() && enabled && b.width > 10 && b.height > 12) {
+        if (selected && focus_visible && enabled && b.width > 10 && b.height > 12) {
             const Rect focus{b.x + 4, top + 3, b.width - 8, b.height - top - 7};
             if (winui) focus_ring(focus, palette, 2);
             else rounded(focus, palette.accent, 2, true);
