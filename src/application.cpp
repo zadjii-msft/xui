@@ -1651,6 +1651,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto popup_background = entry.popup->window_background() ? palette.background : palette.surface;
                     if (!entry.commands && palette.style == VisualStyle::classic) drawing.fill(bounds, popup_background);
                     const float radius = entry.commands || palette.style == VisualStyle::winui ? 8.0f : 4.0f;
+                    if (entry.commands) drawing.rounded(frame, palette.surface, radius);
                     paint_content_surface(entry.popup);
                     if (entry.dialog && palette.style == VisualStyle::winui) {
                         const auto footer = entry.dialog->footer_bounds();

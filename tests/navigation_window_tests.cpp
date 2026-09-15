@@ -76,7 +76,7 @@ void verify_caption(HWND hwnd, const TitleBar& caption, ThemeMode theme, UINT dp
     SendMessageW(close, WM_NCMOUSELEAVE, 0, 0);
     require(!caption.close()->hovered(), "Nonclient leave clears caption hover");
 }
-void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi, Point hovered) {
+void capture_palette(HWND hwnd, Rect popup, Rect menu, ThemeMode theme, VisualStyle style, UINT dpi, Point hovered) {
     const auto pixels = owned_window_capture::capture(hwnd);
     const auto pixel = [&](float x, float y) {
         const auto px = static_cast<int>(std::lround(x * dpi / 96));
@@ -89,13 +89,25 @@ void capture_palette(HWND hwnd, Rect popup, ThemeMode theme, UINT dpi, Point hov
         const auto inner_shadow = pixel(x, bottom + 2), outer_shadow = pixel(x, bottom + 18), outside = pixel(x, bottom + 24);
         require(inner_shadow < outer_shadow && outer_shadow <= outside, "Live popup shadow fades outside the frame without a hard gutter");
     }
-    const auto hover_color = Palette::system(theme).hover;
-    const DWORD expected = (static_cast<DWORD>(std::lround(hover_color.r * 255)) << 16) |
-        (static_cast<DWORD>(std::lround(hover_color.g * 255)) << 8) | static_cast<DWORD>(std::lround(hover_color.b * 255));
-    require(pixel(hovered.x, hovered.y) == expected, "The pointed command row paints the theme hover color");
+    const auto color_value = [](D2D1_COLOR_F color) {
+        return (static_cast<DWORD>(std::lround(color.r * 255)) << 16) |
+            (static_cast<DWORD>(std::lround(color.g * 255)) << 8) | static_cast<DWORD>(std::lround(color.b * 255));
+    };
+    const auto palette = Palette::system(theme, style);
+    require(pixel(hovered.x, hovered.y) == color_value(palette.hover), "The pointed command row paints the theme hover color");
+    const auto background = color_value(palette.surface);
+    require(pixel(menu.x + 2, menu.y + 2) == background, "Command list uses the surface background");
+    for (const auto point : {
+        Point{popup.x + popup.width / 2, popup.y + 6},
+        Point{popup.x + popup.width / 2, popup.y + popup.height - 6},
+        Point{popup.x + 6, menu.y + 2},
+        Point{popup.x + popup.width - 6, menu.y + 2},
+        Point{menu.x + 2, menu.y - 6}})
+        require(pixel(point.x, point.y) == background, "Palette padding is opaque and matches the command list background");
     const auto directory = std::filesystem::path(L"navigation-captures");
     std::filesystem::create_directories(directory);
-    const auto path = directory / (L"palette-live-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp");
+    const auto path = directory / (L"palette-live-" + std::to_wstring(static_cast<int>(style)) + L"-" +
+        std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp");
     BITMAPINFOHEADER info{sizeof(BITMAPINFOHEADER), pixels.width, -pixels.height, 1, 32, BI_RGB};
     BITMAPFILEHEADER header{}; header.bfType = 0x4d42; header.bfOffBits = sizeof(header) + sizeof(info);
     header.bfSize = header.bfOffBits + static_cast<DWORD>(pixels.data.size() * sizeof(DWORD));
@@ -319,9 +331,17 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
             flush(hwnd);
             require(surface->editor()->focused() && surface->menu()->selection().focused() == ItemKey{1, 1},
                 "Mouse hover preserves search focus and keyboard selection");
-            const auto menu_bounds = surface->menu()->bounds();
-            capture_palette(hwnd, surface->popup()->bounds(), theme, dpi,
-                {menu_bounds.x + 100, menu_bounds.y + hover_row.y + 4});
+            for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+                window.set_visual_style(style); flush(hwnd);
+                const auto menu_bounds = surface->menu()->bounds();
+                const auto row = surface->menu()->item_bounds(4);
+                SendMessageW(child(hwnd, L"Native command rows"), WM_MOUSEMOVE, 0,
+                    MAKELPARAM(static_cast<int>(200 * dpi / 96), static_cast<int>((row.y + 10) * dpi / 96)));
+                flush(hwnd);
+                capture_palette(hwnd, surface->popup()->bounds(), menu_bounds, theme, style, dpi,
+                    {menu_bounds.x + 200, menu_bounds.y + row.y + 10});
+            }
+            window.set_visual_style(VisualStyle::classic); flush(hwnd);
             SendMessageW(rows_hwnd, WM_MOUSELEAVE, 0, 0); flush(hwnd);
             require(!surface->menu()->hovered(), "Leaving command rows clears pointer hover");
             SendMessageW(search, WM_CHAR, L'n', 0); flush(hwnd);

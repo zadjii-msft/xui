@@ -60,6 +60,10 @@ Image assertions use owned pixel bytes and controlled bitmap estimates, not proc
 It uses explicit assertions that remain active in Release builds.
 It also covers scrollbar geometry and text contrast for both built-in palettes.
 
+`xui_navigation_window_tests` captures command palettes in Classic and WinUI at 96/144/192 DPI, with dark, light, and high-contrast themes.
+Pixel assertions compare the list background with the padding on all four sides and the gap below the search field.
+The same captures cover row hover colors and the shadow outside the frame.
+
 `xui_control_tests` covers control state, disabled actions, pointer capture, cancellation, focus traversal, invalidation, Unicode limits, and retained controls.
 It also covers injected text metrics, cached measurement, fixed and automatic sizes, size limits, unbounded flex measurement, scroll reveal, and content ownership.
 `xui_scroll_tests` covers DirectWrite measurements, narrow windows, native viewport clipping, UIA bounds, offscreen state, native keyboard input, and focus reveal.
