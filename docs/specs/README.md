@@ -11,6 +11,7 @@ The root [README](../../README.md) introduces the framework.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
 - [Button styles and color resources](control-styling.md): Reusable styles, state rules, declarative authoring, and binding contracts.
+- [Control styling inventory](control-styling-inventory.md): Target properties, visual parts, states, and native-content boundaries across the control catalog.
 
 ## Control contracts
 
