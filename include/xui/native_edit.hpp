@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xui/core.hpp"
+#include "xui/controls.hpp"
 #include <windows.h>
 #include <string>
 
@@ -25,6 +26,8 @@ public:
     bool composing() const { return composing_; }
     std::wstring text() const;
     void focus(bool select_all = false);
+    TextInput::Selection selection() const;
+    void set_selection(TextInput::Selection value);
     void sync_suggestions(TextInput& input);
     void text_changed();
     void dismiss_suggestions();
@@ -37,6 +40,8 @@ public:
 private:
     void update_font(UINT dpi);
     std::wstring font_family_{L"Segoe UI"};
+    void require_live_thread() const;
+    void delete_previous_word();
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     HWND window_{};
     HFONT font_{};
@@ -48,6 +53,8 @@ private:
     std::optional<Insets> insets_;
     std::unique_ptr<SuggestionPeer> suggestions_;
     bool setting_text_{};
+    TextInput* input_{};
+    std::shared_ptr<int> lifetime_{std::make_shared<int>(0)};
     std::function<void()> failure_;
 };
 

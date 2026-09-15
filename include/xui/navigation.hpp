@@ -12,6 +12,7 @@ struct NavigationItem {
     std::wstring keywords, badge;
     bool enabled{true}, selectable{true}, expanded{true};
     NavigationSection section{NavigationSection::main};
+    std::wstring image_path;
 };
 
 class NavigationView;
@@ -71,6 +72,8 @@ public:
     const std::shared_ptr<NavigationList>& footer_items() const { return footer_; }
     void set_search_visible(bool value);
     bool search_visible() const { return search_visible_; }
+    void set_header_visible(bool value);
+    bool header_visible() const { return header_visible_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
@@ -92,7 +95,7 @@ private:
     std::wstring filter_;
     std::size_t matches_{};
     float expanded_width_{280}, collapsed_width_{64};
-    bool expanded_{true}, search_visible_{true};
+    bool expanded_{true}, search_visible_{true}, header_visible_{true};
     std::shared_ptr<Button> toggle_;
     std::shared_ptr<Label> title_, empty_;
     std::shared_ptr<TextInput> search_;

@@ -24,6 +24,125 @@ HWND native(HWND root, const wchar_t* name) {
     }, reinterpret_cast<LPARAM>(&search));
     require(search.result != nullptr, "Owned native peer exists"); return search.result;
 }
+void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode theme, UINT dpi) {
+    struct Commands final : ItemsSource {
+        std::size_t size() const override { return 3; }
+        ItemKey key(std::size_t row) const override { return {row + 1, 1}; }
+        std::optional<std::size_t> find(ItemKey key) const override {
+            return key.version == 1 && key.id && key.id <= size() ? std::optional{std::size_t(key.id - 1)} : std::nullopt;
+        }
+        ItemContent item(std::size_t row) const override {
+            if (row == 0) return {L"New tab", L"Ctrl+T"};
+            if (row == 1) {
+                ItemContent item{L"Previous tab", L"Ctrl+Shift+Tab"}; item.enabled = false; return item;
+            }
+            return {L"No shortcut"};
+        }
+    };
+    auto items = std::make_shared<ItemsView>(L"Shortcut rows");
+    items->set_items(std::make_shared<Commands>());
+    items->set_item_size({180, 56});
+    require(!items->trailing_shortcut_badges(), "Ordinary items retain subtitle presentation by default");
+    items->set_trailing_shortcut_badges(true);
+    auto status = std::make_shared<Label>(L"Status");
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->set_padding({12, 12, 12, 12}); content->add(items, 1); content->add(status);
+    auto popup = std::make_shared<Popup>(content);
+    popup->set_preferred_size({440, 280}); popup->set_placement(PopupPlacement::center);
+    require(!popup->window_background(), "Ordinary popups keep their raised surface by default");
+    window.show_popup(popup, anchor, items.get()); flush(hwnd);
+    const auto palette = Palette::system(theme);
+    const auto color = [](D2D1_COLOR_F value) {
+        return RGB(int(value.r * 255 + .5f), int(value.g * 255 + .5f), int(value.b * 255 + .5f));
+    };
+    struct Snapshot {
+        HDC dc{};
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        ~Snapshot() {
+            if (previous) SelectObject(dc, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (dc) DeleteDC(dc);
+        }
+    } snapshot;
+    RECT host{}; require(GetWindowRect(hwnd, &host) != FALSE, "Read owned palette host bounds");
+    POINT client{}; require(ClientToScreen(hwnd, &client) != FALSE, "Read owned palette client origin");
+    BITMAPINFO info{};
+    info.bmiHeader = {sizeof(BITMAPINFOHEADER), host.right - host.left, -(host.bottom - host.top), 1, 32, BI_RGB};
+    snapshot.dc = CreateCompatibleDC(nullptr); require(snapshot.dc != nullptr, "Create palette snapshot context");
+    void* pixels{};
+    snapshot.bitmap = CreateDIBSection(snapshot.dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    require(snapshot.bitmap != nullptr, "Create palette snapshot bitmap");
+    snapshot.previous = SelectObject(snapshot.dc, snapshot.bitmap);
+    LRESULT captured_paint = -1;
+    const auto sample = [&](float x, float y) {
+        if (captured_paint != SendMessageW(hwnd, metrics, 0, 0)) {
+            // Capture only this test window, even when another application covers it.
+            require(PrintWindow(hwnd, snapshot.dc, 2) != FALSE, "Capture owned palette pixels");
+            captured_paint = SendMessageW(hwnd, metrics, 0, 0);
+        }
+        const auto pixel = GetPixel(snapshot.dc, int(x * dpi / 96) + client.x - host.left,
+            int(y * dpi / 96) + client.y - host.top);
+        require(pixel != CLR_INVALID, "Palette sample stays inside its host"); return pixel;
+    };
+    const auto frame_color = [&] {
+        const auto b = popup->bounds(); return sample(b.x + 6, b.y + b.height / 2);
+    };
+    const auto result_color = [&] {
+        const auto b = items->bounds(); return sample(b.x + b.width - 20, b.y + b.height - 4);
+    };
+    const auto status_color = [&] {
+        const auto b = status->bounds(); return sample(b.x + b.width - 4, b.y + b.height / 2);
+    };
+    require(frame_color() == color(palette.surface), "Default popup frame retains the raised surface");
+    popup->set_window_background(true); flush(hwnd);
+    require(frame_color() == color(palette.background) && result_color() == frame_color() && status_color() == frame_color(),
+        "Palette frame, results, and status share the window background");
+    const auto b = items->bounds();
+    Drawing measure; measure.initialize(); Size ctrl{}, t{};
+    measure.layout(L"Ctrl", TextStyle::caption, ctrl);
+    measure.layout(L"T", TextStyle::caption, t);
+    const float ctrl_width = std::max(24.0f, ctrl.width + 12), t_width = std::max(24.0f, t.width + 12);
+    const float right = items->item_bounds(0).width - 10;
+    const float first = right - ctrl_width - 4 - t_width;
+    require(first > items->item_bounds(0).width / 2, "Shortcut keycaps occupy the right side of the row");
+    require(sample(b.x + first + 2, b.y + 28) == color(palette.field), "Shortcut keycap has a filled face on the right");
+    const auto ink_in = [&](Rect rect, COLORREF background) {
+        for (float y = rect.y; y < rect.y + rect.height; ++y)
+            for (float x = rect.x; x < rect.x + rect.width; ++x)
+                if (sample(x, y) != background) return true;
+        return false;
+    };
+    require(ink_in({b.x + first - 1, b.y + 20, 3, 16}, color(palette.background)),
+        "Shortcut keycap has a visible outline at fractional DPI");
+    require(ink_in({b.x + 10, b.y + 14, 90, 28}, color(palette.background)), "Command title remains aligned to the left beside trailing keycaps");
+    require(!ink_in({b.x + 10, b.y + 44, 90, 9}, color(palette.background)), "Shortcut is not repeated beneath the title");
+    require(ink_in({b.x + 10, b.y + 2 * 56 + 14, 110, 28}, color(palette.background)), "Commands without shortcuts retain left title alignment");
+    require(!ink_in({b.x + right - 144, b.y + 2 * 56 + 8, 144, 40}, color(palette.background)), "Missing shortcuts leave an empty right keycap column");
+    require(ink_in({b.x + 10, b.y + 56 + 14, 110, 28}, color(palette.background)), "Disabled commands retain a readable title");
+    const auto second = right - t_width;
+    require(sample(b.x + second + 2, b.y + 28) == color(palette.field), "Each shortcut key has a separate filled keycap");
+    require(ink_in({b.x + right - 1, b.y + 20, 2, 16}, color(palette.background))
+        && ink_in({b.x + right - 1, b.y + 56 + 20, 2, 16}, color(palette.background)),
+        "Short and long shortcut groups share the same right edge");
+    require(!ink_in({b.x + 130, b.y + 8, first - 142, 40}, color(palette.background)),
+        "Shortcut keycaps leave a clear gap after the command title");
+    items->select({1, 1}); flush(hwnd);
+    require(sample(b.x + first + 2, b.y + 28) == color(palette.field), "Selected command preserves the keycap face");
+    require(sample(b.x + first - 8, b.y + 28) == color(palette.selection), "Selected command retains selection around keycaps");
+    items->set_trailing_shortcut_badges(false); flush(hwnd);
+    require(items->selection().focused() == ItemKey{1, 1} && items->source()->item(0).secondary == L"Ctrl+T",
+        "Presentation changes preserve selection and accessible shortcut text");
+    items->set_selection({}); flush(hwnd);
+    require(ink_in({b.x + 10, b.y + 30, 90, 22}, color(palette.background)), "Disabling keycaps restores ordinary secondary text");
+    items->set_trailing_shortcut_badges(true);
+    popup->set_preferred_size({180, 280}); flush(hwnd);
+    require(frame_color() == color(palette.background) && result_color() == frame_color(),
+        "Narrow shortcut rows remain clipped inside the palette");
+    popup->set_window_background(false); flush(hwnd);
+    require(frame_color() == color(palette.surface) && status_color() == frame_color(), "Background changes update existing popup children");
+    window.dismiss_popup(*popup); flush(hwnd);
+}
 template<class T> ComPtr<T> pattern(IUIAutomationElement* element, PATTERNID id) {
     ComPtr<T> value; success(element->GetCurrentPatternAs(id, IID_PPV_ARGS(&value)), "Read collection UIA pattern"); return value;
 }
@@ -119,7 +238,7 @@ void automation(HWND hwnd) {
     while (IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
     require(!IsWindow(hwnd) && FAILED(selected->Select()), "Retained UIA child rejects actions after owner teardown");
 }
-void run(ThemeMode theme, UINT dpi) {
+void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
     Window window({L"XUI collection contracts", {920, 760}, theme});
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_spacing(6); root->set_padding({10, 10, 10, 10});
     auto source = std::make_shared<Items>();
@@ -148,6 +267,12 @@ void run(ThemeMode theme, UINT dpi) {
     });
     grid->on_sort([&](auto, auto) { ++sorts; });
     window.set_content(root);
+    const auto check_palette = [&](HWND hwnd) {
+        // PrintWindow also prints native EDIT children; isolate the palette geometry capture.
+        overlay_edit->set_visible(false); edit->set_visible(false); flush(hwnd);
+        palette_appearance(window, hwnd, *anchor, theme, dpi);
+        overlay_edit->set_visible(true); edit->set_visible(true); flush(hwnd);
+    };
     std::atomic<bool> native_done{}, driver_done{}, driver_exited{}; std::wstring driver_error;
     std::optional<GridFilterRequest> closing_filter;
     std::optional<TreeRequest> closing_tree;
@@ -164,6 +289,10 @@ void run(ThemeMode theme, UINT dpi) {
         RECT rect{}; GetWindowRect(hwnd, &rect); const auto actual = GetDpiForWindow(hwnd);
         rect.right = rect.left + MulDiv(rect.right - rect.left, dpi, actual); rect.bottom = rect.top + MulDiv(rect.bottom - rect.top, dpi, actual);
         SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect)); flush(hwnd);
+        if (palette_only) {
+            check_palette(hwnd);
+            native_done = true; driver_done = true; window.close(); return true;
+        }
         const auto items_hwnd = native(hwnd, L"Items"), tree_hwnd = native(hwnd, L"Tree"), grid_hwnd = native(hwnd, L"Table");
         require(window.focus(*items), "Owned items receive native focus");
         SendMessageW(items_hwnd, WM_KEYDOWN, VK_HOME, 0); SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0);
@@ -219,6 +348,7 @@ void run(ThemeMode theme, UINT dpi) {
         require(SendMessageW(hwnd, metrics, 14, 0) <= peer_count + 2 &&
             GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) <= gdi + 2 && GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) <= user + 3,
             "Repeated virtual scroll and popup cycles keep peers and GDI bounded");
+        check_palette(hwnd);
         auto lazy = std::make_shared<TreeView>(L"Popup lazy tree"); lazy->set_tree(std::make_shared<Tree>());
         std::optional<TreeRequest> pending;
         lazy->on_request([&](TreeRequest request) { pending = request; });
@@ -247,6 +377,7 @@ void run(ThemeMode theme, UINT dpi) {
         PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
         while (!native_done && IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
         if (!native_done) { driver_error = L"Native phase failed"; PostMessageW(hwnd, WM_CLOSE, 0, 0); return; }
+        if (palette_only) return;
         wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);
         std::wstring command = L"\"" + std::wstring(exe) + L"\" --automation " + std::to_wstring(reinterpret_cast<std::uintptr_t>(hwnd));
         STARTUPINFOW startup{sizeof(startup)}; PROCESS_INFORMATION process{};
@@ -268,7 +399,8 @@ void run(ThemeMode theme, UINT dpi) {
     }
     driver.join();
     if (result || !driver_done) std::wcerr << window.error() << L" / " << driver_error << L'\n';
-    require(result == 0 && driver_done, "Native and UIA collection matrix passes");
+    require(result == 0 && driver_done, palette_only ? "Palette appearance matrix passes" : "Native and UIA collection matrix passes");
+    if (palette_only) return;
     require(closing_filter && closing_filter->cancellation.stop_requested() && closing_tree && closing_tree->cancellation.stop_requested(),
         "Actual owner closure cancels filter and child requests");
 }
@@ -278,6 +410,12 @@ int main(int argc, char** argv) {
         if (argc == 3 && std::string_view(argv[1]) == "--automation") { automation(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(std::stoull(argv[2])))); return 0; }
         success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Keep the server apartment alive until retained UIA clients exit");
         struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
+        if (argc == 2 && std::string_view(argv[1]) == "--palette-only") {
+            for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+                for (UINT dpi : {96u, 144u, 192u}) run(theme, dpi, true);
+            require(Drawing::live_targets() == 0, "All palette targets retire");
+            std::cout << "Palette appearance passed across three themes and three DPI scales\n"; return 0;
+        }
         if (argc == 4 && std::string_view(argv[1]) == "--case") { run(static_cast<ThemeMode>(std::stoi(argv[2])), static_cast<UINT>(std::stoul(argv[3]))); return 0; }
         for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast}) for (UINT dpi : {96u, 144u, 192u}) run(theme, dpi);
         require(Drawing::live_targets() == 0, "All collection targets retire");

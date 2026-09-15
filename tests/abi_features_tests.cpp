@@ -1,4 +1,5 @@
 #include "xui/xui.h"
+#include "xui/xui_layout.h"
 #include "xui/foundation.hpp"
 #include <windows.h>
 #include <cassert>
@@ -8,9 +9,13 @@
 #include <thread>
 #include <vector>
 #include <bit>
+#include <source_location>
 namespace {
 unsigned assertions{};
-void expect(bool condition) { if (!condition) std::abort(); ++assertions; }
+void expect(bool condition, const std::source_location where = std::source_location::current()) {
+    if (!condition) { std::cerr << "Feature assertion failed at line " << where.line() << '\n'; std::abort(); }
+    ++assertions;
+}
 void ok(xui_status status) { if (status) { char error[1024]{}; uint32_t size{}; xui_status code{}; xui_error_copy(error,1024,&size,&code); std::cerr.write(error,size); std::cerr << '\n'; } expect(status == 0); }
 xui_string text(const char* v) { return {v, static_cast<uint32_t>(std::strlen(v)), 0}; }
 xui_feature_value value() { xui_feature_value v{}; v.size=sizeof(v); v.version=XUI_FEATURE_VERSION; return v; }
@@ -18,7 +23,7 @@ xui_handle create(xui_handle w,uint32_t kind,xui_handle content=0,xui_handle sec
     xui_feature_options o{sizeof(o),XUI_FEATURE_VERSION,text("Feature"),content,second};
     xui_handle h{};ok(xui_feature_create(w,kind,&o,&h));return h;
 }
-struct Source {unsigned refs{1}, queries{}, items{}; bool fail{}; uint64_t count{1000000}; xui_handle mutation_target{}; bool mutation_blocked{};};
+struct Source {unsigned refs{1}, queries{}, items{}, visuals{}; bool fail{}; uint64_t count{1000000}; xui_handle mutation_target{}; bool mutation_blocked{};};
 void XUI_CALL retain(void* c) {++static_cast<Source*>(c)->refs;}
 void XUI_CALL release(void* c) {--static_cast<Source*>(c)->refs;}
 xui_status XUI_CALL query(void* c,uint32_t op,uint64_t first,uint64_t second,xui_source_row* row) {
@@ -34,9 +39,117 @@ xui_status XUI_CALL query(void* c,uint32_t op,uint64_t first,uint64_t second,xui
 xui_status XUI_CALL secret(void* c,const char* bytes,uint32_t size) {
     *static_cast<bool*>(c)=size==4 && std::memcmp(bytes,"safe",4)==0;return 0;
 }
+xui_status XUI_CALL visual_query(void* context, uint64_t, uint64_t, uint32_t* icon, char*, uint32_t, uint32_t* required) {
+    ++static_cast<Source*>(context)->visuals; *icon = 18; *required = 0; return XUI_OK;
+}
 xui_status XUI_CALL event(void* c,const xui_event* e) { *static_cast<xui_event*>(c)=*e; return 0; }
+xui_status XUI_CALL posted(void* c, uint32_t execute) {
+    auto& counts = *static_cast<std::pair<unsigned, unsigned>*>(c);
+    if (execute) ++counts.first; else ++counts.second;
+    return XUI_OK;
+}
+void explorer_contracts() {
+    static_assert(sizeof(xui_navigation_entry) == 56);
+    static_assert(sizeof(xui_item_visual) == 24);
+    static_assert(sizeof(xui_source_options) == 48);
+    static_assert(sizeof(xui_key_event) == 24);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Explorer primitives"), 600, 400};
+    xui_handle window{}; ok(xui_window_create_features(&options, 1, &window));
+    ok(xui_window_title(window, text("Updated title")));
+    xui_handle tabs{}, leading{}, second{}, again{};
+    ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
+    ok(xui_feature_child(window, 2, &second)); ok(xui_feature_child(window, 0, &again));
+    expect(tabs == again && tabs != second);
+    auto v = value(); ok(xui_feature_get(second, XUI_F_VISIBLE, &v)); expect(!v.first);
+    v = value(); v.first = 1; ok(xui_feature_set(second, XUI_F_VISIBLE, &v));
+    expect(xui_feature_child(window, 3, &again) == XUI_INVALID_ARGUMENT);
+    auto navigation = create(window, XUI_NAVIGATION_VIEW);
+    auto first_pane = create(window, XUI_GRID), second_pane = create(window, XUI_GRID);
+    ok(xui_window_titlebar_layout(window, first_pane, second_pane, 0));
+    expect(xui_window_titlebar_layout(window, first_pane, first_pane, 0) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_titlebar_layout(window, first_pane, second_pane, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_titlebar_layout(window, window, 0, 0) == XUI_WRONG_KIND);
+    xui_handle plain{};
+    ok(xui_window_create_features(&options, 0, &plain));
+    auto foreign_pane = create(plain, XUI_GRID);
+    expect(xui_window_titlebar_layout(window, foreign_pane, second_pane, 0) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_titlebar_layout(plain, foreign_pane, 0, 0) == XUI_WRONG_KIND);
+    ok(xui_window_destroy(plain));
+    ok(xui_navigation_header(navigation, 0));
+    ok(xui_navigation_header(navigation, 1));
+    expect(xui_navigation_header(navigation, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_navigation_header(first_pane, 0) == XUI_WRONG_KIND);
+    auto centered_popup = create(window, XUI_POPUP, create(window, XUI_GRID));
+    ok(xui_popup_placement(centered_popup, 4));
+    expect(xui_popup_placement(centered_popup, 5) == XUI_INVALID_ARGUMENT);
+    expect(xui_popup_placement(first_pane, 4) == XUI_WRONG_KIND);
+    ok(xui_popup_window_background(centered_popup, 1));
+    ok(xui_popup_window_background(centered_popup, 0));
+    expect(xui_popup_window_background(centered_popup, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_popup_window_background(first_pane, 1) == XUI_WRONG_KIND);
+    auto shortcut_items = create(window, XUI_ITEMS_VIEW);
+    ok(xui_items_trailing_shortcut_badges(shortcut_items, 1));
+    ok(xui_items_trailing_shortcut_badges(shortcut_items, 0));
+    expect(xui_items_trailing_shortcut_badges(shortcut_items, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_items_trailing_shortcut_badges(first_pane, 1) == XUI_WRONG_KIND);
+    xui_handle filter_input{};
+    ok(xui_feature_child(navigation, 0, &filter_input));
+    ok(xui_text_input_caption(filter_input, 0));
+    ok(xui_text_input_placeholder(filter_input, text("Search commands")));
+    expect(xui_text_input_caption(filter_input, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_text_input_placeholder(first_pane, text("")) == XUI_WRONG_KIND);
+    float x{}, y{}, width{}, height{};
+    ok(xui_element_bounds(first_pane, &x, &y, &width, &height));
+    expect(width == 0 && height == 0);
+    expect(xui_element_bounds(first_pane, nullptr, &y, &width, &height) == XUI_INVALID_ARGUMENT);
+    expect(xui_element_bounds(window, &x, &y, &width, &height) == XUI_WRONG_KIND);
+    xui_navigation_entry entries[] {
+        {sizeof(xui_navigation_entry), 2, 1, 0, text("Group"), text("")},
+        {sizeof(xui_navigation_entry), 0, 2, 1, text("Home"), text("folder")}
+    };
+    ok(xui_navigation_items(navigation, entries, 2));
+    xui_item_visual visuals[] {{sizeof(xui_item_visual), 18, text("")}, {sizeof(xui_item_visual), 15, text("folder")}};
+    ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
+    visuals[1].size = 0;
+    expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_VERSION_MISMATCH);
+    visuals[1].size = sizeof(xui_item_visual);
+    for (uint32_t icon = 19; icon <= 21; ++icon) {
+        visuals[1].icon = icon;
+        ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
+        auto button_icon = value(); button_icon.first = icon;
+        ok(xui_feature_set(leading, XUI_F_BUTTON_ICON, &button_icon));
+        button_icon = value();
+        ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &button_icon)); expect(button_icon.first == icon);
+    }
+    visuals[1].icon = 22;
+    expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
+    visuals[1].icon = 15;
+    const std::string oversized(32768, 'x');
+    visuals[1].image_path = {oversized.data(), static_cast<uint32_t>(oversized.size()), 0};
+    expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
+    visuals[1].image_path = {"\xc0\xaf", 2, 0};
+    expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
+    ok(xui_navigation_items(navigation, entries, 2));
+    entries[1].parent = 99;
+    expect(xui_navigation_items(navigation, entries, 2) == XUI_INVALID_ARGUMENT);
+    xui_event selection{}; ok(xui_subscribe(navigation, event, &selection));
+    ok(xui_feature_action(navigation, XUI_A_SELECT, 2, 0));
+    expect(selection.kind == XUI_SELECTION && selection.value == 2);
+    v = value(); ok(xui_feature_set(navigation, XUI_F_EXPANDED, &v));
+    ok(xui_feature_get(navigation, XUI_F_EXPANDED, &v)); expect(!v.first);
+    ok(xui_feature_child(navigation, 0, &again));
+    v = value(); ok(xui_feature_get(again, XUI_F_FOCUSED, &v)); expect(!v.first);
+    std::pair<unsigned, unsigned> counts{};
+    std::thread worker([&] { ok(xui_window_post(window, posted, &counts)); }); worker.join();
+    ok(xui_window_close(window)); expect(counts.first == 0 && counts.second == 1);
+    expect(xui_window_post(window, posted, &counts) == XUI_CLOSED);
+    ok(xui_window_destroy(window));
+    expect(xui_window_post(window, posted, &counts) == XUI_INVALID_HANDLE);
+    expect(counts.first == 0 && counts.second == 1);
+}
 }
 int main() {
+    explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);
     static_assert(sizeof(xui_source_row)==2096);
@@ -53,6 +166,12 @@ int main() {
         handles[kind]=create(w,kind,content,second);
     }
     auto range=handles[XUI_RANGE_INPUT];auto v=value();v.a=-10;v.b=10;v.c=0.5;v.d=2;
+    auto split_value=value();split_value.a=.4;
+    ok(xui_feature_set(handles[XUI_SPLIT_VIEW],XUI_F_SPLIT_RATIO,&split_value));
+    split_value=value();ok(xui_feature_get(handles[XUI_SPLIT_VIEW],XUI_F_SPLIT_RATIO,&split_value));
+    expect(std::abs(split_value.a-.4)<.0001);
+    split_value=value();ok(xui_feature_set(handles[XUI_SPLIT_VIEW],XUI_F_SECOND_VISIBLE,&split_value));
+    ok(xui_feature_get(handles[XUI_SPLIT_VIEW],XUI_F_SECOND_VISIBLE,&split_value));expect(!split_value.first);
     ok(xui_feature_set(range,XUI_F_RANGE,&v));v=value();v.a=2.5;ok(xui_feature_set(range,XUI_F_VALUE,&v));
     xui::RangeInput reference;reference.set_range({-10,10,.5,2});reference.set_value(2.5);
     v=value();ok(xui_feature_get(range,XUI_F_VALUE,&v));expect(v.a==reference.value());
@@ -70,6 +189,13 @@ int main() {
     xui_source_options source_options{sizeof(source_options),XUI_FEATURE_VERSION,1000000,&source,query,retain,release};
     xui_handle snapshot{};ok(xui_source_create(w,&source_options,&snapshot));expect(source.refs==2);
     ok(xui_source_attach(handles[XUI_ITEMS_VIEW],snapshot));
+    ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, 1, 0));
+    v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.a && v.first==2);
+    ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, 1, 0));
+    v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.first==3);
+    ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, UINT32_MAX, 0));
+    v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.first==2);
+    v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_OFFSET,&v));expect(v.a>=0);
     ok(xui_feature_action(handles[XUI_ITEMS_VIEW],XUI_A_SELECT_ALL,0,0));expect(source.queries<100);
     v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.b==1);
     uint32_t selected{};ok(xui_collection_contains(handles[XUI_ITEMS_VIEW],999999,7,&selected));expect(selected==1);
@@ -85,6 +211,22 @@ int main() {
     auto replace_view=create(w,XUI_ITEMS_VIEW);ok(xui_source_attach(replace_view,replace_snapshot));
     ok(xui_source_release(replace_snapshot));expect(replace_source.refs==2);
     ok(xui_source_attach(replace_view,empty));expect(replace_source.refs==1);
+    {
+        Source visual_source;
+        auto visual_options = source_options; visual_options.context = &visual_source;
+        xui_handle visual_snapshot{}; ok(xui_source_create_visual(w, &visual_options, visual_query, &visual_snapshot));
+        expect(visual_source.refs == 2);
+        ok(xui_source_attach(replace_view, visual_snapshot)); ok(xui_source_release(visual_snapshot));
+        expect(visual_source.refs == 2 && visual_source.visuals == 0);
+        ok(xui_source_attach(replace_view, empty)); expect(visual_source.refs == 1);
+    }
+    xui_event menu_event{};
+    ok(xui_context_menu_bind(handles[XUI_DATA_GRID], event, &menu_event));
+    expect(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event) == XUI_WRONG_KIND);
+    expect(xui_context_menu_items(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);
+    expect(xui_context_menu_shell_paths(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);
+    expect(xui_context_menu_shell_paths(handles[XUI_ITEMS_VIEW], nullptr, 0) == XUI_WRONG_KIND);
+    ok(xui_context_menu_bind(handles[XUI_DATA_GRID], nullptr, nullptr));
     auto map=handles[XUI_MAP_VIEW];xui_handle token{},newer{};
     ok(xui_map_request(map,&token));ok(xui_map_request(map,&newer));
     expect(xui_map_complete(map,token,nullptr,0)==XUI_CLOSED);ok(xui_map_complete(map,newer,nullptr,0));

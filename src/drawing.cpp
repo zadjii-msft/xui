@@ -59,8 +59,16 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette,
-    bool hovered, bool command_menu) {
+void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink) {
+    if (pixels) {
+        if (image(pixels, bounds)) return;
+        OutputDebugStringW(L"XUI thumbnail: Bitmap upload failed. Drawing the fallback icon.\n");
+    }
+    if (visual.icon != ButtonIcon::none) button_icon(bounds, ink, visual.icon);
+    else if (!visual.image_path.empty()) icon(bounds, ink, false);
+}
+void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered,
+    const std::shared_ptr<const ImagePixels>& pixels, bool trailing_shortcut_badges, bool command_menu) {
     const auto b = row.bounds;
     if (row.navigation) {
         selected = selected || row.selected_descendant;
@@ -71,8 +79,9 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         if (selected) rounded({b.x + 2, b.y + 10, 3, std::max(0.0f, b.height - 20)}, palette.accent, 1.5f);
         const float left = row.compact ? b.x + std::max(0.0f, (b.width - 20) / 2) :
             b.x + 12 + std::min(static_cast<float>(row.depth) * 16, b.width / 3);
-        if (row.content.icon != ButtonIcon::none)
-            button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon);
+        const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
+        if (visual)
+            item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - 20) / 2, 20, 20}, ink);
         else if (row.compact)
             text(row.content.primary.substr(0, 1), {left, b.y, 20, b.height}, ink);
         if (!row.compact) {
@@ -84,7 +93,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
                     palette.style == VisualStyle::winui && (!enabled || !row.content.enabled) ? palette.disabled : palette.secondary, true);
                 right -= badge_width + 6;
             }
-            const float text_left = left + (row.content.icon == ButtonIcon::none ? 0 : 28);
+            const float text_left = left + (visual ? 28 : 0);
             text(row.content.primary, {text_left, b.y, std::max(0.0f, right - text_left), b.height}, ink);
             if (row.expandable) {
                 chevron({b.x + b.width - 33, b.y, 24, b.height}, ink, row.expanded);
@@ -101,7 +110,9 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         return;
     }
     if (row.group && !row.expandable) {
-        text(row.content.primary, {b.x + 10, b.y, std::max(0.0f, b.width - 20), b.height}, palette.secondary, true);
+        const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
+        if (visual) item_visual({row.content.icon, row.content.image_path}, pixels, {b.x + 10, b.y + (b.height - 20) / 2, 20, 20}, palette.secondary);
+        text(row.content.primary, {b.x + (visual ? 38 : 10), b.y, std::max(0.0f, b.width - (visual ? 48 : 20)), b.height}, palette.secondary, true);
         return;
     }
     const auto ink = !enabled || !row.content.enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
@@ -126,12 +137,53 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
         else text(row.expanded ? L"\u25be" : L"\u25b8", {left, b.y, 22, b.height}, ink);
         left += 24;
     }
-    if (row.content.icon != ButtonIcon::none) {
-        button_icon({left, b.y + (b.height - 20) / 2, 20, 20}, ink, row.content.icon); left += 28;
+    if (row.content.icon != ButtonIcon::none || !row.content.image_path.empty()) {
+        const float size = row.content.image_path.empty() ? 20.0f : 24.0f;
+        item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - size) / 2, size, size}, ink); left += size + 8;
     }
     const bool action_visible = !row.content.action.empty() && b.width >= 160;
-    const bool secondary_visible = !row.content.secondary.empty() && b.height >= 48;
-    const float right = b.x + b.width - (action_visible ? 74 : row.content.submenu ? 34 : 10);
+    const bool secondary_visible = !trailing_shortcut_badges && !row.content.secondary.empty() && b.height >= 48;
+    float right = b.x + b.width - (action_visible ? 74 : row.content.submenu ? 34 : 10);
+    if (trailing_shortcut_badges) {
+        const float gap = std::min(12.0f, std::max(0.0f, right - left));
+        const float lane = std::min(144.0f, std::max(0.0f, (right - left - gap) / 2));
+        const float height = std::min(24.0f, std::max(0.0f, b.height - 8));
+        const auto badge_ink = enabled && row.content.enabled ? palette.text : palette.disabled;
+        const std::wstring_view shortcut = row.content.secondary;
+        struct Keycap {
+            Microsoft::WRL::ComPtr<IDWriteTextLayout> label;
+            float width{}, text_width{};
+        };
+        std::vector<Keycap> keys;
+        float total_width{};
+        for (std::size_t start = 0; start < shortcut.size() && total_width + (keys.empty() ? 0 : 4) + 12 < lane;) {
+            auto end = shortcut.find(L'+', start);
+            // A final '+' is the key in shortcuts such as Ctrl++.
+            if (end == std::wstring_view::npos || end == start) end = shortcut.size();
+            auto key = shortcut.substr(start, end - start);
+            while (!key.empty() && key.front() == L' ') key.remove_prefix(1);
+            while (!key.empty() && key.back() == L' ') key.remove_suffix(1);
+            if (!key.empty()) {
+                Size measured{};
+                auto label = layout(key, TextStyle::caption, measured);
+                if (!keys.empty()) total_width += 4;
+                const float key_width = std::min(std::max(24.0f, measured.width + 12), lane - total_width);
+                keys.push_back({std::move(label), key_width, measured.width});
+                total_width += key_width;
+            }
+            start = end == shortcut.size() ? end : end + 1;
+        }
+        float x = right - total_width;
+        for (const auto& key : keys) {
+            const Rect badge{x, b.y + (b.height - height) / 2, key.width, height};
+            rounded(badge, palette.field, 4);
+            rounded(badge, palette.high_contrast ? badge_ink : palette.border, 4, true);
+            const float inset = std::max(6.0f, (key.width - key.text_width) / 2);
+            text_layout(key.label.Get(), {x + inset, badge.y, std::max(0.0f, key.width - 2 * inset), height}, badge_ink);
+            x += key.width + 4;
+        }
+        if (!keys.empty()) right -= total_width + gap;
+    }
     const float width = std::max(0.0f, right - left);
     text(row.content.primary, {left, b.y + 3, width, secondary_visible ? 26 : b.height - 6}, ink);
     if (secondary_visible) text(row.content.secondary, {left, b.y + 27, width, std::max(0.0f, b.height - 30)},
@@ -810,6 +862,18 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
     } else if (icon == ButtonIcon::library) {
         stroke(2, 2, 2, 14); stroke(6, 2, 6, 14); stroke(10, 2, 14, 14);
         stroke(1, 14, 15, 14);
+    } else if (icon == ButtonIcon::history) {
+        brush_->SetColor(color);
+        target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(box.x + box.width / 2, box.y + box.height / 2),
+            box.width * 0.375f, box.height * 0.375f), brush_.Get(), 1.5f);
+        stroke(8, 4, 8, 8); stroke(8, 8, 11, 10);
+    } else if (icon == ButtonIcon::bookmark) {
+        stroke(4, 2, 12, 2); stroke(12, 2, 12, 14); stroke(12, 14, 8, 11);
+        stroke(8, 11, 4, 14); stroke(4, 14, 4, 2);
+    } else if (icon == ButtonIcon::drive) {
+        stroke(4, 3, 12, 3); stroke(12, 3, 14, 9); stroke(14, 9, 14, 13);
+        stroke(14, 13, 2, 13); stroke(2, 13, 2, 9); stroke(2, 9, 4, 3);
+        stroke(2, 9, 14, 9); stroke(10, 11, 12, 11);
     } else if (icon == ButtonIcon::settings) {
         stroke(1, 4, 15, 4); stroke(1, 12, 15, 12);
         stroke(5, 1, 5, 7); stroke(11, 9, 11, 15);

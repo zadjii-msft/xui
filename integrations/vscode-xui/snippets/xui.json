@@ -1,0 +1,71 @@
+{
+  "Component": {
+    "prefix": "component",
+    "body": [
+      "component ${1:Counter} {",
+      "\tstate int ${2:Count} = 0;",
+      "\tview {",
+      "\t\tVStack(spacing: 8, padding: 16) {",
+      "\t\t\tText(\\$\"${2:Count}: {${2:Count}}\", id: \"count\");",
+      "\t\t\tButton(\"Increment\", click: ${3:Increment}, id: \"increment\");",
+      "\t\t}",
+      "\t}",
+      "\tcode csharp {",
+      "\t\tvoid ${3:Increment}() => ${2:Count}++;",
+      "\t}",
+      "}",
+      "$0"
+    ],
+    "description": "Counter component with state, a view, and a C# handler"
+  },
+  "Namespace": {
+    "prefix": "namespace",
+    "body": ["namespace ${1:Demo};", "$0"],
+    "description": "Optional namespace declaration"
+  },
+  "State": {
+    "prefix": "state",
+    "body": "state ${1:int} ${2:Count} = ${3:0};",
+    "description": "Component state with a C# initializer"
+  },
+  "View": {
+    "prefix": "view",
+    "body": ["view {", "\t$0", "}"],
+    "description": "Component view block"
+  },
+  "C# code": {
+    "prefix": "code",
+    "body": ["code csharp {", "\t$0", "}"],
+    "description": "C# members and handlers"
+  },
+  "Vertical stack": {
+    "prefix": "vstack",
+    "body": ["VStack(spacing: ${1:8}, padding: ${2:16}) {", "\t$0", "}"],
+    "description": "Vertical layout"
+  },
+  "Horizontal stack": {
+    "prefix": "hstack",
+    "body": ["HStack(spacing: ${1:8}, padding: ${2:16}) {", "\t$0", "}"],
+    "description": "Horizontal layout"
+  },
+  "Text": {
+    "prefix": "text",
+    "body": "Text(${1:\"Hello\"}, id: \"${2:label}\");",
+    "description": "Text label"
+  },
+  "Button": {
+    "prefix": "button",
+    "body": "Button(\"${1:Increment}\", click: ${2:Increment}, id: \"${3:increment}\");",
+    "description": "Button with a named method handler"
+  },
+  "Toggle": {
+    "prefix": "toggle",
+    "body": "Toggle(\"${1:Enabled}\", checked: ${2:IsEnabled}, change: ${3:OnChanged}, id: \"${4:enabled}\");",
+    "description": "Toggle with state and a named change handler"
+  },
+  "Text input": {
+    "prefix": "textinput",
+    "body": "TextInput(text: ${1:Input}, change: ${2:OnChanged}, submit: ${3:OnSubmit}, id: \"${4:input}\");",
+    "description": "Text input with named change and submit handlers"
+  }
+}

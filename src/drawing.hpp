@@ -75,8 +75,9 @@ public:
         float wrap_width = 0, std::size_t maximum_lines = 0);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
     void cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool numeric);
-    void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette,
-        bool hovered = false, bool command_menu = false);
+    void item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink);
+    void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered = false,
+        const std::shared_ptr<const ImagePixels>& pixels = {}, bool trailing_shortcut_badges = false, bool command_menu = false);
     void push_clip(Rect bounds);
     void pop_clip();
     void origin(float x, float y);

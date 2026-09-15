@@ -60,6 +60,15 @@ public sealed class Stack : Element
 public abstract unsafe class Control : Element
 {
     private Action<UiEvent>? handlers;
+    private Action? focusEntered;
+    public ulong Id => Handle;
+    public bool Focused => Features.Get(this, 42).First != 0;
+    private void OnFocusEvent(UiEvent e) { if (e.Kind == EventKind.FocusEntered) focusEntered?.Invoke(); }
+    public event Action FocusEntered
+    {
+        add { Window.Guard(); if (focusEntered is null) Event += OnFocusEvent; focusEntered += value; }
+        remove { Window.Guard(); focusEntered -= value; if (focusEntered is null) Event -= OnFocusEvent; }
+    }
     private protected Control(Window window, ulong handle) : base(window, handle) { }
     public string Name { set => Window.Update(new Property(this, PropertyKind.Name, value)); }
     public string AutomationId { set => Window.Update(new Property(this, PropertyKind.AutomationId, value)); }
@@ -87,8 +96,10 @@ public sealed class Label : Control { internal Label(Window w, ulong h) : base(w
 public sealed class Button : Control
 {
     internal Button(Window w, ulong h) : base(w, h) { }
+    public ButtonIcon Icon { get => (ButtonIcon)Features.Get(this, 45).First; set => Features.Set(this, 45, first: (uint)value); }
+    public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
     private Action? clicked;
-    private void OnEvent(UiEvent _) => clicked?.Invoke();
+    private void OnEvent(UiEvent e) { if (e.Kind == EventKind.Click) clicked?.Invoke(); }
     public event Action Click
     {
         add { Window.Guard(); if (clicked is null) Event += OnEvent; clicked += value; }
@@ -100,7 +111,7 @@ public sealed class Toggle : Control
 {
     internal Toggle(Window w, ulong h) : base(w, h) { }
     private Action<bool>? changed;
-    private void OnEvent(UiEvent e) => changed?.Invoke(e.Value != 0);
+    private void OnEvent(UiEvent e) { if (e.Kind == EventKind.Change) changed?.Invoke(e.Value != 0); }
     public event Action<bool> Changed
     {
         add { Window.Guard(); if (changed is null) Event += OnEvent; changed += value; }
@@ -110,7 +121,7 @@ public sealed class Toggle : Control
     public Toggle SetChecked(bool value) { Checked = value; return this; }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
 }
-public sealed class TextInput : Control
+public sealed partial class TextInput : Control
 {
     internal TextInput(Window w, ulong h) : base(w, h) { }
     private Action<string>? changed;

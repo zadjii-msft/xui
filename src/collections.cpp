@@ -180,6 +180,10 @@ public:
         if (!span.group) if (const auto it = messages.find(span.source->key(index)); it != messages.end()) content.secondary = it->second;
         return content;
     }
+    ItemVisual visual(std::size_t row) const override {
+        const auto [span, index] = at(row);
+        return span.group ? ItemVisual{} : span.source->visual(index);
+    }
     ItemHierarchy hierarchy(std::size_t row) const override {
         const auto [span, index] = at(row);
         ItemHierarchy info{span.parent, span.depth, span.group.has_value(), span.group.has_value(), !span.collapsed};

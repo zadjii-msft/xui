@@ -101,6 +101,164 @@ Date/time controls, native suggestion lists, native editor scrollbars, disabled 
 The new style API is C++ only. The C ABI and its binding defaults remain unchanged.
 The [design plan](docs/winui-design-plan.md) describes the remaining stages and measurement requirements.
 
+**Declarative C#:** [The `.xui` language](docs/xui-language.md) compiles UI blocks into retained XUI controls.
+It includes a `dotnet watch` development host and a VS Code syntax package.
+The [engineering plan](docs/xui-language-plan.md) defines the language scope, reload contracts, and acceptance checks.
+The [Minesweeper sample](bindings/dotnet/Minesweeper/README.md) uses `.xui` for a playable game with hot reload.
+
+## C# file explorer
+
+`bindings\dotnet\FileExplorer` contains the C# explorer demo.
+It uses the XUI controls through the public .NET bindings.
+The existing C++ explorer remains available as `xui_demo.exe`.
+
+### Build and run
+
+The demo requires Windows, the .NET 10 SDK, and the Visual Studio C++ build tools.
+Run these commands from a Visual Studio developer shell at the repository root:
+
+```powershell
+cmake -S . -B build\explorer -A ARM64
+cmake --build build\explorer --config Release --target xui
+dotnet build bindings\dotnet\FileExplorer -c Release "-p:XuiNativeDir=$PWD\build\explorer\Release"
+.\bindings\dotnet\FileExplorer\bin\Release\net10.0\win-arm64\FileExplorer.exe "D:\Documents"
+```
+
+Without a folder argument, the demo opens the current directory.
+For an x64 build, use `-A x64` and add `-r win-x64` to the .NET command.
+The native DLL and the .NET application must use the same architecture.
+
+### Explorer controls
+
+The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
+Each tab row follows its pane, including splitter and window-size changes.
+The title bar does not repeat the window title.
+The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
+It has no title header.
+Its filter searches item names and paths.
+The folder tree shows the ancestors and immediate child folders of the active location.
+Selecting a folder updates the tree.
+The collapsed navigation pane is completely hidden.
+The navigation button stays at the left edge of the title bar.
+When navigation is hidden, the first tab starts after that button.
+
+Each pane has its own tabs, navigation history, details view, and Find bar.
+Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
+Each tab retains its folder, filter, sort order, selection, and scroll position.
+Column headers support sorting and width adjustment.
+File and folder rows highlight under the pointer without changing the selection.
+File rows, navigation folders, and navigation-palette results show asynchronous Windows thumbnails or Shell icons.
+Navigation sections also have icons.
+Right-click selects the target row and opens its context menu.
+The XUI menu combines supported Windows Shell commands with folder navigation, bookmarks, and Refresh.
+It uses the same styled native context menu as the gallery's Menus and confirmation page, not a `CommandSurface` popup.
+Shell commands still run through their original Windows handlers.
+The Show Windows menu... item opens the full native menu for extension-specific content that requires native handling.
+Labeled commands with native bitmaps remain available as text in XUI.
+Native submenus and owner-drawn entries use the Windows menu fallback.
+Open in this pane keeps folder navigation in the demo. Shell Open uses Windows behavior.
+Files omit folder-only commands and duplicate Open actions.
+Selection or source changes cancel pending menu actions instead of changing their target.
+
+The gallery menu shows application commands and a loading message before Shell discovery finishes.
+After the first menu paint, a dedicated STA thread creates the Shell handlers and their native window.
+The UI thread receives command metadata, not COM objects.
+When discovery finishes, the menu replaces the loading message with the discovered commands.
+The replacement retains the gallery appearance and recomputes the native menu dimensions.
+Discovery errors appear in the menu, with the Windows menu fallback still available.
+
+Application commands and the Windows fallback keep their positions when Shell commands appear.
+The menu postpones replacement while a command is highlighted or a mouse button is pressed.
+
+Each opening uses its exact selection and fresh Shell handlers.
+The worker does not reuse commands from a previous file, folder, or opening.
+It retains at most one active request and one pending request, then exits after ten idle seconds.
+Closing the menu cancels its request without waiting for a Shell extension.
+A blocked extension can delay later Shell results, but application commands and cancellation remain available.
+The worker releases its handlers on their STA after the extension returns, and retains the module until that cleanup finishes.
+
+The size column sorts by byte count, not by the formatted text.
+Folder scans and palette suggestions run outside the UI thread.
+Canceled or obsolete requests cannot replace the current view.
+
+| Input | Action |
+| --- | --- |
+| Navigation button | Expand or collapse the navigation pane |
+| Alt+F | Focus the navigation filter |
+| Ctrl+L / address button | Open the navigation palette at the active folder |
+| Up / Down in the palette | Select the previous or next result |
+| Tab in the navigation palette | Insert the selected full path without navigation |
+| Ctrl+Backspace in the navigation palette | Delete the selection or previous word or path component |
+| Enter in the navigation palette | Open the selected result in the active pane |
+| Ctrl+Enter in the navigation palette | Open the selected result in the other pane |
+| Alt+Left / Alt+Right in the palette | Previous or next completed query |
+| Alt+Up in the palette | Show the parent folder |
+| Escape in the palette | Close the palette without navigation |
+| Ctrl+Shift+P | Open the searchable command palette |
+| Ctrl+T / Ctrl+W | Add a tab / close the active tab |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
+| Ctrl+\\ | Show or hide the second pane |
+| F6 | Focus the other pane |
+| Alt+Left / Alt+Right | Previous / next folder in the active tab |
+| Alt+Up / F5 | Parent folder / refresh |
+| Ctrl+F | Show the Find bar at the bottom of the active pane |
+| Escape with Find open | Clear the filter and close the Find bar |
+| Ctrl+D | Add or remove the current folder bookmark |
+| Ctrl+F6 | Switch between dark and light themes |
+
+Both palettes appear at the center of the window, independent of the active pane.
+They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
+The palette frame and results share one background color.
+Command shortcuts use separate keycaps on the right, beside each command title.
+Status messages appear only for pending requests, empty results, and errors.
+Keyboard history, completion, acceptance, and dismissal remain available.
+The navigation palette initially shows the children of the current folder.
+Typed paths support relative paths, quoted paths, environment variables, and UNC paths.
+A partial final component filters the parent folder by name.
+Prefix matches appear before other substring matches.
+Tab completion leaves the caret at the end of the completed path.
+Within a loaded folder, the palette filters its snapshot immediately without a delay or an empty intermediate view.
+For a different folder, the existing rows remain visible but cannot activate until the new scan finishes.
+With no selected result, Enter attempts to open the typed folder.
+Explicit file activation uses the Windows file association, which can run executable files.
+
+### State and implementation
+
+Bookmarks and recents use `%LOCALAPPDATA%\Xui\FileExplorer\state.json`.
+State writes replace the file atomically.
+An unreadable or corrupt state file produces a visible error and disables state writes for that session.
+The demo does not overwrite that file with empty state.
+Navigation errors preserve the committed folder and its rows.
+
+`Models` contains the filesystem services, tab state, history, and persistent state.
+`FilePaneView` connects each pane to its model.
+`PaletteController` handles the two palettes.
+`NavigationSidebar` builds the navigation entries.
+`FileContextMenu` supplies commands for the selected file or folder.
+These classes use explicit model updates rather than a separate MVVM package.
+
+This first version does not provide file copy, move, rename, delete, drag-and-drop, or recursive search.
+It does not claim full File Pilot parity.
+The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
+The details view still exposes all entries from the folder scan.
+
+### Automated checks
+
+Run the model checks without a native DLL:
+
+```powershell
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+After the native and .NET builds, run the window workflow checks:
+
+```powershell
+.\bindings\dotnet\FileExplorer\bin\Release\net10.0\win-arm64\FileExplorer.exe --smoke
+```
+
+The window checks use temporary folders and do not write the normal state file.
+The executable supplies the Windows control manifest. The `dotnet FileExplorer.dll` command does not supply this manifest.
+
 ## Visual milestone
 
 The explorer starts with a dark theme. Its Theme button and Ctrl+F6 switch between dark and light themes.
@@ -264,7 +422,7 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | `DataGrid` | Immutable row sources, stable keys, shared multi-selection, header filters, selection check columns, sorting, resize, reorder, and two-axis scrolling |
 | `HistoryChart` | A fixed 60-sample history, explicit gaps, a numeric scale, and an accessible metric name |
 | `PageView` | Retained pages with one visible content host and no page-selection I/O |
-| `NavigationView` | Nested items, native search, pinned header/footer shortcuts, shared selection, icons, badges, and expanded or collapsed panes (C++ only) |
+| `NavigationView` | Nested items, native search, pinned header/footer shortcuts, shared selection, icons, badges, and expanded or collapsed panes. C# exposes nested entries, search, and expansion. |
 | `ViewTask` | Cancellable source and filter work, latest-generation delivery, and progress counters |
 | `SampleTask` | One background worker, a bounded result slot, periodic or manual requests, pause, and UI-thread delivery |
 | `Image` | Asynchronous WIC file decoding, bounded pixels, shared bitmaps, explicit unload, and accessible image names |

@@ -5,11 +5,13 @@
 #include "suggestion_peer.hpp"
 #include <commctrl.h>
 #include <cmath>
+#include <cwctype>
 
 namespace xui {
 
 NativeEditBridge::NativeEditBridge() = default;
 NativeEditBridge::~NativeEditBridge() {
+    lifetime_.reset();
     suggestions_.reset();
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     if (font_) DeleteObject(font_);
@@ -104,7 +106,54 @@ void NativeEditBridge::focus(bool select_all) {
     if (select_all) SendMessageW(window_, EM_SETSEL, 0, -1);
 }
 
+void NativeEditBridge::require_live_thread() const {
+    if (!window_ || !IsWindow(window_)) throw std::logic_error("The native text input is closed");
+    if (GetWindowThreadProcessId(window_, nullptr) != GetCurrentThreadId())
+        throw std::logic_error("Use the text input's UI thread");
+}
+TextInput::Selection NativeEditBridge::selection() const {
+    require_live_thread();
+    DWORD start{}, end{};
+    SendMessageW(window_, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+    return {start, end};
+}
+void NativeEditBridge::set_selection(TextInput::Selection value) {
+    require_live_thread();
+    if (composing_) throw std::logic_error("Cannot set text selection during IME composition");
+    value = TextInput::normalize_selection(text(), value);
+    SendMessageW(window_, EM_SETSEL, value.start, value.end);
+    SendMessageW(window_, EM_SCROLLCARET, 0, 0);
+}
+void NativeEditBridge::delete_previous_word() {
+    if (!IsWindowEnabled(window_) || (GetWindowLongPtrW(window_, GWL_STYLE) & ES_READONLY)) return;
+    const auto value = text();
+    auto range = TextInput::normalize_selection(value, selection());
+    if (range.start == range.end) {
+        const auto separator = [](wchar_t ch) {
+            return ch == L'\\' || ch == L'/' || ch == L'"' || std::iswspace(ch);
+        };
+        while (range.start && separator(value[range.start - 1])) --range.start;
+        while (range.start && !separator(value[range.start - 1])) --range.start;
+    }
+    if (range.start == range.end) return;
+    set_selection(range);
+    // One native replacement gives EDIT ownership of undo and EN_CHANGE delivery.
+    SendMessageW(window_, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
+}
+
 void NativeEditBridge::sync_suggestions(TextInput& input) {
+    if (input_ != &input) {
+        const std::weak_ptr<int> lifetime = lifetime_;
+        const auto sync = [this, lifetime, &input] {
+            if (lifetime.expired()) throw std::logic_error("The native text input is closed");
+            require_live_thread();
+            if (!composing_ && text() != input.text()) set_model_text(input.text());
+        };
+        input.bind_selection(
+            [this, sync] { sync(); return selection(); },
+            [this, sync](TextInput::Selection value) { sync(); set_selection(value); });
+        input_ = &input;
+    }
     if (input.suggestions() && !suggestions_)
         suggestions_ = std::make_unique<SuggestionPeer>(*this, input);
     if (!input.suggestions()) suggestions_.reset();
@@ -159,6 +208,10 @@ LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wp
     LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept {
     auto& self = *reinterpret_cast<NativeEditBridge*>(data);
     try {
+        if (message == WM_CHAR && wparam == 0x7f) {
+            if (!self.composing_) self.delete_previous_word();
+            return 0;
+        }
         if (message == detail::suggestions_ready) {
             if (self.suggestions_) self.suggestions_->deliver();
             return 0;

@@ -4,9 +4,14 @@ using System.Runtime.CompilerServices;
 internal static class Tests
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
-        try { Run(); FeatureTests.Run(); return 0; }
+        try
+        {
+            if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); }
+            ExplorerTextTests.Run();
+            return 0;
+        }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
     private static int count;
@@ -40,6 +45,15 @@ internal static class Tests
             Assert(ReferenceEquals(toggle, toggle.SetChecked(false)));
             var scroll = w.ScrollView(w.Stack(), "Scroll").SetOffset(0);
             Assert(ReferenceEquals(scroll, scroll.SetOffset(0)));
+            var shortcuts = w.ItemsView("Commands");
+            Assert(ReferenceEquals(shortcuts, shortcuts.SetTrailingShortcutBadges(true).SetTrailingShortcutBadges(false)));
+            var popup = w.Popup("Palette", w.Stack());
+            Assert(ReferenceEquals(popup, popup.SetWindowBackground(true).SetWindowBackground(false)));
+            Task.Run(() =>
+            {
+                Throws<XuiException>(() => shortcuts.SetTrailingShortcutBadges(true));
+                Throws<XuiException>(() => popup.SetWindowBackground(true));
+            }).GetAwaiter().GetResult();
             var image = w.Image("Image").FixedSize(100, 100).Source("");
             Assert(ReferenceEquals(image, image.Source("")));
             Throws<ArgumentException>(() => label.Text = "\0");
@@ -66,6 +80,8 @@ internal static class Tests
             Throws<XuiException>(() => list.Select(99));
             w.Dispose();
             Throws<ObjectDisposedException>(() => _ = label.Text);
+            Throws<ObjectDisposedException>(() => shortcuts.SetTrailingShortcutBadges(true));
+            Throws<ObjectDisposedException>(() => popup.SetWindowBackground(true));
         }
         using (var w = new Window())
         {

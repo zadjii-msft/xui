@@ -3,6 +3,29 @@ using System.Runtime.InteropServices;
 namespace Xui;
 internal static unsafe partial class Native {
 [StructLayout(LayoutKind.Sequential)]
+internal struct NavigationEntry {
+internal uint Size;
+internal uint Flags;
+internal ulong Id;
+internal ulong Parent;
+internal Text Label;
+internal Text Keywords;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ItemVisual {
+internal uint Size;
+internal uint Icon;
+internal Text ImagePath;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct KeyEvent {
+internal uint Size;
+internal uint VirtualKey;
+internal uint Modifiers;
+internal uint Reserved;
+internal ulong Target;
+}
+[StructLayout(LayoutKind.Sequential)]
 internal struct FeatureOptions {
 internal uint Size;
 internal uint Version;
@@ -135,6 +158,16 @@ internal double Latitude;
 internal double Longitude;
 internal Text Name;
 }
+[LibraryImport("xui", EntryPoint = "xui_navigation_items_visual")]
+internal static partial int NavigationItemsVisual(ulong @target, NavigationEntry* @items, ItemVisual* @visuals, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_navigation_items")]
+internal static partial int NavigationItems(ulong @target, NavigationEntry* @items, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_window_title")]
+internal static partial int WindowTitle(ulong @window, Text @title);
+[LibraryImport("xui", EntryPoint = "xui_window_key_handler")]
+internal static partial int WindowKeyHandler(ulong @window, delegate* unmanaged[Cdecl]<nint, KeyEvent*, uint*, int> @callback, nint @context);
+[LibraryImport("xui", EntryPoint = "xui_window_post")]
+internal static partial int WindowPost(ulong @window, delegate* unmanaged[Cdecl]<nint, uint, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_feature_version")]
 internal static partial uint FeatureVersion();
 [LibraryImport("xui", EntryPoint = "xui_capabilities")]
@@ -161,6 +194,8 @@ internal static partial int RichRuns(ulong @target, TextRun* @runs, uint @count)
 internal static partial int PasswordRead(ulong @target, delegate* unmanaged[Cdecl]<nint, byte*, uint, int> @receiver, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_source_create")]
 internal static partial int SourceCreate(ulong @window, SourceOptions* @options, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_source_create_visual")]
+internal static partial int SourceCreateVisual(ulong @window, SourceOptions* @options, delegate* unmanaged[Cdecl]<nint, ulong, ulong, uint*, byte*, uint, uint*, int> @visual, ulong* @result);
 [LibraryImport("xui", EntryPoint = "xui_source_attach")]
 internal static partial int SourceAttach(ulong @target, ulong @source);
 [LibraryImport("xui", EntryPoint = "xui_source_release")]
@@ -189,6 +224,14 @@ internal static partial int GridFilter(ulong @target, uint @source_column, Text 
 internal static partial int GridSort(ulong @target, uint @source_column, uint @descending);
 [LibraryImport("xui", EntryPoint = "xui_grid_check")]
 internal static partial int GridCheck(ulong @target, ulong @id, ulong @version, uint @checked);
+[LibraryImport("xui", EntryPoint = "xui_context_menu_bind")]
+internal static partial int ContextMenuBind(ulong @target, delegate* unmanaged[Cdecl]<nint, Event*, int> @callback, nint @context);
+[LibraryImport("xui", EntryPoint = "xui_context_menu_items")]
+internal static partial int ContextMenuItems(ulong @target, CommandRecord* @commands, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_context_menu_shell_paths")]
+internal static partial int ContextMenuShellPaths(ulong @target, Text* @paths, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_context_menu_presentation")]
+internal static partial int ContextMenuPresentation(ulong @target, uint @presentation);
 [LibraryImport("xui", EntryPoint = "xui_commands_set")]
 internal static partial int CommandsSet(ulong @target, CommandRecord* @commands, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_command_invoke")]

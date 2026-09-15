@@ -1,0 +1,215 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "XUI",
+  "scopeName": "source.xui",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#namespace" },
+    { "include": "#component" },
+    { "include": "#keywords" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.xui",
+          "begin": "//",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.xui" } },
+          "end": "$"
+        },
+        {
+          "name": "comment.block.xui",
+          "begin": "/\\*",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.xui" } },
+          "end": "\\*/",
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.xui" } }
+        }
+      ]
+    },
+    "namespace": {
+      "name": "meta.namespace.xui",
+      "begin": "\\bnamespace\\b",
+      "beginCaptures": { "0": { "name": "keyword.other.namespace.xui" } },
+      "end": ";",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.namespace.xui" },
+        { "match": "\\.", "name": "punctuation.accessor.xui" }
+      ]
+    },
+    "component": {
+      "name": "meta.component.xui",
+      "begin": "\\bcomponent\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.component.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#component-body" },
+        { "match": "[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.component.xui" }
+      ]
+    },
+    "component-body": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+      "end": "(?=\\})",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#state" },
+        { "include": "#view" },
+        { "include": "#code" },
+        { "include": "#keywords" }
+      ]
+    },
+    "state": {
+      "name": "meta.state.xui",
+      "begin": "\\bstate\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.state.xui" } },
+      "end": ";",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#initializer" },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:/\\*(?:[^*]|\\*(?!/))*\\*/\\s*)*(?:=|;))",
+          "name": "variable.other.readwrite.state.xui"
+        },
+        { "include": "source.cs#type" }
+      ]
+    },
+    "initializer": {
+      "begin": "=",
+      "beginCaptures": { "0": { "name": "keyword.operator.assignment.xui" } },
+      "end": "(?=;)",
+      "contentName": "meta.embedded.expression.csharp",
+      "patterns": [{ "include": "#expression" }]
+    },
+    "view": {
+      "name": "meta.view.xui",
+      "begin": "\\bview\\b",
+      "beginCaptures": { "0": { "name": "keyword.other.view.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [{ "include": "#node-content" }]
+        }
+      ]
+    },
+    "nodes": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [{ "include": "#node-content" }]
+    },
+    "node-content": {
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput)\\b",
+          "name": "support.class.node.xui"
+        },
+        { "include": "#keywords" },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+          "name": "entity.name.tag.xui"
+        },
+        { "include": "#arguments" },
+        { "include": "#nodes" },
+        { "match": ";", "name": "punctuation.terminator.statement.xui" }
+      ]
+    },
+    "arguments": {
+      "name": "meta.arguments.xui",
+      "begin": "\\(",
+      "beginCaptures": { "0": { "name": "punctuation.section.arguments.begin.xui" } },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
+      "contentName": "meta.embedded.expression.csharp",
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(:)(?!:)",
+          "captures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          }
+        },
+        { "include": "#expression" }
+      ]
+    },
+    "expression": {
+      "patterns": [
+        { "include": "#expression-braces" },
+        { "include": "#expression-parentheses" },
+        { "include": "#expression-brackets" },
+        { "include": "source.cs#expression" }
+      ]
+    },
+    "expression-braces": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.curlybrace.open.cs" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.curlybrace.close.cs" } },
+      "patterns": [
+        { "include": "#expression" },
+        { "include": "source.cs" }
+      ]
+    },
+    "expression-parentheses": {
+      "begin": "\\(",
+      "beginCaptures": { "0": { "name": "punctuation.parenthesis.open.cs" } },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.parenthesis.close.cs" } },
+      "patterns": [{ "include": "#expression" }]
+    },
+    "expression-brackets": {
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.squarebracket.open.cs" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.squarebracket.close.cs" } },
+      "patterns": [{ "include": "#expression" }]
+    },
+    "code": {
+      "name": "meta.code.xui",
+      "begin": "\\bcode\\b",
+      "beginCaptures": {
+        "0": { "name": "keyword.other.code.xui" }
+      },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "\\bcsharp\\b", "name": "storage.type.language.xui" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "contentName": "meta.embedded.block.csharp",
+          "patterns": [{ "include": "#csharp" }]
+        }
+      ]
+    },
+    "csharp": {
+      "patterns": [
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.curlybrace.open.cs" } },
+          "end": "\\}",
+          "endCaptures": { "0": { "name": "punctuation.curlybrace.close.cs" } },
+          "patterns": [{ "include": "#csharp" }]
+        },
+        { "include": "source.cs" }
+      ]
+    },
+    "keywords": {
+      "match": "\\b(?:component|state|view|code|csharp|namespace)\\b",
+      "name": "keyword.other.xui"
+    }
+  }
+}

@@ -280,6 +280,37 @@ void TextInput::set_text(std::wstring text) {
     assign_text(std::move(text));
     if (suggestions_) invalidate(Invalidation::paint);
 }
+TextInput::Selection TextInput::normalize_selection(std::wstring_view text, Selection value) {
+    value.start = std::min(value.start, text.size());
+    value.end = std::min(value.end, text.size());
+    if (value.start > value.end) std::swap(value.start, value.end);
+    const auto splits_pair = [&](std::size_t offset) {
+        return offset > 0 && offset < text.size() &&
+            text[offset - 1] >= 0xd800 && text[offset - 1] <= 0xdbff &&
+            text[offset] >= 0xdc00 && text[offset] <= 0xdfff;
+    };
+    if (value.start == value.end) {
+        if (splits_pair(value.start)) --value.start;
+        value.end = value.start;
+    } else {
+        if (splits_pair(value.start)) --value.start;
+        if (splits_pair(value.end)) ++value.end;
+    }
+    return value;
+}
+TextInput::Selection TextInput::selection() const {
+    return read_selection_ ? read_selection_() : normalize_selection(text_, selection_);
+}
+void TextInput::set_selection(Selection value) {
+    value = normalize_selection(text_, value);
+    if (write_selection_) write_selection_(value);
+    selection_ = value;
+}
+void TextInput::bind_selection(std::function<Selection()> reader, std::function<void(Selection)> writer) {
+    writer(normalize_selection(text_, selection_));
+    read_selection_ = std::move(reader);
+    write_selection_ = std::move(writer);
+}
 void TextInput::assign_text(std::wstring text) {
     const auto nul = text.find(L'\0');
     if (nul != std::wstring::npos) text.resize(nul);
@@ -388,6 +419,12 @@ void SplitView::arrange(Rect rect) {
     first_->arrange({b.x, b.y, expanded() ? d.x - b.x : b.width, b.height});
     second_->arrange({expanded() ? d.x + d.width : b.x + b.width, b.y,
         expanded() ? b.x + b.width - d.x - d.width : 0, expanded() ? b.height : 0});
+    const bool value = expanded();
+    if (arranged_expanded_ != value) {
+        arranged_expanded_ = value;
+        auto callback = expanded_callback_;
+        if (callback) callback(value);
+    }
 }
 void SplitView::set_ratio(float value) {
     if (!std::isfinite(value)) return;

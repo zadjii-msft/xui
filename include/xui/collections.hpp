@@ -65,6 +65,11 @@ private:
     std::uint64_t revision_{};
 };
 
+// Metadata only. Visible rows schedule image work on the shared decode workers.
+struct ItemVisual {
+    ButtonIcon icon{ButtonIcon::none};
+    std::wstring image_path;
+};
 struct ItemContent {
     std::wstring primary, secondary;
     ButtonIcon icon{ButtonIcon::none};
@@ -74,6 +79,7 @@ struct ItemContent {
     std::optional<bool> checked;
     bool separator{};
     bool submenu{};
+    std::wstring image_path;
 };
 struct ItemGroup {
     ItemKey key;
@@ -90,6 +96,7 @@ enum class CollectionNavigation { parent, first_child, last_child, next, previou
 class ItemsSource : public CollectionIndex {
 public:
     virtual ItemContent item(std::size_t index) const = 0;
+    virtual ItemVisual visual(std::size_t) const { return {}; }
     // List geometry shared by painting, hit testing, scrolling, and UIA. size() is the end boundary.
     virtual double row_start(std::size_t index, double row_height) const;
     virtual std::size_t row_at(double offset, double row_height) const;
@@ -163,12 +170,19 @@ private:
 class ItemsView final : public VirtualCollection {
 public:
     explicit ItemsView(std::wstring name = L"Items") : VirtualCollection(ControlRole::items_view, std::move(name)) {}
+    // In this mode, secondary text contains '+'-separated shortcut keys, not a subtitle.
+    void set_trailing_shortcut_badges(bool value) {
+        if (trailing_shortcut_badges_ == value) return;
+        trailing_shortcut_badges_ = value; invalidate(Invalidation::paint);
+    }
+    bool trailing_shortcut_badges() const { return trailing_shortcut_badges_; }
     void set_items(std::shared_ptr<const ItemsSource> source, std::shared_ptr<const CollectionIndex> full = {});
     void select_all() override;
     bool disclose(ItemKey group, bool expanded) override;
     std::vector<CollectionRow> visible_content() const override;
     void set_presentation(ItemsPresentation value) override;
 private:
+    bool trailing_shortcut_badges_{};
     void rebuild();
     std::shared_ptr<const ItemsSource> items_;
     std::vector<ItemGroup> groups_;
