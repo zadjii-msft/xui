@@ -178,28 +178,28 @@ void Control::set_enabled(bool enabled) {
     if (enabled_ == enabled) return;
     enabled_ = enabled;
     if (!enabled) { cancel(); hovered_ = false; focused_ = false; }
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 void Control::set_focused(bool focused) {
     focused = focused && focusable();
     if (focused_ == focused) return;
     focused_ = focused;
     if (!focused) cancel();
-    invalidate(Invalidation::paint);
+    invalidate_state();
     if (focused && focus_) { auto callback = focus_; callback(); }
 }
 void Control::pointer_move(bool inside) {
     inside = inside && enabled_;
     if (hovered_ == inside) return;
     hovered_ = inside;
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 bool Control::pointer_down() {
     if (!enabled_ || !hovered_ || !actionable())
         return false;
     pointer_ = true;
     keyboard_ = false;
-    invalidate(Invalidation::paint);
+    invalidate_state();
     return true;
 }
 bool Control::pointer_up(bool inside) {
@@ -210,14 +210,14 @@ bool Control::pointer_up(bool inside) {
 void Control::cancel() {
     if (!pointer_ && !keyboard_) return;
     pointer_ = keyboard_ = false;
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 bool Control::key_down(ActivationKey key, bool repeat) {
     if (!enabled_ || !focused_ || repeat || pointer_) return false;
     if (key == ActivationKey::enter) return role_ != ControlRole::toggle && invoke();
     if (!actionable()) return false;
     keyboard_ = true;
-    invalidate(Invalidation::paint);
+    invalidate_state();
     return true;
 }
 bool Control::key_up(ActivationKey key) {
@@ -257,7 +257,94 @@ void Button::set_appearance(ButtonAppearance value) {
 }
 void Button::set_checked(bool value) {
     if (checked_ == value) return;
-    checked_ = value; invalidate(Invalidation::paint);
+    checked_ = value;
+    invalidate(style_data_ ? style_state_changed() : Invalidation::paint);
+}
+void Control::invalidate_state() {
+    if (role_ == ControlRole::button) {
+        auto& button = static_cast<Button&>(*this);
+        if (button.style_data_) {
+            invalidate(button.style_state_changed());
+            return;
+        }
+    }
+    invalidate(Invalidation::paint);
+}
+unsigned Button::style_state_mask() const {
+    return unsigned(focused()) | (unsigned(checked()) << 1) | (unsigned(hovered()) << 2) |
+        (unsigned(pressed()) << 3) | (unsigned(!enabled() || (style_data_ && !style_data_->context_enabled)) << 4);
+}
+void Button::set_style_enabled(bool enabled) {
+    if (!style_data_ || style_data_->context_enabled == enabled) return;
+    style_data_->context_enabled = enabled;
+    invalidate_state();
+}
+const ButtonStyleValues* Button::effective_style_values() const {
+    if (!style_data_) return nullptr;
+    const auto mask = style_state_mask();
+    if (style_data_->mask != mask) {
+        style_data_->effective = merge_style_values(
+            style_data_->style ? style_data_->style->values(mask) : ButtonStyleValues{}, style_data_->local);
+        style_data_->mask = mask;
+    }
+    return &style_data_->effective;
+}
+Invalidation Button::style_state_changed() {
+    if (!style_data_) return Invalidation::paint;
+    const auto previous = style_data_->effective;
+    return style_layout_equal(previous, *effective_style_values()) ? Invalidation::paint : Invalidation::layout;
+}
+std::shared_ptr<const ButtonStyle> Button::style() const {
+    return style_data_ ? style_data_->style : nullptr;
+}
+const ButtonStyleValues& Button::style_values() const {
+    static const ButtonStyleValues empty;
+    return style_data_ ? style_data_->local : empty;
+}
+void Button::replace_style_data(std::unique_ptr<StyleData> next) {
+    const auto previous = style_data_ ? *effective_style_values() : ButtonStyleValues{};
+    if (next && !next->style && next->local.empty()) next.reset();
+    style_data_ = std::move(next);
+    const auto current = style_data_ ? *effective_style_values() : ButtonStyleValues{};
+    invalidate(style_layout_equal(previous, current) ? Invalidation::paint : Invalidation::layout);
+}
+void Button::set_style(std::shared_ptr<const ButtonStyle> style) {
+    if ((!style_data_ && !style) || (style_data_ && style_data_->style == style)) return;
+    auto next = std::make_unique<StyleData>();
+    next->style = std::move(style);
+    if (style_data_) {
+        next->local = style_data_->local;
+        next->context_enabled = style_data_->context_enabled;
+    }
+    replace_style_data(std::move(next));
+}
+void Button::set_style_values(ButtonStyleValues values) {
+    validate_style_values(values);
+    if (!style_data_ && values.empty()) return;
+    auto next = std::make_unique<StyleData>();
+    if (style_data_) {
+        next->style = style_data_->style;
+        next->context_enabled = style_data_->context_enabled;
+    }
+    next->local = std::move(values);
+    replace_style_data(std::move(next));
+}
+Size Button::measure_styled(Size available) {
+    if (!visible()) return {};
+    const auto* values = effective_style_values();
+    const auto metrics = style_metrics(visual_style());
+    if (auto_size() && values && (values->padding || values->border_thickness)) {
+        const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
+        const auto padding = values->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
+            visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+        const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
+        const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
+        return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
+            std::max(values->padding ? 0.0f : metrics.button_height,
+                text.height + padding.top + padding.bottom + border.top + border.bottom)}, available);
+    }
+    return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) :
+        constrain({metrics.button_height, metrics.button_height}, available);
 }
 void Button::set_repeat_timing(unsigned delay, unsigned interval) {
     if (delay < 100 || delay > 60000 || interval < 16 || interval > 60000)

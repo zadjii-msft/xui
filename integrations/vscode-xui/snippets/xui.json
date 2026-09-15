@@ -28,6 +28,33 @@
     "body": "state ${1:int} ${2:Count} = ${3:0};",
     "description": "Component state with a C# initializer"
   },
+  "Color resources": {
+    "prefix": "resources",
+    "body": [
+      "resources {",
+      "\t${1:DangerFill}: theme(light: ${2:0xB42318}, dark: ${3:0x8F1D16});",
+      "\t$0",
+      "}"
+    ],
+    "description": "Component color resources with light and dark values"
+  },
+  "Button style": {
+    "prefix": "style",
+    "body": [
+      "style ${1:DangerButton} for Button {",
+      "\tbackground: resource(${2:DangerFill});",
+      "\tcornerRadius: 0;",
+      "\tborderThickness: (3, 0, 0, 0);",
+      "\t$0",
+      "}"
+    ],
+    "description": "Named sparse Button style"
+  },
+  "Style state": {
+    "prefix": "when",
+    "body": ["when ${1:hovered} {", "\tbackground: resource(${2:DangerHover});", "\t$0", "}"],
+    "description": "Button style state override"
+  },
   "View": {
     "prefix": "view",
     "body": ["view {", "\t$0", "}"],

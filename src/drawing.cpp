@@ -843,6 +843,79 @@ D2D1_COLOR_F Drawing::button_face(Rect bounds, const Palette& palette, ButtonApp
     return argb_color(visual.text);
 }
 
+D2D1_COLOR_F Drawing::styled_button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
+    bool enabled, bool hovered, bool pressed, bool checked, const ButtonStyleValues& values) {
+    const bool winui = palette.style == VisualStyle::winui;
+    const bool selected = pressed || checked;
+    auto ink = !enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
+    const bool authored_face = values.background || values.border_brush || values.border_thickness || values.corner_radius;
+    if (palette.high_contrast || !authored_face) {
+        if (winui) ink = button_face(bounds, palette, appearance, enabled, hovered, pressed, checked);
+        else {
+            rounded(bounds, selected ? palette.selection : hovered ? palette.hover : palette.surface);
+            rounded(bounds, palette.high_contrast ? enabled ? palette.text : palette.disabled : palette.border, 6, true);
+        }
+    } else {
+        auto background = selected ? palette.selection : hovered ? palette.hover : palette.surface;
+        auto border = palette.border;
+        if (winui) {
+            const auto defaults = winui_button_brushes(palette.mode, appearance, enabled, hovered, pressed, checked);
+            background = argb_color(defaults.fill);
+            border = argb_color(defaults.stroke);
+            ink = argb_color(defaults.text);
+        }
+        if (values.background) background = D2D1::ColorF(values.background->resolve(palette.mode));
+        if (values.border_brush) border = D2D1::ColorF(values.border_brush->resolve(palette.mode));
+        const float radius = std::min(values.corner_radius.value_or(winui ? 4.0f : 6.0f),
+            std::min(bounds.width, bounds.height) / 2);
+        const auto edge = values.border_thickness.value_or(Insets{1, 1, 1, 1});
+        if (radius == 0) fill(bounds, background);
+        else rounded(bounds, background, radius);
+        if (edge.left == edge.top && edge.left == edge.right && edge.left == edge.bottom) {
+            const float width = std::min(edge.left, std::min(bounds.width, bounds.height) / 2);
+            if (width > 0) {
+                brush_->SetColor(border);
+                const Rect stroke{bounds.x + width / 2, bounds.y + width / 2,
+                    std::max(0.0f, bounds.width - width), std::max(0.0f, bounds.height - width)};
+                const float inner_radius = std::max(0.0f, radius - width / 2);
+                target_->DrawRoundedRectangle(D2D1::RoundedRect(rectangle(stroke), inner_radius, inner_radius), brush_.Get(), width);
+            }
+        } else {
+            // Only aligned square edges can omit the aliased clip without changing boundary pixels.
+            const float left = std::min(edge.left, bounds.width), right = std::min(edge.right, bounds.width);
+            const float top = std::min(edge.top, bounds.height), bottom = std::min(edge.bottom, bounds.height);
+            const Rect edges[]{{bounds.x, bounds.y, left, bounds.height},
+                {bounds.x + left, bounds.y, std::max(0.0f, bounds.width - left - right), top},
+                {bounds.x + bounds.width - right, bounds.y, right, bounds.height},
+                {bounds.x + left, bounds.y + bounds.height - bottom, std::max(0.0f, bounds.width - left - right), bottom}};
+            D2D1_MATRIX_3X2_F transform{};
+            float dpi_x{}, dpi_y{};
+            if (radius == 0) {
+                target_->GetTransform(&transform);
+                target_->GetDpi(&dpi_x, &dpi_y);
+            }
+            const auto aligned = [](float value) { return value == std::round(value); };
+            const auto rectangular = [&](Rect edge) {
+                return radius == 0 && transform._11 == 1 && transform._22 == 1 && transform._12 == 0 && transform._21 == 0 &&
+                    aligned((edge.x + transform._31) * dpi_x / 96) &&
+                    aligned((edge.y + transform._32) * dpi_y / 96) &&
+                    aligned((edge.x + edge.width + transform._31) * dpi_x / 96) &&
+                    aligned((edge.y + edge.height + transform._32) * dpi_y / 96);
+            };
+            for (const auto& clip : edges) if (clip.width > 0 && clip.height > 0) {
+                if (rectangular(clip)) fill(clip, border);
+                else {
+                    push_clip(clip);
+                    rounded(bounds, border, radius);
+                    pop_clip();
+                }
+            }
+        }
+    }
+    if (!palette.high_contrast && values.foreground) ink = D2D1::ColorF(values.foreground->resolve(palette.mode));
+    return ink;
+}
+
 void Drawing::line(float x1, float y1, float x2, float y2, D2D1_COLOR_F value, float thickness) {
     brush_->SetColor(value);
     target_->DrawLine(D2D1::Point2F(x1, y1), D2D1::Point2F(x2, y2), brush_.Get(), thickness);

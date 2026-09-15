@@ -3,7 +3,7 @@
 This extension adds syntax highlighting and snippets for `.xui` files.
 Its extension ID is `zadjii-msft.xui`. Its language ID is `xui`.
 
-The extension supports the proposed XUI syntax. It does not supply a compiler,
+The extension supports the XUI syntax. It does not supply a compiler,
 a language server, diagnostics, IntelliSense, formatting, or semantic binding checks.
 
 ## Install from source
@@ -50,8 +50,8 @@ component Counter {
 
 The namespace is optional. The compiler accepts one component per file.
 The grammar can highlight multiple components, but this does not imply compiler support.
-The reserved keywords are `namespace`, `component`, `state`, `view`, `code`, and `csharp`.
-Built-in node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, and `TextInput`.
+The grammar recognizes `namespace`, `component`, `param`, `state`, `view`, `code`, `csharp`, `resources`, `style`, `basedOn`, and `when`.
+It recognizes the native node names in the [language guide](../../docs/specs/xui-language.md).
 Other node names receive a generic node scope. This highlighting does not imply compiler support for custom components.
 
 The grammar includes C# expressions in control arguments and state initializers.
@@ -70,6 +70,26 @@ The compiler defines the supported expressions, state types, nodes, properties, 
 The compiler rejects `name:` on `Text`, `Button`, and `Toggle`.
 `TextInput` supports `name:`.
 
+Named Button styles and color resources have XUI scopes:
+
+```xui
+resources {
+  DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
+}
+style DangerButton for Button {
+  background: resource(DangerFill);
+  borderThickness: (3, 0, 0, 0);
+  when hovered { cornerRadius: 0; }
+}
+```
+
+These declarations belong inside a component, beside its `view` block.
+`Button("Delete", style: DangerButton);` applies the named style.
+The grammar recognizes `focused`, `checked`, `hovered`, `pressed`, and `disabled` state blocks.
+It also recognizes `basedOn` derivation, sparse properties, resource aliases, and the `theme` color function.
+The [style grammar](../../docs/specs/xui-language.md#declare-button-styles-and-resources) defines the compiler limits.
+Highlighting does not check resource names, cycles, property types, or numeric bounds.
+
 ## Editor support
 
 The extension supplies comment commands, bracket matching, automatic closing pairs,
@@ -79,7 +99,7 @@ The indentation rules use line patterns, not a parser. Braces inside multiline s
 Incomplete strings or blocks can affect highlighting until their closing delimiter appears.
 
 Snippet prefixes are `component`, `namespace`, `state`, `view`, `code`, `vstack`,
-`hstack`, `text`, `button`, `toggle`, and `textinput`.
+`hstack`, `text`, `button`, `toggle`, `textinput`, `resources`, `style`, and `when`.
 The component snippet supplies a counter with a named method handler.
 Control snippets use placeholders for state and named method handlers.
 They do not declare that state or those methods.

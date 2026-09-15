@@ -1202,6 +1202,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 !peer->collection_drag && !peer->collection_scroll && GetCapture() == peer->window) ReleaseCapture();
             if (!has_images || (IsWindowEnabled(peer->window) != FALSE) != enabled(*peer))
                 EnableWindow(peer->window, enabled(*peer));
+            if (control.role() == ControlRole::button) {
+                auto& button = static_cast<Button&>(*peer->control);
+                if (button.effective_style_values()) button.set_style_enabled(enabled(*peer));
+            }
             if (!enabled(*peer) || !visible(*peer)) {
                 if (auto range_input = std::dynamic_pointer_cast<RangeInput>(peer->control)) range_input->cancel_drag();
                 peer->control->cancel();
@@ -2294,13 +2298,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const bool checked_action = button && button->behavior() == ButtonBehavior::toggle && button->checked();
             const bool winui = palette.style == VisualStyle::winui;
             auto ink = control.pressed() || checked_action ? palette.selection_text : text;
-            if (button && winui)
+            const auto* style = button ? button->effective_style_values() : nullptr;
+            if (style)
+                ink = canvas.styled_button_face(box, palette, button->appearance(), enabled(peer),
+                    control.hovered(), control.pressed(), checked_action, *style);
+            else if (button && winui)
                 ink = canvas.button_face(box, palette, button->appearance(), enabled(peer),
                     control.hovered(), control.pressed(), checked_action);
             else if (!winui && (role == ControlRole::button || control.hovered() || control.pressed()))
                 canvas.rounded(box, control.pressed() ? palette.selection :
                     checked_action ? palette.selection : control.hovered() ? palette.hover : palette.surface);
-            if (role == ControlRole::button && !winui)
+            if (role == ControlRole::button && !winui && !style)
                 canvas.rounded(box, palette.border, 6, true);
             float inset = 14;
             if (role == ControlRole::toggle) {
@@ -2325,7 +2333,29 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 inset = std::max(winui ? 12.0f : 14.0f, (bounds.width - control.measured_text().width) / 2);
             const auto icon = role == ControlRole::button ? static_cast<const Button&>(control).icon() : ButtonIcon::none;
             const auto* breadcrumb = winui && peer.parent ? dynamic_cast<const Breadcrumb*>(peer.parent->control.get()) : nullptr;
-            if (button && breadcrumb) {
+            if (style && (style->padding || style->border_thickness)) {
+                const auto metrics = style_metrics(palette.style);
+                const auto padding = style->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding, winui ? 7.0f : 6.0f});
+                const auto border = style->border_thickness.value_or(Insets{1, 1, 1, 1});
+                Rect content{padding.left + border.left, padding.top + border.top,
+                    std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right),
+                    std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom)};
+                if (button->behavior() == ButtonBehavior::dropdown) {
+                    const float arrow = std::min(20.0f, content.width);
+                    canvas.chevron({content.x + content.width - arrow, content.y, arrow, content.height}, ink, true);
+                    content.width -= arrow;
+                }
+                canvas.push_clip(content);
+                if (icon != ButtonIcon::none)
+                    canvas.button_icon({content.x + (content.width - 16) / 2, content.y + (content.height - 16) / 2, 16, 16}, ink, icon);
+                else {
+                    const auto text_size = control.measured_text();
+                    content.x += std::max(0.0f, (content.width - text_size.width) / 2);
+                    content.y += std::max(0.0f, (content.height - text_size.height) / 2);
+                    canvas.text_layout(peer.text_layout.Get(), content, ink);
+                }
+                canvas.pop_clip();
+            } else if (button && breadcrumb) {
                 const auto children = breadcrumb->retained_children();
                 if (button == breadcrumb->overflow_button().get()) {
                     canvas.symbol(Symbol::more, {0, 0, bounds.width / 2, bounds.height}, ink);

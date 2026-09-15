@@ -1,0 +1,38 @@
+namespace Demo;
+component Styling {
+    state string Entry = "";
+    resources {
+        DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
+        OnDangerFill: 0xFFFFFF;
+        DangerEdge: resource(Edge);
+        Edge: theme(light: 0x68110C, dark: 0xFFA198);
+        DangerHover: theme(light: 0xD92D20, dark: 0xB42318);
+        DisabledFill: theme(light: 0xD0D5DD, dark: 0x475467);
+    }
+    style DangerButton for Button basedOn BaseButton {
+        background: resource(DangerFill);
+        foreground: resource(OnDangerFill);
+        cornerRadius: 0;
+        borderBrush: resource(DangerEdge);
+        borderThickness: (3, 0, 0, 0);
+        when focused { borderBrush: 0x000000; }
+        when checked { padding: (1, 2, 3, 4); }
+        when hovered { background: resource(DangerHover); }
+        when pressed { cornerRadius: 0; }
+        when disabled { background: resource(DisabledFill); }
+    }
+    style BaseButton for Button {
+        padding: 8;
+        when hovered { foreground: 0xFFFFFF; }
+    }
+    view {
+        VStack() {
+            Button("Delete", style: DangerButton, ref: DeleteButton);
+            Button("Delete again", style: DangerButton, background: 0, padding: (0, 1, 2, 3), ref: OtherButton);
+            TextInput("Entry", text: Entry, change: SetEntry, ref: Input);
+        }
+    }
+    code csharp {
+        void SetEntry(string value) => Entry = value;
+    }
+}

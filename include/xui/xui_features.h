@@ -2,6 +2,71 @@
 #define XUI_FEATURES_H
 /* Included by xui.h. Existing ABI records and the 1.0 negotiation stay unchanged. */
 #define XUI_FEATURE_VERSION 0x00010001u
+/* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
+   Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
+   Records and rule arrays are copied before return. Existing records are unchanged. */
+#define XUI_BUTTON_STYLE_VERSION 0x00010000u
+enum {
+    XUI_BUTTON_STYLE_BACKGROUND = 1, XUI_BUTTON_STYLE_FOREGROUND = 2,
+    XUI_BUTTON_STYLE_BORDER_BRUSH = 4, XUI_BUTTON_STYLE_BORDER_THICKNESS = 8,
+    XUI_BUTTON_STYLE_PADDING = 16, XUI_BUTTON_STYLE_CORNER_RADIUS = 32
+};
+enum {
+    XUI_BUTTON_STYLE_FOCUSED = 0, XUI_BUTTON_STYLE_CHECKED = 1,
+    XUI_BUTTON_STYLE_HOVERED = 2, XUI_BUTTON_STYLE_PRESSED = 3,
+    XUI_BUTTON_STYLE_DISABLED = 4
+};
+typedef struct xui_theme_color {
+    uint32_t light, dark;
+} xui_theme_color;
+typedef struct xui_style_insets {
+    float left, top, right, bottom;
+} xui_style_insets;
+typedef struct xui_button_style_values {
+    uint32_t size, version, mask, reserved;
+    xui_theme_color background, foreground, border_brush;
+    xui_style_insets border_thickness, padding;
+    float corner_radius;
+    uint32_t reserved_end;
+} xui_button_style_values;
+typedef struct xui_button_style_rule {
+    uint32_t size, state;
+    xui_button_style_values values;
+} xui_button_style_rule;
+typedef struct xui_button_style_options {
+    uint32_t size, version;
+    xui_button_style_values values;
+    const xui_button_style_rule* rules;
+    uint32_t rule_count, reserved;
+    xui_handle based_on;
+} xui_button_style_options;
+/* Styles belong to one window. At most 256 rules and 16 inheritance layers.
+   A base must be a live style handle from the same window.
+   Release removes the caller's handle. Buttons retain the applied definition.
+   Derived styles retain copied inherited values, not the base definition. */
+XUI_API xui_status XUI_CALL xui_button_style_create(xui_handle window,
+    const xui_button_style_options* options, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_button_style_release(xui_handle style) XUI_NOEXCEPT;
+/* A create result is also a weak identity, usable after releasing its handle.
+   Reacquire returns a new releasable handle to the exact definition, or zero if
+   it is no longer retained in this window. It never rebuilds a definition.
+   Unknown, zero, expired, or other-window identities are successful cache misses. */
+XUI_API xui_status XUI_CALL xui_button_style_reacquire(xui_handle window,
+    xui_handle identity, xui_handle* result) XUI_NOEXCEPT;
+/* Applies a retained identity without allocating a handle or rebuilding values.
+   Sets applied=1 on a hit (including an unchanged assignment), otherwise zero.
+   A miss preserves the button. Both helpers enforce normal mutation guards. */
+XUI_API xui_status XUI_CALL xui_button_try_set_style(xui_handle button,
+    xui_handle identity, uint32_t* applied) XUI_NOEXCEPT;
+/* A zero style clears the shared style, but preserves local values. */
+XUI_API xui_status XUI_CALL xui_button_set_style(xui_handle button, xui_handle style) XUI_NOEXCEPT;
+/* An empty values record clears local overrides. Invalid input changes nothing. */
+XUI_API xui_status XUI_CALL xui_button_set_style_values(xui_handle button,
+    const xui_button_style_values* values) XUI_NOEXCEPT;
+/* effective=0 returns local overrides. effective=1 returns the merged state values,
+   before platform defaults and high-contrast protection. */
+XUI_API xui_status XUI_CALL xui_button_get_style_values(xui_handle button,
+    uint32_t effective, xui_button_style_values* values) XUI_NOEXCEPT;
 enum {
     XUI_RANGE_INPUT = 10, XUI_RADIO_GROUP, XUI_COMBO_BOX, XUI_NUMERIC_INPUT,
     XUI_EXPANDER, XUI_PROGRESS, XUI_POPUP, XUI_SPLIT_BUTTON,

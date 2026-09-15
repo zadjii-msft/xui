@@ -76,6 +76,30 @@ function closed(document) {
 const counter = await readFile(new URL("./fixtures/counter.xui", import.meta.url), "utf8");
 const nested = await readFile(new URL("./fixtures/nested.xui", import.meta.url), "utf8");
 
+test("named style declarations retain XUI scopes and return to view and C# contexts", async () => {
+  const source = await readFile(new URL("../../../bindings/dotnet/GeneratorTests/Fixtures/Styling.xui", import.meta.url), "utf8");
+  const doc = tokenize(source);
+  has(doc, "resources", "keyword.declaration.resources.xui");
+  has(doc, "DangerFill:", "entity.name.constant.resource.xui");
+  has(doc, "theme(", "support.function.color.xui");
+  has(doc, "light:", "variable.parameter.named.xui");
+  has(doc, "0xB42318", "constant.numeric");
+  has(doc, "style DangerButton", "keyword.declaration.style.xui");
+  has(doc, "DangerButton for", "entity.name.type.style.xui");
+  has(doc, "basedOn", "keyword.other.style.xui");
+  has(doc, "BaseButton {", "entity.name.type.style.xui");
+  has(doc, "background:", "support.type.property-name.xui");
+  has(doc, "resource(DangerFill)", "support.function.color.xui");
+  has(doc, "resource(DangerFill)", "variable.other.resource.xui", "resource(".length);
+  for (const state of ["focused", "checked", "hovered", "pressed", "disabled"])
+    has(doc, `when ${state}`, "constant.language.style-state.xui", "when ".length);
+  outsideCsharp(doc, "when disabled");
+  has(doc, "Button(\"Delete\"", "support.class.node.xui");
+  has(doc, "style:", "variable.parameter.named.xui");
+  has(doc, "void SetEntry", "meta.embedded.block.csharp");
+  closed(doc);
+});
+
 test("constructor parameters and native composition nodes have XUI scopes", () => {
   const doc = tokenize(`component Composition {
     param string Title;

@@ -62,5 +62,12 @@ test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets.Toggle.body), 'Toggle("Enabled", checked: IsEnabled, change: OnChanged, id: "enabled");');
   assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
-    ["component", "namespace", "state", "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+    ["component", "namespace", "state", "resources", "style", "when", "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+});
+
+test("styling snippets use named declarations and dual-theme colors", () => {
+  assert.ok(expand(snippets["Color resources"].body).includes("DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);"));
+  assert.ok(expand(snippets["Button style"].body).includes("style DangerButton for Button {"));
+  assert.ok(expand(snippets["Button style"].body).includes("background: resource(DangerFill);"));
+  assert.ok(expand(snippets["Style state"].body).startsWith("when hovered {"));
 });

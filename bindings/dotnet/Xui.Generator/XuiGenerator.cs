@@ -82,6 +82,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     private readonly StringBuilder output = new();
     private readonly List<Node> nodes = [];
     private readonly List<Binding> bindings = [];
+    private readonly StyleCompiler styling = new(component);
     private sealed record Binding(string Name, int Node, string Type, string Setter, Expression Value, string[] Dependencies);
     private void Line(string value = "") => output.AppendLine(value);
     // #line filenames do not interpret backslash escapes like C# string expressions.
@@ -166,6 +167,16 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             ("windowBackground", "bool", "SetWindowBackground({0})")
         })
             if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
+        if (node.Kind == "Button")
+        {
+            if (node.Arguments.TryGetValue("style", out var style))
+                bindings.Add(new($"__xuiB{index}_style", index, "global::Xui.ButtonStyle", $"__xuiN{index}.Style = {{0}}",
+                    new(styling.Reference(style), style.Offset), []));
+            var local = node.Arguments.Where(pair => StyleCompiler.Properties.Contains(pair.Key)).ToDictionary();
+            if (local.Count != 0)
+                bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.ButtonStyleValues", $"__xuiN{index}.StyleValues = {{0}}",
+                    new(styling.Values(local), local.First().Value.Offset), []));
+        }
         if (node.Kind == "Grid")
         {
             const string tracks = "new global::Xui.GridTrack[] { new(global::Xui.TrackSizing.Star, 1) }";
@@ -205,6 +216,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
 
     internal string Emit()
     {
+        styling.Validate();
         Collect(component.Root);
         var names = new HashSet<string>(StringComparer.Ordinal) { "Root", component.Name.TrimStart('@') };
         void Reserve(string name, int offset)
@@ -214,6 +226,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Errors.Add(new ParseError($"Member name '{name}' is reserved or duplicated.", offset));
         }
         foreach (var state in component.States) Reserve(state.Name, state.Offset);
+        foreach (var style in component.Styles) Reserve(SyntaxFactory.ParseToken(style.Name).ValueText, style.Offset);
         foreach (var parameter in component.Parameters)
         {
             Reserve(parameter.Name, parameter.Offset);
@@ -233,6 +246,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line($"public sealed partial class {component.Name}");
         Unmap();
         Line("{");
+        if (component.Styles.Count != 0) EmitStyles();
         Line("private readonly global::Xui.Window __xuiWindow;");
         Line($"public global::Xui.{Type(component.Root)} Root => __xuiN0;");
         foreach (var parameter in component.Parameters)
@@ -277,6 +291,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("#if XUI_HOT_RELOAD");
         Line("private readonly string __xuiOriginalShape;");
         Line("private string __xuiShape() => " + Literal(Part(Shape(component.Root)) +
+            Part(string.Concat(component.Resources.Select(r => Part(r.Name)))) +
+            Part(string.Concat(component.Styles.Select(s => Part(s.Name)))) +
             string.Concat(component.Parameters.Select(p => Part(p.Type) + Part(p.Name))) +
             string.Concat(component.States.Select(s => Part(s.Type) + Part(s.Name) + Part(s.Initializer.Text)))) + ";");
         Line("private bool __xuiReload()");
@@ -415,5 +431,28 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("}");
         return output.ToString();
+    }
+
+    private void EmitStyles()
+    {
+        // A method-body revision changes under hot reload. Static field initializers do not rerun.
+        Line("private static readonly object __xuiStyleLock = new();");
+        Line("private static string? __xuiStyleRevision;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle>? __xuiStyleCache;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle> __xuiGetStyles()");
+        Line("{");
+        string definitions = styling.Definitions();
+        string revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(definitions)));
+        Line("const string __xuiRevision = " + Literal(revision) + ";");
+        Line("lock (__xuiStyleLock)");
+        Line("{");
+        Line("if (__xuiStyleCache is not null && __xuiStyleRevision == __xuiRevision) return __xuiStyleCache;");
+        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle>(global::System.StringComparer.Ordinal);");
+        Line(definitions);
+        Line("__xuiStyleCache = __xuiStyles;");
+        Line("__xuiStyleRevision = __xuiRevision;");
+        Line("return __xuiStyles;");
+        Line("}");
+        Line("}");
     }
 }

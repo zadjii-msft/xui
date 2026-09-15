@@ -93,7 +93,7 @@ public abstract unsafe class Control : Element
     }
 }
 public sealed class Label : Control { internal Label(Window w, ulong h) : base(w, h) { } }
-public sealed class Button : Control
+public sealed partial class Button : Control
 {
     internal Button(Window w, ulong h) : base(w, h) { }
     public ButtonIcon Icon { get => (ButtonIcon)Features.Get(this, 45).First; set => Features.Set(this, 45, first: (uint)value); }

@@ -80,10 +80,39 @@ public abstract class Control : Element
 public sealed class Label : Control;
 public sealed class Button : Control
 {
+    private ButtonStyle? style;
+    public int StyleSets;
+    public ButtonStyle? Style { get => style; set { style = value; StyleSets++; } }
+    public ButtonStyleValues StyleValues { get; set; } = new();
     public ButtonIcon Icon;
     public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
     public event Action? Click;
     public void Invoke() => Click?.Invoke();
+}
+public readonly record struct ThemeColor(uint Light, uint Dark)
+{
+    public ThemeColor(uint uniform) : this(uniform, uniform) { }
+}
+public readonly record struct Insets(float Left, float Top, float Right, float Bottom)
+{
+    public Insets(float uniform) : this(uniform, uniform, uniform, uniform) { }
+}
+public sealed record ButtonStyleValues
+{
+    public ThemeColor? Background { get; init; }
+    public ThemeColor? Foreground { get; init; }
+    public ThemeColor? BorderBrush { get; init; }
+    public float? CornerRadius { get; init; }
+    public Insets? BorderThickness { get; init; }
+    public Insets? Padding { get; init; }
+}
+public enum ButtonStyleState { Focused, Checked, Hovered, Pressed, Disabled }
+public sealed record ButtonStyleRule(ButtonStyleState State, ButtonStyleValues Values);
+public sealed class ButtonStyle(ButtonStyleValues values, IReadOnlyList<ButtonStyleRule>? rules = null, ButtonStyle? basedOn = null)
+{
+    public ButtonStyleValues Values { get; } = values;
+    public IReadOnlyList<ButtonStyleRule> Rules { get; } = rules ?? [];
+    public ButtonStyle? BasedOn { get; } = basedOn;
 }
 public sealed class Toggle : Control
 {

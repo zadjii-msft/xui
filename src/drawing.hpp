@@ -63,6 +63,8 @@ public:
     void scrollbar_thumb(Rect bounds, const Palette& palette, bool active, bool enabled = true);
     D2D1_COLOR_F button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
         bool enabled, bool hovered, bool pressed, bool checked);
+    D2D1_COLOR_F styled_button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
+        bool enabled, bool hovered, bool pressed, bool checked, const ButtonStyleValues& values);
     void line(float x1, float y1, float x2, float y2, D2D1_COLOR_F color, float thickness = 1);
     void icon(Rect bounds, D2D1_COLOR_F color, bool folder);
     void search_icon(Rect bounds, D2D1_COLOR_F color);

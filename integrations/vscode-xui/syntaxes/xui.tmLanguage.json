@@ -56,11 +56,99 @@
       "end": "(?=\\})",
       "patterns": [
         { "include": "#comments" },
+        { "include": "#resources" },
+        { "include": "#style" },
         { "include": "#state" },
         { "include": "#param" },
         { "include": "#view" },
         { "include": "#code" },
         { "include": "#keywords" }
+      ]
+    },
+    "resources": {
+      "name": "meta.resources.xui",
+      "begin": "\\bresources\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.resources.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": "\\{",
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.constant.resource.xui" },
+            { "include": "#style-value" }
+          ]
+        }
+      ]
+    },
+    "style": {
+      "name": "meta.style.xui",
+      "begin": "\\bstyle\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.style.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "\\b(?:for|basedOn)\\b", "name": "keyword.other.style.xui" },
+        { "match": "\\bButton\\b", "name": "support.class.node.xui" },
+        { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.style.xui" },
+        {
+          "begin": "\\{",
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-rule" },
+            { "include": "#style-properties" }
+          ]
+        }
+      ]
+    },
+    "style-rule": {
+      "name": "meta.style-rule.xui",
+      "begin": "\\b(when)\\b\\s+(focused|checked|hovered|pressed|disabled)\\b",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.when.xui" },
+        "2": { "name": "constant.language.style-state.xui" }
+      },
+      "end": "\\}",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#style-properties" }
+      ]
+    },
+    "style-properties": {
+      "patterns": [
+        { "match": "\\b(?:background|foreground|borderBrush|cornerRadius|borderThickness|padding)\\b", "name": "support.type.property-name.xui" },
+        { "include": "#style-value" }
+      ]
+    },
+    "style-value": {
+      "begin": ":",
+      "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
+      "end": ";",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#color-functions" },
+        { "include": "#expression" }
+      ]
+    },
+    "color-functions": {
+      "patterns": [
+        {
+          "begin": "\\b(resource|theme)\\b\\s*\\(",
+          "beginCaptures": { "1": { "name": "support.function.color.xui" } },
+          "end": "\\)",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "\\b(?:light|dark)\\b(?=\\s*:)", "name": "variable.parameter.named.xui" },
+            { "match": "0[xX][0-9a-fA-F_]+|[0-9]+", "name": "constant.numeric.xui" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.resource.xui" }
+          ]
+        }
       ]
     },
     "state": {
@@ -161,6 +249,7 @@
     },
     "expression": {
       "patterns": [
+        { "include": "#color-functions" },
         { "include": "#expression-braces" },
         { "include": "#expression-parentheses" },
         { "include": "#expression-brackets" },
@@ -224,7 +313,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(?:component|state|param|view|code|csharp|namespace)\\b",
+      "match": "\\b(?:component|state|param|view|code|csharp|namespace|resources|style|basedOn|when)\\b",
       "name": "keyword.other.xui"
     }
   }

@@ -150,6 +150,217 @@ The ABI constructor test covers all 35 added kinds.
 Both language test suites exercise typed properties, source limits, callback failures, and disposal.
 The tests preserve the existing native focus and accessibility assertions.
 
+### Button styles (additive stage 1)
+
+Button styles change presentation.
+Native behavior, input, and accessibility stay unchanged.
+This stage supports `Button` only.
+It does not provide control templates, item templates, typography, animations, or arbitrary brushes.
+`Window.Style` selects Classic or WinUI presentation.
+`Button.Style` supplies an application-authored definition on that presentation.
+
+`include\xui\styling.hpp` declares the C++ definitions.
+`ButtonStyle::create` copies values and rules into an immutable definition.
+`Button::set_style` attaches a shared definition.
+`Button::set_style_values` replaces local overrides.
+`Button::style_values` and `Button::effective_style_values` expose local and merged values.
+The C++ effective getter returns a pointer that can be null for an unstyled button.
+
+#### Values and precedence
+
+`ThemeColor` contains opaque `0xRRGGBB` colors in light/dark order.
+`Insets` contains left, top, right, and bottom dimensions in DIPs.
+`ButtonStyleValues` contains optional background, foreground, border brush, border thickness, padding, and corner radius values.
+An absent value differs from an explicit black color or zero dimension.
+Dimensions must be finite and within 0 through 32,768 DIPs.
+
+Each definition contains at most 256 rules.
+Inheritance contains at most 16 layers, including the definition itself.
+Rules use the states `Focused`, `Checked`, `Hovered`, `Pressed`, and `Disabled`.
+The C++ enum uses the corresponding lowercase names.
+Native definitions precompute all 32 state combinations.
+
+Resolution starts with inherited base values and then applies derived base values.
+For each state, derived rules overlay inherited rules.
+Later rules for the same state replace only the fields they specify.
+Active states then overlay base values in this order: focused, checked, hovered, pressed, disabled.
+Local overrides apply last.
+Missing fields use the remaining sources rather than clearing them.
+
+Clearing the shared style preserves local overrides.
+An empty local record clears all local overrides without clearing the shared style.
+Effective getters return merged authored values, before platform defaults and high-contrast protection.
+They do not return final pixel colors or geometry.
+High contrast preserves native face and focus treatment instead of authored face and foreground overrides.
+
+#### Native ABI
+
+The additive exports are in `include\xui\xui_features.h`, through `xui.h`.
+Existing records, exports, and version negotiation remain unchanged.
+`XUI_BUTTON_STYLE_VERSION` is `0x00010000`.
+The style record version is separate from `XUI_FEATURE_VERSION`.
+Consumers require a DLL that exports these functions.
+The unchanged ABI version alone does not establish style support.
+
+| C record | Fields, in declaration order | ARM64 size |
+| --- | --- | ---: |
+| `xui_theme_color` | `uint32_t light, dark` | 8 |
+| `xui_style_insets` | `float left, top, right, bottom` | 16 |
+| `xui_button_style_values` | `uint32_t size, version, mask, reserved`, three colors, two insets, `float corner_radius`, `uint32_t reserved_end` | 80 |
+| `xui_button_style_rule` | `uint32_t size, state`, `xui_button_style_values values` | 88 |
+| `xui_button_style_options` | `uint32_t size, version`, `values`, `rules` pointer, `uint32_t rule_count, reserved`, `xui_handle based_on` | 112 |
+
+The three color fields are `background`, `foreground`, and `border_brush`.
+The two inset fields are `border_thickness` and `padding`.
+In the options record, `rules` starts at offset 88 and `based_on` starts at offset 104.
+The generated C# and `xui-sys` records preserve this layout.
+
+The values mask uses bits 1, 2, 4, 8, 16, and 32 for the six properties in their listed order.
+Rule states use ordinal values 0 through 4, not masks.
+Each input record requires its exact size.
+Options and values require the style version.
+Reserved fields and absent value fields must be zero.
+The ABI copies values and rule arrays before return.
+
+| Export | Contract |
+| --- | --- |
+| `xui_button_style_create(window, options, result)` | Creates a window-owned handle. `based_on` is zero or a live style handle from the same window. Failure clears a valid result pointer. |
+| `xui_button_style_release(style)` | Revokes the caller's style handle. Buttons and derived definitions remain valid. |
+| `xui_button_style_reacquire(window, identity, result)` | Returns a temporary handle to a retained definition, or zero for a cache miss. |
+| `xui_button_try_set_style(button, identity, applied)` | Applies a retained definition without a new handle. Returns `applied=1` on a hit, including an unchanged assignment. |
+| `xui_button_set_style(button, style)` | Attaches a same-window definition. Zero clears the shared style. |
+| `xui_button_set_style_values(button, values)` | Replaces the complete local record. An empty mask clears local overrides. |
+| `xui_button_get_style_values(button, effective, values)` | Returns locals for `effective=0` or merged authored values for `effective=1`. The output record requires size and version. |
+
+All style exports require the creating UI thread.
+Style handles count toward the window limit of 65,536 live handles.
+Window destruction revokes every remaining style handle.
+Explicit release requires `xui_button_style_release`, not a control or source release function.
+Release does not clear a style from a button.
+Replacement or clearing releases the definition retained by that button.
+
+A creation result also identifies the exact immutable native definition after handle release.
+This weak identity is not a live handle and requires no release.
+Unknown, zero, expired, or other-window identities produce a successful cache miss in the two cache helpers.
+A miss preserves the button.
+Reacquired handles require release and preserve the original identity.
+Neither helper creates a new definition.
+
+Invalid sizes, masks, reserved fields, values, states, limits, selectors, or cross-window style handles return `XUI_INVALID_ARGUMENT`.
+Invalid record versions return `XUI_VERSION_MISMATCH`.
+Stale handles return `XUI_INVALID_HANDLE`.
+A handle of the wrong kind returns `XUI_WRONG_KIND`.
+Wrong-thread calls return `XUI_WRONG_THREAD`.
+Source-callback mutations return `XUI_BUSY`, and mutations after the window run returns report `XUI_CLOSED`.
+
+Creation and setters leave the previous button presentation unchanged on failure.
+Native allocation failures use the existing status and diagnostic contract.
+`xui_error_copy` supplies the diagnostic.
+Successful release clears the thread-local diagnostic, like other successful exports.
+Callers must capture an earlier error before cleanup.
+
+#### C# and Rust ownership
+
+C# exposes `ThemeColor`, `Insets`, `ButtonStyleValues`, `ButtonStyleState`, `ButtonStyleRule`, `ButtonStyle`, and `ResourceScope`.
+`Button.Style` and `SetStyle` attach or clear a definition.
+`StyleValues` and `SetStyleValues` replace locals.
+`EffectiveStyleValues` reads merged authored values.
+`Button.Style` returns the last successfully assigned managed definition.
+
+Rust exposes corresponding safe types and `ColorResource`.
+`ButtonStyle::new(values, rules, based_on)` creates an immutable definition.
+`values()`, `rules()`, and `based_on()` expose its contents.
+`Button::set_style`, `set_style_values`, `style_values`, and `effective_style_values` provide the native operations.
+`None` clears a shared style.
+`ButtonStyleValues::default()` clears local overrides.
+
+Both wrappers can reuse one language definition across windows.
+The wrappers require both cache helper exports from the loaded native DLL.
+Within one window, buttons share the exact native definition for the same C# object or Rust `ButtonStyle` and its clones.
+Equal values in separate language definitions do not imply shared identity.
+Sharing persists while any native button or temporary handle retains that definition, even after control wrappers disappear.
+Assignment of the same definition preserves the native effective-value cache without allocation, value resolution, or invalidation.
+Each assignment still checks native thread, window, and callback restrictions.
+
+The first application creates temporary native handles in the target window.
+Both wrappers release every temporary handle before return, including failure paths.
+There is no persistent per-window handle cache.
+One style application requires at most 16 temporary style handles.
+A later application reuses a retained definition without temporary handles.
+An inheritance operation can reacquire a retained base through a temporary handle.
+Native derived definitions contain copied inherited values and do not retain the base definition.
+After the last native owner releases a definition, a later application rebuilds it.
+
+The native cache contains weak references and uses the window's limit of 65,536 live handles as its bound.
+Each retained definition requires at least one live button or style handle.
+Release, replacement, and clearing remove expired entries synchronously.
+The last entry's removal releases the cache storage.
+Unstyled windows allocate no native cache, and paint does not consult this cache.
+The wrappers store identities with weak window references, not strong references to windows or controls.
+
+The native button retains its applied definition after temporary handle release.
+C# retains the language definition through `Button.Style` until replacement or clearing.
+Rust can drop its language definition immediately after successful application.
+Neither language definition retains a window.
+Garbage collection and Rust destructors do not need to call the native style-release export.
+Clearing and replacement perform native cleanup synchronously on the UI thread.
+
+C# validates definitions with argument exceptions.
+Native failures become `XuiException` with their status and diagnostic.
+Disposed-window access throws `ObjectDisposedException`.
+Rust returns `Result` errors and retains the window through each control owner.
+Dropping the last Rust window/control owner destroys the native window.
+Rust controls remain neither `Send` nor `Sync`.
+
+#### Immutable color resources
+
+Resource scopes resolve colors before style application.
+They do not create native resource handles or dynamic resource subscriptions.
+Each scope contains at most 256 entries.
+The parent chain contains at most 16 layers, including the scope itself.
+Aliases resolve local names first, then parent names.
+Missing names, duplicate entries, cycles, and invalid colors fail explicitly.
+
+Construction copies entries, so later input changes do not change the scope.
+
+C# entries contain `ThemeColor` or string aliases.
+Rust entries contain `ColorResource::Color` or `ColorResource::Alias`.
+Binding names require 1 through 1,024 characters without NUL.
+C# counts UTF-16 code units, while Rust counts Unicode scalar values.
+C++ resource definitions separately limit entry names to 256 bytes.
+No resource-scope structure or creation function exists in the C ABI.
+
+#### Binding examples
+
+```csharp
+using var window = new Xui.Window();
+var style = new Xui.ButtonStyle(
+    new() { Background = new Xui.ThemeColor(0xcc2222, 0x992222), Padding = new Xui.Insets(8) },
+    [new(Xui.ButtonStyleState.Disabled, new() { Foreground = new Xui.ThemeColor(0x888888) })]);
+var button = window.Button("Apply").SetStyle(style);
+button.StyleValues = new() { CornerRadius = 0 };
+button.Style = null;                 // Preserves the local corner radius.
+button.StyleValues = new();          // Restores platform defaults.
+```
+
+```rust
+let window = xui::Window::new("Styles", 400., 200.)?;
+let style = xui::ButtonStyle::new(
+    xui::ButtonStyleValues {
+        background: Some(xui::ThemeColor::new(0xcc2222, 0x992222)),
+        padding: Some(xui::Insets::uniform(8.)),
+        ..Default::default()
+    },
+    &[],
+    None,
+)?;
+let button = window.button("Apply")?;
+button.set_style(Some(&style))?;
+drop(style);                         // The native button retains its definition.
+button.set_style(None)?;
+button.set_style_values(xui::ButtonStyleValues::default())?;
+```
+
 ### Advanced API gaps
 
 Coverage is family-level, not full C++ method parity.

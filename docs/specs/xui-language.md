@@ -5,7 +5,8 @@ The compiler generates C# that uses the existing XUI bindings.
 It does not add a runtime parser, virtual tree, or reconciler.
 
 The initial implementation supports fixed compositions.
-It does not support arbitrary dynamic children, custom row templates, or a complete styling language.
+It supports named Button styles and color resources.
+It does not support arbitrary dynamic children, custom row templates, or styles for other control types.
 The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
 
 ## Author a component
@@ -40,7 +41,8 @@ The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextI
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.
-Arguments use C# expressions.
+Most arguments use C# expressions.
+Button style arguments use the bounded style syntax described below.
 
 All nodes support `ref: Identifier`, `size: (width, height)`, and `preferredSize: (width, height)`.
 Size values use DIPs.
@@ -69,6 +71,160 @@ Its `searchId` and `searchHelp` arguments configure the native search input.
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
+
+## Declare Button styles and resources
+
+Resources and named styles belong directly inside a component:
+
+```text
+component DangerActions {
+    resources {
+        DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
+        OnDangerFill: 0xFFFFFF;
+        DangerEdge: theme(light: 0x68110C, dark: 0xFFA198);
+        DangerHover: theme(light: 0xD92D20, dark: 0xB42318);
+        DisabledFill: theme(light: 0xD0D5DD, dark: 0x475467);
+        DestructiveFill: resource(DangerFill);
+    }
+
+    style DangerButton for Button {
+        background: resource(DangerFill);
+        foreground: resource(OnDangerFill);
+        cornerRadius: 0;
+        borderBrush: resource(DangerEdge);
+        borderThickness: (3, 0, 0, 0);
+        when hovered { background: resource(DangerHover); }
+        when disabled { background: resource(DisabledFill); }
+    }
+
+    view {
+        VStack() {
+            Button("Delete", style: DangerButton);
+        }
+    }
+}
+```
+
+The sample `DeclarativeSample\Counter.xui` includes this Delete button beside the existing counter controls.
+The button demonstrates appearance and does not delete data.
+
+### Grammar
+
+The following grammar describes the style subset.
+`Identifier` uses the same identifier syntax as other XUI names.
+Brackets mark optional syntax, and braces after `=` mark repetition.
+Quoted braces are literal delimiters.
+
+```text
+Resources   = "resources" "{" { Identifier ":" Color ";" } "}"
+Style       = "style" Identifier "for" "Button" [ "basedOn" Identifier ]
+              "{" { Property | Rule } "}"
+Rule        = "when" State "{" { Property } "}"
+State       = "focused" | "checked" | "hovered" | "pressed" | "disabled"
+Property    = ColorName ":" Color ";"
+            | "cornerRadius" ":" Dimension ";"
+            | InsetsName ":" Insets ";"
+ColorName   = "background" | "foreground" | "borderBrush"
+InsetsName  = "padding" | "borderThickness"
+Color       = Rgb24
+            | "theme" "(" "light" ":" Rgb24 "," "dark" ":" Rgb24 ")"
+            | "resource" "(" Identifier ")"
+Insets      = Dimension | "(" Dimension "," Dimension "," Dimension "," Dimension ")"
+```
+
+`Rgb24` is an integer literal from `0x000000` through `0xFFFFFF`.
+Hexadecimal values use `0xRRGGBB`, not alpha or COLORREF byte order.
+Decimal and other C# integer literal forms are also valid within that range.
+`Dimension` is a finite numeric literal from 0 through 32768 DIPs.
+Negative values, arithmetic expressions, state references, and method calls are not style values.
+Insets use left, top, right, bottom order.
+A single dimension applies to all four edges.
+Parenthesized expressions, named tuple elements, and two-value inset shorthand are not supported.
+
+The `theme(light: ..., dark: ...)` order is fixed.
+This explicit pair keeps light and dark values together without separate theme blocks or ambiguous override order.
+It also permits each resource alias to identify one complete color.
+The generator preserves both colors in `ThemeColor`.
+The native renderer selects the active theme at paint time.
+The generator does not read the current theme or freeze the color during construction.
+
+All `resources` blocks in one component form one color scope.
+Resource names are case-sensitive and must be unique within that scope.
+Aliases and style properties can refer to resources declared later in the component.
+The compiler checks every resource, including unused resources.
+Cross-component resources, mutable resource dictionaries, and other resource types are not supported.
+
+### Sparse values, derivation, and local properties
+
+A style sets only its declared properties.
+An omitted property remains absent, not zero.
+Explicit zero therefore differs from an omitted corner radius, inset, or black color.
+State rules also contain sparse values.
+Repeated properties within the same style body or rule are errors.
+Multiple rules for one state are permitted and retain their declaration order.
+Rules cannot contain other rules.
+
+A derived style names its base after `for Button`:
+
+```text
+style CompactDanger for Button basedOn DangerButton {
+    padding: (8, 2, 8, 2);
+    when pressed { background: 0x68110C; }
+}
+```
+
+Base styles can appear later in the component.
+Style names must be unique and cannot conflict with generated members, state, parameters, references, or methods.
+Resources and styles have separate name scopes.
+The compiler rejects missing base styles and inheritance cycles.
+
+A Button accepts a declared style name in `style: Identifier`.
+Style names are XUI references, not fields available inside `code csharp`.
+It also accepts the six style properties directly as named arguments:
+
+```text
+Button("Delete", style: DangerButton, padding: (8, 2, 8, 2), cornerRadius: 0);
+Button("Local only", background: resource(DangerFill), foreground: 0xFFFFFF);
+```
+
+Local properties use the same constant syntax as style properties.
+They produce a sparse `Button.StyleValues` value, separate from `Button.Style`.
+The native Button resolves local overrides, state rules, base styles, and defaults.
+The [style contract](styling-and-templates-design.md) describes that precedence and the native rendering boundaries.
+This stage does not change control ownership, events, keyboard behavior, accessibility, or the control tree.
+It does not implement `ItemTemplate`, control templates, implicit styles, arbitrary selectors, or state expressions.
+
+### Bounds and diagnostics
+
+A component supports at most 256 color resources.
+A style supports at most 256 rules.
+Style inheritance supports at most 16 layers, including the applied style.
+Resource aliases can traverse the bounded component scope but cannot form a cycle.
+The compiler checks unused styles and resources as well as referenced declarations.
+
+Invalid declarations produce `XUI001` at the `.xui` source location and a mapped C# error that blocks the build.
+These errors include duplicate names, missing references, cycles, unsupported targets, properties, states, invalid literal types, and values outside the limits.
+Invalid inset lengths, duplicate properties, and excess resources, rules, or inheritance layers also block the build.
+General control expressions outside the style subset retain their existing C# diagnostics.
+
+### Shared definitions and reload
+
+The generated class shares immutable style definitions across its component instances.
+The managed binding creates native handles for each owning window.
+Components without named styles do not allocate a style cache.
+
+Edits to existing colors, aliases, properties, state rules, base-style references, and applied style references can update existing controls.
+The generated cache checks a revision from a method body during refresh.
+A changed revision creates new shared definitions and applies them to the existing Buttons.
+Unchanged definitions do not trigger another native style assignment.
+Local value edits update the existing local override binding.
+These refreshes preserve component state, input state, event subscriptions, and control ownership.
+
+Resource and style declaration names and order belong to the structural signature.
+Adding, deleting, renaming, or reordering those declarations requires replacement.
+Adding or removing a Button style binding or local property also requires replacement.
+This prevents a removed property from remaining on a retained Button.
+The general runtime restrictions in [reload behavior](#understand-reload-behavior) still apply.
 
 ## Reuse a component
 

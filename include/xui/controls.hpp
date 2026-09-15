@@ -2,6 +2,7 @@
 
 #include "xui/core.hpp"
 #include "xui/theme.hpp"
+#include "xui/styling.hpp"
 #include <span>
 
 namespace xui {
@@ -91,6 +92,7 @@ protected:
     virtual void activate() {}
     bool actionable() const;
     void text_changed();
+    void invalidate_state();
     virtual void presentation_changed() {}
 private:
     ControlRole role_;
@@ -170,11 +172,32 @@ public:
         icon_ = value; invalidate(Invalidation::layout);
     }
     ButtonIcon icon() const { return icon_; }
+    void set_style(std::shared_ptr<const ButtonStyle> style);
+    std::shared_ptr<const ButtonStyle> style() const;
+    void set_style_values(ButtonStyleValues values);
+    const ButtonStyleValues& style_values() const;
+    const ButtonStyleValues* effective_style_values() const;
+    // Backend context includes disabled ancestors and modal input restrictions.
+    void set_style_enabled(bool enabled);
+    Invalidation style_state_changed();
     Size measure(Size available) override {
+        if (style_data_) return measure_styled(available);
         const float size = style_metrics(visual_style()).button_height;
         return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
     }
 private:
+    friend class Control;
+    Size measure_styled(Size available);
+    struct StyleData {
+        std::shared_ptr<const ButtonStyle> style;
+        ButtonStyleValues local;
+        mutable ButtonStyleValues effective;
+        mutable unsigned mask{32};
+        bool context_enabled{true};
+    };
+    unsigned style_state_mask() const;
+    void replace_style_data(std::unique_ptr<StyleData> next);
+    std::unique_ptr<StyleData> style_data_;
     ButtonIcon icon_{};
     ButtonBehavior behavior_{};
     ButtonAppearance appearance_{};

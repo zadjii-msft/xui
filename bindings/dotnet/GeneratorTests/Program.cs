@@ -68,7 +68,172 @@ internal static class Program
         TestComposition();
         TestCompositionDiagnostics();
         TestCompositionShape();
+        TestStyling();
+        TestStylingDiagnostics();
+        TestStylingShape();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
+    }
+    private static string StylingSource()
+    {
+        using var stream = typeof(Program).Assembly.GetManifestResourceStream("GeneratorTests.Fixtures.Styling.xui")!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+    private static void TestStyling()
+    {
+        var (_, compilation) = Generate(new File(@"C:\fixture\Styling.xui", StylingSource()));
+        using var pe = new MemoryStream();
+        var emitted = compilation.Emit(pe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("styling-test", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("Demo.Styling")!;
+        var window = new Xui.Window();
+        var instance = Activator.CreateInstance(type, window, true)!;
+        var button = (Xui.Button)type.GetProperty("DeleteButton")!.GetValue(instance)!;
+        var other = (Xui.Button)type.GetProperty("OtherButton")!.GetValue(instance)!;
+        var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
+        var style = button.Style!;
+        Assert(ReferenceEquals(style, other.Style), "Buttons share immutable named style definitions.");
+        Assert(style.Values.Background == new Xui.ThemeColor(0xB42318, 0x8F1D16), "Theme colors retain both modes.");
+        Assert(style.Values.Foreground == new Xui.ThemeColor(0xFFFFFF), "Uniform resources retain their color.");
+        Assert(style.Values.BorderBrush == new Xui.ThemeColor(0x68110C, 0xFFA198), "Forward resource aliases resolve.");
+        Assert(style.Values.CornerRadius == 0 && style.Values.Padding is null &&
+            style.Values.BorderThickness == new Xui.Insets(3, 0, 0, 0), "Sparse style values preserve explicit zero and asymmetric edges.");
+        Assert(style.BasedOn!.Values.Padding == new Xui.Insets(8) && style.BasedOn.Values.Background is null,
+            "Forward derivation preserves sparse base definitions.");
+        Assert(style.Rules.Select(rule => rule.State).SequenceEqual(Enum.GetValues<Xui.ButtonStyleState>()),
+            "All five style states preserve declaration order.");
+        Assert(style.Rules[2].Values.Background == new Xui.ThemeColor(0xD92D20, 0xB42318) &&
+            style.Rules[2].Values.Foreground is null, "State overrides remain sparse and theme-aware.");
+        Assert(other.StyleValues.Background == new Xui.ThemeColor(0) &&
+            other.StyleValues.Padding == new Xui.Insets(0, 1, 2, 3) && other.StyleValues.Foreground is null,
+            "Local properties preserve sparse values.");
+        input.Edit("Retained input");
+        var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        refresh.Invoke(instance, null);
+        Assert(ReferenceEquals(button.Style, style) && button.StyleSets == 1,
+            "Unchanged refresh does not allocate or assign new named styles.");
+        var second = Activator.CreateInstance(type, new Xui.Window(), true)!;
+        Assert(ReferenceEquals(((Xui.Button)type.GetProperty("DeleteButton")!.GetValue(second)!).Style, style),
+            "Style definitions are shared across component instances, not native control ownership.");
+        // Emulate the stale revision that remains after a method-body update.
+        type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "old revision");
+        refresh.Invoke(instance, null);
+        Assert(!ReferenceEquals(button.Style, style) && button.StyleSets == 2 &&
+            ReferenceEquals(button.Style, other.Style), "Changed definition revisions replace styles on existing controls.");
+        Assert(input.Text == "Retained input" && (string)type.GetProperty("Entry")!.GetValue(instance)! == "Retained input" &&
+            window.ContentSets == 1, "A style refresh preserves input, component state, and the existing tree.");
+        context.Unload();
+    }
+    private static void TestStylingDiagnostics()
+    {
+        foreach (string declaration in new[]
+        {
+            "resources { A: resource(Missing); }",
+            "resources { A: resource(B); B: resource(A); }",
+            "resources { A: resource(A); }",
+            "resources { A: 0; A: 1; }",
+            "resources { A: 0; @A: 1; }",
+            """resources { A: 0; \u0041: 1; }""",
+            "resources { A: 0x1000000; }",
+            "resources { A: -1; }",
+            "resources { A: \"red\"; }",
+            "resources { A: theme(light: 0, dark: 0x1000000); }",
+            "resources { A: theme(dark: 0, light: 1); }",
+            "resources { A: theme(0, 1); }",
+            "resources { A: resource(\"A\"); }",
+            "resources { A: resource(ref A); }",
+            "style A for Text {}",
+            "style A for Button basedOn Missing {}",
+            "style A for Button basedOn B {} style B for Button basedOn A {}",
+            "style A for Button {} style A for Button {}",
+            "style A for Button { opacity: 0; }",
+            "style A for Button { cornerRadius: 0; cornerRadius: 1; }",
+            "style A for Button { when selected {} }",
+            "style A for Button { when hovered { when pressed {} } }",
+            "style A for Button { background: resource(Missing); }",
+            "style A for Button { background: theme(light: 0, dark: -1); }",
+            "style A for Button { cornerRadius: 32769; }",
+            "style A for Button { cornerRadius: float.NaN; }",
+            "style A for Button { cornerRadius: 1e100; }",
+            "style A for Button { padding: (1, 2); }",
+            "style A for Button { padding: (left: 1, 2, 3, 4); }",
+            "style A for Button { borderThickness: (1, 2, 3, -1); }",
+            "style A for Button { when disabled { padding: 32769; } }",
+            "state int Radius = 1; style A for Button { cornerRadius: Radius; }",
+            "state int A = 1; style A for Button {}"
+        })
+            Invalid("component Bad { " + declaration + " view { VStack() {} } }");
+        foreach (string node in new[]
+        {
+            "Button(\"X\", style: Missing);",
+            "Button(\"X\", style: new global::Xui.ButtonStyle(new()));",
+            "Button(\"X\", background: resource(Missing));",
+            "Button(\"X\", padding: -1);",
+            "Text(\"X\", style: Missing);",
+            "Toggle(\"X\", background: 0);"
+        })
+            Invalid("component Bad { view { VStack() { " + node + " } } }");
+        string Resources(int n) => "resources { " + string.Join(" ", Enumerable.Range(0, n)
+            .Select(i => $"R{i}: " + (i + 1 < n ? $"resource(R{i + 1})" : "0") + ";")) + " }";
+        string Styles(int n) => string.Join(" ", Enumerable.Range(0, n)
+            .Select(i => $"style S{i} for Button" + (i + 1 < n ? $" basedOn S{i + 1}" : "") + " {}"));
+        string Rules(int n) => "style Rules for Button { " + string.Concat(Enumerable.Repeat("when hovered { padding: 0; } ", n)) + " }";
+        foreach (string limit in new[] { Resources(257), Styles(17), Rules(257) })
+            Invalid("component Bad { " + limit + " view { VStack() {} } }");
+        var (_, boundary) = Generate(new File(@"C:\fixture\Limits.xui",
+            "component Limits { " + Resources(256) + Styles(16) + Rules(256) +
+            " view { VStack() { Button(\"X\", style: S0, padding: 32768, cornerRadius: 0.5, foreground: 0xFFFFFF); } } }"));
+        Assert(!boundary.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning),
+            "Maximum resources, inheritance, rules, colors, and dimensions compile without warnings.");
+        var (_, escaped) = Generate(new File(@"C:\fixture\EscapedStyles.xui", """
+            component EscapedStyles {
+                resources { \u0041: 0; @default: resource(A); }
+                style \u0042 for Button { background: resource(@default); }
+                view { VStack() { Button("Escaped", style: B); } }
+            }
+            """));
+        Assert(!escaped.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning),
+            "Escaped identifiers use canonical resource and style names.");
+        var mapped = Invalid("component Bad {\n resources {\n Broken: resource(Missing);\n }\n view { VStack() {} }\n}");
+        Assert(mapped.Location.GetLineSpan().StartLinePosition.Line == 2, "Resource errors map to the declaration value.");
+        Invalid("component Bad { resources { A: 0;");
+        Invalid("component Bad { style A for Button { when hovered { background:");
+    }
+    private static void TestStylingShape()
+    {
+        string Generated(string source)
+        {
+            var (driver, _) = Generate(new File(@"C:\fixture\Styling.xui", source));
+            return driver.GetRunResult().Results.Single().GeneratedSources.Single(s => s.HintName.StartsWith("Demo.Styling")).SourceText.ToString();
+        }
+        string Shape(string generated) => generated.Split('\n').Single(line => line.StartsWith("private string __xuiShape()"));
+        string Revision(string generated) => generated.Split('\n').Single(line => line.StartsWith("const string __xuiRevision"));
+        string original = StylingSource();
+        string generated = Generated(original);
+        foreach (string edit in new[]
+        {
+            original.Replace("0xB42318", "0xF04438"),
+            original.Replace("when hovered { background: resource(DangerHover); }", "when pressed { foreground: 0; }"),
+            original.Replace("basedOn BaseButton", ""),
+            original.Replace("style: DangerButton", "style: BaseButton"),
+            original.Replace("background: 0,", "background: 1,"),
+            original.Replace("DangerEdge: resource(Edge)", "DangerEdge: resource(DangerFill)")
+        })
+            Assert(Shape(Generated(edit)) == Shape(generated), "Style value, state, derivation, reference, and local edits refresh in place.");
+        Assert(Revision(Generated(original.Replace("0xB42318", "0xF04438"))) != Revision(generated),
+            "Resource edits change the method-body cache revision, not only a static initializer.");
+        Assert(Revision(Generated(original.Replace("basedOn BaseButton", ""))) != Revision(generated),
+            "Derivation edits invalidate the shared definitions.");
+        Assert(Shape(Generated(original.Replace("BaseButton", "Foundation"))) != Shape(generated),
+            "Style declaration identity changes require replacement.");
+        Assert(Shape(Generated(original.Replace("OnDangerFill", "OnDanger"))) != Shape(generated),
+            "Resource declaration identity changes require replacement.");
+        Assert(Shape(Generated(original.Replace(", background: 0", ""))) != Shape(generated),
+            "Local property removal cannot leave an old override on a retained control.");
+        Assert(Shape(Generated(original.Replace(", style: DangerButton", ""))) != Shape(generated),
+            "Style binding removal requires replacement.");
     }
     private static string CompositionSource()
     {

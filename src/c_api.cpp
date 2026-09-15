@@ -7,6 +7,7 @@
 #include "xui/runtime_hosts.hpp"
 #include "xui/data_grid.hpp"
 #include "xui/titlebar.hpp"
+#include "xui/styling.hpp"
 #include <bit>
 #include <atomic>
 #include <variant>
@@ -76,6 +77,11 @@ std::string encode(std::wstring_view text) {
         result.data(), count, nullptr, nullptr);
     return result;
 }
+struct CachedButtonStyle {
+    std::weak_ptr<const xui::ButtonStyle> value;
+    uint32_t depth;
+};
+using ButtonStyleCache = std::unordered_map<xui_handle, CachedButtonStyle>;
 struct State {
     DWORD thread{GetCurrentThreadId()};
     std::unique_ptr<xui::Window> window;
@@ -85,6 +91,7 @@ struct State {
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
     xui_status callback_failure{};
+    std::unique_ptr<ButtonStyleCache> button_styles;
 };
 struct Node {
     xui_handle handle{};
@@ -102,6 +109,7 @@ struct Node {
     xui_callback callback{};
     void* context{};
     bool attached{};
+    xui_handle button_style_identity{};
     xui_key_handler key_handler{};
     void* key_context{};
     xui_navigation_handler navigation_handler{};
@@ -509,3 +517,187 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
 #include "c_api_text.inc"
+
+namespace {
+constexpr uint32_t button_style_kind = 102;
+struct ButtonStyleResource {
+    std::shared_ptr<const xui::ButtonStyle> value;
+    uint32_t depth;
+    xui_handle identity{};
+};
+void prune_button_style(const std::shared_ptr<State>& owner, xui_handle identity) {
+    if (!owner->button_styles) return;
+    auto& cache = *owner->button_styles;
+    const auto found = cache.find(identity);
+    if (found != cache.end() && found->second.value.expired()) cache.erase(found);
+    if (cache.empty()) owner->button_styles.reset();
+}
+void apply_button_style(const std::shared_ptr<Node>& n,
+    std::shared_ptr<const xui::ButtonStyle> definition, xui_handle identity) {
+    const auto previous = n->button_style_identity;
+    as<xui::Button>(n).set_style(std::move(definition));
+    n->button_style_identity = identity;
+    prune_button_style(n->owner, previous);
+}
+void style_record(const xui_button_style_values* v) {
+    require(v && v->size == sizeof(*v), XUI_INVALID_ARGUMENT, "Button style values size mismatch.");
+    require(v->version == XUI_BUTTON_STYLE_VERSION, XUI_VERSION_MISMATCH, "Button style version mismatch.");
+}
+xui::ButtonStyleValues read_style_values(const xui_button_style_values* v) {
+    style_record(v);
+    require(!(v->mask & ~63u) && !v->reserved && !v->reserved_end,
+        XUI_INVALID_ARGUMENT, "Invalid Button style mask or reserved fields.");
+    xui::ButtonStyleValues result;
+    auto color = [&](uint32_t bit, xui_theme_color value, auto& target) {
+        require(value.light <= 0xffffff && value.dark <= 0xffffff &&
+            ((v->mask & bit) || (!value.light && !value.dark)),
+            XUI_INVALID_ARGUMENT, "Invalid or unused Button style color.");
+        if (v->mask & bit) target = xui::ThemeColor{value.light, value.dark};
+    };
+    auto dimension = [&](float value, bool present) {
+        require(std::isfinite(value) && value >= 0 && value <= 32768 && (present || value == 0),
+            XUI_INVALID_ARGUMENT, "Invalid or unused Button style dimension.");
+    };
+    auto insets = [&](uint32_t bit, xui_style_insets value, auto& target) {
+        const bool present = (v->mask & bit) != 0;
+        dimension(value.left, present); dimension(value.top, present);
+        dimension(value.right, present); dimension(value.bottom, present);
+        if (present) target = xui::Insets{value.left, value.top, value.right, value.bottom};
+    };
+    color(1, v->background, result.background);
+    color(2, v->foreground, result.foreground);
+    color(4, v->border_brush, result.border_brush);
+    insets(8, v->border_thickness, result.border_thickness);
+    insets(16, v->padding, result.padding);
+    dimension(v->corner_radius, (v->mask & 32) != 0);
+    if (v->mask & 32) result.corner_radius = v->corner_radius;
+    return result;
+}
+xui_button_style_values write_style_values(const xui::ButtonStyleValues& v) {
+    xui_button_style_values result{sizeof(result), XUI_BUTTON_STYLE_VERSION};
+    auto color = [&](uint32_t bit, const auto& value, auto& target) {
+        if (value) { result.mask |= bit; target = {value->light, value->dark}; }
+    };
+    auto insets = [&](uint32_t bit, const auto& value, auto& target) {
+        if (value) { result.mask |= bit; target = {value->left, value->top, value->right, value->bottom}; }
+    };
+    color(1, v.background, result.background); color(2, v.foreground, result.foreground);
+    color(4, v.border_brush, result.border_brush);
+    insets(8, v.border_thickness, result.border_thickness); insets(16, v.padding, result.padding);
+    if (v.corner_radius) { result.mask |= 32; result.corner_radius = *v.corner_radius; }
+    return result;
+}
+}
+xui_status XUI_CALL xui_button_style_create(xui_handle window,
+    const xui_button_style_options* options, xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing style output handle."); *result = 0;
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(options && options->size == sizeof(*options), XUI_INVALID_ARGUMENT, "Button style options size mismatch.");
+        require(options->version == XUI_BUTTON_STYLE_VERSION, XUI_VERSION_MISMATCH, "Button style version mismatch.");
+        require(!options->reserved && options->rule_count <= 256 && (options->rules || !options->rule_count),
+            XUI_INVALID_ARGUMENT, "Invalid Button style rules.");
+        auto values = read_style_values(&options->values);
+        std::vector<xui::ButtonStyleRule> rules; rules.reserve(options->rule_count);
+        for (uint32_t i = 0; i < options->rule_count; ++i) {
+            const auto& rule = options->rules[i];
+            require(rule.size == sizeof(rule) && rule.state <= XUI_BUTTON_STYLE_DISABLED,
+                XUI_INVALID_ARGUMENT, "Invalid Button style rule size or state.");
+            rules.push_back({static_cast<xui::ButtonStyleState>(rule.state), read_style_values(&rule.values)});
+        }
+        std::shared_ptr<const xui::ButtonStyle> base;
+        uint32_t depth = 1;
+        if (options->based_on) {
+            auto b = get(options->based_on, button_style_kind); same(n, b);
+            auto definition = resource<ButtonStyleResource>(b, button_style_kind);
+            base = definition->value; depth = definition->depth + 1;
+            require(depth <= 16, XUI_INVALID_ARGUMENT, "Button style inheritance exceeds 16 layers.");
+        }
+        auto definition = std::make_shared<ButtonStyleResource>(
+            ButtonStyleResource{xui::ButtonStyle::create(std::move(values), std::move(rules), std::move(base)), depth});
+        const auto handle = insert(n->owner, button_style_kind);
+        try {
+            if (!n->owner->button_styles) n->owner->button_styles = std::make_unique<ButtonStyleCache>();
+            require(n->owner->button_styles->size() < 65536,
+                XUI_INVALID_ARGUMENT, "A window supports at most 65536 cached Button styles.");
+            n->owner->button_styles->emplace(handle, CachedButtonStyle{definition->value, depth});
+        } catch (...) {
+            revoke(get(handle));
+            prune_button_style(n->owner, handle);
+            throw;
+        }
+        definition->identity = handle;
+        get(handle)->resource = std::move(definition);
+        *result = handle;
+    });
+}
+xui_status XUI_CALL xui_button_style_release(xui_handle style) noexcept {
+    return boundary([&] {
+        auto n = get(style, button_style_kind);
+        const auto owner = n->owner;
+        const auto identity = resource<ButtonStyleResource>(n, button_style_kind)->identity;
+        revoke(n); n.reset();
+        prune_button_style(owner, identity);
+    });
+}
+xui_status XUI_CALL xui_button_style_reacquire(xui_handle window,
+    xui_handle identity, xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing style output handle."); *result = 0;
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        if (!n->owner->button_styles) return;
+        const auto found = n->owner->button_styles->find(identity);
+        if (found == n->owner->button_styles->end()) return;
+        if (auto value = found->second.value.lock()) {
+            auto definition = std::make_shared<ButtonStyleResource>(
+                ButtonStyleResource{std::move(value), found->second.depth, identity});
+            const auto handle = insert(n->owner, button_style_kind);
+            get(handle)->resource = std::move(definition);
+            *result = handle;
+        } else prune_button_style(n->owner, identity);
+    });
+}
+xui_status XUI_CALL xui_button_try_set_style(xui_handle button,
+    xui_handle identity, uint32_t* applied) noexcept {
+    return boundary([&] {
+        require(applied, XUI_INVALID_ARGUMENT, "Missing style application result."); *applied = 0;
+        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        if (!n->owner->button_styles) return;
+        const auto found = n->owner->button_styles->find(identity);
+        if (found == n->owner->button_styles->end()) return;
+        if (auto value = found->second.value.lock()) {
+            apply_button_style(n, std::move(value), identity);
+            *applied = 1;
+        } else prune_button_style(n->owner, identity);
+    });
+}
+xui_status XUI_CALL xui_button_set_style(xui_handle button, xui_handle style) noexcept {
+    return boundary([&] {
+        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        std::shared_ptr<const xui::ButtonStyle> definition;
+        xui_handle identity{};
+        if (style) {
+            auto s = get(style, button_style_kind); same(n, s);
+            const auto resource_value = resource<ButtonStyleResource>(s, button_style_kind);
+            definition = resource_value->value;
+            identity = resource_value->identity;
+        }
+        apply_button_style(n, std::move(definition), identity);
+    });
+}
+xui_status XUI_CALL xui_button_set_style_values(xui_handle button, const xui_button_style_values* values) noexcept {
+    return boundary([&] {
+        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        auto prepared = read_style_values(values);
+        as<xui::Button>(n).set_style_values(std::move(prepared));
+    });
+}
+xui_status XUI_CALL xui_button_get_style_values(xui_handle button, uint32_t effective, xui_button_style_values* values) noexcept {
+    return boundary([&] {
+        auto n = get(button, XUI_BUTTON); style_record(values);
+        require(effective <= 1, XUI_INVALID_ARGUMENT, "Invalid Button style value selector.");
+        const auto& button_value = as<xui::Button>(n);
+        const auto* selected = effective ? button_value.effective_style_values() : &button_value.style_values();
+        *values = write_style_values(selected ? *selected : xui::ButtonStyleValues{});
+    });
+}
