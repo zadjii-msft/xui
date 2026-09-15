@@ -34,6 +34,22 @@ internal static class Tests
     {
         using (var w = new Window())
         {
+            Assert(w.Style == VisualStyle.Classic);
+            Assert(ReferenceEquals(w, w.SetVisualStyle(VisualStyle.WinUI)));
+            Assert(w.Style == VisualStyle.WinUI);
+            w.SetTheme(Theme.Light);
+            Assert(w.Style == VisualStyle.WinUI);
+            w.SetTheme(Theme.HighContrast);
+            Assert(w.Style == VisualStyle.WinUI);
+            Throws<XuiException>(() => w.SetVisualStyle((VisualStyle)2));
+            Assert(w.Style == VisualStyle.WinUI);
+            Task.Run(() =>
+            {
+                Throws<XuiException>(() => w.SetVisualStyle(VisualStyle.Classic));
+                Throws<XuiException>(() => _ = w.Style);
+            }).GetAwaiter().GetResult();
+            w.SetVisualStyle(VisualStyle.Classic);
+            Assert(w.Style == VisualStyle.Classic);
             var label = w.Label("日本語 😀");
             Assert(label.Text == "日本語 😀");
             Assert(ReferenceEquals(label, label.SetText("日本語 😀").SetName("Label").SetEnabled(true).SetAutomationId("label")));
@@ -82,7 +98,12 @@ internal static class Tests
             Throws<ObjectDisposedException>(() => _ = label.Text);
             Throws<ObjectDisposedException>(() => shortcuts.SetTrailingShortcutBadges(true));
             Throws<ObjectDisposedException>(() => popup.SetWindowBackground(true));
+            Throws<ObjectDisposedException>(() => w.SetVisualStyle(VisualStyle.Classic));
+            Throws<ObjectDisposedException>(() => _ = w.Style);
         }
+        Throws<ArgumentOutOfRangeException>(() => new Window(visualStyle: (VisualStyle)2));
+        using (var styled = new Window(customTitlebar: true, visualStyle: VisualStyle.WinUI))
+            Assert(styled.Style == VisualStyle.WinUI);
         using (var w = new Window())
         {
             var button = w.Button("Fail");

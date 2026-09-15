@@ -9,6 +9,7 @@ public sealed class XuiException(int status, string message, Exception? inner = 
     public int Status { get; } = status;
 }
 public enum Theme : uint { Dark, Light, HighContrast }
+public enum VisualStyle : uint { Classic, WinUI }
 public enum Axis : uint { Horizontal, Vertical }
 public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View, Preview, Cancel, Action, Dismiss, Request, FilterOpen, FocusEntered }
 public readonly record struct UiEvent(EventKind Kind, ulong Value);
@@ -31,8 +32,10 @@ public sealed unsafe partial class Window : IDisposable
     private Action<UiEvent>? key;
     internal static readonly UTF8Encoding Encoding = new(false, true);
 
-    public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark, bool customTitlebar = false)
+    public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark,
+        bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic)
     {
+        if (!Enum.IsDefined(visualStyle)) throw new ArgumentOutOfRangeException(nameof(visualStyle));
         if (Native.VersionGet() != Native.Version) throw new XuiException(5, "The XUI runtime ABI version does not match.");
         var bytes = Utf8(title);
         fixed (byte* p = bytes)
@@ -50,6 +53,15 @@ public sealed unsafe partial class Window : IDisposable
             if (customTitlebar) Check(Native.WindowCreateFeatures(&options, 1, &handle));
             else Check(Native.WindowCreate(in options, out handle));
             Handle = handle;
+        }
+        try
+        {
+            if (visualStyle != VisualStyle.Classic) SetVisualStyle(visualStyle);
+        }
+        catch
+        {
+            Dispose();
+            throw;
         }
     }
     internal void Guard()

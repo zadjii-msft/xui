@@ -217,9 +217,10 @@ There is no approved renderer replacement in this work.
 
 ### 5. Productize only after the presentation contract stabilizes
 
-The C ABI and C#/Rust wrappers do not expose the new style API.
-Versioned binding support remains future work.
-Explorer, Task Manager, and other samples need their own composition review and acceptance runs.
+The subsequent explorer migration adds window style selection to `xui_layout.h` and the C# `Window` binding.
+The managed explorer uses `.xui` layouts and selects WinUI.
+The Rust wrapper does not expose style selection.
+Task Manager and other samples still need their own composition review and acceptance runs.
 The experiment does not make WinUI the default for existing applications.
 
 Native date/time controls, suggestion lists, editor scrollbars, disabled RichEdit backgrounds, and third-party Shell menus retain platform-owned visuals.

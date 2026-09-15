@@ -15,6 +15,16 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
+                await Ui(() => Shortcut(0x75, KeyModifiers.Control));
+                await Check(() => app.Window.Style == VisualStyle.WinUI, "Light theme retains the WinUI visual style");
+                await Ui(() => Shortcut(0x75, KeyModifiers.Control));
+                await Check(() => app.Window.Style == VisualStyle.WinUI, "Dark theme retains the WinUI visual style");
+                await Check(() => !ReferenceEquals(app.Left.Root, app.Right.Root)
+                    && !ReferenceEquals(app.Left.Grid, app.Right.Grid)
+                    && !ReferenceEquals(app.Left.FindInput, app.Right.FindInput)
+                    && app.Left.BackButton.Icon == ButtonIcon.Back && app.Right.BackButton.Icon == ButtonIcon.Back,
+                    "Declarative components create independent pane controls");
                 await Ui(() => app.Left.Navigate(fixture));
                 await Ready(app.Left);
                 await Check(() => app.Left.VisibleCount == 4, "Folder rows");

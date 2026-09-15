@@ -1,0 +1,34 @@
+namespace Demo;
+component Composition {
+    param global::Xui.Element Body;
+    param string Title;
+    param int Column;
+    state float Width = 120;
+    state string Identifier = "layout";
+    state bool Shown = true;
+    view {
+        VStack(ref: Panel, spacing: 4, padding: 8, preferredSize: (640, 480)) {
+            Grid(Title, ref: Layout, flex: 1,
+                rows: [new(global::Xui.TrackSizing.Star, 1), new(global::Xui.TrackSizing.Star, 1)],
+                columns: [new(global::Xui.TrackSizing.Fixed, Width), new(global::Xui.TrackSizing.Star, 1)]) {
+                TextInput("Search", ref: Search, captionVisible: false, placeholder: Title, row: 0, column: Column);
+                NavigationView("Locations", ref: Navigation, headerVisible: false, searchId: Identifier + ".search", searchHelp: Title, row: 0, column: 1);
+                SplitView("Panes", ref: Panes, secondVisible: Shown, row: 1, columnSpan: 2) {
+                    ScrollView("Files", ref: Scroller) {
+                        Content(Body, ref: Embedded, preferredSize: (200, 160));
+                    }
+                    Popup("Details", ref: Flyout, placement: global::Xui.PopupPlacement.Right, windowBackground: true) {
+                        HStack() {
+                            Button("Refresh", ref: RefreshButton, icon: global::Xui.ButtonIcon.Refresh);
+                            Text(Title);
+                        }
+                    }
+                }
+            }
+            DataGrid("Details", ref: Details, id: Identifier, enabled: Shown, visible: Shown, help: Title,
+                columns: [new("Name", Width), new("Size", 80, Numeric: true)]);
+            ItemsView("Files", ref: Items);
+            Toggle("Filter", ref: Filter);
+        }
+    }
+}

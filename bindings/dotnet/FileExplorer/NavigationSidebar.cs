@@ -13,9 +13,7 @@ internal sealed class NavigationSidebar
     public NavigationSidebar(ExplorerApplication app)
     {
         this.app = app;
-        View = app.Window.NavigationView("Explorer navigation").SetAutomationId("explorer-navigation");
-        View.SetHeaderVisible(false);
-        View.Search.SetAutomationId("navigation-filter").Help("Filter navigation (Alt+F)");
+        View = new SidebarLayout(app.Window, attach: false).Root;
         View.Event += e =>
         {
             if (!updating && e.Kind is EventKind.Selection or EventKind.Click && paths.TryGetValue(e.Value, out string? path))

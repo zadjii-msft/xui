@@ -63,6 +63,23 @@ public static class ElementLayout
 
 public sealed partial class Window
 {
+    public VisualStyle Style
+    {
+        get
+        {
+            Guard();
+            Check(Native.WindowVisualStyleGet(Handle, out uint style));
+            return (VisualStyle)style;
+        }
+    }
+
+    public Window SetVisualStyle(VisualStyle style)
+    {
+        Guard();
+        Check(Native.WindowVisualStyleSet(Handle, (uint)style));
+        return this;
+    }
+
     public Window SetTitlebarLayout(Element firstPane, Element? secondPane = null, bool showTitle = false)
     {
         Guard();
@@ -85,6 +102,10 @@ public sealed partial class NavigationView
 
 internal static partial class Native
 {
+    [LibraryImport("xui", EntryPoint = "xui_window_visual_style_set")]
+    internal static partial int WindowVisualStyleSet(ulong window, uint style);
+    [LibraryImport("xui", EntryPoint = "xui_window_visual_style_get")]
+    internal static partial int WindowVisualStyleGet(ulong window, out uint style);
     [LibraryImport("xui", EntryPoint = "xui_popup_window_background")]
     internal static partial int PopupWindowBackground(ulong target, uint enabled);
     [LibraryImport("xui", EntryPoint = "xui_items_trailing_shortcut_badges")]

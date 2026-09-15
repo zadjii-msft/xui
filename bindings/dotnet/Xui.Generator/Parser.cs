@@ -7,8 +7,9 @@ namespace Xui.Generator;
 
 internal sealed record Expression(string Text, int Offset);
 internal sealed record State(string Type, string Name, Expression Initializer, int Offset);
+internal sealed record Parameter(string Type, string Name, int Offset);
 internal sealed record Node(string Kind, int Offset, Dictionary<string, Expression> Arguments, List<Node> Children);
-internal sealed record Component(string Namespace, string Name, int Offset, List<State> States, Node Root, Expression Code);
+internal sealed record Component(string Namespace, string Name, int Offset, List<State> States, List<Parameter> Parameters, Node Root, Expression Code);
 internal sealed class ParseError(string message, int offset) : Exception(message)
 {
     internal int Offset { get; } = offset;
@@ -60,12 +61,27 @@ internal sealed class Parser(string text)
         var name = Identifier();
         Expect("{");
         var states = new List<State>();
+        var parameters = new List<Parameter>();
         Node? root = null;
         Expression code = new("", 0);
         bool hasCode = false;
         while (!Is("}"))
         {
-            if (Is("state"))
+            if (Is("param"))
+            {
+                Take();
+                int fieldStart = position;
+                var member = SyntaxFactory.ParseMemberDeclaration(text, position, consumeFullText: false);
+                if (member is not FieldDeclarationSyntax field)
+                    throw new ParseError("Expected 'param Type Name;'.", Offset);
+                Check(field, fieldStart);
+                if (field.Modifiers.Count != 0 || field.AttributeLists.Count != 0 ||
+                    field.Declaration.Variables.Count != 1 || field.Declaration.Variables[0].Initializer is not null)
+                    throw new ParseError("A parameter requires one unmodified field without an initializer.", Offset);
+                parameters.Add(new(field.Declaration.Type.ToString(), field.Declaration.Variables[0].Identifier.Text, fieldStart));
+                position += field.FullSpan.Length;
+            }
+            else if (Is("state"))
             {
                 Take();
                 int fieldStart = position;
@@ -91,8 +107,6 @@ internal sealed class Parser(string text)
                 if (root is not null) throw new ParseError("Only one view is supported.", Offset);
                 Take(); Expect("{");
                 root = ParseNode();
-                if (root.Kind is not ("VStack" or "HStack"))
-                    throw new ParseError("The view root must be VStack or HStack.", root.Offset);
                 Expect("}");
             }
             else if (Is("code"))
@@ -117,12 +131,12 @@ internal sealed class Parser(string text)
                 hasCode = true;
                 position += block.FullSpan.Length;
             }
-            else throw new ParseError("Expected state, view, code csharp, or '}'.", Offset);
+            else throw new ParseError("Expected param, state, view, code csharp, or '}'.", Offset);
         }
         Expect("}");
         if (!Peek().IsKind(SyntaxKind.EndOfFileToken))
             throw new ParseError("Only one component is supported per .xui file.", Offset);
-        return new(ns, name, start, states, root ?? throw new ParseError("A component requires a view.", start), code);
+        return new(ns, name, start, states, parameters, root ?? throw new ParseError("A component requires a view.", start), code);
     }
     private Node ParseNode()
     {
@@ -131,14 +145,23 @@ internal sealed class Parser(string text)
         string[] allowed = kind switch
         {
             "VStack" or "HStack" => ["spacing", "padding"],
-            "Text" => ["value", "id", "enabled"],
-            "Button" => ["value", "id", "enabled", "click"],
-            "Toggle" => ["value", "id", "enabled", "checked", "change"],
-            "TextInput" => ["value", "id", "name", "enabled", "text", "change", "submit"],
+            "Text" => ["value"],
+            "Button" => ["value", "click", "icon"],
+            "Toggle" => ["value", "checked", "change"],
+            "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
+            "Grid" => ["value", "rows", "columns"],
+            "DataGrid" => ["value", "columns"],
+            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp"],
+            "ItemsView" or "ScrollView" => ["value"],
+            "Popup" => ["value", "placement", "windowBackground"],
+            "SplitView" => ["value", "secondVisible"],
+            "Content" => ["value"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
         bool stack = kind is "VStack" or "HStack";
-        allowed = stack ? [.. allowed, "size"] : [.. allowed, "size", "help"];
+        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView";
+        allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
+        if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         Expect("(");
         while (!Is(")"))
@@ -151,6 +174,8 @@ internal sealed class Parser(string text)
             {
                 key = Take().Text;
                 Expect(":");
+                if (key == "value")
+                    Errors.Add(new ParseError("The first argument must be positional, not 'value:'.", argStart));
             }
             else
             {
@@ -163,24 +188,28 @@ internal sealed class Parser(string text)
             var expression = SyntaxFactory.ParseExpression(text, position, consumeFullText: false);
             Check(expression, expressionStart);
             if (expression.IsMissing) throw new ParseError("Expected a C# expression.", Offset);
-            if (key is "click" or "change" or "submit" && expression is not IdentifierNameSyntax)
-                throw new ParseError("Event handlers must be method names.", expressionStart);
+            if (key is "click" or "change" or "submit" or "ref" && expression is not IdentifierNameSyntax)
+                throw new ParseError("Event handlers and references must be identifiers.", expressionStart);
             arguments.Add(key, new(expression.ToString(), expressionStart + expression.SpanStart));
             position += expression.FullSpan.Length;
             if (!Is(",")) break;
             Take();
         }
         Expect(")");
+        if (!stack && !arguments.ContainsKey("value"))
+            throw new ParseError($"{kind} requires its {(kind == "Content" ? "Element" : "string")} argument.", start);
         var children = new List<Node>();
-        if (stack)
+        if (container)
         {
             Expect("{");
             while (!Is("}")) children.Add(ParseNode());
             Expect("}");
+            int required = kind is "ScrollView" or "Popup" ? 1 : kind == "SplitView" ? 2 : -1;
+            if (required >= 0 && children.Count != required)
+                throw new ParseError($"{kind} requires exactly {required} content children.", start);
         }
         else
         {
-            if (!arguments.ContainsKey("value")) throw new ParseError($"{kind} requires its string argument.", start);
             Expect(";");
         }
         return new(kind, start, arguments, children);
