@@ -10,6 +10,9 @@ An authored face uses a flat fill, a border, and one corner radius.
 Authored faces do not retain the WinUI elevation gradient.
 A style that changes only text color or padding keeps the existing face.
 
+The [Minesweeper demo](../../bindings/dotnet/Minesweeper/README.md) uses shared styles for borderless cleared cells, numbered cells, flags, and game outcomes.
+Its presentation layer changes style references without changing game rules or cell identity.
+
 ## Named declarations
 
 Declarations belong inside a component.

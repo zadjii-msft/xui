@@ -22,6 +22,25 @@ The earlier blocked dispositions in this report describe the investigation befor
 Brush changes remain a possible explanation, not an established cause.
 Default-path performance, bounded storage, native input, and accessibility remain requirements for subsequent changes.
 
+## Consumer integration
+
+Commit `f77795d` integrates the first VSIX grammar update.
+The parent reran all 24 tokenizer and configuration tests successfully.
+The child also rebuilt the VSIX and checked its eight packaged source files.
+The package was not installed.
+Expanded target and part syntax still depends on the native and compiler pilot.
+
+Commit `5909694` integrates the Minesweeper palette and presentation changes.
+Cleared cells have no border, and numbered cells use distinct light and dark colors.
+The palette also distinguishes covered, flagged, exploded, incorrect-flag, and completed-game cells.
+The parent reran 133,822 model and native style assertions against its native library.
+Unchanged refreshes create no new native style handles.
+
+The Minesweeper child reported 510 desktop smoke assertions, including UIA bounds, gameplay, hot reload, and NativeAOT.
+Its smoke-owned processes are closed.
+No new screenshots, physical keyboard checks, or screen-reader checks form part of that evidence.
+Static C# palette edits require a restart rather than named-style hot reload.
+
 ## Source map
 
 - `include\xui\styling.hpp`, `src\styling.cpp`: immutable colors, resource scopes, sparse values, derivation, and state tables.
