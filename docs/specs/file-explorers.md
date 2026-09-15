@@ -20,6 +20,7 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 `FilePaneLayout.xui` defines each pane, including its toolbar, file grid, Find row, and status.
 `SidebarLayout.xui` defines the navigation control.
 `PaletteLayout.xui` defines the folder and command palette.
+`ViewMenuLayout.xui` defines the footer's view-choice flyout.
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state updates the Find row height and control visibility.
 
@@ -29,8 +30,10 @@ After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#
 
 The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
 Each tab row follows its pane, including splitter and window-size changes.
+Each pane has a New tab icon immediately after its last visible tab, not in the address toolbar.
 Both styles use attached tabs with rounded top corners and an open selected bottom edge.
-The row inherits its parent background. Empty rows draw no baseline.
+The row inherits its parent background.
+The title-bar border continues across the navigation area, pane divider, and caption area, except below selected tabs.
 Clicking a tab selects it and moves focus into its file pane, including clicks on the current tab.
 Arrow keys select tabs while focus stays on the strip. Enter or Space moves focus into the selected pane.
 The tab focus rectangle appears only during keyboard navigation.
@@ -77,8 +80,9 @@ Canceled or obsolete requests cannot replace the current view.
 
 ### Columns view
 
-The toolbar button switches between **Columns** and **Details**.
-Its label names the view that the button will open.
+The footer contains the item count and a **Choose view** icon.
+The icon opens a flyout above the footer with **Details** and **Columns** choices.
+The flyout identifies the current view. Escape closes it without a view change.
 The command palette also contains **Use Columns view** and **Use Details view**.
 Each tab retains its own view choice.
 
@@ -89,6 +93,8 @@ A file selection does not open the file.
 Enter or a double-click opens the selected file through its Windows association.
 
 Each column scrolls vertically on its own.
+Rows highlight under the pointer without changing selection or keyboard focus.
+Vertical separators distinguish adjacent columns.
 Left and Right move focus between existing columns.
 The horizontal navigation buttons reveal earlier or later columns.
 Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
@@ -147,6 +153,10 @@ File copy uses the Windows file clipboard format, not a list of text paths.
 Other Windows applications can paste these files.
 The demo also accepts file clipboard content from Windows Explorer and other applications that supply local file paths.
 Copy paths replaces the clipboard with text instead of file content.
+Successful clipboard commands show temporary feedback to the left of the item count in the originating pane.
+The feedback clears after three seconds. A new message restarts that pane's timeout.
+Successful transfer feedback uses the same footer area.
+Errors and incomplete-transfer warnings remain visible in the application notification area.
 Keyboard Paste targets the current Details folder or the active column folder.
 The context menu for a single folder also offers Paste into this folder.
 
@@ -189,6 +199,9 @@ Typed paths support relative paths, quoted paths, environment variables, and UNC
 Without a trailing slash, the final component filters the parent folder by name, even for an exact directory match.
 Enter on an exact directory match opens that directory, not its first child.
 A trailing `\` or `/` lists the directory's children.
+Bare drive letters such as `D:` resolve to the drive root, not the drive's last working directory.
+Drive-root queries do not select a child automatically, including queries such as `D:\`.
+Enter opens the root. Down selects a child for subsequent navigation.
 The same rule applies after quote removal and environment-variable expansion.
 Prefix matches appear before other substring matches.
 Tab completion adds a trailing slash to a directory and leaves the caret at the end of the completed path.

@@ -15,8 +15,6 @@ component FilePaneLayout {
                 Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
                 Button(InitialPath, ref: Address, id: $"pane-{Number}-address", flex: 1, help: "Go to a folder (Ctrl+L)");
                 Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
-                Button("Columns", ref: ViewMode, id: $"pane-{Number}-view-mode", help: "Switch between Details and Columns");
-                Button("New tab", ref: NewTab, id: $"pane-{Number}-new-tab", icon: global::Xui.ButtonIcon.Add, size: (36, 36), help: "New tab (Ctrl+T)");
                 Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
             }
             Grid($"File views in pane {Number}", ref: ContentHost, row: 1) {
@@ -29,8 +27,11 @@ component FilePaneLayout {
                 Button("Close find", ref: CloseFind, id: $"pane-{Number}-close-find", icon: global::Xui.ButtonIcon.Close,
                     size: (44, 44), help: "Close find (Escape)", visible: FindOpen);
             }
-            VStack(padding: 6, row: 3) {
+            HStack(padding: 6, spacing: 8, ref: Footer, row: 3) {
+                Text("", ref: Feedback, id: $"pane-{Number}-feedback", flex: 1);
                 Text("Loading folder...", ref: Status, id: $"pane-{Number}-status");
+                Button("Choose view", ref: ViewMode, id: $"pane-{Number}-view-mode",
+                    icon: global::Xui.ButtonIcon.Library, size: (32, 32), help: "Choose Details or Columns");
             }
         }
     }

@@ -99,6 +99,10 @@ internal static class FeatureTests
         using (var w = new Window(customTitlebar: true))
         {
             var tabs = w.TitlebarTabs;
+            Expect(!tabs.NewTabButtonVisible);
+            Expect(ReferenceEquals(tabs.SetNewTabButtonVisible(true), tabs) && tabs.NewTabButtonVisible);
+            tabs.NewTabButtonVisible = false;
+            Expect(!tabs.NewTabButtonVisible);
             var tabColors = new TabColors(0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789);
             Expect(ReferenceEquals(tabs.SetColors(tabColors), tabs) && tabs.Colors == tabColors);
             bool invalidColors = false;

@@ -62,9 +62,9 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         }
         pane.Activate();
         if (id == Refresh) { pane.Refresh(); return; }
-        if (id == Copy) { app.Transfers.Copy(paths, cut: false); return; }
-        if (id == Cut) { app.Transfers.Copy(paths, cut: true); return; }
-        if (id == CopyPaths) { app.Transfers.CopyPaths(paths); return; }
+        if (id == Copy) { app.Transfers.Copy(pane, paths, cut: false); return; }
+        if (id == Cut) { app.Transfers.Copy(pane, paths, cut: true); return; }
+        if (id == CopyPaths) { app.Transfers.CopyPaths(pane, paths); return; }
         if (id == Paste) { app.Transfers.Paste(pane, destination); return; }
         if (target is not { } entry)
         {

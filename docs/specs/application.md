@@ -20,7 +20,7 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | `TextInput` | Native EDIT, committed-text and submit callbacks, optional asynchronous suggestions, search appearance, placeholder, and shortcut hint |
 | `ScrollView` | Retained content, a vertical viewport, a scrollbar, focus reveal, and UIA scroll actions |
 | `ContentView` | A clipped retained subtree with a native parent for child controls |
-| `TabStrip` | Dynamic tab data, stable IDs, selection, close callbacks, overflow reveal, and UIA tab patterns |
+| `TabStrip` | Dynamic tab data, stable IDs, selection, close callbacks, an optional new-tab button, overflow reveal, and UIA tab patterns |
 | `SplitView` | Two content hosts, a draggable divider, keyboard resizing, minimum widths, and narrow-window collapse |
 | `FileList` | Immutable views, stable selection and item focus, navigation, viewport, empty text, and change callbacks |
 | `DataGrid` | Immutable row sources, stable keys, shared multi-selection, header filters, selection check columns, sorting, resize, reorder, and two-axis scrolling |

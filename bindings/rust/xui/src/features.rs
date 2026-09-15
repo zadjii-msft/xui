@@ -454,6 +454,16 @@ pub struct TabColors {
     pub border: Option<u32>,
 }
 impl TabStrip {
+    pub fn set_new_tab_button_visible(&self, visible: bool) -> Result<()> {
+        self.owner
+            .check(unsafe { sys::xui_tab_set_new_button(self.handle, visible as u32) })
+    }
+    pub fn new_tab_button_visible(&self) -> Result<bool> {
+        let mut visible = 0;
+        self.owner
+            .check(unsafe { sys::xui_tab_get_new_button(self.handle, &mut visible) })?;
+        Ok(visible != 0)
+    }
     pub fn set_colors(&self, colors: TabColors) -> Result<()> {
         let values = [
             colors.row_background,

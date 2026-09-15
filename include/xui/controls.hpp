@@ -306,10 +306,11 @@ struct TabColors {
     bool operator==(const TabColors&) const = default;
 };
 
-// One retained control and one native peer, regardless of tab count.
+// One strip peer regardless of tab count, plus one retained optional action button.
 class TabStrip final : public Control {
 public:
-    explicit TabStrip(std::wstring name = L"Tabs") : Control(ControlRole::tab_strip, std::move(name), {320, 38}) {}
+    explicit TabStrip(std::wstring name = L"Tabs");
+    ~TabStrip() override;
     const std::vector<TabItem>& tabs() const { return tabs_; }
     const TabColors& colors() const { return colors_; }
     void set_colors(TabColors colors);
@@ -324,17 +325,29 @@ public:
     void on_activate(std::function<void(std::uint64_t)> callback) { activate_ = std::move(callback); }
     void on_close(std::function<void(std::uint64_t)> callback) { close_ = std::move(callback); }
     bool closable() const { return bool(close_); }
+    void set_new_tab_button_visible(bool visible);
+    bool new_tab_button_visible() const { return new_button_visible_; }
+    void on_new_tab(std::function<void()> callback) { new_tab_ = std::move(callback); }
+    void request_new_tab();
+    Rect new_tab_button_bounds() const;
+    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     Rect tab_bounds(std::size_t index) const;
     Rect close_bounds(std::size_t index) const;
     std::optional<std::size_t> hit_test(float x) const;
     void arrange(Rect bounds) override;
 private:
+    float tab_viewport_width() const;
+    void arrange_new_button();
     void reveal_selected();
     std::vector<TabItem> tabs_;
     TabColors colors_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
     std::function<void(std::uint64_t)> select_, close_, activate_;
+    std::shared_ptr<Button> new_button_;
+    std::vector<std::shared_ptr<Element>> children_;
+    std::function<void()> new_tab_;
+    bool new_button_visible_{};
 };
 
 // A clipped retained subtree. It adds no renderer or independent message loop.

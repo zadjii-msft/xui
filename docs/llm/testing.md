@@ -11,7 +11,7 @@ The explorer adds these regressions:
 | --- | --- |
 | `xui_explorer_tests` | History commits, failed navigation, tab selection and closure, cancellation, bounded state, UNC roots, long Unicode scans, activation, and injected file associations |
 | `xui_explorer_smoke` | The real explorer, address input, history, keyboard shortcuts, context commands, independent panes, tab providers, divider input, clipping, and resource bounds |
-| `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, empty rows, custom colors, content activation, close targets, focus, and overflow |
+| `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, titlebar gap borders, empty rows, custom colors, content activation, close targets, New tab placement and UIA invocation, focus, and overflow |
 | `xui_suggestion_tests` | Folder prefixes, real and synthetic enumeration limits, deterministic cancellation, native EDIT behavior, popup input, themes, and closure during a blocked request |
 | `xui_split_window_tests` | Eight window cycles with tabs, two lists, native fields, capture cancellation, simulated DPI, target recreation, and final resource disposal |
 
@@ -24,7 +24,12 @@ That optional subscription can stall inside Windows before a test action. It dep
 
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
 Navigation checks cover exact-directory Enter, trailing-slash child results, cached completion, Tab, parent queries, and query history.
+Drive-root checks cover bare and slash-terminated drive queries without automatic child activation.
+The native New tab buttons create tabs in their respective panes and restore file focus.
 The model checks compare cached and scanned suggestions for relative, quoted, expanded, and slash-terminated paths.
+Footer checks cover upward view selection, both choices, Escape, focus restoration, and independent pane feedback.
+Feedback timing checks cover the three-second lifetime, replacement cancellation, singular counts, and persistent errors.
+Native Miller capture checks cover row hover and pixel-aligned vertical separators across themes and DPI values.
 Command snapshot checks require eager availability evaluation, stable row content, and no action execution during source callbacks.
 The smoke opens and filters Copy/Cut commands with selected entries in both Details and Columns views.
 These checks cover the native callback guard that rejects selection queries from an immutable source callback.

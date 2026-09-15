@@ -55,8 +55,15 @@ void layout_and_viewport() {
     view.arrange({20, 30, 500, 400});
     require(view.role() == ControlRole::content_view && retained == 2 + 2 * MillerColumns::maximum_columns,
         "A fixed retained composite hosts one virtual list and header per column");
-    require(view.column_list(0)->bounds().width == 240 && view.column_width() == 240,
-        "Column width is independent of content");
+    require(view.column_list(0)->bounds().width == 239 && view.column_width() == 240,
+        "Column slots reserve a separator outside the list and scrollbar");
+    const auto separator = view.separator_bounds(0);
+    require(separator.x == 239 && separator.width == 1 && separator.y == 32 &&
+        separator.y + separator.height == view.horizontal_track().y &&
+        view.column_list(0)->bounds().x + view.column_list(0)->bounds().width == view.bounds().x + separator.x,
+        "The separator joins header and list without covering rows, scrollbars or the toolbar");
+    require(view.separator_bounds(2).width == 0 && view.separator_bounds(100).width == 0,
+        "Only adjacent columns have a separator");
     const auto first = view.column_list(0), child = view.column_list(2);
     require(view.maximum_horizontal() == 220, "Horizontal range uses the combined column width");
     int focus_requests{};
@@ -109,6 +116,8 @@ void horizontal_scrolling() {
     view.arrange({30, 40, 300, 350});
     require(view.horizontal_offset() == 123.5 && view.active_column() == 2,
         "Layout, height and position changes preserve manual scrolling away from the active column");
+    require(view.separator_bounds(0).x == 115.5f && view.separator_bounds(1).width == 0,
+        "Separator bounds follow fractional scrolling and clip outside the viewport");
     require(first->offset() == 800 && last->offset() == 1600 && callbacks == 0,
         "Horizontal movement preserves vertical positions and emits no selection, focus or activation");
     auto track = view.horizontal_track(), thumb = view.horizontal_thumb();
@@ -272,6 +281,36 @@ void programmatic_selection_keeps_external_focus() {
     require(selections == 1 && focus_requests == 0 && view.active_column() == 1,
         "Programmatic selection and reentrant child loading reveal columns without requesting native focus");
 }
+void pointer_hover() {
+    MillerColumns view;
+    auto source = std::make_shared<Rows>();
+    view.set_columns(fixture(source)); view.arrange({0, 0, 720, 400});
+    auto list = view.column_list(0);
+    int callbacks{};
+    view.on_selection([&](std::size_t, ItemKey) { ++callbacks; });
+    view.on_activate([&](std::size_t, ItemKey) { ++callbacks; });
+    view.on_focus_column([&](const std::shared_ptr<VirtualCollection>&) { ++callbacks; });
+    list->hover_pointer(Point{20, 60});
+    require(list->hovered_row() == 1 && list->selection().focused() == ItemKey{1, 1} &&
+        list->selection().contains({1, 1}) && !list->focused() && view.active_column() == 0 && callbacks == 0,
+        "Hover identifies a row without selection, focus, activation or a column change");
+    list->hover_pointer(Point{20, 100});
+    require(!list->hovered_row(), "Disabled rows reject hover");
+    list->hover_pointer(Point{list->bounds().width - 2, 60});
+    require(!list->hovered_row(), "Scrollbar space is outside the hover body");
+    list->hover_pointer(Point{20, 60});
+    list->set_offset(80);
+    require(list->hovered_row() == 3, "Hover follows visible rows after vertical scrolling");
+    list->cancel();
+    require(!list->hovered_row() && callbacks == 0, "Input cancellation clears hover without an action");
+    list->hover_pointer(Point{20, 60});
+    view.set_enabled(false);
+    require(!list->hovered_row(), "Disabled column owners suppress hover");
+    view.set_enabled(true);
+    view.set_columns(fixture(source));
+    require(!list->hovered_row(), "Snapshot replacement clears pointer state");
+    rejects([&] { list->hover_pointer(Point{std::numeric_limits<float>::quiet_NaN(), 10}); });
+}
 void validation_and_lifetime() {
     MillerColumns view;
     const auto dormant = view.column_list(MillerColumns::maximum_columns - 1);
@@ -331,7 +370,7 @@ void validation_and_lifetime() {
 int main() {
     try {
         layout_and_viewport(); horizontal_scrolling(); selection_and_keyboard(); replacement_and_virtualization();
-        context_menu_selection(); programmatic_selection_keeps_external_focus(); validation_and_lifetime();
+        context_menu_selection(); programmatic_selection_keeps_external_focus(); pointer_hover(); validation_and_lifetime();
         std::cout << checks << " Miller columns checks passed\n";
         return 0;
     } catch (const std::exception& error) {

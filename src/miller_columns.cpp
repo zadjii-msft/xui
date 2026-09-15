@@ -40,6 +40,7 @@ bool MillerColumnList::available(ItemKey key) const {
         index_ < owner_->columns().size() && valid_item(source_, key);
 }
 void MillerColumnList::replace(const MillerColumn& column) {
+    hover_pointer({});
     const auto old_focus = selection_.focused();
     const auto old_selected = selection_.selected_keys(source_, 1);
     const bool changed_source = items_ != column.source;
@@ -57,6 +58,8 @@ void MillerColumnList::replace(const MillerColumn& column) {
     invalidate(Invalidation::paint);
 }
 void MillerColumnList::arrange(Rect value) {
+    if (value.x != bounds().x || value.y != bounds().y || value.width != bounds().width || value.height != bounds().height)
+        hover_pointer({});
     VirtualCollection::arrange(value);
     if (reveal_selection_ && value.width > 0 && value.height > 0) {
         reveal_selection_ = false;
@@ -116,6 +119,22 @@ std::vector<CollectionRow> MillerColumnList::visible_content() const {
     auto rows = VirtualCollection::visible_content();
     for (auto& row : rows) row.content.submenu = items_->hierarchy(row.index).expandable;
     return rows;
+}
+void MillerColumnList::hover_pointer(std::optional<Point> point) {
+    if (point && (!std::isfinite(point->x) || !std::isfinite(point->y)))
+        throw std::invalid_argument("Hover coordinates must be finite");
+    const auto previous = hovered_row();
+    hover_pointer_ = point;
+    if (previous != hovered_row()) invalidate(Invalidation::paint);
+}
+std::optional<std::size_t> MillerColumnList::hovered_row() const {
+    if (!hover_pointer_ || !owner_ || !owner_->enabled() || !owner_->visible() || !enabled() || !visible()) return {};
+    const auto row = hit_test(*hover_pointer_);
+    return row && available(source_->key(*row)) ? row : std::nullopt;
+}
+void MillerColumnList::cancel() {
+    hover_pointer({});
+    Control::cancel();
 }
 
 MillerColumns::MillerColumns(std::wstring name) :
@@ -210,6 +229,16 @@ Rect MillerColumns::horizontal_thumb() const {
     return {static_cast<float>(offset_ / maximum_horizontal() * (track.width - width)),
         track.y + std::min(2.0f, track.height / 2), width, std::max(0.0f, track.height - 4)};
 }
+Rect MillerColumns::separator_bounds(std::size_t column) const {
+    if (column >= columns_.size() || column + 1 >= columns_.size()) return {};
+    const auto area = bounds();
+    const float available = std::max(0.0f, area.height - horizontal_track().height);
+    const float toolbar = std::min(32.0f, available);
+    const float right = static_cast<float>((column + 1) * static_cast<double>(effective_width()) - offset_);
+    const float left = std::max(0.0f, right - separator_width);
+    const float clipped_right = std::min(area.width, right);
+    return {left, toolbar, std::max(0.0f, clipped_right - left), available - toolbar};
+}
 void MillerColumns::move_active(bool right) {
     if (!enabled() || !visible() || columns_.empty() || (right ? active_ + 1 >= columns_.size() : active_ == 0)) return;
     set_active_column(right ? active_ + 1 : active_ - 1);
@@ -265,10 +294,11 @@ void MillerColumns::layout() {
         const float left = static_cast<float>(static_cast<double>(i) * width - offset_);
         const bool present = shown && i < columns_.size();
         const bool onscreen = present && left < area.width && left + width > 0;
+        const float content_width = present ? std::max(0.0f, width - (i + 1 < columns_.size() ? separator_width : 0)) : 0;
         headers_[i]->set_visible(onscreen && header > 0);
         lists_[i]->set_visible(onscreen && height > 0);
-        headers_[i]->arrange({area.x + left, area.y + toolbar, present ? width : 0, header});
-        lists_[i]->arrange({area.x + left, area.y + toolbar + header, present ? width : 0, present ? height : 0});
+        headers_[i]->arrange({area.x + left, area.y + toolbar, content_width, header});
+        lists_[i]->arrange({area.x + left, area.y + toolbar + header, content_width, present ? height : 0});
     }
 }
 

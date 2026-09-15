@@ -23,6 +23,9 @@ public:
     void horizontal(bool right, SelectionGesture gesture) override;
     void set_presentation(ItemsPresentation value) override;
     std::vector<CollectionRow> visible_content() const override;
+    void hover_pointer(std::optional<Point> point);
+    std::optional<std::size_t> hovered_row() const;
+    void cancel() override;
     void arrange(Rect bounds) override;
     MillerColumns* owner() const { return owner_; }
     std::size_t column_index() const { return index_; }
@@ -35,6 +38,7 @@ private:
     std::size_t index_;
     std::shared_ptr<const ItemsSource> items_;
     bool reveal_selection_{};
+    std::optional<Point> hover_pointer_;
 };
 
 // Sources are immutable, thread-safe snapshots. Applications own loading and delivery.
@@ -58,6 +62,8 @@ public:
     void scroll_horizontal(double delta);
     Rect horizontal_track() const;
     Rect horizontal_thumb() const;
+    Rect separator_bounds(std::size_t column) const;
+    static constexpr float separator_width = 1;
     static constexpr float scrollbar_height = 12;
     void on_selection(std::function<void(std::size_t, ItemKey)> callback) { selection_ = std::move(callback); }
     void on_activate(std::function<void(std::size_t, ItemKey)> callback) { activate_ = std::move(callback); }

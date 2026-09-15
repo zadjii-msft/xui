@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
@@ -11,6 +12,8 @@ internal static class ExplorerSmoke
     private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
+    [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern nint FindWindowExW(nint parent, nint after, string? className, string? windowName);
 
     private static void CheckCommandSnapshot()
     {
@@ -109,6 +112,7 @@ internal static class ExplorerSmoke
                 await Check(() => app.Sidebar.IsOpen && app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X,
                     "Alt+F restores navigation and aligned tabs");
                 await Ui(() => ClickFirstTab(app.Left));
+                await NewTabButtonChecks(app.Left);
 
                 float unfilteredHeight = 0;
                 await Ui(() =>
@@ -201,6 +205,7 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == fixture && app.Left.VisibleCount == 4 && app.Left.Error is not null,
                     "Failed navigation preserves committed view");
+                await DriveNavigationChecks(fixture);
 
                 await Ui(() => Shortcut(0x4c, KeyModifiers.Control));
                 await Until(() => !app.Palettes.Pending);
@@ -288,6 +293,7 @@ internal static class ExplorerSmoke
                 await Check(() => app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X
                     && app.Window.TitlebarSecondaryTabs.GetBounds().Width > 0, "Each split has a pane-aligned tab band");
                 await Ui(() => ClickFirstTab(app.Right));
+                await NewTabButtonChecks(app.Right);
                 await Ui(() => app.Right.Navigate(Path.Combine(fixture, "alpha")));
                 await Ready(app.Right);
                 await Ui(() =>
@@ -392,6 +398,7 @@ internal static class ExplorerSmoke
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
                 await ColumnsChecks();
                 await Transfers(fixture);
+                await FeedbackChecks();
                 await Ui(() =>
                 {
                     app.Report("Explorer smoke passed.");
@@ -417,10 +424,27 @@ internal static class ExplorerSmoke
                 await Ui(() => { pane.Focus(); pane.Navigate(fixture); });
                 await Ready(pane);
                 await Ui(pane.ViewModeButton.Invoke);
+                await Check(() => pane.ViewMenu.IsOpen && !pane.IsColumns
+                    && pane.ViewModeButton.Icon == ButtonIcon.Library
+                    && pane.ViewModeButton.GetBounds().Y >= pane.Footer.GetBounds().Y
+                    && pane.ViewMenu.GetBounds().Y + pane.ViewMenu.GetBounds().Height <= pane.ViewModeButton.GetBounds().Y,
+                    "Footer view icon opens an upward flyout without changing the current view");
+                await Check(() => pane.DetailsOption.Text == "Details (current)" && pane.ColumnsOption.Text == "Columns",
+                    "View flyout exposes Details and Columns with the current choice");
+                await Ui(pane.ColumnsOption.Invoke);
                 await Ready(pane);
                 await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 1 && pane.FilesFocused
-                    && pane.Model.Active.Path == fixture && !pane.Grid.Focused,
-                    "Toolbar enables focused columns without changing the committed path");
+                    && pane.Model.Active.Path == fixture && !pane.Grid.Focused && !pane.ViewMenu.IsOpen,
+                    "Footer flyout enables focused columns without changing the committed path");
+                await Ui(() =>
+                {
+                    pane.ViewModeButton.Invoke();
+                    if (!PostMessageW(GetFocus(), 0x100, 0x1b, 0))
+                        throw new InvalidOperationException("Could not post Escape to the view flyout.");
+                });
+                await Until(() => !pane.ViewMenu.IsOpen);
+                await Check(() => pane.IsColumns && pane.FilesFocused,
+                    "Escape closes the view flyout without changing the view and restores file focus");
                 await Ui(() => pane.SelectColumnPath(0, alpha));
                 await Ready(pane);
                 await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
@@ -575,6 +599,14 @@ internal static class ExplorerSmoke
                 await Ui(() => app.Commands.Single(c => c.Name == "Use Details view").Execute());
                 await Ready(pane);
                 await Check(() => !pane.IsColumns && pane.Grid.Focused, "Command palette Details choice restores grid focus");
+                await Ui(pane.ViewModeButton.Invoke);
+                await Ui(pane.ColumnsOption.Invoke);
+                await Ready(pane);
+                await Ui(pane.ViewModeButton.Invoke);
+                await Ui(pane.DetailsOption.Invoke);
+                await Ready(pane);
+                await Check(() => !pane.ViewMenu.IsOpen && !pane.IsColumns && pane.Grid.Focused,
+                    "Both footer flyout choices close the popup and restore file-view focus");
             }
         }
 
@@ -588,6 +620,119 @@ internal static class ExplorerSmoke
                     && app.Window.CallbackStatus == 0, "Selection-dependent command rows do not reenter the native window");
             }
             await Ui(app.Palettes.Dismiss);
+        }
+
+        async Task DriveNavigationChecks(string fixture)
+        {
+            string root = Path.GetPathRoot(fixture)!;
+            foreach (string query in new[] { root, root[..2].ToLowerInvariant() })
+            {
+                await Ui(() =>
+                {
+                    app.Palettes.ShowNavigation(app.Left);
+                    app.Palettes.EditQuery(query);
+                });
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() =>
+                {
+                    if (app.Palettes.SelectedIndex != -1)
+                        throw new InvalidOperationException("Root queries must not select a child automatically.");
+                    if (app.Palettes.ResultCount > 0)
+                    {
+                        Shortcut(0x26);
+                        if (app.Palettes.SelectedIndex != app.Palettes.ResultCount - 1)
+                            throw new InvalidOperationException("Up from an unselected root query must select the last child.");
+                        Shortcut(0x28);
+                        if (app.Palettes.SelectedIndex != 0)
+                            throw new InvalidOperationException("Down must wrap to the first child.");
+                        app.Palettes.EditQuery(query);
+                    }
+                });
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() => app.Palettes.Accept(false));
+                await Ready(app.Left);
+                await Check(() => string.Equals(app.Left.Model.Active.Path, root, StringComparison.OrdinalIgnoreCase)
+                    && !app.Palettes.IsOpen && app.Left.Error is null,
+                    "Enter on a drive root opens the drive, not its first child or drive-relative directory");
+            }
+            await Ui(() => app.Left.Navigate(fixture));
+            await Ready(app.Left);
+        }
+
+        async Task NewTabButtonChecks(FilePaneView pane)
+        {
+            int count = 0;
+            ulong selected = 0;
+            string path = "";
+            await Ui(() =>
+            {
+                count = pane.Model.Tabs.Count;
+                selected = pane.Model.Active.Id;
+                path = pane.Model.Active.Path;
+                if (!pane.Tabs.NewTabButtonVisible)
+                    throw new InvalidOperationException("Each pane must enable its tab-strip New tab button.");
+                pane.Tabs.Focus();
+                nint strip = GetFocus();
+                nint button = FindWindowExW(strip, 0, null, "New tab");
+                if (strip == 0 || !pane.Tabs.Focused || button == 0)
+                    throw new InvalidOperationException("New tab must be a native child of its pane's tab strip.");
+                var other = ReferenceEquals(pane, app.Left) ? app.Right : app.Left;
+                if (other.Root.GetBounds().Width > 0) other.Focus();
+                else pane.Address.Focus();
+                SendMessageW(button, 0x0201, 1, (16 << 16) | 16);
+                SendMessageW(button, 0x0202, 0, (16 << 16) | 16);
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                if (pane.Model.Tabs.Count != count + 1 || pane.Model.Active.Id == selected
+                    || pane.Model.Active.Path != path || !pane.FilesFocused || !ReferenceEquals(app.Active, pane))
+                    throw new InvalidOperationException(
+                        $"The native New tab button must create a tab and restore file focus: " +
+                        $"count={pane.Model.Tabs.Count}, expected={count + 1}, selected={pane.Model.Active.Id}, previous={selected}, " +
+                        $"path={pane.Model.Active.Path}, expectedPath={path}, filesFocused={pane.FilesFocused}, activePane={ReferenceEquals(app.Active, pane)}.");
+            });
+            await Ui(() =>
+            {
+                pane.CloseTab(pane.Model.Active.Id);
+                pane.SelectTab(selected);
+            });
+            await Ready(pane);
+        }
+
+        async Task FeedbackChecks()
+        {
+            string? count = null;
+            ElementBounds footer = default;
+            var elapsed = Stopwatch.StartNew();
+            await Ui(() =>
+            {
+                count = app.Left.Status.Text;
+                footer = app.Left.Footer.GetBounds();
+                app.Transfers.ReportCopied(app.Left, 1, cut: false);
+                app.Transfers.ReportCopied(app.Right, 2, cut: true);
+            });
+            await Check(() => app.Left.Feedback.Text == "1 item copied."
+                && app.Right.Feedback.Text == "2 items cut. Paste to move."
+                && app.Left.Status.Text == count && app.Left.Footer.GetBounds() == footer
+                && app.Left.Feedback.GetBounds().X + app.Left.Feedback.GetBounds().Width <= app.Left.Status.GetBounds().X
+                && app.Notification.GetBounds().Height == 0,
+                "Copy feedback uses the originating pane footer without adding a persistent bar or changing the item count");
+            await Task.Delay(2000);
+            await Ui(() => app.Transfers.ReportCopied(app.Left, 2, cut: false));
+            var replacement = Stopwatch.StartNew();
+            await Ui(() => app.Report("Persistent error feedback."));
+            await Until(() => app.Right.Feedback.Text.Length == 0);
+            if (elapsed.Elapsed < TimeSpan.FromSeconds(2.9) || elapsed.Elapsed > TimeSpan.FromSeconds(6))
+                throw new InvalidOperationException("Pane feedback must expire after approximately three seconds.");
+            await Check(() => app.Left.Feedback.Text == "2 items copied.",
+                "An older timeout cannot clear newer feedback or another pane's message");
+            await Until(() => app.Left.Feedback.Text.Length == 0);
+            if (replacement.Elapsed < TimeSpan.FromSeconds(2.9) || replacement.Elapsed > TimeSpan.FromSeconds(6))
+                throw new InvalidOperationException("Replacement feedback must have its own three-second lifetime.");
+            await Check(() => app.Left.Status.Text == count
+                && app.Notification.Text == "Persistent error feedback.",
+                "Transient feedback expires without changing the item count or clearing persistent errors");
         }
 
         async Task Transfers(string fixture)

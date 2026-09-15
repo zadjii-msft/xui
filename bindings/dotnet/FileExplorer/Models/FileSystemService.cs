@@ -41,6 +41,8 @@ public sealed class FileSystemService
                 path.Length > 1 ? path[2..] : "");
         }
         directoryQuery = path.Length == 0 || System.IO.Path.EndsInDirectorySeparator(path);
+        if (path.Length == 2 && char.IsAsciiLetter(path[0]) && path[1] == ':')
+            path += System.IO.Path.DirectorySeparatorChar;
         return System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(
             path.Length == 0 ? "." : path, System.IO.Path.GetFullPath(basePath)));
     }

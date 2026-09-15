@@ -76,6 +76,7 @@ internal sealed class ExplorerApplication : IDisposable
     public IReadOnlyList<ExplorerCommand> Commands { get; }
     public FileTransfers Transfers { get; }
     public bool SecondPaneVisible => split.Expanded;
+    internal Label Notification => notification;
     internal int FileOpenCount { get; private set; }
 
     public void Run()

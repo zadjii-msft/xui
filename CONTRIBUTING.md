@@ -153,6 +153,7 @@ The explorer disables in-place reload because its controllers own asynchronous w
 A restart resets transient pane state. Bookmarks and recents retain their normal persistence behavior.
 The DLL must include the visual-style API in `xui_layout.h`.
 File clipboard and drag-and-drop commands also require the file-transfer APIs from this checkout.
+The New tab buttons require the tab-action APIs from this checkout.
 An older `xui.dll` does not provide these APIs.
 
 ### NativeAOT and deployment

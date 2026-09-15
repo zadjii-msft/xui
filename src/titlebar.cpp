@@ -74,9 +74,13 @@ CaptionHit TitleBar::hit_test(Point point) const {
     if (inside(maximize_->bounds())) return maximize_->enabled() ? CaptionHit::maximize : CaptionHit::client;
     if (inside(close_->bounds())) return close_->enabled() ? CaptionHit::close : CaptionHit::client;
     if (leading_->visible() && inside(leading_->bounds())) return CaptionHit::client;
-    if (secondary_tabs_->visible() && inside(secondary_tabs_->bounds()) &&
-        secondary_tabs_->hit_test(point.x - secondary_tabs_->bounds().x)) return CaptionHit::client;
-    if (inside(tabs_->bounds()) && tabs_->hit_test(point.x - tabs_->bounds().x)) return CaptionHit::client;
+    const auto tab_client = [&](const TabStrip& tabs) {
+        auto button = tabs.new_tab_button_bounds();
+        button.x += tabs.bounds().x; button.y += tabs.bounds().y;
+        return tabs.visible() && inside(tabs.bounds()) &&
+            (tabs.hit_test(point.x - tabs.bounds().x) || inside(button));
+    };
+    if (tab_client(*secondary_tabs_) || tab_client(*tabs_)) return CaptionHit::client;
     return CaptionHit::drag;
 }
 }

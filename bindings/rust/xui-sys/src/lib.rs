@@ -71,6 +71,8 @@ pub type Callback = Option<unsafe extern "C" fn(*mut c_void, *const Event) -> St
 unsafe extern "C" {
     pub fn xui_tab_set_colors(tabs: Handle, colors: *const TabColors) -> Status;
     pub fn xui_tab_get_colors(tabs: Handle, colors: *mut TabColors) -> Status;
+    pub fn xui_tab_set_new_button(tabs: Handle, visible: u32) -> Status;
+    pub fn xui_tab_get_new_button(tabs: Handle, visible: *mut u32) -> Status;
     pub fn xui_abi_version() -> u32;
     pub fn xui_error_copy(
         buffer: *mut u8,

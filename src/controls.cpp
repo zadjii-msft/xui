@@ -330,6 +330,47 @@ void TextInput::set_maximum_length(std::size_t value) {
     invalidate(Invalidation::paint);
 }
 
+TabStrip::TabStrip(std::wstring name) : Control(ControlRole::tab_strip, std::move(name), {320, 38}),
+    new_button_(std::make_shared<Button>(L"New tab")) {
+    new_button_->set_icon(ButtonIcon::add);
+    new_button_->set_visible(false);
+    new_button_->on_click([this] { request_new_tab(); });
+    children_.push_back(new_button_);
+    adopt(new_button_);
+}
+TabStrip::~TabStrip() { new_button_->on_click({}); }
+void TabStrip::set_new_tab_button_visible(bool visible) {
+    if (new_button_visible_ == visible) return;
+    new_button_visible_ = visible;
+    new_button_->set_visible(visible);
+    reveal_selected();
+    arrange_new_button();
+    invalidate(Invalidation::layout);
+}
+void TabStrip::request_new_tab() {
+    if (!enabled() || !visible() || !new_button_visible_) return;
+    auto callback = new_tab_;
+    if (callback) callback();
+}
+float TabStrip::tab_viewport_width() const {
+    return std::max(0.0f, bounds().width - (new_button_visible_ ? 32.0f : 0.0f));
+}
+Rect TabStrip::new_tab_button_bounds() const {
+    if (!new_button_visible_) return {};
+    float right{};
+    for (std::size_t i = first_; i < tabs_.size(); ++i) {
+        const auto tab = tab_bounds(i);
+        if (tab.width <= 0) break;
+        right = tab.x + tab.width;
+    }
+    return {right, std::min(3.0f, bounds().height),
+        std::min(32.0f, std::max(0.0f, bounds().width - right)), std::max(0.0f, bounds().height - 6)};
+}
+void TabStrip::arrange_new_button() {
+    auto button = new_tab_button_bounds();
+    button.x += bounds().x; button.y += bounds().y;
+    new_button_->arrange(button);
+}
 void TabStrip::set_colors(TabColors colors) {
     for (const auto value : {colors.row_background, colors.selected_background, colors.selected_text,
         colors.inactive_background, colors.inactive_text, colors.hover_background, colors.border})
@@ -351,14 +392,16 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
     tabs_ = std::move(tabs);
     selected_ = selected;
     reveal_selected();
-    invalidate(Invalidation::paint);
+    arrange_new_button();
+    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
 }
 bool TabStrip::select(std::uint64_t id) {
     if (!enabled() || std::none_of(tabs_.begin(), tabs_.end(), [&](const auto& tab) { return tab.id == id; })) return false;
     if (selected_ == id) return true;
     selected_ = id;
     reveal_selected();
-    invalidate(Invalidation::paint);
+    arrange_new_button();
+    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
     if (select_) { auto callback = select_; callback(id); }
     return true;
 }
@@ -382,9 +425,10 @@ void TabStrip::request_close(std::uint64_t id) {
 }
 Rect TabStrip::tab_bounds(std::size_t index) const {
     if (index >= tabs_.size() || index < first_) return {};
-    const auto width = std::min(180.0f, bounds().width / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
+    const auto viewport = tab_viewport_width();
+    const auto width = std::min(180.0f, viewport / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
     const float x = (index - first_) * width;
-    return {x, 0, std::max(0.0f, std::min(width, bounds().width - x)), bounds().height};
+    return {x, 0, std::max(0.0f, std::min(width, viewport - x)), bounds().height};
 }
 std::optional<std::size_t> TabStrip::hit_test(float x) const {
     if (x < 0 || x >= bounds().width) return {};
@@ -404,11 +448,11 @@ void TabStrip::reveal_selected() {
     if (!selected_) return;
     for (std::size_t i = 0; i < tabs_.size(); ++i) if (tabs_[i].id == selected_) {
         if (i < first_) first_ = i;
-        while (first_ < i && tab_bounds(i).width < std::min(120.0f, bounds().width)) ++first_;
+        while (first_ < i && tab_bounds(i).width < std::min(120.0f, tab_viewport_width())) ++first_;
         break;
     }
 }
-void TabStrip::arrange(Rect rect) { Element::arrange(rect); reveal_selected(); }
+void TabStrip::arrange(Rect rect) { Element::arrange(rect); reveal_selected(); arrange_new_button(); }
 ContentView::ContentView(std::shared_ptr<Element> content, std::wstring name)
     : Control(ControlRole::content_view, std::move(name), {320, 240}), content_(std::move(content)) { adopt(content_); }
 void ContentView::arrange(Rect rect) {

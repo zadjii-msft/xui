@@ -183,6 +183,14 @@ A null C++ source displays an empty column.
 `ItemsSource::hierarchy` supplies the `expandable` flag for branch indicators.
 The control retains at most 32 columns and requests content only for visible rows.
 Each column has independent vertical scrolling and single selection.
+Pointer hover highlights an enabled row without changing selection, item focus, native focus, or the active column.
+Pointer leave, capture, cancellation, and source replacement clear the hover.
+Scrollbar space does not highlight rows.
+
+A thin separator divides adjacent columns from the header through the list.
+Each column reserves separator space outside its rows and vertical scrollbar.
+The separator follows horizontal scrolling and uses the theme border color.
+The toolbar and horizontal scrollbar remain outside the separator.
 
 `on_selection` reports the column index and the complete item key.
 The application loads children and replaces descendants after successful delivery.

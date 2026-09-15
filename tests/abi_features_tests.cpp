@@ -142,6 +142,21 @@ void explorer_contracts() {
     ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
     ok(xui_feature_child(window, 2, &second)); ok(xui_feature_child(window, 0, &again));
     expect(tabs == again && tabs != second);
+    uint32_t new_button = 9;
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 0);
+    ok(xui_tab_set_new_button(tabs, 1));
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 1);
+    expect(xui_tab_set_new_button(tabs, 2) == XUI_INVALID_ARGUMENT);
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 1);
+    expect(xui_tab_get_new_button(tabs, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_tab_set_new_button(leading, 1) == XUI_WRONG_KIND);
+    std::thread tab_worker([&] {
+        uint32_t worker_visible{};
+        expect(xui_tab_set_new_button(tabs, 0) == XUI_WRONG_THREAD);
+        expect(xui_tab_get_new_button(tabs, &worker_visible) == XUI_WRONG_THREAD);
+    });
+    tab_worker.join();
+    ok(xui_tab_set_new_button(tabs, 0));
     static_assert(sizeof(xui_tab_colors) == 40);
     xui_tab_colors tab_colors{sizeof(xui_tab_colors), XUI_TAB_COLORS_VERSION, 127,
         0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789};

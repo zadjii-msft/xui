@@ -68,6 +68,9 @@ internal static class Program
         Equal(root, FileSystemService.ResolvePath("", root));
         Equal(root, FileSystemService.ResolvePath(root + Path.DirectorySeparatorChar, fixture));
         Equal(@"\\server\share\folder", FileSystemService.ResolvePath(@"\\server\share\folder", root));
+        Equal(@"D:\", FileSystemService.ResolvePath("D:", root));
+        Equal(@"d:\", FileSystemService.ResolvePath(" \"d:\" ", root));
+        Equal(@"D:\", FileSystemService.ResolvePath("D:", @"D:\some\other\folder"));
         var variable = "XUI_EXPLORER_TEST_" + Guid.NewGuid().ToString("N");
         Environment.SetEnvironmentVariable(variable, root);
         try
@@ -133,6 +136,10 @@ internal static class Program
         Equal("child", FileSystemService.SuggestFromSnapshot(share, share.Path + "\\", root)!.Entries.Single().Name);
         var drive = new DirectorySnapshot(Path.GetPathRoot(root)!, []);
         True(FileSystemService.SuggestFromSnapshot(drive, drive.Path, root) is not null);
+        var driveContents = new DirectorySnapshot(@"D:\",
+            [new(@"D:\$RECYCLE.BIN", "$RECYCLE.BIN", true, 0, DateTime.UnixEpoch)]);
+        Equal(0, FileSystemService.SuggestFromSnapshot(driveContents, "D:", root)!.Entries.Count);
+        Equal(1, FileSystemService.SuggestFromSnapshot(driveContents, @"D:\", root)!.Entries.Count);
         Throws<ArgumentException>(() => FileSystemService.SuggestFromSnapshot(read, "\0", root));
         var contains = await service.SuggestAsync("lPhA", root, None);
         Equal(3, contains.Entries.Count);

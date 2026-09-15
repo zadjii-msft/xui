@@ -1,0 +1,15 @@
+namespace Xui.FileExplorer;
+
+component ViewMenuLayout {
+    param int Number;
+
+    view {
+        Popup("Choose view", id: $"pane-{Number}-view-menu", preferredSize: (192, 92),
+            placement: global::Xui.PopupPlacement.Above, windowBackground: true) {
+            VStack(padding: 8, spacing: 4) {
+                Button("Details", ref: Details, id: $"pane-{Number}-view-details", preferredSize: (176, 36));
+                Button("Columns", ref: Columns, id: $"pane-{Number}-view-columns", preferredSize: (176, 36));
+            }
+        }
+    }
+}

@@ -240,6 +240,123 @@ void automation(HWND hwnd) {
     while (IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
     require(!IsWindow(hwnd) && FAILED(selected->Select()), "Retained UIA child rejects actions after owner teardown");
 }
+void miller_appearance(Window& window, HWND hwnd, MillerColumns& columns, TextInput& edit) {
+    struct Snapshot {
+        HDC dc{};
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        ~Snapshot() {
+            if (previous) SelectObject(dc, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (dc) DeleteDC(dc);
+        }
+    };
+    const UINT original_dpi = GetDpiForWindow(hwnd);
+    RECT original{}; GetWindowRect(hwnd, &original);
+    const auto first = columns.column_list(0);
+    columns.set_active_column(0); flush(hwnd);
+    require(window.focus(*first), "Focus the Miller list to identify its native peer");
+    const auto first_hwnd = GetFocus();
+    require(first_hwnd != nullptr && first->focused(), "Identify the list peer, not its same-named header");
+    require(window.focus(edit), "Restore editor focus before hover checks");
+    for (auto style : {VisualStyle::classic, VisualStyle::winui})
+        for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+            for (UINT dpi : {96u, 120u, 144u, 192u}) {
+                std::cout << "Miller pixels: style " << static_cast<int>(style) << ", theme " <<
+                    static_cast<int>(theme) << ", DPI " << dpi << std::endl;
+                window.set_visual_style(style); window.set_theme(theme);
+                RECT rectangle = original;
+                rectangle.right = rectangle.left + MulDiv(700, dpi, 96);
+                rectangle.bottom = rectangle.top + MulDiv(480, dpi, 96);
+                SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rectangle));
+                columns.set_active_column(0); columns.set_horizontal_offset(0); first->set_offset(0);
+                window.focus(edit); flush(hwnd);
+                const auto selected = first->selection().focused();
+                const auto palette = Palette::system(theme, style);
+                const auto color = [](D2D1_COLOR_F value) {
+                    return RGB(int(value.r * 255 + .5f), int(value.g * 255 + .5f), int(value.b * 255 + .5f));
+                };
+                RECT outer{}; GetWindowRect(hwnd, &outer);
+                POINT client{}; ClientToScreen(hwnd, &client);
+                Snapshot capture;
+                capture.dc = CreateCompatibleDC(nullptr);
+                require(capture.dc != nullptr, "Create owned Miller capture context");
+                BITMAPINFO info{};
+                info.bmiHeader = {sizeof(BITMAPINFOHEADER), outer.right - outer.left, -(outer.bottom - outer.top), 1, 32, BI_RGB};
+                void* pixels{};
+                capture.bitmap = CreateDIBSection(capture.dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                require(capture.bitmap != nullptr, "Create owned Miller capture bitmap");
+                capture.previous = SelectObject(capture.dc, capture.bitmap);
+                const auto paint = [&] {
+                    flush(hwnd);
+                    require(RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW),
+                        "Paint Miller transitions");
+                    require(PrintWindow(hwnd, capture.dc, 2), "Capture only the owned Miller window");
+                };
+                const auto sample = [&](float x, float y) {
+                    const auto result = GetPixel(capture.dc, int(x * dpi / 96) + client.x - outer.left,
+                        int(y * dpi / 96) + client.y - outer.top);
+                    require(result != CLR_INVALID, "Miller sample stays inside the owned window");
+                    return result;
+                };
+                const auto at = [&](float x, float y) {
+                    return MAKELPARAM(static_cast<int>(std::lround(x * dpi / 96)), static_cast<int>(std::lround(y * dpi / 96)));
+                };
+                const auto row_color = [&](float y) {
+                    const auto b = first->bounds(); return sample(b.x + 100, b.y + y);
+                };
+                SendMessageW(first_hwnd, WM_MOUSELEAVE, 0, 0); paint();
+                require(row_color(45) == color(palette.background), "Unselected Miller rows start without hover");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45)); paint();
+                if (first->hovered_row() != 1 || row_color(45) != color(palette.hover)) {
+                    const auto hovered = first->hovered_row();
+                    std::cerr << "Miller hover: row=" << (hovered ? std::to_string(*hovered) : "none") <<
+                        ", offset=" << first->offset() << ", capture=" << GetCapture() <<
+                        ", actual=" << std::hex << row_color(45) << ", expected=" << color(palette.hover) <<
+                        std::dec << '\n';
+                }
+                require(first->hovered_row() == 1 && row_color(45) == color(palette.hover),
+                    "Native pointer movement paints Miller row hover in every theme and DPI");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 85)); paint();
+                require(row_color(45) == color(palette.background) && row_color(85) == color(palette.hover),
+                    "Hover moves between rows without leaving the previous highlight");
+                require(first->selection().focused() == selected && edit.focused() && columns.active_column() == 0,
+                    "Hover leaves selection, editor focus and active column unchanged");
+                SetCapture(first_hwnd);
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, MK_LBUTTON, at(20, 85)); paint();
+                require(!first->hovered_row() && row_color(85) == color(palette.background),
+                    "Captured pointer gestures suppress the row hover");
+                SendMessageW(first_hwnd, WM_CANCELMODE, 0, 0);
+                require(GetCapture() != first_hwnd, "Cancellation releases the synthetic capture");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45));
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(first->bounds().width - 2, 45)); paint();
+                require(!first->hovered_row() && row_color(45) == color(palette.background),
+                    "Vertical scrollbar input does not highlight a row");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45));
+                SendMessageW(first_hwnd, WM_MOUSELEAVE, 0, 0); paint();
+                require(!first->hovered_row() && row_color(45) == color(palette.background), "Pointer leave clears visible hover");
+                for (double offset : {0.0, 43.25, columns.maximum_horizontal()}) {
+                    columns.set_horizontal_offset(offset); paint();
+                    bool found{};
+                    for (std::size_t i = 0; i + 1 < columns.columns().size(); ++i) {
+                        const auto separator = columns.separator_bounds(i);
+                        if (separator.width <= 0) continue;
+                        const float scale = dpi / 96.0f;
+                        const float left = std::round(separator.x * scale);
+                        const float right = std::round((separator.x + separator.width) * scale);
+                        const float x = columns.bounds().x + (left + right) / (2 * scale);
+                        require(sample(x, columns.bounds().y + separator.y + 8) == color(palette.border) &&
+                            sample(x, columns.bounds().y + separator.y + 60) == color(palette.border),
+                            "A pixel-aligned separator spans the header and list after fractional horizontal scrolling");
+                        found = true;
+                    }
+                    require(found, "The fixture has at least one visible adjacent-column separator");
+                }
+            }
+    window.set_visual_style(VisualStyle::classic); window.set_theme(ThemeMode::dark);
+    SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(original_dpi, original_dpi), reinterpret_cast<LPARAM>(&original));
+    columns.set_active_column(0); columns.set_horizontal_offset(0); flush(hwnd);
+}
 void miller_window() {
     Window window({L"XUI Miller host contracts", {700, 480}, ThemeMode::dark});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -354,6 +471,8 @@ void miller_window() {
         SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, finish); flush(hwnd);
         require(columns->horizontal_offset() == 0 && GetCapture() != columns_hwnd, "Disabled columns reject wheel and track input");
         columns->set_enabled(true); flush(hwnd);
+        miller_appearance(window, hwnd, *columns, *edit);
+        require(selections == 1 && activations == 1, "Hover and separator changes dispatch no selection or activation");
         native_done = true;
         return true;
     });
@@ -361,7 +480,7 @@ void miller_window() {
     std::atomic<bool> driver_exited{};
     std::jthread driver([&](std::stop_token stop) {
         struct Finished { std::atomic<bool>& value; ~Finished() { value = true; } } finished{driver_exited};
-        const auto deadline = GetTickCount64() + 20000;
+        const auto deadline = GetTickCount64() + 60000;
         while (!stop.stop_requested() && GetTickCount64() < deadline) {
             if (const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI Miller host contracts"); hwnd && IsWindowVisible(hwnd)) {
                 const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);

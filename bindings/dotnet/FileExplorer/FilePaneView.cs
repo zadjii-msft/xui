@@ -9,12 +9,14 @@ internal sealed class FilePaneView
     private Dictionary<string, ulong> identities = new(StringComparer.OrdinalIgnoreCase);
     private readonly Button back, forward, up;
     private readonly FilePaneLayout layout;
+    private readonly ViewMenuLayout viewMenu;
     private readonly Stack findHost;
     private readonly Button closeFind;
     private readonly Label status;
     private readonly TextInput find;
     private CancellationTokenSource navigation = new();
     private CancellationTokenSource filtering = new();
+    private CancellationTokenSource feedback = new();
     private ulong nextIdentity = 1;
     private ulong displayedTab;
     private FileRows rows;
@@ -33,6 +35,7 @@ internal sealed class FilePaneView
         Model = new(path);
         Tabs = tabs;
         Tabs.SetAutomationId($"pane-{number}-tabs");
+        Tabs.NewTabButtonVisible = true;
         layout = new(window, number, path, attach: false);
         Root = layout.Root;
         BackButton = back = layout.Back;
@@ -44,14 +47,16 @@ internal sealed class FilePaneView
         WireButton(up, Up);
         WireButton(Address, () => app.Palettes.ShowNavigation(this));
         WireButton(layout.Refresh, Refresh);
-        WireButton(layout.NewTab, () => NewTab());
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
         Columns = window.MillerColumns($"Columns in pane {number}");
         Columns.SetAutomationId($"pane-{number}-columns");
         Columns.Visible(false);
         layout.ContentHost.Add(Columns);
-        WireButton(layout.ViewMode, () => SetViewMode(IsColumns ? ExplorerViewMode.Details : ExplorerViewMode.Columns));
+        viewMenu = new(window, number, attach: false);
+        WireButton(layout.ViewMode, ShowViewMenu);
+        WireButton(viewMenu.Details, () => ChooseView(ExplorerViewMode.Details));
+        WireButton(viewMenu.Columns, () => ChooseView(ExplorerViewMode.Columns));
         ContextMenu = new(app, this);
         Grid.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
             ShellMenuPresentation.Xui);
@@ -76,7 +81,7 @@ internal sealed class FilePaneView
             if (e.Kind == EventKind.Selection) SelectTab(e.Value);
             else if (e.Kind == EventKind.Click) Focus();
             else if (e.Kind == EventKind.Cancel) CloseTab(e.Value);
-            else if (e.Kind == EventKind.Action) NewTab();
+            else if (e.Kind == EventKind.Action) { NewTab(); Focus(); }
         };
         Tabs.FocusEntered += Activate;
         Grid.FocusEntered += Activate;
@@ -125,6 +130,12 @@ internal sealed class FilePaneView
     public DataGrid Grid { get; }
     public MillerColumns Columns { get; }
     public Button ViewModeButton => layout.ViewMode;
+    internal Popup ViewMenu => viewMenu.Root;
+    internal Button DetailsOption => viewMenu.Details;
+    internal Button ColumnsOption => viewMenu.Columns;
+    internal Label Feedback => layout.Feedback;
+    internal Label Status => status;
+    internal Stack Footer => layout.Footer;
     public bool IsColumns => Model.Active.ViewMode == ExplorerViewMode.Columns;
     public bool FilesFocused => IsColumns
         ? Columns.ColumnCount != 0 && Columns.Column(Columns.ActiveColumn).Focused
@@ -204,6 +215,35 @@ internal sealed class FilePaneView
         Render();
         if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
         Focus();
+    }
+
+    private void ShowViewMenu()
+    {
+        viewMenu.Details.Text = IsColumns ? "Details" : "Details (current)";
+        viewMenu.Columns.Text = IsColumns ? "Columns (current)" : "Columns";
+        viewMenu.Root.Show(layout.ViewMode);
+        (IsColumns ? viewMenu.Columns : viewMenu.Details).Focus();
+    }
+
+    private void ChooseView(ExplorerViewMode mode)
+    {
+        viewMenu.Root.Dismiss();
+        SetViewMode(mode);
+        Focus();
+    }
+
+    public void ShowFeedback(string message)
+    {
+        feedback.Cancel();
+        feedback.Dispose();
+        feedback = new();
+        layout.Feedback.Text = message;
+        app.Work.Start(async token =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
+            return true;
+        }, feedback.Token, _ => layout.Feedback.Text = "",
+            failure => app.Report($"Cannot clear pane feedback: {failure.Message}"));
     }
 
     private void SelectColumn(uint column, ItemKey key)
@@ -442,7 +482,7 @@ internal sealed class FilePaneView
             Grid.SetSort((uint)Model.Active.SortColumn, Model.Active.SortDescending);
             Grid.Visible(!IsColumns);
             Columns.Visible(IsColumns);
-            layout.ViewMode.Text = IsColumns ? "Details" : "Columns";
+            layout.ViewMode.Help(IsColumns ? "Current view: Columns. Choose a view." : "Current view: Details. Choose a view.");
             if (!IsColumns) ClearColumns();
             else
             {
@@ -601,6 +641,8 @@ internal sealed class FilePaneView
 
     public void DisposeSources()
     {
+        feedback.Cancel();
+        feedback.Dispose();
         foreach (var column in columnViews) column.Source.Dispose();
         columnViews.Clear();
     }
@@ -632,6 +674,7 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();
         IsLoading = false;

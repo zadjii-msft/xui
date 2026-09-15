@@ -1136,6 +1136,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     bounds.height = std::max(0.0f, static_cast<float>(
                         std::lround((bounds.y + bounds.height) * scale) - std::lround(bounds.y * scale)) / scale);
                 }
+                if (peer->parent && dynamic_cast<MillerColumns*>(peer->parent->control.get())) {
+                    const float scale = dpi / 96.0f;
+                    bounds.width = std::max(0.0f, static_cast<float>(
+                        std::lround((bounds.x + bounds.width) * scale) - std::lround(bounds.x * scale)) / scale);
+                }
                 if (peer->document) {
                     if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
                         bounds.height = std::max(0.0f, bounds.height - 32);
@@ -1946,7 +1951,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const bool commands = control.role() == ControlRole::command_menu;
             const auto* items = dynamic_cast<ItemsView*>(collection);
             const bool trailing_shortcuts = items && items->trailing_shortcut_badges();
-            const auto hovered = commands && control.hovered() && peer.command_pointer && enabled(peer) ?
+            const auto* miller = dynamic_cast<MillerColumnList*>(collection);
+            const auto hovered = !enabled(peer) || GetCapture() ? std::optional<std::size_t>{} :
+                miller ? miller->hovered_row() : commands && control.hovered() && peer.command_pointer ?
                 collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
             const auto hovered_key = hovered && collection->source()->selectable(*hovered) ?
                 std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
@@ -2249,6 +2256,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
+            for (std::size_t i = 0; i < columns->columns().size(); ++i) {
+                auto separator = columns->separator_bounds(i);
+                if (separator.width > 0 && separator.height > 0) {
+                    const float scale = dpi / 96.0f;
+                    const float right = std::round((separator.x + separator.width) * scale) / scale;
+                    separator.x = std::round(separator.x * scale) / scale;
+                    separator.width = std::max(0.0f, right - separator.x);
+                    canvas.fill(separator, palette.border);
+                }
+            }
             const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
             if (track.width > 0) {
                 canvas.fill(track, palette.surface);
@@ -2256,6 +2273,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
                 else canvas.rounded(thumb, palette.secondary, 3);
             }
+            return;
+        }
+        if (auto* bar = dynamic_cast<TitleBar*>(&control)) {
+            std::vector<Peer*> strips;
+            for (const auto& strip : {bar->tabs(), bar->secondary_tabs()})
+                if (auto* target = find_peer(strip.get()); target && visible(*target) && !strip->tabs().empty())
+                    strips.push_back(target);
+            std::sort(strips.begin(), strips.end(), [](const auto* a, const auto* b) {
+                return a->paint_bounds.x < b->paint_bounds.x;
+            });
+            float left{};
+            auto border = palette.border;
+            for (const auto* strip : strips) {
+                const auto color = static_cast<const TabStrip&>(*strip->control).colors().border;
+                border = color && !palette.high_contrast ? D2D1::ColorF(*color) : palette.border;
+                const float right = std::clamp(strip->paint_bounds.x - bounds.x, left, bounds.width);
+                if (right > left) canvas.fill({left, std::max(0.0f, bounds.height - 1), right - left, 1}, border);
+                left = std::clamp(strip->paint_bounds.x + strip->paint_bounds.width - bounds.x, right, bounds.width);
+            }
+            if (!strips.empty() && left < bounds.width)
+                canvas.fill({left, std::max(0.0f, bounds.height - 1), bounds.width - left, 1}, border);
             return;
         }
         if (control.role() == ControlRole::content_view) return;
@@ -2692,6 +2730,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 grid->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
                     GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
             }
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) {
+                const bool hovering = enabled(peer) && !GetCapture() &&
+                    !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
+                list->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
+                    GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
+            }
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
                 const auto row = nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
                 nav_list->hover_item(row ? std::optional{nav_list->source()->key(*row)} : std::nullopt);
@@ -2774,11 +2818,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_MOUSELEAVE:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) grid->hover_pointer({});
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
             if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
             peer.tracking = false; peer.command_pointer.reset(); peer.tab_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
             hide_tooltip();
@@ -3019,6 +3065,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return control_message(peer, hwnd, WM_LBUTTONDOWN, wparam, lparam);
         case WM_CANCELMODE:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
@@ -3029,6 +3076,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_CAPTURECHANGED:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;

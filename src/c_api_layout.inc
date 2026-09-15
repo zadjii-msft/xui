@@ -1,6 +1,21 @@
 #include "xui/xui_layout.h"
 #include "xui/titlebar.hpp"
 
+xui_status XUI_CALL xui_tab_set_new_button(xui_handle target, uint32_t visible) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_TAB_STRIP); editable(n->owner);
+        require(visible <= 1, XUI_INVALID_ARGUMENT, "New tab button visibility must be zero or one.");
+        as<xui::TabStrip>(n).set_new_tab_button_visible(visible != 0);
+    });
+}
+xui_status XUI_CALL xui_tab_get_new_button(xui_handle target, uint32_t* visible) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_TAB_STRIP);
+        require(visible, XUI_INVALID_ARGUMENT, "New tab button visibility output is required.");
+        *visible = as<xui::TabStrip>(n).new_tab_button_visible() ? 1 : 0;
+    });
+}
+
 xui_status XUI_CALL xui_tab_set_colors(xui_handle target, const xui_tab_colors* colors) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_TAB_STRIP); editable(n->owner);

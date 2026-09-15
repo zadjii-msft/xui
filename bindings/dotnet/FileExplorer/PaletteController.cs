@@ -54,6 +54,7 @@ internal sealed class PaletteController
     public TextSelection QuerySelection => editor.Selection;
     public ElementBounds Bounds => popup.GetBounds();
     public float StatusHeight => statusHost.GetBounds().Height;
+    internal int SelectedIndex => selected;
     public void EditQuery(string text) => SetQuery(text, remember: false);
 
     public void ShowNavigation(FilePaneView target)
@@ -209,7 +210,9 @@ internal sealed class PaletteController
 
     private void SelectFirst()
     {
-        selected = navigationMode ? (entries.Count == 0 ? -1 : 0) : commands.ToList().FindIndex(c => c.Enabled);
+        selected = navigationMode
+            ? (entries.Count == 0 || Path.GetDirectoryName(FileSystemService.ResolvePath(editor.Text, pane!.Model.Active.Path)) is null ? -1 : 0)
+            : commands.ToList().FindIndex(c => c.Enabled);
         SelectCurrent();
     }
 
@@ -222,7 +225,7 @@ internal sealed class PaletteController
     {
         int count = ResultCount;
         if (pending || count == 0) return;
-        int candidate = selected;
+        int candidate = selected < 0 && delta < 0 ? 0 : selected;
         for (int i = 0; i < count; i++)
         {
             candidate = (candidate + delta + count) % count;

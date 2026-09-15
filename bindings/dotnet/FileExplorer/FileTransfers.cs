@@ -22,7 +22,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
     {
         if (DropDestination(pane, key) is not { } destination) return FileTransferEffect.None;
         pane.Activate();
-        return Transfer(paths, destination, effect) ? effect : FileTransferEffect.None;
+        return Transfer(pane, paths, destination, effect) ? effect : FileTransferEffect.None;
     }
 
     private string? DropDestination(FilePaneView pane, ItemKey? key)
@@ -35,17 +35,17 @@ internal sealed class FileTransfers(ExplorerApplication app)
     public void Copy(FilePaneView pane, bool cut)
     {
         if (!CanTransfer(pane)) return;
-        Copy(pane.SelectedEntries.Select(e => e.FullPath).ToArray(), cut);
+        Copy(pane, pane.SelectedEntries.Select(e => e.FullPath).ToArray(), cut);
     }
 
-    public void Copy(string[] paths, bool cut)
+    public void Copy(FilePaneView pane, string[] paths, bool cut)
     {
         if (Busy) return;
         if (paths.Length == 0) { app.Report("Select files or folders first."); return; }
         try
         {
             app.Window.SetFileClipboard(paths, cut ? FileTransferEffect.Move : FileTransferEffect.Copy);
-            app.Report(cut ? $"{paths.Length:N0} items cut. Paste to move them." : $"{paths.Length:N0} items copied.");
+            ReportCopied(pane, paths.Length, cut);
         }
         catch (Exception error) when (IsExpected(error))
         {
@@ -53,20 +53,26 @@ internal sealed class FileTransfers(ExplorerApplication app)
         }
     }
 
+    internal void ReportCopied(FilePaneView pane, int count, bool cut)
+    {
+        string items = count == 1 ? "1 item" : $"{count:N0} items";
+        pane.ShowFeedback(cut ? $"{items} cut. Paste to move." : $"{items} copied.");
+    }
+
     public void CopyPaths(FilePaneView pane)
     {
         if (!CanTransfer(pane)) return;
-        CopyPaths(pane.SelectedEntries.Select(e => e.FullPath).ToArray());
+        CopyPaths(pane, pane.SelectedEntries.Select(e => e.FullPath).ToArray());
     }
 
-    public void CopyPaths(string[] paths)
+    public void CopyPaths(FilePaneView pane, string[] paths)
     {
         if (Busy) return;
         if (paths.Length == 0) { app.Report("Select files or folders first."); return; }
         try
         {
             app.Window.SetClipboardText(string.Join(Environment.NewLine, paths.Select(path => $"\"{path}\"")));
-            app.Report($"{paths.Length:N0} paths copied.");
+            pane.ShowFeedback(paths.Length == 1 ? "1 path copied." : $"{paths.Length:N0} paths copied.");
         }
         catch (Exception error) when (IsExpected(error))
         {
@@ -81,14 +87,10 @@ internal sealed class FileTransfers(ExplorerApplication app)
         Busy = true;
         try
         {
-            app.Report($"Pasting into {destination}...");
+            pane.ShowFeedback("Pasting...");
             bool? result = app.Window.PasteFiles(destination);
-            app.Report(result switch
-            {
-                true => "Paste completed.",
-                false => "Paste canceled or incomplete. Some items may already have transferred.",
-                null => "The clipboard does not contain files or folders."
-            });
+            if (result == false) app.Report("Paste canceled or incomplete. Some items may already have transferred.");
+            else pane.ShowFeedback(result == true ? "Paste completed." : "The clipboard does not contain files or folders.");
         }
         catch (Exception error) when (IsExpected(error))
         {
@@ -101,15 +103,16 @@ internal sealed class FileTransfers(ExplorerApplication app)
         }
     }
 
-    internal bool Transfer(string[] paths, string destination, FileTransferEffect effect)
+    internal bool Transfer(FilePaneView pane, string[] paths, string destination, FileTransferEffect effect)
     {
         if (Busy) return false;
         Busy = true;
         try
         {
-            app.Report($"{(effect == FileTransferEffect.Move ? "Moving" : "Copying")} into {destination}...");
+            pane.ShowFeedback(effect == FileTransferEffect.Move ? "Moving..." : "Copying...");
             bool complete = app.Window.TransferFiles(paths, destination, effect);
-            app.Report(complete ? "Transfer completed." : "Transfer canceled or incomplete. Some items may already have transferred.");
+            if (complete) pane.ShowFeedback("Transfer completed.");
+            else app.Report("Transfer canceled or incomplete. Some items may already have transferred.");
             return complete;
         }
         catch (Exception error) when (IsExpected(error))
