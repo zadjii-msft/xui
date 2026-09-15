@@ -111,9 +111,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::weak_ptr<CommandMenu> parent_command;
         CommandId parent_command_id{};
         std::shared_ptr<ContentDialog> dialog;
-        std::optional<Rect> context_anchor;
         std::optional<float> combo_alignment;
         Size combo_alignment_size{};
+        std::optional<Rect> context_anchor;
     };
     std::vector<PopupEntry> popups;
     bool composing_native{};
@@ -1645,7 +1645,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto popup_background = entry.popup->window_background() ? palette.background : palette.surface;
                     if (!entry.commands && palette.style == VisualStyle::classic) drawing.fill(bounds, popup_background);
                     const float radius = entry.commands || palette.style == VisualStyle::winui ? 8.0f : 4.0f;
-                    drawing.rounded(frame, popup_background, radius);
                     paint_content_surface(entry.popup);
                     if (entry.dialog && palette.style == VisualStyle::winui) {
                         const auto footer = entry.dialog->footer_bounds();
@@ -2084,12 +2083,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const float y = DataGrid::header_height + static_cast<float>(row * double(DataGrid::row_height) - grid->offset());
                 const bool selected = grid->selection().contains(source->key(row));
                 if (fluent) {
-                    if (!selected && hovered == row)
-                        canvas.rounded({2, y + 2, std::max(0.0f, grid->viewport_width() - 4), DataGrid::row_height - 4}, palette.hover, 4);
                     if (selected) {
                         canvas.rounded({2, y + 2, std::max(0.0f, grid->viewport_width() - 4), DataGrid::row_height - 4}, palette.selection, 4);
                         canvas.rounded({2, y + 9, 3, DataGrid::row_height - 18}, palette.accent, 1.5f);
-                    }
+                    } else if (hovered == row)
+                        canvas.rounded({2, y + 2, std::max(0.0f, grid->viewport_width() - 4), DataGrid::row_height - 4}, palette.hover, 4);
                 } else if (selected || hovered == row || row % 2) canvas.fill({0, y, grid->viewport_width(), DataGrid::row_height},
                     selected ? palette.selection : hovered == row ? palette.hover : palette.surface);
                 float x = -static_cast<float>(grid->horizontal_offset());
@@ -2124,8 +2122,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const Rect face{1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2};
                     if (fluent) canvas.focus_ring(face, palette);
                     else canvas.outline(face, palette.accent);
-                }
-                else if (!selected && hovered == row && palette.high_contrast)
+                } else if (!selected && hovered == row && palette.high_contrast)
                     canvas.outline({1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2}, palette.text);
             }
             if (!source || !source->size()) canvas.text(L"No matching rows", {16, 52, grid->viewport_width() - 32, 40}, palette.secondary);
@@ -2563,15 +2560,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     invalidate(Invalidation::paint);
                 }
             }
+            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
+                const auto hit = inside() ? choice_hit(*choices) : std::nullopt;
+                if (peer.hovered_choice != hit) { peer.hovered_choice = hit; invalidate(Invalidation::paint); }
+            }
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 const bool hovering = enabled(peer) && !peer.grid_drag && !GetCapture() &&
                     !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
                 grid->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
                     GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
-            }
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-                const auto hit = inside() ? choice_hit(*choices) : std::nullopt;
-                if (peer.hovered_choice != hit) { peer.hovered_choice = hit; invalidate(Invalidation::paint); }
             }
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
                 const auto row = nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});

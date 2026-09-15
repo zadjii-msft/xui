@@ -41,6 +41,9 @@ void text_presentation() {
         "WinUI uses installed Segoe Fluent Icons; only missing-family systems use the documented fallback");
     for (std::size_t i = 1; i < symbol_codepoints.size(); ++i)
         require(drawing.has_symbol(static_cast<Symbol>(i)), "Every WinUI symbol resolves to a nonzero native glyph");
+    for (int i = static_cast<int>(ButtonIcon::back); i <= static_cast<int>(ButtonIcon::drive); ++i)
+        require(drawing.has_symbol(button_symbol(static_cast<ButtonIcon>(i))),
+            "Every nonempty button icon has an available Fluent glyph mapping");
     require(!drawing.has_symbol(Symbol::none) && !drawing.has_symbol(Symbol::count),
         "Empty and invalid symbols never resolve to the missing-character glyph");
     require(Drawing::created_symbol_faces() == symbol_faces + 1, "Symbols share one font face, not one resource per control");

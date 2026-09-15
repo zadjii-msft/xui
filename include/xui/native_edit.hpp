@@ -38,10 +38,10 @@ public:
     void on_failure(std::function<void()> callback) { failure_ = std::move(callback); }
     void report_failure() noexcept { if (failure_) { auto callback = failure_; callback(); } }
 private:
-    void require_live_thread() const;
-    void delete_previous_word();
     void update_font(UINT dpi);
     std::wstring font_family_{L"Segoe UI"};
+    void require_live_thread() const;
+    void delete_previous_word();
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     HWND window_{};
     HFONT font_{};

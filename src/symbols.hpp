@@ -11,7 +11,8 @@ enum class Symbol {
     none, menu, home, folder, library, settings, search, back, forward, up, down,
     refresh, split, theme, add, minimize, maximize, restore, close, more,
     chevron_down, chevron_up, chevron_right, check, remove, clear, document,
-    filter, information, success, warning, error, caption_close, indeterminate, breadcrumb_separator, count
+    filter, information, success, warning, error, caption_close, indeterminate, breadcrumb_separator,
+    history, bookmark, drive, count
 };
 
 // Microsoft Learn's Segoe Fluent Icons registry. Never use PUA glyphs in body text.
@@ -19,7 +20,8 @@ inline constexpr auto symbol_codepoints = std::to_array<uint32_t>({
     0, 0xe700, 0xe80f, 0xe8b7, 0xe8f1, 0xe713, 0xe721, 0xe72b, 0xe72a, 0xe74a, 0xe74b,
     0xe72c, 0xe89a, 0xe706, 0xe710, 0xe921, 0xe922, 0xe923, 0xe711, 0xe712,
     0xe70d, 0xe70e, 0xe76c, 0xe73e, 0xe738, 0xe894, 0xe8a5,
-    0xe71c, 0xe946, 0xe930, 0xe7ba, 0xea39, 0xe8bb, 0xe9ae, 0xe974
+    0xe71c, 0xe946, 0xe930, 0xe7ba, 0xea39, 0xe8bb, 0xe9ae, 0xe974,
+    0xe81c, 0xe8a4, 0xeda2
 });
 static_assert(symbol_codepoints.size() == static_cast<std::size_t>(Symbol::count));
 
@@ -44,6 +46,9 @@ constexpr Symbol button_symbol(ButtonIcon icon) {
     case ButtonIcon::settings: return Symbol::settings;
     case ButtonIcon::search: return Symbol::search;
     case ButtonIcon::library: return Symbol::library;
+    case ButtonIcon::history: return Symbol::history;
+    case ButtonIcon::bookmark: return Symbol::bookmark;
+    case ButtonIcon::drive: return Symbol::drive;
     }
     throw std::invalid_argument("Invalid button icon");
 }
