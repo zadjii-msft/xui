@@ -3,6 +3,8 @@ use super::*;
 pub type SourceVisualQuery =
     Option<unsafe extern "C" fn(*mut c_void, u64, u64, *mut u32, *mut u8, u32, *mut u32) -> i32>;
 pub type KeyHandler = Option<unsafe extern "C" fn(*mut c_void, *const KeyEvent, *mut u32) -> i32>;
+pub type NavigationHandler =
+    Option<unsafe extern "C" fn(*mut c_void, *const NavigationEvent, *mut u32) -> i32>;
 pub type PostCallback = Option<unsafe extern "C" fn(*mut c_void, u32) -> i32>;
 pub type SecretReceiver = Option<unsafe extern "C" fn(*mut c_void, *const u8, u32) -> i32>;
 pub type SourceQuery =
@@ -45,6 +47,22 @@ pub struct KeyEvent {
     pub target: u64,
 }
 impl Default for KeyEvent {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NavigationEvent {
+    pub size: u32,
+    pub direction: u32,
+    pub has_position: u32,
+    pub reserved: u32,
+    pub target: u64,
+    pub x: f32,
+    pub y: f32,
+}
+impl Default for NavigationEvent {
     fn default() -> Self {
         unsafe { std::mem::zeroed() }
     }
@@ -264,6 +282,11 @@ unsafe extern "C" {
     pub fn xui_navigation_items(target: u64, items: *const NavigationEntry, count: u32) -> i32;
     pub fn xui_window_title(window: u64, title: Text) -> i32;
     pub fn xui_window_key_handler(window: u64, callback: KeyHandler, context: *mut c_void) -> i32;
+    pub fn xui_window_navigation_handler(
+        window: u64,
+        callback: NavigationHandler,
+        context: *mut c_void,
+    ) -> i32;
     pub fn xui_window_post(window: u64, callback: PostCallback, context: *mut c_void) -> i32;
     pub fn xui_feature_version() -> u32;
     pub fn xui_capabilities() -> u64;

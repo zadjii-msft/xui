@@ -119,6 +119,7 @@ internal static class FeatureTests
         FeatureLifetimes();
     }
         [DllImport("user32.dll")] private static extern nint GetFocus();
+        [DllImport("user32.dll")] private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
         [DllImport("user32.dll", EntryPoint = "PostMessageW")] private static extern bool PostMessage(nint window, uint message, nuint key, nint data);
         private static void ExplorerPrimitives()
         {
@@ -165,11 +166,26 @@ internal static class FeatureTests
                 var grid = w.DataGrid("Files");
                 grid.SetColumns([new("Name")]).SetSource(source);
                 grid.Select(new(1, 7));
+                grid.Navigate(GridNavigation.Next);
+                Expect(grid.Selection.Focused == new ItemKey(2, 7));
+                grid.Navigate(GridNavigation.Last);
+                Expect(grid.Selection.Focused == new ItemKey(3, 7));
+                grid.Navigate(GridNavigation.First);
+                Expect(grid.Selection.Focused == new ItemKey(1, 7));
+                Fails(() => grid.Navigate((GridNavigation)6));
+                Fails(() => grid.Navigate(GridNavigation.Next, KeyModifiers.Alt));
                 source.Dispose();
                 var popup = w.Popup("Suggestions", w.Stack().Add(editor).Add(items, 1));
                 w.SetContent(w.Stack().Add(anchor).Add(grid, 1));
                 int keys = 0, entered = 0, dismissals = 0, legacy = 0, submits = 0;
-                int gridEntered = 0, gridClicks = 0;
+                int gridEntered = 0, gridClicks = 0, navigations = 0;
+                w.NavigationHandler = e =>
+                {
+                    Expect(e.TargetId == anchor.Id && e.Position is not null);
+                    Expect(e.Direction == (navigations == 0 ? NavigationDirection.Back : NavigationDirection.Forward));
+                    ++navigations;
+                    return true;
+                };
                 grid.FocusEntered += () => ++gridEntered;
                 grid.Event += e => { if (e.Kind == EventKind.Click && e.Value == 1) ++gridClicks; };
                 editor.Submitted += () => ++submits;
@@ -202,6 +218,15 @@ internal static class FeatureTests
                 {
                     Expect(Task.Run(() => w.Post(() =>
                     {
+                        anchor.Focus();
+                        nint nativeAnchor = GetFocus();
+                        Expect(SendMessageW(nativeAnchor, 0x20B, (nuint)((1 << 16) | 0x20), 0) == 1);
+                        Expect(navigations == 0);
+                        Expect(SendMessageW(nativeAnchor, 0x20C, 1 << 16, 0) == 1);
+                        Expect(navigations == 1);
+                        Expect(SendMessageW(nativeAnchor, 0x319, (nuint)nativeAnchor, 2 << 16) == 1);
+                        Expect(navigations == 2);
+                        w.NavigationHandler = null;
                         popup.Show(anchor);
                         Expect(popup.IsOpen && editor.Focused);
                         nint edit = GetFocus();
@@ -220,6 +245,7 @@ internal static class FeatureTests
                 Expect(keys == 5 && entered == 1 && dismissals == 1 && legacy == 3 && submits == 0);
                 Expect(gridEntered == 1 && gridClicks == 1);
                 Expect(editor.Text == "q" && !popup.IsOpen && !w.Post(() => { }));
+                Expect(navigations == 2 && w.NavigationHandler is null);
             }
             using (var w = new Window("Split events", 900, 400))
             {
@@ -259,6 +285,20 @@ internal static class FeatureTests
                 try { w.Run(); throw new Exception("Expected posted failure."); }
                 catch (XuiException error) { Expect(error.Status == 8 && error.InnerException?.Message == "posted sentinel"); }
                 Expect(w.CallbackStatus == 8 && !w.Post(() => { }));
+            }
+            using (var w = new Window("Navigation failure"))
+            {
+                var input = w.TextInput("Navigation target");
+                w.SetContent(w.Stack().Add(input));
+                w.NavigationHandler = _ => throw new InvalidOperationException("navigation sentinel");
+                Expect(w.Post(() =>
+                {
+                    input.Focus();
+                    SendMessageW(GetFocus(), 0x319, (nuint)GetFocus(), 1 << 16);
+                }));
+                try { w.Run(); throw new Exception("Expected navigation failure."); }
+                catch (XuiException error) { Expect(error.Status == 8 && error.InnerException?.Message == "navigation sentinel"); }
+                Expect(w.CallbackStatus == 8);
             }
         }
     private static void FeatureLifetimes()

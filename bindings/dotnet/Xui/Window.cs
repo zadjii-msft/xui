@@ -169,6 +169,8 @@ public sealed unsafe partial class Window : IDisposable
         menuSubscriptions.Clear();
         if (keyRoot.IsAllocated) keyRoot.Free();
         keyHandler = null;
+        if (navigationRoot.IsAllocated) navigationRoot.Free();
+        navigationHandler = null;
     }
     internal void SetSubscription(ulong handle, Action<UiEvent>? action)
     {

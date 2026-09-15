@@ -26,6 +26,16 @@ internal uint Reserved;
 internal ulong Target;
 }
 [StructLayout(LayoutKind.Sequential)]
+internal struct NavigationEvent {
+internal uint Size;
+internal uint Direction;
+internal uint HasPosition;
+internal uint Reserved;
+internal ulong Target;
+internal float X;
+internal float Y;
+}
+[StructLayout(LayoutKind.Sequential)]
 internal struct FeatureOptions {
 internal uint Size;
 internal uint Version;
@@ -166,6 +176,8 @@ internal static partial int NavigationItems(ulong @target, NavigationEntry* @ite
 internal static partial int WindowTitle(ulong @window, Text @title);
 [LibraryImport("xui", EntryPoint = "xui_window_key_handler")]
 internal static partial int WindowKeyHandler(ulong @window, delegate* unmanaged[Cdecl]<nint, KeyEvent*, uint*, int> @callback, nint @context);
+[LibraryImport("xui", EntryPoint = "xui_window_navigation_handler")]
+internal static partial int WindowNavigationHandler(ulong @window, delegate* unmanaged[Cdecl]<nint, NavigationEvent*, uint*, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_window_post")]
 internal static partial int WindowPost(ulong @window, delegate* unmanaged[Cdecl]<nint, uint, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_feature_version")]

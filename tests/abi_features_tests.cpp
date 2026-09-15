@@ -53,6 +53,7 @@ void explorer_contracts() {
     static_assert(sizeof(xui_item_visual) == 24);
     static_assert(sizeof(xui_source_options) == 48);
     static_assert(sizeof(xui_key_event) == 24);
+    static_assert(sizeof(xui_navigation_event) == 32);
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Explorer primitives"), 600, 400};
     xui_handle window{}; ok(xui_window_create_features(&options, 1, &window));
     uint32_t style{};
@@ -79,6 +80,8 @@ void explorer_contracts() {
     v = value(); v.first = 1; ok(xui_feature_set(second, XUI_F_VISIBLE, &v));
     expect(xui_feature_child(window, 3, &again) == XUI_INVALID_ARGUMENT);
     auto navigation = create(window, XUI_NAVIGATION_VIEW);
+    ok(xui_window_navigation_handler(window, nullptr, nullptr));
+    expect(xui_window_navigation_handler(navigation, nullptr, nullptr) == XUI_WRONG_KIND);
     auto first_pane = create(window, XUI_GRID), second_pane = create(window, XUI_GRID);
     expect(xui_window_visual_style_set(first_pane, XUI_STYLE_WINUI) == XUI_WRONG_KIND);
     expect(xui_window_visual_style_get(first_pane, &style) == XUI_WRONG_KIND);
@@ -215,6 +218,21 @@ int main() {
     ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, UINT32_MAX, 0));
     v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.first==2);
     v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_OFFSET,&v));expect(v.a>=0);
+    const auto grid = handles[XUI_DATA_GRID];
+    ok(xui_source_attach(grid, snapshot));
+    ok(xui_feature_action(grid, XUI_A_GRID_NAVIGATE, 4, 0));
+    v=value();ok(xui_feature_get(grid,XUI_F_SELECTION_STATE,&v));expect(v.first==1);
+    ok(xui_feature_action(grid, XUI_A_GRID_NAVIGATE, 1, 0));
+    v=value();ok(xui_feature_get(grid,XUI_F_SELECTION_STATE,&v));expect(v.first==2);
+    ok(xui_feature_action(grid, XUI_A_GRID_NAVIGATE, 1, 2));
+    uint32_t grid_selected{};
+    ok(xui_collection_contains(grid,2,7,&grid_selected));expect(grid_selected==1);
+    ok(xui_collection_contains(grid,3,7,&grid_selected));expect(grid_selected==1);
+    ok(xui_feature_action(grid, XUI_A_GRID_NAVIGATE, 5, 0));
+    v=value();ok(xui_feature_get(grid,XUI_F_SELECTION_STATE,&v));expect(v.first==1000000);
+    expect(xui_feature_action(grid,XUI_A_GRID_NAVIGATE,6,0)==XUI_INVALID_ARGUMENT);
+    expect(xui_feature_action(grid,XUI_A_GRID_NAVIGATE,0,4)==XUI_INVALID_ARGUMENT);
+    expect(xui_feature_action(range,XUI_A_GRID_NAVIGATE,0,0)==XUI_WRONG_KIND);
     ok(xui_feature_action(handles[XUI_ITEMS_VIEW],XUI_A_SELECT_ALL,0,0));expect(source.queries<100);
     v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.b==1);
     uint32_t selected{};ok(xui_collection_contains(handles[XUI_ITEMS_VIEW],999999,7,&selected));expect(selected==1);
