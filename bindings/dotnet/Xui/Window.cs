@@ -169,6 +169,8 @@ public sealed unsafe partial class Window : IDisposable
         menuSubscriptions.Clear();
         foreach (var subscription in fileSubscriptions.Values) subscription.Root.Free();
         fileSubscriptions.Clear();
+        foreach (var subscription in millerSubscriptions.Values) subscription.Free();
+        millerSubscriptions.Clear();
         if (keyRoot.IsAllocated) keyRoot.Free();
         keyHandler = null;
         if (navigationRoot.IsAllocated) navigationRoot.Free();

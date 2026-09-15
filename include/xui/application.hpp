@@ -5,6 +5,7 @@
 #include "xui/file_list.hpp"
 #include "xui/foundation.hpp"
 #include "xui/file_transfer.hpp"
+#include "xui/miller_columns.hpp"
 #include <stop_token>
 
 namespace xui {

@@ -37,9 +37,31 @@ public sealed unsafe partial class DataGrid
     private DataGrid BindContextMenu(Func<Command[]> items, Action<ulong> invoked, Func<string[]>? shellPaths,
         ShellMenuPresentation presentation = ShellMenuPresentation.Windows)
     {
+        CollectionContextMenus.Bind(this, items, invoked, shellPaths, presentation);
+        return this;
+    }
+    public void ClearContextMenu() => Window.SetMenuSubscription(Handle, null);
+}
+
+public static unsafe class CollectionContextMenus
+{
+    public static ItemsView OnContextMenu(this ItemsView control, Func<Command[]> items, Action<ulong> invoked,
+        Func<string[]>? shellPaths = null, ShellMenuPresentation presentation = ShellMenuPresentation.Windows)
+    {
+        Bind(control, items, invoked, shellPaths, presentation);
+        return control;
+    }
+    public static void ClearContextMenu(this ItemsView control) => control.Window.SetMenuSubscription(control.Handle, null);
+
+    internal static void Bind(Control control, Func<Command[]> items, Action<ulong> invoked, Func<string[]>? shellPaths,
+        ShellMenuPresentation presentation)
+    {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(invoked);
-        Window.SetMenuSubscription(Handle, e =>
+        if (presentation is not (ShellMenuPresentation.Windows or ShellMenuPresentation.Xui))
+            throw new ArgumentOutOfRangeException(nameof(presentation));
+        var window = control.Window;
+        window.SetMenuSubscription(control.Handle, e =>
         {
             if (e.Kind == EventKind.Request)
             {
@@ -47,19 +69,17 @@ public sealed unsafe partial class DataGrid
                 var paths = shellPaths?.Invoke() ?? (shellPaths is null ? [] :
                     throw new InvalidOperationException("Shell paths cannot be null."));
                 if (paths.Length > 256) throw new ArgumentOutOfRangeException(nameof(shellPaths));
-                Features.Commands(this, commands, contextMenu: true);
+                Features.Commands(control, commands, contextMenu: true);
                 if (shellPaths is not null)
                 {
                     using var pins = new Window.Pins();
                     var values = new Native.Text[paths.Length];
                     for (int i = 0; i < paths.Length; ++i) values[i] = pins.Text(paths[i]);
-                    fixed (Native.Text* p = values) Window.Check(Native.ContextMenuShellPaths(Handle, p, (uint)values.Length));
-                    Window.Check(Native.ContextMenuPresentation(Handle, (uint)presentation));
+                    fixed (Native.Text* p = values) window.Check(Native.ContextMenuShellPaths(control.Handle, p, (uint)values.Length));
+                    window.Check(Native.ContextMenuPresentation(control.Handle, (uint)presentation));
                 }
             }
             else if (e.Kind == EventKind.Action) invoked(e.Value);
         });
-        return this;
     }
-    public void ClearContextMenu() => Window.SetMenuSubscription(Handle, null);
 }

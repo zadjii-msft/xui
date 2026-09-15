@@ -20,6 +20,11 @@ internal sealed class FilePaneView
     private FileRows rows;
     private bool rendering;
     private string? error;
+    private readonly List<ColumnPresentation> columnViews = [];
+    private bool focusColumnsAfterRender;
+
+    private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
+        FileRows Rows, ImmutableSource Source);
 
     public FilePaneView(ExplorerApplication app, int number, string path, TabStrip tabs)
     {
@@ -42,9 +47,21 @@ internal sealed class FilePaneView
         WireButton(layout.NewTab, () => NewTab());
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
+        Columns = window.MillerColumns($"Columns in pane {number}");
+        Columns.SetAutomationId($"pane-{number}-columns");
+        Columns.Visible(false);
+        layout.ContentHost.Add(Columns);
+        WireButton(layout.ViewMode, () => SetViewMode(IsColumns ? ExplorerViewMode.Details : ExplorerViewMode.Columns));
         ContextMenu = new(app, this);
         Grid.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
             ShellMenuPresentation.Xui);
+        for (uint i = 0; i < ExplorerTab.ColumnLimit; i++)
+        {
+            var list = Columns.Column(i);
+            list.FocusEntered += Activate;
+            list.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
+                ShellMenuPresentation.Xui);
+        }
         rows = new([], Identify);
         find = layout.Find;
         closeFind = layout.CloseFind;
@@ -72,10 +89,18 @@ internal sealed class FilePaneView
             Model.Active.Filter = text;
             ApplyFilter();
         };
-        find.Submitted += () => Grid.Focus();
+        find.Submitted += Focus;
+        Columns.SelectionChanged += e => SelectColumn(e.Column, e.Key);
+        Columns.ItemActivated += e =>
+        {
+            if (rendering || !IsCurrentColumn(e.Column)) return;
+            Activate();
+            if (columnViews[(int)e.Column].Rows.Entry(e.Key.Id) is { IsDirectory: false } entry)
+                app.Open(entry, this);
+        };
         Grid.Event += e =>
         {
-            if (rendering) return;
+            if (rendering || IsColumns) return;
             Activate();
             if (e.Kind == EventKind.Click && rows.Entry(e.Value) is { } item)
                 app.Open(item, this);
@@ -98,6 +123,12 @@ internal sealed class FilePaneView
     public Button Address { get; }
     public Button BackButton { get; }
     public DataGrid Grid { get; }
+    public MillerColumns Columns { get; }
+    public Button ViewModeButton => layout.ViewMode;
+    public bool IsColumns => Model.Active.ViewMode == ExplorerViewMode.Columns;
+    public bool FilesFocused => IsColumns
+        ? Columns.ColumnCount != 0 && Columns.Column(Columns.ActiveColumn).Focused
+        : Grid.Focused;
     public FileContextMenu ContextMenu { get; }
     public TextInput FindInput => find;
     public Button CloseFindButton => closeFind;
@@ -107,14 +138,28 @@ internal sealed class FilePaneView
     public string? Error => error;
     public int VisibleCount => checked((int)rows.Count);
     public bool HasCurrentRows => !IsLoading && !IsFiltering && displayedTab == Model.Active.Id;
-    public FileEntry? SelectedEntry => Grid.Selection.Focused is { } key ? rows.Entry(key.Id) : null;
+    public string TransferDirectory => IsColumns && IsCurrentColumn(Columns.ActiveColumn)
+        ? columnViews[(int)Columns.ActiveColumn].Model.Snapshot.Path : Model.Active.Path;
     public FileEntry? Entry(ItemKey key) => rows.Entry(key.Id);
     public bool HasSelection => HasCurrentRows &&
-        Enumerable.Range(0, VisibleCount).Any(index => Grid.Contains(rows.Key((ulong)index)));
+        (IsColumns ? SelectedEntry is not null :
+            Enumerable.Range(0, VisibleCount).Any(index => Grid.Contains(rows.Key((ulong)index))));
     public FileEntry[] SelectedEntries => HasCurrentRows
-        ? Enumerable.Range(0, VisibleCount).Where(index => Grid.Contains(rows.Key((ulong)index)))
+        ? IsColumns ? SelectedEntry is { } entry ? [entry] : []
+        : Enumerable.Range(0, VisibleCount).Where(index => Grid.Contains(rows.Key((ulong)index)))
             .Select(index => rows.EntryAt((ulong)index)).ToArray()
         : [];
+    public FileEntry? SelectedEntry
+    {
+        get
+        {
+            if (!IsColumns) return Grid.Selection.Focused is { } key ? rows.Entry(key.Id) : null;
+            uint index = Columns.ActiveColumn;
+            return IsCurrentColumn(index) && Columns.Column(index).Selection.Focused is { } selected
+                && Columns.Column(index).Contains(selected)
+                ? columnViews[(int)index].Rows.Entry(selected.Id) : null;
+        }
+    }
 
     private void WireButton(Button button, Action action)
     {
@@ -129,13 +174,82 @@ internal sealed class FilePaneView
     }
 
     public void Activate() => app.Activate(this);
-    public void Focus() { Activate(); Grid.Focus(); }
+    public void Focus()
+    {
+        Activate();
+        if (IsColumns && Columns.ColumnCount != 0) Columns.FocusColumn(Columns.ActiveColumn);
+        else if (!IsColumns) Grid.Focus();
+        else focusColumnsAfterRender = true;
+    }
     public void SelectPath(string path)
     {
-        if (rows.KeyForPath(path) is { } key) Grid.Select(key);
+        if (IsColumns) SelectColumnPath(Columns.ActiveColumn, path);
+        else if (rows.KeyForPath(path) is { } key) Grid.Select(key);
     }
 
-    public void Navigate(string path, int historyDelta = 0)
+    public void SelectColumnPath(uint column, string path)
+    {
+        if (column < columnViews.Count && columnViews[(int)column].Rows.KeyForPath(path) is { } key)
+            Columns.Column(column).Select(key);
+    }
+
+    public void SetViewMode(ExplorerViewMode mode)
+    {
+        if (Model.Active.ViewMode == mode) return;
+        SaveViewport();
+        Cancel();
+        error = null;
+        Model.Active.SetViewMode(mode);
+        focusColumnsAfterRender = mode == ExplorerViewMode.Columns;
+        Render();
+        if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
+        Focus();
+    }
+
+    private void SelectColumn(uint column, ItemKey key)
+    {
+        if (rendering || !IsCurrentColumn(column)) return;
+        Activate();
+        SaveViewport();
+        Model.Active.ActiveColumn = (int)column;
+        if (columnViews[(int)column].Rows.Entry(key.Id) is not { } entry)
+        {
+            Cancel();
+            error = null;
+            UpdateStatus(checked((int)rows.Count), Model.Active.Entries.Count, Model.Active.Filter);
+            return;
+        }
+        if (entry.IsDirectory)
+        {
+            if (column + 1 >= ExplorerTab.ColumnLimit)
+            {
+                Cancel();
+                error = $"A path can contain at most {ExplorerTab.ColumnLimit} columns. Open the folder directly to start a new path.";
+                status.Text = error;
+                return;
+            }
+            Navigate(entry.FullPath, parentColumn: (int)column);
+        }
+        else
+        {
+            Cancel();
+            error = null;
+            bool truncated = (int)column != Model.Active.Columns.Count - 1;
+            Model.Active.SelectColumnLeaf((int)column, entry.FullPath);
+            if (truncated)
+            {
+                Render();
+                app.LocationChanged(this);
+            }
+            else ApplyFilter();
+        }
+    }
+
+    private bool IsCurrentColumn(uint column) => IsColumns && displayedTab == Model.Active.Id
+        && column < columnViews.Count && column < Model.Active.Columns.Count
+        && ReferenceEquals(columnViews[(int)column].Model, Model.Active.Columns[(int)column]);
+
+    public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
         SaveViewport();
         navigation.Cancel();
@@ -150,7 +264,8 @@ internal sealed class FilePaneView
         app.Work.Start(token => app.Files.ReadDirectoryAsync(path, tab.Path, token), navigation.Token, snapshot =>
         {
             if (!ReferenceEquals(tab, Model.Active)) return;
-            if (historyDelta == 0) tab.Commit(snapshot);
+            if (parentColumn is { } parent) tab.CommitColumn(parent, snapshot);
+            else if (historyDelta == 0) tab.Commit(snapshot);
             else tab.CommitHistory(snapshot, historyDelta);
             IsLoading = false;
             Render();
@@ -210,11 +325,15 @@ internal sealed class FilePaneView
 
     private void SwitchTab()
     {
-        navigation.Cancel();
-        filtering.Cancel();
+        bool filesHadFocus = Grid.Focused || Enumerable.Range(0, columnViews.Count)
+            .Any(i => Columns.Column((uint)i).Focused);
+        Cancel();
+        if (displayedTab != Model.Active.Id && columnViews.Count > 0) ClearColumns();
+        error = null;
         Render();
         app.LocationChanged(this, recordRecent: false);
-        Navigate(Model.Active.Path);
+        if (!IsColumns || !Model.Active.HasSnapshot || Model.Active.Columns.Count == 0) Navigate(Model.Active.Path);
+        if (filesHadFocus) Focus();
     }
 
     public void ShowFind()
@@ -239,7 +358,7 @@ internal sealed class FilePaneView
         Model.Active.FindOpen = false;
         SetFilter("");
         SetFindVisible(false);
-        Grid.Focus();
+        Focus();
     }
 
     public bool HandleFindKey(UiKeyEvent key)
@@ -258,13 +377,51 @@ internal sealed class FilePaneView
         if (direction is null) return false;
         // Ctrl+Home/End selects the edge; unmodified Home/End still edit the query.
         var modifiers = key.VirtualKey is 0x24 or 0x23 ? key.Modifiers & ~KeyModifiers.Control : key.Modifiers;
-        Grid.Navigate(direction.Value, modifiers);
+        if (IsColumns && Columns.ColumnCount != 0)
+        {
+            uint last = Columns.ColumnCount - 1;
+            var list = Columns.Column(last);
+            int count = checked((int)rows.Count);
+            if (count == 0) return true;
+            int index = list.Selection.Focused is { } selected && list.Contains(selected)
+                && rows.Find(selected) is { } found ? (int)found : -1;
+            int page = Math.Max(1, (int)(list.GetBounds().Height / 40));
+            int target = direction.Value switch
+            {
+                GridNavigation.First => 0,
+                GridNavigation.Last => count - 1,
+                GridNavigation.PagePrevious => Math.Max(0, index - page),
+                GridNavigation.PageNext => Math.Min(count - 1, index + page),
+                GridNavigation.Previous => Math.Max(0, index - 1),
+                _ => Math.Min(count - 1, index + 1)
+            };
+            list.Select(rows.Key((ulong)target));
+        }
+        else Grid.Navigate(direction.Value, modifiers);
         return true;
     }
 
     private void SaveViewport()
     {
         if (displayedTab != Model.Active.Id) return;
+        if (IsColumns)
+        {
+            for (int i = 0; i < columnViews.Count && i < Columns.ColumnCount; i++)
+            {
+                var column = columnViews[i];
+                column.Model.ScrollOffset = Columns.Column((uint)i).Offset;
+                column.Model.SelectedPath = Columns.Column((uint)i).Selection.Focused is { } key
+                    && Columns.Column((uint)i).Contains(key)
+                    ? column.Rows.Entry(key.Id)?.FullPath : null;
+            }
+            Model.Active.ActiveColumn = (int)Columns.ActiveColumn;
+            if (Model.Active.Columns.Count > 0)
+            {
+                Model.Active.SelectedPath = Model.Active.Columns[^1].SelectedPath;
+                Model.Active.ScrollOffset = Model.Active.Columns[^1].ScrollOffset;
+            }
+            return;
+        }
         Model.Active.ScrollOffset = Grid.Offset;
         Model.Active.SelectedPath = SelectedEntry?.FullPath;
     }
@@ -272,7 +429,8 @@ internal sealed class FilePaneView
     private void Render()
     {
         var retained = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in Model.Active.Entries) retained.Add(entry.FullPath, Identify(entry.FullPath));
+        var allEntries = IsColumns ? Model.Active.Columns.SelectMany(c => c.Snapshot.Entries) : Model.Active.Entries;
+        foreach (var entry in allEntries) retained[entry.FullPath] = Identify(entry.FullPath);
         identities = retained;
         rendering = true;
         try
@@ -282,6 +440,27 @@ internal sealed class FilePaneView
             UpdateTabs();
             UpdateNavigation();
             Grid.SetSort((uint)Model.Active.SortColumn, Model.Active.SortDescending);
+            Grid.Visible(!IsColumns);
+            Columns.Visible(IsColumns);
+            layout.ViewMode.Text = IsColumns ? "Details" : "Columns";
+            if (!IsColumns) ClearColumns();
+            else
+            {
+                int retainedColumns = 0;
+                while (retainedColumns < columnViews.Count && retainedColumns < Model.Active.Columns.Count
+                    && ReferenceEquals(columnViews[retainedColumns].Model, Model.Active.Columns[retainedColumns]))
+                    retainedColumns++;
+                if (retainedColumns < columnViews.Count)
+                {
+                    bool restoreFocus = FilesFocused;
+                    Columns.SetColumns(columnViews.Take(retainedColumns).Select(c =>
+                        new MillerColumn(TabName(c.Model.Snapshot.Path), c.Source,
+                            c.Rows.KeyForPath(c.Model.SelectedPath))).ToArray());
+                    foreach (var obsolete in columnViews.Skip(retainedColumns)) obsolete.Source.Dispose();
+                    columnViews.RemoveRange(retainedColumns, columnViews.Count - retainedColumns);
+                    if (restoreFocus) focusColumnsAfterRender = true;
+                }
+            }
         }
         finally { rendering = false; }
         ApplyFilter();
@@ -291,6 +470,7 @@ internal sealed class FilePaneView
 
     private void ApplyFilter()
     {
+        if (IsColumns) { ApplyColumnFilter(); return; }
         filtering.Cancel();
         filtering.Dispose();
         filtering = new();
@@ -321,14 +501,108 @@ internal sealed class FilePaneView
                 Grid.Offset = tab.ScrollOffset;
             }
             finally { rendering = false; }
-            status.Text = error ?? (query.Length == 0
-                ? $"{result.Count:N0} items"
-                : $"{result.Count:N0} of {entries.Count:N0} items match \"{query}\"");
+            UpdateStatus(result.Count, entries.Count, query);
         }, failure =>
         {
             IsFiltering = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
         });
+    }
+
+    private void UpdateStatus(int count, int total, string query)
+        => status.Text = error ?? (IsLoading ? "Opening folder..." : query.Length == 0
+            ? $"{count:N0} items" : $"{count:N0} of {total:N0} items match \"{query}\"");
+
+    private void ApplyColumnFilter()
+    {
+        filtering.Cancel();
+        filtering.Dispose();
+        filtering = new();
+        IsFiltering = true;
+        var tab = Model.Active;
+        var chain = tab.Columns.ToArray();
+        string query = tab.Filter;
+        int sort = tab.SortColumn;
+        bool descending = tab.SortDescending;
+        var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
+            ReferenceEquals(view.Model, column) && view.Query == (i == chain.Length - 1 ? query : "")
+            && view.Sort == sort && view.Descending == descending)).ToArray();
+        app.Work.Start(token => Task.Run(() =>
+        {
+            var results = new IReadOnlyList<FileEntry>?[chain.Length];
+            for (int i = 0; i < chain.Length; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                if (reusable[i] is null)
+                    results[i] = FileSystemService.FilterAndSort(chain[i].Snapshot.Entries,
+                        i == chain.Length - 1 ? query : "", sort, descending);
+            }
+            return results;
+        }, token), filtering.Token, results =>
+        {
+            if (!ReferenceEquals(tab, Model.Active) || !IsColumns) return;
+            IsFiltering = false;
+            var next = new List<ColumnPresentation>();
+            try
+            {
+                for (int i = 0; i < chain.Length; i++)
+                {
+                    if (reusable[i] is { } existing) next.Add(existing);
+                    else
+                    {
+                        var sourceRows = new FileRows(results[i]!, Identify);
+                        next.Add(new(chain[i], i == chain.Length - 1 ? query : "", sort, descending,
+                            sourceRows, window.ImmutableSource(sourceRows)));
+                    }
+                }
+                rendering = true;
+                Columns.SetColumns(next.Select(c => new MillerColumn(TabName(c.Model.Snapshot.Path), c.Source,
+                    c.Rows.KeyForPath(c.Model.SelectedPath))).ToArray());
+                for (uint i = 0; i < next.Count; i++)
+                {
+                    var list = Columns.Column(i);
+                    list.Offset = next[(int)i].Model.ScrollOffset;
+                }
+                if (next.Count > 0) Columns.ActiveColumn = (uint)Math.Clamp(tab.ActiveColumn, 0, next.Count - 1);
+                foreach (var old in columnViews)
+                    if (!next.Contains(old)) old.Source.Dispose();
+                columnViews.Clear();
+                columnViews.AddRange(next);
+                displayedTab = tab.Id;
+                rows = next.Count == 0 ? new([], Identify) : next[^1].Rows;
+                if (focusColumnsAfterRender && next.Count > 0)
+                {
+                    focusColumnsAfterRender = false;
+                    Columns.FocusColumn(Columns.ActiveColumn);
+                }
+            }
+            catch
+            {
+                foreach (var added in next)
+                    if (!columnViews.Contains(added)) added.Source.Dispose();
+                throw;
+            }
+            finally { rendering = false; }
+            UpdateStatus(checked((int)rows.Count), tab.Entries.Count, query);
+        }, failure =>
+        {
+            IsFiltering = false;
+            error = $"Cannot filter this folder: {failure.Message}";
+            status.Text = error;
+        });
+    }
+
+    private void ClearColumns()
+    {
+        Columns.SetColumns([]);
+        foreach (var column in columnViews) column.Source.Dispose();
+        columnViews.Clear();
+    }
+
+    public void DisposeSources()
+    {
+        foreach (var column in columnViews) column.Source.Dispose();
+        columnViews.Clear();
     }
 
     private void UpdateTabs()
@@ -362,5 +636,6 @@ internal sealed class FilePaneView
         filtering.Cancel();
         IsLoading = false;
         IsFiltering = false;
+        focusColumnsAfterRender = false;
     }
 }

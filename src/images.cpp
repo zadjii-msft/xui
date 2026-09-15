@@ -92,8 +92,9 @@ ComPtr<IWICBitmapSource> shell_source(ImageRequest& r, const std::wstring& path,
         static_cast<UINT>(dimensions.bmHeight) > r.size.height)
         throw std::runtime_error("The Shell bitmap exceeds the requested dimensions or is invalid.");
     ComPtr<IWICBitmap> source;
+    // Shell HBITMAPs use straight alpha; the decoder converts to PBGRA for Direct2D.
     require(wic->CreateBitmapFromHBITMAP(bitmap.value, nullptr,
-        dimensions.bmBitsPixel == 32 ? WICBitmapUsePremultipliedAlpha : WICBitmapIgnoreAlpha, &source),
+        dimensions.bmBitsPixel == 32 ? WICBitmapUseAlpha : WICBitmapIgnoreAlpha, &source),
         "Cannot read the Shell bitmap.");
     if (dimensions.bmBitsPixel == 32) {
         // Some legacy icons have no alpha channel. Preserve their AND mask through HICON.

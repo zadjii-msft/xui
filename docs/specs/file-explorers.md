@@ -47,6 +47,8 @@ The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
 
 Each pane has its own tabs, navigation history, details view, and Find bar.
+Each tab also has an optional Columns view.
+Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -73,6 +75,36 @@ The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
 Canceled or obsolete requests cannot replace the current view.
 
+### Columns view
+
+The toolbar button switches between **Columns** and **Details**.
+Its label names the view that the button will open.
+The command palette also contains **Use Columns view** and **Use Details view**.
+Each tab retains its own view choice.
+
+Columns view starts at the committed folder.
+A single selection of a folder loads its children in the next column.
+Ancestor columns remain visible. A sibling selection replaces the columns to its right.
+A file selection does not open the file.
+Enter or a double-click opens the selected file through its Windows association.
+
+Each column scrolls vertically on its own.
+Left and Right move focus between existing columns.
+The horizontal navigation buttons reveal earlier or later columns.
+Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
+When the path exceeds the pane width, a bottom scrollbar supports thumb dragging and track paging.
+The control supports at most 32 columns in one path.
+The application reports an error at the limit instead of discarding ancestors.
+
+A successful directory scan commits the address, history, and current folder.
+A failed scan preserves the committed folder and displays an error.
+Find filters the rightmost folder. Its navigation keys retain native text-input focus.
+Context menus use the selected row in the column under the pointer.
+Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Mode and tab changes detach obsolete native sources and cancel pending work.
+
+### Keyboard and palettes
+
 | Input | Action |
 | --- | --- |
 | Navigation button | Expand or collapse the navigation pane |
@@ -97,26 +129,28 @@ Canceled or obsolete requests cannot replace the current view.
 | Escape with Find open | Clear the filter and close the Find bar |
 | Ctrl+D | Add or remove the current folder bookmark |
 | Ctrl+F6 | Switch between dark and light themes |
-| Ctrl+C / Ctrl+Insert with file-grid focus | Copy the selected files and folders |
-| Ctrl+X with file-grid focus | Cut the selected files and folders for a later move |
-| Ctrl+V / Shift+Insert with file-grid focus | Paste files into the current folder |
-| Ctrl+Shift+C with file-grid focus | Copy quoted full paths, one per line |
+| Ctrl+C / Ctrl+Insert with file-view focus | Copy the selected files and folders |
+| Ctrl+X with file-view focus | Cut the selected files and folders for a later move |
+| Ctrl+V / Shift+Insert with file-view focus | Paste files into the current folder |
+| Ctrl+Shift+C with file-view focus | Copy quoted full paths, one per line |
 
 ### File transfers
 
 Copy, Cut, Paste, and Copy paths are also available in the context menu and command palette.
-These commands use all selected visible rows, not only the focused row.
-Ctrl+A selects the visible rows. Ctrl-click changes individual selections. Shift-click selects a range.
-File shortcuts apply only while the file grid has focus.
+In Details, these commands use all selected visible rows, not only the focused row.
+Ctrl+A selects the visible Details rows. Ctrl-click changes individual selections. Shift-click selects a range.
+In Columns, clipboard commands use the selected item in the active column.
+File shortcuts apply only while Details or a column has focus.
 Find, navigation filters, and palette fields retain their native text clipboard behavior.
 
 File copy uses the Windows file clipboard format, not a list of text paths.
 Other Windows applications can paste these files.
 The demo also accepts file clipboard content from Windows Explorer and other applications that supply local file paths.
 Copy paths replaces the clipboard with text instead of file content.
-Keyboard Paste targets the current pane folder.
+Keyboard Paste targets the current Details folder or the active column folder.
 The context menu for a single folder also offers Paste into this folder.
 
+File drag-and-drop uses Details view. Columns retains its folder-selection and horizontal-scroll gestures.
 A drag starts only after pointer movement crosses the Windows drag threshold.
 The drag uses the selected files and folders.
 A drop on a folder row targets that folder. A drop on empty file-grid space targets the pane folder.

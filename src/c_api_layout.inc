@@ -77,7 +77,7 @@ xui_status XUI_CALL xui_items_trailing_shortcut_badges(xui_handle target, uint32
     return boundary([&] {
         auto n = get(target, XUI_ITEMS_VIEW); editable(n->owner);
         require(enabled <= 1, XUI_INVALID_ARGUMENT, "Invalid shortcut badge flag.");
-        as<xui::ItemsView>(n).set_trailing_shortcut_badges(enabled != 0);
+        feature<xui::ItemsView>(n).set_trailing_shortcut_badges(enabled != 0);
     });
 }
 xui_status XUI_CALL xui_text_input_caption(xui_handle target, uint32_t visible) noexcept {

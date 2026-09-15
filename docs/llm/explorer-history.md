@@ -28,6 +28,31 @@ The explorer smoke does not replace the desktop clipboard.
 Manual coverage still includes external application interoperability, Shell conflict choices, physical drag feedback, and cross-volume transfers.
 An ARM64 app cannot load the x64 test DLL. The application and native DLL must use the same architecture.
 
+The merge with the Columns-view changes retains separate native drag and horizontal-scroll handlers.
+Clipboard commands use the active column selection and folder. File drag-and-drop remains a Details-view operation.
+The combined explorer smoke passed, including ancestor-column targets, empty-column selection, and native Find clipboard keys.
+The merged model suite passed 246 assertions.
+The transfer, isolated clipboard, Miller model, Miller window, and feature ABI suites also passed.
+
+## Shell alpha correction (2026-09-15)
+
+The C# explorer uses the shared Shell decoder in `src/images.cpp`, not a thumbnail-size setting in its project file.
+The decoder treated straight-alpha Shell HBITMAPs as premultiplied pixels.
+This error made translucent icon edges too bright on dark backgrounds.
+The correction uses `WICBitmapUseAlpha`. The existing format converter then produces premultiplied BGRA for Direct2D.
+
+The local ARM64 build is `build\icon-quality`.
+The new translucent-icon assertion failed before the correction.
+The Shell, thumbnail, and image suites passed after the correction.
+Coverage includes physical icon sizes from 20 through 48 pixels, legacy masks, and translucent pixels over dark, selected, and light rows.
+Shell thumbnail pixels also match direct WIC output for an original translucent PNG.
+The window regression also covers synthetic 150% and 200% DPI.
+Physical mixed-monitor transitions and third-party Shell handlers still need manual coverage.
+
+The C# explorer built with the corrected native DLL.
+Its first smoke run timed out during palette history navigation. An unchanged retry passed.
+The native test logs and both smoke logs remain in `build\icon-quality`.
+
 ## Compact header validation
 
 The current validated executable is `build\header\Release\xui_demo.exe` (650,240 bytes).

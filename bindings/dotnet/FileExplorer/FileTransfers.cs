@@ -27,7 +27,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
 
     private string? DropDestination(FilePaneView pane, ItemKey? key)
     {
-        if (!CanTransfer(pane)) return null;
+        if (!CanTransfer(pane) || pane.IsColumns) return null;
         return key is { } row ? pane.Entry(row) is { IsDirectory: true } folder ? folder.FullPath : null
             : pane.Model.Active.Path;
     }
@@ -77,7 +77,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
     public void Paste(FilePaneView pane, string? destination = null)
     {
         if (!CanTransfer(pane)) return;
-        destination ??= pane.Model.Active.Path;
+        destination ??= pane.TransferDirectory;
         Busy = true;
         try
         {

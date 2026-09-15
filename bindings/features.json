@@ -10,7 +10,8 @@
     ["ColorPicker",34,"control"],["ContentDialog",35,"contentPopup"],["VectorCanvas",36,"control"],
     ["MapView",37,"control"],["MediaPlayback",38,"control"],["WebContent",39,"control"],
     ["TabStrip",40,"control"],["SplitView",41,"twoControl"],["PageView",42,"panel"],
-    ["DataGrid",43,"control"],["HistoryChart",44,"control"],["NavigationView",45,"control"]
+    ["DataGrid",43,"control"],["HistoryChart",44,"control"],["NavigationView",45,"control"],
+    ["MillerColumns",46,"control"]
   ],
   "members": [
     [["RangeInput","NumericInput","Progress"],"Range",1,"range","get"],

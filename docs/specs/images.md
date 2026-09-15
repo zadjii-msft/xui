@@ -155,6 +155,7 @@ The host retains bitmap IDs from both lists and `Image` controls in one shared t
 Equal files, source kinds, and physical decode sizes share cached pixels and bitmaps across panes.
 
 Shell output converts to premultiplied BGRA for the existing renderer.
+Shell HBITMAPs use straight alpha. WIC applies premultiplication once before Direct2D blends the pixels over the row background.
 The backend rejects bitmaps larger than the requested dimensions before conversion.
 Legacy icons without alpha use their HICON transparency mask through WIC.
 Temporary HBITMAP and HICON handles have scoped ownership. XUI does not cache these handles.
@@ -189,4 +190,3 @@ Other assertions cover shared ownership, filtering, scrolling, tabs, pane visibi
 A 20,006-row source and a synthetic tall viewport cover slot limits without thousands of decodes.
 The existing image pipeline tests retain their budget, cache, reservation, and cancellation checks.
 Physical monitor transitions, physical GPU loss, and optional third-party WIC codecs still require manual coverage.
-

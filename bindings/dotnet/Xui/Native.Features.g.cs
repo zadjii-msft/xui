@@ -36,6 +36,24 @@ internal float X;
 internal float Y;
 }
 [StructLayout(LayoutKind.Sequential)]
+internal struct MillerColumn {
+internal uint Size;
+internal uint HasSelection;
+internal Text Title;
+internal ulong Source;
+internal ulong SelectedId;
+internal ulong SelectedVersion;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct MillerEvent {
+internal uint Size;
+internal uint Kind;
+internal uint Column;
+internal uint Reserved;
+internal ulong Id;
+internal ulong Version;
+}
+[StructLayout(LayoutKind.Sequential)]
 internal struct FeatureOptions {
 internal uint Size;
 internal uint Version;
@@ -180,6 +198,20 @@ internal static partial int WindowKeyHandler(ulong @window, delegate* unmanaged[
 internal static partial int WindowNavigationHandler(ulong @window, delegate* unmanaged[Cdecl]<nint, NavigationEvent*, uint*, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_window_post")]
 internal static partial int WindowPost(ulong @window, delegate* unmanaged[Cdecl]<nint, uint, int> @callback, nint @context);
+[LibraryImport("xui", EntryPoint = "xui_miller_set_columns")]
+internal static partial int MillerSetColumns(ulong @target, MillerColumn* @columns, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_miller_state")]
+internal static partial int MillerState(ulong @target, uint* @count, uint* @active, double* @width);
+[LibraryImport("xui", EntryPoint = "xui_miller_active")]
+internal static partial int MillerActive(ulong @target, uint @column);
+[LibraryImport("xui", EntryPoint = "xui_miller_width")]
+internal static partial int MillerWidth(ulong @target, double @width);
+[LibraryImport("xui", EntryPoint = "xui_miller_scroll_state")]
+internal static partial int MillerScrollState(ulong @target, double* @offset, double* @maximum);
+[LibraryImport("xui", EntryPoint = "xui_miller_scroll")]
+internal static partial int MillerScroll(ulong @target, double @offset);
+[LibraryImport("xui", EntryPoint = "xui_miller_subscribe")]
+internal static partial int MillerSubscribe(ulong @target, delegate* unmanaged[Cdecl]<nint, MillerEvent*, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_feature_version")]
 internal static partial uint FeatureVersion();
 [LibraryImport("xui", EntryPoint = "xui_capabilities")]

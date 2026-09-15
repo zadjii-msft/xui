@@ -449,16 +449,18 @@ void write_icon(const std::filesystem::path& exe, unsigned color, bool legacy = 
 }
 void shell_fixtures(const std::filesystem::path& directory, const std::filesystem::path& executable) {
     std::filesystem::create_directories(directory / L"folder");
-    for (const auto name : {L"fixture.exe", L"legacy.exe"}) {
+    for (const auto name : {L"fixture.exe", L"legacy.exe", L"alpha.exe"}) {
         const auto path = directory / name;
         std::filesystem::copy_file(executable, path, std::filesystem::copy_options::overwrite_existing);
-        write_icon(path, 0xff20b8e0, std::wstring_view(name) == L"legacy.exe");
+        write_icon(path, std::wstring_view(name) == L"alpha.exe" ? 0x8020b8e0 : 0xff20b8e0,
+            std::wstring_view(name) == L"legacy.exe");
     }
     std::ofstream(directory / L"readme.txt") << "Shell file association";
     std::ofstream(directory / L"document.pdf") << "No PDF thumbnail";
     std::ofstream(directory / L"document.docx") << "No document thumbnail";
     std::ofstream(directory / L"unknown.xui-unknown-type") << "No registered handler";
     image_fixture::png(directory / L"preview.png", 64, 32, 0xff2040c0);
+    image_fixture::png(directory / L"alpha-preview.png", 64, 32, 0x8020b8e0);
     Microsoft::WRL::ComPtr<IShellLinkW> link;
     image_fixture::hr(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)));
     image_fixture::hr(link->SetPath((directory / L"fixture.exe").c_str()));
@@ -471,7 +473,7 @@ void shell_pixels(const std::filesystem::path& directory) {
     check(GetSystemDirectoryW(system, MAX_PATH) != 0, "Find native System32");
     const auto cmd = std::filesystem::path(system) / L"cmd.exe";
     const auto before = ImageResources::statistics();
-    for (const auto size : {24u, 36u, 48u}) {
+    for (const auto size : {20u, 24u, 30u, 36u, 40u, 48u}) {
         const auto pixels = loaded(directory / L"fixture.exe", size);
         check(pixels->size.width <= size && pixels->size.height <= size, "Physical DPI size bounds Shell pixels");
         const auto center = (pixels->size.height / 2 * pixels->size.width + pixels->size.width / 2) * 4;
@@ -484,6 +486,22 @@ void shell_pixels(const std::filesystem::path& directory) {
             std::to_integer<int>(pixels->pixels[center + 3]) >= 250,
             "Shell extracts original executable resource color");
         check(pixels->pixels[3] == std::byte{}, "Shell icon retains transparent margins");
+        const auto alpha = loaded(directory / L"alpha.exe", size);
+        check(alpha->size == ImageSize{size, size}, "Shell returns the requested physical icon size");
+        const auto middle = (size / 2 * size + size / 2) * 4;
+        for (unsigned channel = 0; channel < 4; ++channel) {
+            constexpr unsigned expected[]{0x70, 0x5c, 0x10, 0x80};
+            check(std::abs(std::to_integer<int>(alpha->pixels[middle + channel]) - static_cast<int>(expected[channel])) <= 1,
+                "Shell straight alpha converts once to premultiplied BGRA");
+        }
+        for (const auto& image : {pixels, alpha, loaded(directory / L"folder", size)}) {
+            for (size_t i = 0; i < image->pixels.size(); i += 4) {
+                check(image->pixels[i] <= image->pixels[i + 3] &&
+                    image->pixels[i + 1] <= image->pixels[i + 3] &&
+                    image->pixels[i + 2] <= image->pixels[i + 3],
+                    "Shell edge colors never exceed premultiplied alpha");
+            }
+        }
     }
     const auto legacy = loaded(directory / L"legacy.exe");
     check(legacy->pixels[3] == std::byte{}, "Legacy icon AND mask retains transparent margins");
@@ -496,6 +514,11 @@ void shell_pixels(const std::filesystem::path& directory) {
     check(preview->size.width > preview->size.height, "Shell thumbnail handler returns a wide image preview");
     auto wic = completed(directory / L"preview.png", 24, ImageKind::wic);
     check(wic->pixels && wic->pixels->id != preview->id, "WIC and Shell cache keys do not collide");
+    const auto alpha_preview = loaded(directory / L"alpha-preview.png");
+    const auto alpha_wic = completed(directory / L"alpha-preview.png", 24, ImageKind::wic);
+    check(alpha_wic->pixels && alpha_preview->size == alpha_wic->pixels->size &&
+        alpha_preview->pixels == alpha_wic->pixels->pixels,
+        "Shell thumbnails and direct WIC decoding preserve the same translucent pixels");
     auto absent = completed(directory / L"absent.exe");
     check(!absent->pixels && !absent->error.empty(), "Missing Shell item has an explicit nonfatal error");
     {
@@ -552,7 +575,8 @@ void shell_window(const std::filesystem::path& directory) {
     auto list = std::make_shared<FileList>();
     auto rows = std::make_shared<std::vector<FileItem>>();
     for (std::size_t i = 0; i < 1000; ++i)
-        rows->push_back({i + 1, L"fixture-" + std::to_wstring(i) + L".exe", (directory / L"fixture.exe").wstring(), false});
+        rows->push_back({i + 1, L"fixture-" + std::to_wstring(i) + L".exe",
+            (directory / (i == 0 ? L"alpha.exe" : L"fixture.exe")).wstring(), false});
     list->set_items(rows); list->set_thumbnails(true); root->add(list, 1); window.set_content(root);
     list->on_thumbnail_error([](ItemId, const std::wstring&) { check(false, "Fixture icons do not fail"); });
     int phase{}, waits{};
@@ -566,7 +590,17 @@ void shell_window(const std::filesystem::path& directory) {
         waits = 0;
         const auto native = child(hwnd, L"Xui.FileList.1");
         const auto scale = dpi ? dpi : GetDpiForWindow(hwnd);
-        check(near_color(pixel(hwnd, native, 23, 16, scale), RGB(0x20, 0xb8, 0xe0)), "Rendered row matches original executable icon color");
+        auto expected = RGB(0x20, 0xb8, 0xe0);
+        if (phase <= 4) {
+            const auto background = pixel(hwnd, native, 9, 16, scale);
+            const auto blend = [](unsigned foreground, unsigned background) {
+                return (foreground * 128 + background * 127 + 127) / 255;
+            };
+            expected = RGB(blend(0x20, GetRValue(background)), blend(0xb8, GetGValue(background)),
+                blend(0xe0, GetBValue(background)));
+        }
+        check(near_color(pixel(hwnd, native, 23, 16, scale), expected),
+            "Shell icon alpha blends over dark, selected, and light rows at physical DPI");
         check(pixel(hwnd, native, 23, 6, scale) == pixel(hwnd, native, 9, 6, scale), "Transparent icon margin blends with row background");
         if (phase == 0) { list->select(0, false); }
         else if (phase == 1) { window.set_theme(ThemeMode::light); }

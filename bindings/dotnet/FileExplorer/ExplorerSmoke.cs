@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
@@ -18,7 +19,7 @@ internal static class ExplorerSmoke
         if (target == 0 || !pane.Tabs.Focused) throw new InvalidOperationException("The tab peer did not receive native focus.");
         pane.Address.Focus();
         SendMessageW(target, 0x0201, 1, (20 << 16) | 12);
-        if (!pane.Grid.Focused || pane.Tabs.Focused)
+        if (!pane.FilesFocused || pane.Tabs.Focused)
             throw new InvalidOperationException("A tab click must focus the file pane, not the tab strip.");
     }
 
@@ -27,7 +28,7 @@ internal static class ExplorerSmoke
         return Run();
         async Task Run()
         {
-            string fixture = Path.Combine(Path.GetTempPath(), $"xui-explorer-ui-{Guid.NewGuid():N}");
+            string fixture = Path.Combine(Environment.CurrentDirectory, $".xui-explorer-ui-{Guid.NewGuid():N}");
             try
             {
                 Directory.CreateDirectory(Path.Combine(fixture, "alpha", "child"));
@@ -344,11 +345,12 @@ internal static class ExplorerSmoke
                 });
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
+                await ColumnsChecks();
                 await Transfers(fixture);
                 await Ui(() =>
                 {
                     app.Report("Explorer smoke passed.");
-                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, filtering, sorting, commands, and file transfers.");
+                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, filtering, sorting, columns, commands, and file transfers.");
                     app.Window.Close();
                 });
             }
@@ -359,6 +361,174 @@ internal static class ExplorerSmoke
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task ColumnsChecks()
+            {
+                var pane = app.Left;
+                string alpha = Path.Combine(fixture, "alpha");
+                string beta = Path.Combine(fixture, "beta");
+                string small = Path.Combine(fixture, "small.txt");
+                await Ui(() => { pane.Focus(); pane.Navigate(fixture); });
+                await Ready(pane);
+                await Ui(pane.ViewModeButton.Invoke);
+                await Ready(pane);
+                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 1 && pane.FilesFocused
+                    && pane.Model.Active.Path == fixture && !pane.Grid.Focused,
+                    "Toolbar enables focused columns without changing the committed path");
+                await Ui(() => pane.SelectColumnPath(0, alpha));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
+                    && pane.Columns.ActiveColumn == 0, "Single selection drills while retaining its ancestor and focus");
+                await Ui(() => pane.SelectColumnPath(1, Path.Combine(alpha, "child")));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 3, "Nested selection appends a column");
+                double columnWidth = 0, horizontalOffset = 0;
+                await Ui(() =>
+                {
+                    columnWidth = pane.Columns.ColumnWidth;
+                    pane.Columns.ColumnWidth = 2000;
+                });
+                await Until(() => pane.Columns.MaximumHorizontalOffset > 0);
+                await Ui(() =>
+                {
+                    pane.Columns.FocusColumn(1);
+                    horizontalOffset = pane.Columns.MaximumHorizontalOffset / 2;
+                    pane.Columns.HorizontalOffset = horizontalOffset;
+                });
+                await Check(() => pane.Columns.HorizontalOffset == horizontalOffset
+                    && pane.Model.Active.Path == Path.Combine(alpha, "child") && pane.Columns.ActiveColumn == 1,
+                    "Managed horizontal scrolling survives layout without navigating or changing the active column");
+                await Ui(() => pane.Columns.ColumnWidth = columnWidth);
+                await Ui(() => pane.SelectColumnPath(0, beta));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == beta,
+                    "Selecting an ancestor sibling replaces descendants");
+                int opens = app.FileOpenCount;
+                await Ui(() => pane.SelectColumnPath(0, small));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 1 && pane.Model.Active.Path == fixture
+                    && pane.SelectedEntry?.FullPath == small && app.FileOpenCount == opens,
+                    "Selecting a leaf trims descendants but never launches it");
+                await Ui(() =>
+                {
+                    pane.Columns.FocusColumn(0);
+                    if (!PostMessageW(GetFocus(), 0x100, 0x0d, 0))
+                        throw new InvalidOperationException("Could not post Enter to the column list.");
+                });
+                await Until(() => app.FileOpenCount == opens + 1);
+                await Ui(() => { pane.SelectColumnPath(0, alpha); pane.SelectColumnPath(0, beta); });
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Path == beta && pane.Columns.ColumnCount == 2,
+                    "Obsolete drill results cannot overwrite a newer sibling");
+                await Ui(() =>
+                {
+                    pane.Columns.FocusColumn(0);
+                    pane.ContextMenu.GetCommands();
+                    if (!pane.ContextMenu.GetShellPaths().SequenceEqual([beta]))
+                        throw new InvalidOperationException("Ancestor context menus must target the active column row.");
+                    if (!pane.HasSelection || !pane.SelectedEntries.Select(e => e.FullPath).SequenceEqual([beta])
+                        || pane.TransferDirectory != fixture
+                        || !pane.ContextMenu.GetCommands().Any(c => c.Id == FileContextMenu.Copy && c.Enabled))
+                        throw new InvalidOperationException("Column clipboard commands must use the active ancestor selection and folder.");
+                    pane.Columns.FocusColumn(1);
+                    if (pane.SelectedEntry is not null)
+                        throw new InvalidOperationException("Focusing the empty rightmost column must clear the menu target.");
+                    if (pane.HasSelection || pane.SelectedEntries.Length != 0 || pane.TransferDirectory != beta
+                        || app.Transfers.QueryDrop(pane, null, FileTransferEffect.Move) != FileTransferEffect.None)
+                        throw new InvalidOperationException("An empty column must not reuse a hidden Details selection or drop target.");
+                });
+                await Ui(() => pane.SelectColumnPath(0, alpha));
+                await Ready(pane);
+                await Ui(() => { pane.ShowFind(); pane.SetFilter("child"); });
+                await Ready(pane);
+                await Check(() => pane.VisibleCount == 1 && pane.Columns.ColumnCount == 2
+                    && pane.Model.Active.Columns[0].Snapshot.Entries.Count == 5
+                    && pane.Model.Active.Columns[1].SelectedPath is null,
+                    "Find filters the rightmost folder without removing siblings or selecting its focus-only row");
+                await Ui(() =>
+                {
+                    foreach (uint key in new uint[] { 0x25, 0x27, 0x24, 0x23 })
+                        if (app.Window.KeyHandler?.Invoke(new(key, KeyModifiers.None, pane.FindInput.Id)) == true)
+                            throw new InvalidOperationException("Columns must preserve native Find editing keys.");
+                    foreach (uint key in new uint[] { 0x43, 0x58, 0x56 })
+                        if (app.Window.KeyHandler?.Invoke(new(key, KeyModifiers.Control, pane.FindInput.Id)) == true)
+                            throw new InvalidOperationException("Column clipboard commands must preserve native Find clipboard keys.");
+                    Shortcut(0x28);
+                });
+                await Ready(pane);
+                await Ui(() =>
+                {
+                    if (!pane.FindInput.Focused || pane.FindInput.Text != "child"
+                        || pane.Model.Active.Path != Path.Combine(alpha, "child"))
+                        throw new InvalidOperationException(
+                            $"Find Down selects a folder in the rightmost column without moving input focus: " +
+                            $"findFocused={pane.FindInput.Focused}, query={pane.FindInput.Text}, path={pane.Model.Active.Path}, " +
+                            $"activeColumn={pane.Columns.ActiveColumn}, columns={pane.Columns.ColumnCount}, filesFocused={pane.FilesFocused}.");
+                });
+                ulong columnsTab = 0;
+                await Ui(() =>
+                {
+                    columnsTab = pane.Model.Active.Id;
+                    pane.NewTab(fixture);
+                    if (pane.Columns.ColumnCount != 0)
+                        throw new InvalidOperationException("Changing tabs must immediately detach native column menu sources.");
+                });
+                await Ready(pane);
+                await Check(() => !pane.IsColumns && pane.Model.Active.Filter == "", "New tabs default to Details");
+                await Ui(() => pane.SelectTab(columnsTab));
+                await Ready(pane);
+                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 3 && pane.Model.Active.Filter == "child",
+                    "Tab selection restores mode, chain, and filter");
+                await Ui(pane.HideFind);
+                await Ready(pane);
+                await Ui(() => pane.MoveHistory(-1));
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Path == alpha && pane.Columns.ColumnCount == 1,
+                    "History resets the columns root at the committed destination");
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Ui(() =>
+                {
+                    pane.SelectColumnPath(0, alpha);
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                    if (pane.Columns.ColumnCount != 0)
+                        throw new InvalidOperationException("Hiding Columns must immediately detach native menu sources.");
+                });
+                await Ready(pane);
+                await Check(() => !pane.IsColumns && pane.Model.Active.Path == fixture && pane.VisibleCount == 5,
+                    "Mode changes cancel pending drills and preserve committed Details rows");
+                await Ui(() => app.Commands.Single(c => c.Name == "Use Columns view").Execute());
+                await Ready(pane);
+                await Ui(() => pane.Navigate(Path.Combine(fixture, "missing-columns")));
+                await Ready(pane);
+                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 1 && pane.Model.Active.Path == fixture
+                    && pane.VisibleCount == 5 && pane.Error is not null, "Failed column navigation preserves path and rows with an error");
+                await Ui(() =>
+                {
+                    pane.SelectColumnPath(0, alpha);
+                    pane.NewTab(fixture);
+                });
+                await Ready(pane);
+                await Check(() => !pane.IsColumns && pane.Model.Active.Path == fixture,
+                    "Tab changes cancel pending column selection");
+                await Ui(() => pane.SelectTab(columnsTab));
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Path == fixture && pane.Columns.ColumnCount == 1,
+                    "Canceled inactive-tab work cannot commit later");
+                await Ui(pane.Refresh);
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 1 && pane.Error is null, "Refresh rebuilds the columns root");
+                await Ui(() => { app.Right.Focus(); app.Right.SetViewMode(ExplorerViewMode.Columns); });
+                await Ready(app.Right);
+                await Check(() => app.Right.IsColumns && pane.IsColumns && app.Right.FilesFocused
+                    && !ReferenceEquals(app.Right.Columns, pane.Columns), "Split panes own independent column views and focus");
+                await Ui(() => { pane.Focus(); ClickFirstTab(pane); });
+                await Ready(pane);
+                await Check(() => pane.FilesFocused, "Tab clicks focus the selected view");
+                await Ui(() => app.Commands.Single(c => c.Name == "Use Details view").Execute());
+                await Ready(pane);
+                await Check(() => !pane.IsColumns && pane.Grid.Focused, "Command palette Details choice restores grid focus");
             }
         }
 
@@ -374,7 +544,13 @@ internal static class ExplorerSmoke
             await File.WriteAllTextAsync(Path.Combine(nested, "child.txt"), "nested content");
             await File.WriteAllTextAsync(text, "file content");
             await File.WriteAllTextAsync(Path.Combine(destination, "not a folder.txt"), "keep");
-            await Ui(() => { app.Left.Navigate(source); app.Right.Navigate(destination); });
+            await Ui(() =>
+            {
+                app.Left.SetViewMode(Models.ExplorerViewMode.Details);
+                app.Right.SetViewMode(Models.ExplorerViewMode.Details);
+                app.Left.Navigate(source);
+                app.Right.Navigate(destination);
+            });
             await Ready(app.Left);
             await Ready(app.Right);
             await Ui(() =>

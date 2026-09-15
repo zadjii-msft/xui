@@ -10,14 +10,18 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
     private string[] paths = [];
     private string destination = "";
     private Command[] commands = [];
+    private ulong tab;
+    private ExplorerViewMode mode;
 
     public Command[] GetCommands()
     {
         pane.Activate();
+        tab = pane.Model.Active.Id;
+        mode = pane.Model.Active.ViewMode;
         var entries = pane.SelectedEntries;
         target = entries.Length == 1 ? entries[0] : null;
         paths = entries.Select(entry => entry.FullPath).ToArray();
-        destination = target is { IsDirectory: true } ? target.FullPath : pane.Model.Active.Path;
+        destination = target is { IsDirectory: true } ? target.FullPath : pane.TransferDirectory;
         List<Command> result = [];
         if (target is { IsDirectory: true })
         {
@@ -46,6 +50,11 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
 
     public void Invoke(ulong id)
     {
+        if (tab != pane.Model.Active.Id || mode != pane.Model.Active.ViewMode)
+        {
+            app.Report("The menu is no longer available in this tab or view.");
+            return;
+        }
         if (!commands.Any(command => command.Id == id && command.Enabled))
         {
             app.Report("That command is not available for this item.");

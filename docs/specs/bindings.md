@@ -101,7 +101,7 @@ Void delegate assignments can require a lambda, such as `Action apply = () => ra
 
 This extension supersedes earlier statements that the new controls have C++ APIs only.
 The original nine control kinds remain available.
-The extension adds 35 typed constructors to both C# and Rust.
+The extension adds typed constructors to both C# and Rust.
 These include compositions and the earlier workspace controls.
 The bindings use the existing native controls, layout, drawing, input, and accessibility.
 They contain no second renderer or retained row array.
@@ -127,6 +127,51 @@ They contain no second renderer or retained row array.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
 The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
+
+### Miller columns in C#
+
+`Window.MillerColumns` creates the native hierarchy control.
+`SetColumns` accepts a complete path of `MillerColumn` records.
+Each record contains a title, an `ImmutableSource`, and an optional selected key.
+The source supplies `HasChildren` for branch indicators.
+
+```csharp
+var columns = window.MillerColumns("Folders");
+using var source = window.ImmutableSource(rootItems);
+columns.SetColumns([new("Root", source)]);
+columns.SelectionChanged += item => StartChildQuery(item.Column, item.Key);
+columns.ItemActivated += item => OpenItem(item.Column, item.Key);
+```
+
+The application supplies `rootItems`, `StartChildQuery`, and `OpenItem`.
+The application delivers completed queries through `Window.Post`.
+The application must reject obsolete results after selection, tab changes, cancellation, or window closure.
+`SetColumns` is a silent setter. Neither selection nor source replacement opens a file.
+
+`ActiveColumn` identifies the active sibling list. `ColumnWidth` accepts 120 to 2,000 DIPs.
+`FocusColumn` reveals a column and moves native focus into its list.
+`Column(index)` returns a stable borrowed list for selection, scrolling, focus, and context menus.
+The owning control supplies column sources through `SetColumns`, not through the borrowed list.
+`MillerColumns.MaxColumns` is 32.
+
+`HorizontalOffset` reads or sets the horizontal position in DIPs.
+`MaximumHorizontalOffset` supplies the current limit. The limit is zero before layout.
+The setter rejects non-finite values and positions outside the current range.
+Horizontal wheel input, Shift+wheel, and the bottom scrollbar work without application event handlers.
+Horizontal movement preserves selection and the vertical position of each column.
+
+The native control retains source references after an `ImmutableSource` wrapper is disposed.
+A disposed wrapper cannot be supplied to a later `SetColumns` call.
+Applications can retain wrappers for unchanged columns and dispose them after path replacement.
+Events contain the column index and both parts of `ItemKey`.
+
+`xui_miller_*` exports supply the C ABI.
+The generated Rust FFI includes these exports.
+The typed Rust wrapper currently supplies construction only, without the C# path and event helpers.
+Declarative markup can contain the control through an application-supplied element.
+The FileExplorer sample creates it in C# inside its declarative layout.
+
+### ABI versions
 
 The baseline `xui_abi_version()` remains `0x00010000`.
 Old records, kind values, exports, and version negotiation remain unchanged.
