@@ -5,6 +5,25 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Shell alpha correction (2026-09-15)
+
+The C# explorer uses the shared Shell decoder in `src/images.cpp`, not a thumbnail-size setting in its project file.
+The decoder treated straight-alpha Shell HBITMAPs as premultiplied pixels.
+This error made translucent icon edges too bright on dark backgrounds.
+The correction uses `WICBitmapUseAlpha`. The existing format converter then produces premultiplied BGRA for Direct2D.
+
+The local ARM64 build is `build\icon-quality`.
+The new translucent-icon assertion failed before the correction.
+The Shell, thumbnail, and image suites passed after the correction.
+Coverage includes physical icon sizes from 20 through 48 pixels, legacy masks, and translucent pixels over dark, selected, and light rows.
+Shell thumbnail pixels also match direct WIC output for an original translucent PNG.
+The window regression also covers synthetic 150% and 200% DPI.
+Physical mixed-monitor transitions and third-party Shell handlers still need manual coverage.
+
+The C# explorer built with the corrected native DLL.
+Its first smoke run timed out during palette history navigation. An unchanged retry passed.
+The native test logs and both smoke logs remain in `build\icon-quality`.
+
 ## Compact header validation
 
 The current validated executable is `build\header\Release\xui_demo.exe` (650,240 bytes).
