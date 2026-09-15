@@ -2,6 +2,7 @@
 #include "../src/images.hpp"
 #include "../src/async.hpp"
 #include "../src/drawing.hpp"
+#include "xui/navigation.hpp"
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -10,6 +11,12 @@
 namespace xui {
 struct DrawingTestAccess {
     static void lose() { Drawing::end_result_override_ = D2DERR_RECREATE_TARGET; }
+};
+struct RowImagesTestAccess {
+    static std::shared_ptr<ImageRequest> request(const RowImages& images, ItemKey key) {
+        for (const auto& slot : images.slots_) if (slot->key == key) return slot->request;
+        return {};
+    }
 };
 }
 namespace {
@@ -190,19 +197,185 @@ void hook(ImageDecodeStage stage) {
     WaitForSingleObject(release_gate, 10000);
 }
 struct Gate {
-    Gate(ImageDecodeStage stage) {
+    ImageKind kind;
+    Gate(ImageDecodeStage stage, ImageKind worker = ImageKind::wic) : kind(worker) {
         entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         release_gate = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        gated_stage = stage; ImageDecodeTestAccess::hook = hook;
+        gated_stage = stage;
+        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = hook;
     }
     void await() { check(WaitForSingleObject(entered, 10000) == WAIT_OBJECT_0, "Decode reaches gated boundary"); }
-    void release() { ImageDecodeTestAccess::hook = nullptr; SetEvent(release_gate); }
+    void release() {
+        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = nullptr;
+        SetEvent(release_gate);
+    }
     ~Gate() {
         release();
         wait([] { return !ImageResources::statistics().active; });
         CloseHandle(entered); CloseHandle(release_gate);
     }
 };
+void ordinary_row_image_refresh_test() {
+    struct Source final : ItemsSource {
+        size_t size() const override { return 1; }
+        ItemKey key(size_t) const override { return {1, 0}; }
+        std::optional<size_t> find(ItemKey key) const override {
+            return key == ItemKey{1, 0} ? std::optional<size_t>{0} : std::nullopt;
+        }
+        ItemContent item(size_t) const override { return {}; }
+    };
+    const auto file = directory / L"ordinary-refresh.png";
+    image_fixture::png(file, 32, 32, 0xffff0000);
+    const auto written = std::filesystem::last_write_time(file);
+    auto source = std::make_shared<Source>();
+    RowImages images;
+    auto wake = std::make_shared<TaskWake>();
+    std::vector<std::uint64_t> retained;
+    const auto sync = [&] {
+        size_t remaining = 48;
+        retained.clear();
+        return images.sync(source, {{{1, 0}, {ButtonIcon::none, file.wstring()}}}, 96, wake, retained, remaining);
+    };
+    const auto deliver = [&] {
+        wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+        sync();
+    };
+    sync(); deliver();
+    check(images.pixels({1, 0}) != nullptr, "Ordinary source loads its initial image");
+    const auto original = images.pixels({1, 0})->id;
+    image_fixture::png(file, 32, 32, 0xff00ff00);
+    std::filesystem::last_write_time(file, written + 2s);
+    {
+        Gate gate(ImageDecodeStage::before_delivery);
+        source = std::make_shared<Source>();
+        check(sync(), "Ordinary source replacement invalidates a loaded row with the same key and path");
+        gate.await();
+        const auto stale = RowImagesTestAccess::request(images, {1, 0});
+        check(stale && !images.pixels({1, 0}) && retained.empty(),
+            "Ordinary source refresh does not retain stale file pixels");
+        source = std::make_shared<Source>();
+        sync();
+        check(stale->cancelled && RowImagesTestAccess::request(images, {1, 0}) != stale,
+            "Ordinary source replacement also cancels an in-flight request with the same key and path");
+        gate.release(); deliver();
+        const auto pixels = images.pixels({1, 0});
+        check(pixels && pixels->id != original && std::to_integer<unsigned>(pixels->pixels[1]) == 255 &&
+            std::to_integer<unsigned>(pixels->pixels[2]) == 0,
+            "Ordinary source refresh reloads changed file contents even when key version remains zero");
+    }
+    images.clear(); empty();
+}
+void navigation_row_image_tests() {
+    NavigationView nav;
+    RowImages images;
+    auto wake = std::make_shared<TaskWake>();
+    std::vector<std::uint64_t> retained;
+    const auto entry = [](std::uint64_t id, size_t file) {
+        NavigationItem item;
+        item.key = {id, 1}; item.label = L"Folder"; item.image_path = path(file);
+        return item;
+    };
+    std::vector<NavigationItem> entries{entry(1, 0), entry(2, 1), entry(3, 2), entry(4, 3)};
+    const auto refresh = [&] {
+        nav.set_items(entries);
+        nav.arrange({0, 0, 280, 600});
+    };
+    const auto sync = [&](UINT dpi = 96, size_t budget = 48) {
+        const auto available = budget;
+        std::vector<RowVisual> rows;
+        const auto source = nav.items()->source();
+        for (const auto& row : nav.items()->visible_content()) {
+            auto visual = source->visual(row.index);
+            if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
+            if (visual.image_path.empty()) visual.image_path = row.content.image_path;
+            if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none)
+                visual.icon = ButtonIcon::folder;
+            rows.push_back({row.key, std::move(visual), row.navigation});
+        }
+        retained.clear();
+        const auto changed = images.sync(source, std::move(rows), dpi, wake, retained, budget, true);
+        check(images.count() <= RowImages::maximum_images && images.count() + budget == available,
+            "Navigation refresh respects row and shared image budgets");
+        return changed;
+    };
+    const auto deliver = [&] {
+        wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+        sync();
+    };
+    refresh(); sync(); deliver();
+    check(images.pixels({1, 1}) && images.pixels({2, 1}) && images.pixels({3, 1}) && images.pixels({4, 1}),
+        "Actual navigation rows load Shell image paths");
+    const auto loaded = images.pixels({1, 1})->id;
+    {
+        Gate gate(ImageDecodeStage::before_delivery, ImageKind::shell);
+        entries.push_back(entry(5, 4)); entries.push_back(entry(6, 5)); entries.push_back(entry(7, 6));
+        entries.push_back(entry(9, 12));
+        refresh(); sync(); gate.await();
+        const auto pending = RowImagesTestAccess::request(images, {5, 1});
+        const auto changed = RowImagesTestAccess::request(images, {6, 1});
+        const auto removed = RowImagesTestAccess::request(images, {7, 1});
+        const auto queued = RowImagesTestAccess::request(images, {9, 1});
+        check(pending && changed && removed && queued, "Navigation has active and queued image requests");
+        std::weak_ptr<const ItemsSource> previous = nav.items()->source();
+        entries = {entries[4], entries[0], entry(2, 7), entries[3], entry(6, 8), entry(8, 9), entries[7]};
+        entries[1].icon = ButtonIcon::drive;
+        entries[3].image_path.clear();
+        refresh();
+        check(previous.expired(), "Navigation refresh replaces and releases its old snapshot");
+        check(sync(), "Changed and removed row images request a repaint");
+        check(images.pixels({1, 1}) && images.pixels({1, 1})->id == loaded &&
+            retained == std::vector<std::uint64_t>{loaded} && images.visual({1, 1}).icon == ButtonIcon::drive,
+            "Reordered surviving keys retain loaded pixels and update fallback vectors without a blank frame");
+        check(RowImagesTestAccess::request(images, {5, 1}) == pending && !pending->cancelled &&
+            RowImagesTestAccess::request(images, {9, 1}) == queued && !queued->cancelled,
+            "Snapshot replacement retains active and queued decodes for unchanged visuals");
+        check(changed->cancelled && removed->cancelled &&
+            RowImagesTestAccess::request(images, {6, 1}) != changed && !images.pixels({2, 1}) &&
+            !images.pixels({3, 1}) && !images.pixels({4, 1}) && images.count() == 6,
+            "Changed paths, empty paths and removed keys drop old pixels and cancel obsolete queued work");
+        for (int i = 0; i < 3; ++i) {
+            refresh();
+            check(!sync() && images.pixels({1, 1})->id == loaded &&
+                RowImagesTestAccess::request(images, {5, 1}) == pending &&
+                RowImagesTestAccess::request(images, {9, 1}) == queued,
+                "Repeated navigation refreshes do not restart work or discard decoded icons");
+        }
+        gate.release(); deliver();
+        check(images.pixels({5, 1}) && images.pixels({6, 1}) && images.pixels({2, 1}) &&
+            images.pixels({8, 1}) && images.pixels({9, 1}) && !images.pixels({7, 1}) && images.count() == 6,
+            "Retained and replacement requests complete only into current navigation rows");
+    }
+    {
+        Gate gate(ImageDecodeStage::before_delivery, ImageKind::shell);
+        entries[1].image_path = path(10);
+        refresh(); sync(); gate.await();
+        const auto stale = RowImagesTestAccess::request(images, {1, 1});
+        entries[1].image_path = path(11);
+        refresh(); sync();
+        check(stale && stale->cancelled && !images.pixels({1, 1}) &&
+            RowImagesTestAccess::request(images, {1, 1}) != stale,
+            "A path change cancels an active completion before it can replace the current icon");
+        gate.release(); deliver();
+        check(images.pixels({1, 1}) && images.visual({1, 1}).image_path == path(11),
+            "Only the replacement path reaches the current navigation row");
+    }
+    {
+        Gate gate(ImageDecodeStage::before_decode, ImageKind::shell);
+        sync(192); gate.await();
+        const auto stale = RowImagesTestAccess::request(images, {5, 1});
+        refresh(); sync(144);
+        const auto replacement = RowImagesTestAccess::request(images, {5, 1});
+        check(stale && stale->cancelled && replacement && replacement != stale &&
+            replacement->size == ImageSize{36, 36} && retained.empty(),
+            "DPI changes cancel old work even across snapshot replacements");
+        check(sync(144, 1) && images.count() == 1 && !replacement->cancelled,
+            "A reduced shared budget evicts excess slots but preserves the retained pending row");
+        sync(144, 0);
+        check(!images.count() && replacement->cancelled, "A zero budget releases all row image work");
+        gate.release();
+    }
+    images.clear(); empty();
+}
 void cancellation_tests() {
     {
         Gate gate(ImageDecodeStage::before_decode);
@@ -305,7 +478,8 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
-        decode_tests(); cancellation_tests(); row_image_tests(); gpu_tests();
+        decode_tests(); cancellation_tests(); row_image_tests(); ordinary_row_image_refresh_test();
+        navigation_row_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted
             << " rejected=" << s.rejected << " cancelled=" << s.cancelled << " cpu_peak=" << s.cpu_peak

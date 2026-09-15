@@ -1742,7 +1742,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         }
                     }
                 }
-                changed = peer->row_images->sync(std::move(source), std::move(rows), dpi, wake, retained, remaining) || changed;
+                const bool retain_on_source_change = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr;
+                changed = peer->row_images->sync(std::move(source), std::move(rows), dpi, wake, retained, remaining,
+                    retain_on_source_change) || changed;
                 has_images = has_images || peer->row_images->count() != 0;
             }
         }
