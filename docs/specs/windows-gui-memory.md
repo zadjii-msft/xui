@@ -151,7 +151,7 @@ The September 11 browser comparison used five fresh processes per binary.
 Both variants used 60 fixture files and a 924-by-641 client area at 96 DPI.
 The historical baseline was `ab9070b`.
 Values below are medians, with observed ranges.
-These historical aggregates come from the README.
+These historical aggregates come from the [milestone archive](../llm/milestone-history.md#memory-and-presentation-single-target-baseline).
 Their original run files are absent from this checkout.
 
 | Measurement | Before | After |
@@ -376,7 +376,7 @@ Local provenance, relative to the repository root:
 
 | Evidence | Location |
 |---|---|
-| Historical single-target aggregates | `README.md`, "Memory and presentation (single-target baseline)" |
+| Historical single-target aggregates | [Memory and presentation baseline](../llm/milestone-history.md#memory-and-presentation-single-target-baseline) |
 | Accepted resource pass | `build\controls\memory-delivery.json`, `build\controls\memory-evidence\summary.json` |
 | Accepted-pass raw samples and commands | `build\controls\memory-evidence\final-*-*.json`, `build\controls\memory-evidence\commands.ps1` |
 | Rejected candidate and statistics | `build\memory-tight\delivery.json`, `build\memory-tight\summary.json`, `build\memory-tight\summarize.py` |

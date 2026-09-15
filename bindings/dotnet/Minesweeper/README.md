@@ -8,27 +8,8 @@ The game counts flags, safe squares, and moves.
 
 ## Run
 
-The commands use Windows ARM64, the .NET 10 SDK, and Visual Studio C++ build tools.
-Run these commands from the repository root.
-
-1. Build the native library:
-
-   ```powershell
-   cmake -S . -B build\xui-language -A ARM64
-   cmake --build build\xui-language --config Release --target xui
-   ```
-
-2. Add the library directory to this shell's DLL search path:
-
-   ```powershell
-   $env:PATH = (Resolve-Path build\xui-language\Release).Path + ";" + $env:PATH
-   ```
-
-3. Run the game:
-
-   ```powershell
-   dotnet run --project bindings\dotnet\Minesweeper\Minesweeper.csproj
-   ```
+First, build the native library with [CONTRIBUTING](../../../CONTRIBUTING.md#build-the-native-code).
+Then use the [C# sample commands](../../../CONTRIBUTING.md#c-and-declarative-samples) with `bindings\dotnet\Minesweeper` as the project.
 
 For a repeatable initial board, append `-- --seed 17`.
 The seed and the first revealed square determine the mine locations.
@@ -65,7 +46,7 @@ These edits preserve the current board.
 Structural edits reset the game through window replacement or process restart.
 Adding or removing an optional `size` or `help` binding also resets the game.
 
-The [language guide](../../../docs/xui-language.md) describes the reload rules and VS Code syntax package.
+The [language guide](../../../docs/specs/xui-language.md) describes the reload rules and VS Code syntax package.
 
 ## Read the implementation
 
@@ -83,33 +64,12 @@ The game does not create or remove controls during play.
 Release output excludes the development host and compiler.
 The sample does not add a UI interpreter or virtual tree.
 
-## Publish
+## Publish and test
 
-Publish the native executable:
+Use the [NativeAOT commands](../../../CONTRIBUTING.md#nativeaot-and-deployment) with the Minesweeper project.
+The [test instructions](../../../CONTRIBUTING.md#tests) include game-rule checks and the native integration script.
 
-```powershell
-dotnet publish bindings\dotnet\Minesweeper\Minesweeper.csproj -c Release -p:PublishAot=true
-Copy-Item build\xui-language\Release\xui.dll bindings\dotnet\Minesweeper\bin\Release\net10.0\win-arm64\publish\
-```
-
-The executable and `xui.dll` must use the same architecture.
-
-## Run the checks
-
-Run the game-rule checks without a native window:
-
-```powershell
-dotnet run --project bindings\dotnet\Minesweeper.Tests
-```
-
-Build the native probe, then run the integration script:
-
-```powershell
-cmake --build build\xui-language --config Release --target xui xui_language_probe
-.\tests\minesweeper.ps1
-```
-
-The script checks every cell's binding and geometry, flags, first-click safety, win/loss behavior, and restart.
+The integration script checks cell bindings, geometry, flags, first-click safety, win/loss behavior, and restart.
 It also checks state-preserving edits, binding removal, and a NativeAOT executable.
-The watcher edits an isolated copy under `build\minesweeper-check`, not the tracked sample.
-The script stops its processes and leaves logs in that directory.
+The watcher changes an isolated copy under `build\minesweeper-check`, not the tracked sample.
+The script stops its processes and retains logs in that directory.
