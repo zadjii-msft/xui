@@ -1,5 +1,17 @@
 namespace {
 void prepare_tree(const std::shared_ptr<Node>& n);
+bool dispatch_menu(const std::shared_ptr<Node>& node, uint32_t kind, uint64_t value = 0) {
+    auto state = node->owner;
+    if (!node->menu_callback || state->closed || state->callback_failure) return false;
+    ++state->callbacks;
+    const xui_event event{sizeof(xui_event), kind, node->handle, value};
+    xui_status status{};
+    try { status = node->menu_callback(node->menu_context, &event); }
+    catch (...) { status = XUI_CALLBACK_FAILED; }
+    --state->callbacks;
+    if (status) { state->callback_failure = status; state->window->close(); return false; }
+    return !state->closed && !state->callback_failure;
+}
 template<class T> T& feature(const std::shared_ptr<Node>& n) {
     auto* value = dynamic_cast<T*>(n->element.get());
     require(value != nullptr, XUI_WRONG_KIND, "Wrong feature kind.");
@@ -40,12 +52,30 @@ void wire_feature(const std::shared_ptr<Node>& n) {
         feature<xui::VirtualCollection>(n).on_action([weak](xui::ItemKey key) { dispatch(weak, XUI_ACTION, key.id); }); break;
     case XUI_BREADCRUMB: as<xui::Breadcrumb>(n).on_navigate([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); }); break;
     case XUI_NAVIGATION_PANE: as<xui::NavigationPane>(n).on_navigate([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); }); break;
-    case XUI_TAB_STRIP: as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); }); break;
+    case XUI_NAVIGATION_VIEW:
+        as<xui::NavigationView>(n).on_select([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); });
+        as<xui::NavigationView>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); }); break;
+    case XUI_TAB_STRIP:
+        as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); });
+        as<xui::TabStrip>(n).on_close([weak](uint64_t id) { dispatch(weak, XUI_CANCEL, id); }); break;
     case XUI_DATA_GRID:
         as<xui::DataGrid>(n).on_select([weak] { dispatch(weak, XUI_SELECTION); });
+        as<xui::DataGrid>(n).on_activate([weak] {
+            if (auto node = weak.lock()) {
+                auto selected = as<xui::DataGrid>(node).selection().focused();
+                if (selected) dispatch(weak, XUI_CLICK, selected->id);
+            }
+        });
         as<xui::DataGrid>(n).on_sort([weak](size_t column, bool descending) { dispatch(weak, XUI_VIEW, column | uint64_t(descending) << 32); });
         as<xui::DataGrid>(n).on_filter_open([weak](size_t column) { dispatch(weak, XUI_FILTER_OPEN, column); }); break;
     case XUI_COMMAND_BAR: case XUI_COMMAND_SURFACE: break; // CommandSet actions dispatch directly.
+    case XUI_SPLIT_VIEW:
+        as<xui::SplitView>(n).on_expanded([weak](bool expanded) {
+            if (auto node = weak.lock()) node->owner->window->post([weak, expanded] {
+                if (auto current = weak.lock(); current && as<xui::SplitView>(current).expanded() == expanded)
+                    dispatch(weak, XUI_VIEW, expanded);
+            });
+        }); break;
     default: throw Failure{XUI_WRONG_KIND, "This feature has no events."};
     }
 }
@@ -67,6 +97,175 @@ void selection_boundary(const std::wstring& text, uint64_t index) {
 }
 }
 uint32_t XUI_CALL xui_feature_version() noexcept { return XUI_FEATURE_VERSION; }
+xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callback, void* context) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        require(!node->menu_requesting, XUI_BUSY, "Cannot replace a context menu during its request.");
+        node->menu_callback = callback; node->menu_context = context;
+        node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = {}; ++node->menu_revision;
+        control(node).invalidate(xui::Invalidation::paint);
+        if (!callback) { control(node).on_context_menu({}); return; }
+        std::weak_ptr<Node> weak = node;
+        control(node).on_context_menu_content([weak] {
+            xui::ContextMenuContent result;
+            auto node = weak.lock();
+            if (!node) return result;
+            require(!node->menu_requesting, XUI_BUSY, "A context menu request cannot reenter.");
+            const auto& grid = as<xui::DataGrid>(node);
+            const auto selected = grid.selected();
+            const auto revision = node->menu_revision;
+            const std::weak_ptr<const xui::GridSource> source = grid.source();
+            const bool source_present = grid.source() != nullptr;
+            result.current = [weak, selected, revision, source, source_present] {
+                if (auto node = weak.lock(); node && !node->owner->closed && !node->owner->callback_failure) {
+                    const auto& grid = as<xui::DataGrid>(node);
+                    if (node->menu_revision == revision && (!source_present || !source.expired()) &&
+                        grid.source() == source.lock() && grid.selected() == selected &&
+                        (!selected || (grid.source() && grid.source()->find(*selected)))) return true;
+                }
+                OutputDebugStringW(L"XUI: Context menu cancelled because its owner, source, selection, or subscription changed.\n");
+                return false;
+            };
+            node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = result.current;
+            node->menu_presentation = xui::ShellMenuPresentation::windows;
+            node->menu_requesting = true;
+            const bool success = dispatch_menu(node, XUI_REQUEST);
+            node->menu_requesting = false; node->menu_current = {};
+            if (success) {
+                result.items.swap(node->menu_items); result.shell_paths.swap(node->menu_shell_paths);
+                result.presentation = node->menu_presentation;
+            }
+            else { node->menu_items.clear(); node->menu_shell_paths.clear(); }
+            return result;
+        });
+    });
+}
+xui_status XUI_CALL xui_context_menu_items(xui_handle target, const xui_command_record* commands, uint32_t count) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        require(node->menu_requesting, XUI_BUSY, "Menu items require an active context menu request.");
+        require(count <= XUI_MAX_BATCH && (commands || !count), XUI_INVALID_ARGUMENT, "Invalid context menu span.");
+        std::vector<xui::MenuItem> items; items.reserve(count);
+        std::set<uint64_t> ids;
+        const auto current = node->menu_current;
+        std::weak_ptr<Node> weak = node;
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& command = commands[i];
+            require(command.size == sizeof(command), XUI_VERSION_MISMATCH, "Context command size mismatch.");
+            require((command.kind == 0 || command.kind == 2) && !command.parent && !(command.flags & ~7u) && !command.icon,
+                XUI_INVALID_ARGUMENT, "Context menus support flat actions and separators.");
+            require(command.kind == 2 || (command.id && ids.insert(command.id).second), XUI_INVALID_ARGUMENT, "Invalid or duplicate command ID.");
+            require(decode(command.pin_label).empty(), XUI_INVALID_ARGUMENT, "Context menus do not support pin actions.");
+            auto label = decode(command.label), hint = decode(command.hint);
+            if (!hint.empty()) label += L"\t" + hint;
+            items.push_back({std::move(label), [weak, current, id = command.id] {
+                if (!current || !current()) return;
+                if (auto node = weak.lock()) {
+                    dispatch_menu(node, XUI_ACTION, id);
+                }
+            }, !(command.flags & 1), bool(command.flags & 2), command.kind == 2});
+        }
+        node->menu_items = std::move(items);
+    });
+}
+xui_status XUI_CALL xui_context_menu_shell_paths(xui_handle target, const xui_string* paths, uint32_t count) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        require(node->menu_requesting, XUI_BUSY, "Shell paths require an active context menu request.");
+        require(count <= 256 && (paths || !count), XUI_INVALID_ARGUMENT, "Invalid Shell path span.");
+        require(!count || as<xui::DataGrid>(node).selected().has_value(), XUI_INVALID_ARGUMENT, "Shell paths require a selected row.");
+        std::vector<std::wstring> values; values.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            auto path = decode(paths[i]);
+            require(!path.empty() && path.size() <= 32767, XUI_INVALID_ARGUMENT, "Shell paths require 1..32767 UTF-16 units.");
+            values.push_back(std::move(path));
+        }
+        node->menu_shell_paths = std::move(values);
+    });
+}
+xui_status XUI_CALL xui_context_menu_presentation(xui_handle target, uint32_t presentation) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_DATA_GRID); editable(node->owner);
+        require(node->menu_requesting, XUI_BUSY, "Presentation requires an active context menu request.");
+        limit(presentation, 1);
+        node->menu_presentation = static_cast<xui::ShellMenuPresentation>(presentation);
+    });
+}
+xui_status XUI_CALL xui_navigation_items(xui_handle target, const xui_navigation_entry* items, uint32_t count) noexcept {
+    return xui_navigation_items_visual(target, items, nullptr, count);
+}
+xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_navigation_entry* items,
+    const xui_item_visual* visuals, uint32_t count) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_NAVIGATION_VIEW); editable(n->owner);
+        require(count <= XUI_MAX_BATCH && (items || !count), XUI_INVALID_ARGUMENT, "Invalid navigation item span.");
+        std::vector<xui::NavigationItem> entries; entries.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& item = items[i];
+            require(item.size == sizeof(item), XUI_VERSION_MISMATCH, "Navigation item size mismatch.");
+            require(item.id && !(item.flags & ~7u), XUI_INVALID_ARGUMENT, "Invalid navigation item.");
+            xui::NavigationItem entry{};
+            entry.key = {item.id, 0};
+            if (item.parent) entry.parent = xui::ItemKey{item.parent, 0};
+            entry.label = decode(item.label); entry.keywords = decode(item.keywords);
+            if (visuals) {
+                require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::drive));
+                entry.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
+                entry.image_path = decode(visuals[i].image_path);
+                require(entry.image_path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
+            }
+            entry.enabled = !(item.flags & 1); entry.selectable = !(item.flags & 2); entry.expanded = !(item.flags & 4);
+            entries.push_back(std::move(entry));
+        }
+        try { as<xui::NavigationView>(n).set_items(std::move(entries)); }
+        catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Invalid navigation hierarchy or item."}; }
+        callback_result(n->owner);
+    });
+}
+xui_status XUI_CALL xui_window_title(xui_handle window, xui_string title) noexcept {
+    return boundary([&] { auto n = get(window, XUI_WINDOW); editable(n->owner); n->owner->window->set_title(decode(title)); });
+}
+xui_status XUI_CALL xui_window_key_handler(xui_handle window, xui_key_handler callback, void* context) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        n->key_handler = callback; n->key_context = context; wire(n);
+    });
+}
+xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callback, void* context) noexcept {
+    return boundary([&] {
+        require(callback != nullptr, XUI_INVALID_ARGUMENT, "Missing post callback.");
+        struct Delivery {
+            xui_post_callback callback{};
+            void* context{};
+            std::atomic<unsigned> state{};
+            ~Delivery() { if (state == 1) { try { callback(context, 0); } catch (...) {} } }
+        };
+        auto delivery = std::make_shared<Delivery>();
+        delivery->callback = callback; delivery->context = context;
+        std::lock_guard lock(registry_mutex);
+        auto found = registry.find(window);
+        require(found != registry.end(), XUI_INVALID_HANDLE, "Invalid or stale window.");
+        auto n = found->second;
+        require(n->kind == XUI_WINDOW, XUI_WRONG_KIND, "Expected a window.");
+        std::weak_ptr<Node> weak = n;
+        const bool accepted = n->owner->window->post([weak, delivery] {
+            auto node = weak.lock();
+            if (!node) return;
+            delivery->state = 2;
+            auto state = node->owner;
+            ++state->callbacks;
+            xui_status result{};
+            try { result = delivery->callback(delivery->context, 1); }
+            catch (...) { result = XUI_CALLBACK_FAILED; }
+            --state->callbacks;
+            if (result) { state->callback_failure = result; state->window->close(); }
+        });
+        require(accepted, XUI_CLOSED, "The window is closed.");
+        unsigned pending = 0;
+        delivery->state.compare_exchange_strong(pending, 1);
+    });
+}
 uint64_t XUI_CALL xui_capabilities() noexcept {
 #if XUI_ENABLE_WEBVIEW2
     return 1;
@@ -136,6 +335,7 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         case XUI_PAGE_VIEW: e = std::make_shared<xui::PageView>(); break;
         case XUI_DATA_GRID: e = std::make_shared<xui::DataGrid>(name); break;
         case XUI_HISTORY_CHART: e = std::make_shared<xui::HistoryChart>(name); break;
+        case XUI_NAVIGATION_VIEW: e = std::make_shared<xui::NavigationView>(name); break;
         default: throw Failure{XUI_WRONG_KIND, "Unknown feature kind."};
         }
         *out = insert(n->owner, kind, std::move(e));
@@ -167,11 +367,16 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
             break;
         case XUI_F_ORIENTATION: fields(v, 16); limit(v.first, 1); feature<xui::RangeInput>(n).set_orientation(static_cast<xui::Axis>(v.first)); break;
         case XUI_F_REVERSED: fields(v, 16); limit(v.first, 1); feature<xui::RangeInput>(n).set_reversed(v.first != 0); break;
-        case XUI_F_EXPANDED: fields(v, 16); limit(v.first, 1); feature<xui::Expander>(n).set_expanded(v.first != 0); break;
+        case XUI_F_EXPANDED:
+            fields(v, 16); limit(v.first, 1);
+            if (n->kind == XUI_NAVIGATION_VIEW) as<xui::NavigationView>(n).set_expanded(v.first != 0);
+            else feature<xui::Expander>(n).set_expanded(v.first != 0);
+            break;
         case XUI_F_PROGRESS_STATE: fields(v, 16); limit(v.first, 4); feature<xui::Progress>(n).set_state(static_cast<xui::ProgressState>(v.first)); break;
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::drive)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
         case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
         case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
@@ -213,13 +418,18 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_WEB_PROFILE: fields(v, 64); feature<xui::WebContent>(n).set_profile_root(decode(v.text)); break;
         case XUI_F_ITEM_SIZE: fields(v, 3); finite_float(v.a); finite_float(v.b); feature<xui::VirtualCollection>(n).set_item_size({float(v.a), float(v.b)}); break;
         case XUI_F_PRESENTATION: fields(v, 16); limit(v.first, 2); feature<xui::VirtualCollection>(n).set_presentation(static_cast<xui::ItemsPresentation>(v.first)); break;
-        case XUI_F_OFFSET: fields(v, 1); feature<xui::VirtualCollection>(n).set_offset(v.a); break;
+        case XUI_F_OFFSET:
+            fields(v, 1);
+            if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).set_offset(v.a, as<xui::DataGrid>(n).horizontal_offset());
+            else feature<xui::VirtualCollection>(n).set_offset(v.a);
+            break;
         case XUI_F_WRAP_WIDTH: fields(v, 1); finite_float(v.a); feature<xui::Wrap>(n).set_item_width(float(v.a)); break;
         case XUI_F_BREAKPOINT: fields(v, 1); finite_float(v.a); feature<xui::AdaptiveLayout>(n).set_breakpoint(float(v.a)); break;
         case XUI_F_NAVIGATION_EXTENT: fields(v, 1); finite_float(v.a); feature<xui::AdaptiveLayout>(n).set_navigation_extent(float(v.a)); break;
         case XUI_F_NAVIGATION_OPEN: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_navigation_open(v.first != 0); break;
         case XUI_F_COMPACT_NAVIGATION: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_compact_navigation(static_cast<xui::CompactNavigation>(v.first)); break;
         case XUI_F_SPLIT_RATIO: fields(v, 1); finite_float(v.a); feature<xui::SplitView>(n).set_ratio(float(v.a)); break;
+        case XUI_F_SECOND_VISIBLE: fields(v, 16); limit(v.first, 1); feature<xui::SplitView>(n).set_secondary_visible(v.first != 0); break;
         case XUI_F_PAGE: fields(v, 16); feature<xui::PageView>(n).select(v.first); break;
         case XUI_F_VISIBLE: fields(v, 16); limit(v.first, 1); control(n).set_visible(v.first != 0); break;
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature property."};
@@ -243,7 +453,17 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
             else r = feature<xui::Progress>(n).range();
             v->a = r.minimum; v->b = r.maximum; v->c = r.small_step; v->d = r.large_step; break;
         }
-        case XUI_F_EXPANDED: v->first = feature<xui::Expander>(n).expanded(); break;
+        case XUI_F_EXPANDED:
+            v->first = n->kind == XUI_SPLIT_VIEW ? as<xui::SplitView>(n).expanded() :
+                n->kind == XUI_NAVIGATION_VIEW ? as<xui::NavigationView>(n).expanded() : feature<xui::Expander>(n).expanded();
+            break;
+        case XUI_F_BUTTON_ICON: v->first = static_cast<uint64_t>(feature<xui::Button>(n).icon()); break;
+        case XUI_F_FOCUSED: v->first = control(n).focused(); break;
+        case XUI_F_VISIBLE: v->first = control(n).visible(); break;
+        case XUI_F_IS_OPEN: v->first = feature<xui::Popup>(n).is_open(); break;
+        case XUI_F_SECOND_VISIBLE: v->first = feature<xui::SplitView>(n).secondary_visible(); break;
+        case XUI_F_SPLIT_RATIO: v->a = feature<xui::SplitView>(n).ratio(); break;
+        case XUI_F_OFFSET: v->a = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).offset() : feature<xui::VirtualCollection>(n).offset(); break;
         case XUI_F_BUTTON_CHECKED: v->first = feature<xui::Button>(n).checked(); break;
         case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::Progress>(n).state()); break;
         case XUI_F_TEXT_SELECTION: { auto s = feature<xui::DocumentText>(n).selection(); v->first = s.start; v->second = s.end; break; }
@@ -269,12 +489,13 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
     return boundary([&] {
         auto n = get(target); editable(n->owner);
         require(action == XUI_A_SELECT || !second, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
-        require(action <= XUI_A_TEXT_COMMAND || !first, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
+        require(action <= XUI_A_TEXT_COMMAND || action == XUI_A_COLLECTION_STEP || !first, XUI_INVALID_ARGUMENT, "Unused argument must be zero.");
         switch (action) {
         case XUI_A_SELECT:
             if (n->kind == XUI_RADIO_GROUP) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::RadioGroup>(n).select(first); }
             else if (n->kind == XUI_COMBO_BOX) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::ComboBox>(n).select(first); }
             else if (n->kind == XUI_TAB_STRIP) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::TabStrip>(n).select(first); }
+            else if (n->kind == XUI_NAVIGATION_VIEW) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::NavigationView>(n).select({first, 0}); }
             else if (n->kind == XUI_VECTOR_CANVAS || n->kind == XUI_MAP_VIEW) feature<xui::VectorCanvas>(n).select(first);
             else if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).select({first, second});
             else feature<xui::VirtualCollection>(n).select({first, second}); break;
@@ -299,6 +520,9 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
         case XUI_A_RELOAD: feature<xui::WebContent>(n).reload(); break;
         case XUI_A_FOCUS: feature<xui::WebContent>(n).focus_content(); break;
         case XUI_A_SELECT_ALL: if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).select_all(); else feature<xui::VirtualCollection>(n).select_all(); break;
+        case XUI_A_COLLECTION_STEP:
+            require(!second && first <= UINT32_MAX, XUI_INVALID_ARGUMENT, "Invalid step.");
+            feature<xui::VirtualCollection>(n).step(std::bit_cast<int32_t>(uint32_t(first))); break;
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature action."};
         }
         callback_result(n->owner);
@@ -331,6 +555,15 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         auto n = get(target);
         std::shared_ptr<xui::Element> e; uint32_t kind{};
         switch (n->kind) {
+        case XUI_WINDOW: {
+            limit(index, 2);
+            const auto& titlebar = n->owner->window->titlebar();
+            require(titlebar != nullptr, XUI_WRONG_KIND, "The window has no custom title bar.");
+            if (index == 1) { e = titlebar->leading(); kind = XUI_BUTTON; }
+            else { e = index == 2 ? titlebar->secondary_tabs() : titlebar->tabs(); kind = XUI_TAB_STRIP; }
+            break;
+        }
+        case XUI_NAVIGATION_VIEW: limit(index, 0); e = as<xui::NavigationView>(n).search(); kind = XUI_TEXT_INPUT; break;
         case XUI_SPLIT_BUTTON: limit(index, 1); e = index ? as<xui::SplitButton>(n).secondary() : as<xui::SplitButton>(n).primary(); kind = XUI_BUTTON; break;
         case XUI_CONTENT_DIALOG: limit(index, 1); { auto r = resource<xui::ContentDialog>(n, n->kind); e = index ? r->cancel_button() : r->primary(); kind = XUI_BUTTON; } break;
         case XUI_LOCATION_PICKER: limit(index, 1); { auto r = resource<xui::LocationPicker>(n, n->kind); if (index) { e = r->navigation(); kind = XUI_NAVIGATION_PANE; } else { e = r->editor(); kind = XUI_TEXT_INPUT; } } break;
@@ -341,6 +574,12 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         for (auto h : n->children) if (get(h)->element == e) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
         *out = insert(n->owner, kind, e); get(*out)->attached = true; n->children.push_back(*out);
+        if (n->kind == XUI_NAVIGATION_VIEW) {
+            std::weak_ptr<Node> weak = n;
+            get(*out)->prior_change = [weak](const std::wstring& text) {
+                if (auto parent = weak.lock()) as<xui::NavigationView>(parent).set_filter(text);
+            };
+        }
         if (n->kind == XUI_CONTENT_DIALOG) {
             std::weak_ptr<Node> weak = n;
             get(*out)->prior_action = [weak, index] {
@@ -413,6 +652,7 @@ namespace {
 constexpr uint32_t source_kind = 100, request_kind = 101;
 struct ForeignSource final : xui::ItemsSource {
     xui_source_options options;
+    xui_source_visual_query visual_query{};
     std::weak_ptr<State> owner;
     ForeignSource(xui_source_options value, const std::shared_ptr<State>& state) : options(value), owner(state) {
         options.retain(options.context);
@@ -454,6 +694,36 @@ struct ForeignSource final : xui::ItemsSource {
         return item;
     }
     bool selectable(size_t index) const override { return index < size(); }
+    xui::ItemVisual read_visual(size_t index, size_t column = 0) const {
+        if (!visual_query) return {};
+        require(index < size(), XUI_INVALID_ARGUMENT, "Visual index is out of range.");
+        auto state = owner.lock();
+        require(state && !state->closed && state->window, XUI_CLOSED, "The snapshot owner is closed.");
+        require(state->thread == GetCurrentThreadId(), XUI_WRONG_THREAD, "Source access requires the UI thread.");
+        require(!state->source_callbacks, XUI_BUSY, "A source callback cannot reenter its source.");
+        uint32_t icon{}, required{};
+        const auto query = [&](char* buffer, uint32_t capacity) {
+            ++state->callbacks; ++state->source_callbacks;
+            xui_status status{};
+            try { status = visual_query(options.context, index, column, &icon, buffer, capacity, &required); }
+            catch (...) { status = XUI_CALLBACK_FAILED; }
+            --state->callbacks; --state->source_callbacks;
+            if (status && !(status == XUI_BUFFER_TOO_SMALL && !capacity)) {
+                state->callback_failure = status; state->window->close();
+                throw Failure{XUI_CALLBACK_FAILED, "An immutable visual callback failed."};
+            }
+            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::drive) && required <= XUI_MAX_STRING_BYTES,
+                XUI_INVALID_ARGUMENT, "Invalid visual callback output.");
+        };
+        query(nullptr, 0);
+        const uint32_t length = required;
+        std::vector<char> bytes(length);
+        if (length) { query(bytes.data(), length); require(required == length, XUI_INVALID_ARGUMENT, "Immutable visual path changed between reads."); }
+        auto path = decode({bytes.data(), length, 0});
+        require(path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
+        return {static_cast<xui::ButtonIcon>(icon), std::move(path)};
+    }
+    xui::ItemVisual visual(size_t index) const override { return read_visual(index); }
 };
 struct ForeignTree final : xui::TreeSource {
     std::shared_ptr<ForeignSource> source;
@@ -470,6 +740,7 @@ struct ForeignGrid final : xui::GridSource {
     std::wstring text(size_t row, size_t column) const override {
         auto r = source->read(1, row, column); return decode({r.primary, r.primary_length, 0});
     }
+    xui::ItemVisual visual(size_t row, size_t column) const override { return source->read_visual(row, column); }
 };
 struct WebResult { uint64_t revision{}, generation{}; bool done{}, failed{}; std::string text; };
 using RequestValue = std::variant<xui::TreeRequest, xui::MapRequest, WebResult>;
@@ -520,6 +791,10 @@ xui::MapOverlay marker_overlay(const xui_map_marker* markers, uint32_t count) {
 }
 }
 xui_status XUI_CALL xui_source_create(xui_handle window, const xui_source_options* options, xui_handle* out) noexcept {
+    return xui_source_create_visual(window, options, nullptr, out);
+}
+xui_status XUI_CALL xui_source_create_visual(xui_handle window, const xui_source_options* options,
+    xui_source_visual_query visual, xui_handle* out) noexcept {
     return boundary([&] {
         require(out != nullptr, XUI_INVALID_ARGUMENT, "Missing output handle."); *out = 0;
         auto n = get(window, XUI_WINDOW); editable(n->owner);
@@ -527,6 +802,7 @@ xui_status XUI_CALL xui_source_create(xui_handle window, const xui_source_option
         require(options->count <= 1000000000 && options->query && options->retain && options->release,
             XUI_INVALID_ARGUMENT, "Invalid immutable source callbacks or count.");
         auto source = std::make_shared<ForeignSource>(*options, n->owner);
+        source->visual_query = visual;
         *out = insert(n->owner, source_kind); get(*out)->resource = std::move(source);
     });
 }

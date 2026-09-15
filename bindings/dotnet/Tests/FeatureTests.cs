@@ -1,5 +1,6 @@
 using Xui;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 internal static class FeatureTests
 {
@@ -37,6 +38,8 @@ internal static class FeatureTests
     }
     internal static void Run()
     {
+        VisualTests.Run();
+        ExplorerPrimitives();
         FluentSetters();
         using (var w = new Window(customTitlebar: true))
         {
@@ -99,7 +102,12 @@ internal static class FeatureTests
             using (var evaluation = web.Evaluate("1+1")) Expect(evaluation.TryGetResult()?.IsError == true);
             using (var evaluation = web.Evaluate("1+1")) { web.Stop(); Fails(() => evaluation.TryGetResult()); }
             w.TabStrip("Tabs").SetTabs(choices, 1);
-            w.SplitView("Split", w.Stack(), w.Stack()).Ratio = .4;
+            var splitView = w.SplitView("Split", w.Stack(), w.Stack());
+            splitView.Ratio = .4;
+            Expect(Math.Abs(splitView.Ratio - .4) < .0001);
+            Expect(splitView.SecondVisible);
+            splitView.SetSecondVisible(false);
+            Expect(!splitView.SecondVisible);
             var pages = w.PageView("Pages"); pages.Add(w.Stack()); pages.SelectedPage = 0;
             var table = w.DataGrid("Data"); table.SetColumns([new("Name"), new("Value", Numeric: true)]); table.SetSource(source);
             table.SetColumnWidth(1, 160); table.SetColumnOrder([1,0]); table.Select(new(1,7)); table.SelectAll();
@@ -108,6 +116,153 @@ internal static class FeatureTests
             w.Dispose();
             try { range.Value = 2; throw new Exception("Expected disposed element."); } catch (ObjectDisposedException) { ++assertions; }
         }
+        FeatureLifetimes();
+    }
+        [DllImport("user32.dll")] private static extern nint GetFocus();
+        [DllImport("user32.dll", EntryPoint = "PostMessageW")] private static extern bool PostMessage(nint window, uint message, nuint key, nint data);
+        private static void ExplorerPrimitives()
+        {
+            using (var w = new Window(customTitlebar: true))
+            {
+                w.SetTitle("Explorer title");
+                Expect(ReferenceEquals(w.TitlebarTabs, w.TitlebarTabs));
+                Expect(!w.TitlebarSecondaryTabs.Visible);
+                w.TitlebarSecondaryTabs.Visible = true;
+                w.TitlebarTabs.SetTabs([new(1, "Left")], 1);
+                w.TitlebarSecondaryTabs.SetTabs([new(2, "Right")], 2);
+                int clicks = 0; w.TitlebarLeading.Click += () => ++clicks; w.TitlebarLeading.Invoke(); Expect(clicks == 1);
+                Expect(w.TitlebarLeading.Icon == ButtonIcon.Navigation);
+                var iconButton = w.Button("Back").SetIcon(ButtonIcon.Back);
+                Expect(iconButton.Icon == ButtonIcon.Back);
+                Fails(() => iconButton.SetIcon((ButtonIcon)99));
+                Expect(iconButton.Icon == ButtonIcon.Back);
+                Expect((uint)ButtonIcon.Library == 18 && (uint)ButtonIcon.History == 19 &&
+                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21);
+                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive })
+                {
+                    iconButton.SetIcon(icon);
+                    Expect(iconButton.Icon == icon);
+                    w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
+                }
+                var navigation = w.NavigationView("Navigation");
+                navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
+                ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };
+                navigation.Select(2); Expect(selected == 2);
+                navigation.SetExpanded(false); Expect(!navigation.Expanded);
+                Expect(ReferenceEquals(navigation.Search, navigation.Search));
+                Fails(() => navigation.SetItems([new(1, "Bad parent", 2)]));
+                int executed = 0;
+                Expect(Task.Run(() => w.Post(() => ++executed)).GetAwaiter().GetResult());
+                w.Close(); Expect(executed == 0 && !w.Post(() => ++executed));
+            }
+            using (var w = new Window("Posted callbacks"))
+            {
+                var anchor = w.TextInput("Anchor");
+                var editor = w.TextInput("Popup editor");
+                var items = w.ItemsView("Suggestions");
+                using var source = w.ImmutableSource(new MillionSource(3));
+                items.SetSource(source);
+                var grid = w.DataGrid("Files");
+                grid.SetColumns([new("Name")]).SetSource(source);
+                grid.Select(new(1, 7));
+                source.Dispose();
+                var popup = w.Popup("Suggestions", w.Stack().Add(editor).Add(items, 1));
+                w.SetContent(w.Stack().Add(anchor).Add(grid, 1));
+                int keys = 0, entered = 0, dismissals = 0, legacy = 0, submits = 0;
+                int gridEntered = 0, gridClicks = 0;
+                grid.FocusEntered += () => ++gridEntered;
+                grid.Event += e => { if (e.Kind == EventKind.Click && e.Value == 1) ++gridClicks; };
+                editor.Submitted += () => ++submits;
+                editor.FocusEntered += () => ++entered;
+                popup.Event += e => { if (e.Kind == EventKind.Dismiss) ++dismissals; };
+                w.Key += _ => ++legacy;
+                w.KeyHandler = e =>
+                {
+                    if (e.VirtualKey == 0x7A) { w.Close(); return true; }
+                    if (e.VirtualKey == 0x7B)
+                    {
+                        grid.Focus();
+                        Expect(grid.Focused);
+                        Expect(PostMessage(GetFocus(), 0x100, 0x0D, 0));
+                        Expect(PostMessage(GetFocus(), 0x100, 0x7A, 0));
+                        return true;
+                    }
+                    if (e.TargetId == grid.Id) return false;
+                    if (e.VirtualKey == 0x24) return false;
+                    if (e.VirtualKey == 0x1B) { Expect(popup.IsOpen); ++keys; return false; }
+                    Expect(e.TargetId == editor.Id && editor.Focused && popup.IsOpen);
+                    ++keys;
+                    if (e.VirtualKey == 0x28) items.Step(1);
+                    if (e.VirtualKey == 0x26) items.Step(-1);
+                    return true;
+                };
+                using var finished = new ManualResetEventSlim();
+                var watchdog = Task.Run(() => { if (!finished.Wait(TimeSpan.FromSeconds(15))) w.Post(w.Close); });
+                try
+                {
+                    Expect(Task.Run(() => w.Post(() =>
+                    {
+                        popup.Show(anchor);
+                        Expect(popup.IsOpen && editor.Focused);
+                        nint edit = GetFocus();
+                        Expect(PostMessage(edit, 0x100, 0x28, 0));
+                        Expect(PostMessage(edit, 0x100, 0x26, 0));
+                        Expect(PostMessage(edit, 0x100, 0x09, 0));
+                        Expect(PostMessage(edit, 0x100, 0x0D, 0));
+                        Expect(PostMessage(edit, 0x102, 'q', 0));
+                        Expect(PostMessage(edit, 0x100, 0x24, 0));
+                        Expect(PostMessage(edit, 0x100, 0x1B, 0));
+                        Expect(PostMessage(edit, 0x100, 0x7B, 0));
+                    })).GetAwaiter().GetResult());
+                    w.Run();
+                }
+                finally { finished.Set(); watchdog.GetAwaiter().GetResult(); }
+                Expect(keys == 5 && entered == 1 && dismissals == 1 && legacy == 3 && submits == 0);
+                Expect(gridEntered == 1 && gridClicks == 1);
+                Expect(editor.Text == "q" && !popup.IsOpen && !w.Post(() => { }));
+            }
+            using (var w = new Window("Split events", 900, 400))
+            {
+                var first = w.TextInput("First pane");
+                var second = w.TextInput("Second pane");
+                var split = w.SplitView("Responsive panes", first, second);
+                int transitions = 0;
+                split.Event += e =>
+                {
+                    if (e.Kind != EventKind.View) return;
+                    ++transitions;
+                    Expect(split.Expanded == (e.Value != 0));
+                    if (split.Expanded)
+                    {
+                        second.Focus();
+                        split.MaximumSize(609, 400);
+                    }
+                    else
+                    {
+                        Expect(split.SecondVisible);
+                        first.Focus();
+                        Expect(first.Focused && !second.Focused);
+                        w.Close();
+                    }
+                };
+                w.SetContent(w.Stack().Add(split, 1));
+                using var finished = new ManualResetEventSlim();
+                var watchdog = Task.Run(() => { if (!finished.Wait(TimeSpan.FromSeconds(15))) w.Post(w.Close); });
+                try { w.Run(); }
+                finally { finished.Set(); watchdog.GetAwaiter().GetResult(); }
+                Expect(transitions == 2);
+            }
+            using (var w = new Window("Post failure"))
+            {
+                w.SetContent(w.Stack().Add(w.Label("Failure test")));
+                Expect(w.Post(() => throw new InvalidOperationException("posted sentinel")));
+                try { w.Run(); throw new Exception("Expected posted failure."); }
+                catch (XuiException error) { Expect(error.Status == 8 && error.InnerException?.Message == "posted sentinel"); }
+                Expect(w.CallbackStatus == 8 && !w.Post(() => { }));
+            }
+        }
+    private static void FeatureLifetimes()
+    {
         using (var w = new Window())
         {
             var source = new MillionSource { Fail = true };

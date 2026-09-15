@@ -218,6 +218,10 @@ Rect place_popup(Rect anchor, Size desired, Rect viewport, PopupPlacement placem
         result.x = anchor.x - result.width; result.y = anchor.y;
         if (result.x < viewport.x && anchor.x + anchor.width + result.width <= right) result.x = anchor.x + anchor.width;
         break;
+    case PopupPlacement::center:
+        result.x = viewport.x + (viewport.width - result.width) / 2;
+        result.y = viewport.y + (viewport.height - result.height) / 2;
+        break;
     default: throw std::invalid_argument("Invalid popup placement");
     }
     result.x = std::clamp(result.x, viewport.x, right - result.width);
@@ -232,9 +236,13 @@ void Popup::arrange(Rect value) {
     children_[0]->arrange(value);
 }
 void Popup::set_placement(PopupPlacement value) {
-    if (value < PopupPlacement::below || value > PopupPlacement::left) throw std::invalid_argument("Invalid popup placement");
+    if (value < PopupPlacement::below || value > PopupPlacement::center) throw std::invalid_argument("Invalid popup placement");
     if (placement_ == value) return;
     placement_ = value; invalidate(Invalidation::layout);
+}
+void Popup::set_window_background(bool value) {
+    if (window_background_ == value) return;
+    window_background_ = value; invalidate(Invalidation::layout);
 }
 void Popup::opened() {
     if (open_) throw std::logic_error("Popup is already open");

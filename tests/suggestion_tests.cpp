@@ -206,12 +206,111 @@ HWND owned(const wchar_t* cls) {
     }, reinterpret_cast<LPARAM>(&search));
     return search.value;
 }
-void native_tests(const std::filesystem::path& fixture) {
+void text_edit_tests(xui::Window& window, xui::TextInput& input) {
+    using Selection = xui::TextInput::Selection;
+    require(input.selection() == Selection{2, 4}, "Selection set before attachment reaches EDIT");
+    require(window.focus(input), "Focus text test input");
+    const auto edit = GetFocus();
+    int changes{};
+    input.on_change([&](const std::wstring&) { ++changes; });
+    struct ClearCallback {
+        xui::TextInput& input;
+        ~ClearCallback() { input.on_change({}); }
+    } clear{input};
+    input.set_text(L"A😀Z");
+    input.set_selection({SIZE_MAX, SIZE_MAX});
+    require(input.selection() == Selection{4, 4}, "Completion moves the actual native caret to the UTF-16 end");
+    require(GetWindowTextLengthW(edit) == 4 && changes == 0, "Selection flushes pending text without a change callback");
+    input.set_selection({2, 2});
+    require(input.selection() == Selection{1, 1}, "Caret cannot split a surrogate pair");
+    input.set_selection({2, 3});
+    require(input.selection() == Selection{1, 3}, "Range includes the whole surrogate pair");
+    input.set_selection({3, 2});
+    require(input.selection() == Selection{1, 3}, "Reversed range is ordered before surrogate normalization");
+    SendMessageW(edit, EM_SETSEL, 0, 3);
+    require(input.selection() == Selection{0, 3}, "Getter reads native mouse/keyboard selection, not cached selection");
+    const auto wrong_thread = std::async(std::launch::async, [&] {
+        try { input.set_selection({0, 0}); }
+        catch (const std::logic_error&) { return true; }
+        return false;
+    }).get();
+    require(wrong_thread && input.selection() == Selection{0, 3}, "Wrong-thread selection is rejected before native mutation");
+    const auto ctrl_backspace = [&] {
+        BYTE saved[256]{}, pressed[256]{};
+        require(GetKeyboardState(saved) != FALSE, "Read test thread keyboard state");
+        std::copy(std::begin(saved), std::end(saved), std::begin(pressed));
+        pressed[VK_CONTROL] = pressed[VK_LCONTROL] = 0x80;
+        pressed[VK_MENU] = pressed[VK_RMENU] = pressed[VK_LMENU] = 0;
+        require(SetKeyboardState(pressed) != FALSE, "Set test thread Ctrl state");
+        SendMessageW(edit, WM_KEYDOWN, VK_BACK, 1);
+        SendMessageW(edit, WM_CHAR, 0x7f, 1);
+        SendMessageW(edit, WM_KEYUP, VK_BACK, 0xc0000001);
+        require(SetKeyboardState(saved) != FALSE, "Restore test thread keyboard state");
+    };
+    const auto deletion = [&](std::wstring before, Selection selection, std::wstring after, std::size_t caret) {
+        input.set_text(before);
+        input.set_selection(selection);
+        SendMessageW(edit, EM_EMPTYUNDOBUFFER, 0, 0);
+        changes = 0;
+        ctrl_backspace();
+        require(input.text() == after && input.text().find(L'\x7f') == std::wstring::npos,
+            "Ctrl+Backspace deletes only the prior word/path component without a control character");
+        require(input.selection() == Selection{caret, caret}, "Deletion places caret at the replacement start");
+        require(changes == (before == after ? 0 : 1), "Deletion emits exactly one change; no-op emits none");
+        if (before != after) {
+            require(SendMessageW(edit, EM_CANUNDO, 0, 0) != 0, "Ctrl+Backspace is a native undo transaction");
+            require(SendMessageW(edit, EM_UNDO, 0, 0) != 0 && input.text() == before,
+                "Native undo restores the exact original UTF-16 text");
+            require(changes == 2, "Undo emits one additional notification");
+        }
+    };
+    deletion(L"", {0, 0}, L"", 0);
+    deletion(L"hello", {0, 0}, L"hello", 0);
+    deletion(L"hello world", {11, 11}, L"hello ", 6);
+    deletion(L"hello world", {8, 8}, L"hello rld", 6);
+    deletion(L"hello world", {1, 9}, L"hld", 1);
+    deletion(L"hello world  ", {13, 13}, L"hello ", 6);
+    deletion(L"   ", {3, 3}, L"", 0);
+    deletion(L"C:\\with spaces\\child", {20, 20}, L"C:\\with spaces\\", 15);
+    deletion(L"C:\\with spaces\\", {15, 15}, L"C:\\with ", 8);
+    deletion(L"\\\\server\\share\\folder", {21, 21}, L"\\\\server\\share\\", 15);
+    deletion(L"\\\\server\\share", {14, 14}, L"\\\\server\\", 9);
+    deletion(L"one/two", {7, 7}, L"one/", 4);
+    deletion(L"one\\two\\\\", {9, 9}, L"one\\", 4);
+    deletion(L"one 😀word", {10, 10}, L"one ", 4);
+    deletion(L"A😀Z", {1, 3}, L"AZ", 1);
+    deletion(L"A😀Z", {2, 3}, L"AZ", 1);
+    input.set_text(L"protected text");
+    input.set_selection({SIZE_MAX, SIZE_MAX});
+    changes = 0;
+    SendMessageW(edit, EM_SETREADONLY, TRUE, 0);
+    ctrl_backspace();
+    require(input.text() == L"protected text" && changes == 0, "Read-only input is unchanged");
+    SendMessageW(edit, EM_SETREADONLY, FALSE, 0);
+    SendMessageW(edit, WM_IME_STARTCOMPOSITION, 0, 0);
+    ctrl_backspace();
+    require(input.text() == L"protected text" && changes == 0, "Composition is not edited by Ctrl+Backspace");
+    bool composition_rejected{};
+    try { input.set_selection({0, 0}); }
+    catch (const std::logic_error&) { composition_rejected = true; }
+    require(composition_rejected, "Selection changes cannot disrupt IME composition");
+    SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
+    input.set_text(L"AB");
+    input.set_selection({2, 2});
+    SendMessageW(edit, WM_CHAR, VK_BACK, 1);
+    require(input.text() == L"A", "Plain Backspace retains native behavior");
+    SendMessageW(edit, WM_CHAR, L'Z', 1);
+    require(input.text() == L"AZ", "Normal character insertion retains native behavior");
+    std::cout << "Native text selection and Ctrl+Backspace cases passed\n";
+}
+void native_tests(const std::filesystem::path& fixture, bool text_only = false) {
     using namespace xui;
     Window window({L"XUI suggestion tests", {620, 280}});
     auto root = std::make_shared<Stack>(Axis::vertical);
     auto input = std::make_shared<TextInput>(L"Address");
     auto plain = std::make_shared<TextInput>(L"Filter");
+    plain->set_text(L"initial");
+    plain->set_selection({2, 4});
     input->set_maximum_length(32767);
     input->set_suggestions(folder_suggestions());
     input->set_suggestion_context(fixture.wstring());
@@ -247,10 +346,15 @@ void native_tests(const std::filesystem::path& fixture) {
                 result.get();
             };
             ui([&] {
+                text_edit_tests(window, *plain);
                 require(window.focus(*input), "Focus actual EDIT");
                 edit = GetFocus();
                 require(edit != nullptr, "Native EDIT owns focus");
             });
+            if (text_only) {
+                ui([&] { window.close(); });
+                return;
+            }
             const auto type = [&](const wchar_t* value) {
                 ui([&] {
                     SendMessageW(edit, EM_SETSEL, 0, -1);
@@ -466,16 +570,23 @@ void native_tests(const std::filesystem::path& fixture) {
     driver.join();
     if (failure) std::rethrow_exception(failure);
     require(result == 0, "Suggestion test window succeeds");
+    bool closed_selection_rejected{};
+    try { plain->selection(); }
+    catch (const std::logic_error&) { closed_selection_rejected = true; }
+    require(closed_selection_rejected, "Selection access rejects a destroyed native editor");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     auto fixture = std::filesystem::current_path() / (L"suggestions-fixture-" + std::to_wstring(GetCurrentProcessId()));
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code error; std::filesystem::remove_all(path, error); } } cleanup{fixture};
     try {
         require(std::filesystem::create_directory(fixture), "Create private owned fixture");
-        folders(fixture);
-        worker_tests();
-        native_tests(fixture);
+        const bool text_only = argc == 2 && std::string_view(argv[1]) == "--text-only";
+        if (!text_only) {
+            folders(fixture);
+            worker_tests();
+        }
+        native_tests(fixture, text_only);
         std::cout << "Suggestion tests passed\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

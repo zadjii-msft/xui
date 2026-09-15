@@ -6,6 +6,13 @@
 #include <numeric>
 
 namespace xui {
+void DataGrid::prepare_context_menu(std::optional<Point> position) {
+    if (position) {
+        const auto row = position->x >= 0 && position->x < viewport_width() ? row_at(position->y) : std::nullopt;
+        if (row && source_) select(source_->key(*row), false);
+        else clear_selection();
+    } else if (selected_ && (!source_ || !source_->find(*selected_))) clear_selection();
+}
 DataGrid::DataGrid(std::wstring name) : Control(ControlRole::data_grid, std::move(name), {640, 360}) {}
 void DataGrid::set_columns(std::vector<GridColumn> value) {
     if (value.empty() || value.size() > 64) throw std::invalid_argument("Grid requires 1 to 64 columns");
@@ -159,6 +166,7 @@ bool DataGrid::complete_filter(GridFilterRequest request, std::shared_ptr<const 
     filter_pending_ = false; set_source(std::move(source)); invalidate(Invalidation::paint); return true;
 }
 void DataGrid::cancel() {
+    hover_pointer({});
     Control::cancel(); filter_stop_.request_stop(); ++filter_generation_;
     if (filter_pending_) { filter_pending_ = false; invalidate(Invalidation::paint); }
 }
@@ -204,6 +212,18 @@ std::optional<std::size_t> DataGrid::row_at(float y) const {
     if (!source_ || y < header_height || y >= header_height + viewport_height()) return {};
     auto row = static_cast<std::size_t>((y - header_height + offset_) / row_height);
     return row < source_->size() ? std::optional{row} : std::nullopt;
+}
+void DataGrid::hover_pointer(std::optional<Point> position) {
+    if (position && (!std::isfinite(position->x) || !std::isfinite(position->y)))
+        throw std::invalid_argument("Grid hover coordinates must be finite");
+    const auto previous = hovered_row();
+    hover_pointer_ = position;
+    if (previous != hovered_row()) invalidate(Invalidation::paint);
+}
+std::optional<std::size_t> DataGrid::hovered_row() const {
+    if (!enabled() || !visible() || !hover_pointer_ || hover_pointer_->x < 0 || hover_pointer_->x >= viewport_width()) return {};
+    const auto row = row_at(hover_pointer_->y);
+    return row && source_->selectable(*row) ? row : std::nullopt;
 }
 std::optional<std::size_t> DataGrid::column_at(float x) const {
     if (x < 0 || x >= viewport_width()) return {};

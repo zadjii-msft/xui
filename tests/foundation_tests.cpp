@@ -132,6 +132,17 @@ void popup_disclosure_progress_actions() {
     require(placed.x == 120 && placed.y == 110, "Work area flips and clips");
     const auto clipped = place_popup({0, 0, 10, 10}, {400, 400}, {0, 0, 100, 100}, PopupPlacement::right);
     require(clipped.width == 100 && clipped.height == 100 && clipped.x == 0 && clipped.y == 0, "Oversized content clips");
+    popup.set_placement(PopupPlacement::center);
+    require(popup.placement() == PopupPlacement::center, "Centered placement is retained");
+    for (const auto anchor : {Rect{20, 30, 80, 40}, Rect{900, 300, 120, 40}}) {
+        const auto centered = place_popup(anchor, {760, 420}, {10, 20, 1300, 800}, PopupPlacement::center);
+        require(centered.x == 280 && centered.y == 210 && centered.width == 760 && centered.height == 420,
+            "Popup centers in the client viewport regardless of its pane anchor");
+        const auto small = place_popup(anchor, {760, 420}, {10, 20, 300, 200}, PopupPlacement::center);
+        require(small.x == 10 && small.y == 20 && small.width == 300 && small.height == 200,
+            "Centered popups fit narrow and offset viewports");
+    }
+    rejects([&] { popup.set_placement(static_cast<PopupPlacement>(5)); });
     auto content = std::make_shared<Stack>(Axis::vertical);
     auto button = std::make_shared<Button>(L"Details action"); content->add(button);
     Expander expander(L"Details", content);

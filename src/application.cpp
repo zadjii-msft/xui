@@ -47,6 +47,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         bool native() const { return edit || document; }
         std::unique_ptr<ListPeer> list;
         std::unique_ptr<ImagePeer> image;
+        std::unique_ptr<RowImages> row_images;
         std::shared_ptr<ControlAccessibility> accessibility = std::make_shared<ControlAccessibility>();
         IRawElementProviderSimple* provider{};
         std::shared_ptr<ControlAccessibility> caption_accessibility;
@@ -104,6 +105,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::weak_ptr<CommandMenu> parent_command;
         CommandId parent_command_id{};
         std::shared_ptr<ContentDialog> dialog;
+        std::optional<Rect> context_anchor;
     };
     std::vector<PopupEntry> popups;
     bool composing_native{};
@@ -131,6 +133,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::vector<std::shared_ptr<ViewTask::Impl>> tasks;
     std::vector<std::shared_ptr<SampleTask::Impl>> samples;
     std::function<bool(const KeyEvent&)> key;
+    std::mutex post_mutex;
+    std::vector<std::function<void()>> posts;
+    bool posts_closed{};
+    void close_posts() {
+        std::vector<std::function<void()>> removed;
+        { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
+    }
     std::function<bool(const NavigationEvent&)> navigation;
     bool has_images{};
     const DWORD owner_thread = GetCurrentThreadId();
@@ -143,6 +152,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (destroying) return;
         destroying = true;
         closing = true;
+        close_posts();
         hide_tooltip();
         if (!popups.empty()) {
             try { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::owner_closed, false); }
@@ -159,6 +169,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& peer : peers)
             if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer->control)) combo->choices()->on_accept({});
         for (const auto& peer : peers) if (peer->image) peer->image->detach();
+        for (const auto& peer : peers) if (peer->row_images) peer->row_images->clear();
         for (const auto& peer : peers) if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
         for (const auto& peer : peers) if (peer->list) peer->list->detach_thumbnails();
         if (has_images) clear_image_cache();
@@ -691,7 +702,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (activate) activated(peer, button->invoke());
     }
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial, std::shared_ptr<ContentDialog> dialog = {},
-        std::shared_ptr<CommandSurface> commands = {}) {
+        std::shared_ptr<CommandSurface> commands = {}, std::optional<Rect> context_anchor = {}) {
         if (!popup) throw std::invalid_argument("Popup is required");
         if (popup->dialog_surface() && !dialog) throw std::invalid_argument("Use Window::show_dialog for dialog content");
         if (!ready || closing || !window) throw std::logic_error("Popup requires a running window");
@@ -711,6 +722,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         popups.push_back({popup, anchor_peer->control, GetFocus(), owner});
         popups.back().dialog = std::move(dialog);
         popups.back().commands = std::move(commands);
+        popups.back().context_anchor = context_anchor;
         layout_pending = true;
         update();
         if (!window || !popup->is_open()) return;
@@ -876,7 +888,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto before = peers.size();
         adaptive_layouts.clear();
         collect(root);
-        for (const auto& entry : popups) collect(entry.popup, true);
+        for (const auto& entry : popups) collect(entry.popup, !entry.popup->window_background());
         if (peers.size() != before) apply_theme();
         if (layout_pending) {
             layout_pending = false;
@@ -885,6 +897,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const Size size{client.right * 96.0f / dpi, client.bottom * 96.0f / dpi};
             root->measure(size);
             root->arrange({0, 0, size.width, size.height});
+            // Content panes now have this frame's geometry, including splitter and sidebar changes.
+            if (titlebar && titlebar->has_tab_panes()) titlebar->arrange(titlebar->bounds());
             Rect popup_viewport{0, 0, size.width, size.height};
             MONITORINFO monitor{sizeof(monitor)};
             if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
@@ -907,7 +921,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (palette_surface)
                         entry.popup->arrange({viewport.x + (viewport.width - desired.width) / 2,
                             viewport.y + std::min(64.0f, std::max(0.0f, viewport.height - desired.height)), desired.width, desired.height});
-                    else entry.popup->arrange(place_popup(entry.anchor->bounds(), desired, viewport, entry.popup->placement()));
+                    else entry.popup->arrange(place_popup(entry.context_anchor.value_or(entry.anchor->bounds()), desired, viewport, entry.popup->placement()));
                 }
                 else entry.popup->arrange({});
             }
@@ -1081,7 +1095,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             InvalidateRect(window, nullptr, FALSE);
         }
     }
-    void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor, std::shared_ptr<Popup> root_popup = {}) {
+    void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor, std::shared_ptr<Popup> root_popup = {},
+        std::optional<Rect> context_anchor = {}) {
         if (!surface || !surface->menu()->commands()) throw std::invalid_argument("Command surface has no commands");
         if (!root_popup) root_popup = surface->popup();
         std::weak_ptr<Impl> host = shared_from_this();
@@ -1100,6 +1115,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (self->closing || !source->popup()->is_open()) return;
             auto child = std::make_shared<CommandSurface>(source->menu()->commands()->find(id)->label, false);
             child->set_commands(source->menu()->commands(), id);
+            child->set_current([weak] { auto source = weak.lock(); return source && source->current(); });
             child->popup()->set_placement(PopupPlacement::right);
             self->show_commands(child, *source->menu(), root);
             for (auto& entry : self->popups) if (entry.popup == child->popup()) {
@@ -1111,7 +1127,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto self = host.lock()) if (auto source = weak.lock(); source && source->menu()->expanded() == id)
                 self->dismiss_above(source->popup()->id(), PopupDismissReason::cancel);
         });
-        show_popup(surface->popup(), anchor, surface->editor() ? static_cast<Control*>(surface->editor().get()) : surface->menu().get(), {}, surface);
+        show_popup(surface->popup(), anchor, surface->editor() ? static_cast<Control*>(surface->editor().get()) : surface->menu().get(), {}, surface, context_anchor);
     }
     bool translate(MSG& msg) {
         InputScope scope(*this);
@@ -1125,6 +1141,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document && peer->document->composing()) return false;
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
+        if (key && (popups.empty() || !popups.back().dialog)) {
+            auto callback = key;
+            if (callback({static_cast<Key>(msg.wParam), (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, (GetKeyState(VK_MENU) & 0x8000) != 0})) return true;
+        }
         if (!popups.empty() && popups.back().location) {
             auto picker = popups.back().location;
             if (picker->editor().get() == target && (msg.wParam == VK_UP || msg.wParam == VK_DOWN)) {
@@ -1164,11 +1185,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 (msg.wParam == VK_DOWN && GetKeyState(VK_MENU) < 0))) {
                 open_combo(*peer->parent); return true;
             }
-        }
-        if (key) {
-            auto callback = key;
-            if (callback({static_cast<Key>(msg.wParam), (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, (GetKeyState(VK_MENU) & 0x8000) != 0})) return true;
         }
         if (msg.wParam == VK_TAB) {
             traverse((GetKeyState(VK_SHIFT) & 0x8000) != 0);
@@ -1214,6 +1230,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     bool command_popup_current(const PopupEntry& entry) const {
+        if (entry.commands && !entry.commands->current()) return false;
         if (!entry.parent_command_id) return true;
         const auto parent = entry.parent_command.lock();
         return parent && parent->expanded() == entry.parent_command_id && entry.commands &&
@@ -1425,8 +1442,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                                 frame.width + 2 * spread, frame.height + 1.6f * spread},
                                 D2D1::ColorF(0, 0.025f * (1 - spread / (command_shadow_extent + 1))), 8 + spread);
                     }
-                    if (!entry.commands) drawing.fill(bounds, palette.surface);
-                    drawing.rounded(frame, palette.surface, entry.commands ? 8.0f : 4.0f);
+                    const auto popup_background = entry.popup->window_background() ? palette.background : palette.surface;
+                    if (!entry.commands) drawing.fill(bounds, popup_background);
+                    drawing.rounded(frame, popup_background, entry.commands ? 8.0f : 4.0f);
                     paint_content_surface(entry.popup);
                     std::vector<HWND> popup_native;
                     for (const auto& peer : peers) if (popup_owner(peer.get()) == entry.popup->id()) {
@@ -1458,11 +1476,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         EndPaint(window, &paint);
         if (redraw) invalidate(Invalidation::paint);
     }
-    bool sync_images() {
+    bool sync_images(bool window_shown = true) {
         bool changed{};
         std::vector<std::uint64_t> retained;
         std::size_t remaining = 48;
-        for (const auto& peer : peers) if (peer->image || (peer->list &&
+        for (const auto& peer : peers) if (peer->image || dynamic_cast<VirtualCollection*>(peer->control.get()) ||
+            dynamic_cast<DataGrid*>(peer->control.get()) || (peer->list &&
             (static_cast<FileList&>(*peer->control).thumbnails() || peer->list->thumbnail_count()))) {
             Rect rect = peer->control->bounds();
             const auto intersect = [&](Rect clip) {
@@ -1476,13 +1495,49 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             intersect(root->bounds());
             for (auto* parent = peer->parent; parent; parent = parent->parent)
                 intersect(viewport(*parent));
-            const bool shown = visible(*peer) && rect.width > 0 && rect.height > 0;
+            const bool shown = window_shown && IsWindowVisible(window) && !IsIconic(window) &&
+                visible(*peer) && rect.width > 0 && rect.height > 0;
             if (peer->image) {
                 peer->image->sync(shown, wake);
                 if (peer->image->pixels) retained.push_back(peer->image->pixels->id);
-            } else {
+            } else if (peer->list) {
                 rect.y -= peer->control->bounds().y;
                 changed = peer->list->sync_thumbnails(shown, rect, wake, retained, remaining) || changed;
+            } else {
+                if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
+                rect.x -= peer->control->bounds().x; rect.y -= peer->control->bounds().y;
+                std::vector<RowVisual> rows;
+                std::shared_ptr<const CollectionIndex> source;
+                if (shown) if (auto* collection = dynamic_cast<VirtualCollection*>(peer->control.get())) {
+                    source = collection->source();
+                    for (const auto& row : collection->visible_content()) {
+                        if (rows.size() == RowImages::maximum_rows) break;
+                        const auto b = row.bounds;
+                        if (b.y + b.height <= rect.y || b.y >= rect.y + rect.height ||
+                            b.x + b.width <= rect.x || b.x >= rect.x + rect.width) continue;
+                        auto visual = collection->source()->visual(row.index);
+                        if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
+                        if (visual.image_path.empty()) visual.image_path = row.content.image_path;
+                        if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none)
+                            visual.icon = ButtonIcon::folder;
+                        rows.push_back({row.key, std::move(visual), row.navigation});
+                    }
+                } else if (auto* grid = dynamic_cast<DataGrid*>(peer->control.get())) {
+                    source = grid->source();
+                    const auto column = grid->display_column(0);
+                    float x = -static_cast<float>(grid->horizontal_offset());
+                    if (column) for (size_t i = 0; i < *column; ++i) x += grid->columns()[i].width;
+                    if (column && x < rect.x + rect.width && x + grid->columns()[*column].width > rect.x) {
+                        const auto [begin, end] = grid->visible_rows();
+                        for (auto row = begin; row < end && rows.size() < RowImages::maximum_rows; ++row) {
+                            const auto y = DataGrid::header_height + static_cast<float>(row * double(DataGrid::row_height) - grid->offset());
+                            if (y + DataGrid::row_height <= rect.y || y >= rect.y + rect.height) continue;
+                            rows.push_back({grid->source()->key(row), grid->source()->visual(row, 0)});
+                        }
+                    }
+                }
+                changed = peer->row_images->sync(std::move(source), std::move(rows), dpi, wake, retained, remaining) || changed;
+                has_images = has_images || peer->row_images->count() != 0;
             }
         }
         drawing.keep_images(retained);
@@ -1579,15 +1634,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
             const bool commands = control.role() == ControlRole::command_menu;
+            const auto* items = dynamic_cast<ItemsView*>(collection);
+            const bool trailing_shortcuts = items && items->trailing_shortcut_badges();
             const auto hovered = commands && control.hovered() && peer.command_pointer && enabled(peer) ?
                 collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
             const auto hovered_key = hovered && collection->source()->selectable(*hovered) ?
                 std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
             canvas.fill({0, 0, bounds.width, bounds.height}, commands ? palette.surface : palette.background);
             canvas.push_clip({0, 0, std::max(0.0f, bounds.width - VirtualCollection::bar_width), bounds.height});
-            for (const auto& row : collection->visible_content())
+            for (auto row : collection->visible_content()) {
+                if (peer.row_images) {
+                    const auto visual = peer.row_images->visual(row.key);
+                    row.content.icon = visual.icon;
+                    row.content.image_path = visual.image_path;
+                }
                 canvas.collection_row(row, collection->selection().contains(row.key),
-                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette, hovered_key == row.key);
+                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette, hovered_key == row.key,
+                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts);
+            }
             if (!collection->source() || !collection->source()->size())
                 canvas.text(commands ? L"No matching commands" : L"No matching items",
                     {12, 10, std::max(0.0f, bounds.width - 24), 32}, palette.secondary);
@@ -1668,12 +1732,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             canvas.push_clip({0, 0, grid->viewport_width(), bounds.height});
             const auto [first, end] = grid->visible_rows();
             const auto& source = grid->source();
+            const auto hovered = enabled(peer) && !peer.grid_drag ? grid->hovered_row() : std::optional<std::size_t>{};
             canvas.push_clip({0, DataGrid::header_height, grid->viewport_width(), grid->viewport_height()});
             for (auto row = first; row < end; ++row) {
                 const float y = DataGrid::header_height + static_cast<float>(row * double(DataGrid::row_height) - grid->offset());
                 const bool selected = grid->selection().contains(source->key(row));
-                if (selected || row % 2) canvas.fill({0, y, grid->viewport_width(), DataGrid::row_height},
-                    selected ? palette.selection : palette.surface);
+                if (selected || hovered == row || row % 2) canvas.fill({0, y, grid->viewport_width(), DataGrid::row_height},
+                    selected ? palette.selection : hovered == row ? palette.hover : palette.surface);
                 float x = -static_cast<float>(grid->horizontal_offset());
                 for (std::size_t c = 0; c < grid->columns().size(); ++c) {
                     const auto& column = grid->columns()[c];
@@ -1683,13 +1748,26 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             canvas.rounded({x + 10, y + 8, 16, 16}, ink, 2, true);
                             if (selected) canvas.text(L"\u2713", {x + 10, y, 20, DataGrid::row_height}, ink);
                         }
-                        canvas.cell_text(source->text(row, grid->source_column(c)), {x + (column.checkable ? 36 : 12), y,
-                            std::max(0.0f, column.width - (column.checkable ? 48 : 24)), DataGrid::row_height}, ink, column.numeric);
+                        float left = column.checkable ? 36.0f : 12.0f;
+                        canvas.push_clip({x, y, column.width, DataGrid::row_height});
+                        if (grid->source_column(c) == 0 && peer.row_images) {
+                            const auto row_key = source->key(row);
+                            const auto visual = peer.row_images->visual(row_key);
+                            if (visual.icon != ButtonIcon::none || !visual.image_path.empty()) {
+                                canvas.item_visual(visual, peer.row_images->pixels(row_key), {x + left, y + 4, 24, 24}, ink);
+                                left += 32;
+                            }
+                        }
+                        canvas.cell_text(source->text(row, grid->source_column(c)), {x + left, y,
+                            std::max(0.0f, column.width - left - 12), DataGrid::row_height}, ink, column.numeric);
+                        canvas.pop_clip();
                     }
                     x += column.width;
                 }
                 if (grid->selected() == source->key(row) && control.focused() && !grid->header_focus())
                     canvas.outline({1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2}, palette.accent);
+                else if (!selected && hovered == row && palette.high_contrast)
+                    canvas.outline({1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2}, palette.text);
             }
             if (!source || !source->size()) canvas.text(L"No matching rows", {16, 52, grid->viewport_width() - 32, 40}, palette.secondary);
             canvas.pop_clip();
@@ -1999,12 +2077,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         case WM_CONTEXTMENU:
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && lparam != -1) {
-                POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                const auto row = grid->row_at(point.y * 96.0f / dpi);
-                if (row && point.x * 96.0f / dpi < grid->viewport_width()) grid->select(grid->source()->key(*row), false);
-                else grid->clear_selection();
+            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
+                grid->hover_pointer({});
                 SetFocus(hwnd);
+                std::optional<Point> position;
+                if (lparam != -1) {
+                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
+                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
+                }
+                grid->prepare_context_menu(position);
             }
             show_control_menu(control, hwnd, lparam, palette, dpi); return 0;
         case WM_ERASEBKGND: return 1;
@@ -2029,6 +2110,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
+                const bool hovering = enabled(peer) && !peer.grid_drag && !GetCapture() &&
+                    !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
+                grid->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
+                    GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
+            }
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
                 const auto row = nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
                 nav_list->hover_item(row ? std::optional{nav_list->source()->key(*row)} : std::nullopt);
@@ -2111,6 +2198,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_MOUSELEAVE:
+            if (auto* grid = dynamic_cast<DataGrid*>(&control)) grid->hover_pointer({});
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
             peer.tracking = false; peer.command_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
@@ -2172,6 +2260,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* expander = dynamic_cast<Expander*>(&control);
                 expander && GET_Y_LPARAM(lparam) * 96.0f / dpi >= Expander::header_height) return 0;
             if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer)) {
+                grid->hover_pointer({});
                 SetFocus(hwnd);
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 if (x >= grid->viewport_width() && y >= DataGrid::header_height) {
@@ -2763,8 +2852,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
             }
             if (wparam != SIZE_MINIMIZED) invalidate(Invalidation::layout);
+            else if (ready) sync_images(false);
             return 0;
         case WM_SHOWWINDOW:
+            if (!wparam && ready) sync_images(false);
             if (!wparam) {
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
@@ -3041,6 +3132,7 @@ void Window::close() {
     auto impl = impl_;
     Impl::InputScope input_scope(*impl);
     impl->closing = true;
+    impl->close_posts();
     for (auto& task : impl->samples) task->cancel();
     for (auto& task : impl->tasks) task->cancel();
     for (const auto& peer : impl->peers) {
@@ -3050,6 +3142,15 @@ void Window::close() {
     if (impl->window) PostMessageW(impl->window, WM_CLOSE, 0, 0);
 }
 void Window::on_key(std::function<bool(const KeyEvent&)> callback) { impl_->key = std::move(callback); }
+bool Window::post(std::function<void()> callback) {
+    if (!callback) throw std::invalid_argument("A posted callback is required");
+    const auto impl = impl_;
+    std::lock_guard lock(impl->post_mutex);
+    if (impl->posts_closed) return false;
+    impl->posts.push_back(std::move(callback));
+    SetEvent(impl->wake->event);
+    return true;
+}
 void Window::on_navigation(std::function<bool(const NavigationEvent&)> callback) { impl_->navigation = std::move(callback); }
 std::shared_ptr<SampleTask> Window::create_sample_task(SampleTask::Loader loader, SampleTask::Receiver receive, unsigned interval) {
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
@@ -3114,6 +3215,12 @@ int Application::run(Window& window) {
             },
                 impl->wake->event, [&] {
                     try {
+                        std::vector<std::function<void()>> posts;
+                        { std::lock_guard lock(impl->post_mutex); posts.swap(impl->posts); }
+                        for (auto& post : posts) {
+                            if (!impl->ready || impl->closing) break;
+                            post();
+                        }
                         const auto tasks = impl->tasks;
                         for (const auto& task : tasks) {
                             if (!impl->ready || impl->closing) break;

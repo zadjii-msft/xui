@@ -10,7 +10,7 @@ public sealed class XuiException(int status, string message, Exception? inner = 
 }
 public enum Theme : uint { Dark, Light, HighContrast }
 public enum Axis : uint { Horizontal, Vertical }
-public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View, Preview, Cancel, Action, Dismiss, Request, FilterOpen }
+public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View, Preview, Cancel, Action, Dismiss, Request, FilterOpen, FocusEntered }
 public readonly record struct UiEvent(EventKind Kind, ulong Value);
 public enum PropertyKind : uint
 {
@@ -24,6 +24,7 @@ public sealed unsafe partial class Window : IDisposable
     internal ulong Handle { get; private set; }
     private readonly int thread = Environment.CurrentManagedThreadId;
     private readonly Dictionary<ulong, Subscription> subscriptions = [];
+    private readonly Dictionary<ulong, Subscription> menuSubscriptions = [];
     private bool running;
     private int callbacks;
     private Exception? callbackError;
@@ -151,6 +152,10 @@ public sealed unsafe partial class Window : IDisposable
         Handle = 0;
         foreach (var s in subscriptions.Values) s.Free();
         subscriptions.Clear(); key = null;
+        foreach (var subscription in menuSubscriptions.Values) subscription.Free();
+        menuSubscriptions.Clear();
+        if (keyRoot.IsAllocated) keyRoot.Free();
+        keyHandler = null;
     }
     internal void SetSubscription(ulong handle, Action<UiEvent>? action)
     {
@@ -171,6 +176,33 @@ public sealed unsafe partial class Window : IDisposable
         catch
         {
             Native.Subscribe(handle, null, 0);
+            subscription.Free(); throw;
+        }
+    }
+    internal void SetMenuSubscription(ulong handle, Action<UiEvent>? action)
+    {
+        Guard();
+        if (action is null)
+        {
+            Check(Native.ContextMenuBind(handle, null, 0));
+            if (menuSubscriptions.Remove(handle, out var old)) old.Free();
+            return;
+        }
+        if (menuSubscriptions.TryGetValue(handle, out var current))
+        {
+            Check(Native.ContextMenuBind(handle, &Trampoline, GCHandle.ToIntPtr(current.Root)));
+            current.Action = action;
+            return;
+        }
+        var subscription = new Subscription(this, action);
+        try
+        {
+            Check(Native.ContextMenuBind(handle, &Trampoline, GCHandle.ToIntPtr(subscription.Root)));
+            menuSubscriptions.Add(handle, subscription);
+        }
+        catch
+        {
+            Native.ContextMenuBind(handle, null, 0);
             subscription.Free(); throw;
         }
     }
