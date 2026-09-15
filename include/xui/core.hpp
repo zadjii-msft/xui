@@ -45,12 +45,14 @@ public:
     void set_fixed_size(Size size);
     void set_auto_size(bool value);
     bool auto_size() const { return auto_size_; }
+    bool preferred_size_explicit() const { return preferred_explicit_; }
     void set_minimum_size(Size size);
     void set_maximum_size(Size size);
 
 protected:
     Size constrain(Size desired, Size available) const;
     void adopt(const std::shared_ptr<Element>& child);
+    void set_default_size(Size size);
 
 private:
     struct InvalidationState;
@@ -60,6 +62,7 @@ private:
     Size minimum_{};
     Size maximum_{(std::numeric_limits<float>::max)(), (std::numeric_limits<float>::max)()};
     bool auto_size_{};
+    bool preferred_explicit_{};
     Rect bounds_{};
     std::shared_ptr<InvalidationState> invalidation_;
 };

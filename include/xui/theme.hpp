@@ -8,18 +8,179 @@
 namespace xui {
 
 enum class ThemeMode { dark, light, high_contrast };
+enum class VisualStyle { classic, winui };
+enum class ButtonAppearance { standard, accent, subtle };
 
 struct ThemeColors {
     uint32_t background, surface, field, hover, text, secondary;
     uint32_t selection, selection_text, border, accent, folder, file, error;
 };
 
-constexpr ThemeColors theme_colors(ThemeMode mode) {
+constexpr ThemeColors theme_colors(ThemeMode mode, VisualStyle style = VisualStyle::classic) {
+    if (style == VisualStyle::winui) {
+        if (mode == ThemeMode::light)
+            return {0xf3f3f3, 0xffffff, 0xfafafa, 0xf0f0f0, 0x1a1a1a, 0x616161,
+                    0xebebeb, 0x1a1a1a, 0xe5e5e5, 0x005fb8, 0x9d6600, 0x616161, 0xc42b1c};
+        return {0x202020, 0x272727, 0x1e1e1e, 0x323232, 0xffffff, 0xcecece,
+                0x383838, 0xffffff, 0x404040, 0x60cdff, 0xe5be70, 0xcecece, 0xff99a4};
+    }
     if (mode == ThemeMode::light)
         return {0xf1f4f7, 0xffffff, 0xf8fafc, 0xeef4f8, 0x1c2935, 0x536577,
                 0xdceff6, 0x123a49, 0xc1cbd4, 0x00718d, 0x896111, 0x536577, 0xaa2435};
     return {0x15181b, 0x1c2024, 0x242a30, 0x29313a, 0xe6edf3, 0xa0adb9,
             0x164f65, 0xf2fbff, 0x35404a, 0x70d7ed, 0xe5be70, 0xa0b8d0, 0xffb4ab};
+}
+
+struct WinUIControlColors {
+    uint32_t fill, hover, pressed, disabled, text, secondary, disabled_text;
+    uint32_t stroke, bottom_stroke, accent, accent_hover, accent_pressed, accent_text;
+};
+
+constexpr WinUIControlColors winui_control_colors(ThemeMode mode) {
+    if (mode == ThemeMode::light)
+        return {0xffffff, 0xf9f9f9, 0xf0f0f0, 0xf5f5f5, 0x1a1a1a, 0x606060, 0x9b9b9b,
+                0xe5e5e5, 0xcccccc, 0x005fb8, 0x196fc0, 0x2675b9, 0xffffff};
+    return {0x333333, 0x3e3e3e, 0x303030, 0x2d2d2d, 0xffffff, 0xcecece, 0x838383,
+            0x454545, 0x292929, 0x60cdff, 0x58bee9, 0x50aed5, 0x000000};
+}
+
+struct ButtonVisual {
+    uint32_t fill, text, stroke, bottom_stroke;
+    bool fill_visible{true}, stroke_visible{true};
+};
+
+constexpr uint32_t winui_input_background(ThemeMode mode, bool enabled, bool focused, bool hovered) {
+    if (mode == ThemeMode::light)
+        return !enabled ? 0x4df9f9f9 : focused ? 0xffffffff : hovered ? 0x80f9f9f9 : 0xb3ffffff;
+    return !enabled ? 0x0bffffff : focused ? 0xb31e1e1e : hovered ? 0x15ffffff : 0x0fffffff;
+}
+
+struct InputStrokeColors {
+    uint32_t outline, elevation;
+};
+
+constexpr InputStrokeColors winui_input_strokes(ThemeMode mode) {
+    return mode == ThemeMode::light ? InputStrokeColors{0x0f000000, 0x72000000} :
+        InputStrokeColors{0x12ffffff, 0x8bffffff};
+}
+
+constexpr uint32_t composite_argb_on_rgb(uint32_t foreground, uint32_t background) {
+    const auto alpha = foreground >> 24;
+    const auto channel = [&](unsigned shift) {
+        return ((((foreground >> shift) & 255) * alpha +
+            ((background >> shift) & 255) * (255 - alpha) + 127) / 255) << shift;
+    };
+    return channel(16) | channel(8) | channel(0);
+}
+
+struct WinUIStatusColors {
+    uint32_t information_fill, success_fill, warning_fill, error_fill;
+    uint32_t success, warning;
+};
+
+constexpr WinUIStatusColors winui_status_colors(ThemeMode mode) {
+    if (mode == ThemeMode::light)
+        return {0xf3f3f3, 0xdff6dd, 0xfff4ce, 0xfde7e9, 0x0f7b0f, 0x9d5d00};
+    return {0x303030, 0x263b29, 0x433519, 0x442726, 0x6ccb5f, 0xfce100};
+}
+
+struct StyleMetrics {
+    float control_radius, surface_radius, progress_thickness;
+    float button_height, field_height, input_header_height, input_header_spacing, button_padding;
+};
+
+constexpr StyleMetrics style_metrics(VisualStyle style) {
+    return style == VisualStyle::winui ? StyleMetrics{4, 8, 4, 32, 32, 20, 8, 12} :
+        StyleMetrics{6, 6, 6, 36, 44, 24, 0, 14};
+}
+
+struct SliderVisual {
+    Rect track, filled, thumb;
+};
+
+inline SliderVisual slider_visual(Size bounds, Axis orientation, bool reversed, double fraction, VisualStyle style) {
+    const bool vertical = orientation == Axis::vertical;
+    if (reversed) fraction = 1 - fraction;
+    const float length = std::max(0.0f, (vertical ? bounds.height : bounds.width) - 24);
+    const float position = 12 + static_cast<float>(vertical ? 1 - fraction : fraction) * length;
+    const Rect track = vertical ? Rect{bounds.width / 2 - 2, 12, 4, length} : Rect{12, bounds.height / 2 - 2, length, 4};
+    const float start = vertical == reversed ? 12.0f : 12.0f + length;
+    const float filled = std::abs(position - start);
+    const Rect fill = vertical ? Rect{track.x, std::min(start, position), 4, filled} :
+        Rect{std::min(start, position), track.y, filled, 4};
+    const float radius = style == VisualStyle::winui ? 10.0f : 8.0f;
+    const Rect thumb = vertical ? Rect{bounds.width / 2 - radius, position - radius, 2 * radius, 2 * radius} :
+        Rect{position - radius, bounds.height / 2 - radius, 2 * radius, 2 * radius};
+    return {track, fill, thumb};
+}
+
+constexpr uint32_t winui_text_brush(ThemeMode mode, bool enabled, bool pressed = false, bool on_accent = false) {
+    const bool light = mode == ThemeMode::light;
+    if (on_accent)
+        return !enabled ? (light ? 0xffffffff : 0x87ffffff) :
+            pressed ? (light ? 0xb3ffffff : 0x80000000) : light ? 0xffffffff : 0xff000000;
+    return !enabled ? (light ? 0x5c000000 : 0x5dffffff) :
+        pressed ? (light ? 0x9e000000 : 0xc5ffffff) : light ? 0xe4000000 : 0xffffffff;
+}
+
+constexpr uint32_t winui_accent_brush(ThemeMode mode, bool enabled, bool hovered, bool pressed) {
+    if (!enabled) return mode == ThemeMode::light ? 0x37000000 : 0x28ffffff;
+    return (pressed ? 0xcc000000 : hovered ? 0xe6000000 : 0xff000000) | winui_control_colors(mode).accent;
+}
+
+struct IndicatorBrushes {
+    uint32_t fill, stroke, mark, text;
+};
+
+// ARGB template brushes; the painter composites them over the actual parent.
+constexpr IndicatorBrushes winui_indicator_brushes(ThemeMode mode, bool marked, bool enabled,
+    bool hovered, bool pressed, bool radio = false) {
+    const bool light = mode == ThemeMode::light;
+    const auto strong_disabled = light ? 0x37000000u : 0x28ffffffu;
+    const auto fill = marked ? winui_accent_brush(mode, enabled, hovered, pressed) : !enabled ? 0x00ffffffu :
+        pressed ? (light ? 0x18000000u : 0x12ffffffu) :
+        hovered ? (light ? 0x0f000000u : 0x0bffffffu) : light ? 0x06000000u : 0x19000000u;
+    return {fill, marked ? fill : !enabled || pressed ? strong_disabled : light ? 0x72000000u : 0x8bffffffu,
+        winui_text_brush(mode, radio || enabled, !radio && pressed, true), winui_text_brush(mode, enabled)};
+}
+
+constexpr float winui_radio_dot(bool enabled, bool hovered, bool pressed) {
+    return !enabled ? 14.0f : pressed ? 10.0f : hovered ? 14.0f : 12.0f;
+}
+
+struct ButtonBrushes {
+    uint32_t fill, text, stroke, elevation;
+    bool accent{}, elevated{};
+};
+
+constexpr ButtonBrushes winui_button_brushes(ThemeMode mode, ButtonAppearance appearance,
+    bool enabled, bool hovered, bool pressed, bool checked) {
+    const bool light = mode == ThemeMode::light;
+    const bool accent = appearance == ButtonAppearance::accent || (enabled && checked);
+    const auto text = winui_text_brush(mode, enabled, pressed, accent);
+    if (accent)
+        return {winui_accent_brush(mode, enabled, hovered, pressed), text,
+            !enabled || pressed ? 0u : 0x14ffffffu, light ? 0x66000000u : 0x23000000u, true, enabled && !pressed};
+    if (appearance == ButtonAppearance::subtle) {
+        const auto fill = !enabled ? 0u : pressed ? (light ? 0x06000000u : 0x0affffffu) :
+            hovered ? (light ? 0x09000000u : 0x0fffffffu) : 0u;
+        return {fill, text, fill, fill};
+    }
+    return {enabled && pressed ? (light ? 0x4df9f9f9u : 0x08ffffffu) :
+        winui_input_background(mode, enabled, false, hovered), text, winui_input_strokes(mode).outline,
+        light ? 0x29000000u : 0x18ffffffu, false, enabled && !pressed};
+}
+
+// RGB preview over the default card. High contrast uses system colors in the backend.
+constexpr ButtonVisual winui_button_visual(ThemeMode mode, ButtonAppearance appearance,
+    bool enabled, bool hovered, bool pressed, bool checked) {
+    const auto brushes = winui_button_brushes(mode, appearance, enabled, hovered, pressed, checked);
+    const auto background = theme_colors(mode, VisualStyle::winui).surface;
+    const auto fill = composite_argb_on_rgb(brushes.fill, background);
+    const auto stroke_background = brushes.accent ? fill : background;
+    return {fill, composite_argb_on_rgb(brushes.text, fill), composite_argb_on_rgb(brushes.stroke, stroke_background),
+        composite_argb_on_rgb(brushes.elevated ? brushes.elevation : brushes.stroke, stroke_background),
+        (brushes.fill >> 24) != 0, (brushes.stroke >> 24) != 0};
 }
 
 struct VisualMetrics {

@@ -7,6 +7,7 @@ Breadcrumb::Breadcrumb(std::wstring name) : Control(ControlRole::content_view, s
     overflow_(std::make_shared<Button>(L"Earlier locations")) {
     overflow_->set_behavior(ButtonBehavior::dropdown); adopt(overflow_); children_.push_back(overflow_);
     overflow_->set_icon(ButtonIcon::more);
+    overflow_->set_appearance(ButtonAppearance::subtle);
 }
 Breadcrumb::~Breadcrumb() { state_->navigate = {}; overflow_->on_click({}); }
 std::optional<ItemKey> Breadcrumb::current() const { return segments_.empty() ? std::nullopt : std::optional{segments_.back().key}; }
@@ -24,6 +25,7 @@ void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
         const auto old = std::find_if(segments_.begin(), segments_.end(), [&](const auto& value) { return value.key == segment.key; });
         auto button = old == segments_.end() ? std::make_shared<Button>(L"") :
             std::static_pointer_cast<Button>(children_[static_cast<std::size_t>(old - segments_.begin()) + 1]);
+        if (old == segments_.end()) button->set_appearance(ButtonAppearance::subtle);
         button->set_name(segment.label + (i + 1 == segments.size() ? L"" : L"  ›"));
         button->set_automation_id(L"segment-" + std::to_wstring(segment.key.id) + L"-" + std::to_wstring(segment.key.version));
         button->set_help_text(i + 1 == segments.size() ? L"Current location" : L"Navigate to this location");

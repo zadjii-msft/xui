@@ -240,8 +240,10 @@ void occlusion(Window& window, HWND hwnd, const std::shared_ptr<Button>& anchor,
     SendMessageW(colored_edit, WM_CHAR, L'K', 0); require(under->text() == L"K", "Underlying native selection and caret remain editable");
     RemoveWindowSubclass(hwnd, unique_ink, 71); colored_edit = colored_caption = nullptr;
 }
-void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool capture) {
-    Window window({L"XUI document contracts", {820, 960}, theme});
+void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool capture, VisualStyle visual_style) {
+    WindowOptions options{L"XUI document contracts", {820, 960}, theme};
+    options.visual_style = visual_style;
+    Window window(options);
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_padding({8, 8, 8, 8}); root->set_spacing(4);
     auto anchor = std::make_shared<Button>(L"Open modal fixture"); root->add(anchor);
     auto under = std::make_shared<TextInput>(L"Unique native caption"); under->set_text(L"Unique native EDIT fixture XXXXX"); root->add(under);
@@ -356,6 +358,22 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool ca
         window.focus(*anchor); window.show_dialog(dialog, *anchor, modal_editor.get()); flush(hwnd);
         std::cout << "Modal open=" << dialog->popup()->is_open() << " owner-enabled=" << IsWindowEnabled(underlying_edit) << " results=" << results << '\n';
         require(!IsWindowEnabled(underlying_edit), "Modal dialog disables native owner controls");
+        if (visual_style == VisualStyle::winui) {
+            const auto focused = GetFocus();
+            const auto content_before = read(edit);
+            const auto targets = Drawing::live_targets();
+            window.set_visual_style(VisualStyle::classic); flush(hwnd);
+            window.set_visual_style(VisualStyle::winui); flush(hwnd);
+            require(GetFocus() == focused && read(edit) == content_before && Drawing::live_targets() == targets &&
+                dialog->popup()->is_open(), "Live style changes preserve the open native dialog and its document");
+            if (theme != ThemeMode::high_contrast) {
+                const auto region = CreateRectRgn(0, 0, 0, 0);
+                require(region != nullptr, "Create modal region probe");
+                const auto kind = GetWindowRgn(underlying_edit, region);
+                DeleteObject(region);
+                require(kind == NULLREGION, "WinUI modal scrim also covers live native owner windows");
+            }
+        }
         require(!window.focus(*under), "Modal dialog refuses owner focus");
         const auto owner = GetDlgItem(hwnd, 100);
         SendMessageW(owner, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10)); SendMessageW(owner, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
@@ -407,8 +425,9 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable, bool ca
     if (!driver_error.empty()) throw std::runtime_error(driver_error);
     require(result == 0 && stage == 3, "Document window case passes"); require(Drawing::live_targets() == 0, "Root target releases after close");
 }
-void lifetime_case(int kind) {
+void lifetime_case(int kind, VisualStyle visual_style) {
     auto window = std::make_unique<Window>(WindowOptions{L"XUI document lifetime", {540, 420}});
+    window->set_visual_style(visual_style);
     auto root = std::make_shared<Stack>(Axis::vertical);
     auto anchor = std::make_shared<Button>(L"Dialog anchor"); root->add(anchor);
     auto text = std::make_shared<MultilineText>(); text->set_text(L"Before"); root->add(text);
@@ -462,11 +481,13 @@ void lifetime_case(int kind) {
 int wmain(int argc, wchar_t** argv) {
     try {
         if (argc == 3 && std::wstring_view(argv[1]) == L"--uia") return uia(reinterpret_cast<HWND>(_wcstoui64(argv[2], nullptr, 10)));
+        const auto visual_style = argc == 2 && std::wstring_view(argv[1]) == L"--winui" ? VisualStyle::winui : VisualStyle::classic;
+        if (visual_style == VisualStyle::winui) capture_directory /= L"winui";
         std::filesystem::create_directories(capture_directory);
         wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);
         for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
-            for (UINT dpi : {96u, 144u, 192u}) run_case(theme, dpi, exe, theme == ThemeMode::dark && dpi == 96);
-        for (int kind = 0; kind < 4; ++kind) lifetime_case(kind);
+            for (UINT dpi : {96u, 144u, 192u}) run_case(theme, dpi, exe, theme == ThemeMode::dark && dpi == 96, visual_style);
+        for (int kind = 0; kind < 4; ++kind) lifetime_case(kind, visual_style);
         std::cout << "Seven native document families, external UIA, 9 theme/DPI cases, native undo/selection, modal isolation, live native occlusion and root EndDraw passed\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

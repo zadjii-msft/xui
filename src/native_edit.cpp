@@ -33,9 +33,20 @@ void NativeEditBridge::attach(HWND parent, int control_id) {
 
 void NativeEditBridge::set_dpi(UINT dpi) {
     if (font_ && dpi_ == dpi) return;
+    update_font(dpi);
+}
+
+void NativeEditBridge::set_font_family(std::wstring family) {
+    if (family.empty()) throw std::invalid_argument("A native edit font family is required");
+    if (font_family_ == family) return;
+    font_family_ = std::move(family);
+    if (window_) update_font(dpi_);
+}
+
+void NativeEditBridge::update_font(UINT dpi) {
     HFONT replacement = CreateFontW(-MulDiv(static_cast<int>(VisualMetrics::body_size), static_cast<int>(dpi), 96), 0, 0, 0, FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        DEFAULT_QUALITY, DEFAULT_PITCH, font_family_.c_str());
     win32_require(replacement != nullptr, "Create search font");
     const auto dc = GetDC(window_);
     const auto previous = dc ? SelectObject(dc, replacement) : nullptr;

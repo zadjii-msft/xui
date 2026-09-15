@@ -20,6 +20,8 @@ struct WindowOptions {
     // Optional minimum outer window size in DIPs. Zero uses the system minimum.
     Size minimum_size{};
     bool custom_titlebar{};
+    // Experimental solid-surface skin. Does not change control behavior or density.
+    VisualStyle visual_style = VisualStyle::classic;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -92,6 +94,8 @@ public:
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
     ThemeMode theme() const;
+    void set_visual_style(VisualStyle style);
+    VisualStyle visual_style() const;
     bool focus(Control& control, bool select_all = false);
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial_focus = nullptr);
     void show_dialog(std::shared_ptr<ContentDialog> dialog, Control& anchor, Control* initial_focus = nullptr);

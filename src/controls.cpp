@@ -20,7 +20,16 @@ void PageView::arrange(Rect rectangle) {
 }
 
 Control::Control(ControlRole role, std::wstring name, Size preferred)
-    : role_(role), name_(std::move(name)) { set_preferred_size(preferred); }
+    : role_(role), name_(std::move(name)) { set_default_size(preferred); }
+
+void Control::set_visual_style(VisualStyle style) {
+    if (style < VisualStyle::classic || style > VisualStyle::winui) throw std::invalid_argument("Invalid visual style");
+    if (visual_style_ == style) return;
+    visual_style_ = style;
+    text_dirty_ = true;
+    presentation_changed();
+    invalidate(Invalidation::layout);
+}
 
 void Control::set_name(std::wstring name) {
     if (name_ == name) return;
@@ -61,11 +70,61 @@ Size Control::measured_text() {
 }
 Size Control::measure(Size available) {
     if (!visible_) return {};
-    if (!auto_size() || !measurer_) return Element::measure(available);
+    const auto metrics = style_metrics(visual_style_);
+    if (!auto_size() || !measurer_) {
+        auto desired = Element::measure(available);
+        if (visual_style_ == VisualStyle::winui && !preferred_size_explicit() &&
+            (role_ == ControlRole::button || role_ == ControlRole::toggle ||
+                role_ == ControlRole::combo_box || role_ == ControlRole::numeric_input))
+            desired.height = metrics.button_height;
+        return constrain(desired, available);
+    }
     const auto text = measured_text();
-    const float inset = role_ == ControlRole::toggle ? 54.0f : role_ == ControlRole::button ? 28.0f : 0;
-    const float height = role_ == ControlRole::button ? 36.0f : role_ == ControlRole::toggle ? 32.0f : 24.0f;
-    return constrain({text.width + inset, std::max(height, text.height + (inset ? 12.0f : 0.0f))}, available);
+    const bool winui = visual_style_ == VisualStyle::winui;
+    float inset = role_ == ControlRole::toggle ? (winui ? 28.0f : 54.0f) : role_ == ControlRole::button ? 2 * metrics.button_padding : 0;
+    if (winui && role_ == ControlRole::button && static_cast<const Button*>(this)->behavior() == ButtonBehavior::dropdown)
+        inset += 20;
+    const float height = role_ == ControlRole::button ? metrics.button_height : role_ == ControlRole::toggle ? 32.0f :
+        winui && role_ == ControlRole::label ? 0.0f : 24.0f;
+    const float vertical_chrome = winui && role_ == ControlRole::button ? 13.0f : inset ? 12.0f : 0.0f;
+    return constrain({text.width + inset, std::max(height, text.height + vertical_chrome)}, available);
+}
+
+Size TextInput::measure(Size available) {
+    if (!visible()) return {};
+    if (visual_style() != VisualStyle::winui || preferred_size_explicit()) return Element::measure(available);
+    return constrain({320, style_metrics(visual_style()).field_height + caption_extent()}, available);
+}
+
+void Label::set_wrapping(bool value, std::size_t maximum_lines) {
+    if (wrapping_ == value && maximum_lines_ == maximum_lines) return;
+    wrapping_ = value;
+    maximum_lines_ = maximum_lines;
+    wrapped_valid_ = false;
+    text_changed();
+    invalidate(Invalidation::layout);
+}
+void Label::set_wrapped_text_measurer(WrappedTextMeasurer measurer) {
+    wrapped_measurer_ = std::move(measurer);
+    wrapped_valid_ = false;
+    invalidate(Invalidation::layout);
+}
+Size Label::wrapped_text(float width) {
+    if (!wrapped_measurer_ || !wrapping_) return measured_text();
+    width = std::isnan(width) ? 1.0f : std::clamp(width, 1.0f, 10000000.0f);
+    if (!wrapped_valid_ || wrapped_width_ != width || wrapped_name_ != name() || wrapped_style_ != text_style()) {
+        wrapped_size_ = wrapped_measurer_(name(), text_style(), width, maximum_lines_);
+        wrapped_name_ = name();
+        wrapped_style_ = text_style();
+        wrapped_width_ = width;
+        wrapped_valid_ = true;
+    }
+    return wrapped_size_;
+}
+Size Label::measure(Size available) {
+    if (!visible()) return {};
+    if (!wrapping_ || !wrapped_measurer_ || !auto_size()) return Control::measure(available);
+    return constrain(wrapped_text(available.width), available);
 }
 
 ScrollView::ScrollView(std::shared_ptr<Element> content, std::wstring name)
@@ -73,16 +132,22 @@ ScrollView::ScrollView(std::shared_ptr<Element> content, std::wstring name)
     adopt(content_);
 }
 Size ScrollView::measure(Size available) {
+    if (passthrough_) return content_->measure(available);
     return Element::measure(available);
 }
 Rect ScrollView::viewport() const {
     auto result = bounds();
-    result.width = std::max(0.0f, result.width - bar_width);
+    if (!passthrough_ && !overlay_scrollbar_) result.width = std::max(0.0f, result.width - bar_width);
     return result;
 }
-float ScrollView::maximum_offset() const { return std::max(0.0f, extent_ - bounds().height); }
+float ScrollView::maximum_offset() const { return passthrough_ ? 0 : std::max(0.0f, extent_ - bounds().height); }
 void ScrollView::arrange(Rect rectangle) {
     Element::arrange(rectangle);
+    if (passthrough_) {
+        extent_ = rectangle.height;
+        content_->arrange(rectangle);
+        return;
+    }
     const auto view = viewport();
     const auto desired = content_->measure({view.width, std::numeric_limits<float>::infinity()});
     extent_ = std::max(view.height, desired.height);
@@ -90,6 +155,7 @@ void ScrollView::arrange(Rect rectangle) {
     content_->arrange({view.x, view.y - offset_, view.width, extent_});
 }
 void ScrollView::set_offset(float value) {
+    if (passthrough_) return;
     value = std::isnan(value) ? 0.0f : std::clamp(value, 0.0f, maximum_offset());
     if (offset_ == value) return;
     offset_ = value;
@@ -179,7 +245,15 @@ void Button::set_behavior(ButtonBehavior value) {
     if (value < ButtonBehavior::momentary || value > ButtonBehavior::dropdown)
         throw std::invalid_argument("Invalid button behavior");
     if (behavior_ == value) return;
-    cancel(); behavior_ = value; invalidate(Invalidation::paint);
+    cancel(); behavior_ = value;
+    invalidate(visual_style() == VisualStyle::winui && auto_size() ? Invalidation::layout : Invalidation::paint);
+}
+void Button::set_appearance(ButtonAppearance value) {
+    if (value < ButtonAppearance::standard || value > ButtonAppearance::subtle)
+        throw std::invalid_argument("Invalid button appearance");
+    if (appearance_ == value) return;
+    appearance_ = value;
+    invalidate(Invalidation::paint);
 }
 void Button::set_checked(bool value) {
     if (checked_ == value) return;

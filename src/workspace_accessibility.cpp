@@ -175,6 +175,8 @@ public:
             for (std::size_t i = 0; i < s.tabs.size(); ++i) if (s.tabs[i].id == id_ && s.tab_edges.size() > 2 * i + 1) {
                 const auto scale = GetDpiForWindow(s.window) / 96.0f;
                 if (s.vertical_choices) {
+                    rect.right = rect.left + static_cast<LONG>(std::lround((s.choice_left + s.choice_width) * scale));
+                    rect.left += static_cast<LONG>(std::lround(s.choice_left * scale));
                     rect.bottom = rect.top + static_cast<LONG>(std::lround(s.tab_edges[2 * i + 1] * scale));
                     rect.top += static_cast<LONG>(std::lround(s.tab_edges[2 * i] * scale));
                 } else {

@@ -1,10 +1,13 @@
 #include "xui/application.hpp"
+#include "xui/foundation.hpp"
 #include "xui/vector_canvas.hpp"
 #include "../src/drawing.hpp"
+#include "../src/workspace_accessibility.hpp"
 #include "../src/list_peer.hpp"
 #include <windows.h>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -18,6 +21,77 @@
 namespace {
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
+}
+void text_presentation() {
+    using namespace xui;
+    const auto targets = Drawing::live_targets();
+    Drawing drawing;
+    const auto symbol_faces = Drawing::created_symbol_faces();
+    drawing.initialize(VisualStyle::winui);
+    Microsoft::WRL::ComPtr<IDWriteFactory> symbol_factory;
+    require(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(symbol_factory.GetAddressOf()))), "Create independent symbol font probe");
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> symbol_fonts;
+    require(SUCCEEDED(symbol_factory->GetSystemFontCollection(&symbol_fonts)), "Read installed symbol fonts");
+    UINT32 symbol_index{};
+    BOOL fluent_installed{};
+    require(SUCCEEDED(symbol_fonts->FindFamilyName(L"Segoe Fluent Icons", &symbol_index, &fluent_installed)),
+        "Probe installed Segoe Fluent Icons");
+    require(std::wstring_view(drawing.symbol_font_family()) == (fluent_installed ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets"),
+        "WinUI uses installed Segoe Fluent Icons; only missing-family systems use the documented fallback");
+    for (std::size_t i = 1; i < symbol_codepoints.size(); ++i)
+        require(drawing.has_symbol(static_cast<Symbol>(i)), "Every WinUI symbol resolves to a nonzero native glyph");
+    require(!drawing.has_symbol(Symbol::none) && !drawing.has_symbol(Symbol::count),
+        "Empty and invalid symbols never resolve to the missing-character glyph");
+    require(Drawing::created_symbol_faces() == symbol_faces + 1, "Symbols share one font face, not one resource per control");
+    Size strong_size{};
+    const auto strong = drawing.layout(L"Explore", TextStyle::body_strong, strong_size);
+    require(strong->GetFontSize() == 14 && strong_size.height > 0 && strong_size.height < 24,
+        "Navigation pane titles use a native 14-DIP text line instead of a page heading");
+    Label title(L"A deliberately long dialog title that must wrap across several lines in a narrow window");
+    title.set_subtitle(true);
+    title.set_visual_style(VisualStyle::winui);
+    title.set_wrapping(true, 2);
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    unsigned measures{};
+    title.set_wrapped_text_measurer([&](std::wstring_view text, TextStyle style, float width, std::size_t lines) {
+        Size result;
+        layout = drawing.layout(text, style, result, width, lines);
+        ++measures;
+        return result;
+    });
+    const auto measured = title.measure({120, 1000});
+    UINT32 count{};
+    const auto counted = layout->GetLineMetrics(nullptr, 0, &count);
+    require((counted == E_NOT_SUFFICIENT_BUFFER || SUCCEEDED(counted)) && count > 2, "The native wrapping fixture has more than two lines");
+    std::vector<DWRITE_LINE_METRICS> lines(count);
+    require(SUCCEEDED(layout->GetLineMetrics(lines.data(), count, &count)), "Read native title line metrics");
+    require(measured.width <= 120 && measured.height == std::ceil(lines[0].height + lines[1].height),
+        "The title cap uses two actual DirectWrite line heights");
+    title.measure({120, 1000});
+    require(measures == 1, "Unchanged wrapped text reuses the native layout");
+    title.measure({160, 1000});
+    require(measures == 2, "A different wrap width recreates the native layout once");
+    IDWriteTextFormat* format = layout.Get();
+    wchar_t family[100]{};
+    require(SUCCEEDED(format->GetFontFamilyName(family, 100)), "Read native WinUI text family");
+    require(std::wstring_view(family) == (std::wstring_view(drawing.edit_font_family()) == L"Segoe UI Variable Text" ?
+        L"Segoe UI Variable" : L"Segoe UI"), "WinUI layout and native editing use the same resolved font policy");
+    drawing.set_visual_style(VisualStyle::classic);
+    title.set_visual_style(VisualStyle::classic);
+    title.measure({160, 1000});
+    require(measures == 3, "A style change invalidates wrapped text even when width and text role stay unchanged");
+    format = layout.Get();
+    require(SUCCEEDED(format->GetFontFamilyName(family, 100)) && std::wstring_view(family) == L"Segoe UI",
+        "Classic restores its original text family");
+    require(Drawing::live_targets() == targets, "Typography and wrapping do not allocate a graphics target");
+    drawing.set_visual_style(VisualStyle::winui);
+    drawing.discard();
+    require(drawing.has_symbol(Symbol::check) && Drawing::created_symbol_faces() == symbol_faces + 1,
+        "Style roundtrips and render-target loss retain the cached symbol face and glyph metrics");
+    drawing.release();
+    require(!drawing.has_symbol(Symbol::check) && std::wstring_view(drawing.symbol_font_family()).empty(),
+        "Full renderer release frees symbol resources");
 }
 struct Search { const wchar_t* title; HWND result{}; DWORD process{GetCurrentProcessId()}; };
 BOOL CALLBACK find(HWND window, LPARAM data) {
@@ -65,21 +139,41 @@ void window_lifecycle() {
     const auto identity = retained->id();
     {
         xui::Window window({L"XUI lifecycle normal"});
+        require(xui::WindowOptions{}.visual_style == xui::VisualStyle::classic &&
+            window.visual_style() == xui::VisualStyle::classic, "Visual style defaults to classic");
+        window.set_visual_style(xui::VisualStyle::winui);
+        require(window.visual_style() == xui::VisualStyle::winui, "Visual style updates before run");
+        bool invalid_style{};
+        try { window.set_visual_style(static_cast<xui::VisualStyle>(-1)); }
+        catch (const std::invalid_argument&) { invalid_style = true; }
+        require(invalid_style && window.visual_style() == xui::VisualStyle::winui,
+            "Invalid visual style is rejected without changing the property");
         window.set_title(L"Before run");
         require(window.title() == L"Before run", "Title property updates before run");
         window.set_title(L"XUI lifecycle normal");
+        bool wrong_thread_style{};
         std::jthread wrong_thread([&] {
             bool rejected{};
             try { window.set_title(L"Wrong thread"); } catch (const std::logic_error&) { rejected = true; }
             require(rejected, "Title rejects non-owner thread");
+            try { window.set_visual_style(xui::VisualStyle::classic); }
+            catch (const std::logic_error&) { wrong_thread_style = true; }
         });
         wrong_thread.join();
+        require(wrong_thread_style && window.visual_style() == xui::VisualStyle::winui,
+            "Visual style rejects non-owner thread without changing the property");
         auto root = retained_root;
         auto input = std::make_shared<xui::TextInput>(L"Name");
+        const auto input_identity = input->id(), root_identity = root->id();
+        input->set_text(L"Style selection stays");
+        require(retained->appearance() == xui::ButtonAppearance::standard, "Button appearance defaults to standard");
+        retained->set_appearance(xui::ButtonAppearance::accent);
+        require(retained->appearance() == xui::ButtonAppearance::accent, "Button appearance updates before run");
         root->add(retained);
         root->add(input);
         window.set_content(root);
         retained->on_click([&] {
+            require(window.visual_style() == xui::VisualStyle::winui, "Pre-run visual style survives native creation");
             window.set_title(L"Updated during run");
             window.set_title(L"Updated during run");
             Search titled{L"Updated during run"};
@@ -89,10 +183,228 @@ void window_lifecycle() {
             require(!window.focus(*input), "Focus rejects a disabled control");
             input->set_enabled(true);
             require(window.focus(*input) && input->focused(), "Application focus reaches native EDIT");
+            const auto edit = GetFocus();
+            const auto button = FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Close");
+            require(edit && button && FindWindowExW(titled.result, nullptr, L"EDIT", nullptr) == edit,
+                "Visual style fixture has native button and EDIT peers");
+            SendMessageW(edit, EM_SETSEL, 2, 8);
+            const auto paint = [&] {
+                SendMessageW(titled.result, WM_APP + 12, 0, 0);
+                require(RedrawWindow(titled.result, nullptr, nullptr,
+                    RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW) != FALSE, "Paint visual style synchronously");
+            };
+            paint();
+            const auto targets = xui::Drawing::live_targets();
+            require(targets > 0, "Visual style fixture paints a Direct2D target");
+            for (const auto theme : {xui::ThemeMode::light, xui::ThemeMode::dark, xui::ThemeMode::high_contrast}) {
+                window.set_theme(theme);
+                for (const auto style : {xui::VisualStyle::classic, xui::VisualStyle::winui,
+                    xui::VisualStyle::classic, xui::VisualStyle::winui}) {
+                    window.set_visual_style(style);
+                    require(window.visual_style() == style && window.theme() == theme,
+                        "Live visual style switches independently of the selected theme");
+                    for (const auto appearance : {xui::ButtonAppearance::standard,
+                        xui::ButtonAppearance::accent, xui::ButtonAppearance::subtle}) {
+                        retained->set_appearance(appearance);
+                        require(retained->appearance() == appearance, "Live button appearance updates");
+                        paint();
+                    }
+                    DWORD start{}, end{};
+                    SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+                    wchar_t text[100]{};
+                    GetWindowTextW(edit, text, 100);
+                    require(root == retained_root && root->id() == root_identity && root->child_count() == 2 &&
+                        root->child_at(0) == retained && root->child_at(1) == input &&
+                        retained->id() == identity && input->id() == input_identity,
+                        "Visual style switches preserve retained content and control identities");
+                    require(FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Close") == button &&
+                        FindWindowExW(titled.result, nullptr, L"EDIT", nullptr) == edit &&
+                        GetFocus() == edit && input->focused() && start == 2 && end == 8 &&
+                        std::wstring_view(text) == L"Style selection stays" && input->text() == text,
+                        "Visual style switches preserve native peers, EDIT text, selection and focus");
+                    require(xui::Drawing::live_targets() == targets,
+                        "Visual style switches and painting do not add live Direct2D targets");
+                }
+            }
+            window.set_theme(xui::ThemeMode::light);
+            paint();
+            const auto clear = FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Clear Name");
+            require(clear && IsWindowVisible(clear) && (GetWindowLongPtrW(clear, GWL_STYLE) & WS_TABSTOP) == 0,
+                "A focused nonempty WinUI field exposes an accessible clear action without an extra Tab stop");
+            window.set_visual_style(xui::VisualStyle::classic);
+            paint();
+            require(!IsWindowVisible(clear) && GetFocus() == edit, "Classic hides the clear affordance without moving native focus");
+            window.set_visual_style(xui::VisualStyle::winui);
+            paint();
+            require(FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Clear Name") == clear && IsWindowVisible(clear),
+                "Returning to WinUI reuses the same clear-button peer");
+            SendMessageW(edit, WM_IME_STARTCOMPOSITION, 0, 0);
+            paint();
+            require(!IsWindowVisible(clear), "Active IME composition hides the clear action");
+            SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
+            paint();
+            require(IsWindowVisible(clear), "The clear action returns after native composition ends");
+            int changes{};
+            input->on_change([&](const std::wstring&) { ++changes; });
+            SendMessageW(clear, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(12, 12));
+            SendMessageW(clear, WM_LBUTTONUP, 0, MAKELPARAM(12, 12));
+            paint();
+            require(input->text().empty() && GetWindowTextLengthW(edit) == 0 && changes == 1 &&
+                GetFocus() == edit && !IsWindowVisible(clear), "Clear edits native text once and retains input focus");
+            require(SendMessageW(edit, EM_UNDO, 0, 0) != 0, "The native clear operation supports undo");
+            paint();
+            require(input->text() == L"Style selection stays" && changes == 2 && IsWindowVisible(clear),
+                "Native undo restores the cleared value and affordance");
+            input->on_change({});
+            const auto native_fill = [&] {
+                const auto dc = GetDC(edit);
+                require(dc != nullptr, "Acquire a native field color context");
+                SendMessageW(titled.result, WM_CTLCOLOREDIT, reinterpret_cast<WPARAM>(dc), reinterpret_cast<LPARAM>(edit));
+                const auto color = GetBkColor(dc);
+                ReleaseDC(edit, dc);
+                return color;
+            };
+            const auto expected_fill = [&](bool focused, bool hovered) {
+                const auto palette = xui::Palette::system(xui::ThemeMode::light, xui::VisualStyle::winui);
+                const auto fill = palette.input_fill(true, focused, hovered, false);
+                return RGB(std::lround(fill.r * 255), std::lround(fill.g * 255), std::lround(fill.b * 255));
+            };
+            require(native_fill() == expected_fill(true, false), "Native focused text uses the same resolved fill as its Direct2D field");
+            require(window.focus(*retained), "Move focus away from the field");
+            paint();
+            SendMessageW(edit, WM_MOUSELEAVE, 0, 0);
+            require(native_fill() == expected_fill(false, false), "Native unfocused text uses its parent-composited fill");
+            SendMessageW(edit, WM_MOUSEMOVE, 0, MAKELPARAM(10, 10));
+            require(native_fill() == expected_fill(false, true), "Native hover and field chrome share the pointer-over fill");
+            require(window.focus(*input), "Restore input focus after color checks");
+            paint();
+            const auto field_brushes = xui::Drawing::created_field_brushes();
+            for (int i = 0; i < 4; ++i) {
+                require(window.focus(*retained), "Blur the field for its normal border");
+                paint();
+                require(window.focus(*input), "Focus the field for its accent border");
+                paint();
+            }
+            require(xui::Drawing::created_field_brushes() == field_brushes,
+                "Normal and focused field borders reuse their gradient brushes across paints");
+            auto number = std::make_shared<xui::NumericInput>(L"Focus selection");
+            number->set_range({0, 10000});
+            number->set_value(1234);
+            root->add(number);
+            paint();
+            require(window.focus(*number->editor()), "Programmatic focus reaches the numeric editor");
+            const auto number_edit = GetFocus();
+            const auto selected_all = [&] {
+                DWORD first{}, last{};
+                SendMessageW(number_edit, EM_GETSEL, reinterpret_cast<WPARAM>(&first), reinterpret_cast<LPARAM>(&last));
+                return first == 0 && last == static_cast<DWORD>(GetWindowTextLengthW(number_edit));
+            };
+            const auto selection_empty = [&] {
+                DWORD first{}, last{};
+                SendMessageW(number_edit, EM_GETSEL, reinterpret_cast<WPARAM>(&first), reinterpret_cast<LPARAM>(&last));
+                return first == last;
+            };
+            require(selected_all(), "WinUI numeric focus selects the entire value");
+            require(window.focus(*retained), "Leave the numeric editor before pointer focus");
+            SendMessageW(number_edit, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+            SendMessageW(number_edit, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+            require(GetFocus() == number_edit && selected_all(), "The first pointer focus selects the numeric value after native caret placement");
+            SendMessageW(number_edit, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 5));
+            SendMessageW(number_edit, WM_LBUTTONUP, 0, MAKELPARAM(10, 5));
+            require(selection_empty(), "A later click in the focused numeric editor places the caret normally");
+            window.set_visual_style(xui::VisualStyle::classic);
+            paint();
+            require(window.focus(*retained) && window.focus(*number->editor()) && selection_empty(),
+                "Classic numeric focus retains the native caret instead of selecting all");
+            window.set_visual_style(xui::VisualStyle::winui);
+            paint();
+            require(GetFocus() == number_edit && selection_empty(), "A live style change does not replace an existing numeric selection");
+            auto details = std::make_shared<xui::Expander>(L"Pointer details", std::make_shared<xui::Label>(L"Body content"));
+            details->set_fixed_size({300, 150});
+            root->add(details);
+            paint();
+            const auto expander = FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Pointer details");
+            require(expander && details->expanded(), "The native expander fixture starts with a visible body");
+            const auto pointer = [&](UINT message, float y, WPARAM keys = 0) {
+                const auto scale = GetDpiForWindow(expander) / 96.0f;
+                SendMessageW(expander, message, keys, MAKELPARAM(std::lround(10 * scale), std::lround(y * scale)));
+            };
+            const auto header_y = details->effective_header_height() / 2;
+            const auto body_y = details->effective_header_height() + 8;
+            pointer(WM_MOUSEMOVE, body_y);
+            require(!details->hovered(), "The expanded body does not hover the WinUI header");
+            pointer(WM_MOUSEMOVE, header_y);
+            require(details->hovered(), "The whole WinUI header accepts pointer hover");
+            int disclosures{};
+            details->on_change([&](bool) { ++disclosures; });
+            pointer(WM_LBUTTONDOWN, header_y, MK_LBUTTON);
+            pointer(WM_MOUSEMOVE, body_y, MK_LBUTTON);
+            pointer(WM_LBUTTONUP, body_y);
+            require(details->expanded() && !details->captured() && disclosures == 0,
+                "Releasing a header press over the expanded body cancels disclosure");
+            pointer(WM_LBUTTONDOWN, header_y, MK_LBUTTON);
+            pointer(WM_LBUTTONUP, header_y);
+            require(!details->expanded() && disclosures == 1, "Releasing over the header commits disclosure once");
+            details->on_change({});
+            auto choices = std::make_shared<xui::RadioGroup>(L"Choice geometry", true);
+            choices->set_items({{1, L"One"}, {2, L"Two"}});
+            root->add(choices);
+            paint();
+            const auto choices_window = FindWindowExW(titled.result, nullptr, L"Xui.Control.1", L"Choice geometry");
+            require(choices_window != nullptr, "The choice geometry fixture has a native peer");
+            auto snapshot = std::make_shared<xui::ControlAccessibility>();
+            Microsoft::WRL::ComPtr<IRawElementProviderSimple> provider;
+            provider.Attach(xui::create_workspace_provider(snapshot));
+            Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment, row;
+            require(SUCCEEDED(provider.As(&fragment)), "Read the choice root fragment");
+            for (const auto style : {xui::VisualStyle::winui, xui::VisualStyle::classic, xui::VisualStyle::winui}) {
+                window.set_visual_style(style);
+                paint();
+                xui::publish_control(snapshot, nullptr, *choices, choices_window);
+                row.Reset();
+                require(SUCCEEDED(fragment->Navigate(NavigateDirection_FirstChild, &row)) && row,
+                    "Read the first accessible choice");
+                UiaRect actual{};
+                RECT native{};
+                require(SUCCEEDED(row->get_BoundingRectangle(&actual)) && GetWindowRect(choices_window, &native),
+                    "Read native and accessible choice geometry");
+                const auto body = choices->item_bounds(0);
+                const auto scale = GetDpiForWindow(choices_window) / 96.0f;
+                require(actual.left == native.left + std::lround(body.x * scale) &&
+                    actual.width == std::lround((body.x + body.width) * scale) - std::lround(body.x * scale) &&
+                    actual.top == native.top + std::lround(body.y * scale) &&
+                    actual.height == std::lround((body.y + body.height) * scale) - std::lround(body.y * scale),
+                    "UI Automation exposes the painted choice body, including its style-specific margins");
+            }
+            choices->set_selected(1);
+            const auto second_choice = choices->item_bounds(1);
+            const auto click_choice = [&](float x) {
+                const auto scale = GetDpiForWindow(choices_window) / 96.0f;
+                const auto point = MAKELPARAM(std::lround(x * scale),
+                    std::lround((second_choice.y + second_choice.height / 2) * scale));
+                SendMessageW(choices_window, WM_LBUTTONDOWN, MK_LBUTTON, point);
+                SendMessageW(choices_window, WM_LBUTTONUP, 0, point);
+            };
+            click_choice(second_choice.x / 2);
+            require(choices->selected() == 1, "A click in the WinUI item margin does not select the row");
+            click_choice(second_choice.x + 2);
+            require(choices->selected() == 2, "A click in the WinUI item body selects the row");
+            bool invalid_live_style{};
+            try { window.set_visual_style(static_cast<xui::VisualStyle>(-1)); }
+            catch (const std::invalid_argument&) { invalid_live_style = true; }
+            require(invalid_live_style && window.visual_style() == xui::VisualStyle::winui,
+                "Live invalid visual style is rejected without changing the property");
             window.close();
         });
         require(drive(window, L"XUI lifecycle normal") == 0, "Callback closes the window");
         require(window.title() == L"Updated during run", "Title remains readable after run");
+        require(window.visual_style() == xui::VisualStyle::winui, "Visual style remains readable after run");
+        bool closed_style{};
+        try { window.set_visual_style(xui::VisualStyle::classic); }
+        catch (const std::logic_error&) { closed_style = true; }
+        require(closed_style && window.visual_style() == xui::VisualStyle::winui,
+            "Closed window rejects visual style mutation");
+        require(xui::Drawing::live_targets() == 0, "Visual style window closes without retained Direct2D targets");
         bool closed_title{};
         try { window.set_title(L"After close"); } catch (const std::logic_error&) { closed_title = true; }
         require(closed_title, "Closed window rejects title mutation");
@@ -779,8 +1091,15 @@ void public_list_provider_lifetime() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--public-list-server") return run_public_list_server();
+        if (argc == 2 && std::string(argv[1]) == "--style-lifecycle") {
+            text_presentation();
+            window_lifecycle();
+            std::cout << "Visual style window lifecycle tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--resources") { resource_lifecycle(true); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--split-resources") { resource_lifecycle(false, false, true); return 0; }
+        text_presentation();
         window_lifecycle();
         retained_page_resources();
         navigation_input();
