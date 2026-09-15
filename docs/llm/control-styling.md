@@ -14,6 +14,14 @@ The [public contract](../specs/control-styling.md) describes the implemented sta
 The design proposal and public reference index belong to the parent task.
 This stage does not implement control templates or item templates.
 
+## Delivery decision
+
+On 2026-09-15, the application author accepted the measured additional CPU cost of approximately 0.26 ms per frame.
+This decision permits broader control styling without another investigation of that foundation cost.
+The earlier blocked dispositions in this report describe the investigation before this decision.
+Brush changes remain a possible explanation, not an established cause.
+Default-path performance, bounded storage, native input, and accessibility remain requirements for subsequent changes.
+
 ## Source map
 
 - `include\xui\styling.hpp`, `src\styling.cpp`: immutable colors, resource scopes, sparse values, derivation, and state tables.

@@ -178,5 +178,5 @@ This stage does not support selectors, implicit styles, animated transitions, cu
 Styles currently target only Button.
 Resource values currently contain only theme-aware colors.
 Final counterbalanced measurements stayed within the working default-path guardrail for the sampled workloads.
-Authored styles still have a separate workload cost that has not met performance acceptance.
+Authored styles still have a separate workload cost.
 The [implementation evidence](../llm/control-styling.md) records measurements and unresolved test variability.
