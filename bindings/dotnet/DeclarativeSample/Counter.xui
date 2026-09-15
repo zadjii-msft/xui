@@ -5,7 +5,7 @@ component Counter {
   state string Entry = "";
   view {
     VStack(spacing: 8, padding: 16) {
-      Text($"Count: {Count}", id: "count");
+      Text($"Foo: {Count}", id: "count");
       Button("Increment", click: Increment, id: "increment");
       Toggle("Active", checked: Active, change: SetActive, id: "active");
       TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
