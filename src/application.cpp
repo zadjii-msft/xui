@@ -7,6 +7,7 @@
 #include "platform.hpp"
 #include "list_peer.hpp"
 #include "context_menu.hpp"
+#include "file_transfer.hpp"
 #include "async.hpp"
 #include "images.hpp"
 #include "workspace_accessibility.hpp"
@@ -70,6 +71,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         float drag_y{}, drag_offset{};
         int wheel_remainder{};
         int grid_drag{};
+        Microsoft::WRL::ComPtr<IDropTarget> file_target;
         std::size_t grid_drop{};
         std::size_t grid_column{};
         bool collection_drag{}, collection_scroll{}, collection_additive{};
@@ -82,6 +84,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         AdaptiveLayout* adaptive{};
         Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
         ~Peer() {
+            if (file_target && window) RevokeDragDrop(window);
+            file_target.Reset();
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
             runtime.reset();
             if (list) window = nullptr;
@@ -554,6 +558,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             });
+        if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
+            const std::weak_ptr<Impl> weak = shared_from_this();
+            const std::weak_ptr<DataGrid> weak_grid = grid;
+            peer->file_target = files::drop_target(peer->window, grid, [weak, weak_grid] {
+                auto host = weak.lock(); auto control = weak_grid.lock();
+                const auto* target = host && control ? host->find_peer(control.get()) : nullptr;
+                return target && !host->closing && host->ready && host->enabled(*target) &&
+                    host->visible(*target) && host->in_top_popup(*target);
+            }, [weak](std::function<void()> callback) {
+                if (auto host = weak.lock()) {
+                    InputScope scope(*host);
+                    try { callback(); } catch (...) { host->fail(); }
+                }
+            });
+        }
         win32_require(SetWindowSubclass(peer->window, navigation_procedure, 3,
             reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach browser navigation input");
         if (peer->caption)
@@ -2619,6 +2638,32 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (peer.grid_drag == 6) {
+                auto grid = std::static_pointer_cast<DataGrid>(peer.control);
+                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
+                if (!(wparam & MK_LBUTTON) || !enabled(peer) || !visible(peer)) {
+                    peer.grid_drag = 0; grid->end_file_press(false);
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    return 0;
+                }
+                const Size threshold{GetSystemMetricsForDpi(SM_CXDRAG, dpi) * 96.0f / dpi,
+                    GetSystemMetricsForDpi(SM_CYDRAG, dpi) * 96.0f / dpi};
+                if (!grid->file_drag_threshold(point, threshold)) return 0;
+                // Clear our gesture before releasing capture and entering OLE's nested message loop.
+                peer.grid_drag = 0; grid->end_file_press(false);
+                if (GetCapture() == hwnd) ReleaseCapture();
+                auto paths = grid->file_drag_paths();
+                if (!paths.empty() && !closing && IsWindow(hwnd)) {
+                    auto host = shared_from_this();
+                    const auto effect = files::drag(hwnd, paths, [host, grid, hwnd] {
+                        auto* current = host->find_peer(grid.get());
+                        return host->closing || !host->ready || !current || current->window != hwnd ||
+                            !host->enabled(*current) || !host->visible(*current);
+                    });
+                    if (!closing && IsWindow(hwnd)) grid->file_drag_completed(effect);
+                }
+                return 0;
+            }
             if (auto* columns = dynamic_cast<MillerColumns*>(&control); columns && peer.dragging) {
                 const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
                 const float distance = track.width - thumb.width;
@@ -2842,9 +2887,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto column = grid->column_at(x);
                     if (column && grid->columns()[*column].checkable && grid->header_part_at(x) == GridHeaderPart::check)
                         grid->toggle_check(grid->source()->key(*row));
-                    else grid->select(grid->source()->key(*row), (wparam & MK_SHIFT) ?
-                        ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
-                        (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace, false);
+                    else {
+                        const auto selection_gesture = (wparam & MK_SHIFT) ?
+                            ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
+                            (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace;
+                        if (grid->file_drag_enabled()) {
+                            if (grid->begin_file_press({x, y}, selection_gesture)) {
+                                peer.grid_drag = 6; SetCapture(hwnd);
+                            }
+                        } else grid->select(grid->source()->key(*row), selection_gesture, false);
+                    }
                 }
                 else grid->clear_selection();
                 return 0;
@@ -2899,6 +2951,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_LBUTTONUP:
+            if (peer.grid_drag == 6) {
+                peer.grid_drag = 0;
+                static_cast<DataGrid&>(control).end_file_press(enabled(peer) && inside());
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
             if (std::exchange(peer.suppress_popup_click, false)) return 0;
             if (auto* choices = dynamic_cast<RadioGroup*>(&control); choices && peer.pressed_choice) {
                 const auto pressed = std::exchange(peer.pressed_choice, std::nullopt);
@@ -3332,6 +3390,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             update(); return S_OK;
         }
         case WM_NCDESTROY:
+            if (peer.file_target) { RevokeDragDrop(hwnd); peer.file_target.Reset(); }
             peer.runtime.reset();
             control.cancel();
             control.set_focused(false);
@@ -3797,19 +3856,42 @@ std::shared_ptr<ViewTask> Window::create_view_task(ViewWorker::Loader loader, st
 void Window::copy_text(const std::wstring& text) {
     if (!impl_->ready || impl_->closing || !impl_->window)
         throw std::logic_error("Clipboard text requires an open Window");
-    const auto bytes = (text.size() + 1) * sizeof(wchar_t);
-    auto storage = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    win32_require(storage != nullptr, "Allocate clipboard text");
-    auto destination = GlobalLock(storage);
-    if (!destination) { GlobalFree(storage); win32_require(false, "Lock clipboard text"); }
-    memcpy(destination, text.c_str(), bytes);
-    GlobalUnlock(storage);
-    if (!OpenClipboard(impl_->window)) { GlobalFree(storage); win32_require(false, "Open clipboard"); }
-    const bool copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, storage);
-    const bool closed = CloseClipboard() != 0;
-    if (!copied) GlobalFree(storage);
-    win32_require(copied, "Copy clipboard text");
-    win32_require(closed, "Close clipboard");
+    set_clipboard_text(text);
+}
+void Window::set_clipboard_text(const std::wstring& text) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use clipboard text on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    files::set_text(text);
+}
+void Window::set_file_clipboard(const std::vector<std::wstring>& paths, FileTransferEffect effect) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use file clipboard on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    files::set_clipboard(paths, effect);
+}
+std::optional<FileClipboardContent> Window::get_file_clipboard() {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use file clipboard on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::get_clipboard();
+}
+bool Window::transfer_files(const std::vector<std::wstring>& paths, const std::wstring& destination, FileTransferEffect effect) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Transfer files on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::transfer(impl->window, paths, destination, effect, [impl] { return impl->closing || impl->failed; });
+}
+std::optional<bool> Window::paste_files(const std::wstring& destination) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Paste files on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::paste(impl->window, destination, [impl] { return impl->closing || impl->failed; });
 }
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch

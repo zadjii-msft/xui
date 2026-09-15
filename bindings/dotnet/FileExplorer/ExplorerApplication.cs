@@ -55,6 +55,9 @@ internal sealed class ExplorerApplication : IDisposable
         Window.TitlebarLeading.Click += Sidebar.Toggle;
         Window.SetTitlebarLayout(Left.Root, Right.Root);
         Commands = CreateCommands();
+        Transfers = new(this);
+        Transfers.Bind(Left);
+        Transfers.Bind(Right);
         Window.KeyHandler = HandleKey;
         Window.NavigationHandler = HandleNavigation;
         Sidebar.Refresh();
@@ -71,6 +74,8 @@ internal sealed class ExplorerApplication : IDisposable
     public PaletteController Palettes { get; }
     public NavigationSidebar Sidebar { get; }
     public IReadOnlyList<ExplorerCommand> Commands { get; }
+    public FileTransfers Transfers { get; }
+    public bool SecondPaneVisible => split.Expanded;
     internal int FileOpenCount { get; private set; }
 
     public void Run()
@@ -203,6 +208,14 @@ internal sealed class ExplorerApplication : IDisposable
         new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
         new("Up to parent folder", "Alt+Up", () => Active.Up()),
         new("Refresh folder", "F5", () => Active.Refresh()),
+        new("Copy files", "Ctrl+C", () => Transfers.Copy(Active, cut: false),
+            () => Active.HasSelection && !Transfers.Busy),
+        new("Cut files", "Ctrl+X", () => Transfers.Copy(Active, cut: true),
+            () => Active.HasSelection && !Transfers.Busy),
+        new("Paste files into this folder", "Ctrl+V", () => Transfers.Paste(Active),
+            () => Active.HasCurrentRows && !Transfers.Busy),
+        new("Copy file paths", "Ctrl+Shift+C", () => Transfers.CopyPaths(Active),
+            () => Active.HasSelection && !Transfers.Busy),
         new("Use Details view", "", () => Active.SetViewMode(ExplorerViewMode.Details)),
         new("Use Columns view", "", () => Active.SetViewMode(ExplorerViewMode.Columns)),
         new("Find in this folder", "Ctrl+F", () => Active.ShowFind()),
@@ -244,6 +257,30 @@ internal sealed class ExplorerApplication : IDisposable
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
         if (Active.HandleFindKey(key)) return true;
+        if (Active.FilesFocused)
+        {
+            if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x43)
+            {
+                Transfers.CopyPaths(Active); return true;
+            }
+            if (modifiers == KeyModifiers.Control)
+            {
+                switch (vk)
+                {
+                    case 0x43:
+                    case 0x2d: Transfers.Copy(Active, cut: false); return true;
+                    case 0x58: Transfers.Copy(Active, cut: true); return true;
+                    case 0x56: Transfers.Paste(Active); return true;
+                }
+            }
+            if (modifiers == KeyModifiers.Shift)
+            {
+                switch (vk)
+                {
+                    case 0x2d: Transfers.Paste(Active); return true;
+                }
+            }
+        }
         if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x50)
         {
             Palettes.ShowCommands(); return true;

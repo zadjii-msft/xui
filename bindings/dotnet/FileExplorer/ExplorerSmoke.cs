@@ -315,7 +315,7 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     var emptyMenu = app.Left.ContextMenu.GetCommands();
-                    if (emptyMenu.Length != 1 || emptyMenu[0].Id != FileContextMenu.Refresh
+                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste }.Order())
                         || app.Left.ContextMenu.GetShellPaths().Length != 0)
                         throw new InvalidOperationException("Empty-area menus must not target an old selection.");
                     app.Left.SelectPath(Path.Combine(fixture, "small.txt"));
@@ -346,10 +346,11 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
                 await ColumnsChecks();
+                await Transfers(fixture);
                 await Ui(() =>
                 {
                     app.Report("Explorer smoke passed.");
-                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, filtering, sorting, columns, and commands.");
+                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, filtering, sorting, columns, commands, and file transfers.");
                     app.Window.Close();
                 });
             }
@@ -426,9 +427,16 @@ internal static class ExplorerSmoke
                     pane.ContextMenu.GetCommands();
                     if (!pane.ContextMenu.GetShellPaths().SequenceEqual([beta]))
                         throw new InvalidOperationException("Ancestor context menus must target the active column row.");
+                    if (!pane.HasSelection || !pane.SelectedEntries.Select(e => e.FullPath).SequenceEqual([beta])
+                        || pane.TransferDirectory != fixture
+                        || !pane.ContextMenu.GetCommands().Any(c => c.Id == FileContextMenu.Copy && c.Enabled))
+                        throw new InvalidOperationException("Column clipboard commands must use the active ancestor selection and folder.");
                     pane.Columns.FocusColumn(1);
                     if (pane.SelectedEntry is not null)
                         throw new InvalidOperationException("Focusing the empty rightmost column must clear the menu target.");
+                    if (pane.HasSelection || pane.SelectedEntries.Length != 0 || pane.TransferDirectory != beta
+                        || app.Transfers.QueryDrop(pane, null, FileTransferEffect.Move) != FileTransferEffect.None)
+                        throw new InvalidOperationException("An empty column must not reuse a hidden Details selection or drop target.");
                 });
                 await Ui(() => pane.SelectColumnPath(0, alpha));
                 await Ready(pane);
@@ -443,6 +451,9 @@ internal static class ExplorerSmoke
                     foreach (uint key in new uint[] { 0x25, 0x27, 0x24, 0x23 })
                         if (app.Window.KeyHandler?.Invoke(new(key, KeyModifiers.None, pane.FindInput.Id)) == true)
                             throw new InvalidOperationException("Columns must preserve native Find editing keys.");
+                    foreach (uint key in new uint[] { 0x43, 0x58, 0x56 })
+                        if (app.Window.KeyHandler?.Invoke(new(key, KeyModifiers.Control, pane.FindInput.Id)) == true)
+                            throw new InvalidOperationException("Column clipboard commands must preserve native Find clipboard keys.");
                     Shortcut(0x28);
                 });
                 await Ready(pane);
@@ -519,6 +530,78 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Check(() => !pane.IsColumns && pane.Grid.Focused, "Command palette Details choice restores grid focus");
             }
+        }
+
+        async Task Transfers(string fixture)
+        {
+            string source = Path.Combine(fixture, "transfer-source");
+            string destination = Path.Combine(fixture, "transfer-destination");
+            string nested = Path.Combine(source, "folder with spaces");
+            string text = Path.Combine(source, "file.txt");
+            string folderTarget = Path.Combine(destination, "target folder");
+            Directory.CreateDirectory(nested);
+            Directory.CreateDirectory(folderTarget);
+            await File.WriteAllTextAsync(Path.Combine(nested, "child.txt"), "nested content");
+            await File.WriteAllTextAsync(text, "file content");
+            await File.WriteAllTextAsync(Path.Combine(destination, "not a folder.txt"), "keep");
+            await Ui(() =>
+            {
+                app.Left.SetViewMode(Models.ExplorerViewMode.Details);
+                app.Right.SetViewMode(Models.ExplorerViewMode.Details);
+                app.Left.Navigate(source);
+                app.Right.Navigate(destination);
+            });
+            await Ready(app.Left);
+            await Ready(app.Right);
+            await Ui(() =>
+            {
+                app.Left.Focus();
+                app.Left.Grid.Navigate(GridNavigation.First);
+                app.Left.Grid.Navigate(GridNavigation.Next, KeyModifiers.Shift);
+                if (app.Left.SelectedEntries.Length != 2)
+                    throw new InvalidOperationException("File commands must include the full multi-selection.");
+                var menu = app.Left.ContextMenu.GetCommands();
+                if (menu.Any(c => c.Id is FileContextMenu.Open or FileContextMenu.NewTab)
+                    || !new[] { FileContextMenu.Copy, FileContextMenu.Cut, FileContextMenu.CopyPaths }.All(id => menu.Any(c => c.Id == id))
+                    || !app.Left.ContextMenu.GetShellPaths().Order().SequenceEqual(new[] { nested, text }.Order()))
+                    throw new InvalidOperationException("Multi-selection menus must retain every source and omit single-folder commands.");
+                app.Right.SelectPath(Path.Combine(destination, "not a folder.txt"));
+                if (app.Transfers.QueryDrop(app.Right, app.Right.Grid.Selection.Focused, FileTransferEffect.Copy) != FileTransferEffect.None)
+                    throw new InvalidOperationException("File rows must reject file drops.");
+                app.Right.SelectPath(folderTarget);
+                if (app.Transfers.Drop(app.Right, app.Right.Grid.Selection.Focused, [nested, text], FileTransferEffect.Copy)
+                    != FileTransferEffect.Copy)
+                    throw new InvalidOperationException("A folder-row drop must complete a Shell copy.");
+            });
+            await Ready(app.Left);
+            await Ready(app.Right);
+            await Check(() => File.ReadAllText(Path.Combine(folderTarget, "folder with spaces", "child.txt")) == "nested content"
+                && File.ReadAllText(Path.Combine(folderTarget, "file.txt")) == "file content"
+                && File.Exists(text) && Directory.Exists(nested), "Folder-row copy retains sources and copies nested content");
+            await Ui(() =>
+            {
+                if (app.Transfers.Drop(app.Right, null, [text], FileTransferEffect.Move) != FileTransferEffect.Move)
+                    throw new InvalidOperationException("An empty-area drop must move into the pane folder.");
+            });
+            await Ready(app.Left);
+            await Ready(app.Right);
+            await Check(() => !File.Exists(text) && File.ReadAllText(Path.Combine(destination, "file.txt")) == "file content"
+                && app.Left.VisibleCount == 1 && app.Right.VisibleCount == 3, "Move refreshes both source and destination panes");
+            await Ui(() =>
+            {
+                app.Left.ShowFind();
+                foreach (var key in new[] { new UiKeyEvent(0x43, KeyModifiers.Control, 0),
+                    new UiKeyEvent(0x58, KeyModifiers.Control, 0), new UiKeyEvent(0x56, KeyModifiers.Control, 0),
+                    new UiKeyEvent(0x43, KeyModifiers.Control | KeyModifiers.Shift, 0) })
+                    if (app.Window.KeyHandler?.Invoke(key) == true)
+                        throw new InvalidOperationException("File clipboard shortcuts must not intercept native text editing.");
+                app.Left.HideFind();
+                app.Right.Navigate(folderTarget);
+                if (app.Transfers.QueryDrop(app.Right, null, FileTransferEffect.Copy) != FileTransferEffect.None)
+                    throw new InvalidOperationException("A pane with obsolete rows must reject drops.");
+            });
+            await Ready(app.Left);
+            await Ready(app.Right);
         }
 
         Task Ui(Action action)

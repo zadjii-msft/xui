@@ -129,6 +129,51 @@ Mode and tab changes detach obsolete native sources and cancel pending work.
 | Escape with Find open | Clear the filter and close the Find bar |
 | Ctrl+D | Add or remove the current folder bookmark |
 | Ctrl+F6 | Switch between dark and light themes |
+| Ctrl+C / Ctrl+Insert with file-view focus | Copy the selected files and folders |
+| Ctrl+X with file-view focus | Cut the selected files and folders for a later move |
+| Ctrl+V / Shift+Insert with file-view focus | Paste files into the current folder |
+| Ctrl+Shift+C with file-view focus | Copy quoted full paths, one per line |
+
+### File transfers
+
+Copy, Cut, Paste, and Copy paths are also available in the context menu and command palette.
+In Details, these commands use all selected visible rows, not only the focused row.
+Ctrl+A selects the visible Details rows. Ctrl-click changes individual selections. Shift-click selects a range.
+In Columns, clipboard commands use the selected item in the active column.
+File shortcuts apply only while Details or a column has focus.
+Find, navigation filters, and palette fields retain their native text clipboard behavior.
+
+File copy uses the Windows file clipboard format, not a list of text paths.
+Other Windows applications can paste these files.
+The demo also accepts file clipboard content from Windows Explorer and other applications that supply local file paths.
+Copy paths replaces the clipboard with text instead of file content.
+Keyboard Paste targets the current Details folder or the active column folder.
+The context menu for a single folder also offers Paste into this folder.
+
+File drag-and-drop uses Details view. Columns retains its folder-selection and horizontal-scroll gestures.
+A drag starts only after pointer movement crosses the Windows drag threshold.
+The drag uses the selected files and folders.
+A drop on a folder row targets that folder. A drop on empty file-grid space targets the pane folder.
+File rows and column headers do not accept drops.
+Drag-and-drop also works with other applications that accept or supply Windows file paths.
+Ctrl requests a copy. Shift requests a move. The pointer indicates the accepted operation.
+Transfers between demo panes can move files.
+For conventional external drag targets, exported drags retain the originals and report a copy.
+Escape cancels a drag before the drop.
+
+Windows Shell performs file and folder transfers, including transfers between drives.
+Its dialogs handle conflicts, progress, and cancellation.
+The demo refreshes visible panes after a transfer attempt.
+Cut does not delete files before Paste.
+A canceled or failed transfer can leave some items transferred. The notification does not claim that the whole transfer succeeded.
+The demo does not delete source files based only on a drag result.
+
+File commands do not use obsolete rows during folder scans, tab changes, or filter updates.
+The transfer destination and source paths are fixed when the operation starts.
+The demo blocks another file transfer while the current transfer is active.
+Virtual attachments without local paths, link creation, and right-button drag menus are not supported.
+App commands accept large selections. Shell context-menu integration remains limited to 256 paths.
+Larger selections show the app commands without Shell extension commands.
 
 Both palettes appear at the center of the window, independent of the active pane.
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
@@ -159,9 +204,10 @@ Navigation errors preserve the committed folder and its rows.
 `PaletteController` handles the two palettes.
 `NavigationSidebar` builds the navigation entries.
 `FileContextMenu` supplies commands for the selected file or folder.
+`FileTransfers` connects clipboard commands and pane drops to the Windows transfer APIs.
 These classes use explicit model updates rather than a separate MVVM package.
 
-This first version does not provide file copy, move, rename, delete, drag-and-drop, or recursive search.
+The demo does not provide dedicated rename, delete, or recursive-search commands.
 It does not claim full File Pilot parity.
 The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
 The details view still exposes all entries from the folder scan.

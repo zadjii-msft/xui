@@ -1,5 +1,6 @@
 #pragma once
 #include "xui/collections.hpp"
+#include "xui/file_transfer.hpp"
 #include <array>
 
 namespace xui {
@@ -63,6 +64,23 @@ public:
     void clear_selection();
     // Pointer coordinates are local DIPs. No position means the keyboard context key.
     void prepare_context_menu(std::optional<Point> position);
+    void on_file_drag(std::function<std::vector<std::wstring>()> paths, std::function<void(FileTransferEffect)> completed) {
+        drag_paths_ = std::move(paths); drag_completed_ = std::move(completed);
+    }
+    void on_file_drop(std::function<FileTransferEffect(std::optional<RowKey>, FileTransferEffect)> query,
+        std::function<FileTransferEffect(std::optional<RowKey>, const std::vector<std::wstring>&, FileTransferEffect)> drop) {
+        drop_query_ = std::move(query); file_drop_ = std::move(drop);
+    }
+    bool file_drag_enabled() const { return bool(drag_paths_); }
+    std::vector<std::wstring> file_drag_paths() const { auto callback = drag_paths_; return callback ? callback() : std::vector<std::wstring>{}; }
+    void file_drag_completed(FileTransferEffect effect) { auto callback = drag_completed_; if (callback) callback(effect); }
+    bool file_drop_hit(Point point, std::optional<RowKey>& key) const;
+    FileTransferEffect query_file_drop(Point point, FileTransferEffect effect) const;
+    FileTransferEffect drop_files(Point point, const std::vector<std::wstring>& paths, FileTransferEffect effect);
+    // A press on selected rows preserves membership until release or the system drag threshold.
+    bool begin_file_press(Point point, SelectionGesture gesture);
+    bool file_drag_threshold(Point point, Size threshold) const;
+    void end_file_press(bool click);
     void step(int delta, SelectionGesture gesture = SelectionGesture::replace);
     void edge(bool last, SelectionGesture gesture = SelectionGesture::replace);
     void activate_selected();
@@ -135,6 +153,13 @@ private:
     std::function<void(GridFilterRequest)> filter_callback_;
     std::function<void(std::size_t, bool)> sort_callback_;
     std::function<void()> select_callback_, activate_callback_;
+    std::function<std::vector<std::wstring>()> drag_paths_;
+    std::function<void(FileTransferEffect)> drag_completed_;
+    std::function<FileTransferEffect(std::optional<RowKey>, FileTransferEffect)> drop_query_;
+    std::function<FileTransferEffect(std::optional<RowKey>, const std::vector<std::wstring>&, FileTransferEffect)> file_drop_;
+    std::optional<Point> file_press_;
+    std::optional<RowKey> file_press_key_;
+    bool file_press_replace_{};
 };
 
 // Fixed storage. nullopt creates a gap rather than an invented zero.

@@ -85,6 +85,7 @@ if(WIN32)
         src/list_peer.cpp
         src/context_menu.cpp
         src/shell_commands.cpp
+        src/file_transfer.cpp
         src/async.cpp
         src/control_accessibility.cpp
         src/workspace_accessibility.cpp
@@ -117,6 +118,14 @@ if(WIN32)
     target_include_directories(xui PUBLIC include)
     target_compile_definitions(xui PRIVATE XUI_BUILD_DLL)
     target_compile_options(xui PRIVATE /W4 /permissive- /utf-8 /EHsc)
+    if(BUILD_TESTING)
+        add_executable(xui_file_transfer_tests tests/file_transfer_tests.cpp)
+        target_link_libraries(xui_file_transfer_tests PRIVATE xui_windows xui)
+        target_compile_options(xui_file_transfer_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_file_transfer_tests COMMAND xui_file_transfer_tests)
+        add_test(NAME xui_file_clipboard_tests COMMAND xui_file_transfer_tests --clipboard)
+        set_tests_properties(xui_file_transfer_tests xui_file_clipboard_tests PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
     add_executable(xui_abi_sample bindings/native/sample.cpp demo/xui.rc)
     target_link_libraries(xui_abi_sample PRIVATE xui)
     add_executable(xui_feature_sample bindings/native/features.cpp demo/xui.rc)

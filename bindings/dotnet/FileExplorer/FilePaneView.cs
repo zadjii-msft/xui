@@ -137,6 +137,18 @@ internal sealed class FilePaneView
     public bool IsFiltering { get; private set; }
     public string? Error => error;
     public int VisibleCount => checked((int)rows.Count);
+    public bool HasCurrentRows => !IsLoading && !IsFiltering && displayedTab == Model.Active.Id;
+    public string TransferDirectory => IsColumns && IsCurrentColumn(Columns.ActiveColumn)
+        ? columnViews[(int)Columns.ActiveColumn].Model.Snapshot.Path : Model.Active.Path;
+    public FileEntry? Entry(ItemKey key) => rows.Entry(key.Id);
+    public bool HasSelection => HasCurrentRows &&
+        (IsColumns ? SelectedEntry is not null :
+            Enumerable.Range(0, VisibleCount).Any(index => Grid.Contains(rows.Key((ulong)index))));
+    public FileEntry[] SelectedEntries => HasCurrentRows
+        ? IsColumns ? SelectedEntry is { } entry ? [entry] : []
+        : Enumerable.Range(0, VisibleCount).Where(index => Grid.Contains(rows.Key((ulong)index)))
+            .Select(index => rows.EntryAt((ulong)index)).ToArray()
+        : [];
     public FileEntry? SelectedEntry
     {
         get

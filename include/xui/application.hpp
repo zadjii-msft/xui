@@ -4,6 +4,7 @@
 #include "xui/theme.hpp"
 #include "xui/file_list.hpp"
 #include "xui/foundation.hpp"
+#include "xui/file_transfer.hpp"
 #include "xui/miller_columns.hpp"
 #include <stop_token>
 
@@ -115,6 +116,11 @@ public:
     std::shared_ptr<SampleTask> create_sample_task(SampleTask::Loader loader, SampleTask::Receiver receive, unsigned milliseconds = 1000);
     bool confirm(const std::wstring& title, const std::wstring& message);
     void copy_text(const std::wstring& text);
+    void set_clipboard_text(const std::wstring& text);
+    void set_file_clipboard(const std::vector<std::wstring>& paths, FileTransferEffect effect);
+    std::optional<FileClipboardContent> get_file_clipboard();
+    bool transfer_files(const std::vector<std::wstring>& paths, const std::wstring& destination, FileTransferEffect effect);
+    std::optional<bool> paste_files(const std::wstring& destination);
     void close();
     const std::wstring& error() const;
 private:

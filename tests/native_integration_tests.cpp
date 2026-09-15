@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "xui/native_edit.hpp"
 #include "../src/drawing.hpp"
+#include "private_desktop.hpp"
 #include <windows.h>
 #include <imm.h>
 #include <msctf.h>
@@ -138,25 +139,7 @@ LRESULT CALLBACK ime_observer(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UIN
         ++*reinterpret_cast<int*>(data);
     return DefSubclassProc(hwnd, message, wp, lp);
 }
-struct PrivateDesktop {
-    HWINSTA original_station{GetProcessWindowStation()}, station{};
-    HDESK original_desktop{GetThreadDesktop(GetCurrentThreadId())}, desktop{};
-    PrivateDesktop() {
-        try {
-            station = CreateWindowStationW(nullptr, 0, WINSTA_ALL_ACCESS, nullptr);
-            require(station && SetProcessWindowStation(station), "Create private clipboard window station");
-            desktop = CreateDesktopW(L"XuiClipboard", nullptr, nullptr, 0, GENERIC_ALL, nullptr);
-            require(desktop && SetThreadDesktop(desktop), "Create private clipboard desktop");
-        } catch (...) { release(); throw; }
-    }
-    ~PrivateDesktop() { release(); }
-    void release() {
-        if (!SetThreadDesktop(original_desktop) || !SetProcessWindowStation(original_station))
-            std::cerr << "Cannot restore the isolated test desktop: " << GetLastError() << '\n';
-        if (desktop && !CloseDesktop(desktop)) std::cerr << "Cannot close the isolated test desktop\n";
-        if (station && !CloseWindowStation(station)) std::cerr << "Cannot close the isolated test station\n";
-    }
-};
+using xui::test::PrivateDesktop;
 void clipboard(HWND host, HWND edit, xui::Window& window) {
     const std::wstring expected = L"Copy \u65e5\u672c \U0001f642";
     window.copy_text(expected);
@@ -331,34 +314,7 @@ void run_window(HDESK private_desktop = nullptr) {
     if (result) std::wcerr << window.error() << '\n';
     require(result == 0 && xui::Drawing::live_targets() == 0, "Native integration window closes and releases its target");
 }
-void isolated_process(const wchar_t* argument) {
-    const auto before = GetClipboardSequenceNumber();
-    wchar_t executable[32768]{};
-    require(GetModuleFileNameW(nullptr, executable, 32768), "Locate clipboard subprocess");
-    std::wstring command = L"\"" + std::wstring(executable) + L"\" " + argument;
-    STARTUPINFOW startup{sizeof(startup)};
-    PROCESS_INFORMATION process{};
-    const auto job = CreateJobObjectW(nullptr, nullptr);
-    require(job != nullptr, "Create isolated-test process lifetime");
-    struct Job { HANDLE value; ~Job() { CloseHandle(value); } } lifetime{job};
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    require(SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)),
-        "Bound the isolated test process tree");
-    require(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, nullptr, &startup, &process),
-        "Start private clipboard subprocess");
-    const bool assigned = AssignProcessToJobObject(job, process.hProcess) != FALSE;
-    const bool resumed = assigned && ResumeThread(process.hThread) != static_cast<DWORD>(-1);
-    if (!resumed) TerminateProcess(process.hProcess, 1);
-    const auto stopped = WaitForSingleObject(process.hProcess, 20000);
-    if (stopped == WAIT_TIMEOUT) TerminateProcess(process.hProcess, 1);
-    DWORD result{1};
-    GetExitCodeProcess(process.hProcess, &result);
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    require(resumed && stopped == WAIT_OBJECT_0 && result == 0, "Isolated Windows integration checks pass");
-    require(GetClipboardSequenceNumber() == before, "Clipboard tests leave the interactive clipboard unchanged");
-}
+using xui::test::isolated_process;
 void input_environment() {
     const int count = GetKeyboardLayoutList(0, nullptr);
     require(count > 0, "Read installed keyboard layouts");

@@ -22,6 +22,17 @@ The smoke test uses scoped UIA focus-property events, selection events, and stru
 Its optional `--global-focus-events` argument also subscribes to desktop-wide focus events.
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
+The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+The checks include multi-selection menus, folder-row copy, empty-area move, nested folder content, and refresh in both panes.
+File rows and panes with obsolete rows must reject drops.
+Native text fields must retain their text clipboard shortcuts.
+The smoke does not replace the interactive desktop clipboard.
+These controller checks do not establish interoperability with every external application or Shell extension.
+`xui_file_transfer_tests` covers grid drag gestures, clipboard serialization, the OLE drop protocol, and Shell file operations.
+`xui_file_clipboard_tests` runs clipboard round trips in a job-bounded child with a private window station and desktop.
+The shared `tests\private_desktop.hpp` helper also isolates the existing native editing tests.
+The parent process requires the interactive clipboard sequence to remain unchanged.
+
 Run the explorer checks:
 
 ```powershell
