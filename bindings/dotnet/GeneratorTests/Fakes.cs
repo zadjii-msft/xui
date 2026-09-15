@@ -17,7 +17,21 @@ public class Window
     public TextInput TextInput(string text) => Add(new TextInput());
     public void SetContent(Stack root) { }
 }
-public abstract class Element;
+public abstract class Element
+{
+    public (float Width, float Height) Size;
+    public int SizeSets;
+}
+public static class ElementExtensions
+{
+    public static T FixedSize<T>(T element, float width, float height) where T : Element
+    { element.Size = (width, height); element.SizeSets++; return element; }
+}
+public static class ControlFeatures
+{
+    public static T Help<T>(T control, string text) where T : Control
+    { control.HelpText = text; return control; }
+}
 public class Stack : Element
 {
     public int SpacingSets, PaddingSets;
@@ -34,6 +48,7 @@ public abstract class Control : Element
     public virtual string Name { get => Text; set => Text = value; }
     public string AutomationId { get; set; } = "";
     public bool Enabled { get; set; }
+    public string HelpText { get; set; } = "";
 }
 public sealed class Label : Control;
 public sealed class Button : Control

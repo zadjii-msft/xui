@@ -60,11 +60,37 @@ internal static class Program
     private static void Main()
     {
         TestExecution();
+        TestSizeAndHelp();
         TestParsing();
         TestUserNames();
         TestDiagnostics();
         TestIncremental();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
+    }
+    private static void TestSizeAndHelp()
+    {
+        const string source = """
+            component Sized {
+              state float Side = 36;
+              view { VStack() { Button("Cell", size: (Side, 36), help: $"Width: {Side}", id: "cell"); } }
+            }
+            """;
+        var (_, compilation) = Generate(new File(@"C:\fixture\Sized.xui", source));
+        using var pe = new MemoryStream();
+        var result = compilation.Emit(pe);
+        Assert(result.Success, string.Join("\n", result.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("size-test", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("Sized")!;
+        var window = new Xui.Window();
+        var component = Activator.CreateInstance(type, window)!;
+        var cell = window.Elements.OfType<Xui.Button>().Single();
+        Assert(cell.Size == (36, 36) && cell.HelpText == "Width: 36", "Tuple size and accessible help use typed native setters.");
+        type.GetProperty("Side")!.SetValue(component, 48f);
+        Assert(cell.Size == (48, 36) && cell.HelpText == "Width: 48", "Size and help depend on explicit state.");
+        type.GetProperty("Side")!.SetValue(component, 48f);
+        Assert(cell.SizeSets == 2, "Unchanged size does not call the setter.");
+        context.Unload();
     }
     private static void TestExecution()
     {
@@ -259,6 +285,12 @@ internal static class Program
         var labelEdit = new File(first.Path, Counter.Replace("Count: {Count}", "Value: {Count}"));
         var labelDriver = driver.ReplaceAdditionalText(changed, labelEdit).RunGenerators(Empty());
         Assert(Shape(labelDriver) == originalShape, "Label and spacing edits preserve topology signature");
+        var sized = new File(first.Path, Counter.Replace("id: \"increment\"", "id: \"increment\", size: (36, 36), help: \"Help\""));
+        var sizedDriver = driver.ReplaceAdditionalText(changed, sized).RunGenerators(Empty());
+        Assert(Shape(sizedDriver) != originalShape, "Optional binding addition/removal recreates controls instead of retaining stale properties");
+        var resized = new File(first.Path, sized.GetText().ToString().Replace("(36, 36)", "(48, 48)").Replace("\"Help\"", "\"New help\""));
+        Assert(Shape(sizedDriver.ReplaceAdditionalText(sized, resized).RunGenerators(Empty())) == Shape(sizedDriver),
+            "Size and help value edits preserve topology");
         driver = driver.RemoveAdditionalTexts([second]).RunGenerators(Empty());
         Assert(driver.GetRunResult().Results.Single().GeneratedSources.Length == 2, "File deletion removes generated component");
         driver = driver.AddAdditionalTexts([second]).RunGenerators(Empty());

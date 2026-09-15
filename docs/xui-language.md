@@ -40,6 +40,9 @@ The initial control names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, an
 The `id` argument supplies a control's automation ID.
 Stacks support `spacing` and `padding`.
 Control arguments use C# expressions.
+Stacks and controls support `size: (width, height)` for a fixed size in DIPs.
+Controls also support `help: expression` for native help text.
+For example, `Button("?", size: (36, 36), help: "Row 1, column 1: covered.");` declares a square cell.
 
 `Text`, `Button`, and `Toggle` use their positional string for both text and the accessible name.
 They do not accept a separate `name` argument because those native properties share storage.
@@ -60,6 +63,7 @@ Direct state references make dependencies explicit.
 An arbitrary method can hide a state dependency from the compiler.
 The first version rejects unsupported view expressions instead of adding runtime dependency discovery.
 External helpers must be pure and receive their state dependencies as explicit arguments.
+Pure methods on a state value, such as `Game.CellText(0)`, also expose that state dependency.
 The compiler does not prove the purity of arbitrary external C# code.
 
 ## Configure a project
@@ -165,6 +169,7 @@ dotnet watch --project bindings\dotnet\DeclarativeSample\DeclarativeSample.cspro
 
 Authored text and supported property expressions can update existing controls.
 Stack spacing and padding can also update in place.
+Existing `size` and `help` bindings can update in place.
 Supported C# handler-body edits affect later events.
 The development host applies refreshes on the UI thread.
 
@@ -175,6 +180,7 @@ Unchanged authored input values do not overwrite user edits.
 A structural edit changes the control types or their parent-child relationships.
 A source edit to the state schema, an initializer, or an explicit automation-ID expression also requires replacement.
 Adding or deleting an event subscription requires replacement.
+Adding or removing an optional `size` or `help` binding also requires replacement.
 Changing the target method of an existing event subscription can update in place.
 The development host reports window replacement and resets component state.
 It closes the old window, waits for `Run` to return, and disposes the old owner.
@@ -209,6 +215,18 @@ A later valid edit recovers without deletion of generated files, but a restarted
 
 The published executable does not use the development reload host.
 The executable and `xui.dll` must use the same architecture.
+
+## Play Minesweeper
+
+The [Minesweeper sample](../bindings/dotnet/Minesweeper/README.md) uses `.xui` for a complete game interface.
+It includes first-click safety, flood reveal, flags, win/loss states, and restart.
+Its immutable C# model supplies values for a fixed native board.
+
+With the native library on this shell's DLL search path, run:
+
+```powershell
+dotnet watch --project bindings\dotnet\Minesweeper\Minesweeper.csproj --non-interactive
+```
 
 ## Install VS Code syntax support
 

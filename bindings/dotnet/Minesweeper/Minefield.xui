@@ -1,0 +1,231 @@
+namespace Minesweeper;
+
+component Minefield {
+    state GameState Game = GameState.New();
+    state bool Flagging = false;
+
+    view {
+        VStack(spacing: 8, padding: 12) {
+            Text("MINESWEEPER", id: "heading");
+            Text("9 x 9 board / 10 mines", id: "difficulty");
+            HStack(spacing: 12) {
+                Button("New game (F2)", click: NewGame, id: "new-game");
+                Toggle("Flag mode (F)", checked: Flagging, change: SetFlagMode, id: "flag-mode");
+            }
+            Text(Game.Summary, id: "summary");
+            Text(Game.StatusText, id: "status");
+            VStack(spacing: 4) {
+                HStack(spacing: 4) {
+                    Text(" ", size: (24, 24));
+                    Text("1", size: (36, 24));
+                    Text("2", size: (36, 24));
+                    Text("3", size: (36, 24));
+                    Text("4", size: (36, 24));
+                    Text("5", size: (36, 24));
+                    Text("6", size: (36, 24));
+                    Text("7", size: (36, 24));
+                    Text("8", size: (36, 24));
+                    Text("9", size: (36, 24));
+                }
+                HStack(spacing: 4) {
+                    Text("1", size: (24, 36));
+                    Button(Game.CellText(0), enabled: Game.CanAct(0, Flagging), size: (36, 36), help: Game.CellDescription(0), click: Cell00, id: "cell-1-1");
+                    Button(Game.CellText(1), enabled: Game.CanAct(1, Flagging), size: (36, 36), help: Game.CellDescription(1), click: Cell01, id: "cell-1-2");
+                    Button(Game.CellText(2), enabled: Game.CanAct(2, Flagging), size: (36, 36), help: Game.CellDescription(2), click: Cell02, id: "cell-1-3");
+                    Button(Game.CellText(3), enabled: Game.CanAct(3, Flagging), size: (36, 36), help: Game.CellDescription(3), click: Cell03, id: "cell-1-4");
+                    Button(Game.CellText(4), enabled: Game.CanAct(4, Flagging), size: (36, 36), help: Game.CellDescription(4), click: Cell04, id: "cell-1-5");
+                    Button(Game.CellText(5), enabled: Game.CanAct(5, Flagging), size: (36, 36), help: Game.CellDescription(5), click: Cell05, id: "cell-1-6");
+                    Button(Game.CellText(6), enabled: Game.CanAct(6, Flagging), size: (36, 36), help: Game.CellDescription(6), click: Cell06, id: "cell-1-7");
+                    Button(Game.CellText(7), enabled: Game.CanAct(7, Flagging), size: (36, 36), help: Game.CellDescription(7), click: Cell07, id: "cell-1-8");
+                    Button(Game.CellText(8), enabled: Game.CanAct(8, Flagging), size: (36, 36), help: Game.CellDescription(8), click: Cell08, id: "cell-1-9");
+                }
+                HStack(spacing: 4) {
+                    Text("2", size: (24, 36));
+                    Button(Game.CellText(9), enabled: Game.CanAct(9, Flagging), size: (36, 36), help: Game.CellDescription(9), click: Cell10, id: "cell-2-1");
+                    Button(Game.CellText(10), enabled: Game.CanAct(10, Flagging), size: (36, 36), help: Game.CellDescription(10), click: Cell11, id: "cell-2-2");
+                    Button(Game.CellText(11), enabled: Game.CanAct(11, Flagging), size: (36, 36), help: Game.CellDescription(11), click: Cell12, id: "cell-2-3");
+                    Button(Game.CellText(12), enabled: Game.CanAct(12, Flagging), size: (36, 36), help: Game.CellDescription(12), click: Cell13, id: "cell-2-4");
+                    Button(Game.CellText(13), enabled: Game.CanAct(13, Flagging), size: (36, 36), help: Game.CellDescription(13), click: Cell14, id: "cell-2-5");
+                    Button(Game.CellText(14), enabled: Game.CanAct(14, Flagging), size: (36, 36), help: Game.CellDescription(14), click: Cell15, id: "cell-2-6");
+                    Button(Game.CellText(15), enabled: Game.CanAct(15, Flagging), size: (36, 36), help: Game.CellDescription(15), click: Cell16, id: "cell-2-7");
+                    Button(Game.CellText(16), enabled: Game.CanAct(16, Flagging), size: (36, 36), help: Game.CellDescription(16), click: Cell17, id: "cell-2-8");
+                    Button(Game.CellText(17), enabled: Game.CanAct(17, Flagging), size: (36, 36), help: Game.CellDescription(17), click: Cell18, id: "cell-2-9");
+                }
+                HStack(spacing: 4) {
+                    Text("3", size: (24, 36));
+                    Button(Game.CellText(18), enabled: Game.CanAct(18, Flagging), size: (36, 36), help: Game.CellDescription(18), click: Cell20, id: "cell-3-1");
+                    Button(Game.CellText(19), enabled: Game.CanAct(19, Flagging), size: (36, 36), help: Game.CellDescription(19), click: Cell21, id: "cell-3-2");
+                    Button(Game.CellText(20), enabled: Game.CanAct(20, Flagging), size: (36, 36), help: Game.CellDescription(20), click: Cell22, id: "cell-3-3");
+                    Button(Game.CellText(21), enabled: Game.CanAct(21, Flagging), size: (36, 36), help: Game.CellDescription(21), click: Cell23, id: "cell-3-4");
+                    Button(Game.CellText(22), enabled: Game.CanAct(22, Flagging), size: (36, 36), help: Game.CellDescription(22), click: Cell24, id: "cell-3-5");
+                    Button(Game.CellText(23), enabled: Game.CanAct(23, Flagging), size: (36, 36), help: Game.CellDescription(23), click: Cell25, id: "cell-3-6");
+                    Button(Game.CellText(24), enabled: Game.CanAct(24, Flagging), size: (36, 36), help: Game.CellDescription(24), click: Cell26, id: "cell-3-7");
+                    Button(Game.CellText(25), enabled: Game.CanAct(25, Flagging), size: (36, 36), help: Game.CellDescription(25), click: Cell27, id: "cell-3-8");
+                    Button(Game.CellText(26), enabled: Game.CanAct(26, Flagging), size: (36, 36), help: Game.CellDescription(26), click: Cell28, id: "cell-3-9");
+                }
+                HStack(spacing: 4) {
+                    Text("4", size: (24, 36));
+                    Button(Game.CellText(27), enabled: Game.CanAct(27, Flagging), size: (36, 36), help: Game.CellDescription(27), click: Cell30, id: "cell-4-1");
+                    Button(Game.CellText(28), enabled: Game.CanAct(28, Flagging), size: (36, 36), help: Game.CellDescription(28), click: Cell31, id: "cell-4-2");
+                    Button(Game.CellText(29), enabled: Game.CanAct(29, Flagging), size: (36, 36), help: Game.CellDescription(29), click: Cell32, id: "cell-4-3");
+                    Button(Game.CellText(30), enabled: Game.CanAct(30, Flagging), size: (36, 36), help: Game.CellDescription(30), click: Cell33, id: "cell-4-4");
+                    Button(Game.CellText(31), enabled: Game.CanAct(31, Flagging), size: (36, 36), help: Game.CellDescription(31), click: Cell34, id: "cell-4-5");
+                    Button(Game.CellText(32), enabled: Game.CanAct(32, Flagging), size: (36, 36), help: Game.CellDescription(32), click: Cell35, id: "cell-4-6");
+                    Button(Game.CellText(33), enabled: Game.CanAct(33, Flagging), size: (36, 36), help: Game.CellDescription(33), click: Cell36, id: "cell-4-7");
+                    Button(Game.CellText(34), enabled: Game.CanAct(34, Flagging), size: (36, 36), help: Game.CellDescription(34), click: Cell37, id: "cell-4-8");
+                    Button(Game.CellText(35), enabled: Game.CanAct(35, Flagging), size: (36, 36), help: Game.CellDescription(35), click: Cell38, id: "cell-4-9");
+                }
+                HStack(spacing: 4) {
+                    Text("5", size: (24, 36));
+                    Button(Game.CellText(36), enabled: Game.CanAct(36, Flagging), size: (36, 36), help: Game.CellDescription(36), click: Cell40, id: "cell-5-1");
+                    Button(Game.CellText(37), enabled: Game.CanAct(37, Flagging), size: (36, 36), help: Game.CellDescription(37), click: Cell41, id: "cell-5-2");
+                    Button(Game.CellText(38), enabled: Game.CanAct(38, Flagging), size: (36, 36), help: Game.CellDescription(38), click: Cell42, id: "cell-5-3");
+                    Button(Game.CellText(39), enabled: Game.CanAct(39, Flagging), size: (36, 36), help: Game.CellDescription(39), click: Cell43, id: "cell-5-4");
+                    Button(Game.CellText(40), enabled: Game.CanAct(40, Flagging), size: (36, 36), help: Game.CellDescription(40), click: Cell44, id: "cell-5-5");
+                    Button(Game.CellText(41), enabled: Game.CanAct(41, Flagging), size: (36, 36), help: Game.CellDescription(41), click: Cell45, id: "cell-5-6");
+                    Button(Game.CellText(42), enabled: Game.CanAct(42, Flagging), size: (36, 36), help: Game.CellDescription(42), click: Cell46, id: "cell-5-7");
+                    Button(Game.CellText(43), enabled: Game.CanAct(43, Flagging), size: (36, 36), help: Game.CellDescription(43), click: Cell47, id: "cell-5-8");
+                    Button(Game.CellText(44), enabled: Game.CanAct(44, Flagging), size: (36, 36), help: Game.CellDescription(44), click: Cell48, id: "cell-5-9");
+                }
+                HStack(spacing: 4) {
+                    Text("6", size: (24, 36));
+                    Button(Game.CellText(45), enabled: Game.CanAct(45, Flagging), size: (36, 36), help: Game.CellDescription(45), click: Cell50, id: "cell-6-1");
+                    Button(Game.CellText(46), enabled: Game.CanAct(46, Flagging), size: (36, 36), help: Game.CellDescription(46), click: Cell51, id: "cell-6-2");
+                    Button(Game.CellText(47), enabled: Game.CanAct(47, Flagging), size: (36, 36), help: Game.CellDescription(47), click: Cell52, id: "cell-6-3");
+                    Button(Game.CellText(48), enabled: Game.CanAct(48, Flagging), size: (36, 36), help: Game.CellDescription(48), click: Cell53, id: "cell-6-4");
+                    Button(Game.CellText(49), enabled: Game.CanAct(49, Flagging), size: (36, 36), help: Game.CellDescription(49), click: Cell54, id: "cell-6-5");
+                    Button(Game.CellText(50), enabled: Game.CanAct(50, Flagging), size: (36, 36), help: Game.CellDescription(50), click: Cell55, id: "cell-6-6");
+                    Button(Game.CellText(51), enabled: Game.CanAct(51, Flagging), size: (36, 36), help: Game.CellDescription(51), click: Cell56, id: "cell-6-7");
+                    Button(Game.CellText(52), enabled: Game.CanAct(52, Flagging), size: (36, 36), help: Game.CellDescription(52), click: Cell57, id: "cell-6-8");
+                    Button(Game.CellText(53), enabled: Game.CanAct(53, Flagging), size: (36, 36), help: Game.CellDescription(53), click: Cell58, id: "cell-6-9");
+                }
+                HStack(spacing: 4) {
+                    Text("7", size: (24, 36));
+                    Button(Game.CellText(54), enabled: Game.CanAct(54, Flagging), size: (36, 36), help: Game.CellDescription(54), click: Cell60, id: "cell-7-1");
+                    Button(Game.CellText(55), enabled: Game.CanAct(55, Flagging), size: (36, 36), help: Game.CellDescription(55), click: Cell61, id: "cell-7-2");
+                    Button(Game.CellText(56), enabled: Game.CanAct(56, Flagging), size: (36, 36), help: Game.CellDescription(56), click: Cell62, id: "cell-7-3");
+                    Button(Game.CellText(57), enabled: Game.CanAct(57, Flagging), size: (36, 36), help: Game.CellDescription(57), click: Cell63, id: "cell-7-4");
+                    Button(Game.CellText(58), enabled: Game.CanAct(58, Flagging), size: (36, 36), help: Game.CellDescription(58), click: Cell64, id: "cell-7-5");
+                    Button(Game.CellText(59), enabled: Game.CanAct(59, Flagging), size: (36, 36), help: Game.CellDescription(59), click: Cell65, id: "cell-7-6");
+                    Button(Game.CellText(60), enabled: Game.CanAct(60, Flagging), size: (36, 36), help: Game.CellDescription(60), click: Cell66, id: "cell-7-7");
+                    Button(Game.CellText(61), enabled: Game.CanAct(61, Flagging), size: (36, 36), help: Game.CellDescription(61), click: Cell67, id: "cell-7-8");
+                    Button(Game.CellText(62), enabled: Game.CanAct(62, Flagging), size: (36, 36), help: Game.CellDescription(62), click: Cell68, id: "cell-7-9");
+                }
+                HStack(spacing: 4) {
+                    Text("8", size: (24, 36));
+                    Button(Game.CellText(63), enabled: Game.CanAct(63, Flagging), size: (36, 36), help: Game.CellDescription(63), click: Cell70, id: "cell-8-1");
+                    Button(Game.CellText(64), enabled: Game.CanAct(64, Flagging), size: (36, 36), help: Game.CellDescription(64), click: Cell71, id: "cell-8-2");
+                    Button(Game.CellText(65), enabled: Game.CanAct(65, Flagging), size: (36, 36), help: Game.CellDescription(65), click: Cell72, id: "cell-8-3");
+                    Button(Game.CellText(66), enabled: Game.CanAct(66, Flagging), size: (36, 36), help: Game.CellDescription(66), click: Cell73, id: "cell-8-4");
+                    Button(Game.CellText(67), enabled: Game.CanAct(67, Flagging), size: (36, 36), help: Game.CellDescription(67), click: Cell74, id: "cell-8-5");
+                    Button(Game.CellText(68), enabled: Game.CanAct(68, Flagging), size: (36, 36), help: Game.CellDescription(68), click: Cell75, id: "cell-8-6");
+                    Button(Game.CellText(69), enabled: Game.CanAct(69, Flagging), size: (36, 36), help: Game.CellDescription(69), click: Cell76, id: "cell-8-7");
+                    Button(Game.CellText(70), enabled: Game.CanAct(70, Flagging), size: (36, 36), help: Game.CellDescription(70), click: Cell77, id: "cell-8-8");
+                    Button(Game.CellText(71), enabled: Game.CanAct(71, Flagging), size: (36, 36), help: Game.CellDescription(71), click: Cell78, id: "cell-8-9");
+                }
+                HStack(spacing: 4) {
+                    Text("9", size: (24, 36));
+                    Button(Game.CellText(72), enabled: Game.CanAct(72, Flagging), size: (36, 36), help: Game.CellDescription(72), click: Cell80, id: "cell-9-1");
+                    Button(Game.CellText(73), enabled: Game.CanAct(73, Flagging), size: (36, 36), help: Game.CellDescription(73), click: Cell81, id: "cell-9-2");
+                    Button(Game.CellText(74), enabled: Game.CanAct(74, Flagging), size: (36, 36), help: Game.CellDescription(74), click: Cell82, id: "cell-9-3");
+                    Button(Game.CellText(75), enabled: Game.CanAct(75, Flagging), size: (36, 36), help: Game.CellDescription(75), click: Cell83, id: "cell-9-4");
+                    Button(Game.CellText(76), enabled: Game.CanAct(76, Flagging), size: (36, 36), help: Game.CellDescription(76), click: Cell84, id: "cell-9-5");
+                    Button(Game.CellText(77), enabled: Game.CanAct(77, Flagging), size: (36, 36), help: Game.CellDescription(77), click: Cell85, id: "cell-9-6");
+                    Button(Game.CellText(78), enabled: Game.CanAct(78, Flagging), size: (36, 36), help: Game.CellDescription(78), click: Cell86, id: "cell-9-7");
+                    Button(Game.CellText(79), enabled: Game.CanAct(79, Flagging), size: (36, 36), help: Game.CellDescription(79), click: Cell87, id: "cell-9-8");
+                    Button(Game.CellText(80), enabled: Game.CanAct(80, Flagging), size: (36, 36), help: Game.CellDescription(80), click: Cell88, id: "cell-9-9");
+                }
+            }
+            Text(Flagging ? "Click a covered square to place or clear a flag." : "Click to reveal. Tab + Space also works.", id: "instructions");
+            Text("F: flag    *: mine    !: hit    X: wrong flag", id: "legend");
+        }
+    }
+
+    code csharp {
+        public void NewGame() { Game = GameState.New(); Flagging = false; }
+        public void ToggleFlagMode() => Flagging = !Flagging;
+        void SetFlagMode(bool value) => Flagging = value;
+        void Activate(int index) => Game = Flagging ? Game.Flag(index) : Game.Reveal(index);
+        void Cell00() => Activate(0);
+        void Cell01() => Activate(1);
+        void Cell02() => Activate(2);
+        void Cell03() => Activate(3);
+        void Cell04() => Activate(4);
+        void Cell05() => Activate(5);
+        void Cell06() => Activate(6);
+        void Cell07() => Activate(7);
+        void Cell08() => Activate(8);
+        void Cell10() => Activate(9);
+        void Cell11() => Activate(10);
+        void Cell12() => Activate(11);
+        void Cell13() => Activate(12);
+        void Cell14() => Activate(13);
+        void Cell15() => Activate(14);
+        void Cell16() => Activate(15);
+        void Cell17() => Activate(16);
+        void Cell18() => Activate(17);
+        void Cell20() => Activate(18);
+        void Cell21() => Activate(19);
+        void Cell22() => Activate(20);
+        void Cell23() => Activate(21);
+        void Cell24() => Activate(22);
+        void Cell25() => Activate(23);
+        void Cell26() => Activate(24);
+        void Cell27() => Activate(25);
+        void Cell28() => Activate(26);
+        void Cell30() => Activate(27);
+        void Cell31() => Activate(28);
+        void Cell32() => Activate(29);
+        void Cell33() => Activate(30);
+        void Cell34() => Activate(31);
+        void Cell35() => Activate(32);
+        void Cell36() => Activate(33);
+        void Cell37() => Activate(34);
+        void Cell38() => Activate(35);
+        void Cell40() => Activate(36);
+        void Cell41() => Activate(37);
+        void Cell42() => Activate(38);
+        void Cell43() => Activate(39);
+        void Cell44() => Activate(40);
+        void Cell45() => Activate(41);
+        void Cell46() => Activate(42);
+        void Cell47() => Activate(43);
+        void Cell48() => Activate(44);
+        void Cell50() => Activate(45);
+        void Cell51() => Activate(46);
+        void Cell52() => Activate(47);
+        void Cell53() => Activate(48);
+        void Cell54() => Activate(49);
+        void Cell55() => Activate(50);
+        void Cell56() => Activate(51);
+        void Cell57() => Activate(52);
+        void Cell58() => Activate(53);
+        void Cell60() => Activate(54);
+        void Cell61() => Activate(55);
+        void Cell62() => Activate(56);
+        void Cell63() => Activate(57);
+        void Cell64() => Activate(58);
+        void Cell65() => Activate(59);
+        void Cell66() => Activate(60);
+        void Cell67() => Activate(61);
+        void Cell68() => Activate(62);
+        void Cell70() => Activate(63);
+        void Cell71() => Activate(64);
+        void Cell72() => Activate(65);
+        void Cell73() => Activate(66);
+        void Cell74() => Activate(67);
+        void Cell75() => Activate(68);
+        void Cell76() => Activate(69);
+        void Cell77() => Activate(70);
+        void Cell78() => Activate(71);
+        void Cell80() => Activate(72);
+        void Cell81() => Activate(73);
+        void Cell82() => Activate(74);
+        void Cell83() => Activate(75);
+        void Cell84() => Activate(76);
+        void Cell85() => Activate(77);
+        void Cell86() => Activate(78);
+        void Cell87() => Activate(79);
+        void Cell88() => Activate(80);
+    }
+}

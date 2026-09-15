@@ -138,6 +138,7 @@ internal sealed class Parser(string text)
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
         bool stack = kind is "VStack" or "HStack";
+        allowed = stack ? [.. allowed, "size"] : [.. allowed, "size", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         Expect("(");
         while (!Is(")"))

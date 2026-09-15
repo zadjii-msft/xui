@@ -98,7 +98,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     {
         int index = nodes.Count;
         nodes.Add(node);
-        void Bind(string name, string type, string setter, string fallback)
+        void Bind(string name, string type, string setter, string fallback, bool staticCall = false)
         {
             var value = node.Arguments.GetValueOrDefault(name) ?? new Expression(fallback, node.Offset);
             var expression = SyntaxFactory.ParseExpression(value.Text);
@@ -111,7 +111,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 n.IsKind(SyntaxKind.PreIncrementExpression) || n.IsKind(SyntaxKind.PreDecrementExpression) ||
                 n.IsKind(SyntaxKind.PostIncrementExpression) || n.IsKind(SyntaxKind.PostDecrementExpression)))
                 Errors.Add(new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset));
-            bindings.Add(new($"__xuiB{index}_{name}", index, type, setter, value,
+            bindings.Add(new($"__xuiB{index}_{name}", index, type, staticCall ? setter : $"__xuiN{index}." + setter, value,
                 component.States.Where(s => identifiers.Contains(s.Name.TrimStart('@'))).Select(s => s.Name).ToArray()));
         }
         if (node.Kind is "VStack" or "HStack")
@@ -132,12 +132,17 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Bind("enabled", "bool", "Enabled = {0}", "true");
             if (node.Kind == "Toggle") Bind("checked", "bool", "Checked = {0}", "false");
             if (node.Kind == "TextInput") Bind("text", "string", "Text = {0}", "\"\"");
+            if (node.Arguments.ContainsKey("help"))
+                Bind("help", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
         }
+        if (node.Arguments.ContainsKey("size"))
+            Bind("size", "(float Width, float Height)",
+                $"global::Xui.ElementExtensions.FixedSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
         foreach (var child in node.Children) Collect(child);
     }
     private static string Part(string value) => value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + value;
     private string Shape(Node node) => Part(node.Kind) + Part(node.Arguments.GetValueOrDefault("id")?.Text ?? "") +
-        Part(string.Join(",", node.Arguments.Keys.Where(k => k is "click" or "change" or "submit").Order())) +
+        Part(string.Join(",", node.Arguments.Keys.Where(k => k is "click" or "change" or "submit" or "size" or "help").Order())) +
         Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
     internal string Emit()
@@ -244,7 +249,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Unmap();
             Line($"if (!{binding.Name}_set || !global::System.Collections.Generic.EqualityComparer<{binding.Type}>.Default.Equals({binding.Name}_last, __xuiValue))");
             Line("{");
-            Line($"__xuiN{binding.Node}." + string.Format(System.Globalization.CultureInfo.InvariantCulture, binding.Setter, "__xuiValue") + ";");
+            Line(string.Format(System.Globalization.CultureInfo.InvariantCulture, binding.Setter, "__xuiValue") + ";");
             Line($"{binding.Name}_last = __xuiValue;");
             Line($"{binding.Name}_set = true;");
             Line("}");

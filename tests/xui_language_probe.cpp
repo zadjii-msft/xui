@@ -84,7 +84,7 @@ void print_text(BSTR value) {
 
 int wmain(int argc, wchar_t** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: xui_language_probe PID window|close|name|bounds|invoke|value|set-value [automation-id] [text]\n";
+        std::cerr << "Usage: xui_language_probe PID window|close|name|help|enabled|bounds|invoke|toggle|value|set-value|key [automation-id or virtual-key] [text]\n";
         return 2;
     }
     try {
@@ -102,6 +102,16 @@ int wmain(int argc, wchar_t** argv) {
             if (!PostMessageW(window, WM_CLOSE, 0, 0)) throw std::runtime_error("Cannot close the window.");
             return 0;
         }
+        if (command == L"key") {
+            if (argc != 4) throw std::runtime_error("A virtual-key code is required.");
+            const auto key = std::stoul(argv[3], &consumed);
+            if (!key || key > 254 || consumed != std::wstring_view(argv[3]).size())
+                throw std::runtime_error("Invalid virtual-key code.");
+            if (!PostMessageW(window, WM_KEYDOWN, key, 1) ||
+                !PostMessageW(window, WM_KEYUP, key, static_cast<LPARAM>(0xc0000001)))
+                throw std::runtime_error("Cannot post the key.");
+            return 0;
+        }
         if (argc < 4) throw std::runtime_error("An automation ID is required.");
         ComScope com;
         ComPtr<IUIAutomation> automation;
@@ -114,6 +124,14 @@ int wmain(int argc, wchar_t** argv) {
             BSTR value{};
             check(control->get_CurrentName(&value), "Cannot read the control name.");
             print_text(value);
+        } else if (command == L"help") {
+            BSTR value{};
+            check(control->get_CurrentHelpText(&value), "Cannot read the control help text.");
+            print_text(value);
+        } else if (command == L"enabled") {
+            BOOL value{};
+            check(control->get_CurrentIsEnabled(&value), "Cannot read the control enabled state.");
+            std::cout << (value ? "true" : "false") << '\n';
         } else if (command == L"bounds") {
             RECT bounds{};
             check(control->get_CurrentBoundingRectangle(&bounds), "Cannot read the control bounds.");
@@ -123,6 +141,9 @@ int wmain(int argc, wchar_t** argv) {
         } else if (command == L"invoke") {
             check(pattern<IUIAutomationInvokePattern>(control.Get(), UIA_InvokePatternId)->Invoke(),
                 "Cannot invoke the control.");
+        } else if (command == L"toggle") {
+            check(pattern<IUIAutomationTogglePattern>(control.Get(), UIA_TogglePatternId)->Toggle(),
+                "Cannot toggle the control.");
         } else if (command == L"value") {
             BSTR value{};
             check(pattern<IUIAutomationValuePattern>(control.Get(), UIA_ValuePatternId)->get_CurrentValue(&value),
