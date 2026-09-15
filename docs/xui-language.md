@@ -36,20 +36,103 @@ The `view` block describes the native tree.
 The `code csharp` block supplies C# methods.
 Fields belong in `state` declarations.
 
-The initial control names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, and `TextInput`.
-The `id` argument supplies a control's automation ID.
-Stacks support `spacing` and `padding`.
-Control arguments use C# expressions.
-Stacks and controls support `size: (width, height)` for a fixed size in DIPs.
-Controls also support `help: expression` for native help text.
+The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, and `SplitView`.
+`Content` embeds an existing element.
+Stacks have no positional argument.
+Each other native node requires a string argument.
+Arguments use C# expressions.
+
+All nodes support `ref: Identifier`, `size: (width, height)`, and `preferredSize: (width, height)`.
+Size values use DIPs.
+`ref` produces a typed public property for the native element.
+Reference names cannot conflict with parameters, state, methods, the component name, or `Root`.
+Names that start with `__xui` are reserved.
+
+Stacks support `spacing` and uniform `padding`.
+Controls support `id`, `enabled`, `visible`, and `help`.
+The `id` argument supplies the automation ID.
+`help` supplies native help text.
+`Stack`, `Grid`, and `Content` are elements, not controls, so they do not support those four arguments.
 For example, `Button("?", size: (36, 36), help: "Row 1, column 1: covered.");` declares a square cell.
 
 `Text`, `Button`, and `Toggle` use their positional string for both text and the accessible name.
 They do not accept a separate `name` argument because those native properties share storage.
 `TextInput` has a separate accessible name and text value.
 Its `text`, `change`, and `submit` arguments configure that input.
+It also supports `captionVisible` and `placeholder`.
 `Toggle` supports `checked` and `change`.
 Event arguments name C# methods.
+`Button` supports `icon: global::Xui.ButtonIcon.Refresh` through the native `SetIcon` method.
+`NavigationView` supports `headerVisible`.
+Its `searchId` and `searchHelp` arguments configure the native search input.
+`SplitView` supports `secondVisible`.
+`Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
+`DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
+The compiler calls `SetColumns` when the authored column values change.
+
+## Reuse a component
+
+```text
+component BrowserPane {
+    param global::Xui.Element Files;
+    param string Title;
+
+    view {
+        Grid(Title, ref: Layout,
+            rows: [new(global::Xui.TrackSizing.Star, 1)],
+            columns: [new(global::Xui.TrackSizing.Fixed, 200), new(global::Xui.TrackSizing.Star, 1)]) {
+            NavigationView("Locations", ref: Navigation, headerVisible: false);
+            ScrollView("Files", column: 1) {
+                Content(Files);
+            }
+        }
+    }
+}
+```
+
+`param Type Name;` declares an immutable constructor input and a public read-only property.
+Parameters have no initializer.
+The constructor accepts `Window window`, the parameters in declaration order, and `bool attach = true`.
+The parameter names `window` and `attach` are reserved.
+Every component exposes its typed native root as `Root`.
+
+```csharp
+var pane = new BrowserPane(window, files, "Browser", attach: false);
+var root = window.Stack().Add(pane.Root, flex: 1);
+window.SetContent(root);
+```
+
+With `attach: false`, the constructor creates the tree without calling `SetContent`.
+With `attach: true`, the root must be `VStack` or `HStack`.
+A different root causes an `ArgumentException` before the constructor creates controls.
+Existing calls such as `new Counter(window)` still attach their Stack root.
+
+`Content(expression);` uses the supplied `Element` without creating another native element.
+The expression runs once during construction and cannot depend on state.
+The native bindings reject content from another window or content that already has a parent.
+The caller must keep constructor-supplied element identities fixed for the component lifetime.
+
+`Grid` accepts `global::Xui.GridTrack[]` expressions in `rows` and `columns`.
+Each omitted argument defaults to one star track.
+The compiler installs tracks before it adds children.
+Track expressions can depend on state.
+The positional Grid name is a constructor input and cannot depend on state.
+Unlike controls, the managed Grid has no name setter.
+
+A direct Grid child supports integer `row`, `column`, `rowSpan`, and `columnSpan` arguments.
+Rows and columns start at zero.
+Spans default to one and must be positive.
+The native Grid rejects cells outside its tracks.
+A direct Stack child supports `flex: float`.
+Placement and flex cannot depend on state because the bindings expose no placement update method.
+`Content` also accepts these parent-placement arguments.
+
+`Grid`, `VStack`, and `HStack` use braces for their children.
+`ScrollView` and `Popup` require exactly one child inside braces.
+`SplitView` requires exactly two children.
+The compiler creates children before it calls factories that require those children.
+
+## Bind state
 
 The compiler generates a property for each `state` declaration.
 A state change updates properties that directly depend on that state.
@@ -119,7 +202,7 @@ internal static class Program
 }
 ```
 
-The component constructor creates its controls and installs the root content.
+By default, the component constructor creates its controls and installs the Stack root content.
 All control access uses the creating UI thread.
 The development host does not change that rule.
 
@@ -170,17 +253,23 @@ dotnet watch --project bindings\dotnet\DeclarativeSample\DeclarativeSample.cspro
 Authored text and supported property expressions can update existing controls.
 Stack spacing and padding can also update in place.
 Existing `size` and `help` bindings can update in place.
+Other supported property bindings, including tracks and columns, can also update in place.
 Supported C# handler-body edits affect later events.
 The development host applies refreshes on the UI thread.
 
 In-place refresh preserves component state.
 It does not attach each event handler again.
 Unchanged authored input values do not overwrite user edits.
+Unchanged authored arrays do not reset tracks or user-adjusted column widths.
+The compiler compares array contents, not array identities.
+Omitted control properties do not generate refresh setters.
 
 A structural edit changes the control types or their parent-child relationships.
 A source edit to the state schema, an initializer, or an explicit automation-ID expression also requires replacement.
+Parameter declarations, reference names, placement, flex, Grid names, and Content expressions belong to the structural signature.
+An edit to any of them requires replacement.
 Adding or deleting an event subscription requires replacement.
-Adding or removing an optional `size` or `help` binding also requires replacement.
+Adding or removing an optional binding also requires replacement.
 Changing the target method of an existing event subscription can update in place.
 The development host reports window replacement and resets component state.
 It closes the old window, waits for `Run` to return, and disposes the old owner.

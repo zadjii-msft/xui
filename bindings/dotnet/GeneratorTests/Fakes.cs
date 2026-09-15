@@ -9,28 +9,53 @@ public class Window
     {
         if (thread != Environment.CurrentManagedThreadId) throw new InvalidOperationException("UI thread required.");
     }
-    private T Add<T>(T element) where T : Element { Elements.Add(element); return element; }
+    public Stack? Content;
+    public int ContentSets;
+    private T Add<T>(T element) where T : Element { element.Owner = this; Elements.Add(element); return element; }
     public Stack Stack(Axis axis) => Add(new Stack());
     public Label Label(string text) => Add(new Label());
     public Button Button(string text) => Add(new Button());
     public Toggle Toggle(string text) => Add(new Toggle());
     public TextInput TextInput(string text) => Add(new TextInput());
-    public void SetContent(Stack root) { }
+    public Grid Grid(string name) => Add(new Grid { Name = name });
+    public DataGrid DataGrid(string name) => Add(new DataGrid());
+    public ItemsView ItemsView(string name) => Add(new ItemsView());
+    public NavigationView NavigationView(string name) => Add(new NavigationView());
+    public ScrollView ScrollView(Element content, string name)
+    { var result = Add(new ScrollView()); result.AddContent(content); return result; }
+    public Popup Popup(string name, Element content)
+    { var result = Add(new Popup()); result.AddContent(content); return result; }
+    public SplitView SplitView(string name, Element first, Element second)
+    { var result = Add(new SplitView()); result.AddContent(first); result.AddContent(second); return result; }
+    public void SetContent(Stack root) { root.Claim(this); Content = root; ContentSets++; }
 }
 public abstract class Element
 {
     public (float Width, float Height) Size;
     public int SizeSets;
+    public (float Width, float Height) Preferred;
+    public Window Owner = null!;
+    private bool owned;
+    internal void Claim(Window window)
+    {
+        if (!ReferenceEquals(window, Owner)) throw new ArgumentException("Elements belong to different windows.");
+        if (owned) throw new ArgumentException("Element already has a parent.");
+        owned = true;
+    }
 }
 public static class ElementExtensions
 {
     public static T FixedSize<T>(T element, float width, float height) where T : Element
     { element.Size = (width, height); element.SizeSets++; return element; }
+    public static T PreferredSize<T>(T element, float width, float height) where T : Element
+    { element.Preferred = (width, height); return element; }
 }
 public static class ControlFeatures
 {
     public static T Help<T>(T control, string text) where T : Control
     { control.HelpText = text; return control; }
+    public static T Visible<T>(T control, bool value) where T : Control
+    { control.IsVisible = value; return control; }
 }
 public class Stack : Element
 {
@@ -38,7 +63,8 @@ public class Stack : Element
     public float CurrentSpacing, CurrentPadding;
     public void Spacing(float value) { SpacingSets++; CurrentSpacing = value; }
     public void Padding(float value) { PaddingSets++; CurrentPadding = value; }
-    public void Add(Element child) { }
+    public readonly List<(Element Child, float Flex)> Children = [];
+    public void Add(Element child, float flex = 0) { child.Claim(Owner); Children.Add((child, flex)); }
 }
 public abstract class Control : Element
 {
@@ -49,10 +75,13 @@ public abstract class Control : Element
     public string AutomationId { get; set; } = "";
     public bool Enabled { get; set; }
     public string HelpText { get; set; } = "";
+    public bool IsVisible = true;
 }
 public sealed class Label : Control;
 public sealed class Button : Control
 {
+    public ButtonIcon Icon;
+    public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
     public event Action? Click;
     public void Invoke() => Click?.Invoke();
 }
@@ -64,9 +93,67 @@ public sealed class Toggle : Control
 }
 public sealed class TextInput : Control
 {
+    public bool CaptionVisible = true;
+    public string Placeholder = "";
+    public TextInput SetCaptionVisible(bool value) { CaptionVisible = value; return this; }
+    public TextInput SetPlaceholder(string value) { Placeholder = value; return this; }
     public override string Name { get; set; } = "";
     public event Action<string>? Changed;
     public event Action? Submitted;
     public void Edit(string value) { Text = value; Changed?.Invoke(value); }
     public void Submit() => Submitted?.Invoke();
+}
+public enum ButtonIcon { None, Back, Forward, Up, Refresh, Search }
+public enum PopupPlacement { Below, Above, Right, Left, Center }
+public enum TrackSizing { Fixed, Automatic, Star }
+public readonly record struct GridTrack(TrackSizing Sizing = TrackSizing.Star, float Value = 1, float Minimum = 0, float Maximum = float.MaxValue);
+public readonly record struct GridColumn(string Name, float Width = 120, bool Numeric = false, bool Filterable = false, bool Checkable = false);
+public sealed class Grid : Element
+{
+    public string Name = "";
+    public GridTrack[] Rows = [], Columns = [];
+    public int TrackSets;
+    public readonly List<(Element Child, uint Row, uint Column, uint RowSpan, uint ColumnSpan)> Children = [];
+    public Grid SetTracks(ReadOnlySpan<GridTrack> rows, ReadOnlySpan<GridTrack> columns)
+    { Rows = rows.ToArray(); Columns = columns.ToArray(); TrackSets++; return this; }
+    public Grid Add(Element child, uint row = 0, uint column = 0, uint rowSpan = 1, uint columnSpan = 1)
+    {
+        if (rowSpan == 0 || columnSpan == 0 || row + rowSpan > Rows.Length || column + columnSpan > Columns.Length)
+            throw new ArgumentException("Grid cell exceeds tracks");
+        child.Claim(Owner);
+        Children.Add((child, row, column, rowSpan, columnSpan));
+        return this;
+    }
+}
+public sealed class DataGrid : Control
+{
+    public GridColumn[] Columns = [];
+    public int ColumnSets;
+    public DataGrid SetColumns(ReadOnlySpan<GridColumn> columns) { Columns = columns.ToArray(); ColumnSets++; return this; }
+}
+public sealed class NavigationView : Control
+{
+    private TextInput? search;
+    public TextInput Search => search ??= Owner.TextInput("Search");
+    public bool HeaderVisible = true;
+    public NavigationView SetHeaderVisible(bool value) { HeaderVisible = value; return this; }
+}
+public sealed class ItemsView : Control;
+public abstract class ContentControl : Control
+{
+    public readonly List<Element> Children = [];
+    public void AddContent(Element child) { child.Claim(Owner); Children.Add(child); }
+}
+public sealed class ScrollView : ContentControl;
+public sealed class Popup : ContentControl
+{
+    public PopupPlacement Placement;
+    public bool WindowBackground;
+    public Popup SetPlacement(PopupPlacement value) { Placement = value; return this; }
+    public Popup SetWindowBackground(bool value) { WindowBackground = value; return this; }
+}
+public sealed class SplitView : ContentControl
+{
+    public bool SecondVisible = true;
+    public SplitView SetSecondVisible(bool value) { SecondVisible = value; return this; }
 }

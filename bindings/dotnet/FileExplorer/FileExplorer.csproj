@@ -7,10 +7,9 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
+    <XuiHotReload>false</XuiHotReload>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Xui\Xui.csproj" />
-  </ItemGroup>
+  <Import Project="..\Xui.Declarative.targets" />
   <Target Name="CopyXuiRuntime" AfterTargets="Build" Condition="'$(XuiNativeDir)' != ''">
     <Copy SourceFiles="$(XuiNativeDir)\xui.dll" DestinationFolder="$(TargetDir)" />
   </Target>

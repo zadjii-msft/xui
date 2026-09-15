@@ -20,7 +20,7 @@ internal sealed class ExplorerApplication : IDisposable
     {
         this.smoke = smoke;
         initialPath = FileSystemService.ResolvePath(initialPath, Environment.CurrentDirectory);
-        Window = new("XUI / Files", 1320, 840, customTitlebar: true);
+        Window = new("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
         Work = new(Window);
         Files = new();
         store = smoke ? new(Path.Combine(Path.GetTempPath(), $"xui-explorer-smoke-{Guid.NewGuid():N}", "state.json")) : new();
@@ -35,14 +35,14 @@ internal sealed class ExplorerApplication : IDisposable
             State = new();
             startupMessage = $"Saved state was not loaded: {error.Message} Bookmarks will not be saved until you repair state.json and restart.";
         }
-        notification = Window.Label(startupMessage).SetAutomationId("explorer-notification").Visible(startupMessage.Length != 0);
         Left = new(this, 1, initialPath, Window.TitlebarTabs);
         Right = new(this, 2, initialPath, Window.TitlebarSecondaryTabs);
         active = Left;
         Sidebar = new(this);
         Palettes = new(this);
-        split = Window.SplitView("File panes", Left.Root, Right.Root);
-        split.SecondVisible = false;
+        var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
+        notification = layout.Notification;
+        split = layout.Panes;
         split.Event += e =>
         {
             if (e.Kind != EventKind.View) return;
@@ -53,10 +53,6 @@ internal sealed class ExplorerApplication : IDisposable
         Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
             .Help("Show or collapse navigation");
         Window.TitlebarLeading.Click += Sidebar.Toggle;
-        var body = Window.Grid("Explorer workspace")
-            .SetTracks([new(TrackSizing.Star)], [new(TrackSizing.Automatic), new(TrackSizing.Star)])
-            .Add(Sidebar.View).Add(split, column: 1);
-        Window.SetContent(Window.Stack().Add(body, 1).Add(notification));
         Window.SetTitlebarLayout(Left.Root, Right.Root);
         Commands = CreateCommands();
         Window.KeyHandler = HandleKey;

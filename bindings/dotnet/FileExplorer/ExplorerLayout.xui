@@ -1,0 +1,22 @@
+namespace Xui.FileExplorer;
+
+component ExplorerLayout {
+    param global::Xui.Element Navigation;
+    param global::Xui.Element LeftPane;
+    param global::Xui.Element RightPane;
+    param string StartupMessage;
+
+    view {
+        VStack() {
+            Grid("Explorer workspace", flex: 1,
+                columns: [new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Star)]) {
+                Content(Navigation);
+                SplitView("File panes", ref: Panes, secondVisible: false, column: 1) {
+                    Content(LeftPane);
+                    Content(RightPane);
+                }
+            }
+            Text(StartupMessage, ref: Notification, id: "explorer-notification", visible: StartupMessage.Length != 0);
+        }
+    }
+}

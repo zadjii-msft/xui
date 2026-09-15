@@ -1,0 +1,34 @@
+namespace Xui.FileExplorer;
+
+component FilePaneLayout {
+    param int Number;
+    param string InitialPath;
+    state bool FindOpen = false;
+
+    view {
+        Grid($"Pane {Number} layout",
+            rows: [new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Star),
+                new(global::Xui.TrackSizing.Fixed, FindOpen ? 56 : 0), new(global::Xui.TrackSizing.Automatic)]) {
+            HStack(spacing: 4, padding: 6) {
+                Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
+                Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
+                Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
+                Button(InitialPath, ref: Address, id: $"pane-{Number}-address", flex: 1, help: "Go to a folder (Ctrl+L)");
+                Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
+                Button("New tab", ref: NewTab, id: $"pane-{Number}-new-tab", icon: global::Xui.ButtonIcon.Add, size: (36, 36), help: "New tab (Ctrl+T)");
+                Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
+            }
+            DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files", row: 1,
+                columns: [new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)]);
+            HStack(ref: FindHost, padding: 6, spacing: 8, row: 2) {
+                TextInput("Find", ref: Find, id: $"pane-{Number}-find", captionVisible: false,
+                    placeholder: "Find", preferredSize: (320, 44), visible: FindOpen, flex: 1);
+                Button("Close find", ref: CloseFind, id: $"pane-{Number}-close-find", icon: global::Xui.ButtonIcon.Close,
+                    size: (44, 44), help: "Close find (Escape)", visible: FindOpen);
+            }
+            VStack(padding: 6, row: 3) {
+                Text("Loading folder...", ref: Status, id: $"pane-{Number}-status");
+            }
+        }
+    }
+}

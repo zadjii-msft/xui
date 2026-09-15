@@ -1,0 +1,8 @@
+namespace Xui.FileExplorer;
+
+component SidebarLayout {
+    view {
+        NavigationView("Explorer navigation", id: "explorer-navigation", headerVisible: false,
+            searchId: "navigation-filter", searchHelp: "Filter navigation (Alt+F)");
+    }
+}
