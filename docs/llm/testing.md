@@ -7,7 +7,10 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry poi
 
 The public contract is in [Packages and deployment](../specs/packages.md).
 `scripts\Build-Release.ps1` builds each architecture and stages its sample inventory.
-`scripts\New-ReleaseAssets.ps1` creates the packages, combined ZIP, and checksums.
+`scripts\New-ReleaseAssets.ps1` creates the packages, per-architecture sample ZIPs, and checksums.
+Release samples use `Get-XuiSamples -ReleaseOnly`. TaskCard opts out through `IsXuiReleaseSample=false`.
+Local native-copy checks retain the full sample inventory.
+The release build publishes C# samples with NativeAOT, size optimization, and no debug symbols.
 `packaging\Xui.nuspec` defines the combined NuGet layout.
 The native and managed imports have separate framework directories.
 `bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
@@ -27,15 +30,24 @@ The consumer checks also build the Rust sample and run a window-free ABI probe w
 `FrameworkSource` selects an alternate configured feed for Microsoft runtime packages.
 The XUI package always comes from the local release assets.
 
-`tests\release-samples.ps1` extracts the sample ZIP.
-It checks the manifests, file hashes, native inventory, managed runtime files, and imported PE dependencies.
+`tests\release-samples.ps1` extracts both sample ZIPs.
+It checks the manifests, file hashes, exact C# inventory, native inventory, PE architectures, and imported PE dependencies.
+It requires NativeAOT output without managed runtime files, managed assemblies, or .NET debug symbols.
 These checks do not exercise each sample's interactive behavior.
 The existing desktop regressions remain responsible for that behavior.
 
+`tests\release-packaging-unit.ps1` runs the asset script with inert samples and substitute NuGet and Cargo packers.
+It checks separate archive contents, licenses, checksums, existing-output refusal, and incorrect versions, architectures, or hashes.
+The workflow runs these checks before the release builds.
+
 `tests\release-workflow.ps1` replaces `gh` with a local fixture.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
+It also requires both architecture archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
+It also publishes and runs the FileExplorer model tests with NativeAOT on each architecture.
+The explorer uses source-generated JSON metadata to preserve state persistence without runtime reflection.
+The model tests disable reflection-based JSON serialization and cover the persisted schema, round trips, and corrupt-file protection.
 
 ## Tests and measurements
 

@@ -8,7 +8,8 @@ function Assert-ReleaseVersion([string]$Version) {
 }
 
 function Get-XuiReleaseAssetNames([string]$Version) {
-    @("Xui.$Version.nupkg", "xui-sys-$Version.crate", "xui-$Version.crate", "Xui.Samples.$Version.zip")
+    @("Xui.$Version.nupkg", "xui-sys-$Version.crate", "xui-$Version.crate",
+        "Xui.Samples.$Version.win-x64.zip", "Xui.Samples.$Version.win-arm64.zip")
 }
 
 function Invoke-Checked([scriptblock]$Command) {
@@ -16,7 +17,7 @@ function Invoke-Checked([scriptblock]$Command) {
     if ($LASTEXITCODE -ne 0) { throw "Command failed ($LASTEXITCODE): $Command" }
 }
 
-function Get-XuiSamples {
+function Get-XuiSamples([switch]$ReleaseOnly) {
     $roots = @(
         (Join-Path $PSScriptRoot '..\bindings\dotnet'),
         (Join-Path $PSScriptRoot '..\docs\specs\tutorials\sample')
@@ -24,7 +25,8 @@ function Get-XuiSamples {
     Get-ChildItem -Path $roots -Filter '*.csproj' -Recurse |
         Where-Object {
             [xml]$project = Get-Content -LiteralPath $_.FullName -Raw
-            $null -ne $project.SelectSingleNode('/Project/PropertyGroup/IsXuiSample[text()="true"]')
+            $null -ne $project.SelectSingleNode('/Project/PropertyGroup/IsXuiSample[text()="true"]') -and
+                (!$ReleaseOnly -or $null -eq $project.SelectSingleNode('/Project/PropertyGroup/IsXuiReleaseSample[text()="false"]'))
         }
 }
 

@@ -248,6 +248,7 @@ The local commands can cross-compile both architectures:
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
 .\tests\release-workflow.ps1
+.\tests\release-packaging-unit.ps1
 .\tests\native-copy.ps1 -Architecture $arch
 ```
 
@@ -261,8 +262,12 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, all samples, the NuGet package, and both Cargo crates.
-The sample ZIP includes self-contained .NET deployments and native dependencies.
+It builds both architectures, the release samples, the NuGet package, and both Cargo crates.
+The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
+Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
+No separate .NET installation is necessary.
+TaskCard remains available as tutorial source but does not ship in these archives.
+`IsXuiReleaseSample=false` excludes a project from releases without excluding it from local native-copy checks.
 The workflow creates a draft release and attaches the assets and SHA-256 checksums.
 It does not publish to NuGet.org or crates.io.
 It refuses to replace assets on an already published GitHub release.
@@ -276,7 +281,7 @@ git push origin release/0.1.0
 
 Before publication, review the draft assets and generated notes.
 XUI uses the root MIT license.
-The NuGet package, both Cargo crates, and the sample ZIP include that license.
+The NuGet package, both Cargo crates, and both sample ZIPs include that license.
 
 ## Tests
 
@@ -706,7 +711,7 @@ dotnet build docs\specs\tutorials\sample\TaskCard.csproj -c Debug -r $rid -p:Xui
 
 For NativeAOT, use the same project path in the [publish procedure](#nativeaot-and-deployment).
 Build and publish copy this checkout's `xui.dll` into the output directory automatically.
-The tutorial sample also appears in the release samples ZIP.
+The tutorial sample does not ship in the release sample ZIPs.
 The sample stores task state only in memory.
 Do not describe Apply as persistent storage or reload replacement as state preservation.
 

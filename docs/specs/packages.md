@@ -8,10 +8,10 @@ The workflow does not publish packages to a package registry.
 
 XUI uses the [MIT license](../../LICENSE).
 The NuGet package and both Cargo crates declare MIT in their package metadata.
-Each package and the sample ZIP contain the root `LICENSE` file.
+Each package and each sample ZIP contain the root `LICENSE` file.
 Third-party components retain their own license terms.
 
-Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, a sample ZIP, and SHA-256 checksums.
+Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, two sample ZIPs, and SHA-256 checksums.
 The NuGet download contains both native architectures, headers, static libraries, the C ABI runtime, .NET bindings, and the `.xui` compiler.
 Native C++ deployment does not include managed assemblies.
 The compiler is a build-time dependency, not part of release application output.
@@ -125,15 +125,23 @@ The DLL remains a separate native build.
 A managed rebuild copies its latest output but does not compile native sources.
 The [contributor guide](../../CONTRIBUTING.md#c-and-declarative-samples) contains the commands.
 
-## Sample archive
+## Sample archives
 
-The sample ZIP contains `win-x64` and `win-arm64` directories.
-Each architecture contains native samples, isolated .NET sample directories, and the Rust sample.
-The .NET deployments include their runtime, so a separate .NET installation is unnecessary.
+The release supplies `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
+Each ZIP contains only its named architecture, with `native`, `dotnet`, and `rust` directories at the archive root.
+The .NET samples are `Sample`, `DeclarativeSample`, `FileExplorer`, and `Minesweeper`.
+TaskCard remains a source tutorial but does not ship in the archives.
+
+The .NET samples use size-optimized NativeAOT executables, so a separate .NET installation is unnecessary.
+Each executable contains its required runtime code instead of a separate copy of the full .NET runtime.
+The archives omit .NET debug symbols and development tools.
+Each sample retains its own directory and native DLL, so it can run independently.
+Each .NET sample also includes the .NET license and third-party notices from its resolved runtime and compiler packages.
+
 The native and Rust builds use the static C runtime.
 The package excludes optional WebView2 support.
 
 Each application runs from its extracted directory without an XUI entry in `PATH`.
 Windows system components remain prerequisites.
-Each architecture includes a versioned file manifest with SHA-256 hashes.
+Each archive includes a versioned file manifest with SHA-256 hashes.
 Release procedures are in [CONTRIBUTING](../../CONTRIBUTING.md#release-packages).
