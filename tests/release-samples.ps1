@@ -8,6 +8,7 @@ $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $assets = (Resolve-Path $AssetDirectory).Path
 $work = Join-Path $repo ("build\sample-tests-" + [guid]::NewGuid().ToString('N'))
 [IO.Compression.ZipFile]::ExtractToDirectory("$assets\Xui.Samples.$Version.zip", $work)
+Assert-SameFile "$repo\LICENSE" "$work\LICENSE"
 
 function Get-PeImports([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)

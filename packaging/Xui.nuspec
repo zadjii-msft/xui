@@ -4,6 +4,7 @@
     <id>Xui</id>
     <version>$version$</version>
     <authors>zadjii-msft</authors>
+    <license type="expression">MIT</license>
     <description>Windows UI for C++, C#, and Rust. Native C++ libraries, C ABI runtime, .NET bindings, and the declarative .xui compiler.</description>
     <projectUrl>https://github.com/zadjii-msft/xui</projectUrl>
     <repository type="git" url="https://github.com/zadjii-msft/xui" />
@@ -14,6 +15,7 @@
     </dependencies>
   </metadata>
   <files>
+    <file src="LICENSE" target="LICENSE" />
     <file src="packaging\README.md" target="" />
     <file src="$managedRoot$\Xui\Xui.Managed.dll" target="lib\net10.0" />
     <file src="$managedRoot$\Xui.Generator\Xui.Generator.dll" target="analyzers\dotnet\cs" />

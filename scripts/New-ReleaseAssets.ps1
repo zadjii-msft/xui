@@ -19,6 +19,7 @@ foreach ($rid in 'win-x64', 'win-arm64') {
 & "$PSScriptRoot\Pack-NuGet.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
 & "$PSScriptRoot\Pack-Cargo.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
 Copy-Item "$PSScriptRoot\..\packaging\SAMPLES.md" "$stage\samples\README.md"
+Copy-Item "$PSScriptRoot\..\LICENSE" "$stage\samples\LICENSE"
 $zip = Join-Path $output "Xui.Samples.$Version.zip"
 if (Test-Path $zip) { throw "Release asset already exists: $zip" }
 [IO.Compression.ZipFile]::CreateFromDirectory("$stage\samples", $zip, [IO.Compression.CompressionLevel]::Optimal, $false)

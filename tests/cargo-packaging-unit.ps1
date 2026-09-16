@@ -25,6 +25,7 @@ function Expect-Failure([scriptblock]$Action, [string]$MessagePattern) {
 }
 $script = Join-Path $fixture 'scripts\Pack-Cargo.ps1'
 Copy-Item -LiteralPath "$root\scripts\Pack-Cargo.ps1" -Destination $script
+Copy-Item -LiteralPath "$root\LICENSE" -Destination "$fixture\LICENSE"
 Write-Utf8 "$fixture\bindings\rust\.cargo\config.toml" @"
 [target.$Target]
 rustflags = ["-C", "target-feature=+crt-static"]
@@ -35,10 +36,11 @@ name = "xui-sys"
 version = "0.1.0"
 edition = "2024"
 description = "Packaging test fixture"
+license = "MIT"
 repository = "https://github.com/zadjii-msft/xui"
 links = "xui"
 build = "build.rs"
-include = ["Cargo.toml", "build.rs", "src/**", "native/**"]
+include = ["Cargo.toml", "LICENSE", "build.rs", "src/**", "native/**"]
 '@
 Write-Utf8 "$fixture\bindings\rust\xui\Cargo.toml" @'
 [package]
@@ -46,6 +48,7 @@ name = "xui"
 version = "0.1.0"
 edition = "2024"
 description = "Packaging test fixture"
+license = "MIT"
 repository = "https://github.com/zadjii-msft/xui"
 [dependencies]
 xui-sys = { version = "=0.1.0", path = "../xui-sys" }
@@ -76,12 +79,17 @@ New-Item -ItemType Directory -Path $extract | Out-Null
 & tar -xzf $archive -C $extract
 if ($LASTEXITCODE -ne 0) { throw 'Cannot extract fixture archive' }
 $normalized = Get-Content "$extract\xui-12.34.56\Cargo.toml" -Raw
+if ((Get-FileHash "$extract\xui-12.34.56\LICENSE").Hash -ne (Get-FileHash "$fixture\LICENSE").Hash) {
+    throw 'The wrapper archive must contain the project license'
+}
+if ($normalized -notmatch '(?m)^license = "MIT"\r?$') { throw 'The wrapper archive must declare MIT' }
 $dependency = [regex]::Match($normalized, '(?ms)^\[dependencies\.xui-sys\]\r?\n(?<fields>.*?)(?=^\[|\z)').Groups['fields'].Value
 if ($dependency -notmatch 'version = "=12\.34\.56"' -or $dependency -match '(?m)^path = ') {
     throw 'The packaged dependency must have an exact registry version and no checkout path'
 }
 $sysFiles = & tar -tzf "$fixture\assets\xui-sys-12.34.56.crate"
 if ($LASTEXITCODE -ne 0) { throw 'Cannot list fixture archive' }
+if ($sysFiles -notcontains 'xui-sys-12.34.56/LICENSE') { throw 'The native archive must contain the project license' }
 foreach ($asset in @('xui.dll', 'xui.lib')) {
     if ($sysFiles -notcontains "xui-sys-12.34.56/native/$Target/$asset") {
         throw "Missing bundled fixture asset: $asset"

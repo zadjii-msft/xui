@@ -3,6 +3,7 @@
 XUI is a Windows UI framework for C++, C#, and Rust.
 This package contains the native SDK, the C ABI runtime, .NET bindings, and the `.xui` compiler.
 It supports Windows x64 and ARM64.
+XUI uses the MIT license included in `LICENSE`.
 
 For .NET applications, use `net10.0` and set `RuntimeIdentifier` to `win-x64` or `win-arm64`.
 The package copies the matching `xui.dll` into build and publish output.

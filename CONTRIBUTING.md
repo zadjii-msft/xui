@@ -243,8 +243,8 @@ git push origin release/0.1.0
 ```
 
 Before publication, review the draft assets and generated notes.
-The repository currently has no root license declaration.
-A maintainer must select the distribution terms before public package publication.
+XUI uses the root MIT license.
+The NuGet package, both Cargo crates, and the sample ZIP include that license.
 
 ## Tests
 

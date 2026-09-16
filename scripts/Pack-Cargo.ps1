@@ -69,6 +69,7 @@ Write-Utf8 "$source\Cargo.toml" "[workspace]`nmembers = [`"xui-sys`", `"xui`"]`n
 foreach ($name in @('xui-sys', 'xui')) {
     $destination = Join-Path $source $name
     New-Item -ItemType Directory -Path $destination | Out-Null
+    Copy-Item -LiteralPath "$root\LICENSE" -Destination "$destination\LICENSE"
     Copy-Item -LiteralPath "$root\bindings\rust\$name\src" -Destination "$destination\src" -Recurse
     $manifest = Get-Content -LiteralPath "$root\bindings\rust\$name\Cargo.toml" -Raw
     $manifest = $manifest -replace '(?m)^version = "[^"]+"', "version = `"$Version`""

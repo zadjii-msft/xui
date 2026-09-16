@@ -14,6 +14,12 @@ $rid = if ($Architecture -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 $package = Join-Path $assets "Xui.$Version.nupkg"
 $expanded = Join-Path $work 'nuget'
 [IO.Compression.ZipFile]::ExtractToDirectory($package, $expanded)
+Assert-SameFile "$repo\LICENSE" "$expanded\LICENSE"
+[xml]$nuspec = Get-Content "$expanded\Xui.nuspec" -Raw
+$license = $nuspec.SelectSingleNode("/*[local-name()='package']/*[local-name()='metadata']/*[local-name()='license']")
+if ($null -eq $license -or $license.type -ne 'expression' -or $license.InnerText -ne 'MIT') {
+    throw 'The NuGet package must declare the MIT license expression.'
+}
 foreach ($path in @(
     'lib\net10.0\Xui.Managed.dll', 'analyzers\dotnet\cs\Xui.Generator.dll',
     'build\native\lib\x64\xui_core.lib', 'build\native\lib\ARM64\xui_core.lib',

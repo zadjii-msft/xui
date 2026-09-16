@@ -6,6 +6,11 @@ No extra build number is necessary.
 GitHub releases remain drafts until a maintainer publishes them.
 The workflow does not publish packages to a package registry.
 
+XUI uses the [MIT license](../../LICENSE).
+The NuGet package and both Cargo crates declare MIT in their package metadata.
+Each package and the sample ZIP contain the root `LICENSE` file.
+Third-party components retain their own license terms.
+
 Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, a sample ZIP, and SHA-256 checksums.
 The NuGet download contains both native architectures, headers, static libraries, the C ABI runtime, .NET bindings, and the `.xui` compiler.
 Native C++ deployment does not include managed assemblies.

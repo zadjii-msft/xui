@@ -4,6 +4,8 @@ This archive contains x64 and ARM64 applications.
 Each architecture has separate `native`, `dotnet`, and `rust` directories.
 Each application runs from its extracted directory.
 No XUI entry in `PATH` is necessary.
+XUI uses the MIT license included in `LICENSE`.
+Third-party runtime components retain their own license terms.
 
 Use `win-x64` on x64 Windows. Use `win-arm64` on ARM64 Windows.
 Extract the complete archive before you run an executable.

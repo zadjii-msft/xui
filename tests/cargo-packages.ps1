@@ -52,6 +52,12 @@ New-Item -ItemType Directory -Path $extracted, "$consumer\src", $sample, "$sampl
 foreach ($name in @('xui-sys', 'xui')) {
     & tar -xzf "$packages\$name-$Version.crate" -C $extracted
     if ($LASTEXITCODE -ne 0) { throw "Cannot extract $name-$Version.crate" }
+    if ((Get-FileHash "$extracted\$name-$Version\LICENSE").Hash -ne (Get-FileHash "$root\LICENSE").Hash) {
+        throw "The $name archive must contain the project license."
+    }
+    if ((Get-Content "$extracted\$name-$Version\Cargo.toml" -Raw) -notmatch '(?m)^license = "MIT"\r?$') {
+        throw "The $name archive must declare the MIT license."
+    }
 }
 $sysPath = Join-Path $extracted "xui-sys-$Version"
 $xuiPath = Join-Path $extracted "xui-$Version"
