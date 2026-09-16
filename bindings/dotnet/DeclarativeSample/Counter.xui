@@ -32,9 +32,11 @@ component Counter {
     part mark { foreground: 0xFFFFFF; }
     when disabled { foreground: resource(DisabledFill); }
   }
+  style Panel for Stack { padding: 12; spacing: 8; }
+  style Heading for Label { fontSize: 24; }
   view {
-    VStack(spacing: 8, padding: 16) {
-      Text($"Foo: {Count}", id: "count");
+    VStack(style: Panel) {
+      Text($"Foo: {Count}", id: "count", style: Heading);
       Button("Increment", click: Increment, id: "increment");
       Toggle("Active", checked: Active, change: SetActive, id: "active", style: CompactToggle);
       TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
