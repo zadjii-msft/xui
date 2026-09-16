@@ -352,6 +352,7 @@ XUI_API xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* ite
    NavigationView: search 0, toggle 1, items 2, header items 3, footer items 4, title 5, empty message 6.
    Titlebar roots and NavigationLists use XUI_RETAINED_ELEMENT with their actual style targets.
    Breadcrumb and CommandBar: overflow button 0. Dynamic buttons use keyed functions below.
+   TabStrip: new-tab button 0, including while hidden.
    Secondary tabs and the leading button are hidden by default.
    ContentDialog: primary 0, cancel 1, title 2, validation 3, body 4, footer 5.
    CommandSurface: editor 0, title 1, status 2, close button 3, content 4, results 5, menu 6.

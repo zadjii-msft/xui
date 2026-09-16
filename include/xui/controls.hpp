@@ -424,6 +424,7 @@ public:
     bool closable() const { return bool(close_); }
     void set_new_tab_button_visible(bool visible);
     bool new_tab_button_visible() const { return new_button_visible_; }
+    const std::shared_ptr<Button>& new_tab_button() const { return new_button_; }
     void on_new_tab(std::function<void()> callback) { new_tab_ = std::move(callback); }
     void request_new_tab();
     Rect new_tab_button_bounds() const;

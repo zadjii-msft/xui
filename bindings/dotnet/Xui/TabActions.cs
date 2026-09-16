@@ -4,6 +4,9 @@ namespace Xui;
 
 public sealed partial class TabStrip
 {
+    private Button? newTabButton;
+    public Button NewTabButton => newTabButton ??= new(Window, Features.Child(this, 0));
+
     /// <summary>Shows a native New tab button. Activation raises EventKind.Action.</summary>
     public bool NewTabButtonVisible
     {

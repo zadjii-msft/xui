@@ -82,7 +82,7 @@ Local values remain distinct from style values.
 | `Breadcrumb` | Root frame, segment Buttons and text, separators, overflow Button | Root: overflowed, disabled. Segment Buttons use their own interaction states. | Native and binding accessors use segment keys with versions. There is no automatic root/current selector. |
 | `NavigationPane` | Root frame and retained group Expander, item collection, progress, status text | loading, error, empty | Child styles target their actual controls. Style application does not cancel or replace a query. |
 | `LocationPicker`, `ViewPicker` | Actual Popup root and explicit editor, navigation, toolbar, choices, and size-control accessors | Root: open, disabled. Child: loading/error/empty on NavigationPane; selected on choice items. | Root styles target Popup. Child styles target their real controls; facade-specific targets reject. |
-| `TabStrip` | Root frame, tab surface, label, close action, separators and selection marker | selected, tab hovered, close hovered | The new-tab Button respects root insets but has no dedicated style part. Tab icons and drag states remain unsupported. Action identities remain unchanged. |
+| `TabStrip` | Root frame, tab surface, label, close action, separators and selection marker | selected, tab hovered, close hovered | The retained new-tab Button has a child accessor and respects root insets. It has no dedicated style part. Tab icons and drag states remain unsupported. Action identities remain unchanged. |
 
 ## Commands, windows, and hosted content
 

@@ -23,6 +23,16 @@ Default-path performance, bounded storage, native input, and accessibility remai
 
 ## Consumer integration
 
+### Explorer header icons
+
+`bindings\dotnet\FileExplorer\ExplorerStyles.cs` shares one Button style across the title-bar navigation button, both New tab buttons, and address-toolbar icons.
+The idle fill matches the WinUI window background because style colors remain opaque RGB24.
+The address button keeps its standard face.
+`xui_feature_child` exposes the retained TabStrip New tab Button at index 0.
+The C++ accessor and both bindings use that same control without replacement.
+The ABI regression covers handle identity, separate pane buttons, invalid indices, and Button styling.
+The explorer smoke covers the shared style and existing New tab activation.
+
 ### Final VSIX catalog integration
 
 The extension update uses the verified compiler and native catalog from commit `9bc9c4f90034b9acef48bf53e7e0907b6a672b3c`.

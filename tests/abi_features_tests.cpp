@@ -721,6 +721,17 @@ void explorer_contracts() {
     ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
     ok(xui_feature_child(window, 2, &second)); ok(xui_feature_child(window, 0, &again));
     expect(tabs == again && tabs != second);
+    xui_handle new_tab{}, second_new_tab{};
+    ok(xui_feature_child(tabs, 0, &new_tab));
+    ok(xui_feature_child(tabs, 0, &again));
+    ok(xui_feature_child(second, 0, &second_new_tab));
+    expect(new_tab == again && new_tab != second_new_tab);
+    expect(xui_feature_child(tabs, 1, &again) == XUI_INVALID_ARGUMENT);
+    xui_button_style_values icon_style{};
+    icon_style.size = sizeof(icon_style);
+    icon_style.version = XUI_BUTTON_STYLE_VERSION;
+    icon_style.mask = XUI_BUTTON_STYLE_BORDER_THICKNESS;
+    ok(xui_button_set_style_values(new_tab, &icon_style));
     uint32_t new_button = 9;
     ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 0);
     ok(xui_tab_set_new_button(tabs, 1));

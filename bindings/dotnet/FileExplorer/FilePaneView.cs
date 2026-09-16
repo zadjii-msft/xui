@@ -36,7 +36,10 @@ internal sealed class FilePaneView
         Tabs = tabs;
         Tabs.SetAutomationId($"pane-{number}-tabs");
         Tabs.NewTabButtonVisible = true;
+        Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
         layout = new(window, number, path, attach: false);
+        foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
+            button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
         BackButton = back = layout.Back;
         forward = layout.Forward;

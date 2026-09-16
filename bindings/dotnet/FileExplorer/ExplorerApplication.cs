@@ -52,6 +52,7 @@ internal sealed class ExplorerApplication : IDisposable
         Window.TitlebarSecondaryTabs.Visible(false);
         Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
             .Help("Show or collapse navigation");
+        Window.TitlebarLeading.SetStyle(ExplorerStyles.IconButton);
         Window.TitlebarLeading.Click += Sidebar.Toggle;
         Window.SetTitlebarLayout(Left.Root, Right.Root);
         Commands = CreateCommands();

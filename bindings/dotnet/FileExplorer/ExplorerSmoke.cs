@@ -65,6 +65,12 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
+                await Check(() => new[] { app.Window.TitlebarLeading, app.Left.Tabs.NewTabButton,
+                    app.Right.Tabs.NewTabButton, app.Left.BackButton, app.Right.BackButton }.All(button =>
+                        ReferenceEquals(button.Style, ExplorerStyles.IconButton)
+                        && button.EffectiveStyleValues.Background == new ThemeColor(0xF3F3F3, 0x202020)
+                        && button.EffectiveStyleValues.BorderThickness == new Insets(0)),
+                    "Header icons share a borderless style with the window background in both themes");
                 await Ui(() => Shortcut(0x75, KeyModifiers.Control));
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Light theme retains the WinUI visual style");
                 await Ui(() => Shortcut(0x75, KeyModifiers.Control));

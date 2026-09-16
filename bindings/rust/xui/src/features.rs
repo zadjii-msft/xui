@@ -505,6 +505,7 @@ pub struct TabColors {
     pub border: Option<u32>,
 }
 impl TabStrip {
+    pub fn new_tab_button(&self) -> Result<Button> { self.feature_child(0).map(Button) }
     pub fn set_new_tab_button_visible(&self, visible: bool) -> Result<()> {
         self.owner
             .check(unsafe { sys::xui_tab_set_new_button(self.handle, visible as u32) })

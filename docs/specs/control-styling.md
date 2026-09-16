@@ -170,6 +170,10 @@ Authored padding and border widths still reserve content space.
 The keyboard focus ring remains independent of authored state rules.
 Classic and WinUI retain their existing focus-visibility policies.
 
+The retained New tab Button supports ordinary Button styles through `TabStrip::new_tab_button()` in C++, `TabStrip.NewTabButton` in C#, and `TabStrip::new_tab_button()` in Rust.
+The C ABI exposes it through `xui_feature_child(tab_strip, 0, result)`, including while hidden.
+The accessor does not change visibility or the existing New tab action.
+
 Styles do not replace HWNDs, UI Automation providers, event handlers, or native editors.
 Theme and style changes preserve native text, selection, and ownership.
 No native IME, undo, or input implementation changes are part of this stage.

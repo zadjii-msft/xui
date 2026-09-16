@@ -31,6 +31,10 @@ After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#
 The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
 Each tab row follows its pane, including splitter and window-size changes.
 Each pane has a New tab icon immediately after its last visible tab, not in the address toolbar.
+The navigation, New tab, and address-toolbar icons use the shared `ExplorerStyles.IconButton` style.
+Their idle backgrounds match the window in light and dark themes, without borders.
+Hover, pressed, disabled, keyboard focus, and high-contrast feedback remain available.
+The address button retains its standard face.
 Both styles use attached tabs with rounded top corners and an open selected bottom edge.
 The row inherits its parent background.
 The title-bar border continues across the navigation area, pane divider, and caption area, except below selected tabs.

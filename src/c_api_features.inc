@@ -713,6 +713,7 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
             }
             break;
         }
+        case XUI_TAB_STRIP: limit(index, 0); e = as<xui::TabStrip>(n).new_tab_button(); kind = XUI_BUTTON; break;
         case XUI_BREADCRUMB: limit(index, 0); e = as<xui::Breadcrumb>(n).overflow_button(); kind = XUI_BUTTON; break;
         case XUI_COMMAND_BAR: limit(index, 0); e = as<xui::CommandBar>(n).overflow_button(); kind = XUI_BUTTON; break;
         case XUI_MILLER_COLUMNS:
