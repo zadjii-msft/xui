@@ -2,5 +2,9 @@
 name = "xui-sys"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Raw Rust bindings and native Windows runtime for XUI"
+repository = "https://github.com/zadjii-msft/xui"
 links = "xui"
 build = "build.rs"
+include = ["Cargo.toml", "LICENSE", "build.rs", "src/**", "native/**"]

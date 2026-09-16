@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.24)
+project(XuiPackageConsumer LANGUAGES C CXX)
+set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+find_package(Xui CONFIG REQUIRED)
+add_executable(static_consumer static.cpp)
+target_link_libraries(static_consumer PRIVATE Xui::Windows)
+target_compile_options(static_consumer PRIVATE /utf-8 /EHsc)
+add_executable(abi_consumer abi.c)
+target_link_libraries(abi_consumer PRIVATE Xui::CAbi)
+add_custom_command(TARGET abi_consumer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Xui::CAbi> $<TARGET_FILE_DIR:abi_consumer>)

@@ -390,8 +390,9 @@ The compiler does not prove the purity of arbitrary external C# code.
 
 ## Configure a project
 
-The current integration uses projects in this repository.
-It is not a published compiler package.
+The `Xui` NuGet package includes the compiler and runtime.
+The [package guide](packages.md#net-applications) describes package-based integration.
+For source development, use the projects in this repository:
 
 1. Create a .NET 10 executable project.
 2. Import `bindings\dotnet\Xui.Declarative.targets` after the project's property definitions.
@@ -503,7 +504,7 @@ The [Minesweeper sample](../../bindings/dotnet/Minesweeper/README.md) uses `.xui
 It includes first-click safety, flood reveal, flags, win/loss states, and restart.
 Its immutable C# model supplies values for a fixed native board.
 
-With the native library on this shell's DLL search path, run:
+After the native build, run:
 
 ```powershell
 dotnet watch --project bindings\dotnet\Minesweeper\Minesweeper.csproj --non-interactive

@@ -34,6 +34,7 @@
 
 ## Contracts
 
+* [Packages and deployment](packages.md)
 * [Application composition and lifecycle](application.md)
 * [Declarative language](xui-language.md)
 * [C ABI and binding contracts](bindings.md)

@@ -46,6 +46,7 @@ try {
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <XuiCopyNativeRuntime>false</XuiCopyNativeRuntime>
   </PropertyGroup>
   <Import Project="$targets" />
 </Project>

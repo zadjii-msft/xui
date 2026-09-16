@@ -5,8 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+option(XUI_ENABLE_IPO "Enable release link-time optimization (disable for redistributable static libraries)" ON)
 if(MSVC)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ${XUI_ENABLE_IPO})
 endif()
 
 add_library(xui_core src/core.cpp src/views.cpp src/controls.cpp src/control_styling.cpp src/styling.cpp src/data_grid.cpp src/foundation.cpp src/collections.cpp src/adaptive_layout.cpp src/commands.cpp src/navigation.cpp src/navigation_view.cpp src/miller_columns.cpp src/shell_command_session.cpp src/titlebar.cpp src/documents.cpp src/vector_canvas.cpp src/map_view.cpp src/runtime_hosts.cpp)
@@ -198,6 +199,14 @@ if(WIN32)
     target_link_libraries(xui_task_manager PRIVATE xui_windows psapi)
     target_compile_options(xui_task_manager PRIVATE /W4 /permissive- /utf-8 /EHsc)
     target_link_options(xui_task_manager PRIVATE /MANIFEST:NO)
+    set(XUI_SAMPLE_TARGETS
+        xui_abi_sample xui_feature_sample xui_direct_sample xui_demo
+        xui_gallery xui_winui_gallery xui_images xui_task_manager)
+    install(TARGETS xui xui_core xui_windows
+        RUNTIME DESTINATION . COMPONENT Native
+        ARCHIVE DESTINATION . COMPONENT Native)
+    install(TARGETS ${XUI_SAMPLE_TARGETS} RUNTIME DESTINATION . COMPONENT Samples)
+    install(FILES $<TARGET_FILE:xui> DESTINATION . COMPONENT Samples)
     if(MSVC)
         target_link_options(xui_demo PRIVATE /MANIFEST:NO)
         target_link_options(xui_gallery PRIVATE /MANIFEST:NO)

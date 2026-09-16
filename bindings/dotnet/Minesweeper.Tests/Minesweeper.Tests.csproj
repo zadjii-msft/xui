@@ -7,6 +7,6 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Minesweeper\Minesweeper.csproj" />
+    <ProjectReference Include="..\Minesweeper\Minesweeper.csproj" AdditionalProperties="XuiCopyNativeRuntime=false" />
   </ItemGroup>
 </Project>

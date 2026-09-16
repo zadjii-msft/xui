@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <XuiRuntimeIdentifier Condition="'$(XuiRuntimeIdentifier)' == '' and ('$(PROCESSOR_ARCHITECTURE)' == 'ARM64' or '$(PROCESSOR_ARCHITEW6432)' == 'ARM64')">win-arm64</XuiRuntimeIdentifier>
+    <XuiRuntimeIdentifier Condition="'$(XuiRuntimeIdentifier)' == ''">win-x64</XuiRuntimeIdentifier>
+  </PropertyGroup>
+</Project>

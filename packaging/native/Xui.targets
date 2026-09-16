@@ -1,0 +1,43 @@
+<Project>
+  <PropertyGroup>
+    <XuiNativeLinkage Condition="'$(XuiNativeLinkage)' == ''">Static</XuiNativeLinkage>
+    <_XuiRid Condition="'$(Platform)' == 'x64'">win-x64</_XuiRid>
+    <_XuiRid Condition="'$(Platform)' == 'ARM64'">win-arm64</_XuiRid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;_WIN32_WINNT=0x0A00;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)lib\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <Manifest>
+      <AdditionalManifestFiles>$(MSBuildThisFileDirectory)xui.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(XuiNativeLinkage)' == 'Static'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>xui_windows.lib;xui_core.lib;d2d1.lib;dwrite.lib;dwmapi.lib;uiautomationcore.lib;ole32.lib;oleaut32.lib;comctl32.lib;shell32.lib;user32.lib;gdi32.lib;windowscodecs.lib;uxtheme.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(XuiNativeLinkage)' == 'CAbi'">
+    <Link>
+      <AdditionalDependencies>xui.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="ValidateXuiNativePackage" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(_XuiRid)' == ''" Text="XUI requires platform x64 or ARM64." />
+    <Error Condition="'$(XuiNativeLinkage)' != 'Static' and '$(XuiNativeLinkage)' != 'CAbi'" Text="XuiNativeLinkage must be Static or CAbi." />
+    <Error Condition="'$(XuiNativeLinkage)' == 'Static' and '$(UseDebugLibraries)' == 'true'" Text="The XUI package contains Release static libraries. Use a Release configuration or XuiNativeLinkage=CAbi for Debug builds." />
+  </Target>
+  <Target Name="CopyXuiPackageRuntime" AfterTargets="Build" Condition="'$(XuiNativeLinkage)' == 'CAbi'">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\xui.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

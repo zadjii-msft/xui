@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>Xui</id>
+    <version>$version$</version>
+    <authors>zadjii-msft</authors>
+    <license type="expression">MIT</license>
+    <description>Windows UI for C++, C#, and Rust. Native C++ libraries, C ABI runtime, .NET bindings, and the declarative .xui compiler.</description>
+    <projectUrl>https://github.com/zadjii-msft/xui</projectUrl>
+    <repository type="git" url="https://github.com/zadjii-msft/xui" />
+    <readme>README.md</readme>
+    <dependencies>
+      <group targetFramework="net10.0" />
+      <group targetFramework="native0.0" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="LICENSE" target="LICENSE" />
+    <file src="packaging\README.md" target="" />
+    <file src="$managedRoot$\Xui\Xui.Managed.dll" target="lib\net10.0" />
+    <file src="$managedRoot$\Xui.Generator\Xui.Generator.dll" target="analyzers\dotnet\cs" />
+    <file src="$managedRoot$\Xui.Development\Xui.Development.dll" target="tools\net10.0" />
+    <file src="$nativeRoot$\win-x64\xui.dll" target="runtimes\win-x64\native" />
+    <file src="$nativeRoot$\win-arm64\xui.dll" target="runtimes\win-arm64\native" />
+    <file src="$nativeRoot$\win-x64\*.lib" target="build\native\lib\x64" />
+    <file src="$nativeRoot$\win-arm64\*.lib" target="build\native\lib\ARM64" />
+    <file src="include\xui\**\*" target="build\native\include\xui" />
+    <file src="demo\xui.manifest" target="build\native" />
+    <file src="packaging\native\Xui.targets" target="build\native" />
+    <file src="packaging\native\XuiConfig.cmake" target="build\native" />
+    <file src="packaging\native\_._" target="lib\native" />
+    <file src="packaging\managed\Xui.targets" target="build\net10.0" />
+    <file src="bindings\dotnet\Xui.Declarative.Common.targets" target="build\net10.0" />
+  </files>
+</package>

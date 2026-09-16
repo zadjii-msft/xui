@@ -10,8 +10,6 @@ $native = (Resolve-Path (Join-Path $root $NativeDirectory)).Path
 $probe = Join-Path $native "xui_language_probe.exe"
 $sample = Join-Path $root "bindings\dotnet\Minesweeper"
 $run = Join-Path $root ("build\minesweeper-check\" + [Guid]::NewGuid().ToString("N"))
-$oldPath = $env:PATH
-$env:PATH = "$native;$oldPath"
 $watch = $null
 $published = $null
 $application = 0
@@ -83,9 +81,11 @@ try {
         'Console.WriteLine($"Minesweeper fixture process {Environment.ProcessId}");' + "`n            int? seed = args switch")
     [IO.File]::WriteAllText((Join-Path $run "Program.cs"), $program)
     $targets = [Security.SecurityElement]::Escape((Join-Path $root "bindings\dotnet\Xui.Declarative.targets"))
+    $escapedNative = [Security.SecurityElement]::Escape($native)
     $projectText = [IO.File]::ReadAllText((Join-Path $sample "Minesweeper.csproj")).
         Replace('..\Xui.Declarative.targets', $targets).
-        Replace("win-arm64", $RuntimeIdentifier)
+        Replace('$(XuiRuntimeIdentifier)', $RuntimeIdentifier).
+        Replace('</PropertyGroup>', "<XuiNativeDir>$escapedNative</XuiNativeDir></PropertyGroup>")
     $project = Join-Path $run "Minesweeper.csproj"
     [IO.File]::WriteAllText($project, $projectText)
     $source = [IO.File]::ReadAllText((Join-Path $sample "Minefield.xui"))
@@ -179,10 +179,9 @@ try {
 
     $publishDirectory = Join-Path $run "publish"
     $output = & dotnet publish (Join-Path $sample "Minesweeper.csproj") -c Release -r $RuntimeIdentifier `
-        -p:PublishAot=true -o $publishDirectory --nologo -v:q 2>&1
+        -p:PublishAot=true "-p:XuiNativeDir=$native" -o $publishDirectory --nologo -v:q 2>&1
     $output | Set-Content (Join-Path $run "publish.log")
     Assert ($LASTEXITCODE -eq 0) "NativeAOT publish failed: $output"
-    Copy-Item (Join-Path $native "xui.dll") $publishDirectory
     $published = Start-Process -FilePath (Join-Path $publishDirectory "Minesweeper.exe") `
         -ArgumentList @("--seed", "17") -RedirectStandardOutput (Join-Path $run "published.stdout.log") `
         -RedirectStandardError (Join-Path $run "published.stderr.log") -PassThru
@@ -204,5 +203,4 @@ try {
             $process.Dispose()
         }
     }
-    $env:PATH = $oldPath
 }

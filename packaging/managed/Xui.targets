@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <ApplicationManifest Condition="'$(ApplicationManifest)' == ''">$(MSBuildThisFileDirectory)..\native\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Declarative.Common.targets" />
+  <ItemGroup Condition="'$(XuiHotReload)' == 'true'">
+    <Reference Include="Xui.Development" HintPath="$(MSBuildThisFileDirectory)..\..\tools\net10.0\Xui.Development.dll" Private="true" />
+  </ItemGroup>
+  <Target Name="ValidateXuiPackageRuntime" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <Error Condition="'$(RuntimeIdentifier)' != 'win-x64' and '$(RuntimeIdentifier)' != 'win-arm64'" Text="XUI applications require RuntimeIdentifier win-x64 or win-arm64." />
+  </Target>
+</Project>
