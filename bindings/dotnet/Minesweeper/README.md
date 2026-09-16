@@ -34,9 +34,11 @@ This demo does not include right-click flag placement, chording, a timer, or dif
 
 ## Cell appearance
 
-Covered squares have raised bottom and right borders.
+Covered squares have uniform one-DIP borders.
 Revealed squares have flat, filled faces without borders.
 All squares keep the same size and position.
+Cell text is centered vertically and horizontally.
+The row and column labels use the same alignment.
 Numbers use blue, green, red, indigo, brown, teal, black, and gray for counts from one through eight.
 The dark theme uses lighter equivalents.
 

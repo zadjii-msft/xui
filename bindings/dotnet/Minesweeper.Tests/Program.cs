@@ -155,8 +155,10 @@ internal static class Program
 
     private static void TestStyleDefinitions()
     {
-        Assert(CellStyles.Covered.Values.BorderThickness == new Insets(1, 1, 3, 3),
-            "Covered cells have a raised lower/right edge.");
+        Assert(CellStyles.Covered.Values.BorderThickness == new Insets(1),
+            "Covered cells have a uniform border.");
+        Assert(CellStyles.Covered.Rules.All(rule => rule.Values.BorderThickness is null),
+            "Interaction states do not shift the cell border or text.");
         Assert(CellStyles.Cleared.Values.BorderThickness == new Insets(0) &&
             CellStyles.Cleared.Values.Background is not null, "Borderless cells retain a filled face.");
         Assert(CellStyles.Numbers.Count == 9 && ReferenceEquals(CellStyles.Numbers[0], CellStyles.Cleared),
@@ -197,6 +199,19 @@ internal static class Program
         Assert(board.CellButtons.Count == GameState.CellCount &&
             board.CellButtons.Select(b => b.Id).Distinct().Count() == GameState.CellCount,
             "The compiled view exposes all distinct native cells in board order.");
+        Label[] coordinates = [
+            board.Column1, board.Column2, board.Column3, board.Column4, board.Column5,
+            board.Column6, board.Column7, board.Column8, board.Column9,
+            board.Row1, board.Row2, board.Row3, board.Row4, board.Row5,
+            board.Row6, board.Row7, board.Row8, board.Row9
+        ];
+        foreach (var coordinate in coordinates)
+        {
+            var values = coordinate.GetControlStyleValues(StylePart.Root, effective: true);
+            Assert(values.HorizontalAlignment == StyleAlignment.Center &&
+                values.VerticalAlignment == StyleAlignment.Center,
+                "Every compiled coordinate label centers its text on both axes.");
+        }
 
         void CheckBoard()
         {

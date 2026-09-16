@@ -13,13 +13,13 @@ public static class CellStyles
     public static readonly ButtonStyle Covered = new(new()
     {
         Background = Face, Foreground = Ink, BorderBrush = Edge,
-        BorderThickness = new(1, 1, 3, 3), CornerRadius = 0, Padding = new(0)
+        BorderThickness = new(1), CornerRadius = 0, Padding = new(0)
     },
     [
         new(ButtonStyleState.Hovered, new() { Background = new(0xFFFFFF, 0x565656) }),
         new(ButtonStyleState.Pressed, new()
         {
-            Background = ClearedFace, BorderThickness = new(3, 3, 1, 1)
+            Background = ClearedFace
         }),
         new(ButtonStyleState.Disabled, new()
         {

@@ -157,6 +157,7 @@ Explicit padding replaces the default padding and default minimum Button height.
 Explicit control size constraints still apply.
 Fixed-size Buttons keep their size and clip content within the authored content area.
 Text and icons use the remaining area after padding and borders.
+Button text is centered in this area by default.
 
 A color or radius change requests paint.
 A padding or border-width change requests layout and paint.
