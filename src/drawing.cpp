@@ -916,6 +916,74 @@ D2D1_COLOR_F Drawing::styled_button_face(Rect bounds, const Palette& palette, Bu
     return ink;
 }
 
+void Drawing::styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
+    D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (!palette.high_contrast) {
+        if (values.background) background = D2D1::ColorF(values.background->resolve(palette.mode));
+        if (values.border_brush) border = D2D1::ColorF(values.border_brush->resolve(palette.mode));
+        radius = values.corner_radius.value_or(radius);
+        thickness = values.border_thickness.value_or(thickness);
+    }
+    radius = std::min(radius, std::min(bounds.width, bounds.height) / 2);
+    if (background.a > 0) rounded(bounds, background, radius);
+    const float left = std::min(thickness.left, bounds.width), right = std::min(thickness.right, bounds.width);
+    const float top = std::min(thickness.top, bounds.height), bottom = std::min(thickness.bottom, bounds.height);
+    const Rect edges[]{{bounds.x, bounds.y, left, bounds.height},
+        {bounds.x + left, bounds.y, std::max(0.0f, bounds.width - left - right), top},
+        {bounds.x + bounds.width - right, bounds.y, right, bounds.height},
+        {bounds.x + left, bounds.y + bounds.height - bottom, std::max(0.0f, bounds.width - left - right), bottom}};
+    for (const auto& edge : edges) if (edge.width > 0 && edge.height > 0) {
+        push_clip(edge);
+        rounded(bounds, border, radius);
+        pop_clip();
+    }
+}
+
+void Drawing::styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
+    IDWriteTextLayout* label, bool focus_visible) {
+    const PartStyleValues empty;
+    const auto* root = toggle.effective_style_values(StylePart::root);
+    const auto* indicator = toggle.effective_style_values(StylePart::indicator);
+    const auto* mark = toggle.effective_style_values(StylePart::mark);
+    const auto* text = toggle.effective_style_values(StylePart::label);
+    const bool winui = palette.style == VisualStyle::winui;
+    const auto indicator_box = toggle.indicator_bounds(bounds);
+    auto ink = !enabled ? palette.disabled : toggle.pressed() ? palette.selection_text : palette.text;
+    const auto root_fill = !winui && (toggle.hovered() || toggle.pressed()) ?
+        toggle.pressed() ? palette.selection : palette.hover : D2D1::ColorF(0, 0.0f);
+    styled_surface(bounds, palette, root ? *root : empty, root_fill,
+        ink, 0, {});
+    const auto fill = toggle.checked() ? (enabled ? palette.high_contrast ? palette.selection : palette.accent : palette.disabled) : palette.field;
+    const auto border = enabled ? palette.high_contrast ? palette.text : palette.accent : palette.disabled;
+    styled_surface(indicator_box, palette, indicator ? *indicator : empty, fill, border, winui ? 4.0f : 3.0f, {1, 1, 1, 1});
+    if (toggle.checked()) {
+        auto mark_ink = palette.high_contrast && enabled ? palette.selection_text : palette.background;
+        if (!palette.high_contrast && mark && mark->foreground)
+            mark_ink = D2D1::ColorF(mark->foreground->resolve(palette.mode));
+        const auto b = toggle.mark_bounds(bounds);
+        if (b.width > 0 && b.height > 0) {
+            push_clip(indicator_box);
+            line(b.x + b.width * 2 / 9, b.y + b.height / 2,
+                b.x + b.width * 4 / 9, b.y + b.height * 13 / 18, mark_ink, 2);
+            line(b.x + b.width * 4 / 9, b.y + b.height * 13 / 18,
+                b.x + b.width * 7 / 9, b.y + b.height * 5 / 18, mark_ink, 2);
+            pop_clip();
+        }
+    }
+    if (!palette.high_contrast && text && text->foreground)
+        ink = D2D1::ColorF(text->foreground->resolve(palette.mode));
+    const auto content = toggle.label_bounds(bounds);
+    push_clip(content);
+    text_layout(label, content, ink);
+    pop_clip();
+    if (focus_visible) {
+        const Rect face{bounds.x + 1, bounds.y + 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)};
+        if (winui) focus_ring(face, palette);
+        else outline(face, palette.high_contrast ? palette.text : palette.accent);
+    }
+}
+
 void Drawing::line(float x1, float y1, float x2, float y2, D2D1_COLOR_F value, float thickness) {
     brush_->SetColor(value);
     target_->DrawLine(D2D1::Point2F(x1, y1), D2D1::Point2F(x2, y2), brush_.Get(), thickness);

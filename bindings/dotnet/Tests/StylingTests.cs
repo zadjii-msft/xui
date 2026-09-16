@@ -58,6 +58,17 @@ internal static class StylingTests
         for (int i = 1; i < 16; ++i) style = new ButtonStyle(new(), basedOn: style);
         Throws<ArgumentException>(() => new ButtonStyle(new(), basedOn: style));
         Console.WriteLine("C# immutable style and resource tests passed.");
+        var toggleParts = new[] { new PartStyle(StylePart.Indicator, new() { Size = 18, Background = new(0) }) };
+        var toggleStyle = new ControlStyle(StyleTarget.Toggle, toggleParts,
+            [new(StylePart.Indicator, StyleState.Checked, new() { Background = new(0x123456, 0x654321) })]);
+        toggleParts[0] = new(StylePart.Mark, new());
+        Assert(toggleStyle.Parts[0].Part == StylePart.Indicator && toggleStyle.Parts[0].Values.Size == 18);
+        Throws<ArgumentException>(() => new ControlStyle(StyleTarget.Toggle, [new(StylePart.Label, new() { Size = 1 })]));
+        Throws<ArgumentOutOfRangeException>(() => new ControlStyle(StyleTarget.Toggle, [new(StylePart.Indicator, new() { Size = float.NaN })]));
+        Throws<ArgumentException>(() => new ControlStyle(StyleTarget.Toggle, [], [new(StylePart.Root, (StyleState)3, new())]));
+        Throws<ArgumentException>(() => new ControlStyle((StyleTarget)99, []));
+        Throws<ArgumentException>(() => new ControlStyle(StyleTarget.Toggle, [new((StylePart)99, new())]));
+        Console.WriteLine("C# generic control style definition tests passed.");
     }
     internal static void Native()
     {
@@ -105,7 +116,71 @@ internal static class StylingTests
         FailedApplicationCleanup();
         BoundedLifetime();
         SharedDefinitions();
+        ToggleStyles();
+        GeneratedToggleStyles();
         Console.WriteLine($"C# styling assertions: {assertions} passed; architecture: {RuntimeInformation.ProcessArchitecture}");
+    }
+
+    private static void ToggleStyles()
+    {
+        using var window = new Window();
+        var style = new ControlStyle(StyleTarget.Toggle,
+            [new(StylePart.Root, new() { Foreground = new(0x123456, 0x654321) }),
+             new(StylePart.Indicator, new() { Size = 18, Background = new(0) })],
+            [new(StylePart.Indicator, StyleState.Checked, new() { Background = new(0x445566) }),
+             new(StylePart.Root, StyleState.Disabled, new() { Foreground = new(0x777777) })]);
+        var toggle = window.Toggle("Generic").SetStyle(style);
+        Assert(toggle.GetStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0x123456, 0x654321));
+        toggle.Checked = true;
+        Assert(toggle.GetStyleValues(StylePart.Indicator, true).Background == new ThemeColor(0x445566));
+        toggle.Enabled = false;
+        Assert(toggle.GetStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0x777777));
+        toggle.SetStyleValues(StylePart.Root, new() { Foreground = new(0) });
+        toggle.Style = null;
+        Assert(toggle.GetStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0));
+        toggle.SetStyleValues(StylePart.Root, new());
+        Assert(toggle.GetStyleValues(StylePart.Label, true) == new PartStyleValues());
+        toggle.Style = style;
+        Fails(1, () => toggle.SetStyleValues(StylePart.Indicator, new() { Foreground = new(1) }));
+        Assert(toggle.GetStyleValues(StylePart.Indicator, true).Size == 18);
+        Fails(1, () => window.Button("Wrong target").SetControlStyle(style));
+        using var other = new Window();
+        var shared = other.Toggle("Shared").SetStyle(style);
+        Assert(shared.GetStyleValues(StylePart.Indicator, true).Background == new ThemeColor(0));
+        var marker = Handle(window.Button("Before shared assignments"));
+        for (int i = 0; i < 256; ++i) toggle.Style = style;
+        Assert(Handle(window.Button("After shared assignments")) == marker + 1);
+        Task.Run(() => Fails(4, () => toggle.Style = style)).GetAwaiter().GetResult();
+        window.Dispose();
+        Throws<ObjectDisposedException>(() => toggle.Style = null);
+        Assert(shared.GetStyleValues(StylePart.Indicator, true).Size == 18);
+    }
+
+    private static void GeneratedToggleStyles()
+    {
+        using var window = new Window();
+        var component = new ToggleStylingFixture(window);
+        var style = component.First.Style;
+        Assert(style is not null && ReferenceEquals(style, component.Second.Style));
+        Assert(component.First.GetStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0));
+        Assert(component.Second.GetStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0x123456, 0x654321));
+        Assert(component.First.GetStyleValues(StylePart.Indicator, true).Size == 18);
+        component.First.Checked = true;
+        Assert(component.First.GetStyleValues(StylePart.Indicator, true).Background == new ThemeColor(0x123456, 0x654321));
+        component.Input.Text = "Keep native input";
+        var input = Handle(component.Input);
+        var toggle = Handle(component.First);
+        var refresh = typeof(ToggleStylingFixture).GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var marker = Handle(window.Button("Before unchanged refresh"));
+        for (int i = 0; i < 32; ++i) refresh.Invoke(component, null);
+        Assert(Handle(window.Button("After unchanged refresh")) == marker + 1);
+        Assert(ReferenceEquals(style, component.First.Style));
+        typeof(ToggleStylingFixture).GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(component, null);
+        Assert(!ReferenceEquals(style, component.First.Style) && ReferenceEquals(component.First.Style, component.Second.Style));
+        Assert(Handle(component.First) == toggle && Handle(component.Input) == input);
+        Assert(component.Input.Text == "Keep native input");
+        Assert(component.First.GetStyleValues(StylePart.Indicator, true).Background == new ThemeColor(0x123456, 0x654321));
     }
 
     private static void StateAndInheritance()

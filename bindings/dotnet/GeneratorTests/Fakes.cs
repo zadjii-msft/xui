@@ -116,9 +116,37 @@ public sealed class ButtonStyle(ButtonStyleValues values, IReadOnlyList<ButtonSt
 }
 public sealed class Toggle : Control
 {
+    private ControlStyle? style;
+    public int StyleSets;
+    public ControlStyle? Style { get => style; set { style = value; StyleSets++; } }
+    public readonly Dictionary<StylePart, PartStyleValues> Locals = [];
+    public Toggle SetStyleValues(StylePart part, PartStyleValues values) { Locals[part] = values; return this; }
     public bool Checked { get; set; }
     public event Action<bool>? Changed;
     public void Invoke(bool value) { Checked = value; Changed?.Invoke(value); }
+}
+public enum StyleTarget { Toggle }
+public enum StylePart { Root, Label, Indicator, Mark }
+public enum StyleState : ulong { Focused = 1, Checked = 2, Hovered = 4, Pressed = 8, Disabled = 16 }
+public sealed record PartStyleValues
+{
+    public ThemeColor? Background { get; init; }
+    public ThemeColor? Foreground { get; init; }
+    public ThemeColor? BorderBrush { get; init; }
+    public float? CornerRadius { get; init; }
+    public float? Size { get; init; }
+    public Insets? BorderThickness { get; init; }
+    public Insets? Padding { get; init; }
+}
+public sealed record PartStyle(StylePart Part, PartStyleValues Values);
+public sealed record ControlStyleRule(StylePart Part, StyleState State, PartStyleValues Values);
+public sealed class ControlStyle(StyleTarget target, IReadOnlyList<PartStyle> parts,
+    IReadOnlyList<ControlStyleRule>? rules = null, ControlStyle? basedOn = null)
+{
+    public StyleTarget Target { get; } = target;
+    public IReadOnlyList<PartStyle> Parts { get; } = parts;
+    public IReadOnlyList<ControlStyleRule> Rules { get; } = rules ?? [];
+    public ControlStyle? BasedOn { get; } = basedOn;
 }
 public sealed class TextInput : Control
 {

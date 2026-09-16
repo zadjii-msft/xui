@@ -268,7 +268,62 @@ void Control::invalidate_state() {
             return;
         }
     }
+    if (control_style_) {
+        invalidate(control_style_->state_changed(control_style_state_bits()));
+        return;
+    }
     invalidate(Invalidation::paint);
+}
+StyleStateMask Control::control_style_state_bits() const {
+    return (focused() ? style_states::focused : 0) | (hovered() ? style_states::hovered : 0) |
+        (pressed() ? style_states::pressed : 0) |
+        ((!enabled() || (control_style_ && !control_style_->context_enabled())) ? style_states::disabled : 0);
+}
+void Control::set_control_style(std::shared_ptr<const ControlStyle> style) {
+    const auto target = control_style_target();
+    if (style && (!target || *target != style->target()))
+        throw std::invalid_argument("Control does not support this style target");
+    if (!control_style_ && !style) return;
+    if (control_style_ && control_style_->style() == style) return;
+    auto next = control_style_ ? nullptr : std::make_unique<ControlStyleAttachment>(*target);
+    const auto result = (next ? next.get() : control_style_.get())->assign_style(std::move(style), control_style_state_bits());
+    if (next) control_style_ = std::move(next);
+    if (control_style_->fully_empty()) control_style_.reset();
+    if (result) invalidate(*result);
+}
+std::shared_ptr<const ControlStyle> Control::control_style() const {
+    return control_style_ ? control_style_->style() : nullptr;
+}
+void Control::set_control_style_values(StylePart part, PartStyleValues values) {
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Control does not support control styling");
+    validate_part_values(*target, part, values);
+    if (!control_style_ && values.empty()) return;
+    auto next = control_style_ ? nullptr : std::make_unique<ControlStyleAttachment>(*target);
+    const auto result = (next ? next.get() : control_style_.get())->assign_local(part, std::move(values), control_style_state_bits());
+    if (next) control_style_ = std::move(next);
+    if (control_style_->fully_empty()) control_style_.reset();
+    if (result) invalidate(*result);
+}
+const PartStyleValues& Control::control_style_values(StylePart part) const {
+    static const PartStyleValues empty_values;
+    if (control_style_) return control_style_->local(part);
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Control does not support control styling");
+    validate_part(*target, part);
+    return empty_values;
+}
+const PartStyleValues* Control::effective_control_style_values(StylePart part) const {
+    if (control_style_) return control_style_->effective(part, control_style_state_bits());
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Control does not support control styling");
+    validate_part(*target, part);
+    return nullptr;
+}
+void Control::set_control_style_context_enabled(bool enabled) {
+    if (!control_style_ || control_style_->context_enabled() == enabled) return;
+    control_style_->set_context_enabled(enabled);
+    invalidate_state();
 }
 unsigned Button::style_state_mask() const {
     return unsigned(focused()) | (unsigned(checked()) << 1) | (unsigned(hovered()) << 2) |
@@ -355,12 +410,65 @@ void Button::set_repeat_timing(unsigned delay, unsigned interval) {
 void Toggle::set_checked(bool checked) {
     if (checked_ == checked) return;
     checked_ = checked;
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 void Toggle::activate() {
     set_checked(!checked_);
     const auto callback = change_;
     if (callback) callback(checked_);
+}
+Toggle::Layout Toggle::layout_metrics() const {
+    const auto* root = effective_style_values(StylePart::root);
+    const auto* indicator = effective_style_values(StylePart::indicator);
+    const bool winui = visual_style() == VisualStyle::winui;
+    Layout layout;
+    layout.gap = winui ? 9.0f : 12.0f;
+    layout.indicator_size = indicator && indicator->size ? *indicator->size : (winui ? 19.0f : 18.0f);
+    layout.padding = root && root->padding ? *root->padding : Insets{winui ? 0.0f : 12.0f, 0, 12, 0};
+    layout.border = root && root->border_thickness ? *root->border_thickness : Insets{};
+    layout.indicator_border = indicator && indicator->border_thickness ? *indicator->border_thickness : Insets{};
+    return layout;
+}
+namespace {
+Rect inset_rect(Rect bounds, const Insets& insets) {
+    return {bounds.x + insets.left, bounds.y + insets.top,
+        std::max(0.0f, bounds.width - insets.left - insets.right), std::max(0.0f, bounds.height - insets.top - insets.bottom)};
+}
+}
+Rect Toggle::indicator_bounds(Rect bounds) const {
+    const auto layout = layout_metrics();
+    const auto content = content_bounds(bounds);
+    return {content.x, content.y + std::max(0.0f, (content.height - layout.indicator_size) / 2),
+        layout.indicator_size, layout.indicator_size};
+}
+Rect Toggle::content_bounds(Rect bounds) const {
+    const auto layout = layout_metrics();
+    return inset_rect(inset_rect(bounds, layout.border), layout.padding);
+}
+Rect Toggle::label_bounds(Rect bounds) const {
+    auto content = content_bounds(bounds);
+    const auto layout = layout_metrics();
+    const float prefix = layout.indicator_size + layout.gap;
+    content.x += prefix;
+    content.width = std::max(0.0f, content.width - prefix);
+    return content;
+}
+Rect Toggle::mark_bounds(Rect bounds) const {
+    return inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
+}
+Size Toggle::measure(Size available) {
+    if (!visible()) return {};
+    const auto* root = effective_style_values(StylePart::root);
+    const auto* indicator = effective_style_values(StylePart::indicator);
+    const bool layout_affecting = (root && (root->padding || root->border_thickness)) || (indicator && indicator->size);
+    if (!auto_size() || !layout_affecting) return Control::measure(available);
+    const auto text = measured_text();
+    const auto layout = layout_metrics();
+    const float width = layout.padding.left + layout.border.left + layout.indicator_size + layout.gap + text.width +
+        layout.padding.right + layout.border.right;
+    const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
+        layout.border.top + layout.border.bottom;
+    return constrain({width, height}, available);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;

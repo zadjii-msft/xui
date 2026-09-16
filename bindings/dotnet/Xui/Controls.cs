@@ -57,7 +57,7 @@ public sealed class Stack : Element
     public Stack Spacing(float value) { Window.Update(new Property(this, PropertyKind.Spacing, A: value)); return this; }
     public Stack Padding(float value) { Window.Update(new Property(this, PropertyKind.Padding, A: value, B: value, C: value, D: value)); return this; }
 }
-public abstract unsafe class Control : Element
+public abstract unsafe partial class Control : Element
 {
     private Action<UiEvent>? handlers;
     private Action? focusEntered;
@@ -107,7 +107,7 @@ public sealed partial class Button : Control
     }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
 }
-public sealed class Toggle : Control
+public sealed partial class Toggle : Control
 {
     internal Toggle(Window w, ulong h) : base(w, h) { }
     private Action<bool>? changed;

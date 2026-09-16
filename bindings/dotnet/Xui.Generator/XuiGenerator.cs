@@ -177,6 +177,17 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.ButtonStyleValues", $"__xuiN{index}.StyleValues = {{0}}",
                     new(styling.Values(local), local.First().Value.Offset), []));
         }
+        if (node.Kind == "Toggle")
+        {
+            if (node.Arguments.TryGetValue("style", out var style))
+                bindings.Add(new($"__xuiB{index}_style", index, "global::Xui.ControlStyle", $"__xuiN{index}.Style = {{0}}",
+                    new(styling.Reference(style, "Toggle"), style.Offset), []));
+            var local = node.Arguments.Where(pair => StyleCompiler.Properties.Contains(pair.Key)).ToDictionary();
+            if (local.Count != 0)
+                bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.PartStyleValues",
+                    $"__xuiN{index}.SetStyleValues(global::Xui.StylePart.Root, {{0}})",
+                    new(styling.Values(local, "Toggle"), local.First().Value.Offset), []));
+        }
         if (node.Kind == "Grid")
         {
             const string tracks = "new global::Xui.GridTrack[] { new(global::Xui.TrackSizing.Star, 1) }";
@@ -438,8 +449,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         // A method-body revision changes under hot reload. Static field initializers do not rerun.
         Line("private static readonly object __xuiStyleLock = new();");
         Line("private static string? __xuiStyleRevision;");
-        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle>? __xuiStyleCache;");
-        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle> __xuiGetStyles()");
+        Line("private static global::System.Collections.Generic.Dictionary<string, object>? __xuiStyleCache;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, object> __xuiGetStyles()");
         Line("{");
         string definitions = styling.Definitions();
         string revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(definitions)));
@@ -447,7 +458,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("lock (__xuiStyleLock)");
         Line("{");
         Line("if (__xuiStyleCache is not null && __xuiStyleRevision == __xuiRevision) return __xuiStyleCache;");
-        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, global::Xui.ButtonStyle>(global::System.StringComparer.Ordinal);");
+        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, object>(global::System.StringComparer.Ordinal);");
         Line(definitions);
         Line("__xuiStyleCache = __xuiStyles;");
         Line("__xuiStyleRevision = __xuiRevision;");

@@ -9,6 +9,11 @@ _Static_assert(sizeof(xui_event) == 24, "event ABI");
 _Static_assert(sizeof(xui_file_item) == 48, "item ABI");
 _Static_assert(offsetof(xui_property, integer) == 48, "property offset");
 _Static_assert(offsetof(xui_string, length) == 8, "string offset");
+_Static_assert(sizeof(xui_style_property) == 80, "generic style property ABI");
+_Static_assert(offsetof(xui_style_property, state) == 24, "generic style state offset");
+_Static_assert(offsetof(xui_style_property, number) == 56, "generic style number offset");
+_Static_assert(offsetof(xui_style_property, text) == 64, "generic style text offset");
+_Static_assert(sizeof(xui_control_style_options) == 40, "generic style options ABI");
 int main(void) {
     xui_handle window = 0;
     xui_window_options options = {0};

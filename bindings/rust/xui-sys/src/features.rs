@@ -84,6 +84,43 @@ impl Default for ButtonStyleOptions {
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct StyleProperty {
+    pub size: u32,
+    pub version: u32,
+    pub property: u32,
+    pub value_type: u32,
+    pub part: u32,
+    pub reserved: u32,
+    pub state: u64,
+    pub color: ThemeColor,
+    pub insets: StyleInsets,
+    pub number: f64,
+    pub text: Text,
+}
+impl Default for StyleProperty {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ControlStyleOptions {
+    pub size: u32,
+    pub version: u32,
+    pub target: u32,
+    pub reserved: u32,
+    pub properties: *const StyleProperty,
+    pub property_count: u32,
+    pub reserved_end: u32,
+    pub based_on: u64,
+}
+impl Default for ControlStyleOptions {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct NavigationEntry {
     pub size: u32,
     pub flags: u32,
@@ -359,6 +396,29 @@ unsafe extern "C" {
         button: u64,
         effective: u32,
         values: *mut ButtonStyleValues,
+    ) -> i32;
+    pub fn xui_control_style_create(
+        window: u64,
+        options: *const ControlStyleOptions,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_control_style_release(style: u64) -> i32;
+    pub fn xui_control_style_reacquire(window: u64, identity: u64, result: *mut u64) -> i32;
+    pub fn xui_control_try_set_style(control: u64, identity: u64, applied: *mut u32) -> i32;
+    pub fn xui_control_set_style(control: u64, style: u64) -> i32;
+    pub fn xui_control_set_style_values(
+        control: u64,
+        part: u32,
+        properties: *const StyleProperty,
+        count: u32,
+    ) -> i32;
+    pub fn xui_control_get_style_values(
+        control: u64,
+        part: u32,
+        effective: u32,
+        properties: *mut StyleProperty,
+        capacity: u32,
+        count: *mut u32,
     ) -> i32;
     pub fn xui_navigation_items_visual(
         target: u64,

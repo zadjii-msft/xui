@@ -45,6 +45,31 @@ internal uint Reserved;
 internal ulong BasedOn;
 }
 [StructLayout(LayoutKind.Sequential)]
+internal struct StyleProperty {
+internal uint Size;
+internal uint Version;
+internal uint Property;
+internal uint ValueType;
+internal uint Part;
+internal uint Reserved;
+internal ulong State;
+internal ThemeColor Color;
+internal StyleInsets Insets;
+internal double Number;
+internal Text Text;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ControlStyleOptions {
+internal uint Size;
+internal uint Version;
+internal uint Target;
+internal uint Reserved;
+internal StyleProperty* Properties;
+internal uint PropertyCount;
+internal uint ReservedEnd;
+internal ulong BasedOn;
+}
+[StructLayout(LayoutKind.Sequential)]
 internal struct NavigationEntry {
 internal uint Size;
 internal uint Flags;
@@ -224,6 +249,20 @@ internal static partial int ButtonSetStyle(ulong @button, ulong @style);
 internal static partial int ButtonSetStyleValues(ulong @button, ButtonStyleValues* @values);
 [LibraryImport("xui", EntryPoint = "xui_button_get_style_values")]
 internal static partial int ButtonGetStyleValues(ulong @button, uint @effective, ButtonStyleValues* @values);
+[LibraryImport("xui", EntryPoint = "xui_control_style_create")]
+internal static partial int ControlStyleCreate(ulong @window, ControlStyleOptions* @options, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_control_style_release")]
+internal static partial int ControlStyleRelease(ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_control_style_reacquire")]
+internal static partial int ControlStyleReacquire(ulong @window, ulong @identity, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_control_try_set_style")]
+internal static partial int ControlTrySetStyle(ulong @control, ulong @identity, uint* @applied);
+[LibraryImport("xui", EntryPoint = "xui_control_set_style")]
+internal static partial int ControlSetStyle(ulong @control, ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_control_set_style_values")]
+internal static partial int ControlSetStyleValues(ulong @control, uint @part, StyleProperty* @properties, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_control_get_style_values")]
+internal static partial int ControlGetStyleValues(ulong @control, uint @part, uint @effective, StyleProperty* @properties, uint @capacity, uint* @count);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items_visual")]
 internal static partial int NavigationItemsVisual(ulong @target, NavigationEntry* @items, ItemVisual* @visuals, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items")]

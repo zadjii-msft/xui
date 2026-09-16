@@ -67,6 +67,58 @@ XUI_API xui_status XUI_CALL xui_button_set_style_values(xui_handle button,
    before platform defaults and high-contrast protection. */
 XUI_API xui_status XUI_CALL xui_button_get_style_values(xui_handle button,
     uint32_t effective, xui_button_style_values* values) XUI_NOEXCEPT;
+#define XUI_CONTROL_STYLE_VERSION 0x00010000u
+enum { XUI_STYLE_TARGET_TOGGLE = 0 };
+enum { XUI_STYLE_ROOT = 0, XUI_STYLE_LABEL = 1, XUI_STYLE_INDICATOR = 2, XUI_STYLE_MARK = 3 };
+enum { XUI_STYLE_COLOR = 1, XUI_STYLE_INSETS = 2, XUI_STYLE_NUMBER = 3, XUI_STYLE_TEXT = 4 };
+enum {
+    XUI_STYLE_BACKGROUND = 1, XUI_STYLE_FOREGROUND = 2, XUI_STYLE_BORDER_BRUSH = 4,
+    XUI_STYLE_BORDER_THICKNESS = 8, XUI_STYLE_PADDING = 16, XUI_STYLE_CORNER_RADIUS = 32, XUI_STYLE_SIZE = 64
+};
+enum {
+    XUI_STYLE_FOCUSED = 1, XUI_STYLE_CHECKED = 2, XUI_STYLE_HOVERED = 4,
+    XUI_STYLE_PRESSED = 8, XUI_STYLE_DISABLED = 16
+};
+/* One typed property on one part. State zero denotes an ordinary value.
+   All inactive carriers and reserved fields must be zero. The pilot rejects text
+   properties. Colors preserve both themes. Dimensions use finite DIPs [0,32768].
+   Unknown targets, parts, properties, types, and state bits are errors. */
+typedef struct xui_style_property {
+    uint32_t size, version, property, value_type, part, reserved;
+    uint64_t state;
+    xui_theme_color color;
+    xui_style_insets insets;
+    double number;
+    xui_string text;
+} xui_style_property;
+typedef struct xui_control_style_options {
+    uint32_t size, version, target, reserved;
+    const xui_style_property* properties;
+    uint32_t property_count, reserved_end;
+    xui_handle based_on;
+} xui_control_style_options;
+/* At most 2048 property records and 16 inheritance layers. Duplicate
+   (part,state,property) records are errors. Inputs are copied before return.
+   Styles and live handles belong to one window. Release preserves attachments.
+   A create result is also a weak identity. Expired/unknown identities miss. */
+XUI_API xui_status XUI_CALL xui_control_style_create(xui_handle window,
+    const xui_control_style_options* options, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_style_release(xui_handle style) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_style_reacquire(xui_handle window,
+    xui_handle identity, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_try_set_style(xui_handle control,
+    xui_handle identity, uint32_t* applied) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) XUI_NOEXCEPT;
+/* Replaces all local properties of one part. An empty span clears that part.
+   Each record must name this part and state zero. Invalid input changes nothing. */
+XUI_API xui_status XUI_CALL xui_control_set_style_values(xui_handle control, uint32_t part,
+    const xui_style_property* properties, uint32_t count) XUI_NOEXCEPT;
+/* effective=0 reads locals; effective=1 reads merged values before platform policy.
+   count receives the required capacity. A zero-capacity query succeeds.
+   With insufficient capacity, no records change and XUI_BUFFER_TOO_SMALL results.
+   Output records contain their own size/version and state zero. */
+XUI_API xui_status XUI_CALL xui_control_get_style_values(xui_handle control, uint32_t part,
+    uint32_t effective, xui_style_property* properties, uint32_t capacity, uint32_t* count) XUI_NOEXCEPT;
 enum {
     XUI_RANGE_INPUT = 10, XUI_RADIO_GROUP, XUI_COMBO_BOX, XUI_NUMERIC_INPUT,
     XUI_EXPANDER, XUI_PROGRESS, XUI_POPUP, XUI_SPLIT_BUTTON,

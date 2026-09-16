@@ -168,7 +168,7 @@ internal sealed partial class Parser(string text)
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
             "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
-            "Toggle" => ["value", "checked", "change"],
+            "Toggle" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],

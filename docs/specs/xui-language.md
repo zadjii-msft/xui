@@ -5,7 +5,7 @@ The compiler generates C# that uses the existing XUI bindings.
 It does not add a runtime parser, virtual tree, or reconciler.
 
 The initial implementation supports fixed compositions.
-It supports named Button styles and color resources.
+It supports named Button and Toggle styles and color resources.
 It does not support arbitrary dynamic children, custom row templates, or styles for other control types.
 The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
 
@@ -119,6 +119,11 @@ Quoted braces are literal delimiters.
 Resources   = "resources" "{" { Identifier ":" Color ";" } "}"
 Style       = "style" Identifier "for" "Button" [ "basedOn" Identifier ]
               "{" { Property | Rule } "}"
+ToggleStyle = "style" Identifier "for" "Toggle" [ "basedOn" Identifier ]
+              "{" { Property | Rule | Part } "}"
+Part        = "part" ( "label" | "indicator" | "mark" )
+              "{" { PartProperty | PartRule } "}"
+PartRule    = "when" State "{" { PartProperty } "}"
 Rule        = "when" State "{" { Property } "}"
 State       = "focused" | "checked" | "hovered" | "pressed" | "disabled"
 Property    = ColorName ":" Color ";"
@@ -131,6 +136,19 @@ Color       = Rgb24
             | "resource" "(" Identifier ")"
 Insets      = Dimension | "(" Dimension "," Dimension "," Dimension "," Dimension ")"
 ```
+
+`PartProperty` uses the [Toggle schema](control-styling.md#toggle-pilot).
+Only `indicator` accepts `size`.
+Root and part rules use the same five state names.
+Parts cannot contain other parts.
+State blocks cannot contain parts.
+Toggle rejects duplicate parts and duplicate state blocks within one part.
+The root is implicit, so `part root` is invalid.
+Base and derived styles must target the same control type.
+Toggle arguments accept `style` and the six root properties.
+Per-part local values use the C++, C ABI, C#, or Rust setter.
+Style-value and part-rule edits update the method-body revision for hot reload.
+They preserve the existing control tree.
 
 `Rgb24` is an integer literal from `0x000000` through `0xFFFFFF`.
 Hexadecimal values use `0xRRGGBB`, not alpha or COLORREF byte order.

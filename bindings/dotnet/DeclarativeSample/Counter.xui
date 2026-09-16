@@ -19,11 +19,24 @@ component Counter {
     when hovered { background: resource(DangerHover); }
     when disabled { background: resource(DisabledFill); }
   }
+  style CompactToggle for Toggle {
+    foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+    part indicator {
+      background: theme(light: 0xEEEEEE, dark: 0x202020);
+      borderBrush: resource(DangerEdge);
+      borderThickness: 1;
+      cornerRadius: 3;
+      size: 18;
+      when checked { background: resource(DangerFill); }
+    }
+    part mark { foreground: 0xFFFFFF; }
+    when disabled { foreground: resource(DisabledFill); }
+  }
   view {
     VStack(spacing: 8, padding: 16) {
       Text($"Foo: {Count}", id: "count");
       Button("Increment", click: Increment, id: "increment");
-      Toggle("Active", checked: Active, change: SetActive, id: "active");
+      Toggle("Active", checked: Active, change: SetActive, id: "active", style: CompactToggle);
       TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
       Text($"Entry: {Entry}", id: "echo");
       Button("Delete", style: DangerButton);

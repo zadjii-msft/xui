@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <unordered_map>
 
@@ -48,10 +49,14 @@ void error(xui_status status, const char* message) noexcept {
     }
     last_message[used] = 0;
 }
-template<class F> xui_status boundary(F&& body) noexcept {
+template<class F> xui_status boundary(F&& body, bool style_schema = false) noexcept {
     try { body(); error(XUI_OK, ""); return XUI_OK; }
     catch (const Failure& f) { error(f.status, f.message); return f.status; }
     catch (const std::bad_alloc&) { error(XUI_OUT_OF_MEMORY, "Native allocation failed."); return XUI_OUT_OF_MEMORY; }
+    catch (const std::invalid_argument& f) {
+        const auto status = style_schema ? XUI_INVALID_ARGUMENT : XUI_NATIVE_ERROR;
+        error(status, f.what()); return status;
+    }
     catch (const std::exception& f) { error(XUI_NATIVE_ERROR, f.what()); return XUI_NATIVE_ERROR; }
     catch (...) { error(XUI_NATIVE_ERROR, "Unknown native exception."); return XUI_NATIVE_ERROR; }
 }
@@ -82,6 +87,7 @@ struct CachedButtonStyle {
     uint32_t depth;
 };
 using ButtonStyleCache = std::unordered_map<xui_handle, CachedButtonStyle>;
+using ControlStyleCache = std::unordered_map<xui_handle, std::weak_ptr<const xui::ControlStyle>>;
 struct State {
     DWORD thread{GetCurrentThreadId()};
     std::unique_ptr<xui::Window> window;
@@ -92,6 +98,7 @@ struct State {
     unsigned secret_callbacks{};
     xui_status callback_failure{};
     std::unique_ptr<ButtonStyleCache> button_styles;
+    std::unique_ptr<ControlStyleCache> control_styles;
 };
 struct Node {
     xui_handle handle{};
@@ -110,6 +117,7 @@ struct Node {
     void* context{};
     bool attached{};
     xui_handle button_style_identity{};
+    xui_handle control_style_identity{};
     xui_key_handler key_handler{};
     void* key_context{};
     xui_navigation_handler navigation_handler{};
@@ -699,5 +707,216 @@ xui_status XUI_CALL xui_button_get_style_values(xui_handle button, uint32_t effe
         const auto& button_value = as<xui::Button>(n);
         const auto* selected = effective ? button_value.effective_style_values() : &button_value.style_values();
         *values = write_style_values(selected ? *selected : xui::ButtonStyleValues{});
+    });
+}
+
+namespace {
+constexpr uint32_t control_style_kind = 103;
+template<class F> xui_status control_style_boundary(F&& body) noexcept {
+    return boundary(std::forward<F>(body), true);
+}
+struct ControlStyleResource {
+    std::shared_ptr<const xui::ControlStyle> value;
+    xui_handle identity{};
+};
+void prune_control_style(const std::shared_ptr<State>& owner, xui_handle identity) {
+    if (!owner->control_styles) return;
+    auto& cache = *owner->control_styles;
+    const auto found = cache.find(identity);
+    if (found != cache.end() && found->second.expired()) cache.erase(found);
+    if (cache.empty()) owner->control_styles.reset();
+}
+void apply_control_style(const std::shared_ptr<Node>& n,
+    std::shared_ptr<const xui::ControlStyle> definition, xui_handle identity) {
+    const auto previous = n->control_style_identity;
+    control(n).set_control_style(std::move(definition));
+    n->control_style_identity = identity;
+    prune_control_style(n->owner, previous);
+}
+xui::PartStyleValues read_control_property(const xui_style_property& p) {
+    require(p.size == sizeof(p), XUI_INVALID_ARGUMENT, "Style property size mismatch.");
+    require(p.version == XUI_CONTROL_STYLE_VERSION, XUI_VERSION_MISMATCH, "Control style version mismatch.");
+    uint32_t type{};
+    switch (p.property) {
+        case XUI_STYLE_BACKGROUND: case XUI_STYLE_FOREGROUND: case XUI_STYLE_BORDER_BRUSH: type = XUI_STYLE_COLOR; break;
+        case XUI_STYLE_BORDER_THICKNESS: case XUI_STYLE_PADDING: type = XUI_STYLE_INSETS; break;
+        case XUI_STYLE_CORNER_RADIUS: case XUI_STYLE_SIZE: type = XUI_STYLE_NUMBER; break;
+        default: require(false, XUI_INVALID_ARGUMENT, "Unknown style property.");
+    }
+    require(p.value_type == type && !p.reserved && !p.text.data && !p.text.length && !p.text.reserved,
+        XUI_INVALID_ARGUMENT, "Invalid style property type, text, or reserved fields.");
+    require(type == XUI_STYLE_COLOR || (!p.color.light && !p.color.dark),
+        XUI_INVALID_ARGUMENT, "Unused style color must be zero.");
+    require(type == XUI_STYLE_INSETS || (!p.insets.left && !p.insets.top && !p.insets.right && !p.insets.bottom),
+        XUI_INVALID_ARGUMENT, "Unused style insets must be zero.");
+    require(std::isfinite(p.number) && p.number >= 0 && p.number <= 32768 &&
+        (type == XUI_STYLE_NUMBER || p.number == 0), XUI_INVALID_ARGUMENT, "Invalid style number.");
+    xui::PartStyleValues result;
+    const xui::ThemeColor color{p.color.light, p.color.dark};
+    const xui::Insets edges{p.insets.left, p.insets.top, p.insets.right, p.insets.bottom};
+    switch (p.property) {
+        case XUI_STYLE_BACKGROUND: result.background = color; break;
+        case XUI_STYLE_FOREGROUND: result.foreground = color; break;
+        case XUI_STYLE_BORDER_BRUSH: result.border_brush = color; break;
+        case XUI_STYLE_BORDER_THICKNESS: result.border_thickness = edges; break;
+        case XUI_STYLE_PADDING: result.padding = edges; break;
+        case XUI_STYLE_CORNER_RADIUS: result.corner_radius = static_cast<float>(p.number); break;
+        case XUI_STYLE_SIZE: result.size = static_cast<float>(p.number); break;
+    }
+    return result;
+}
+struct PropertyGroup {
+    xui::StylePart part;
+    uint64_t state;
+    uint32_t properties{};
+    xui::PartStyleValues values;
+};
+std::vector<PropertyGroup> read_control_properties(const xui_style_property* values, uint32_t count) {
+    require(count <= 2048 && (values || !count), XUI_INVALID_ARGUMENT, "Invalid style property span.");
+    std::vector<PropertyGroup> groups;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& p = values[i];
+        auto value = read_control_property(p);
+        auto found = std::find_if(groups.begin(), groups.end(), [&](const auto& g) {
+            return static_cast<uint32_t>(g.part) == p.part && g.state == p.state;
+        });
+        if (found == groups.end()) {
+            groups.push_back({static_cast<xui::StylePart>(p.part), p.state});
+            found = std::prev(groups.end());
+        }
+        require(!(found->properties & p.property), XUI_INVALID_ARGUMENT, "Duplicate style property.");
+        found->properties |= p.property;
+        found->values = xui::merge_part_values(found->values, value);
+    }
+    return groups;
+}
+std::vector<xui_style_property> write_control_properties(uint32_t part, const xui::PartStyleValues& v) {
+    std::vector<xui_style_property> result;
+    auto record = [&](uint32_t property, uint32_t type) -> xui_style_property& {
+        result.push_back({sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, property, type, part});
+        return result.back();
+    };
+    auto color = [&](uint32_t property, const auto& value) {
+        if (value) record(property, XUI_STYLE_COLOR).color = {value->light, value->dark};
+    };
+    auto edges = [&](uint32_t property, const auto& value) {
+        if (value) record(property, XUI_STYLE_INSETS).insets = {value->left, value->top, value->right, value->bottom};
+    };
+    color(XUI_STYLE_BACKGROUND, v.background); color(XUI_STYLE_FOREGROUND, v.foreground);
+    color(XUI_STYLE_BORDER_BRUSH, v.border_brush);
+    edges(XUI_STYLE_BORDER_THICKNESS, v.border_thickness); edges(XUI_STYLE_PADDING, v.padding);
+    if (v.corner_radius) record(XUI_STYLE_CORNER_RADIUS, XUI_STYLE_NUMBER).number = *v.corner_radius;
+    if (v.size) record(XUI_STYLE_SIZE, XUI_STYLE_NUMBER).number = *v.size;
+    return result;
+}
+}
+xui_status XUI_CALL xui_control_style_create(xui_handle window,
+    const xui_control_style_options* options, xui_handle* result) noexcept {
+    return control_style_boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing style output."); *result = 0;
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(options && options->size == sizeof(*options), XUI_INVALID_ARGUMENT, "Control style options size mismatch.");
+        require(options->version == XUI_CONTROL_STYLE_VERSION, XUI_VERSION_MISMATCH, "Control style version mismatch.");
+        require(!options->reserved && !options->reserved_end, XUI_INVALID_ARGUMENT, "Reserved style fields must be zero.");
+        auto groups = read_control_properties(options->properties, options->property_count);
+        std::vector<std::pair<xui::StylePart, xui::PartStyleValues>> bases;
+        std::vector<xui::StyleRule> rules;
+        for (auto& group : groups) {
+            if (group.state) rules.push_back({group.part, group.state, std::move(group.values)});
+            else bases.emplace_back(group.part, std::move(group.values));
+        }
+        std::shared_ptr<const xui::ControlStyle> base;
+        if (options->based_on) {
+            auto b = get(options->based_on, control_style_kind); same(n, b);
+            base = resource<ControlStyleResource>(b, control_style_kind)->value;
+        }
+        auto definition = std::make_shared<ControlStyleResource>(ControlStyleResource{
+            xui::ControlStyle::create(static_cast<xui::StyleTarget>(options->target), std::move(bases), std::move(rules), std::move(base))});
+        const auto handle = insert(n->owner, control_style_kind);
+        try {
+            if (!n->owner->control_styles) n->owner->control_styles = std::make_unique<ControlStyleCache>();
+            require(n->owner->control_styles->size() < 65536, XUI_INVALID_ARGUMENT, "Too many cached control styles.");
+            n->owner->control_styles->emplace(handle, definition->value);
+        } catch (...) {
+            revoke(get(handle)); prune_control_style(n->owner, handle); throw;
+        }
+        definition->identity = handle;
+        get(handle)->resource = std::move(definition);
+        *result = handle;
+    });
+}
+xui_status XUI_CALL xui_control_style_release(xui_handle style) noexcept {
+    return control_style_boundary([&] {
+        auto n = get(style, control_style_kind);
+        const auto owner = n->owner;
+        const auto identity = resource<ControlStyleResource>(n, control_style_kind)->identity;
+        revoke(n); n.reset(); prune_control_style(owner, identity);
+    });
+}
+xui_status XUI_CALL xui_control_style_reacquire(xui_handle window, xui_handle identity, xui_handle* result) noexcept {
+    return control_style_boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing style output."); *result = 0;
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        if (!n->owner->control_styles) return;
+        const auto found = n->owner->control_styles->find(identity);
+        if (found == n->owner->control_styles->end()) return;
+        if (auto value = found->second.lock()) {
+            auto definition = std::make_shared<ControlStyleResource>(ControlStyleResource{std::move(value), identity});
+            const auto handle = insert(n->owner, control_style_kind);
+            get(handle)->resource = std::move(definition); *result = handle;
+        } else prune_control_style(n->owner, identity);
+    });
+}
+xui_status XUI_CALL xui_control_try_set_style(xui_handle control, xui_handle identity, uint32_t* applied) noexcept {
+    return control_style_boundary([&] {
+        require(applied, XUI_INVALID_ARGUMENT, "Missing style application result."); *applied = 0;
+        auto n = get(control); editable(n->owner); ::control(n);
+        if (!n->owner->control_styles) return;
+        const auto found = n->owner->control_styles->find(identity);
+        if (found == n->owner->control_styles->end()) return;
+        if (auto value = found->second.lock()) {
+            apply_control_style(n, std::move(value), identity); *applied = 1;
+        } else prune_control_style(n->owner, identity);
+    });
+}
+xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) noexcept {
+    return control_style_boundary([&] {
+        auto n = get(control); editable(n->owner);
+        std::shared_ptr<const xui::ControlStyle> definition;
+        xui_handle identity{};
+        if (style) {
+            auto s = get(style, control_style_kind); same(n, s);
+            const auto value = resource<ControlStyleResource>(s, control_style_kind);
+            definition = value->value; identity = value->identity;
+        }
+        apply_control_style(n, std::move(definition), identity);
+    });
+}
+xui_status XUI_CALL xui_control_set_style_values(xui_handle control, uint32_t part,
+    const xui_style_property* properties, uint32_t count) noexcept {
+    return control_style_boundary([&] {
+        auto n = get(control); editable(n->owner);
+        auto groups = read_control_properties(properties, count);
+        require(groups.size() <= 1 && (groups.empty() ||
+            (static_cast<uint32_t>(groups[0].part) == part && !groups[0].state)),
+            XUI_INVALID_ARGUMENT, "Local properties must name one part and state zero.");
+        ::control(n).set_control_style_values(static_cast<xui::StylePart>(part),
+            groups.empty() ? xui::PartStyleValues{} : groups[0].values);
+    });
+}
+xui_status XUI_CALL xui_control_get_style_values(xui_handle control, uint32_t part, uint32_t effective,
+    xui_style_property* properties, uint32_t capacity, uint32_t* count) noexcept {
+    return control_style_boundary([&] {
+        require(count && effective <= 1 && capacity <= 2048 && (properties || !capacity),
+            XUI_INVALID_ARGUMENT, "Invalid style output span or selector.");
+        auto n = get(control);
+        const auto& value = ::control(n);
+        const auto selected = effective ? value.effective_control_style_values(static_cast<xui::StylePart>(part)) :
+            &value.control_style_values(static_cast<xui::StylePart>(part));
+        const auto output = write_control_properties(part, selected ? *selected : xui::PartStyleValues{});
+        *count = static_cast<uint32_t>(output.size());
+        if (!capacity) return;
+        require(capacity >= output.size(), XUI_BUFFER_TOO_SMALL, "Style output buffer is too small.");
+        std::copy(output.begin(), output.end(), properties);
     });
 }

@@ -1,0 +1,21 @@
+component ToggleStylingFixture {
+    resources { Ink: theme(light: 0x123456, dark: 0x654321); }
+    style Base for Toggle { foreground: resource(Ink); }
+    style Compact for Toggle basedOn Base {
+        padding: (1, 2, 3, 4);
+        part indicator {
+            background: 0;
+            size: 18;
+            when checked { background: resource(Ink); }
+        }
+        part mark { foreground: 0xFFFFFF; }
+        when disabled { foreground: 0x777777; }
+    }
+    view {
+        VStack() {
+            Toggle("First", ref: First, style: Compact, foreground: 0);
+            Toggle("Second", ref: Second, style: Compact);
+            TextInput("Retained", ref: Input);
+        }
+    }
+}

@@ -56,6 +56,10 @@ public:
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
     void surface_frame(Rect bounds, const Palette& palette);
+    void styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
+        D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness);
+    void styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
+        IDWriteTextLayout* label, bool focus_visible);
     D2D1_COLOR_F check_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool mixed = false,
         bool hovered = false, bool pressed = false);
     D2D1_COLOR_F radio_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool hovered = false, bool pressed = false);

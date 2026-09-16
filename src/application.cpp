@@ -1206,6 +1206,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 auto& button = static_cast<Button&>(*peer->control);
                 if (button.effective_style_values()) button.set_style_enabled(enabled(*peer));
             }
+            peer->control->set_control_style_context_enabled(enabled(*peer));
             if (!enabled(*peer) || !visible(*peer)) {
                 if (auto range_input = std::dynamic_pointer_cast<RangeInput>(peer->control)) range_input->cancel_drag();
                 peer->control->cancel();
@@ -2285,6 +2286,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const Rect box{inset_size, inset_size, std::max(0.0f, bounds.width - 2 * inset_size), std::max(0.0f, bounds.height - 2 * inset_size)};
         const auto text = enabled(peer) ? palette.text : palette.disabled;
         const auto role = control.role();
+        if (role == ControlRole::toggle && control.has_control_styling()) {
+            canvas.styled_toggle(static_cast<const Toggle&>(control), {0, 0, bounds.width, bounds.height},
+                palette, enabled(peer), peer.text_layout.Get(), focus_visible);
+            return;
+        }
         if (role == ControlRole::label) {
             auto& label = static_cast<Label&>(control);
             const auto color = !enabled(peer) ? palette.disabled : label.tone() == TextTone::accent ? palette.accent :

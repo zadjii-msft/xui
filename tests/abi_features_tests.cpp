@@ -48,6 +48,105 @@ xui_status XUI_CALL posted(void* c, uint32_t execute) {
     if (execute) ++counts.first; else ++counts.second;
     return XUI_OK;
 }
+void control_style_contracts() {
+    static_assert(sizeof(xui_style_property) == 80);
+    static_assert(sizeof(xui_control_style_options) == 40);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Generic style ABI"), 400, 300};
+    xui_handle window{}, other{}, toggle{}, button{}, style{};
+    ok(xui_window_create(&options, &window)); ok(xui_window_create(&options, &other));
+    ok(xui_create(window, XUI_TOGGLE, text("Toggle"), 0, &toggle));
+    ok(xui_create(window, XUI_BUTTON, text("Button"), 0, &button));
+    xui_style_property records[] {
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_FOREGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_ROOT, 0, 0, {0x123456, 0x654321}},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_SIZE, XUI_STYLE_NUMBER, XUI_STYLE_INDICATOR},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_INDICATOR, 0, XUI_STYLE_CHECKED, {0x445566, 0x665544}}
+    };
+    records[1].number = 80;
+    xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_TARGET_TOGGLE,
+        0, records, 3};
+    ok(xui_control_style_create(window, &definition, &style));
+    ok(xui_control_set_style(toggle, style));
+    expect(xui_control_set_style(button, style) == XUI_INVALID_ARGUMENT);
+    uint32_t count{};
+    xui_style_property output[8]{};
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_LABEL, 1, output, 8, &count));
+    expect(count == 1 && output[0].property == XUI_STYLE_FOREGROUND &&
+        output[0].color.light == 0x123456 && output[0].color.dark == 0x654321);
+    ok(xui_invoke(toggle));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, output, 8, &count));
+    expect(count == 2 && output[0].color.light == 0x445566 && output[1].number == 80);
+    const auto unchanged = output[0];
+    expect(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, output, 1, &count) == XUI_BUFFER_TOO_SMALL);
+    expect(count == 2 && std::memcmp(&output[0], &unchanged, sizeof(unchanged)) == 0);
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, nullptr, 0, &count)); expect(count == 2);
+    expect(xui_control_get_style_values(toggle, 99, 1, output, 8, &count) == XUI_INVALID_ARGUMENT);
+    auto local = records[0]; local.color = {0, 0};
+    ok(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &local, 1));
+    ok(xui_control_set_style(toggle, 0));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_LABEL, 1, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 0);
+    ok(xui_control_set_style(toggle, style));
+    for (int mutation = 0; mutation < 11; ++mutation) {
+        auto bad = records[0];
+        switch (mutation) {
+            case 0: bad.size--; break;
+            case 1: bad.version++; break;
+            case 2: bad.property = 128; break;
+            case 3: bad.value_type = XUI_STYLE_NUMBER; break;
+            case 4: bad.part = 99; break;
+            case 5: bad.reserved = 1; break;
+            case 6: bad.state = 1ull << 40; break;
+            case 7: bad.color.dark = 0x1000000; break;
+            case 8: bad.number = 1; break;
+            case 9: bad.text = text("unused"); break;
+            case 10: bad.insets.top = 1; break;
+        }
+        auto invalid = definition; invalid.properties = &bad; invalid.property_count = 1;
+        xui_handle failed = 123;
+        expect(xui_control_style_create(window, &invalid, &failed) ==
+            (mutation == 1 ? XUI_VERSION_MISMATCH : XUI_INVALID_ARGUMENT));
+        expect(failed == 0);
+    }
+    auto duplicate = std::vector<xui_style_property>{records[0], records[0]};
+    auto invalid = definition; invalid.properties = duplicate.data(); invalid.property_count = 2;
+    xui_handle failed{};
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.target = 99; invalid.property_count = 0;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.property_count = 2049;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.properties = nullptr;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    auto bad_local = local; bad_local.state = XUI_STYLE_CHECKED;
+    expect(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &bad_local, 1) == XUI_INVALID_ARGUMENT);
+    bad_local = local; bad_local.part = XUI_STYLE_MARK;
+    expect(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &bad_local, 1) == XUI_INVALID_ARGUMENT);
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_ROOT, 0, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 0);
+    xui_handle foreign{};
+    ok(xui_control_style_create(other, &definition, &foreign));
+    expect(xui_control_set_style(toggle, foreign) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.based_on = foreign;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    expect(xui_control_style_release(button) == XUI_WRONG_KIND);
+    std::thread worker([&] { expect(xui_control_set_style(toggle, style) == XUI_WRONG_THREAD); }); worker.join();
+    ok(xui_control_style_release(style));
+    expect(xui_control_style_release(style) == XUI_INVALID_HANDLE);
+    xui_handle retained{};
+    ok(xui_control_style_reacquire(window, style, &retained)); expect(retained && retained != style);
+    ok(xui_control_style_release(retained));
+    uint32_t applied{};
+    ok(xui_control_try_set_style(toggle, style, &applied)); expect(applied == 1);
+    ok(xui_control_set_style(toggle, 0));
+    ok(xui_control_style_reacquire(window, style, &retained)); expect(!retained);
+    ok(xui_control_try_set_style(toggle, style, &applied)); expect(!applied);
+    ok(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, nullptr, 0));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_ROOT, 1, output, 8, &count)); expect(!count);
+    ok(xui_window_destroy(window)); ok(xui_window_destroy(other));
+    expect(xui_control_style_release(foreign) == XUI_INVALID_HANDLE);
+}
 void explorer_contracts() {
     static_assert(sizeof(xui_button_style_values) == 80);
     static_assert(sizeof(xui_button_style_rule) == 88);
@@ -348,6 +447,7 @@ void explorer_contracts() {
 }
 }
 int main() {
+    control_style_contracts();
     explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);

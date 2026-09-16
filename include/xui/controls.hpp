@@ -3,6 +3,7 @@
 #include "xui/core.hpp"
 #include "xui/theme.hpp"
 #include "xui/styling.hpp"
+#include "xui/control_styling.hpp"
 #include <span>
 
 namespace xui {
@@ -87,6 +88,14 @@ public:
         return callback ? callback() : ContextMenuContent{};
     }
     std::vector<MenuItem> context_menu() const { return context_menu_content().items; }
+    // Generic styles reject unsupported targets, parts, and properties.
+    // Button retains its separate legacy styling APIs.
+    void set_control_style(std::shared_ptr<const ControlStyle> style);
+    bool has_control_styling() const { return control_style_ != nullptr; }
+    std::shared_ptr<const ControlStyle> control_style() const;
+    void set_control_style_values(StylePart part, PartStyleValues values);
+    const PartStyleValues& control_style_values(StylePart part) const;
+    const PartStyleValues* effective_control_style_values(StylePart part) const;
 protected:
     Control(ControlRole role, std::wstring name, Size preferred);
     virtual void activate() {}
@@ -94,7 +103,18 @@ protected:
     void text_changed();
     void invalidate_state();
     virtual void presentation_changed() {}
+    // The StyleTarget this control contributes to the shared engine, or
+    // std::nullopt if it does not support styling. Toggle overrides this to
+    // return StyleTarget::toggle; a future family adds its own override, not
+    // another Control::invalidate_state branch.
+    virtual std::optional<StyleTarget> control_style_target() const { return std::nullopt; }
+    // The state bits this control currently contributes (focused/hovered/
+    // pressed/disabled from the base state, plus any state a derived control
+    // adds, e.g. Toggle ORs in checked).
+    virtual StyleStateMask control_style_state_bits() const;
 private:
+    friend class Window;
+    void set_control_style_context_enabled(bool enabled);
     ControlRole role_;
     VisualStyle visual_style_{VisualStyle::classic};
     std::wstring name_;
@@ -108,6 +128,7 @@ private:
     TextMeasurer measurer_;
     Size text_size_{};
     bool text_dirty_{true};
+    std::unique_ptr<ControlStyleAttachment> control_style_;
 };
 
 class Label final : public Control {
@@ -215,6 +236,31 @@ public:
     // Property updates do not invoke the application callback.
     void set_checked(bool checked);
     void on_change(std::function<void(bool)> callback) { change_ = std::move(callback); }
+    // Thin forwarders onto Control's shared styling engine.
+    void set_style(std::shared_ptr<const ControlStyle> style) { set_control_style(std::move(style)); }
+    std::shared_ptr<const ControlStyle> style() const { return control_style(); }
+    void set_style_values(StylePart part, PartStyleValues values) { set_control_style_values(part, std::move(values)); }
+    const PartStyleValues& style_values(StylePart part) const { return control_style_values(part); }
+    const PartStyleValues* effective_style_values(StylePart part) const { return effective_control_style_values(part); }
+    // Only diverges from the default measurement when a layout-affecting
+    // property (root padding/border, or indicator size) is actually
+    // authored; an unstyled or paint-only-styled Toggle measures identically
+    // to before this engine existed.
+    Size measure(Size available) override;
+    // Reusable geometry so painting and hit testing agree with what
+    // measurement assumed, instead of each reconstructing indicator/mark
+    // placement independently.
+    struct Layout { Insets padding, border, indicator_border; float indicator_size, gap; };
+    Layout layout_metrics() const;
+    Rect indicator_bounds(Rect bounds) const;
+    Rect mark_bounds(Rect bounds) const;
+    Rect content_bounds(Rect bounds) const;
+    Rect label_bounds(Rect bounds) const;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::toggle; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
+    }
 private:
     void activate() override;
     bool checked_{};

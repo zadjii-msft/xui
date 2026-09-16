@@ -24,6 +24,70 @@ Default-path performance, bounded storage, native input, and accessibility remai
 
 ## Consumer integration
 
+### Toggle pilot integration status
+
+Evidence date: 2026-09-15.
+This section records the integrated Toggle pilot before the control-family expansion.
+The native write and build holds ended before these native checks.
+The delivery library is `build\styling-arm64\Release\xui.dll`.
+This takeover verified ARM64 Release, not the earlier Debug or x64 reports.
+
+These checks passed against the final implementation:
+
+- Native build targets: `xui`, `xui_core_tests`, `xui_control_tests`, `xui_styling_tests`, `xui_control_styling_tests`, `xui_abi_c_test`, `xui_abi_features_tests`, and `xui_styling_window_tests`.
+- Focused CTest run: all seven test targets passed, including the full Button and Toggle window regression.
+- `dotnet run --project bindings\dotnet\GeneratorTests --configuration Release`: 480 assertions.
+- `bindings\dotnet\GeneratorTests\BuildTests.ps1`: 11 real MSBuild assertions.
+- `dotnet build bindings\dotnet\DeclarativeSample --configuration Release --no-restore`: real Toggle part syntax, without warnings or errors.
+- `dotnet run --project bindings\dotnet\Tests --configuration Release --no-build -- --styling`: 10,454 assertions against the delivery DLL.
+- `dotnet run --project bindings\dotnet\Minesweeper.Tests --configuration Release --no-build -- --styles`: 133,822 assertions against the delivery DLL.
+- `cargo test --manifest-path bindings\rust\Cargo.toml -p xui --target aarch64-pc-windows-msvc styling::tests -- --test-threads=1`: 11 native Button and Toggle tests.
+- Repeated `python bindings\generate_features.py` calls produced identical FFI declarations.
+- `git diff --check`: no whitespace errors.
+
+The managed runs used explicit delivery-DLL copies in their output directories.
+The Rust run used the delivery directory for `XUI_LIB_DIR` and `PATH`.
+The contributor guide contains the build and test procedures.
+
+The native window suite covers authored light/dark pixels, indicator metrics, keyboard messages, real UIA activation, ancestor/modal disablement, and native editor retention.
+It also covers stable native peer counts across style removal and replacement.
+Software Direct2D checks cover all named parts, foreground inheritance, checked marks, Classic/WinUI palettes, and simulated high contrast.
+The UIA check finds the semantic checkbox beneath its HWND host.
+The host itself is a pane without a Toggle pattern.
+No production accessibility provider changed.
+
+The real generated `ToggleStylingFixture.xui` executes part styles through the native ABI.
+An unchanged refresh creates no new native handles.
+A forced style-revision mismatch rebuilds shared definitions without replacing controls or changing native input text.
+This revision-cache check is not a new `dotnet watch` file-edit run.
+No physical keyboard, screen-reader speech, native IME composition, or operating-system high-contrast transition forms part of this evidence.
+
+The final Release allocation report is:
+
+```text
+Unstyled construction: baseline=96 bytes/1 allocations, Toggle=96 bytes/1 allocations
+First set_style activation: 456 bytes across 5 allocations
+Warmed loop (1000 iterations): 0 bytes, 0 allocations
+Allocation failure sweep scenario=0 points=6 passed
+Allocation failure sweep scenario=1 points=4 passed
+Allocation failure sweep scenario=2 points=5 passed
+Allocation failure sweep scenario=3 points=3 passed
+sizeof_control=416 sizeof_toggle=488 sizeof_button=576
+```
+
+Unstyled Toggle construction adds no style allocation beyond the common Control/Label baseline.
+The failure sweeps cover every allocation in fresh style attachment, fresh local attachment, style replacement, and local-part growth.
+Each failure preserves the prior style, locals, effective values, and invalidation behavior.
+MSVC iterator-debug builds exclude failure injection because container-proxy allocations can occur in `noexcept` paths.
+Only the Release injection results above form part of this takeover evidence.
+The pilot cannot reach the defensive eight-part and 256-compiled-bucket limits with its four-part, five-state schema.
+
+The pilot is ready for parent review and control-family expansion.
+The next families must reuse the shared attachment, sparse engine, ABI records, wrappers, and surface helper.
+No family work, VSIX edits, commits, or template changes occurred in this takeover.
+
+### Earlier Button consumer evidence
+
 Commit `f77795d` integrates the first VSIX grammar update.
 The parent reran all 24 tokenizer and configuration tests successfully.
 The child also rebuilt the VSIX and checked its eight packaged source files.
@@ -42,6 +106,26 @@ No new screenshots, physical keyboard checks, or screen-reader checks form part 
 Static C# palette edits require a restart rather than named-style hot reload.
 
 ## Source map
+
+The Toggle pilot adds these shared-engine paths:
+
+- `include\xui\control_styling.hpp`, `src\control_styling.cpp`: target schemas, sparse state buckets, attachment cache, and local inheritance.
+- `include\xui\controls.hpp`, `src\controls.cpp`: transactional Control attachment, private backend context, and shared Toggle geometry.
+- `src\application.cpp`, `src\drawing.cpp`, `src\drawing.hpp`: effective disabled context, shared surfaces, and actual Toggle painting.
+- `include\xui\xui_features.h`, `src\c_api.cpp`: generic typed-property ABI and weak native identities.
+- `bindings\dotnet\Xui\ControlStyling.cs`, `bindings\rust\xui\src\control_styling.rs`: generic definitions and common attachment APIs.
+- `bindings\dotnet\Xui\Controls.cs`, `bindings\rust\xui\src\lib.rs`: wrapper integration.
+- `bindings\dotnet\Xui\Native.Features.g.cs`, `bindings\rust\xui-sys\src\features.rs`: generated FFI declarations.
+- `bindings\dotnet\Xui.Generator\Styling.cs`, `Parser.cs`, `XuiGenerator.cs`: target-aware grammar, diagnostics, generation, and revision cache.
+- `bindings\dotnet\DeclarativeSample\Counter.xui`: application-author example.
+- `bindings\dotnet\GeneratorTests\Fakes.cs`, `Program.cs`: compiler and refresh regressions.
+- `bindings\dotnet\Tests\StylingTests.cs`, `ToggleStylingFixture.xui`, `Tests.csproj`: real managed/native definitions, lifecycle, and generated refresh.
+- `tests\control_styling_tests.cpp`: native model and allocation checks.
+- `tests\abi_c_test.c`, `tests\abi_features_tests.cpp`: record layout, explicit errors, release, and weak identities.
+- `tests\styling_window_tests.cpp`: Toggle pixel, metric, keyboard, UIA, disabled-context, and native-editor checks.
+- `CMakeLists.txt`: generic engine and model-test registration.
+
+The existing source map describes the compatible Button foundation:
 
 - `include\xui\styling.hpp`, `src\styling.cpp`: immutable colors, resource scopes, sparse values, derivation, and state tables.
 - `include\xui\controls.hpp`, `src\controls.cpp`: optional Button storage, local values, measurement, and state invalidation.

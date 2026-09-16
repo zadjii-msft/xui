@@ -14,6 +14,8 @@ pub use features::*;
 pub use features_generated::*;
 mod styling;
 pub use styling::*;
+mod control_styling;
+pub use control_styling::*;
 #[cfg(test)]
 mod feature_tests;
 

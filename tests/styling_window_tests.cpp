@@ -1,7 +1,11 @@
 #include "xui/application.hpp"
+#include "xui/documents.hpp"
 #include "../src/drawing.hpp"
 #include "owned_window_capture.hpp"
 #include <commctrl.h>
+#include <UIAutomation.h>
+#include <atomic>
+#include <thread>
 #include <psapi.h>
 #include <algorithm>
 #include <array>
@@ -182,6 +186,56 @@ Palette regular_palette(ThemeMode mode, VisualStyle style) {
         palette.high_contrast = false;
     }
     return palette;
+}
+void toggle_pixel_contracts() {
+    SoftwareFixture fixture;
+    Toggle toggle(L"MMMM");
+    PartStyleValues root; root.background = ThemeColor{0x213141, 0x415161};
+    root.foreground = ThemeColor{0xf1e2d3, 0xabcdef}; root.corner_radius = 0.0f;
+    PartStyleValues indicator; indicator.size = 20.0f; indicator.background = ThemeColor{0x236745, 0x896745};
+    indicator.border_brush = ThemeColor{0xfc1234}; indicator.border_thickness = Insets{2, 2, 2, 2}; indicator.corner_radius = 0.0f;
+    PartStyleValues checked; checked.background = ThemeColor{0x765432};
+    PartStyleValues mark; mark.foreground = ThemeColor{0x12fe34};
+    auto style = ControlStyle::create(StyleTarget::toggle,
+        {{StylePart::root, root}, {StylePart::indicator, indicator}, {StylePart::mark, mark}},
+        {{StylePart::indicator, style_states::checked, checked}});
+    toggle.set_style(style);
+    const auto render = [&](Palette palette, bool focused = false) {
+        require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin styled Toggle pixel frame");
+        Size size{};
+        auto label = fixture.drawing.layout(toggle.name(), toggle.text_style(), size);
+        fixture.drawing.styled_toggle(toggle, face, palette, true, label.Get(), focused);
+        auto pixels = readback(fixture.drawing);
+        require(fixture.drawing.end(), "End styled Toggle pixel frame");
+        return pixels;
+    };
+    for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+        toggle.set_visual_style(visual);
+        auto palette = regular_palette(ThemeMode::light, visual);
+        auto pixels = render(palette);
+        const auto b = toggle.indicator_bounds(face);
+        pixels.expect(120, 60, root.background->light, "Toggle root background reaches pixels");
+        pixels.expect(static_cast<int>(b.x + 5), static_cast<int>(b.y + 5), indicator.background->light, "Indicator background reaches pixels");
+        pixels.expect(static_cast<int>(b.x), static_cast<int>(b.y + 10), indicator.border_brush->light, "Indicator border reaches pixels");
+        require(pixels.matches({static_cast<LONG>(b.x + b.width + toggle.layout_metrics().gap), 12, 132, 68},
+            root.foreground->light) > 10, "Inherited root foreground reaches the label");
+        toggle.set_checked(true);
+        pixels = render(palette);
+        pixels.expect(static_cast<int>(b.x + 5), static_cast<int>(b.y + 5), checked.background->light, "Checked rule reaches indicator pixels");
+        require(pixels.matches({static_cast<LONG>(b.x), static_cast<LONG>(b.y),
+            static_cast<LONG>(b.x + b.width), static_cast<LONG>(b.y + b.height)}, mark.foreground->light) > 5,
+            "Authored mark foreground reaches check pixels");
+        toggle.set_checked(false);
+        palette = regular_palette(ThemeMode::dark, visual);
+        pixels = render(palette);
+        pixels.expect(120, 60, root.background->dark, "Dark root color remains distinct");
+        palette.high_contrast = true;
+        const auto high_contrast = render(palette, true);
+        require(high_contrast.matches({12, 12, 132, 68}, root.background->dark) == 0 &&
+            high_contrast.matches({12, 12, 132, 68}, root.foreground->dark) == 0,
+            "High contrast suppresses authored colors and preserves a separate focus outline");
+    }
+    std::cout << "PASS Toggle software pixels: parts, inheritance, checked, themes, high contrast\n" << std::flush;
 }
 void pixel_contracts() {
     const auto before = Drawing::live_targets();
@@ -665,6 +719,125 @@ struct StartFixture {
     }
     ~StartFixture() { if (timer) KillTimer(nullptr, timer); active = nullptr; }
 };
+#ifndef XUI_STYLING_BASELINE
+void toggle_native_contracts() {
+    Window window({window_title, {420, 280}, ThemeMode::light});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto toggle = std::make_shared<Toggle>(L"Styled Toggle");
+    auto content = std::make_shared<Stack>(Axis::vertical); content->add(toggle);
+    auto ancestor = std::make_shared<Expander>(L"Disabled ancestor", content);
+    ancestor->set_expanded(true);
+    auto input = std::make_shared<TextInput>(L"Retained input");
+    input->set_text(L"Keep native input");
+    root->add(ancestor); root->add(input);
+    PartStyleValues indicator; indicator.size = 80.0f;
+    PartStyleValues surface; surface.background = ThemeColor{0x134679, 0x975431};
+    PartStyleValues disabled; disabled.foreground = ThemeColor{0x987654};
+    auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}, {StylePart::root, surface}},
+        {{StylePart::root, style_states::disabled, disabled}});
+    toggle->set_style(style);
+    window.set_content(root);
+    StartFixture start(window, [&](HWND host) {
+        flush(host);
+        const auto peers = children(host);
+        HWND toggle_peer{}, edit{};
+        for (const auto hwnd : peers) {
+            if (native_text(hwnd) == toggle->name()) toggle_peer = hwnd;
+            wchar_t cls[80]{}; GetClassNameW(hwnd, cls, 80);
+            if (_wcsicmp(cls, L"EDIT") == 0) edit = hwnd;
+        }
+        require(toggle_peer && edit, "Toggle and native editor retain actual peers");
+        require(toggle->bounds().height >= 80, "Native layout reserves the authored outer indicator size");
+        const auto verify_pixels = [&](ThemeMode mode) {
+            window.set_theme(mode); flush(host);
+            auto image = owned_window_capture::capture(host);
+            Pixels pixels{image.width, image.height, std::move(image.data)};
+            RECT bounds{}; require(GetWindowRect(toggle_peer, &bounds) != FALSE, "Read live Toggle bounds");
+            MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&bounds), 2);
+            const int margin = MulDiv(6, GetDpiForWindow(host), 96);
+            if (!Palette::system(mode).high_contrast)
+                pixels.expect(bounds.right - margin, bounds.bottom - margin, surface.background->resolve(mode),
+                    "The actual window adapter paints the Toggle's authored root surface");
+        };
+        verify_pixels(ThemeMode::light); verify_pixels(ThemeMode::dark);
+        window.set_theme(ThemeMode::light); flush(host);
+        SendMessageW(edit, EM_SETSEL, 2, 8);
+        toggle->set_style(nullptr); flush(host);
+        require(children(host) == peers, "Removing a style does not replace peers or create decorative peers");
+        toggle->set_style(style); flush(host);
+        require(children(host) == peers, "Applying named parts keeps one native Toggle peer");
+        SendMessageW(toggle_peer, WM_SETFOCUS, 0, 0);
+        SendMessageW(toggle_peer, WM_KEYDOWN, VK_SPACE, 0);
+        SendMessageW(toggle_peer, WM_KEYUP, VK_SPACE, 0);
+        require(toggle->checked(), "Native Space key toggles the whole styled control");
+        flush(host);
+        std::atomic<bool> done{};
+        std::exception_ptr automation_error;
+        std::thread automation([&] {
+            const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            try {
+                success(initialized, "Initialize Toggle UIA client");
+                Microsoft::WRL::ComPtr<IUIAutomation> client;
+                success(CoCreateInstance(CLSID_CUIAutomation8, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&client)), "Create Toggle UIA client");
+                require(client != nullptr, "UIA client exists");
+                Microsoft::WRL::ComPtr<IUIAutomation2> bounded_client;
+                success(client.As(&bounded_client), "Configure bounded UIA calls");
+                success(bounded_client->put_ConnectionTimeout(5000), "Bound UIA connection time");
+                success(bounded_client->put_TransactionTimeout(5000), "Bound UIA transaction time");
+                Microsoft::WRL::ComPtr<IUIAutomationElement> element;
+                success(client->ElementFromHandle(toggle_peer, &element), "Find styled Toggle UIA element");
+                require(element != nullptr, "Toggle HWND host exists in UIA");
+                VARIANT type{}; type.vt = VT_I4; type.lVal = UIA_CheckBoxControlTypeId;
+                Microsoft::WRL::ComPtr<IUIAutomationCondition> condition;
+                success(client->CreatePropertyCondition(UIA_ControlTypePropertyId, type, &condition), "Find Toggle semantic role");
+                Microsoft::WRL::ComPtr<IUIAutomationElement> semantic;
+                success(element->FindFirst(TreeScope_Subtree, condition.Get(), &semantic), "Find semantic Toggle beneath its HWND host");
+                require(semantic != nullptr, "Styled Toggle exposes its semantic checkbox element");
+                Microsoft::WRL::ComPtr<IUIAutomationTogglePattern> pattern;
+                success(semantic->GetCurrentPatternAs(UIA_TogglePatternId, IID_PPV_ARGS(&pattern)), "Styled Toggle keeps the Toggle pattern");
+                require(pattern != nullptr, "Semantic Toggle exposes a non-null Toggle pattern");
+                RECT accessible{};
+                success(semantic->get_CurrentBoundingRectangle(&accessible), "Read styled Toggle accessible bounds");
+                require(accessible.bottom - accessible.top >= 80, "UIA bounds include the styled indicator metric");
+                ToggleState state{};
+                success(pattern->get_CurrentToggleState(&state), "Read styled Toggle state");
+                require(state == ToggleState_On, "UIA exposes the model checked state");
+                success(pattern->Toggle(), "UIA activates the existing styled Toggle");
+            } catch (...) { automation_error = std::current_exception(); }
+            if (SUCCEEDED(initialized)) CoUninitialize();
+            done = true;
+        });
+        while (!done) pump_for(10);
+        automation.join();
+        if (automation_error) std::rethrow_exception(automation_error);
+        pump_for(20);
+        require(!toggle->checked(), "UIA toggles the original model");
+        ancestor->set_enabled(false); flush(host); flush(host);
+        require(toggle->enabled() && !IsWindowEnabled(toggle_peer) &&
+            toggle->effective_style_values(StylePart::label)->foreground == disabled.foreground,
+            "Disabled ancestor selects generic disabled style without changing local enabled");
+        ancestor->set_enabled(true); flush(host);
+        auto dialog = std::make_shared<ContentDialog>(L"Modal", std::make_shared<Label>(L"Modal content"));
+        window.show_dialog(dialog, *toggle); flush(host); flush(host);
+        require(toggle->enabled() && !IsWindowEnabled(toggle_peer) &&
+            toggle->effective_style_values(StylePart::label)->foreground == disabled.foreground,
+            "Modal context selects generic disabled style");
+        dialog->cancel(); flush(host); flush(host);
+        require(IsWindowEnabled(toggle_peer), "Closing the modal restores enabled presentation");
+        toggle->set_style(nullptr); flush(host);
+        require(!toggle->effective_style_values(StylePart::root), "Clearing style restores the default path");
+        require(std::find(peers.begin(), peers.end(), toggle_peer) != peers.end() && IsWindow(toggle_peer),
+            "Style changes preserve the native Toggle identity");
+        DWORD first{}, last{};
+        SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&first), reinterpret_cast<LPARAM>(&last));
+        require(first == 2 && last == 8 && native_text(edit) == L"Keep native input", "Toggle styles preserve native editor selection and text");
+    });
+    const auto result = Application::run(window);
+    if (start.error) std::rethrow_exception(start.error);
+    require(start.ran && result == 0 && window.error().empty(), "Native Toggle integration completes");
+    std::cout << "PASS Toggle native metrics, keyboard, UIA, ancestor/modal context, editor retention\n";
+}
+#endif
 void native_contracts(bool measure, int repetition) {
     require(Drawing::live_targets() == 0, "Native fixture begins without retained render targets");
 #ifndef XUI_STYLING_BASELINE
@@ -854,21 +1027,29 @@ void native_contracts(bool measure, int repetition) {
 
 int main(int argc, char** argv) {
     try {
-        bool measure{}, lower{};
+        bool measure{}, lower{}, toggle_only{};
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument{argv[i]};
             if (argument == "--benchmark" && !measure) measure = true;
             else if (argument == "--trace-resources" && !trace_resources_enabled) trace_resources_enabled = true;
             else if (argument == "--styled-first" && !benchmark_styled_first) benchmark_styled_first = true;
             else if (argument == "--lower-level" && !lower) lower = true;
-            else throw std::runtime_error("Usage: xui_styling_window_tests [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
+            else if (argument == "--toggle-only" && !toggle_only) toggle_only = true;
+            else throw std::runtime_error("Usage: xui_styling_window_tests [--toggle-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
         }
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Initialize styling fixture COM");
         struct Com { ~Com() { CoUninitialize(); } } com;
 #ifndef XUI_STYLING_BASELINE
+        if (toggle_only) {
+            toggle_pixel_contracts();
+            toggle_native_contracts();
+            return 0;
+        }
         pixel_contracts();
+        toggle_pixel_contracts();
         if (lower) { lower_level_benchmarks(); return 0; }
+        toggle_native_contracts();
 #else
         require(!lower && !measure, "Pristine fixture only measures unchanged Window/editor/theme lifetime");
         std::cout << "BASELINE pristine native library; authored style operations omitted; capture/theme/state checks retained.\n";

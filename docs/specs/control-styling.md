@@ -1,6 +1,7 @@
-# Button styles and color resources
+# Control styles and color resources
 
 XUI supports reusable, sparse Button styles in C++, the C ABI, C#, Rust, and `.xui`.
+The Toggle pilot uses a shared control-style engine with named visual parts.
 This feature does not provide WPF API or XAML compatibility.
 Control templates and item templates are not available.
 The [design proposal](styling-and-templates-design.md) describes those later stages.
@@ -76,7 +77,9 @@ State properties inherit separately from ordinary properties.
 A derived hover rule replaces only the inherited hover properties that it specifies.
 An inherited disabled rule still wins over a derived hover rule.
 For repeated native rules with the same state, the last specified property wins.
-The `.xui` compiler rejects duplicate declarations and duplicate state blocks.
+The `.xui` compiler rejects duplicate declarations.
+Toggle declarations also reject duplicate state blocks.
+Button declarations retain repeated state blocks for compatibility.
 
 Local values survive style replacement and removal.
 Clearing a local property exposes the effective style value again.
@@ -166,20 +169,100 @@ No native IME, undo, or input implementation changes are part of this stage.
 
 ## Storage and binding boundaries
 
-Only Button has an optional style-state pointer.
-Other controls and virtualized collection rows have no new style storage.
+Control has an optional generic attachment pointer.
+Button retains its separate, compatible style-state pointer.
+An unstyled control does not allocate an attachment.
+Virtualized collection rows do not retain style instances.
 An unstyled Button allocates no style definition, state cache, or resource scope.
 A styled Button retains one immutable definition and one local/effective-value cache.
 Painting reads the cached values without dictionary, string, or ancestor searches.
 
-C ABI structs use explicit property masks to distinguish unset values from zero.
+Button C ABI structs use explicit property masks to distinguish unset values from zero.
+Generic property records distinguish unset values by absence.
 Existing ABI structs and existing functions retain their layouts and signatures.
 The [binding contract](bindings.md) describes handles, window ownership, sharing, release, and error results.
 The wrappers share definitions per window without retaining unused native handles.
 
 This stage does not support selectors, implicit styles, animated transitions, custom visual trees, or resource dictionaries on arbitrary elements.
-Styles currently target only Button.
+Styles currently target Button and Toggle.
 Resource values currently contain only theme-aware colors.
 Final counterbalanced measurements stayed within the working default-path guardrail for the sampled workloads.
 Authored styles still have a separate workload cost.
 The [implementation evidence](../llm/control-styling.md) records measurements and unresolved test variability.
+
+## Toggle pilot
+
+Toggle uses `ControlStyle`, not `ButtonStyle`.
+The generic engine stores sparse per-part state rules instead of every possible state combination.
+The state mask has 64 bits.
+The pilot accepts `focused`, `checked`, `hovered`, `pressed`, and `disabled`, in that precedence order.
+Each rule selects one state.
+Inherited state values remain separate from ordinary values.
+
+The Toggle schema has four parts:
+
+- The implicit root accepts background, foreground, border brush, border thickness, corner radius, and padding.
+- `label` accepts foreground.
+- `indicator` accepts background, border brush, border thickness, corner radius, and size.
+- `mark` accepts foreground.
+
+Unknown targets, parts, properties, and states produce errors.
+The indicator size specifies its outer square in DIPs.
+Its border occupies space inside that square.
+Root padding and borders surround the indicator and label.
+Automatic measurement reserves the larger of the indicator height and text height.
+Explicit control size constraints still apply.
+The complete Toggle remains one native input and accessibility target.
+Parts do not create native windows or accessibility providers.
+
+A label without its own foreground inherits the effective root foreground.
+This includes local-only root values and disabled-state values.
+An explicit label foreground overrides that inheritance.
+Locals survive style replacement and removal.
+Clearing the style and all locals releases the attachment.
+
+High contrast suppresses authored colors and face outlines.
+The system palette supplies colors and visible outlines.
+Authored metrics still reserve content space.
+Keyboard focus remains separate from authored rules.
+
+```xui
+style CompactToggle for Toggle {
+    foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+    part indicator {
+        background: theme(light: 0xEEEEEE, dark: 0x202020);
+        borderBrush: 0x777777;
+        borderThickness: 1;
+        cornerRadius: 3;
+        size: 18;
+        when checked { background: 0x2468AD; }
+    }
+    part mark { foreground: 0xFFFFFF; }
+    when disabled { foreground: 0x888888; }
+}
+```
+
+The declaration belongs inside a component.
+`Toggle("Active", style: CompactToggle)` applies it.
+Part declarations belong directly in a Toggle style.
+A part can contain properties and `when` rules.
+Nested parts and parts inside `when` rules are invalid.
+Button grammar does not accept parts or `size`.
+
+```csharp
+var style = new Xui.ControlStyle(Xui.StyleTarget.Toggle,
+    [new(Xui.StylePart.Indicator, new() { Size = 18, CornerRadius = 3 })],
+    [new(Xui.StylePart.Indicator, Xui.StyleState.Checked,
+        new() { Background = new Xui.ThemeColor(0x2468AD) })]);
+var toggle = window.Toggle("Active").SetStyle(style);
+toggle.SetStyleValues(Xui.StylePart.Label, new() { Foreground = new Xui.ThemeColor(0) });
+toggle.SetStyle(null); // Local label foreground remains.
+toggle.SetStyleValues(Xui.StylePart.Label, new()); // Default presentation returns.
+```
+
+C++ exposes the common attachment through `Control::set_control_style` and `Control::set_control_style_values`.
+Toggle convenience methods forward to that attachment.
+C# exposes `Control.SetControlStyle` and `Control.SetControlStyleValues`.
+Rust exposes `Element::set_control_style` and `Element::set_control_style_values`.
+Unsupported control types reject generic styles.
+The [binding contract](bindings.md#generic-control-styles-toggle-pilot) defines record and handle behavior.

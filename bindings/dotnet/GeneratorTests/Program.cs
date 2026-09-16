@@ -71,7 +71,79 @@ internal static class Program
         TestStyling();
         TestStylingDiagnostics();
         TestStylingShape();
+        TestToggleStyling();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
+    }
+    private static void TestToggleStyling()
+    {
+        const string source = """
+            component ToggleStyles {
+              state bool Active = false;
+              resources { Ink: theme(light: 0x123456, dark: 0x654321); }
+              style Base for Toggle { foreground: resource(Ink); }
+              style Compact for Toggle basedOn Base {
+                padding: (1, 2, 3, 4);
+                part indicator {
+                  background: 0;
+                  size: 18;
+                  when checked { background: resource(Ink); }
+                }
+                part mark { foreground: 0xFFFFFF; }
+                when disabled { foreground: 0x777777; }
+              }
+              view { VStack() {
+                Toggle("First", ref: First, style: Compact, checked: Active, foreground: 0);
+                Toggle("Second", ref: Second, style: Compact);
+                TextInput("Retained", ref: Input);
+              } }
+            }
+            """;
+        var (_, compilation) = Generate(new File(@"C:\fixture\ToggleStyles.xui", source));
+        using var pe = new MemoryStream();
+        var emitted = compilation.Emit(pe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("toggle-styles", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetTypes().Single(t => t.Name == "ToggleStyles");
+        var window = new Xui.Window();
+        var instance = Activator.CreateInstance(type, window, true)!;
+        var first = (Xui.Toggle)type.GetProperty("First")!.GetValue(instance)!;
+        var second = (Xui.Toggle)type.GetProperty("Second")!.GetValue(instance)!;
+        var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
+        var style = first.Style!;
+        Assert(ReferenceEquals(style, second.Style), "Named Toggle styles share one immutable definition.");
+        Assert(style.Parts.Single(p => p.Part == Xui.StylePart.Indicator).Values.Size == 18, "Indicator metrics compile.");
+        Assert(style.Rules.Single(r => r.Part == Xui.StylePart.Indicator).State == Xui.StyleState.Checked, "Part-local state compiles.");
+        Assert(style.BasedOn!.Parts[0].Values.Foreground == new Xui.ThemeColor(0x123456, 0x654321), "Root inherits both theme colors.");
+        Assert(first.Locals[Xui.StylePart.Root].Foreground == new Xui.ThemeColor(0), "Local root properties compile.");
+        input.Edit("Keep selection owner");
+        var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        refresh.Invoke(instance, null);
+        Assert(first.StyleSets == 1, "Unchanged refresh keeps Toggle style identity.");
+        type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(instance, null);
+        Assert(!ReferenceEquals(style, first.Style) && ReferenceEquals(first.Style, second.Style), "Reload replaces shared Toggle styles.");
+        Assert(input.Text == "Keep selection owner" && window.ContentSets == 1, "Reload preserves controls and native input ownership.");
+        context.Unload();
+        foreach (var declaration in new[] {
+            "style A for Toggle { part root {} }",
+            "style A for Toggle { part unknown {} }",
+            "style A for Toggle { part label { background: 0; } }",
+            "style A for Toggle { part mark { size: 18; } }",
+            "style A for Toggle { part indicator { foreground: 0; } }",
+            "style A for Toggle { part indicator { padding: 1; } }",
+            "style A for Toggle { part indicator { part mark {} } }",
+            "style A for Toggle { when checked { part indicator {} } }",
+            "style A for Toggle { part indicator { when selected {} } }",
+            "style A for Toggle { part label {} part label {} }",
+            "style A for Toggle { when checked {} when checked {} }",
+            "style B for Button {} style A for Toggle basedOn B {}",
+            "style A for Button { part indicator {} }",
+            "style A for Toggle { size: 18; }",
+            "style A for Toggle { part indicator { size: -1; } }"
+        }) Invalid("component Bad { " + declaration + " view { VStack() {} } }");
+        Invalid("component Bad { style A for Button {} view { VStack() { Toggle(\"X\", style: A); } } }");
+        Invalid("component Bad { style A for Toggle {} view { VStack() { Button(\"X\", style: A); } } }");
     }
     private static string StylingSource()
     {
@@ -172,7 +244,7 @@ internal static class Program
             "Button(\"X\", background: resource(Missing));",
             "Button(\"X\", padding: -1);",
             "Text(\"X\", style: Missing);",
-            "Toggle(\"X\", background: 0);"
+            "Toggle(\"X\", borderThickness: -1);"
         })
             Invalid("component Bad { view { VStack() { " + node + " } } }");
         string Resources(int n) => "resources { " + string.Join(" ", Enumerable.Range(0, n)

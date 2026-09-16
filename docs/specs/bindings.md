@@ -150,6 +150,50 @@ The ABI constructor test covers all 35 added kinds.
 Both language test suites exercise typed properties, source limits, callback failures, and disposal.
 The tests preserve the existing native focus and accessibility assertions.
 
+### Generic control styles (Toggle pilot)
+
+`xui_control_style_create` accepts a bounded array of `xui_style_property` records.
+Each record identifies a part, a property, a value type, and a 64-bit state.
+State zero specifies an ordinary value.
+Other records require one supported state bit.
+The record contains separate color, insets, number, and text carriers.
+Unused carriers and reserved fields must contain zero.
+The pilot rejects text properties.
+Colors retain separate light and dark RGB24 values.
+Dimensions require finite values from zero through 32768 DIPs.
+
+Records contain exact size and version fields.
+A definition accepts at most 2048 property records and 16 inheritance layers.
+Duplicate `(part, state, property)` records produce errors.
+Definitions validate the target and its part/property schema before publication.
+Invalid input preserves the previous style and local values.
+Existing Button records and exports remain unchanged.
+
+`xui_control_set_style` applies a live handle from the same window.
+Zero clears the style but preserves locals.
+`xui_control_set_style_values` replaces all local values for one part.
+An empty span clears that part.
+Every local record must name that part and state zero.
+`xui_control_get_style_values` reads locals or effective values before platform defaults and high contrast.
+A zero-capacity query returns the required record count.
+An insufficient buffer returns `XUI_BUFFER_TOO_SMALL` without partial record output.
+
+`xui_control_style_release` releases the caller's handle.
+Applied controls retain the immutable definition.
+The create result also acts as a weak per-window identity.
+`xui_control_style_reacquire` returns a fresh live handle, or zero after the definition expires.
+`xui_control_try_set_style` applies a retained identity without a new handle.
+Unknown and expired identities produce cache misses.
+All mutation and thread guards also apply to cache hits.
+Wrong control targets and incompatible handle kinds produce errors.
+There is no ABI setter for backend disabled context.
+
+C# exposes `ControlStyle`, `PartStyleValues`, `PartStyle`, and `ControlStyleRule`.
+Rust exposes the same types with native Rust member names.
+Both wrappers keep weak per-window identities and release temporary native handles after application.
+Definition construction copies the supplied part and rule collections.
+The [Toggle examples](control-styling.md#toggle-pilot) show declaration and application.
+
 ### Button styles (additive stage 1)
 
 Button styles change presentation.

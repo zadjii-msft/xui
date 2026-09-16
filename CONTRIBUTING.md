@@ -231,7 +231,7 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
-### Button styling
+### Control styling
 
 Build and run the focused style checks:
 
@@ -245,6 +245,27 @@ dotnet run --project bindings\dotnet\GeneratorTests -c Release
 
 The presentation test requires `XUI_DESKTOP_TESTS=ON` for CTest registration.
 It checks actual Direct2D pixels, native editor identity, resource retention, and idle paints.
+
+For the Toggle pilot, run these additional focused checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_control_tests xui_control_styling_tests xui_styling_window_tests xui_abi_c_test xui_abi_features_tests
+ctest --test-dir $build -C Release -R '^xui_(control_tests|control_styling_tests|abi_c_test|abi_features_tests)$' --output-on-failure
+& ".\$build\Release\xui_styling_window_tests.exe" --toggle-only
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui control_styling::tests -- --test-threads=1
+```
+
+The Rust test binary requires the matching native library and import library.
+The Toggle presentation checks use native input, UIA, and owned-window rendering.
+The `--toggle-only` option excludes the historical Button benchmarks and lifetime cycles.
+Managed compiler and definition checks do not require an updated native library:
+
+```powershell
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Tests -c Release -- --styling-definitions
+cargo check --manifest-path bindings\rust\Cargo.toml --workspace --tests
+```
+
 Use `xui_styling_window_tests.exe --trace-resources` to investigate transient USER-object failures.
 Do not increase resource limits to hide an unexplained failure.
 
