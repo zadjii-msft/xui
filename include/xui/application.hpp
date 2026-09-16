@@ -96,6 +96,11 @@ public:
     ThemeMode theme() const;
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
+    void set_tooltip_style(std::shared_ptr<const ControlStyle> style);
+    std::shared_ptr<const ControlStyle> tooltip_style() const;
+    void set_tooltip_style_values(StylePart part, PartStyleValues values);
+    const PartStyleValues& tooltip_style_values(StylePart part) const;
+    const PartStyleValues* effective_tooltip_style_values(StylePart part) const;
     bool focus(Control& control, bool select_all = false);
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial_focus = nullptr);
     void show_dialog(std::shared_ptr<ContentDialog> dialog, Control& anchor, Control* initial_focus = nullptr);

@@ -21,7 +21,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, delivery stages, and acceptance evidence.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, and safe menu replacement.
-- [Button styling foundation](control-styling.md): Sparse styles, binding lifetimes, native paint checks, and performance evidence.
+- [Control styling implementation and evidence](control-styling.md): Shared styles, binding lifetimes, family coverage, native paint checks, and performance evidence.
 
 The language guide describes the current syntax.
 The original language plan records an earlier, narrower control set.

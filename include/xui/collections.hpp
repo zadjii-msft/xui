@@ -91,6 +91,7 @@ struct ItemHierarchy {
     std::size_t depth{};
     bool group{}, expandable{}, expanded{}, pending{};
     std::size_t position{}, count{};
+    bool error{};
 };
 enum class CollectionNavigation { parent, first_child, last_child, next, previous };
 class ItemsSource : public CollectionIndex {
@@ -113,8 +114,11 @@ struct CollectionRow {
     std::size_t index{}, depth{};
     std::optional<ItemKey> parent;
     bool group{}, expandable{}, expanded{}, pending{};
-    bool navigation{}, compact{}, selected_descendant{}, hovered{};
+    bool navigation{}, compact{}, selected_descendant{}, hovered{}, error{};
 };
+// The caller supplies actual peer focus and pointer state, never container hover.
+StyleStateMask collection_row_style_state(const CollectionRow& row, bool selected, bool focused,
+    bool enabled, bool hovered = false);
 class VirtualCollection : public Control {
 public:
     virtual bool multiple_selection() const { return true; }
@@ -135,13 +139,18 @@ public:
     virtual void set_presentation(ItemsPresentation value);
     ItemsPresentation presentation() const { return presentation_; }
     void set_item_size(Size size);
-    Size item_size() const { return item_size_; }
+    Size item_size() const;
+    float scrollbar_width() const;
+    Rect content_viewport() const;
+    PartStyleValues row_style_values(StylePart part, const CollectionRow& row, StyleStateMask state) const;
     std::size_t columns() const;
-    double offset() const { return offset_; }
+    double offset() const { return std::min(offset_, maximum_offset()); }
     double maximum_offset() const;
     void set_offset(double offset);
     void reveal(ItemKey key);
     Rect item_bounds(std::size_t index) const;
+    Rect disclosure_bounds(const CollectionRow& row, bool hovered = false) const;
+    bool disclosure_hit(std::size_t index, Point point) const;
     std::optional<std::size_t> hit_test(Point point) const;
     VisibleRange visible_items() const;
     virtual std::vector<CollectionRow> visible_content() const;
@@ -152,6 +161,8 @@ public:
     static constexpr float bar_width = 12;
 protected:
     VirtualCollection(ControlRole role, std::wstring name);
+    std::optional<StyleTarget> control_style_target() const override;
+    StyleStateMask control_style_state_bits() const override;
     void set_source(std::shared_ptr<const ItemsSource> source, std::shared_ptr<const CollectionIndex> full = {});
     void changed();
     void repair_focus();

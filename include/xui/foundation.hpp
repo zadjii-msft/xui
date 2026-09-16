@@ -26,8 +26,11 @@ public:
     bool reversed() const { return reversed_; }
     void set_reversed(bool value);
     void on_preview(std::function<void(double)> callback) { preview_callback_ = std::move(callback); }
+    const std::function<void(double)>& preview_callback() const { return preview_callback_; }
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
+    const std::function<void(double)>& change_callback() const { return change_; }
     void on_cancel(std::function<void(double)> callback) { cancel_callback_ = std::move(callback); }
+    const std::function<void(double)>& cancel_callback() const { return cancel_callback_; }
     bool move(RangeKey key);
     bool begin_drag(double fraction);
     bool drag(double fraction);
@@ -36,6 +39,10 @@ public:
     void cancel() override;
     void cancel_drag();
     bool change_value(double value);
+    SliderVisual slider_geometry() const;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::range_input; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     NumericRange range_;
     double value_{};
@@ -64,6 +71,7 @@ public:
     bool step(int delta);
     bool type_ahead(std::wstring_view prefix);
     void on_change(std::function<void(std::uint64_t)> callback) { change_ = std::move(callback); }
+    const std::function<void(std::uint64_t)>& change_callback() const { return change_; }
     void on_accept(std::function<void(std::uint64_t)> callback) { accept_ = std::move(callback); }
     bool accept();
     Rect item_bounds(std::size_t index) const;
@@ -75,8 +83,16 @@ public:
     float effective_row_pitch() const;
     float effective_vertical_padding() const;
     float effective_horizontal_padding() const;
+    Rect content_bounds() const;
+    PartStyleValues item_style_values(StylePart part, std::size_t index, bool hovered = false, bool pressed = false) const;
+    Rect item_content_bounds(std::size_t index, bool hovered = false, bool pressed = false) const;
+    Rect indicator_bounds(std::size_t index, bool hovered = false, bool pressed = false) const;
+    Rect label_bounds(std::size_t index, bool hovered = false, bool pressed = false) const;
     static constexpr float row_height = 34;
 protected:
+    std::optional<StyleTarget> control_style_target() const override {
+        return role() == ControlRole::choice_list ? StyleTarget::choice_list : StyleTarget::radio_group;
+    }
     void presentation_changed() override;
 private:
     void reveal_selected();
@@ -97,6 +113,8 @@ public:
     const std::shared_ptr<Element>& content() const { return children_[0]; }
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
+    Size measure(Size available) override;
+    Rect content_bounds() const;
     bool is_open() const { return open_; }
     bool dialog_surface() const { return dialog_surface_; }
     bool window_background() const { return window_background_; }
@@ -106,10 +124,16 @@ public:
     void set_placement(PopupPlacement value);
     PopupPlacement placement() const { return placement_; }
     void on_dismiss(std::function<void(PopupDismissReason)> callback) { dismiss_ = std::move(callback); }
+    const std::function<void(PopupDismissReason)>& dismiss_callback() const { return dismiss_; }
     // Backend boundary. Window owns peer creation, focus, clipping, and dismissal.
     void opened();
     void closed(PopupDismissReason reason);
     std::function<void()> close_transition(PopupDismissReason reason);
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::popup; }
+    StyleStateMask control_style_state_bits() const override {
+        return (Control::control_style_state_bits() & style_states::disabled) | (open_ ? style_states::open : 0);
+    }
 private:
     friend class ContentDialog;
     void set_dialog_surface(bool value) { if (open_) throw std::logic_error("Cannot change an open popup role"); dialog_surface_ = value; }
@@ -139,11 +163,15 @@ public:
     void arrange(Rect bounds) override;
     Rect editor_bounds() const;
     Rect drop_down_bounds() const;
+    Rect field_bounds() const;
+    Rect header_bounds() const;
     void on_change(std::function<void(std::uint64_t)> callback) { change_ = std::move(callback); }
     // Editable text is separate from committed identity until an item is accepted.
     void on_edit(std::function<void(const std::wstring&)> callback) { edit_ = std::move(callback); }
     void prepare_popup();
 protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::combo_box; }
+    StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;
 private:
     void update_popup_size();
@@ -170,6 +198,8 @@ public:
     bool valid() const { return valid_; }
     const std::shared_ptr<TextInput>& editor() const { return editor_; }
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    const std::shared_ptr<Button>& decrease_button() const { return decrease_; }
+    const std::shared_ptr<Button>& increase_button() const { return increase_; }
     void arrange(Rect bounds) override;
     // Existing XUI controls default to Inline; Hidden matches the WinUI default variant.
     NumberSpinPlacement spin_placement() const { return spin_placement_; }
@@ -177,11 +207,16 @@ public:
     Rect editor_bounds() const;
     Rect decrease_bounds() const;
     Rect increase_bounds() const;
+    Rect field_bounds() const;
+    Rect header_bounds() const;
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
+    const std::function<void(double)>& change_callback() const { return change_; }
     bool step(int direction);
     bool change_value(double value);
     bool commit_text(const std::wstring& text);
 protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::numeric_input; }
+    StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;
 private:
     void format();
@@ -209,9 +244,16 @@ public:
     float effective_header_height() const;
     Rect header_bounds() const;
     Rect content_bounds() const;
+    Rect content_surface_bounds() const;
+    Rect header_text_bounds() const;
+    Rect disclosure_bounds() const;
     static constexpr float header_height = 38;
 protected:
     void presentation_changed() override;
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::expander; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() | (expanded_ ? style_states::expanded : 0);
+    }
 private:
     void activate() override;
     std::vector<std::shared_ptr<Element>> children_;
@@ -233,6 +275,10 @@ public:
     // Capacity is read-only and never starts an animation.
     void set_capacity(double used, double total, std::wstring unit = L"bytes");
     const std::wstring& value_text() const { return text_; }
+    Rect content_bounds() const;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::progress; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     NumericRange range_;
     double value_{};
@@ -247,6 +293,7 @@ public:
     const std::shared_ptr<Button>& primary() const { return primary_; }
     const std::shared_ptr<Button>& secondary() const { return secondary_; }
 private:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::split_button; }
     std::shared_ptr<Button> primary_, secondary_;
 };
 }

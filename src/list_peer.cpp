@@ -35,7 +35,7 @@ bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<Task
     // Bound each pane and the whole window, even on an unusually tall desktop.
     const auto limit = std::min<std::size_t>(24, remaining);
     const auto range = visible_range(list_->model().visible_indices().size(), list_->row_height(),
-        list_->offset() + std::max(0.0f, clip.y), clip.height);
+        list_->offset() + std::max(0.0f, clip.y - list_->content_viewport(width()).y), clip.height);
     const auto& model = list_->model();
     std::vector<const FileItem*> wanted;
     for (auto row = range.begin; row < range.end && wanted.size() < limit; ++row) {
@@ -128,8 +128,9 @@ void ListPeer::viewport() {
     GetClientRect(window_, &bounds);
     const float height = bounds.bottom * 96.0f / dpi_;
     if (height != list_->viewport_height()) list_->set_viewport_height(height);
+    const auto content_height = list_->content_height();
     thumb_ = scroll_thumb(static_cast<float>(list_->model().visible_indices().size()) * list_->row_height(),
-        height, list_->offset(), std::max(0.0f, height - 8));
+        content_height, list_->offset(), std::max(0.0f, content_height - 8));
     publish(published_ != list_->model().view().get());
 }
 void ListPeer::publish(bool structure) {
@@ -151,7 +152,11 @@ void ListPeer::publish(bool structure) {
     POINT origin{};
     ClientToScreen(window_, &origin);
     OffsetRect(&snapshot.screen_bounds, origin.x, origin.y);
-    snapshot.row_right_inset_pixels = VisualMetrics::gutter * dpi_ / 96.0f;
+    const auto viewport = list_->content_viewport(width());
+    snapshot.row_right_inset_pixels = (width() - viewport.x - viewport.width) * dpi_ / 96.0f;
+    snapshot.row_left_inset_pixels = viewport.x * dpi_ / 96.0f;
+    snapshot.row_top_inset_pixels = viewport.y * dpi_ / 96.0f;
+    snapshot.row_bottom_inset_pixels = (list_->viewport_height() - viewport.y - viewport.height) * dpi_ / 96.0f;
     snapshot.row_height_pixels = list_->row_height() * dpi_ / 96.0f;
     snapshot.offset_pixels = list_->offset() * dpi_ / 96.0f;
     snapshot.focused = GetFocus() == window_;
@@ -192,35 +197,46 @@ void ListPeer::changed() {
     viewport();
     invalidate();
 }
-void ListPeer::select_at(int y) {
-    if (y < 0) return;
-    const auto index = static_cast<size_t>((y * 96.0f / dpi_ + list_->offset()) / list_->row_height());
+bool ListPeer::select_at(int x, int y) {
+    const auto viewport = list_->content_viewport(width());
+    const auto local_x = x * 96.0f / dpi_ - viewport.x;
+    const auto local_y = y * 96.0f / dpi_ - viewport.y;
+    if (local_x < 0 || local_x >= viewport.width || local_y < 0 || local_y >= viewport.height) return false;
+    const auto index = static_cast<size_t>((local_y + list_->offset()) / list_->row_height());
     if (index < list_->model().visible_indices().size()) {
         list_->select(index, false);
         changed();
+        return true;
     } else { list_->clear_selection(); changed(); }
+    return false;
 }
 bool ListPeer::in_scrollbar(LPARAM point) const {
-    return GET_X_LPARAM(point) * 96.0f / dpi_ >= width() - VisualMetrics::gutter;
+    const auto viewport = list_->content_viewport(width());
+    const auto x = GET_X_LPARAM(point) * 96.0f / dpi_, y = GET_Y_LPARAM(point) * 96.0f / dpi_;
+    return x >= viewport.x + viewport.width && x < viewport.x + viewport.width + list_->scrollbar_width() &&
+        y >= viewport.y && y < viewport.y + viewport.height;
 }
 void ListPeer::pointer_down(LPARAM point) {
     SetFocus(window_);
-    if (!in_scrollbar(point)) { select_at(GET_Y_LPARAM(point)); return; }
+    if (!in_scrollbar(point)) { select_at(GET_X_LPARAM(point), GET_Y_LPARAM(point)); return; }
     if (thumb_.height <= 0) return;
-    const float y = GET_Y_LPARAM(point) * 96.0f / dpi_ - 4;
+    const float y = GET_Y_LPARAM(point) * 96.0f / dpi_ - list_->content_viewport(width()).y - 4;
     if (y >= thumb_.top && y < thumb_.top + thumb_.height) {
         SetCapture(window_);
         dragging_ = true;
         drag_offset_ = y - thumb_.top;
     } else {
-        list_->scroll_to(list_->offset() + (y < thumb_.top ? -1 : 1) * list_->viewport_height());
+        list_->scroll_to(list_->offset() + (y < thumb_.top ? -1 : 1) * list_->content_height());
         changed();
     }
     invalidate();
 }
 void ListPeer::pointer_move(LPARAM point) {
+    pointer_ = Point{GET_X_LPARAM(point) * 96.0f / dpi_, GET_Y_LPARAM(point) * 96.0f / dpi_};
+    list_->pointer_move(pointer_->x >= 0 && pointer_->x < width() && pointer_->y >= 0 && pointer_->y < list_->viewport_height());
     if (dragging_) {
-        list_->scroll_to(scroll_from_thumb(thumb_, GET_Y_LPARAM(point) * 96.0f / dpi_ - 4 - drag_offset_));
+        list_->scroll_to(scroll_from_thumb(thumb_, GET_Y_LPARAM(point) * 96.0f / dpi_ -
+            list_->content_viewport(width()).y - 4 - drag_offset_));
         changed();
         return;
     }
@@ -230,8 +246,10 @@ void ListPeer::pointer_move(LPARAM point) {
     }
     const bool scrollbar = in_scrollbar(point);
     std::optional<size_t> row;
-    if (!scrollbar && GET_Y_LPARAM(point) >= 0) {
-        const auto index = static_cast<size_t>((GET_Y_LPARAM(point) * 96.0f / dpi_ + list_->offset()) / list_->row_height());
+    const auto viewport = list_->content_viewport(width());
+    const auto x = GET_X_LPARAM(point) * 96.0f / dpi_, y = GET_Y_LPARAM(point) * 96.0f / dpi_ - viewport.y;
+    if (!scrollbar && x >= viewport.x && x < viewport.x + viewport.width && y >= 0 && y < viewport.height) {
+        const auto index = static_cast<size_t>((y + list_->offset()) / list_->row_height());
         if (index < list_->model().visible_indices().size()) row = index;
     }
     if (row != hovered_ || scrollbar != hover_scrollbar_) {
@@ -241,55 +259,126 @@ void ListPeer::pointer_move(LPARAM point) {
     }
 }
 void ListPeer::paint(Drawing& drawing) {
-    drawing.fill({0, 0, width(), list_->viewport_height()}, palette_.surface);
+    const bool styled = list_->has_control_styling();
+    const auto resolve = [&](StylePart part, StyleStateMask state = 0) {
+        return styled ? list_->resolve_control_style_part(part, state) : PartStyleValues{};
+    };
+    const auto color = [&](std::optional<ThemeColor> value, D2D1_COLOR_F fallback) {
+        return value && !palette_.high_contrast ? D2D1::ColorF(value->resolve(palette_.mode)) : fallback;
+    };
+    if (styled) drawing.styled_surface({0, 0, width(), list_->viewport_height()}, palette_, resolve(StylePart::root),
+        palette_.surface, palette_.border, 0, {});
+    else drawing.fill({0, 0, width(), list_->viewport_height()}, palette_.surface);
     const bool enabled = IsWindowEnabled(window_) != FALSE;
     const bool winui = palette_.style == VisualStyle::winui;
-    const float area = std::max(0.0f, width() - VisualMetrics::gutter);
+    const auto viewport = list_->content_viewport(width());
+    const float area = viewport.width;
+    if (styled) drawing.push_clip(viewport);
     const auto range = list_->visible_rows();
     rows_ = range.end - range.begin;
     const auto& model = list_->model();
     const auto items = model.items();
+    auto hovered = hovered_;
+    if (styled) {
+        hovered.reset();
+        if (pointer_ && enabled && !dragging_ && pointer_->x >= viewport.x && pointer_->x < viewport.x + viewport.width &&
+            pointer_->y >= viewport.y && pointer_->y < viewport.y + viewport.height) {
+            const auto index = static_cast<std::size_t>((pointer_->y - viewport.y + list_->offset()) / list_->row_height());
+            if (index < model.visible_indices().size()) hovered = index;
+        }
+    }
     for (size_t row = range.begin; row < range.end; ++row) {
         const auto& item = (*items)[model.visible_indices()[row]];
-        const Rect bounds{0, row * list_->row_height() - list_->offset(), area, list_->row_height()};
+        const Rect bounds{viewport.x, viewport.y + row * list_->row_height() - list_->offset(), area, list_->row_height()};
         const bool selected = model.selected_id() == item.id;
-        const Rect highlight{6, bounds.y + 2, std::max(0.0f, area - 12), bounds.height - 4};
-        if (selected) drawing.rounded(highlight, palette_.selection, 4);
-        else if (hovered_ == row) drawing.rounded(highlight, palette_.hover, 4);
-        if (GetFocus() == window_ && list_->focused_id() == item.id) {
+        const bool focused = GetFocus() == window_ && list_->focused_id() == item.id;
+        const auto state = (selected ? style_states::selected : 0) | (focused ? style_states::focused : 0) |
+            (!enabled ? style_states::disabled : hovered == row ? style_states::hovered : 0);
+        const auto row_values = resolve(StylePart::row, state);
+        const Rect highlight{bounds.x + 6, bounds.y + 2, std::max(0.0f, area - 12), std::max(0.0f, bounds.height - 4)};
+        if (styled && (selected || hovered == row || row_values.background || row_values.border_brush || row_values.border_thickness))
+            drawing.styled_surface(highlight, palette_, row_values, selected ? palette_.selection : hovered == row ? palette_.hover : palette_.surface,
+                palette_.border, 4, {});
+        else if (selected) drawing.rounded(highlight, palette_.selection, 4);
+        else if (hovered == row) drawing.rounded(highlight, palette_.hover, 4);
+        if (styled && selected) {
+            const auto marker = resolve(StylePart::selected_marker, state);
+            const auto definition = list_->control_style();
+            if ((definition && definition->has_part(StylePart::selected_marker)) || !list_->control_style_values(StylePart::selected_marker).empty())
+                drawing.styled_surface({highlight.x, highlight.y + 4, std::min(highlight.width, marker.size.value_or(3)),
+                std::max(0.0f, highlight.height - 8)}, palette_, marker, color(marker.foreground, palette_.accent), palette_.accent, 1.5f, {});
+        }
+        if (focused) {
+            if (styled) {
+                const auto marker = resolve(StylePart::focus_marker, state);
+                const auto definition = list_->control_style();
+                const auto thickness = marker.size.value_or(1);
+                if ((definition && definition->has_part(StylePart::focus_marker)) || !list_->control_style_values(StylePart::focus_marker).empty())
+                    drawing.styled_surface(highlight, palette_, marker,
+                        color(row_values.background, selected ? palette_.selection : palette_.surface), color(marker.foreground, palette_.accent),
+                        4, {thickness, thickness, thickness, thickness});
+            }
             if (palette_.style == VisualStyle::winui) drawing.focus_ring(highlight, palette_);
             else drawing.rounded(highlight, palette_.high_contrast && selected ?
                 palette_.selection_text : palette_.accent, 4, true);
         }
         const auto text = winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : palette_.text;
-        const float kind_width = area > 260 ? 100.0f : 0;
+        const auto p = row_values.padding.value_or(Insets{}), border = row_values.border_thickness.value_or(Insets{});
+        const auto left = std::min(bounds.width, p.left + border.left), top = std::min(bounds.height, p.top + border.top);
+        const Rect content{bounds.x + left, bounds.y + top, std::max(0.0f, bounds.width - left - p.right - border.right),
+            std::max(0.0f, bounds.height - top - p.bottom - border.bottom)};
+        if (styled) drawing.push_clip(content);
+        const float kind_width = content.width > 260 ? 100.0f : 0;
         const auto thumbnail = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {
             return slot->id == item.id && slot->path == item.path;
         });
         bool drawn{};
         if (thumbnail != thumbnails_.end() && (*thumbnail)->pixels) {
-            drawn = drawing.image((*thumbnail)->pixels, {11, bounds.y + 4, 24, 24});
+            drawn = drawing.image((*thumbnail)->pixels, {content.x + 11, content.y + (content.height - 24) / 2, 24, 24});
             if (!drawn && !(*thumbnail)->reported && (*thumbnail)->error.empty()) {
                 (*thumbnail)->error = L"The thumbnail bitmap budget is full or the upload failed.";
                 invalidate();
             }
         }
-        if (!drawn) drawing.icon({14, bounds.y + 8, 18, 18},
-            winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : item.directory ? palette_.folder : palette_.file, item.directory);
-        drawing.text(item.name, {40, bounds.y, std::max(0.0f, area - kind_width - 52), bounds.height}, text);
-        if (kind_width) drawing.text(item.directory ? L"Folder" : L"File",
-            {area - kind_width, bounds.y, kind_width - 14, bounds.height},
-            winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : palette_.secondary, true);
+        if (!drawn) drawing.icon({content.x + 14, content.y + (content.height - 18) / 2 + (styled ? 0 : 1), 18, 18},
+            color(resolve(StylePart::icon, state).foreground,
+                winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : item.directory ? palette_.folder : palette_.file), item.directory);
+        const auto primary = resolve(StylePart::primary_text, state);
+        const Rect text_bounds{content.x + 40, content.y, std::max(0.0f, content.width - kind_width - 52), content.height};
+        if (styled) drawing.styled_text(item.name, text_bounds, color(primary.foreground, text), primary);
+        else drawing.text(item.name, text_bounds, text);
+        if (kind_width) {
+            const auto secondary = resolve(StylePart::secondary_text, state);
+            const Rect kind{content.x + content.width - kind_width, content.y, kind_width - 14, content.height};
+            const auto ink = color(secondary.foreground, winui && !enabled ? palette_.disabled : selected ? palette_.selection_text : palette_.secondary);
+            if (styled) drawing.styled_text(item.directory ? L"Folder" : L"File", kind, ink, secondary, TextStyle::caption);
+            else drawing.text(item.directory ? L"Folder" : L"File", kind, ink, true);
+        }
+        if (styled) drawing.pop_clip();
     }
     if (model.visible_indices().empty()) {
-        const float top = std::max(10.0f, list_->viewport_height() * 0.35f - 20);
-        drawing.heading(list_->empty_title(), {24, top, std::max(0.0f, area - 48), 34}, palette_.text);
-        drawing.text(list_->empty_detail(), {24, top + 38, std::max(0.0f, area - 48), 24}, palette_.secondary, true);
+        const float top = viewport.y + std::max(10.0f, viewport.height * 0.35f - 20);
+        const auto values = resolve(StylePart::empty);
+        if (styled) {
+            drawing.styled_text(list_->empty_title(), {viewport.x + 24, top, std::max(0.0f, area - 48), 34}, color(values.foreground, palette_.text), values, TextStyle::heading);
+            drawing.styled_text(list_->empty_detail(), {viewport.x + 24, top + 38, std::max(0.0f, area - 48), 24}, color(values.foreground, palette_.secondary), values, TextStyle::caption);
+        } else {
+            drawing.heading(list_->empty_title(), {24, top, std::max(0.0f, area - 48), 34}, palette_.text);
+            drawing.text(list_->empty_detail(), {24, top + 38, std::max(0.0f, area - 48), 24}, palette_.secondary, true);
+        }
     }
+    if (styled) drawing.pop_clip();
     if (thumb_.height > 0) {
         const bool active = hover_scrollbar_ || dragging_;
-        const Rect thumb{area + (active ? 4 : 6), 4 + thumb_.top, active ? 8.0f : 4.0f, thumb_.height};
-        if (winui) drawing.scrollbar_thumb(thumb, palette_, active, enabled);
+        const auto bar_width = list_->scrollbar_width();
+        const float thumb_width = active ? bar_width / 2 : bar_width / 4;
+        const Rect thumb{viewport.x + area + (bar_width - thumb_width) / 2, viewport.y + 4 + thumb_.top, thumb_width, thumb_.height};
+        if (styled) {
+            drawing.styled_surface({viewport.x + area, viewport.y, bar_width, viewport.height}, palette_,
+                resolve(StylePart::scrollbar_track), palette_.surface, palette_.border, 0, {});
+            drawing.styled_surface(thumb, palette_, resolve(StylePart::scrollbar_thumb),
+                active || palette_.high_contrast ? palette_.secondary : palette_.border, palette_.border, 3, {});
+        } else if (winui) drawing.scrollbar_thumb(thumb, palette_, active, enabled);
         else drawing.rounded(thumb, active || palette_.high_contrast ? palette_.secondary : palette_.border, 3);
     }
 }
@@ -329,13 +418,13 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     case WM_LBUTTONDOWN: if (IsWindowEnabled(hwnd)) pointer_down(lparam); return 0;
     case WM_LBUTTONDBLCLK:
         if (IsWindowEnabled(hwnd) && !in_scrollbar(lparam)) {
-            select_at(GET_Y_LPARAM(lparam));
-            list_->activate_selected(FileActivation::double_click);
+            if (select_at(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam))) list_->activate_selected(FileActivation::double_click);
         }
         return 0;
     case WM_MOUSEMOVE: if (IsWindowEnabled(hwnd)) pointer_move(lparam); return 0;
     case WM_MOUSELEAVE:
-        tracking_ = false; hovered_.reset(); hover_scrollbar_ = false; invalidate(); return 0;
+        tracking_ = false; hovered_.reset(); pointer_.reset(); hover_scrollbar_ = false;
+        list_->pointer_move(false); invalidate(); return 0;
     case WM_LBUTTONUP:
     case WM_CANCELMODE:
         dragging_ = false;
@@ -345,7 +434,7 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     case WM_CAPTURECHANGED: dragging_ = false; invalidate(); return 0;
     case WM_RBUTTONDOWN:
         SetFocus(hwnd);
-        if (!in_scrollbar(lparam)) select_at(GET_Y_LPARAM(lparam));
+        if (!in_scrollbar(lparam)) select_at(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
         else list_->clear_selection();
         return 0;
     case WM_KEYDOWN: {
@@ -373,7 +462,7 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         const int ticks = wheel_delta_ / WHEEL_DELTA;
         wheel_delta_ %= WHEEL_DELTA;
         list_->scroll_to(list_->offset() - ticks * (lines == WHEEL_PAGESCROLL ?
-            list_->viewport_height() : lines * list_->row_height()));
+            list_->content_height() : lines * list_->row_height()));
         changed();
         return 0;
     }
@@ -388,7 +477,7 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         if (action == AccessibilityAction::scroll_percent) {
             if (lparam < 0 || lparam > 10000) return FALSE;
             const float extent = std::max(0.0f, list_->model().visible_indices().size() *
-                list_->row_height() - list_->viewport_height());
+                list_->row_height() - list_->content_height());
             list_->scroll_to(extent * static_cast<float>(lparam) / 10000);
             changed(); return TRUE;
         }

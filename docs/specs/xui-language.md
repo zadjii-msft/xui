@@ -4,9 +4,10 @@ The `.xui` language describes a retained control tree with C# state and behavior
 The compiler generates C# that uses the existing XUI bindings.
 It does not add a runtime parser, virtual tree, or reconciler.
 
-The initial implementation supports fixed compositions.
-It supports named Button and Toggle styles and color resources.
-It does not support arbitrary dynamic children, custom row templates, or styles for other control types.
+The implementation supports fixed compositions.
+It supports named control styles, named visual parts, state rules, typography, and color resources.
+The [control inventory](control-styling-inventory.md) describes the available presentation surfaces.
+It does not support arbitrary dynamic children, control templates, or custom row templates.
 The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
 
 ## Author a component
@@ -42,7 +43,7 @@ The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextI
 Stacks have no positional argument.
 Each other native node requires a string argument.
 Most arguments use C# expressions.
-Button style arguments use the bounded style syntax described below.
+Style arguments use the bounded style syntax described below.
 
 All nodes support `ref: Identifier`, `size: (width, height)`, and `preferredSize: (width, height)`.
 Size values use DIPs.
@@ -72,7 +73,9 @@ Its `searchId` and `searchHelp` arguments configure the native search input.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
 
-## Declare Button styles and resources
+<a id="declare-button-styles-and-resources"></a>
+
+## Declare control styles and resources
 
 Resources and named styles belong directly inside a component:
 
@@ -110,45 +113,74 @@ The button demonstrates appearance and does not delete data.
 
 ### Grammar
 
-The following grammar describes the style subset.
+The following grammar describes the style structure.
+The exported catalog restricts each target, part, property, state, and value combination.
 `Identifier` uses the same identifier syntax as other XUI names.
 Brackets mark optional syntax, and braces after `=` mark repetition.
 Quoted braces are literal delimiters.
 
 ```text
 Resources   = "resources" "{" { Identifier ":" Color ";" } "}"
-Style       = "style" Identifier "for" "Button" [ "basedOn" Identifier ]
-              "{" { Property | Rule } "}"
-ToggleStyle = "style" Identifier "for" "Toggle" [ "basedOn" Identifier ]
+Style       = "style" Identifier "for" Target [ "basedOn" Identifier ]
               "{" { Property | Rule | Part } "}"
-Part        = "part" ( "label" | "indicator" | "mark" )
-              "{" { PartProperty | PartRule } "}"
-PartRule    = "when" State "{" { PartProperty } "}"
+Part        = "part" PartName "{" { Property | Rule } "}"
 Rule        = "when" State "{" { Property } "}"
-State       = "focused" | "checked" | "hovered" | "pressed" | "disabled"
-Property    = ColorName ":" Color ";"
-            | "cornerRadius" ":" Dimension ";"
-            | InsetsName ":" Insets ";"
-ColorName   = "background" | "foreground" | "borderBrush"
-InsetsName  = "padding" | "borderThickness"
+Property    = PropertyName ":" Value ";"
 Color       = Rgb24
             | "theme" "(" "light" ":" Rgb24 "," "dark" ":" Rgb24 ")"
             | "resource" "(" Identifier ")"
 Insets      = Dimension | "(" Dimension "," Dimension "," Dimension "," Dimension ")"
 ```
 
-`PartProperty` uses the [Toggle schema](control-styling.md#toggle-pilot).
-Only `indicator` accepts `size`.
-Root and part rules use the same five state names.
+`Target`, `PartName`, `State`, and `PropertyName` must match the supported catalog names.
+`Value` must match the property's type and the part's limits.
+Targets use case-sensitive PascalCase names, such as `TextInput`, `ItemsView`, and `NavigationView`.
+Part, property, and state names use lower camel case.
+The target aliases are `Text` for `Label` and `VStack` or `HStack` for `Stack`.
+The [style contract](control-styling.md) describes shared behavior and target-specific boundaries.
+Root and part rules accept only states that the corresponding native model supplies.
+Support for a property and a state does not imply support for that property inside the state rule.
+For example, `ItemsView` accepts base `tile.width`, but rejects `tile.width` in every state rule.
 Parts cannot contain other parts.
 State blocks cannot contain parts.
-Toggle rejects duplicate parts and duplicate state blocks within one part.
+Generic styles reject duplicate parts and duplicate state blocks within one part.
 The root is implicit, so `part root` is invalid.
 Base and derived styles must target the same control type.
-Toggle arguments accept `style` and the six root properties.
 Per-part local values use the C++, C ABI, C#, or Rust setter.
 Style-value and part-rule edits update the method-body revision for hot reload.
 They preserve the existing control tree.
+
+The compiler accepts the Element-applicable targets in the [exported catalog](../../bindings/control_style_catalog.json).
+Tooltip declarations reject because tooltips require the Window API.
+`ContentDialog`, `CommandSurface`, `LocationPicker`, and `ViewPicker` are facades, not style targets.
+Their root styles use `Popup`.
+Retained children use their actual control targets.
+
+### Property values
+
+The catalog determines which properties each target and part accept.
+This vocabulary does not imply that every property applies to every part.
+
+| Properties | Value syntax |
+| --- | --- |
+| `background`, `foreground`, `borderBrush` | RGB24 integer, `resource(Name)`, or `theme(light: RGB24, dark: RGB24)` |
+| `padding`, `borderThickness` | One dimension or four dimensions in left, top, right, bottom order |
+| `fontFamily` | Nonempty C# string literal with valid Unicode and no NUL |
+| `fontSize` | Positive numeric literal, limited by the part |
+| `fontWeight` | Integer literal from 1 through 999 |
+| `fontStyle` | Bare `normal`, `italic`, or `oblique`, limited by the part |
+| `horizontalAlignment`, `verticalAlignment` | Bare `start`, `center`, `end`, or `stretch`, limited by the part |
+| `wrapping` | `true` or `false` |
+| `maximumLines` | Integer literal from 0 through 32768 |
+| `cornerRadius`, `size`, `spacing`, `headerHeight`, `indentation`, `thickness`, `width`, `height`, `rowGap`, `columnGap` | Dimension |
+| `rowHeight` | Positive dimension |
+
+Font families have a maximum length of 1024 UTF-8 bytes and must also fit the part's UTF-16 limit.
+Native text parts restrict font size to 512 DIPs and family length to 31 UTF-16 code units.
+Those native parts accept normal or italic fonts, not oblique.
+Paragraph parts reject vertical stretch.
+Supported layout parts can accept stretch.
+Enum values are unquoted names, not strings or C# enum expressions.
 
 `Rgb24` is an integer literal from `0x000000` through `0xFFFFFF`.
 Hexadecimal values use `0xRRGGBB`, not alpha or COLORREF byte order.
@@ -179,7 +211,8 @@ An omitted property remains absent, not zero.
 Explicit zero therefore differs from an omitted corner radius, inset, or black color.
 State rules also contain sparse values.
 Repeated properties within the same style body or rule are errors.
-Multiple rules for one state are permitted and retain their declaration order.
+Legacy Button declarations permit repeated state blocks and retain their declaration order.
+Generic declarations reject duplicate state blocks.
 Rules cannot contain other rules.
 
 A derived style names its base after `for Button`:
@@ -196,9 +229,16 @@ Style names must be unique and cannot conflict with generated members, state, pa
 Resources and styles have separate name scopes.
 The compiler rejects missing base styles and inheritance cycles.
 
-A Button accepts a declared style name in `style: Identifier`.
+Native nodes accept a declared style name in `style: Identifier`.
+The supported nodes are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, and `Content`.
+The style target must match the node.
+Other supported targets use `Content(existingElement, style: NamedStyle)`, without a new constructor syntax.
+Native attachment checks the actual target of that existing element.
+`Content` requires a named style before it accepts local style properties.
+Legacy Button styles require a `Button` node, not `Content`.
+
 Style names are XUI references, not fields available inside `code csharp`.
-It also accepts the six style properties directly as named arguments:
+A Button also accepts the six foundation properties directly as named arguments:
 
 ```text
 Button("Delete", style: DangerButton, padding: (8, 2, 8, 2), cornerRadius: 0);
@@ -206,9 +246,34 @@ Button("Local only", background: resource(DangerFill), foreground: 0xFFFFFF);
 ```
 
 Local properties use the same constant syntax as style properties.
-They produce a sparse `Button.StyleValues` value, separate from `Button.Style`.
-The native Button resolves local overrides, state rules, base styles, and defaults.
-The [style contract](styling-and-templates-design.md) describes that precedence and the native rendering boundaries.
+Legacy Button properties produce sparse `Button.StyleValues`, separate from `Button.Style`.
+Parts or extended properties select generic `ControlStyle` definitions.
+Generic local properties use the root part's supported property set.
+The native engine resolves local overrides, state rules, base styles, and defaults.
+
+The node argument `size: (width, height)` remains structural size, not the scalar style property `size`.
+Button scalar `size` belongs only to its supported icon and arrow parts.
+Stack node arguments `padding` and `spacing` remain structural float setters and override style values.
+Omitted Stack arguments leave style values available.
+Explicit zero overrides them.
+Padding inside a style declaration still accepts four-edge insets.
+
+```xui
+style Heading for Label {
+    foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+    fontFamily: "Segoe UI";
+    fontSize: 20;
+    fontWeight: 600;
+    wrapping: true;
+    maximumLines: 2;
+}
+style Panel for Stack { padding: 12; spacing: 8; }
+```
+
+`Text("Title", style: Heading)` and `VStack(style: Panel)` apply these declarations inside the component's view.
+These declarations do not replace the controls or their input behavior.
+
+The [style contract](control-styling.md) describes that precedence and the native rendering boundaries.
 This stage does not change control ownership, events, keyboard behavior, accessibility, or the control tree.
 It does not implement `ItemTemplate`, control templates, implicit styles, arbitrary selectors, or state expressions.
 
@@ -233,15 +298,15 @@ Components without named styles do not allocate a style cache.
 
 Edits to existing colors, aliases, properties, state rules, base-style references, and applied style references can update existing controls.
 The generated cache checks a revision from a method body during refresh.
-A changed revision creates new shared definitions and applies them to the existing Buttons.
+A changed revision creates new shared definitions and applies them to the existing elements.
 Unchanged definitions do not trigger another native style assignment.
 Local value edits update the existing local override binding.
 These refreshes preserve component state, input state, event subscriptions, and control ownership.
 
 Resource and style declaration names and order belong to the structural signature.
 Adding, deleting, renaming, or reordering those declarations requires replacement.
-Adding or removing a Button style binding or local property also requires replacement.
-This prevents a removed property from remaining on a retained Button.
+Adding or removing a style binding or local property also requires replacement.
+This prevents a removed property from remaining on a retained element.
 The general runtime restrictions in [reload behavior](#understand-reload-behavior) still apply.
 
 ## Reuse a component

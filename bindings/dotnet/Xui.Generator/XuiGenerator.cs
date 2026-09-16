@@ -132,8 +132,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         if (node.Kind is "VStack" or "HStack")
         {
-            Bind("spacing", "float", "Spacing({0})", "0");
-            Bind("padding", "float", "Padding({0})", "0");
+            if (node.Arguments.ContainsKey("spacing")) Bind("spacing", "float", "Spacing({0})", "0");
+            if (node.Arguments.ContainsKey("padding")) Bind("padding", "float", "Padding({0})", "0");
         }
         else if (node.Kind is not ("Content" or "Grid"))
         {
@@ -167,26 +167,34 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             ("windowBackground", "bool", "SetWindowBackground({0})")
         })
             if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
-        if (node.Kind == "Button")
-        {
-            if (node.Arguments.TryGetValue("style", out var style))
-                bindings.Add(new($"__xuiB{index}_style", index, "global::Xui.ButtonStyle", $"__xuiN{index}.Style = {{0}}",
-                    new(styling.Reference(style), style.Offset), []));
-            var local = node.Arguments.Where(pair => StyleCompiler.Properties.Contains(pair.Key)).ToDictionary();
-            if (local.Count != 0)
-                bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.ButtonStyleValues", $"__xuiN{index}.StyleValues = {{0}}",
-                    new(styling.Values(local), local.First().Value.Offset), []));
+        var styleValue = node.Arguments.GetValueOrDefault("style");
+        string styleTarget = node.Kind == "Content" && styleValue is not null ? styling.ReferenceTarget(styleValue) : StyleCompiler.TargetName(node.Kind);
+        bool genericStyle = styleValue is not null && styling.GenericReference(styleValue);
+        if (node.Kind == "Content" && styleValue is null) {
+            var untypedLocal = node.Arguments.FirstOrDefault(pair => StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key));
+            if (untypedLocal.Value is not null)
+                throw new ParseError("Content style properties require a named style to identify the target schema.", untypedLocal.Value.Offset);
         }
-        if (node.Kind == "Toggle")
-        {
-            if (node.Arguments.TryGetValue("style", out var style))
-                bindings.Add(new($"__xuiB{index}_style", index, "global::Xui.ControlStyle", $"__xuiN{index}.Style = {{0}}",
-                    new(styling.Reference(style, "Toggle"), style.Offset), []));
-            var local = node.Arguments.Where(pair => StyleCompiler.Properties.Contains(pair.Key)).ToDictionary();
+        if (styleValue is not null) {
+            string reference = styling.Reference(styleValue, styleTarget);
+            if (!genericStyle && node.Kind != "Button")
+                throw new ParseError("A legacy Button style requires a Button node.", styleValue.Offset);
+            bindings.Add(new($"__xuiB{index}_style", index, genericStyle ? "global::Xui.ControlStyle" : "global::Xui.ButtonStyle",
+                genericStyle ? $"__xuiN{index}.SetControlStyle({{0}})" : $"__xuiN{index}.Style = {{0}}",
+                new(reference, styleValue.Offset), []));
+        }
+        if (styleTarget == "Button" || StyleCatalog.TargetExists(styleTarget)) {
+            var local = node.Arguments.Where(pair =>
+                (StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key)) &&
+                !((node.Kind is "VStack" or "HStack") && (pair.Key is "spacing" or "padding"))).ToDictionary();
+            foreach (var pair in local)
+                if (!StyleCompiler.AllowedProperties(styleTarget, "root").Contains(pair.Key))
+                    throw new ParseError($"Unsupported {styleTarget} root style property '{pair.Key}'.", pair.Value.Offset);
+            bool genericLocal = styleTarget != "Button" || genericStyle || local.Keys.Any(key => !StyleCompiler.Properties.Contains(key));
             if (local.Count != 0)
-                bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.PartStyleValues",
-                    $"__xuiN{index}.SetStyleValues(global::Xui.StylePart.Root, {{0}})",
-                    new(styling.Values(local, "Toggle"), local.First().Value.Offset), []));
+                bindings.Add(new($"__xuiB{index}_styleValues", index, genericLocal ? "global::Xui.PartStyleValues" : "global::Xui.ButtonStyleValues",
+                    genericLocal ? $"__xuiN{index}.SetControlStyleValues(global::Xui.StylePart.Root, {{0}})" : $"__xuiN{index}.StyleValues = {{0}}",
+                    new(styling.Values(local, genericLocal ? "generic" : "Button", styleTarget), local.First().Value.Offset), []));
         }
         if (node.Kind == "Grid")
         {

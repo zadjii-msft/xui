@@ -1,18 +1,17 @@
-# Button styling foundation
+# Control styling implementation and evidence
 
-Evidence date: 2026-09-15.
-Base commit: `70a009f4cac55bc74250ae7500a9abbf0b20a1f9`.
-Implementation: the styling-foundation changes after this base commit.
-This note distinguishes working behavior from performance acceptance.
+Latest integration evidence: 2026-09-16.
+The current delivery is the control-family expansion after Astra completed the Sonnet-5 pilot takeover.
+Earlier foundation evidence dates from 2026-09-15 and uses base commit `70a009f4cac55bc74250ae7500a9abbf0b20a1f9`.
+This note separates current integration results, accepted performance costs, and historical investigations.
 
-The acceptance follow-up reduced a measured raster cost, but styled presentation still has an unresolved CPU cost.
-The USER-object failure also reproduced against pristine native libraries.
+The earlier foundation investigation measured an additional styled raster cost.
+Its USER-object failure also reproduced against pristine native libraries.
 The managed Shell-menu failure did not reproduce in six bounded runs.
-The follow-up section records the evidence and remaining limits.
+The delivery decision below records the later acceptance of the measured Button cost.
 
-The [public contract](../specs/control-styling.md) describes the implemented stage.
-The design proposal and public reference index belong to the parent task.
-This stage does not implement control templates or item templates.
+The [public contract](../specs/control-styling.md) and [inventory](../specs/control-styling-inventory.md) describe implemented coverage and explicit gaps.
+Control templates and item templates remain future work.
 
 ## Delivery decision
 
@@ -23,6 +22,281 @@ Brush changes remain a possible explanation, not an established cause.
 Default-path performance, bounded storage, native input, and accessibility remain requirements for subsequent changes.
 
 ## Consumer integration
+
+### Retained facade binding follow-up
+
+`xui_feature_child` now exposes the retained dialog, command surface, location picker, view picker, and navigation pane children.
+Existing child indices and Popup-backed facade root handles remain unchanged.
+CommandSurface menu uses a retained-only Element kind instead of an incompatible ItemsView kind.
+C# exposes `RetainedElement` for that menu, and Rust returns `Element`.
+The shared ABI keeps native Button actions separate from foreign activation notifications.
+TextInput wrappers capture original change and submit callbacks once.
+This preserves composition behavior across repeated subscriptions.
+NumericInput, RadioGroup, RangeInput, and Popup use the same callback-preservation contract.
+Their native getters return the original callback fields without additional storage.
+The retained-choice accessors cover ComboBox overlays, NumericInput editors/buttons, InlineStatus buttons, and ColorPicker channels/swatches.
+Only the noneditable ComboBox editor uses a successful zero handle.
+The managed and Rust optional helpers preserve that absence without creating an invalid Element wrapper.
+
+New ABI regression source covers child target assignment, handle identity, local clearing, facade target rejection, and lifetime/thread guards.
+Managed and Rust regression sources cover retained accessors and local-value preservation.
+The later coordinator results appear in the retained-facade and final-navigation follow-ups below.
+
+### All-control native expansion
+
+Uniform-metric policy uses the fifth `StylePartSchema` field, `state_allowed`.
+Native creation checks this mask before publication, and the ABI exports its intersection with `allowed`.
+`bindings\generate_control_styles.py` carries the mask into the managed, Rust, and compiler catalogs.
+Collection tile-width regressions cover forbidden state rules, base/local column geometry, and local clearing.
+Grid and choices regressions distinguish owner-wide layout metrics from per-item content geometry.
+Complete generated authoring coverage requires a catalog from the matching native schema.
+
+Numeric and editable ComboBox geometry uses additive root, field, and retained-editor insets.
+In `src\foundation.cpp`, `field_bounds()` applies root insets, and the editor/action geometry applies field insets through `choice_style_content`.
+The native `TextInput` adapter in `src\application.cpp` separately applies the child text-content insets.
+Parent field colors supply read-only defaults, not replacement child geometry or attachments.
+The [public contract](../specs/control-styling.md#numeric-and-editable-combobox-insets) describes the application-author boundary.
+
+Stack composition defaults use `set_default_padding` and `set_default_spacing` in `src\core.cpp`.
+These methods leave structural-value flags unset and cannot overwrite explicit structural values.
+`tests\style_layouts_tests.cpp` covers style overrides, explicit zero, later default calls, clearing, and allocation-free ordinary setters.
+
+This section records the ARM64 Release expansion after the committed Toggle pilot, `0735a5047018d44fc220f7c6e6936687fc73cada`.
+The native implementation covers basic controls, native fields, choices, layouts, collections, grids, navigation, and native hosts.
+Portable catalog, compiler, binding, and extension integration remain separate acceptance steps.
+Native coverage alone does not establish complete authoring support.
+The expansion does not implement replaceable control templates or item templates.
+
+All seventeen new native model, raster, and window suites passed in the stable-source combined batch.
+An earlier broader run passed 42 of 43 suites against unchanged native source, headers, and tests.
+The only failure was an existing suggestion-popup fixture.
+That fixture compared the popup against the smaller, vertically centered native EDIT rectangle instead of the full model field.
+The corrected fixture uses the full field bottom in screen coordinates and preserves the existing inset requirements.
+Its subsequent run passed without a production geometry change.
+The parent reports that all 44 native regression targets are now resolved.
+
+The broader run also covered core controls, legacy styles, the C ABI, native input, collections, navigation, host ownership, and existing desktop regressions.
+The existing performance-invariant suite passed without benchmark mode.
+It covers million-row semantics, allocation-free interactions, cancellation, and off-thread retirement.
+These results are invariant checks, not new frame-time measurements.
+The accepted Button timing evidence remains separate.
+
+Final focused runs also passed navigation model, navigation raster, and native-field window suites.
+They include paragraph alignment limits, retained command callbacks, and native clear-glyph coverage.
+The clear-glyph fixture accepts authored antialias blends but rejects background and unrelated colors.
+It requires more than three full-pixel-equivalent units of foreground coverage.
+The suggestion fixture and antialias fixture changes preserve their behavioral requirements.
+
+The shared allocation report records an unstyled Element baseline of 96 bytes and one allocation.
+An unstyled Control adds no style allocation beyond that baseline.
+`sizeof(Element)` is 88 bytes, and `sizeof(Control)` remains 416 bytes, equal to the committed Toggle pilot.
+`sizeof(PartStyleValues)` is 240 bytes.
+Warmed inherited-text state loops allocate no memory.
+These figures describe this ARM64 Release build, not other architectures.
+
+The parent rebuilt Minesweeper and copied the exact current native DLL into its ARM64 output.
+Matching file hashes established the native library used by the managed run.
+All 133,822 model and native-style assertions passed.
+A complete desktop smoke run passed 510 assertions, including gameplay, unchanged borderless-cell geometry, hot reload, and NativeAOT.
+The successful local artifact directory is `build\minesweeper-check\0066dd3a823a4367afee99eab76493b2`.
+
+Two earlier smoke runs failed during initial covered-cell checks at different late cells.
+One returned `"1"` instead of `"?"`.
+The fixture now reports the actual name, summary, and help text on failure.
+No gameplay expectation or production behavior changed to obtain the passing run.
+Both earlier changed-cell failures remain unclassified.
+The later successful run does not establish their cause or prove that an intermittent failure is fixed.
+
+No physical keyboard, screen-reader speech, or operating-system high-contrast transition forms part of this expansion evidence.
+Dedicated native-region checks across DPI changes and high-contrast clearing are not separately established.
+Existing host checks cover asymmetric geometry, nonzero origins, rounded pixels, and clip-cache reuse.
+Navigation model and raster suites do not establish interactive ContentDialog validation or focus behavior.
+Custom Shell HMENU presentation, automatic Breadcrumb-current selectors, palette-status selectors, and CommandBar section headings remain unsupported.
+Tab icon, add, and drag parts are not advertised without corresponding models.
+Composite facades retain actual Popup roots and expose their retained children.
+They do not supply synthetic root states.
+The parent ran native builds and desktop suites sequentially.
+The broad integration log remains a session artifact named `all-control-native-integration.log`.
+
+### Tooltip binding integration follow-up
+
+The subsequent Tooltip ABI bridge uses real Window nodes and the existing generic style cache and property records.
+C# and Rust expose definition application, local replacement and clearing, and effective-value reads.
+The `.xui` compiler rejects Tooltip declarations with a Window API diagnostic.
+It does not accept component syntax that cannot apply the style.
+
+New ABI regressions cover hidden-state preservation, local precedence, weak identities, thread and window guards, borrowed font text, and output-buffer bounds.
+Managed and Rust regression sources cover application, clearing, target rejection, and cross-window definition reuse.
+The parent rebuilt the native bridge and ran the ABI features suite successfully.
+The later managed and Rust runs cover these native-backed additions.
+The earlier native acceptance results alone do not establish those portable additions.
+The parent later exported the full native schema snapshot.
+
+A later shared edit changed inherited root rules to use item state instead of the actual owner state.
+The parent reproduced failures in three previously passing collection, choice, and grid suites.
+The parent restored the approved owner-root behavior and the matching common assertions.
+Non-root rules still use item state plus owner disabled context.
+The subsequent native rebuild and eight affected suites passed.
+Those suites cover common resolution, the ABI, and collection, choice, and grid models and windows.
+The choice suite also covers per-channel invalid labels, valid neighbors, recovery, and allocation-free repeated resolution.
+The picker root retains aggregate invalid state.
+
+The schema pipeline now includes the native `xui_style_catalog` exporter and a read-only parity mode.
+An exporter process avoids Python/DLL architecture mismatches.
+Generated assertions cover every C/C++ target, part, property, and state identifier.
+The portable generator suite also loads the real managed library under a native-load guard.
+It compares catalog masks and limits, exercises definition validation, and does not load the native DLL.
+The parent corrected the generated check header to include the public umbrella header, `xui/xui.h`.
+The native exporter then built successfully.
+The parent refreshed the catalog with that exporter and passed its read-only parity mode.
+The snapshot contains 46 supported targets and 223 part schemas.
+The first GeneratorTests run with this snapshot failed in `TestStylingDiagnostics`, which expected `XUI001` at `Program.cs:354`.
+After the compiler-fixture update, the parent reran GeneratorTests successfully with 41,607 assertions.
+The real MSBuild suite also passed its 11 assertions.
+Earlier generator results describe the smaller catalog.
+
+The later generator corrections passed 41,669 assertions and the 11 MSBuild assertions in independent parent runs.
+A narrow review found both original defects resolved: mixed Button inheritance and omitted Stack setters.
+The parent also added `bindings\dotnet\Tests\ExpandedStylingFixture.xui` with real native controls.
+It covers legacy and generic Button ancestors, shared promoted definitions, native Label and Stack values, and disabled-state precedence.
+Unchanged refreshes create no native handles.
+A forced revision mismatch replaces definitions while preserving native control identity and input text.
+This fixture increased the passing managed styling count to 10,488.
+
+The generated Stack checks establish emitted setters and native style attachment, not measured native geometry.
+Native layout suites separately cover explicit-zero precedence.
+The revision fixture does not simulate a file edit through `dotnet watch`.
+
+### Retained facade binding follow-up
+
+The parent rebuilt the native DLL and C ABI fixtures after the facade accessor integration.
+The C fixture passed.
+The new feature fixture incorrectly expected a retained child lookup to return `XUI_CLOSED` immediately after `xui_window_close`.
+The public lifecycle contract keeps controls valid until `xui_window_destroy`.
+The parent corrected the fixture to require unchanged child identity after the close request and an invalid handle after destruction.
+The feature suite then passed without a production lifecycle change.
+
+The parent later rebuilt the choice-accessor additions and passed the C and feature ABI suites.
+The managed tests used a hash-checked copy of the current native DLL.
+The full managed run passed 48 wrapper, 220 feature, 10,465 styling, and 22 text-selection assertions.
+That run includes the current retained-facade cases and existing callback and Shell-menu regressions.
+
+The Rust run initially failed two new fixtures that expected child getters to fail after `drop(window)`.
+Rust child wrappers share the window owner and keep its arena alive.
+The parent corrected those fixtures to require valid child values while these owners remain.
+All 23 Rust unit tests and two documentation tests then passed against the current native DLL.
+The run includes retained choice callbacks, facade accessors, and existing last-owner destruction checks.
+Cargo reported nonfatal incremental-cache access-denied notes, but the test binaries compiled and ran.
+
+These results do not establish the remaining keyed-button, titlebar, or generated all-control reload integration.
+
+### Final navigation binding integration
+
+The final bridge adds keyed Breadcrumb and CommandBar Buttons, overflow Buttons, and the retained Window titlebar and NavigationView children.
+It preserves the existing facade child indices and uses the actual native child targets.
+NavigationPane also exposes its retained group Expander and progress indicator.
+Button notifications remain separate from native command and caption actions.
+Command snapshot changes do not overwrite foreign subscriptions.
+
+The parent rebuilt the ARM64 Release DLL, C fixture, ABI features, and navigation model suite.
+All three native suites passed.
+The parent then copied the exact DLL into the managed test output and compared its hash.
+The full managed run passed 48 wrapper, 287 feature, 10,488 styling, and 22 text-selection assertions.
+The Rust run passed 24 unit tests and two documentation tests against the same native build.
+Cargo reported a nonfatal incremental-cache access-denied note.
+The final catalog parity check, 41,669 generator assertions, and 11 MSBuild assertions also passed.
+Seven further native suites passed after the callback integration.
+They cover existing controls, legacy styles, generic styles, expansion invariants, foundation controls, navigation raster output, and the styling window.
+
+These runs include keyed identity, missing-key errors, native actions, subscription changes, and command snapshot transitions.
+They also cover the generated mixed-style revision fixture described above.
+They do not add physical keyboard, screen-reader, or frame-time evidence.
+
+### Callback review corrections
+
+A narrow review found that exposed, detached keyed Buttons could still invoke actions from obsolete command or breadcrumb snapshots.
+The navigation adapter now disables retired Buttons, clears their callbacks, and guards copied callbacks and notifications.
+Native, ABI, managed, and Rust regressions cover removal, disabled-key reintroduction, and breadcrumb version replacement.
+
+The review also found an unconditional observer capture that exceeded MSVC's inline callback capacity.
+Unexposed CommandBars now retain the smaller callback.
+Observer callbacks are installed only when requested.
+The navigation model suite checks allocations during actual unexposed CommandBar refresh and activation.
+
+Callback preservation initially added six inline function objects to every ABI Node, beyond two preexisting function objects.
+The parent replaced all eight with typed optional storage in `src\abi_callbacks.hpp`.
+The storage occupies 16 bytes in this ARM64 build and allocates nothing for empty native callbacks.
+Nonempty originals allocate only their callback category, not a record containing every possible callback.
+The common expansion suite checks empty captures, exact allocation sizes, callback execution, and owner release.
+
+The parent rebuilt the DLL and passed the common expansion, navigation model, and ABI features suites after these corrections.
+The full managed run used a hash-checked DLL and passed 48 wrapper, 302 feature, 10,488 styling, and 22 text-selection assertions.
+The Rust run passed all 24 unit tests and two documentation tests.
+The final compiler handoff adds catalog-driven initialization and reload checks for all 45 Element-applicable targets.
+The parent independently passed the resulting 41,813 generator assertions and portable catalog parity.
+Those catalog-wide checks use the managed binding harness, not native layout measurement for every target.
+
+The retirement correction initially suppressed Click notifications when an action disabled its still-current Button.
+The parent reproduced that defect with the new native fixture against the previous DLL.
+Notification delivery now checks current child identity rather than post-action enabled state.
+Observer ownership becomes invalid before composition destruction.
+The corrected DLL passed the same fixture, common expansion checks, and ABI features.
+The cases include momentary and toggle actions, same-key disabling, removal with reintroduction, and destruction during dispatch.
+The managed and Rust navigation bridge cases also passed against a hash-checked copy of the corrected DLL.
+Native catalog parity remained unchanged.
+
+### Retained-choice portable checks
+
+The shared owner added picker-channel and swatch regressions after the native facade run.
+The fixtures cover nested NumericInput step actions, original color-change callbacks, repeated subscriptions, handle identity, optional editors, and index rejection.
+At that checkpoint, the new native ABI fixture and managed/Rust runtime tests remained unrun under the native-build hold.
+The subsequent parent results appear in the retained facade follow-up.
+
+The subsequent portable GeneratorTests run passed 41,622 assertions, including its native-load guard.
+BuildTests passed 11 assertions.
+Managed Tests compilation reported zero warnings and errors.
+Rust workspace/test compilation passed, with nonfatal access-denied notes for its incremental cache.
+The generated-catalog check and whitespace check passed.
+These checks do not establish native runtime behavior for the new accessors.
+
+### Generator review corrections
+
+The binding review identified an invalid cast in mixed legacy/generic Button inheritance.
+The compiler now constructs shared generic copies of required legacy ancestors while retaining the original `ButtonStyle` definitions and references.
+Promotion merges repeated legacy state blocks property by property, without adding inheritance layers.
+It does not require a new public binding API or native schema change.
+
+The review also identified unconditional Stack padding and spacing setters for omitted `.xui` arguments.
+The compiler now emits these setters only for authored arguments, including explicit zero.
+Generated initialization and reload regressions cover both stack axes.
+Mixed-inheritance regressions execute generated components and real managed definition initialization under the native-load guard.
+The updated GeneratorTests run passed 41,669 assertions.
+The native header, schema, and engine freeze remains unchanged.
+
+### Native family freeze
+
+The parent reports that all 17 new model, raster, and window suites passed in the stable-source combined batch.
+The results cover full text inheritance, native font and alignment limits, default allocations, pixels, and UIA.
+The parent corrected the final CommandBar callback fault and the native clear antialias fixture.
+The shared owner preserved these corrections and froze native headers, schemas, the resolver, and binding catalogs.
+Only concrete new failures permit further native changes during final integration.
+
+After the generator review corrections, the final shared portable run passed 41,669 generator assertions and 11 MSBuild assertions.
+Managed compilation reported zero warnings and errors, and Rust workspace/test compilation passed.
+Current-DLL catalog parity and the generated-file check passed for the snapshot with 46 targets and 223 parts.
+The parent ran native and desktop checks sequentially and reports all 44 native regression targets resolved.
+The exact-DLL Minesweeper model/style run passed 133,822 assertions, and the latest desktop/hot-reload/NativeAOT smoke passed 510.
+The two earlier unclassified changed-cell failures remain part of the evidence, not erased by the later pass.
+
+### Toggle VSIX increment
+
+The parent integrated extension-only commit `55de578` from `828f95f18af93def490167d22a9b1bcff507b474`.
+The parent reported 30 passing tokenizer and configuration tests.
+The extension owner reported a passing strict VSIX/source check across eight files.
+The package was not installed.
+These are parent and child reports, not new checks by the shared integration owner.
+The extension session remains interactive until the complete implemented control catalog is ready.
+The documentation session still waits for the entire all-control expansion and its integration commit.
 
 ### Toggle pilot integration status
 
@@ -107,6 +381,13 @@ Static C# palette edits require a restart rather than named-style hot reload.
 
 ## Source map
 
+The control-family expansion adds these shared paths:
+
+- `src\style_*_schema.cpp`: supported properties, states, inheritance, and limits for each family.
+- `bindings\native\style_catalog.cpp`, `bindings\generate_control_styles.py`, `bindings\control_style_catalog.json`: native export and reproducible portable catalogs.
+- `src\abi_callbacks.hpp`, `src\c_api.cpp`, `src\c_api_features.inc`: optional callback preservation, retained child handles, and style application.
+- `tests\control_style_expansion_tests.cpp`, `tests\style_*_tests.cpp`: shared-engine, family, geometry, and allocation regressions.
+
 The Toggle pilot adds these shared-engine paths:
 
 - `include\xui\control_styling.hpp`, `src\control_styling.cpp`: target schemas, sparse state buckets, attachment cache, and local inheritance.
@@ -119,7 +400,7 @@ The Toggle pilot adds these shared-engine paths:
 - `bindings\dotnet\Xui.Generator\Styling.cs`, `Parser.cs`, `XuiGenerator.cs`: target-aware grammar, diagnostics, generation, and revision cache.
 - `bindings\dotnet\DeclarativeSample\Counter.xui`: application-author example.
 - `bindings\dotnet\GeneratorTests\Fakes.cs`, `Program.cs`: compiler and refresh regressions.
-- `bindings\dotnet\Tests\StylingTests.cs`, `ToggleStylingFixture.xui`, `Tests.csproj`: real managed/native definitions, lifecycle, and generated refresh.
+- `bindings\dotnet\Tests\StylingTests.cs`, `ToggleStylingFixture.xui`, `ExpandedStylingFixture.xui`, `Tests.csproj`: real managed/native definitions, lifecycle, and generated refresh.
 - `tests\control_styling_tests.cpp`: native model and allocation checks.
 - `tests\abi_c_test.c`, `tests\abi_features_tests.cpp`: record layout, explicit errors, release, and weak identities.
 - `tests\styling_window_tests.cpp`: Toggle pixel, metric, keyboard, UIA, disabled-context, and native-editor checks.

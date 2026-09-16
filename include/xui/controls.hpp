@@ -88,14 +88,6 @@ public:
         return callback ? callback() : ContextMenuContent{};
     }
     std::vector<MenuItem> context_menu() const { return context_menu_content().items; }
-    // Generic styles reject unsupported targets, parts, and properties.
-    // Button retains its separate legacy styling APIs.
-    void set_control_style(std::shared_ptr<const ControlStyle> style);
-    bool has_control_styling() const { return control_style_ != nullptr; }
-    std::shared_ptr<const ControlStyle> control_style() const;
-    void set_control_style_values(StylePart part, PartStyleValues values);
-    const PartStyleValues& control_style_values(StylePart part) const;
-    const PartStyleValues* effective_control_style_values(StylePart part) const;
 protected:
     Control(ControlRole role, std::wstring name, Size preferred);
     virtual void activate() {}
@@ -103,18 +95,13 @@ protected:
     void text_changed();
     void invalidate_state();
     virtual void presentation_changed() {}
-    // The StyleTarget this control contributes to the shared engine, or
-    // std::nullopt if it does not support styling. Toggle overrides this to
-    // return StyleTarget::toggle; a future family adds its own override, not
-    // another Control::invalidate_state branch.
-    virtual std::optional<StyleTarget> control_style_target() const { return std::nullopt; }
+    void control_style_changed(Invalidation kind) override;
     // The state bits this control currently contributes (focused/hovered/
     // pressed/disabled from the base state, plus any state a derived control
     // adds, e.g. Toggle ORs in checked).
-    virtual StyleStateMask control_style_state_bits() const;
+    StyleStateMask control_style_state_bits() const override;
 private:
     friend class Window;
-    void set_control_style_context_enabled(bool enabled);
     ControlRole role_;
     VisualStyle visual_style_{VisualStyle::classic};
     std::wstring name_;
@@ -128,7 +115,6 @@ private:
     TextMeasurer measurer_;
     Size text_size_{};
     bool text_dirty_{true};
-    std::unique_ptr<ControlStyleAttachment> control_style_;
 };
 
 class Label final : public Control {
@@ -146,7 +132,14 @@ public:
     void set_body_strong(bool value) { if (body_strong_ != value) { body_strong_ = value; text_changed(); } }
     void set_subtitle(bool value) { if (subtitle_ != value) { subtitle_ = value; text_changed(); } }
     void set_wrapping(bool value, std::size_t maximum_lines = 0);
-    bool wrapping() const { return wrapping_; }
+    bool wrapping() const;
+    std::size_t maximum_lines() const;
+    StylePart text_part() const {
+        const auto style = text_style();
+        return style == TextStyle::heading || style == TextStyle::subtitle ? StylePart::heading :
+            style == TextStyle::caption ? StylePart::caption : StylePart::label;
+    }
+    Rect content_bounds(Rect bounds) const;
     void set_wrapped_text_measurer(WrappedTextMeasurer measurer);
     void discard_wrapped_text() { wrapped_valid_ = false; }
     Size wrapped_text(float width);
@@ -158,6 +151,10 @@ public:
         text_changed();
     }
 private:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::label; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() & style_states::disabled;
+    }
     void presentation_changed() override { discard_wrapped_text(); }
     WrappedTextMeasurer wrapped_measurer_;
     std::wstring wrapped_name_;
@@ -166,6 +163,8 @@ private:
     TextStyle wrapped_style_{};
     std::size_t maximum_lines_{};
     bool wrapping_{}, wrapped_valid_{};
+    bool wrapping_explicit_{};
+    std::size_t wrapped_lines_{};
     bool heading_{};
     bool subtitle_{};
     bool body_strong_{};
@@ -177,6 +176,7 @@ class Button final : public Control {
 public:
     explicit Button(std::wstring text) : Control(ControlRole::button, std::move(text), {240, 40}) { set_auto_size(true); }
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
+    const std::function<void()>& click_callback() const { return click_; }
     ButtonBehavior behavior() const { return behavior_; }
     void set_behavior(ButtonBehavior value);
     ButtonAppearance appearance() const { return appearance_; }
@@ -201,13 +201,25 @@ public:
     // Backend context includes disabled ancestors and modal input restrictions.
     void set_style_enabled(bool enabled);
     Invalidation style_state_changed();
+    PartStyleValues surface_style_values() const;
+    PartStyleValues content_style_values(StylePart part) const;
+    Rect content_bounds(Rect bounds) const;
+    Rect icon_bounds(Rect bounds) const;
+    Rect dropdown_bounds(Rect bounds) const;
     Size measure(Size available) override {
+        if (has_control_styling()) return measure_control_styled(available);
         if (style_data_) return measure_styled(available);
         const float size = style_metrics(visual_style()).button_height;
         return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
     }
 private:
     friend class Control;
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::button; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
+    }
+    Size measure_control_styled(Size available);
+    PartStyleValues own_surface_style_values() const;
     Size measure_styled(Size available);
     struct StyleData {
         std::shared_ptr<const ButtonStyle> style;
@@ -276,7 +288,7 @@ public:
     void arrange(Rect bounds) override;
     float offset() const { return passthrough_ ? 0 : offset_; }
     bool passthrough() const { return passthrough_; }
-    void set_passthrough(bool value) { if (passthrough_ != value) { passthrough_ = value; invalidate(Invalidation::layout); } }
+    void set_passthrough(bool value) { if (passthrough_ != value) { passthrough_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); } }
     bool overlay_scrollbar() const { return overlay_scrollbar_; }
     void set_overlay_scrollbar(bool value) { if (overlay_scrollbar_ != value) { overlay_scrollbar_ = value; invalidate(Invalidation::layout); } }
     float extent() const { return extent_; }
@@ -286,9 +298,17 @@ public:
     void reveal(Rect bounds);
     Rect viewport() const;
     Rect thumb() const;
+    Rect scrollbar_track() const;
+    Rect scrollbar_thumb_track() const;
+    float effective_bar_width() const;
+    void set_style_dragging(bool dragging);
     static constexpr float bar_width = 12;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::scroll_view; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     bool passthrough_{}, overlay_scrollbar_{};
+    bool style_dragging_{}, style_scrollable_{};
     std::shared_ptr<Element> content_;
     float offset_{}, extent_{};
 };
@@ -303,10 +323,10 @@ public:
     };
     explicit TextInput(std::wstring name) : Control(ControlRole::text_input, std::move(name), {320, 68}) {}
     Size measure(Size available) override;
-    float caption_extent() const {
-        const auto metrics = style_metrics(visual_style());
-        return caption_visible() ? metrics.input_header_height + metrics.input_header_spacing : 0;
-    }
+    float caption_extent() const;
+    float caption_height() const;
+    Insets field_insets(Insets fallback) const;
+    Size shortcut_size() const;
     const std::wstring& text() const { return text_; }
     void set_text(std::wstring text);
     Selection selection() const;
@@ -318,6 +338,7 @@ public:
     void set_maximum_length(std::size_t value);
     std::size_t maximum_length() const { return maximum_length_; }
     void on_change(std::function<void(const std::wstring&)> callback) { change_ = std::move(callback); }
+    const std::function<void(const std::wstring&)>& change_callback() const { return change_; }
     // Backend boundary: publish committed native text, not IME preedit text.
     void commit_text(std::wstring text);
     void set_search_style(bool value) { search_ = value; invalidate(Invalidation::layout); }
@@ -331,8 +352,9 @@ public:
     void set_placeholder(std::wstring value) { placeholder_ = std::move(value); invalidate(Invalidation::paint); }
     const std::wstring& placeholder() const { return placeholder_; }
     const std::wstring& shortcut_hint() const { return shortcut_; }
-    void set_shortcut_hint(std::wstring value) { shortcut_ = std::move(value); invalidate(Invalidation::paint); }
+    void set_shortcut_hint(std::wstring value);
     void on_submit(std::function<void()> callback) { submit_ = std::move(callback); }
+    const std::function<void()>& submit_callback() const { return submit_; }
     void submit() { if (submit_) { auto callback = submit_; callback(); } }
     void set_suggestions(std::shared_ptr<SuggestionSource> source) {
         suggestions_ = std::move(source); ++suggestion_revision_; invalidate(Invalidation::paint);
@@ -344,6 +366,12 @@ public:
     }
     const std::wstring& suggestion_context() const { return suggestion_context_; }
     std::uint64_t suggestion_revision() const { return suggestion_revision_; }
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::text_input; }
+    StyleStateMask control_style_state_bits() const override {
+        return (Control::control_style_state_bits() & (style_states::focused | style_states::disabled)) |
+            (text_.empty() ? style_states::empty : 0);
+    }
 private:
     void assign_text(std::wstring text);
     std::shared_ptr<SuggestionSource> suggestions_;
@@ -395,9 +423,12 @@ public:
     bool closable() const { return bool(close_); }
     Rect tab_bounds(std::size_t index) const;
     Rect close_bounds(std::size_t index) const;
+    Rect content_bounds() const;
     std::optional<std::size_t> hit_test(float x) const;
+    std::optional<std::size_t> hit_test(Point point) const;
     void arrange(Rect bounds) override;
 private:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::tab_strip; }
     void reveal_selected();
     std::vector<TabItem> tabs_;
     TabColors colors_;
@@ -412,6 +443,11 @@ public:
     explicit ContentView(std::shared_ptr<Element> content, std::wstring name = L"Pane");
     const std::shared_ptr<Element>& content() const { return content_; }
     void arrange(Rect bounds) override;
+    Size measure(Size available) override;
+    Rect content_bounds() const;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::content_view; }
+    StyleStateMask control_style_state_bits() const override { return Control::control_style_state_bits() & style_states::disabled; }
 private:
     std::shared_ptr<Element> content_;
 };
@@ -425,8 +461,10 @@ public:
     void add_page(std::shared_ptr<Element> content);
     void select(std::size_t index);
     std::size_t selected() const { return selected_; }
-    Size measure(Size available) override { return Element::measure(available); }
+    Size measure(Size available) override;
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::page_view; }
 private:
     std::size_t selected_{};
 };
@@ -445,13 +483,20 @@ public:
     bool expanded() const;
     void on_expanded(std::function<void(bool)> callback) { expanded_callback_ = std::move(callback); }
     Rect divider() const;
+    Rect pane_area() const;
+    float effective_divider_width() const;
+    void set_style_dragging(bool dragging);
     static constexpr float divider_width = 10;
     static constexpr float minimum_pane_width = 300;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::split_view; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     std::shared_ptr<ContentView> first_, second_;
     float ratio_{0.5f};
     bool secondary_visible_{true};
     bool arranged_expanded_{};
+    bool style_dragging_{};
     std::function<void(bool)> expanded_callback_;
 };
 

@@ -101,7 +101,13 @@ try {
     $bounds = @{}
     foreach ($i in 0..80) {
         $id = Cell-Id $i
-        Assert ((Probe "name" $id) -eq "?") "The board must start covered: $id"
+        $name = Probe "name" $id
+        if ($name -ne "?") {
+            $actualSummary = Probe "name" "summary"
+            $actualHelp = Probe "help" $id
+            throw "The board must start covered: $id (actual name: '$name', summary: '$actualSummary', help: '$actualHelp')"
+        }
+        Assert ($name -eq "?") "The board must start covered: $id"
         Assert ((Probe "help" $id) -eq "Row $([int][Math]::Floor($i / 9) + 1), column $($i % 9 + 1): covered.") "Wrong cell binding: $id"
         $rect = (Probe "bounds" $id) | ConvertFrom-Json
         $bounds[$i] = $rect

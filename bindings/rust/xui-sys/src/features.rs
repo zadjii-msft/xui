@@ -402,6 +402,38 @@ unsafe extern "C" {
         options: *const ControlStyleOptions,
         result: *mut u64,
     ) -> i32;
+    pub fn xui_control_style_get_schema(
+        target: u32,
+        part: u32,
+        properties: *mut u64,
+        states: *mut u64,
+        state_properties: *mut u64,
+    ) -> i32;
+    pub fn xui_control_style_get_limits(
+        target: u32,
+        part: u32,
+        maximum_font_size: *mut f32,
+        maximum_font_family_utf16: *mut u32,
+        font_styles: *mut u32,
+        horizontal_alignments: *mut u32,
+        vertical_alignments: *mut u32,
+    ) -> i32;
+    pub fn xui_window_set_tooltip_style(window: u64, style: u64) -> i32;
+    pub fn xui_window_try_set_tooltip_style(window: u64, identity: u64, applied: *mut u32) -> i32;
+    pub fn xui_window_set_tooltip_style_values(
+        window: u64,
+        part: u32,
+        properties: *const StyleProperty,
+        count: u32,
+    ) -> i32;
+    pub fn xui_window_get_tooltip_style_values(
+        window: u64,
+        part: u32,
+        effective: u32,
+        properties: *mut StyleProperty,
+        capacity: u32,
+        count: *mut u32,
+    ) -> i32;
     pub fn xui_control_style_release(style: u64) -> i32;
     pub fn xui_control_style_reacquire(window: u64, identity: u64, result: *mut u64) -> i32;
     pub fn xui_control_try_set_style(control: u64, identity: u64, applied: *mut u32) -> i32;
@@ -454,6 +486,13 @@ unsafe extern "C" {
         has_selection: u32,
     ) -> i32;
     pub fn xui_feature_child(target: u64, index: u32, result: *mut u64) -> i32;
+    pub fn xui_breadcrumb_segment_button(
+        target: u64,
+        id: u64,
+        version: u64,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_command_bar_button(target: u64, id: u64, result: *mut u64) -> i32;
     pub fn xui_panel_add(
         target: u64,
         child: u64,

@@ -90,6 +90,11 @@ public:
     const std::shared_ptr<Popup>& popup() const { return popup_; }
     const std::shared_ptr<CommandMenu>& menu() const { return menu_; }
     const std::shared_ptr<TextInput>& editor() const { return editor_; }
+    const std::shared_ptr<Label>& title() const { return title_; }
+    const std::shared_ptr<Label>& status() const { return status_; }
+    const std::shared_ptr<Button>& close_button() const { return close_; }
+    const std::shared_ptr<Stack>& content() const { return content_; }
+    const std::shared_ptr<Stack>& results() const { return results_; }
     Size measure(Size available) const;
     void set_commands(std::shared_ptr<const CommandSet> commands, CommandId parent = 0);
     void on_query(std::function<void(CommandQuery)> callback) { query_ = std::move(callback); }
@@ -100,11 +105,12 @@ public:
     bool current() const { return !current_ || current_(); }
     const std::wstring& error() const { return error_; }
 private:
+    std::shared_ptr<Stack> content_, results_;
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<CommandMenu> menu_;
     std::shared_ptr<TextInput> editor_;
     std::shared_ptr<Button> close_;
-    std::shared_ptr<Label> status_;
+    std::shared_ptr<Label> title_, status_;
     std::shared_ptr<const CommandSet> commands_;
     std::stop_source stop_;
     std::uint64_t generation_{};
@@ -120,14 +126,30 @@ public:
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
     const std::shared_ptr<Button>& overflow_button() const { return overflow_; }
+    std::shared_ptr<Button> command_button(CommandId id) const;
+    // Backend notifications are independent of the snapshot-owned Button callbacks.
+    void set_button_invoked_handler(std::function<void(const Button&)> handler);
+    bool overflowed() const { return visible_ < ids_.size(); }
+    Rect separator_bounds(std::size_t before_index) const;
     std::shared_ptr<const CommandSet> overflow_commands() const;
     void on_overflow(std::function<void()> callback);
 private:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::command_bar; }
+    StyleStateMask control_style_state_bits() const override;
+    float separator_gap() const;
+    void bind_command_button(const std::shared_ptr<Button>& button,
+        const std::shared_ptr<const CommandSet>& commands, CommandId id);
+    struct ButtonObserver {
+        CommandBar* owner{};
+        std::function<void(const Button&)> callback;
+    };
+    std::shared_ptr<ButtonObserver> button_invoked_;
     std::shared_ptr<const CommandSet> commands_;
     std::vector<std::shared_ptr<Element>> children_;
     std::vector<CommandId> ids_;
     std::shared_ptr<Button> overflow_;
     std::size_t visible_{};
+    std::uint64_t separators_{};
 };
 
 struct Command {

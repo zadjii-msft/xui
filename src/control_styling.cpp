@@ -4,6 +4,45 @@
 #include <stdexcept>
 
 namespace xui {
+const StyleTargetSchema& control_style_schema(StyleTarget target) {
+    using Resolver = const StyleTargetSchema* (*)(StyleTarget);
+    constexpr Resolver resolvers[]{basic_text_style_schema, native_fields_style_schema, choices_status_style_schema,
+        layouts_style_schema, collections_style_schema, data_grid_chart_style_schema,
+        navigation_composites_style_schema, hosts_scenes_style_schema};
+    for (const auto resolver : resolvers) if (const auto* schema = resolver(target)) return *schema;
+    throw std::invalid_argument("Unknown or unimplemented style target");
+}
+
+std::shared_ptr<const StyleFontFamily> make_style_font_family(std::string_view utf8) {
+    if (utf8.empty() || utf8.size() > 1024) throw std::invalid_argument("Font family requires 1 through 1024 UTF-8 bytes");
+    std::wstring name;
+    for (std::size_t i = 0; i < utf8.size();) {
+        const auto lead = static_cast<unsigned char>(utf8[i++]);
+        uint32_t scalar = lead;
+        unsigned tail = 0;
+        if (lead >= 0xc2 && lead <= 0xdf) { scalar = lead & 31; tail = 1; }
+        else if (lead >= 0xe0 && lead <= 0xef) { scalar = lead & 15; tail = 2; }
+        else if (lead >= 0xf0 && lead <= 0xf4) { scalar = lead & 7; tail = 3; }
+        else if (!lead || lead >= 0x80) throw std::invalid_argument("Font family contains invalid UTF-8");
+        if (i + tail > utf8.size()) throw std::invalid_argument("Font family contains truncated UTF-8");
+        for (unsigned j = 0; j < tail; ++j) {
+            const auto byte = static_cast<unsigned char>(utf8[i++]);
+            if ((byte & 0xc0) != 0x80) throw std::invalid_argument("Font family contains invalid UTF-8");
+            scalar = (scalar << 6) | (byte & 63);
+        }
+        if ((tail == 1 && scalar < 0x80) || (tail == 2 && scalar < 0x800) || (tail == 3 && scalar < 0x10000) ||
+            scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff))
+            throw std::invalid_argument("Font family contains invalid Unicode");
+        if constexpr (sizeof(wchar_t) == 2) {
+            if (scalar > 0xffff) {
+                scalar -= 0x10000;
+                name.push_back(static_cast<wchar_t>(0xd800 + (scalar >> 10)));
+                name.push_back(static_cast<wchar_t>(0xdc00 + (scalar & 1023)));
+            } else name.push_back(static_cast<wchar_t>(scalar));
+        } else name.push_back(static_cast<wchar_t>(scalar));
+    }
+    return std::shared_ptr<const StyleFontFamily>(new StyleFontFamily(std::string(utf8), std::move(name)));
+}
 namespace {
 void validate_color(ThemeColor value) {
     if (value.light > 0xffffff || value.dark > 0xffffff)
@@ -22,43 +61,11 @@ bool equal_insets(const std::optional<Insets>& a, const std::optional<Insets>& b
     return !a || (a->left == b->left && a->top == b->top && a->right == b->right && a->bottom == b->bottom);
 }
 
-struct PartSchema {
-    StylePart part;
-    std::uint32_t allowed;
-    StyleStateMask states;
-    std::optional<StylePart> foreground_from;
-};
-struct TargetSchema {
-    std::span<const PartSchema> parts;
-    std::span<const StyleStateMask> precedence;
-};
-
-constexpr std::uint32_t property_bit(StyleProperty value) { return static_cast<std::uint32_t>(value); }
-constexpr std::uint32_t root_properties = property_bit(StyleProperty::background) | property_bit(StyleProperty::foreground) |
-    property_bit(StyleProperty::border_brush) | property_bit(StyleProperty::border_thickness) |
-    property_bit(StyleProperty::corner_radius) | property_bit(StyleProperty::padding);
-constexpr std::uint32_t label_properties = property_bit(StyleProperty::foreground);
-constexpr std::uint32_t indicator_properties = property_bit(StyleProperty::background) | property_bit(StyleProperty::border_brush) |
-    property_bit(StyleProperty::border_thickness) | property_bit(StyleProperty::corner_radius) | property_bit(StyleProperty::size);
-constexpr std::uint32_t mark_properties = property_bit(StyleProperty::foreground);
-
+using PartSchema = StylePartSchema;
+using TargetSchema = StyleTargetSchema;
+constexpr StylePropertyMask property_bit(StyleProperty value) { return style_property(value); }
 const TargetSchema& schema_for(StyleTarget target) {
-    static constexpr StyleStateMask states[] {style_states::focused, style_states::checked,
-        style_states::hovered, style_states::pressed, style_states::disabled};
-    static constexpr auto all_states = style_states::focused | style_states::checked |
-        style_states::hovered | style_states::pressed | style_states::disabled;
-    // Inheritance sources precede their dependents.
-    static constexpr PartSchema parts[] {
-        {StylePart::root, root_properties, all_states, {}},
-        {StylePart::label, label_properties, all_states, StylePart::root},
-        {StylePart::indicator, indicator_properties, all_states, {}},
-        {StylePart::mark, mark_properties, all_states, {}},
-    };
-    static const TargetSchema toggle_schema{parts, states};
-    switch (target) {
-        case StyleTarget::toggle: return toggle_schema;
-    }
-    throw std::invalid_argument("Unknown style target");
+    return control_style_schema(target);
 }
 const PartSchema* part_schema(const TargetSchema& schema, StylePart part) {
     for (const auto& entry : schema.parts) if (entry.part == part) return &entry;
@@ -69,8 +76,51 @@ void validate_mask(StyleTarget target, StyleStateMask mask) {
     for (const auto& part : schema_for(target).parts) supported |= part.states;
     if (mask & ~supported) throw std::invalid_argument("Unsupported state bits for this style target");
 }
-std::uint32_t properties_used(const PartStyleValues& values) {
-    std::uint32_t used = 0;
+void validate_schema(const TargetSchema& schema) {
+    if (schema.parts.empty() || schema.parts.size() > 64 || schema.precedence.size() > 64)
+        throw std::invalid_argument("Invalid style schema bounds");
+    StyleStateMask ordered{};
+    for (const auto state : schema.precedence) {
+        if (!state || (state & (state - 1)) || (ordered & state)) throw std::invalid_argument("Invalid schema state precedence");
+        ordered |= state;
+    }
+    for (std::size_t i = 0; i < schema.parts.size(); ++i) {
+        const auto& part = schema.parts[i];
+        if (part.states & ~ordered) throw std::invalid_argument("Style schema state has no precedence");
+        if (part.allowed & ~StylePropertyMask((1ull << 24) - 1)) throw std::invalid_argument("Unknown property in style schema");
+        if (!std::isfinite(part.limits.maximum_font_size) || part.limits.maximum_font_size <= 0 ||
+            part.limits.maximum_font_size > 32768 || !part.limits.maximum_font_family_utf16 ||
+            part.limits.maximum_font_family_utf16 > 1024 || !part.limits.font_styles || (part.limits.font_styles & ~7u) ||
+            !part.limits.horizontal_alignments || (part.limits.horizontal_alignments & ~15u) ||
+            !part.limits.vertical_alignments || (part.limits.vertical_alignments & ~15u))
+            throw std::invalid_argument("Invalid style value limits");
+        for (std::size_t j = 0; j < i; ++j)
+            if (schema.parts[j].part == part.part) throw std::invalid_argument("Duplicate style schema part");
+        for (const auto source : {part.foreground_from, part.typography_from}) {
+            if (!source) continue;
+            bool found = false;
+            for (std::size_t j = 0; j < i; ++j) found |= schema.parts[j].part == *source;
+            if (!found) throw std::invalid_argument("Style inheritance source must precede its destination");
+        }
+        if (part.typography_from) {
+            const auto* source = part_schema(schema, *part.typography_from);
+            const auto inherited = source->allowed & part.allowed;
+            if (((inherited & style_property(StyleProperty::font_family)) &&
+                    source->limits.maximum_font_family_utf16 > part.limits.maximum_font_family_utf16) ||
+                ((inherited & style_property(StyleProperty::font_size)) &&
+                    source->limits.maximum_font_size > part.limits.maximum_font_size) ||
+                ((inherited & style_property(StyleProperty::font_style)) &&
+                    (source->limits.font_styles & ~part.limits.font_styles)) ||
+                ((inherited & style_property(StyleProperty::horizontal_alignment)) &&
+                    (source->limits.horizontal_alignments & ~part.limits.horizontal_alignments)) ||
+                ((inherited & style_property(StyleProperty::vertical_alignment)) &&
+                    (source->limits.vertical_alignments & ~part.limits.vertical_alignments)))
+                throw std::invalid_argument("Inherited text values must fit the destination's limits");
+        }
+    }
+}
+StylePropertyMask properties_used(const PartStyleValues& values) {
+    StylePropertyMask used = 0;
     if (values.background) used |= property_bit(StyleProperty::background);
     if (values.foreground) used |= property_bit(StyleProperty::foreground);
     if (values.border_brush) used |= property_bit(StyleProperty::border_brush);
@@ -78,12 +128,29 @@ std::uint32_t properties_used(const PartStyleValues& values) {
     if (values.padding) used |= property_bit(StyleProperty::padding);
     if (values.corner_radius) used |= property_bit(StyleProperty::corner_radius);
     if (values.size) used |= property_bit(StyleProperty::size);
+    if (values.font_family) used |= property_bit(StyleProperty::font_family);
+    if (values.font_size) used |= property_bit(StyleProperty::font_size);
+    if (values.font_weight) used |= property_bit(StyleProperty::font_weight);
+    if (values.font_style) used |= property_bit(StyleProperty::font_style);
+    if (values.horizontal_alignment) used |= property_bit(StyleProperty::horizontal_alignment);
+    if (values.vertical_alignment) used |= property_bit(StyleProperty::vertical_alignment);
+    if (values.spacing) used |= property_bit(StyleProperty::spacing);
+    if (values.row_height) used |= property_bit(StyleProperty::row_height);
+    if (values.header_height) used |= property_bit(StyleProperty::header_height);
+    if (values.indentation) used |= property_bit(StyleProperty::indentation);
+    if (values.thickness) used |= property_bit(StyleProperty::thickness);
+    if (values.width) used |= property_bit(StyleProperty::width);
+    if (values.height) used |= property_bit(StyleProperty::height);
+    if (values.row_gap) used |= property_bit(StyleProperty::row_gap);
+    if (values.column_gap) used |= property_bit(StyleProperty::column_gap);
+    if (values.maximum_lines) used |= property_bit(StyleProperty::maximum_lines);
+    if (values.wrapping) used |= property_bit(StyleProperty::wrapping);
     return used;
 }
 }
 
 bool PartStyleValues::empty() const {
-    return !background && !foreground && !border_brush && !border_thickness && !padding && !corner_radius && !size;
+    return properties_used(*this) == 0;
 }
 
 void validate_part(StyleTarget target, StylePart part) {
@@ -102,6 +169,39 @@ void validate_part_values(StyleTarget target, StylePart part, const PartStyleVal
     if (values.padding) validate_insets(*values.padding);
     if (values.corner_radius) validate_dimension(*values.corner_radius);
     if (values.size) validate_dimension(*values.size);
+    if (values.font_family && (values.font_family->utf8.empty() || values.font_family->utf8.size() > 1024 ||
+        values.font_family->name.empty())) throw std::invalid_argument("Invalid font family");
+    if (values.font_family) {
+        std::size_t length{};
+        for (const auto value : values.font_family->name)
+            length += sizeof(wchar_t) > 2 && static_cast<uint32_t>(value) > 0xffff ? 2 : 1;
+        if (length > schema->limits.maximum_font_family_utf16)
+            throw std::invalid_argument("Font family exceeds the part's UTF-16 limit");
+    }
+    if (values.font_size) {
+        validate_dimension(*values.font_size);
+        if (*values.font_size == 0) throw std::invalid_argument("Font size must be positive");
+        if (*values.font_size > schema->limits.maximum_font_size)
+            throw std::invalid_argument("Font size exceeds the part's limit");
+    }
+    if (values.font_weight && (*values.font_weight < 1 || *values.font_weight > 999))
+        throw std::invalid_argument("Font weight must be between 1 and 999");
+    if (values.font_style && *values.font_style > StyleFontStyle::oblique) throw std::invalid_argument("Unknown font style");
+    if (values.font_style && !(schema->limits.font_styles & (1u << static_cast<uint32_t>(*values.font_style))))
+        throw std::invalid_argument("Font style is not supported on this part");
+    if ((values.horizontal_alignment && *values.horizontal_alignment > StyleAlignment::stretch) ||
+        (values.vertical_alignment && *values.vertical_alignment > StyleAlignment::stretch))
+        throw std::invalid_argument("Unknown style alignment");
+    if ((values.horizontal_alignment &&
+            !(schema->limits.horizontal_alignments & (1u << static_cast<uint32_t>(*values.horizontal_alignment)))) ||
+        (values.vertical_alignment &&
+            !(schema->limits.vertical_alignments & (1u << static_cast<uint32_t>(*values.vertical_alignment)))))
+        throw std::invalid_argument("Alignment is not supported on this part");
+    for (const auto dimension : {values.spacing, values.row_height, values.header_height, values.indentation,
+        values.thickness, values.width, values.height, values.row_gap, values.column_gap})
+        if (dimension) validate_dimension(*dimension);
+    if (values.row_height && *values.row_height == 0) throw std::invalid_argument("Row height must be positive");
+    if (values.maximum_lines && *values.maximum_lines > 32768) throw std::invalid_argument("Invalid maximum line count");
 }
 
 PartStyleValues merge_part_values(PartStyleValues base, const PartStyleValues& overlay) {
@@ -112,11 +212,51 @@ PartStyleValues merge_part_values(PartStyleValues base, const PartStyleValues& o
     if (overlay.padding) base.padding = overlay.padding;
     if (overlay.corner_radius) base.corner_radius = overlay.corner_radius;
     if (overlay.size) base.size = overlay.size;
+    if (overlay.font_family) base.font_family = overlay.font_family;
+    if (overlay.font_size) base.font_size = overlay.font_size;
+    if (overlay.font_weight) base.font_weight = overlay.font_weight;
+    if (overlay.font_style) base.font_style = overlay.font_style;
+    if (overlay.horizontal_alignment) base.horizontal_alignment = overlay.horizontal_alignment;
+    if (overlay.vertical_alignment) base.vertical_alignment = overlay.vertical_alignment;
+    if (overlay.spacing) base.spacing = overlay.spacing;
+    if (overlay.row_height) base.row_height = overlay.row_height;
+    if (overlay.header_height) base.header_height = overlay.header_height;
+    if (overlay.indentation) base.indentation = overlay.indentation;
+    if (overlay.thickness) base.thickness = overlay.thickness;
+    if (overlay.width) base.width = overlay.width;
+    if (overlay.height) base.height = overlay.height;
+    if (overlay.row_gap) base.row_gap = overlay.row_gap;
+    if (overlay.column_gap) base.column_gap = overlay.column_gap;
+    if (overlay.maximum_lines) base.maximum_lines = overlay.maximum_lines;
+    if (overlay.wrapping) base.wrapping = overlay.wrapping;
     return base;
 }
 bool part_style_layout_equal(const PartStyleValues& first, const PartStyleValues& second) {
     return equal_insets(first.padding, second.padding) && equal_insets(first.border_thickness, second.border_thickness) &&
-        first.size == second.size;
+        first.size == second.size && first.font_family == second.font_family && first.font_size == second.font_size &&
+        first.font_weight == second.font_weight && first.font_style == second.font_style &&
+        first.horizontal_alignment == second.horizontal_alignment && first.vertical_alignment == second.vertical_alignment &&
+        first.spacing == second.spacing && first.row_height == second.row_height && first.header_height == second.header_height &&
+        first.indentation == second.indentation && first.thickness == second.thickness && first.width == second.width &&
+        first.height == second.height && first.row_gap == second.row_gap && first.column_gap == second.column_gap &&
+        first.maximum_lines == second.maximum_lines && first.wrapping == second.wrapping;
+}
+bool part_style_values_equal(const PartStyleValues& first, const PartStyleValues& second) {
+    return first.background == second.background && first.foreground == second.foreground &&
+        first.border_brush == second.border_brush && first.corner_radius == second.corner_radius &&
+        part_style_layout_equal(first, second);
+}
+Insets style_content_insets(const PartStyleValues* values, Insets default_padding, Insets default_border) {
+    const auto padding = values ? values->padding.value_or(default_padding) : default_padding;
+    const auto border = values ? values->border_thickness.value_or(default_border) : default_border;
+    return {padding.left + border.left, padding.top + border.top,
+        padding.right + border.right, padding.bottom + border.bottom};
+}
+Rect style_content_bounds(Rect bounds, const PartStyleValues* values, Insets default_padding, Insets default_border) {
+    const auto edges = style_content_insets(values, default_padding, default_border);
+    return {bounds.x + edges.left, bounds.y + edges.top,
+        std::max(0.0f, bounds.width - edges.left - edges.right),
+        std::max(0.0f, bounds.height - edges.top - edges.bottom)};
 }
 
 std::shared_ptr<const ControlStyle> ControlStyle::create(StyleTarget target,
@@ -124,16 +264,19 @@ std::shared_ptr<const ControlStyle> ControlStyle::create(StyleTarget target,
     std::vector<StyleRule> rules, std::shared_ptr<const ControlStyle> based_on) {
     // Validate the target unconditionally and first: schema_for throws for
     // an unrecognized target even when base_values and rules are both empty.
-    schema_for(target);
+    validate_schema(schema_for(target));
     if (based_on && based_on->target_ != target)
         throw std::invalid_argument("A style base must target the same control family");
     // Validate every remaining input before any storage is built or mutated.
     for (const auto& [part, values] : base_values) validate_part_values(target, part, values);
     for (const auto& rule : rules) {
         validate_part_values(target, rule.part, rule.values);
-        const auto states = part_schema(schema_for(target), rule.part)->states;
+        const auto* metadata = part_schema(schema_for(target), rule.part);
+        const auto states = metadata->states;
         if (!rule.state || (rule.state & (rule.state - 1)) || (rule.state & ~states))
             throw std::invalid_argument("A style rule requires exactly one supported part state");
+        if (properties_used(rule.values) & ~metadata->state_allowed)
+            throw std::invalid_argument("Style property is not supported in state rules for this part");
     }
     if (rules.size() > 256) throw std::invalid_argument("A control style supports at most 256 rules");
     if (base_values.size() > 64) throw std::invalid_argument("A control style supports at most 64 base entries");
@@ -161,10 +304,10 @@ std::shared_ptr<const ControlStyle> ControlStyle::create(StyleTarget target,
     }
     // Bound total compiled storage after flattening inheritance, not only
     // this call's own submitted layer.
-    if (parts.size() > 8) throw std::invalid_argument("A control style supports at most 8 parts");
+    if (parts.size() > 64) throw std::invalid_argument("A control style supports at most 64 parts");
     std::size_t total_buckets = 0;
     for (const auto& compiled : parts) total_buckets += compiled.buckets.size();
-    if (total_buckets > 256) throw std::invalid_argument("A control style supports at most 256 compiled state rules");
+    if (total_buckets > 1024) throw std::invalid_argument("A control style supports at most 1024 compiled state rules");
 
     auto result = std::shared_ptr<ControlStyle>(new ControlStyle);
     result->target_ = target;
@@ -202,7 +345,7 @@ std::vector<StylePart> ControlStyle::authored_parts() const {
 }
 
 ControlStyleAttachment::ControlStyleAttachment(StyleTarget target) : target_(target) {
-    schema_for(target);
+    validate_schema(schema_for(target));
 }
 ControlStyleAttachment::Slot* ControlStyleAttachment::find(StylePart part) {
     for (auto& slot : parts_) if (slot.part == part) return &slot;
@@ -214,13 +357,13 @@ const ControlStyleAttachment::Slot* ControlStyleAttachment::find(StylePart part)
 }
 ControlStyleAttachment::Slot& ControlStyleAttachment::ensure(StylePart part) {
     if (auto* existing = find(part)) return *existing;
-    if (parts_.size() >= max_parts) throw std::invalid_argument("A control style attachment supports at most 8 parts");
+    if (parts_.size() >= max_parts) throw std::invalid_argument("A control style attachment supports at most 64 parts");
     parts_.push_back(Slot{part, {}, {}});
     return parts_.back();
 }
 bool ControlStyleAttachment::fully_empty() const {
     if (style_) return false;
-    for (const auto& slot : parts_) if (!slot.local.empty()) return false;
+    for (const auto& slot : parts_) if (!slot.local.empty() || !slot.projected.empty()) return false;
     return true;
 }
 const PartStyleValues& ControlStyleAttachment::local(StylePart part) const {
@@ -228,6 +371,12 @@ const PartStyleValues& ControlStyleAttachment::local(StylePart part) const {
     static const PartStyleValues empty_values;
     const auto* slot = find(part);
     return slot ? slot->local : empty_values;
+}
+const PartStyleValues& ControlStyleAttachment::projection(StylePart part) const {
+    validate_part(target_, part);
+    static const PartStyleValues empty_values;
+    const auto* slot = find(part);
+    return slot ? slot->projected : empty_values;
 }
 std::vector<StylePart> ControlStyleAttachment::required_parts(const std::vector<StylePart>& authored) const {
     std::vector<StylePart> required;
@@ -238,23 +387,51 @@ std::vector<StylePart> ControlStyleAttachment::required_parts(const std::vector<
         add(part);
     }
     for (const auto& schema : schema_for(target_).parts)
-        if (schema.foreground_from &&
-            std::find(required.begin(), required.end(), *schema.foreground_from) != required.end())
-            add(schema.part);
+        for (const auto source : {schema.foreground_from, schema.typography_from})
+            if (source && std::find(required.begin(), required.end(), *source) != required.end())
+                add(schema.part);
     return required;
+}
+namespace {
+constexpr auto inherited_text_properties = style_properties::typography | style_properties::alignment |
+    style_property(StyleProperty::maximum_lines) | style_property(StyleProperty::wrapping);
+void inherit_typography(PartStyleValues& destination, const PartStyleValues& source, StylePropertyMask allowed) {
+    if ((allowed & style_property(StyleProperty::font_family)) && !destination.font_family)
+        destination.font_family = source.font_family;
+    if ((allowed & style_property(StyleProperty::font_size)) && !destination.font_size)
+        destination.font_size = source.font_size;
+    if ((allowed & style_property(StyleProperty::font_weight)) && !destination.font_weight)
+        destination.font_weight = source.font_weight;
+    if ((allowed & style_property(StyleProperty::font_style)) && !destination.font_style)
+        destination.font_style = source.font_style;
+    if ((allowed & style_property(StyleProperty::horizontal_alignment)) && !destination.horizontal_alignment)
+        destination.horizontal_alignment = source.horizontal_alignment;
+    if ((allowed & style_property(StyleProperty::vertical_alignment)) && !destination.vertical_alignment)
+        destination.vertical_alignment = source.vertical_alignment;
+    if ((allowed & style_property(StyleProperty::maximum_lines)) && !destination.maximum_lines)
+        destination.maximum_lines = source.maximum_lines;
+    if ((allowed & style_property(StyleProperty::wrapping)) && !destination.wrapping)
+        destination.wrapping = source.wrapping;
+}
 }
 void ControlStyleAttachment::recompute(StyleStateMask mask) {
     for (auto& slot : parts_) {
         const auto states = part_schema(schema_for(target_), slot.part)->states;
         auto resolved = style_ ? style_->resolve(slot.part, mask & states) : std::nullopt;
-        slot.effective = merge_part_values(resolved.value_or(PartStyleValues{}), slot.local);
+        slot.effective = merge_part_values(merge_part_values(slot.projected, resolved.value_or(PartStyleValues{})), slot.local);
     }
     for (const auto& schema : schema_for(target_).parts) {
-        if (!schema.foreground_from) continue;
         auto* destination = find(schema.part);
-        const auto* source = find(*schema.foreground_from);
-        if (destination && source && !destination->effective.foreground)
-            destination->effective.foreground = source->effective.foreground;
+        if (!destination) continue;
+        if (schema.foreground_from) {
+            const auto* source = find(*schema.foreground_from);
+            if (source && !destination->effective.foreground)
+                destination->effective.foreground = source->effective.foreground;
+        }
+        if (schema.typography_from) {
+            const auto* source = find(*schema.typography_from);
+            if (source) inherit_typography(destination->effective, source->effective, schema.allowed);
+        }
     }
 }
 const PartStyleValues* ControlStyleAttachment::effective(StylePart part, StyleStateMask mask) {
@@ -263,6 +440,40 @@ const PartStyleValues* ControlStyleAttachment::effective(StylePart part, StyleSt
     if (mask_ != mask) { recompute(mask); mask_ = mask; }
     const auto* slot = find(part);
     return slot ? &slot->effective : nullptr;
+}
+PartStyleValues ControlStyleAttachment::resolve_transient(StylePart part, StyleStateMask item_state, StyleStateMask owner_state,
+    bool include_projection) const {
+    validate_part(target_, part);
+    validate_mask(target_, item_state);
+    validate_mask(target_, owner_state);
+    item_state |= owner_state & style_states::disabled;
+    const auto& schema = schema_for(target_);
+    const auto resolve_own = [&](StylePart current) -> PartStyleValues {
+        const auto* metadata = part_schema(schema, current);
+        const auto state = (current == StylePart::root ? owner_state : item_state) & metadata->states;
+        auto result = style_ ? style_->resolve(current, state).value_or(PartStyleValues{}) : PartStyleValues{};
+        if (const auto* slot = find(current)) {
+            if (include_projection) result = merge_part_values(slot->projected, result);
+            result = merge_part_values(std::move(result), slot->local);
+        }
+        return result;
+    };
+    auto result = resolve_own(part);
+    auto* metadata = part_schema(schema, part);
+    auto* source = metadata;
+    while (!result.foreground && source->foreground_from) {
+        source = part_schema(schema, *source->foreground_from);
+        result.foreground = resolve_own(source->part).foreground;
+    }
+    auto missing = metadata->allowed & inherited_text_properties & ~properties_used(result);
+    source = metadata;
+    while (missing && source->typography_from) {
+        source = part_schema(schema, *source->typography_from);
+        missing &= source->allowed;
+        inherit_typography(result, resolve_own(source->part), missing);
+        missing &= ~properties_used(result);
+    }
+    return result;
 }
 std::optional<Invalidation> ControlStyleAttachment::assign_style(std::shared_ptr<const ControlStyle> style, StyleStateMask mask) {
     validate_mask(target_, mask);
@@ -276,7 +487,7 @@ std::optional<Invalidation> ControlStyleAttachment::assign_style(std::shared_ptr
     const std::vector<StylePart> required = style ? required_parts(style->authored_parts()) : std::vector<StylePart>{};
     std::size_t final_count = parts_.size();
     for (const auto part : required) if (!find(part)) ++final_count;
-    if (final_count > max_parts) throw std::invalid_argument("A control style attachment supports at most 8 parts");
+    if (final_count > max_parts) throw std::invalid_argument("A control style attachment supports at most 64 parts");
     parts_.reserve(final_count);
 
     std::array<PartStyleValues, max_parts> previous{};
@@ -306,16 +517,27 @@ Invalidation ControlStyleAttachment::state_changed(StyleStateMask mask) {
     return Invalidation::paint;
 }
 std::optional<Invalidation> ControlStyleAttachment::assign_local(StylePart part, PartStyleValues values, StyleStateMask mask) {
+    return assign_values(part, std::move(values), mask, false);
+}
+std::optional<Invalidation> ControlStyleAttachment::assign_projection(StylePart part, PartStyleValues values, StyleStateMask mask) {
+    return assign_values(part, std::move(values), mask, true);
+}
+std::optional<Invalidation> ControlStyleAttachment::assign_values(StylePart part, PartStyleValues values, StyleStateMask mask, bool projected) {
     validate_part_values(target_, part, values);
     validate_mask(target_, mask);
-    if (empty() && values.empty()) return std::nullopt;
+    const auto* slot = find(part);
+    if (!slot && values.empty()) return std::nullopt;
+    if (slot && part_style_values_equal(projected ? slot->projected : slot->local, values)) {
+        if (mask_ == mask) return std::nullopt;
+        return state_changed(mask);
+    }
     // Same strong-exception-guarantee shape as assign_style: compute the
     // required parts (this part plus its schema-declared dependent, if any)
     // and validate the bound before mutating anything.
-    const std::vector<StylePart> required = required_parts({part});
+    const std::vector<StylePart> required = slot ? std::vector<StylePart>{} : required_parts({part});
     std::size_t final_count = parts_.size();
     for (const auto candidate : required) if (!find(candidate)) ++final_count;
-    if (final_count > max_parts) throw std::invalid_argument("A control style attachment supports at most 8 parts");
+    if (final_count > max_parts) throw std::invalid_argument("A control style attachment supports at most 64 parts");
     parts_.reserve(final_count);
 
     std::array<PartStyleValues, max_parts> previous{};
@@ -323,7 +545,8 @@ std::optional<Invalidation> ControlStyleAttachment::assign_local(StylePart part,
     for (std::size_t i = 0; i < tracked_before; ++i) previous[i] = parts_[i].effective;
     // No remaining operation below can throw.
     for (const auto candidate : required) ensure(candidate);
-    find(part)->local = std::move(values);
+    if (projected) find(part)->projected = std::move(values);
+    else find(part)->local = std::move(values);
     recompute(mask);
     mask_ = mask;
     for (std::size_t i = 0; i < tracked_before; ++i)

@@ -1,6 +1,7 @@
 #pragma once
 #include "xui/documents.hpp"
 #include "xui/theme.hpp"
+#include "xui/native_edit.hpp"
 #include "drawing.hpp"
 #include <windows.h>
 #include <commctrl.h>
@@ -24,6 +25,9 @@ private:
     std::shared_ptr<Control> model_;
     HWND window_{};
     HFONT font_{};
+    NativeFieldFont styled_font_;
+    LOGFONTW document_font_{};
+    bool document_font_set_{};
     UINT dpi_{};
     std::uint64_t revision_{}, selection_revision_{};
     bool composing_{}, setting_{}, readonly_{}, monospace_{}, colors_set_{};

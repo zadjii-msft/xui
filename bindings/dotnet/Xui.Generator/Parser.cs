@@ -179,6 +179,11 @@ internal sealed partial class Parser(string text)
             "Content" => ["value"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
+        string styleTarget = StyleCompiler.TargetName(kind);
+        if (kind == "Content")
+            allowed = [.. allowed, "style", .. StyleCompiler.Properties, .. StyleCompiler.ExtendedProperties];
+        else if (kind == "Button" || StyleCatalog.TargetExists(styleTarget))
+            allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
         bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView";
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];

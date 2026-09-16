@@ -189,9 +189,14 @@ public:
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
         const auto scale = GetDpiForWindow(s.window) / 96.0;
         double x{}, y{}, width = s.collection_width, height = s.collection_height;
+        if (!key_) {
+            value = {static_cast<double>(window.left), static_cast<double>(window.top),
+                static_cast<double>(window.right - window.left), static_cast<double>(window.bottom - window.top)};
+            return;
+        }
         if (key_) {
             const auto row = *s.collection->find(*key_);
-            width = std::max(0.0, width - VirtualCollection::bar_width) / s.collection_columns;
+            width /= s.collection_columns;
             x = (row % s.collection_columns) * width; y = (row / s.collection_columns) * s.collection_item_height - s.collection_offset;
             height = s.collection_item_height;
             if (s.collection_columns == 1) {
@@ -204,7 +209,8 @@ public:
         const auto left = std::max(0.0, x), right = std::min(s.collection_width, x + width);
         const auto top = std::max(0.0, y), bottom = std::min(s.collection_height, y + height);
         if (right <= left || bottom <= top) return;
-        value = {window.left + left * scale, window.top + top * scale, (right - left) * scale, (bottom - top) * scale};
+        value = {window.left + (s.collection_viewport_x + left) * scale,
+            window.top + (s.collection_viewport_y + top) * scale, (right - left) * scale, (bottom - top) * scale};
     }
     HRESULT STDMETHODCALLTYPE get_BoundingRectangle(UiaRect* value) override {
         if (!value) return E_POINTER; *value = {}; return with([&](const auto& s) { bounds(s, *value); return S_OK; });
@@ -283,10 +289,11 @@ public:
         if (!value) return E_POINTER; *value = nullptr;
         return with([&](const auto& s) {
             RECT window{}; GetWindowRect(s.window, &window); const auto scale = GetDpiForWindow(s.window) / 96.0;
-            x = (x - window.left) / scale; y = (y - window.top) / scale;
-            if (x < 0 || y < 0 || x >= s.collection_width || y >= s.collection_height) return S_OK;
-            const auto width = std::max(0.0, s.collection_width - VirtualCollection::bar_width) / s.collection_columns;
-            if (s.collection && width > 0 && x < width * s.collection_columns) {
+            if (x < window.left || y < window.top || x >= window.right || y >= window.bottom) return S_OK;
+            x = (x - window.left) / scale - s.collection_viewport_x;
+            y = (y - window.top) / scale - s.collection_viewport_y;
+            const auto width = s.collection_width / s.collection_columns;
+            if (s.collection && width > 0 && x >= 0 && y >= 0 && y < s.collection_height && x < width * s.collection_columns) {
                 const auto row = s.collection_columns == 1 ? s.collection->row_at(y + s.collection_offset, s.collection_item_height) :
                     static_cast<std::size_t>((y + s.collection_offset) / s.collection_item_height) * s.collection_columns + static_cast<std::size_t>(x / width);
                 if (row < s.collection->size()) {
@@ -364,6 +371,11 @@ public:
 }
 IRawElementProviderSimple* create_collection_provider(std::shared_ptr<ControlAccessibility> state) { return new CollectionProvider(std::move(state)); }
 void raise_collection_changes(IRawElementProviderSimple* provider, const ControlSnapshot& before, const ControlSnapshot& after) {
+    if (before.collection_columns != after.collection_columns || before.collection_item_height != after.collection_item_height ||
+        before.collection_width != after.collection_width || before.collection_height != after.collection_height ||
+        before.collection_viewport_x != after.collection_viewport_x || before.collection_viewport_y != after.collection_viewport_y ||
+        before.collection_offset != after.collection_offset)
+        UiaRaiseAutomationEvent(provider, UIA_LayoutInvalidatedEventId);
     if (before.collection != after.collection) UiaRaiseStructureChangedEvent(provider, StructureChangeType_ChildrenInvalidated, nullptr, 0);
     if (!(before.selection == after.selection)) UiaRaiseAutomationEvent(provider, UIA_Selection_InvalidatedEventId);
     if (after.focused && (!before.focused || before.selection.focused() != after.selection.focused()))

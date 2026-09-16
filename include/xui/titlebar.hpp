@@ -14,6 +14,10 @@ public:
     const std::shared_ptr<Button>& minimize() const { return minimize_; }
     const std::shared_ptr<Button>& maximize() const { return maximize_; }
     const std::shared_ptr<Button>& close() const { return close_; }
+    const std::shared_ptr<Label>& title() const { return title_; }
+    bool active() const { return active_; }
+    bool maximized() const { return maximized_; }
+    void set_active(bool active);
     void set_title(std::wstring title);
     void set_title_visible(bool visible);
     bool title_visible() const { return title_->visible(); }
@@ -21,6 +25,7 @@ public:
     bool has_tab_panes() const { return !first_pane_.expired(); }
     void set_maximized(bool maximized);
     void on_caption(std::function<void(CaptionAction)> callback);
+    void set_button_invoked_handler(std::function<void(const Button&)> handler);
     CaptionHit hit_test(Point client) const;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
@@ -28,6 +33,11 @@ public:
     static constexpr float caption_width = 46;
     static constexpr float caption_height = 32;
 private:
+    void bind_caption_button(const std::shared_ptr<Button>& button, std::function<void()> callback);
+    std::shared_ptr<std::function<void(const Button&)>> button_invoked_;
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::title_bar; }
+    StyleStateMask control_style_state_bits() const override;
+    bool active_{true}, maximized_{};
     std::shared_ptr<TabStrip> tabs_;
     std::shared_ptr<TabStrip> secondary_tabs_;
     std::shared_ptr<Button> leading_;

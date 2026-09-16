@@ -33,6 +33,7 @@ public:
     void arrange(Rect bounds) override;
 private:
     friend class NavigationView;
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_list; }
     explicit NavigationList(std::wstring name, NavigationView& owner);
     NavigationView* owner_;
     std::optional<ItemKey> hovered_item_;
@@ -70,6 +71,8 @@ public:
     const std::shared_ptr<NavigationList>& items() const { return main_; }
     const std::shared_ptr<NavigationList>& header_items() const { return header_; }
     const std::shared_ptr<NavigationList>& footer_items() const { return footer_; }
+    const std::shared_ptr<Label>& title() const { return title_; }
+    const std::shared_ptr<Label>& empty_message() const { return empty_; }
     void set_search_visible(bool value);
     bool search_visible() const { return search_visible_; }
     void set_header_visible(bool value);
@@ -80,6 +83,8 @@ public:
     static constexpr std::size_t maximum_items = 4096, maximum_depth = 64;
 private:
     friend class NavigationList;
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_view; }
+    StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;
     void rebuild();
     bool effective_enabled(ItemKey key) const;
@@ -119,14 +124,23 @@ public:
     const std::vector<PathSegment>& segments() const { return segments_; }
     std::optional<ItemKey> current() const;
     void on_navigate(std::function<void(ItemKey)> callback);
+    void set_button_invoked_handler(std::function<void(const Button&)> handler);
     void on_overflow(std::function<void()> callback);
     const std::shared_ptr<Button>& overflow_button() const { return overflow_; }
+    std::shared_ptr<Button> segment_button(ItemKey key) const;
+    bool overflowed() const { return first_ != 0; }
     std::shared_ptr<const CommandSet> overflow_commands() const;
     Control* adjacent(const Control& current, int direction) const;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
 private:
-    struct State { std::function<void(ItemKey)> navigate; };
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::breadcrumb; }
+    StyleStateMask control_style_state_bits() const override;
+    struct State {
+        Breadcrumb* owner{};
+        std::function<void(ItemKey)> navigate;
+        std::function<void(const Button&)> button_invoked;
+    };
     std::shared_ptr<State> state_{std::make_shared<State>()};
     std::vector<PathSegment> segments_;
     std::vector<std::shared_ptr<Element>> children_;
@@ -146,6 +160,8 @@ public:
     const std::shared_ptr<ItemsView>& items() const { return items_; }
     const std::shared_ptr<Expander>& group() const { return group_; }
     const std::shared_ptr<Progress>& progress() const { return progress_; }
+    const std::shared_ptr<Label>& status() const { return status_; }
+    const std::shared_ptr<Stack>& content() const { return content_; }
     void set_items(std::shared_ptr<const ItemsSource> source);
     void on_navigate(std::function<void(ItemKey)> callback);
     void on_query(std::function<void(NavigationQuery)> callback) { query_ = std::move(callback); }
@@ -155,10 +171,13 @@ public:
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
 private:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_pane; }
+    StyleStateMask control_style_state_bits() const override;
     std::shared_ptr<ItemsView> items_;
     std::shared_ptr<Expander> group_;
     std::shared_ptr<Progress> progress_;
     std::shared_ptr<Label> status_;
+    std::shared_ptr<Stack> content_;
     std::vector<std::shared_ptr<Element>> children_;
     std::stop_source stop_;
     std::uint64_t generation_{};
@@ -172,7 +191,11 @@ public:
     const std::shared_ptr<NavigationPane>& navigation() const { return navigation_; }
     const std::shared_ptr<CommandBar>& toolbar() const { return toolbar_; }
     const std::shared_ptr<Popup>& popup() const { return popup_; }
+    const std::shared_ptr<Stack>& content() const { return content_; }
+    const std::shared_ptr<Label>& footer() const { return footer_; }
 private:
+    std::shared_ptr<Stack> content_;
+    std::shared_ptr<Label> footer_;
     std::shared_ptr<TextInput> editor_;
     std::shared_ptr<NavigationPane> navigation_;
     std::shared_ptr<CommandBar> toolbar_;
@@ -186,7 +209,9 @@ public:
     const std::shared_ptr<Popup>& popup() const { return popup_; }
     const std::shared_ptr<RadioGroup>& choices() const { return choices_; }
     const std::shared_ptr<RangeInput>& size() const { return size_; }
+    const std::shared_ptr<Stack>& content() const { return content_; }
 private:
+    std::shared_ptr<Stack> content_;
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<RadioGroup> choices_;
     std::shared_ptr<RangeInput> size_;

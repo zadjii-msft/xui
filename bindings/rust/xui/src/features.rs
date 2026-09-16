@@ -274,6 +274,19 @@ impl Window {
             callback_error: RefCell::new(None),
         })))
     }
+    fn titlebar_child(&self, index: u32) -> Result<Element> {
+        let mut handle = 0;
+        self.0.check(unsafe { sys::xui_feature_child(self.0.handle, index, &mut handle) })?;
+        Ok(Element { owner: self.0.clone(), handle })
+    }
+    pub fn titlebar_tabs(&self) -> Result<TabStrip> { self.titlebar_child(0).map(TabStrip) }
+    pub fn titlebar_leading(&self) -> Result<Button> { self.titlebar_child(1).map(Button) }
+    pub fn titlebar_secondary_tabs(&self) -> Result<TabStrip> { self.titlebar_child(2).map(TabStrip) }
+    pub fn titlebar(&self) -> Result<Element> { self.titlebar_child(3) }
+    pub fn titlebar_title(&self) -> Result<Label> { self.titlebar_child(4).map(Label) }
+    pub fn titlebar_minimize(&self) -> Result<Button> { self.titlebar_child(5).map(Button) }
+    pub fn titlebar_maximize(&self) -> Result<Button> { self.titlebar_child(6).map(Button) }
+    pub fn titlebar_close(&self) -> Result<Button> { self.titlebar_child(7).map(Button) }
 }
 impl Element {
     fn collection_selection(&self) -> Result<SelectionInfo> {
@@ -308,12 +321,16 @@ impl Element {
             .check(unsafe { sys::xui_feature_action(self.handle, action, first, second) })
     }
     pub(crate) fn feature_child(&self, index: u32) -> Result<Element> {
+        self.optional_feature_child(index)?
+            .ok_or_else(|| invalid("The retained child is unavailable."))
+    }
+    fn optional_feature_child(&self, index: u32) -> Result<Option<Element>> {
         let mut handle = 0;
-        check(unsafe { sys::xui_feature_child(self.handle, index, &mut handle) })?;
-        Ok(Element {
+        self.owner.check(unsafe { sys::xui_feature_child(self.handle, index, &mut handle) })?;
+        Ok((handle != 0).then(|| Element {
             owner: self.owner.clone(),
             handle,
-        })
+        }))
     }
     fn choices(&self, choices: &[Choice], selected: Option<u64>) -> Result<()> {
         if choices.len() > 4096 {
@@ -417,6 +434,15 @@ impl RangeInput {
     }
 }
 impl NumericInput {
+    pub fn editor(&self) -> Result<TextInput> {
+        self.feature_child(0).map(TextInput)
+    }
+    pub fn decrease_button(&self) -> Result<Button> {
+        self.feature_child(1).map(Button)
+    }
+    pub fn increase_button(&self) -> Result<Button> {
+        self.feature_child(2).map(Button)
+    }
     pub fn on_change(&self, mut callback: impl FnMut(f64) -> Result<()> + 'static) -> Result<()> {
         self.on_event(move |e| {
             if e.kind == 2 {
@@ -441,6 +467,31 @@ macro_rules! choices {
     )*};
 }
 choices!(RadioGroup, ComboBox, TabStrip);
+
+impl ComboBox {
+    pub fn editor(&self) -> Result<Option<TextInput>> {
+        self.optional_feature_child(0).map(|child| child.map(TextInput))
+    }
+    pub fn popup(&self) -> Result<Popup> {
+        self.feature_child(1).map(Popup)
+    }
+    pub fn choices(&self) -> Result<RadioGroup> {
+        self.feature_child(2).map(RadioGroup)
+    }
+}
+impl ColorPicker {
+    pub fn channel(&self, index: u32) -> Result<NumericInput> {
+        if index >= 4 {
+            return Err(invalid("Color channel index must be less than four."));
+        }
+        self.feature_child(index).map(NumericInput)
+    }
+    pub fn swatch_button(&self, index: u32) -> Result<Button> {
+        let child = index.checked_add(4)
+            .ok_or_else(|| invalid("Color swatch index is outside the swatch range."))?;
+        self.feature_child(child).map(Button)
+    }
+}
 
 /// Optional 0xRRGGBB tab colors. None uses the theme; high contrast ignores overrides.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -509,9 +560,32 @@ impl TabStrip {
     }
 }
 impl Breadcrumb {
+    pub fn overflow_button(&self) -> Result<Button> { self.feature_child(0).map(Button) }
+    pub fn segment_button(&self, key: ItemKey) -> Result<Button> {
+        let mut handle = 0;
+        self.owner.check(unsafe { sys::xui_breadcrumb_segment_button(self.handle, key.id, key.version, &mut handle) })?;
+        Ok(Button(Element { owner: self.owner.clone(), handle }))
+    }
     pub fn set_segments(&self, items: &[Choice]) -> Result<()> {
         self.0.choices(items, None)
     }
+}
+impl CommandBar {
+    pub fn overflow_button(&self) -> Result<Button> { self.feature_child(0).map(Button) }
+    pub fn command_button(&self, id: u64) -> Result<Button> {
+        let mut handle = 0;
+        self.owner.check(unsafe { sys::xui_command_bar_button(self.handle, id, &mut handle) })?;
+        Ok(Button(Element { owner: self.owner.clone(), handle }))
+    }
+}
+impl NavigationView {
+    pub fn search(&self) -> Result<TextInput> { self.feature_child(0).map(TextInput) }
+    pub fn toggle_button(&self) -> Result<Button> { self.feature_child(1).map(Button) }
+    pub fn items(&self) -> Result<Element> { self.feature_child(2) }
+    pub fn header_items(&self) -> Result<Element> { self.feature_child(3) }
+    pub fn footer_items(&self) -> Result<Element> { self.feature_child(4) }
+    pub fn title(&self) -> Result<Label> { self.feature_child(5).map(Label) }
+    pub fn empty_message(&self) -> Result<Label> { self.feature_child(6).map(Label) }
 }
 impl SplitButton {
     pub fn primary(&self) -> Result<Button> {
@@ -543,6 +617,18 @@ impl ContentDialog {
     pub fn cancel_button(&self) -> Result<Button> {
         self.feature_child(1).map(Button)
     }
+    pub fn title(&self) -> Result<Label> {
+        self.feature_child(2).map(Label)
+    }
+    pub fn validation(&self) -> Result<InlineStatus> {
+        self.feature_child(3).map(InlineStatus)
+    }
+    pub fn body(&self) -> Result<Stack> {
+        self.feature_child(4).map(Stack)
+    }
+    pub fn footer(&self) -> Result<Stack> {
+        self.feature_child(5).map(Stack)
+    }
 }
 impl LocationPicker {
     pub fn editor(&self) -> Result<TextInput> {
@@ -550,6 +636,15 @@ impl LocationPicker {
     }
     pub fn navigation(&self) -> Result<NavigationPane> {
         self.feature_child(1).map(NavigationPane)
+    }
+    pub fn content(&self) -> Result<Stack> {
+        self.feature_child(2).map(Stack)
+    }
+    pub fn footer(&self) -> Result<Label> {
+        self.feature_child(3).map(Label)
+    }
+    pub fn toolbar(&self) -> Result<CommandBar> {
+        self.feature_child(4).map(CommandBar)
     }
 }
 impl ViewPicker {
@@ -559,6 +654,32 @@ impl ViewPicker {
     pub fn size(&self) -> Result<RangeInput> {
         self.feature_child(1).map(RangeInput)
     }
+    pub fn content(&self) -> Result<Stack> {
+        self.feature_child(2).map(Stack)
+    }
+}
+impl CommandSurface {
+    pub fn editor(&self) -> Result<TextInput> {
+        self.feature_child(0).map(TextInput)
+    }
+    pub fn title(&self) -> Result<Label> {
+        self.feature_child(1).map(Label)
+    }
+    pub fn status(&self) -> Result<Label> {
+        self.feature_child(2).map(Label)
+    }
+    pub fn close_button(&self) -> Result<Button> {
+        self.feature_child(3).map(Button)
+    }
+    pub fn content(&self) -> Result<Stack> {
+        self.feature_child(4).map(Stack)
+    }
+    pub fn results(&self) -> Result<Stack> {
+        self.feature_child(5).map(Stack)
+    }
+    pub fn menu(&self) -> Result<Element> {
+        self.feature_child(6)
+    }
 }
 impl NavigationPane {
     pub fn set_source(&self, source: &ImmutableSource) -> Result<()> {
@@ -566,6 +687,18 @@ impl NavigationPane {
     }
     pub fn items(&self) -> Result<ItemsView> {
         self.feature_child(0).map(ItemsView)
+    }
+    pub fn status(&self) -> Result<Label> {
+        self.feature_child(1).map(Label)
+    }
+    pub fn content(&self) -> Result<Stack> {
+        self.feature_child(2).map(Stack)
+    }
+    pub fn group(&self) -> Result<Expander> {
+        self.feature_child(3).map(Expander)
+    }
+    pub fn progress(&self) -> Result<Progress> {
+        self.feature_child(4).map(Progress)
     }
 }
 macro_rules! command_controls {
@@ -725,6 +858,12 @@ impl DateTimePicker {
     }
 }
 impl InlineStatus {
+    pub fn action_button(&self) -> Result<Button> {
+        self.feature_child(0).map(Button)
+    }
+    pub fn dismiss_button(&self) -> Result<Button> {
+        self.feature_child(1).map(Button)
+    }
     pub fn set_message(&self, message: &str, severity: StatusSeverity) -> Result<()> {
         self.feature_set(
             20,

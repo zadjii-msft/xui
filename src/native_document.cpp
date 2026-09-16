@@ -5,6 +5,9 @@
 #include <commctrl.h>
 #include <richedit.h>
 #include <richole.h>
+#include <tom.h>
+#include <cmath>
+#include <cstring>
 #include <stdexcept>
 
 namespace xui {
@@ -25,6 +28,34 @@ bool complete_utf16(std::wstring_view text) {
         } else if (value >= 0xdc00 && value <= 0xdfff) return false;
     }
     return true;
+}
+void document_defaults(HWND window, CHARFORMAT2W& format, bool all) {
+    Microsoft::WRL::ComPtr<IRichEditOle> ole;
+    win32_require(SendMessageW(window, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(ole.GetAddressOf())) != 0,
+        "Read native document formatting interface");
+    Microsoft::WRL::ComPtr<ITextDocument> document;
+    win32_require(SUCCEEDED(ole.As(&document)), "Read native document undo interface");
+    win32_require(SUCCEEDED(document->Undo(tomSuspend, nullptr)), "Preserve native document undo");
+    struct Resume { ITextDocument* value; ~Resume() { value->Undo(tomResume, nullptr); } } resume{document.Get()};
+    struct Restore {
+        HWND window;
+        CHARRANGE selection{};
+        POINT scroll{};
+        LRESULT modified{};
+        explicit Restore(HWND value) : window(value), modified(SendMessageW(value, EM_GETMODIFY, 0, 0)) {
+            SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+            SendMessageW(window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+        }
+        ~Restore() {
+            SendMessageW(window, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+            SendMessageW(window, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+            SendMessageW(window, EM_SETMODIFY, modified, 0);
+        }
+    } restore{window};
+    win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format)) != 0,
+        "Set native document text defaults");
+    if (all) win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format)) != 0,
+        "Set native plain document presentation");
 }
 // RichEdit can otherwise deserialize OLE objects from the clipboard. This bridge
 // accepts only plain Unicode paste and application-authored run formatting.
@@ -115,13 +146,15 @@ std::wstring NativeDocumentBridge::text() const {
 void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
     if (!window_) return;
     palette_ = palette;
-    if (dpi_ != dpi) {
+    const auto* text_style = model_->effective_control_style_values(StylePart::text);
+    const auto* root_style = model_->effective_control_style_values(StylePart::root);
+    if (dpi_ != dpi && !composing_) {
         if (font_ && std::dynamic_pointer_cast<DocumentText>(model_)) {
             CHARFORMAT2W format{sizeof(format)};
             format.dwMask = CFM_SIZE;
             format.yHeight = MulDiv(210, static_cast<int>(dpi), static_cast<int>(GetDpiForWindow(window_)));
-            SendMessageW(window_, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
-            SendMessageW(window_, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
+            document_defaults(window_, format, !std::static_pointer_cast<DocumentText>(model_)->rich());
+            document_font_set_ = false;
         } else {
         auto font = CreateFontW(-MulDiv(14, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -131,11 +164,38 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         }
         dpi_ = dpi;
     }
-    const auto text_color = platform::native_color(palette.text), background = platform::native_color(palette.field);
+    const auto color = [&](const std::optional<ThemeColor>& value, D2D1_COLOR_F fallback) {
+        return value && !palette.high_contrast ? D2D1::ColorF(value->resolve(palette.mode)) : fallback;
+    };
+    const auto ink = IsWindowEnabled(window_) ? palette.text : palette.disabled;
+    const auto text_color = platform::native_color(text_style ? color(text_style->foreground, ink) : ink);
+    const auto background = platform::native_color(root_style ? color(root_style->background, palette.field) : palette.field);
     const bool recolor = !colors_set_ || text_color_ != text_color || background_ != background;
     text_color_ = text_color; background_ = background; colors_set_ = true;
     struct Setting { bool& value; Setting(bool& v) : value(v) { value = true; } ~Setting() { value = false; } } setting(setting_);
     if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+        const PartStyleValues default_text;
+        const auto font = Drawing::font_descriptor(text_style ? *text_style : default_text, L"Segoe UI", 14.0f);
+        LOGFONTW desired{};
+        desired.lfHeight = std::lround(font.size * 15.0f);
+        desired.lfWeight = font.weight;
+        desired.lfItalic = font.style == StyleFontStyle::italic;
+        const auto* family = document->monospace() ? L"Consolas" : font.family_name();
+        if (wcslen(family) >= LF_FACESIZE) throw std::invalid_argument("Native document font family is too long");
+        wcscpy_s(desired.lfFaceName, family);
+        const bool authored_font = text_style && (text_style->font_family || text_style->font_size ||
+            text_style->font_weight || text_style->font_style);
+        if (!composing_ && (authored_font || document_font_set_ || monospace_ != document->monospace()) &&
+            (!document_font_set_ || std::memcmp(&desired, &document_font_, sizeof(desired)) != 0)) {
+            CHARFORMAT2W format{sizeof(format)};
+            format.dwMask = CFM_FACE | CFM_SIZE | CFM_WEIGHT | CFM_ITALIC;
+            format.yHeight = desired.lfHeight;
+            format.wWeight = static_cast<WORD>(desired.lfWeight);
+            format.dwEffects = desired.lfItalic ? CFE_ITALIC : 0;
+            wcscpy_s(format.szFaceName, desired.lfFaceName);
+            document_defaults(window_, format, !document->rich());
+            document_font_ = desired; document_font_set_ = authored_font;
+        }
         if (accessible_name_ != document->name()) {
             accessible_name_ = document->name();
             SendMessageW(window_, EM_SETUIANAME, 0, reinterpret_cast<LPARAM>(accessible_name_.c_str()));
@@ -146,20 +206,18 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         if (readonly_ != document->read_only()) {
             readonly_ = document->read_only(); SendMessageW(window_, EM_SETREADONLY, readonly_, 0);
         }
-        if (monospace_ != document->monospace()) {
+        if (!composing_ && monospace_ != document->monospace()) {
             monospace_ = document->monospace();
             CHARFORMAT2W format{sizeof(format)};
             format.dwMask = CFM_FACE;
-            wcscpy_s(format.szFaceName, monospace_ ? L"Consolas" : L"Segoe UI");
-            SendMessageW(window_, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
-            SendMessageW(window_, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
+            wcscpy_s(format.szFaceName, desired.lfFaceName);
+            document_defaults(window_, format, true);
         }
         if (recolor) {
             SendMessageW(window_, EM_SETBKGNDCOLOR, 0, background_);
-            CHARRANGE previous{}; SendMessageW(window_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&previous));
             CHARFORMAT2W format{sizeof(format)}; format.dwMask = CFM_COLOR; format.crTextColor = text_color_;
-            SendMessageW(window_, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
-            SendMessageW(window_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&previous));
+            if (!composing_) document_defaults(window_, format, !document->rich() || palette.high_contrast);
+            else colors_set_ = false;
         }
         if (!composing_ && revision_ != document->revision()) {
             revision_ = document->revision();
@@ -187,6 +245,14 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
                 SendMessageW(window_, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format));
             }
             SendMessageW(window_, EM_EMPTYUNDOBUFFER, 0, 0);
+            if (authored_font) {
+                format.dwMask = CFM_FACE | CFM_SIZE | CFM_WEIGHT | CFM_ITALIC;
+                format.yHeight = desired.lfHeight;
+                format.wWeight = static_cast<WORD>(desired.lfWeight);
+                format.dwEffects = desired.lfItalic ? CFE_ITALIC : 0;
+                wcscpy_s(format.szFaceName, desired.lfFaceName);
+                document_defaults(window_, format, !document->rich());
+            }
             selection_revision_ = ~document->selection_revision();
         }
         if (!composing_ && selection_revision_ != document->selection_revision()) {
@@ -195,6 +261,8 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
             SendMessageW(window_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
         }
     } else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
+        if (recolor) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh native password colors");
+        if (!composing_) styled_font_.update(window_, text_style, dpi, font_, L"Segoe UI", 14.0f);
         if (maximum_ != password->maximum_length()) {
             maximum_ = password->maximum_length(); SendMessageW(window_, EM_SETLIMITTEXT, maximum_, 0);
         }
@@ -204,7 +272,9 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         }
         // The editor always stays masked. Explicit reveal is a separate retained
         // preview, so native Value/Text providers never gain access to plaintext.
-    } else if (auto date = std::dynamic_pointer_cast<DateTimePicker>(model_); date && revision_ != date->revision()) {
+    } else if (auto date = std::dynamic_pointer_cast<DateTimePicker>(model_)) {
+        styled_font_.update(window_, text_style, dpi, font_, L"Segoe UI", 14.0f);
+        if (revision_ == date->revision()) return;
         revision_ = date->revision(); SYSTEMTIME range[]{native_date(date->minimum()), native_date(date->maximum())};
         auto value = native_date(date->value()); const bool calendar = date->presentation() == DateTimePresentation::calendar;
         SendMessageW(window_, calendar ? MCM_SETRANGE : DTM_SETRANGE, GDTR_MIN | GDTR_MAX, reinterpret_cast<LPARAM>(range));
@@ -283,7 +353,12 @@ LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM 
     try {
         if (message == WM_IME_STARTCOMPOSITION) self.composing_ = true;
         if (message == WM_IME_ENDCOMPOSITION) {
-            const auto result = DefSubclassProc(hwnd, message, wp, lp); self.composing_ = false; self.changed(); return result;
+            const auto result = DefSubclassProc(hwnd, message, wp, lp);
+            self.composing_ = false;
+            const auto model = self.model_;
+            self.changed();
+            model->invalidate(Invalidation::layout);
+            return result;
         }
         if (message == WM_DROPFILES) return 0;
         if (message == WM_PRINTCLIENT && std::dynamic_pointer_cast<DateTimePicker>(self.model_)) {

@@ -1,5 +1,9 @@
+extern alias RuntimeXui;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text.Json;
+using RealXui = RuntimeXui::Xui;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
@@ -20,6 +24,7 @@ internal static class Program
     }
     private static readonly MetadataReference[] References =
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(System.IO.Path.PathSeparator)
+            .Where(p => !string.Equals(p, typeof(RealXui.ControlStyle).Assembly.Location, StringComparison.OrdinalIgnoreCase))
             .Append(typeof(Xui.Window).Assembly.Location).Distinct().Select(p => MetadataReference.CreateFromFile(p)).ToArray();
     private static void Assert(bool condition, string message)
     {
@@ -59,6 +64,7 @@ internal static class Program
         """;
     private static void Main()
     {
+        TestPortableStyleCatalog();
         TestExecution();
         TestSizeAndHelp();
         TestParsing();
@@ -72,7 +78,383 @@ internal static class Program
         TestStylingDiagnostics();
         TestStylingShape();
         TestToggleStyling();
+        TestMixedButtonInheritance();
+        TestStackStyleDefaults();
+        TestCatalogStyleInitializationAndReload();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
+    }
+    private static void TestPortableStyleCatalog()
+    {
+        int nativeLoads = 0;
+        NativeLibrary.SetDllImportResolver(typeof(RealXui.ControlStyle).Assembly, (_, _, _) =>
+        {
+            ++nativeLoads;
+            throw new InvalidOperationException("Style definition construction attempted to load a native library.");
+        });
+        using var stream = typeof(Program).Assembly.GetManifestResourceStream("GeneratorTests.StyleCatalog.json")!;
+        using var document = JsonDocument.Parse(stream);
+        var rows = document.RootElement.GetProperty("schemas").EnumerateArray().ToDictionary(
+            row => (row.GetProperty("target").GetUInt32(), row.GetProperty("part").GetUInt32()));
+        var compiler = typeof(XuiGenerator).Assembly.GetType("Xui.Generator.StyleCatalog")!;
+        var runtime = typeof(RealXui.ControlStyle).Assembly.GetType("Xui.StyleSchemaCatalog")!;
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Static;
+        var runtimeFind = runtime.GetMethod("Find", flags)!;
+        var runtimeLimits = runtime.GetMethod("Limits", flags)!;
+        static string Camel(string value) => char.ToLowerInvariant(value[0]) + value[1..];
+        static string[] Properties(ulong mask) => Enum.GetValues<Xui.StyleProperty>()
+            .Where(value => (mask & (ulong)value) != 0).Select(value => Camel(value.ToString())).ToArray();
+        static string[] States(ulong mask) => Enum.GetValues<Xui.StyleState>()
+            .Where(value => (mask & (ulong)value) != 0).Select(value => Camel(value.ToString())).ToArray();
+        foreach (var target in Enum.GetValues<Xui.StyleTarget>())
+        {
+            var targetName = target.ToString();
+            Assert((bool)compiler.GetMethod("TargetExists", flags)!.Invoke(null, [targetName])! ==
+                rows.Keys.Any(key => key.Item1 == (uint)target), $"Compiler target catalog mismatch: {targetName}");
+            foreach (var part in Enum.GetValues<Xui.StylePart>())
+            {
+                bool supported = rows.TryGetValue(((uint)target, (uint)part), out var row);
+                var copied = Xui.StyleSchemaCatalog.Find(target, part);
+                var actual = runtimeFind.Invoke(null, [(RealXui.StyleTarget)(uint)target, (RealXui.StylePart)(uint)part]);
+                Assert(copied.HasValue == supported && (actual is not null) == supported,
+                    $"Managed schema presence mismatch: {target}/{part}");
+                var properties = supported ? row.GetProperty("properties").GetUInt64() : 0;
+                var states = supported ? row.GetProperty("states").GetUInt64() : 0;
+                var stateProperties = supported ?
+                    (row.TryGetProperty("state_properties", out var stateValue) ? stateValue.GetUInt64() : properties) : 0;
+                foreach (var (method, expected) in new[] {
+                    ("Properties", Properties(properties)), ("States", States(states)), ("StateProperties", Properties(stateProperties))
+                })
+                    Assert(((string[])compiler.GetMethod(method, flags)!.Invoke(null, [targetName, Camel(part.ToString())])!)
+                        .SequenceEqual(expected), $"Compiler {method} mismatch: {target}/{part}");
+                if (supported)
+                {
+                    Assert(copied == (properties, states, stateProperties) &&
+                        ((ulong, ulong, ulong))actual! == (properties, states, stateProperties),
+                        $"Managed property/state masks mismatch: {target}/{part}");
+                    float fontSize = row.TryGetProperty("maximum_font_size", out var sizeValue) ? sizeValue.GetSingle() : 32768;
+                    uint Limit(string name, uint fallback) => row.TryGetProperty(name, out var value) ? value.GetUInt32() : fallback;
+                    var limits = (fontSize, Limit("maximum_font_family_utf16", 1024), Limit("font_styles", 7),
+                        Limit("horizontal_alignments", 15), Limit("vertical_alignments", 15));
+                    Assert(((float, uint, uint, uint, uint))runtimeLimits.Invoke(null,
+                        [(RealXui.StyleTarget)(uint)target, (RealXui.StylePart)(uint)part])! == limits &&
+                        ((float, uint, uint, uint, uint))compiler.GetMethod("Limits", flags)!.Invoke(null,
+                        [targetName, Camel(part.ToString())])! == limits, $"Style limit mismatch: {target}/{part}");
+                    _ = new RealXui.ControlStyle((RealXui.StyleTarget)(uint)target,
+                        [new((RealXui.StylePart)(uint)part, new())]);
+                    bool Accepts(RealXui.PartStyleValues values, ulong state = 0)
+                    {
+                        try
+                        {
+                            if (state == 0) _ = new RealXui.ControlStyle((RealXui.StyleTarget)(uint)target,
+                                [new((RealXui.StylePart)(uint)part, values)]);
+                            else _ = new RealXui.ControlStyle((RealXui.StyleTarget)(uint)target, [],
+                                [new((RealXui.StylePart)(uint)part, (RealXui.StyleState)state, values)]);
+                            return true;
+                        }
+                        catch (ArgumentException) { return false; }
+                    }
+                    foreach (var property in Enum.GetValues<Xui.StyleProperty>())
+                    {
+                        var member = typeof(RealXui.PartStyleValues).GetProperty(property.ToString())!;
+                        var type = Nullable.GetUnderlyingType(member.PropertyType) ?? member.PropertyType;
+                        object value = type == typeof(RealXui.ThemeColor) ? new RealXui.ThemeColor(1) :
+                            type == typeof(RealXui.Insets) ? new RealXui.Insets(1) :
+                            type == typeof(string) ? "A" : type == typeof(float) ? 1f :
+                            type == typeof(uint) ? 1u : type == typeof(bool) ? false :
+                            Enum.ToObject(type, System.Numerics.BitOperations.TrailingZeroCount(
+                                property == Xui.StyleProperty.FontStyle ? limits.Item3 :
+                                property == Xui.StyleProperty.HorizontalAlignment ? limits.Item4 : limits.Item5));
+                        var values = new RealXui.PartStyleValues();
+                        member.SetValue(values, value);
+                        Assert(Accepts(values) == ((properties & (ulong)property) != 0),
+                            $"Definition property validation mismatch: {target}/{part}/{property}");
+                        if (states != 0)
+                        {
+                            var state = states & (~states + 1);
+                            Assert(Accepts(values, state) == ((stateProperties & (ulong)property) != 0),
+                                $"Definition state-property validation mismatch: {target}/{part}/{property}");
+                        }
+                    }
+                    foreach (var state in Enum.GetValues<Xui.StyleState>())
+                        Assert(Accepts(new(), (ulong)state) == ((states & (ulong)state) != 0),
+                            $"Definition state validation mismatch: {target}/{part}/{state}");
+                }
+                else
+                {
+                    bool rejected = false;
+                    try { _ = new RealXui.ControlStyle((RealXui.StyleTarget)(uint)target, [new((RealXui.StylePart)(uint)part, new())]); }
+                    catch (ArgumentException) { rejected = true; }
+                    Assert(rejected, $"Unsupported managed definition succeeded: {target}/{part}");
+                }
+            }
+        }
+        Assert(nativeLoads == 0, "Portable schema tests and definition construction must not load native libraries.");
+    }
+    private static void TestCatalogStyleInitializationAndReload()
+    {
+        using var stream = typeof(Program).Assembly.GetManifestResourceStream("GeneratorTests.StyleCatalog.json")!;
+        using var document = JsonDocument.Parse(stream);
+        var targets = document.RootElement.GetProperty("schemas").EnumerateArray()
+            .GroupBy(row => (Xui.StyleTarget)row.GetProperty("target").GetUInt32())
+            .Where(group => group.Key != Xui.StyleTarget.Tooltip).ToArray();
+        static string Camel(string value) => char.ToLowerInvariant(value[0]) + value[1..];
+        static string Values(ulong mask) => string.Join(" ", Enum.GetValues<Xui.StyleProperty>()
+            .Where(property => (mask & (ulong)property) != 0).Select(property =>
+                $"{Camel(property.ToString())}: " + (property switch
+                {
+                    Xui.StyleProperty.Background or Xui.StyleProperty.Foreground or Xui.StyleProperty.BorderBrush =>
+                        "resource(Ink)",
+                    Xui.StyleProperty.FontFamily => "\"Segoe UI\"",
+                    Xui.StyleProperty.FontSize => "16",
+                    Xui.StyleProperty.FontWeight => "400",
+                    Xui.StyleProperty.FontStyle => "normal",
+                    Xui.StyleProperty.HorizontalAlignment or Xui.StyleProperty.VerticalAlignment => "start",
+                    Xui.StyleProperty.Wrapping => "false",
+                    _ => "1"
+                }) + ";"));
+        var declarations = new System.Text.StringBuilder();
+        var nodes = new System.Text.StringBuilder();
+        for (int i = 0; i < targets.Length; ++i)
+        {
+            declarations.Append($"style S{i} for {targets[i].Key} {{ ");
+            foreach (var row in targets[i])
+            {
+                var part = (Xui.StylePart)row.GetProperty("part").GetUInt32();
+                if (part != Xui.StylePart.Root) declarations.Append($"part {Camel(part.ToString())} {{ ");
+                declarations.Append(Values(row.GetProperty("properties").GetUInt64()));
+                var states = row.GetProperty("states").GetUInt64();
+                var stateProperties = row.GetProperty("state_properties").GetUInt64();
+                if (states != 0 && stateProperties != 0)
+                {
+                    var state = (Xui.StyleState)(states & (~states + 1));
+                    declarations.Append($" when {Camel(state.ToString())} {{ {Values(stateProperties)} }} ");
+                }
+                if (part != Xui.StylePart.Root) declarations.Append("} ");
+            }
+            declarations.Append("} ");
+            nodes.Append($"Content(Targets[{i}], ref: Styled{i}, style: S{i}); ");
+        }
+        var source = $$"""
+            component CatalogStyles {
+              param global::Xui.Element[] Targets;
+              resources { Ink: theme(light: 0x123456, dark: 0x654321); }
+              {{declarations}}
+              view { VStack() { {{nodes}} TextInput("Retained", ref: Input); } }
+            }
+            """;
+        var (_, compilation) = Generate(new File(@"C:\fixture\CatalogStyles.xui", source));
+        using var pe = new MemoryStream();
+        var emitted = compilation.Emit(pe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("catalog-styles", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("CatalogStyles")!;
+        var window = new Xui.Window();
+        var elements = targets.Select(target => (Xui.Element)window.Label(target.Key.ToString())).ToArray();
+        var instance = Activator.CreateInstance(type, window, elements, true)!;
+        var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
+        input.Edit("Keep catalog input");
+        var original = elements.Select(element => element.ControlStyle).ToArray();
+        var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        refresh.Invoke(instance, null);
+        for (int i = 0; i < targets.Length; ++i)
+            Assert(original[i]?.Target == targets[i].Key && ReferenceEquals(original[i], elements[i].ControlStyle) &&
+                elements[i].ControlStyleSets == 1, $"Unchanged refresh preserves {targets[i].Key} style identity.");
+        type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(instance, null);
+        for (int i = 0; i < targets.Length; ++i)
+            Assert(elements[i].ControlStyle?.Target == targets[i].Key &&
+                !ReferenceEquals(original[i], elements[i].ControlStyle) && elements[i].ControlStyleSets == 2 &&
+                ReferenceEquals(elements[i], type.GetProperty($"Styled{i}")!.GetValue(instance)),
+                $"Reload updates {targets[i].Key} without replacing its retained Element.");
+        Assert(window.ContentSets == 1 && input.Text == "Keep catalog input",
+            "Catalog-wide reload preserves root ownership and user-entered text in the binding harness.");
+        context.Unload();
+
+        var real = compilation.WithReferences(References
+            .Where(reference => reference.Display != typeof(Xui.Window).Assembly.Location)
+            .Append(MetadataReference.CreateFromFile(typeof(RealXui.Window).Assembly.Location)));
+        using var realPe = new MemoryStream();
+        emitted = real.Emit(realPe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        realPe.Position = 0;
+        var realContext = new AssemblyLoadContext("catalog-real-styles", isCollectible: true);
+        var realType = realContext.LoadFromStream(realPe).GetType("CatalogStyles")!;
+        var getStyles = realType.GetMethod("__xuiGetStyles", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definitions = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        var unchanged = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        Assert(ReferenceEquals(definitions, unchanged) && definitions.Count == targets.Length,
+            "Actual managed initialization caches one generated definition for each compiler-supported target.");
+        realType.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        var reloaded = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        for (int i = 0; i < targets.Length; ++i)
+        {
+            var initial = (RealXui.ControlStyle)definitions[$"S{i}"];
+            var updated = (RealXui.ControlStyle)reloaded[$"S{i}"];
+            var rules = targets[i].Count(row => row.GetProperty("states").GetUInt64() != 0 &&
+                row.GetProperty("state_properties").GetUInt64() != 0);
+            Assert(initial.Target == (RealXui.StyleTarget)targets[i].Key && updated.Target == initial.Target &&
+                initial.Parts.Count == targets[i].Count() && updated.Parts.Count == initial.Parts.Count &&
+                initial.Rules.Count == rules && updated.Rules.Count == rules && !ReferenceEquals(initial, updated),
+                $"Real constructors validate every authored {targets[i].Key} part and state rule before and after reload.");
+        }
+        realContext.Unload();
+        var tooltip = Invalid("component Bad { style Tip for Tooltip {} view { VStack() {} } }");
+        Assert(tooltip.GetMessage().Contains("Window", StringComparison.Ordinal),
+            "Tooltip retains its explicit Window-only diagnostic instead of an unsupported Element application.");
+    }
+    private static void TestMixedButtonInheritance()
+    {
+        const string source = """
+            component MixedStyles {
+              style Rich for Button basedOn Middle { fontSize: 22; }
+              style Parts for Button basedOn Middle { part label { fontWeight: 600; } }
+              style RichChild for Button basedOn Rich { cornerRadius: 0; }
+              style Middle for Button basedOn Base { padding: 0; }
+              style Base for Button {
+                foreground: theme(light: 0x123456, dark: 0x654321);
+                when hovered { background: 0x111111; }
+                when hovered { foreground: 0; }
+                when hovered { background: 0x333333; }
+              }
+              view { VStack() {
+                Button("Base", ref: BaseButton, style: Base);
+                Button("Middle", ref: MiddleButton, style: Middle);
+                Button("Rich", ref: RichButton, style: Rich);
+                Button("Parts", ref: PartsButton, style: Parts);
+                Button("Rich child", ref: ChildButton, style: RichChild);
+                TextInput("Input", ref: Input);
+              } }
+            }
+            """;
+        var (_, compilation) = Generate(new File(@"C:\fixture\MixedStyles.xui", source));
+        using var pe = new MemoryStream();
+        var emitted = compilation.Emit(pe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("mixed-styles", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("MixedStyles")!;
+        var window = new Xui.Window();
+        var instance = Activator.CreateInstance(type, window, true)!;
+        Xui.Button Button(string name) => (Xui.Button)type.GetProperty(name)!.GetValue(instance)!;
+        var root = Button("BaseButton");
+        var middle = Button("MiddleButton");
+        var rich = Button("RichButton");
+        var parts = Button("PartsButton");
+        var child = Button("ChildButton");
+        var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
+        void Graph()
+        {
+            Assert(root.Style is not null && root.ControlStyle is null && middle.Style is not null,
+                "Legacy references retain ButtonStyle definitions.");
+            Assert(ReferenceEquals(middle.Style!.BasedOn, root.Style) && root.Style!.Rules.Count == 3,
+                "Legacy inheritance and repeated state declarations stay unchanged.");
+            Assert(rich.Style is null && rich.ControlStyle!.Parts[0].Values.FontSize == 22 &&
+                parts.ControlStyle!.Parts.Single(p => p.Part == Xui.StylePart.Label).Values.FontWeight == 600,
+                "Typography and named-part derivatives construct generic styles.");
+            Assert(ReferenceEquals(rich.ControlStyle!.BasedOn, parts.ControlStyle!.BasedOn) &&
+                ReferenceEquals(child.ControlStyle!.BasedOn, rich.ControlStyle),
+                "Mixed descendants share promoted ancestors and generic bases.");
+            var promoted = rich.ControlStyle.BasedOn!;
+            Assert(promoted.Parts[0].Values.Padding == new Xui.Insets(0) &&
+                promoted.BasedOn!.Parts[0].Values.Foreground == new Xui.ThemeColor(0x123456, 0x654321),
+                "Promotion preserves sparse zero values, themes and the full base chain.");
+            var hover = promoted.BasedOn!.Rules.Single();
+            Assert(hover.State == Xui.StyleState.Hovered && hover.Values.Background == new Xui.ThemeColor(0x333333) &&
+                hover.Values.Foreground == new Xui.ThemeColor(0),
+                "Promotion merges repeated legacy states with field-wise last-write precedence.");
+        }
+        Graph();
+        var previous = rich.ControlStyle;
+        var originalLegacy = root.Style;
+        var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        refresh.Invoke(instance, null);
+        Assert(ReferenceEquals(previous, rich.ControlStyle), "Unchanged refresh preserves mixed style identities.");
+        input.Edit("Retained mixed-style input");
+        type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(instance, null);
+        Graph();
+        Assert(!ReferenceEquals(previous, rich.ControlStyle) && !ReferenceEquals(originalLegacy, root.Style) &&
+            ReferenceEquals(rich, Button("RichButton")) && input.Text == "Retained mixed-style input" && window.ContentSets == 1,
+            "Reload replaces both style graphs without replacing controls or user input.");
+        context.Unload();
+
+        var real = compilation.WithReferences(References
+            .Where(reference => reference.Display != typeof(Xui.Window).Assembly.Location)
+            .Append(MetadataReference.CreateFromFile(typeof(RealXui.Window).Assembly.Location)));
+        using var realPe = new MemoryStream();
+        emitted = real.Emit(realPe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        realPe.Position = 0;
+        var realContext = new AssemblyLoadContext("mixed-real-styles", isCollectible: true);
+        var realType = realContext.LoadFromStream(realPe).GetType("MixedStyles")!;
+        var getStyles = realType.GetMethod("__xuiGetStyles", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definitions = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        Assert(definitions["Base"] is RealXui.ButtonStyle && definitions["Middle"] is RealXui.ButtonStyle &&
+            definitions["Rich"] is RealXui.ControlStyle && definitions["Parts"] is RealXui.ControlStyle,
+            "Generated initialization constructs real managed definitions without a native DLL.");
+        var realRich = (RealXui.ControlStyle)definitions["Rich"];
+        Assert(realRich.BasedOn!.BasedOn!.Rules.Count == 1 &&
+            ReferenceEquals(realRich.BasedOn, ((RealXui.ControlStyle)definitions["Parts"]).BasedOn),
+            "Real generic constructors accept promoted duplicate-state bases and preserve sharing.");
+        realType.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        var reloaded = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        Assert(!ReferenceEquals(definitions["Rich"], reloaded["Rich"]) &&
+            reloaded["Base"] is RealXui.ButtonStyle && reloaded["Rich"] is RealXui.ControlStyle,
+            "Real managed definitions retain mixed types after a generated reload.");
+        realContext.Unload();
+    }
+    private static void TestStackStyleDefaults()
+    {
+        const string source = """
+            component StackStyles {
+              style Layout for Stack { padding: 12; spacing: 8; }
+              view { VStack() {
+                VStack(ref: OmittedVertical, style: Layout) {}
+                HStack(ref: OmittedHorizontal, style: Layout) {}
+                VStack(ref: ZeroVertical, style: Layout, padding: 0, spacing: 0) {}
+                HStack(ref: ZeroHorizontal, style: Layout, padding: 0, spacing: 0) {}
+              } }
+            }
+            """;
+        var (_, compilation) = Generate(new File(@"C:\fixture\StackStyles.xui", source));
+        using var pe = new MemoryStream();
+        var emitted = compilation.Emit(pe);
+        Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        pe.Position = 0;
+        var context = new AssemblyLoadContext("stack-style-defaults", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("StackStyles")!;
+        var window = new Xui.Window();
+        var instance = Activator.CreateInstance(type, window, true)!;
+        Xui.Stack Stack(string name) => (Xui.Stack)type.GetProperty(name)!.GetValue(instance)!;
+        var omitted = new[] { Stack("OmittedVertical"), Stack("OmittedHorizontal") };
+        var explicitZero = new[] { Stack("ZeroVertical"), Stack("ZeroHorizontal") };
+        void Values(int styleSets)
+        {
+            foreach (var stack in omitted.Concat(explicitZero))
+                Assert(stack.ControlStyleSets == styleSets &&
+                    stack.ControlStyle!.Parts[0].Values.Padding == new Xui.Insets(12) &&
+                    stack.ControlStyle.Parts[0].Values.Spacing == 8,
+                    "Both stack axes receive the authored style values.");
+            foreach (var stack in omitted)
+                Assert(stack.PaddingSets == 0 && stack.SpacingSets == 0,
+                    "Omitted stack arguments never create explicit structural overrides.");
+            foreach (var stack in explicitZero)
+                Assert(stack.PaddingSets == 1 && stack.SpacingSets == 1 &&
+                    stack.CurrentPadding == 0 && stack.CurrentSpacing == 0,
+                    "Explicit zero stack arguments remain intentional overrides.");
+        }
+        Values(1);
+        var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        refresh.Invoke(instance, null);
+        Values(1);
+        var previous = omitted[0].ControlStyle;
+        type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(instance, null);
+        Values(2);
+        Assert(!ReferenceEquals(previous, omitted[0].ControlStyle) && ReferenceEquals(omitted[0], Stack("OmittedVertical")) &&
+            window.ContentSets == 1, "Stack style reload preserves structural ownership and retained controls.");
+        context.Unload();
     }
     private static void TestToggleStyling()
     {
@@ -125,6 +507,8 @@ internal static class Program
         Assert(!ReferenceEquals(style, first.Style) && ReferenceEquals(first.Style, second.Style), "Reload replaces shared Toggle styles.");
         Assert(input.Text == "Keep selection owner" && window.ContentSets == 1, "Reload preserves controls and native input ownership.");
         context.Unload();
+        Assert(Invalid("component Bad { style A for Tooltip {} view { VStack() {} } }").GetMessage().Contains("Window API"),
+            "Tooltip diagnostics explain the explicit Window application boundary.");
         foreach (var declaration in new[] {
             "style A for Toggle { part root {} }",
             "style A for Toggle { part unknown {} }",
@@ -216,7 +600,16 @@ internal static class Program
             "resources { A: theme(0, 1); }",
             "resources { A: resource(\"A\"); }",
             "resources { A: resource(ref A); }",
-            "style A for Text {}",
+            "style A for Unknown {}",
+            "style A for ContentDialog {}",
+            "style A for CommandSurface {}",
+            "style A for LocationPicker {}",
+            "style A for ViewPicker {}",
+            "style A for Popup { when invalid { background: 0; } }",
+            "style A for Popup { when loading { background: 0; } }",
+            "style A for Popup { when error { background: 0; } }",
+            "style A for Popup { when selected { background: 0; } }",
+            "style A for Popup { when overflowed { background: 0; } }",
             "style A for Button basedOn Missing {}",
             "style A for Button basedOn B {} style B for Button basedOn A {}",
             "style A for Button {} style A for Button {}",
@@ -275,6 +668,15 @@ internal static class Program
     }
     private static void TestStylingShape()
     {
+        var (_, popupCompilation) = Generate(new File(@"C:\fixture\PopupRoot.xui", """
+            component PopupRoot {
+              param global::Xui.Element Existing;
+              style Frame for Popup { background: 0x123456; }
+              view { VStack() { Content(Existing, style: Frame); } }
+            }
+            """));
+        Assert(!popupCompilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
+            string.Join("\n", popupCompilation.GetDiagnostics()));
         string Generated(string source)
         {
             var (driver, _) = Generate(new File(@"C:\fixture\Styling.xui", source));

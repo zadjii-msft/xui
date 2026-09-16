@@ -1,6 +1,6 @@
 namespace Xui;
 
-public abstract class Element
+public abstract partial class Element
 {
     internal Window Window { get; }
     internal ulong Handle { get; }

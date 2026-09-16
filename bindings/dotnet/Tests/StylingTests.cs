@@ -70,9 +70,35 @@ internal static class StylingTests
         Throws<ArgumentException>(() => new ControlStyle(StyleTarget.Toggle, [new((StylePart)99, new())]));
         Console.WriteLine("C# generic control style definition tests passed.");
     }
+    private static void TooltipNative(Window window)
+    {
+        var style = new ControlStyle(StyleTarget.Tooltip,
+            [new(StylePart.Root, new() { Background = new(0x112233), Foreground = new(0x445566) }),
+             new(StylePart.Text, new() { FontFamily = "Segoe UI", FontSize = 18 })],
+            [new(StylePart.Root, StyleState.Open, new() { Foreground = new(0x778899) })]);
+        Assert(ReferenceEquals(window.SetTooltipStyle(style), window));
+        Assert(ReferenceEquals(window.TooltipStyle, style));
+        Assert(window.GetTooltipStyleValues(StylePart.Text, true).FontFamily == "Segoe UI");
+        Assert(window.GetTooltipStyleValues(StylePart.Root, true).Foreground == new ThemeColor(0x445566));
+        window.SetTooltipStyleValues(StylePart.Root, new() { Foreground = new(0) });
+        Throws<ArgumentException>(() => window.SetTooltipStyle(new ControlStyle(StyleTarget.Toggle, [])));
+        Assert(ReferenceEquals(window.TooltipStyle, style));
+        window.SetTooltipStyle(null);
+        Assert(window.GetTooltipStyleValues(StylePart.Root, true).Foreground == new ThemeColor(0));
+        window.SetTooltipStyle(style);
+        window.SetTooltipStyleValues(StylePart.Root, new());
+        Assert(window.GetTooltipStyleValues(StylePart.Root, true).Background == new ThemeColor(0x112233));
+        Task.Run(() => Fails(4, () => window.SetTooltipStyle(null))).GetAwaiter().GetResult();
+        window.SetTooltipStyle(null);
+        Assert(window.TooltipStyle is null && window.GetTooltipStyleValues(StylePart.Root, true) == new PartStyleValues());
+        using var other = new Window();
+        other.SetTooltipStyle(style);
+        Assert(other.GetTooltipStyleValues(StylePart.Text, true).FontSize == 18);
+    }
     internal static void Native()
     {
         using var w = new Window();
+        TooltipNative(w);
         var button = w.Button("Styled");
         var values = new ButtonStyleValues { Background = new ThemeColor(0x123456, 0x654321), Padding = new Insets(3) };
         var style = new ButtonStyle(values);
@@ -118,6 +144,7 @@ internal static class StylingTests
         SharedDefinitions();
         ToggleStyles();
         GeneratedToggleStyles();
+        GeneratedExpandedStyles();
         Console.WriteLine($"C# styling assertions: {assertions} passed; architecture: {RuntimeInformation.ProcessArchitecture}");
     }
 
@@ -181,6 +208,47 @@ internal static class StylingTests
         Assert(Handle(component.First) == toggle && Handle(component.Input) == input);
         Assert(component.Input.Text == "Keep native input");
         Assert(component.First.GetStyleValues(StylePart.Indicator, true).Background == new ThemeColor(0x123456, 0x654321));
+    }
+
+    private static void GeneratedExpandedStyles()
+    {
+        using var window = new Window();
+        var component = new ExpandedStylingFixture(window);
+        var legacy = component.LegacyButton.Style;
+        var generic = component.GenericButton.ControlStyle;
+        Assert(legacy is not null && generic is not null);
+        Assert(ReferenceEquals(generic!.BasedOn, component.OtherButton.ControlStyle!.BasedOn));
+        Assert(component.LegacyButton.EffectiveStyleValues.Background == new ThemeColor(0x123456));
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x123456));
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Label, true).FontSize == 24);
+        Assert(component.OtherButton.GetControlStyleValues(StylePart.Label, true).FontSize == 18);
+        Assert(component.HeadingLabel.GetControlStyleValues(StylePart.Root, true).FontSize == 20);
+        Assert(component.PanelRoot.GetControlStyleValues(StylePart.Root, true).Padding == new Insets(7));
+        Assert(component.PanelRoot.GetControlStyleValues(StylePart.Root, true).Spacing == 9);
+        component.GenericButton.Enabled = false;
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Root, true).Foreground == new ThemeColor(0x112233));
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x445566));
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Label, true).Foreground == new ThemeColor(0xABCDEF));
+        component.Input.Text = "Keep expanded native input";
+        var input = Handle(component.Input);
+        var button = Handle(component.GenericButton);
+        var panel = Handle(component.PanelRoot);
+        var refresh = typeof(ExpandedStylingFixture).GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var marker = Handle(window.Button("Before unchanged expanded refresh"));
+        for (int i = 0; i < 32; ++i) refresh.Invoke(component, null);
+        Assert(Handle(window.Button("After unchanged expanded refresh")) == marker + 1);
+        Assert(ReferenceEquals(legacy, component.LegacyButton.Style));
+        Assert(ReferenceEquals(generic, component.GenericButton.ControlStyle));
+        typeof(ExpandedStylingFixture).GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
+        refresh.Invoke(component, null);
+        Assert(!ReferenceEquals(legacy, component.LegacyButton.Style));
+        Assert(!ReferenceEquals(generic, component.GenericButton.ControlStyle));
+        Assert(ReferenceEquals(component.GenericButton.ControlStyle!.BasedOn, component.OtherButton.ControlStyle!.BasedOn));
+        Assert(Handle(component.Input) == input && Handle(component.GenericButton) == button && Handle(component.PanelRoot) == panel);
+        Assert(component.Input.Text == "Keep expanded native input");
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x445566));
+        Assert(component.GenericButton.GetControlStyleValues(StylePart.Label, true).FontSize == 24);
+        Assert(component.HeadingLabel.GetControlStyleValues(StylePart.Root, true).Foreground == new ThemeColor(0xFEDCBA));
     }
 
     private static void StateAndInheritance()

@@ -590,7 +590,7 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         const auto& scroll = static_cast<const ScrollView&>(control);
         next.scroll_offset = scroll.offset();
         next.scroll_extent = scroll.extent();
-        next.viewport_height = scroll.bounds().height;
+        next.viewport_height = scroll.viewport().height;
     }
     if (const auto tabs = dynamic_cast<const TabStrip*>(&control)) {
         next.tabs = tabs->tabs();
@@ -603,14 +603,18 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     }
     if (const auto split = dynamic_cast<const SplitView*>(&control)) {
         next.split_ratio = split->ratio();
-        next.split_left = split->divider().x - split->bounds().x;
-        next.split_width = split->divider().width;
+        const auto divider = split->divider();
+        next.split_left = divider.x - split->bounds().x;
+        next.split_top = divider.y - split->bounds().y;
+        next.split_width = divider.width;
+        next.split_height = divider.height;
         next.minimum = 10; next.maximum = 90; next.small_step = 2.5; next.large_step = 10; next.value = split->ratio() * 100;
     }
     if (const auto grid = dynamic_cast<const DataGrid*>(&control)) {
         next.grid = grid->source(); next.columns = grid->columns(); next.column_order = grid->column_order(); next.selected_row = grid->selected();
         next.grid_x = grid->horizontal_offset(); next.grid_y = grid->offset();
         next.grid_width = grid->viewport_width(); next.grid_height = grid->viewport_height();
+        next.grid_geometry = grid->geometry();
         next.sort_column = grid->sort_column(); next.descending = grid->descending();
         next.header_column = grid->columns().empty() ? 0 : grid->source_column(grid->focused_column()); next.header_focus = grid->header_focus();
         next.selection = grid->selection(); next.grid_filters = grid->filters(); next.header_part = grid->header_part(); next.full_source = grid->full_source();
@@ -619,8 +623,10 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.single_selection = !collection->multiple_selection();
         next.collection = collection->source(); next.selection = collection->selection();
         next.collection_columns = collection->columns(); next.collection_item_height = collection->item_size().height;
-        next.collection_offset = collection->offset(); next.collection_width = collection->bounds().width;
-        next.collection_height = collection->bounds().height;
+        const auto viewport = collection->content_viewport();
+        next.collection_offset = collection->offset(); next.collection_width = viewport.width;
+        next.collection_height = viewport.height;
+        next.collection_viewport_x = viewport.x; next.collection_viewport_y = viewport.y;
     }
     if (const auto map = dynamic_cast<const MapView*>(&control)) {
         const auto center = map->center();
@@ -672,8 +678,8 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         };
         number_event(UIA_ScrollVerticalScrollPercentPropertyId, before, after);
         number_event(UIA_ScrollVerticalViewSizePropertyId, previous.scroll_extent > previous.viewport_height ?
-            previous.viewport_height * 100 / previous.scroll_extent : 100, scroll.extent() > scroll.bounds().height ?
-            scroll.bounds().height * 100 / scroll.extent() : 100);
+            previous.viewport_height * 100 / previous.scroll_extent : 100, scroll.extent() > scroll.viewport().height ?
+            scroll.viewport().height * 100 / scroll.extent() : 100);
         boolean_event(provider, UIA_ScrollVerticallyScrollablePropertyId,
             previous.scroll_extent > previous.viewport_height, scroll.maximum_offset() > 0);
         boolean_event(provider, UIA_IsEnabledPropertyId, previous.enabled, enabled);

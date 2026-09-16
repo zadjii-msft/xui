@@ -8,6 +8,7 @@
 #include "xui/data_grid.hpp"
 #include "xui/titlebar.hpp"
 #include "xui/styling.hpp"
+#include "abi_callbacks.hpp"
 #include <bit>
 #include <atomic>
 #include <variant>
@@ -22,6 +23,7 @@
 #include <unordered_map>
 
 namespace {
+namespace callbacks = xui::detail::callbacks;
 struct Failure { xui_status status; const char* message; };
 void require(bool condition, xui_status status, const char* message) {
     if (!condition) throw Failure{status, message};
@@ -110,8 +112,10 @@ struct Node {
     std::shared_ptr<const xui::CommandSet> commands;
     xui::CommandBindings bindings;
     uint64_t web_generation{};
-    std::function<void()> prior_action;
-    std::function<void(const std::wstring&)> prior_change;
+    callbacks::Storage prior_callbacks;
+    bool input_callbacks_captured{};
+    bool navigation_owned_button{}, navigation_button_observer_installed{};
+    bool feature_callbacks_captured{};
     unsigned dispatching{};
     xui_callback callback{};
     void* context{};
@@ -204,6 +208,15 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
 }
 void wire(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
+    if (!n->input_callbacks_captured) {
+        if (n->kind == XUI_BUTTON && !n->navigation_owned_button)
+            n->prior_callbacks.capture(as<xui::Button>(n).click_callback());
+        else if (n->kind == XUI_TEXT_INPUT) {
+            const auto& input = as<xui::TextInput>(n);
+            n->prior_callbacks.capture(callbacks::Input{input.change_callback(), input.submit_callback()});
+        }
+        n->input_callbacks_captured = true;
+    }
     if (auto* c = dynamic_cast<xui::Control*>(n->element.get()))
         c->on_focus([weak] { dispatch(weak, XUI_FOCUS_ENTERED); });
     switch (n->kind) {
@@ -231,17 +244,25 @@ void wire(const std::shared_ptr<Node>& n) {
                 (static_cast<uint64_t>(e.alt) << 34));
             return false;
         }); break;
-    case XUI_BUTTON: as<xui::Button>(n).on_click([weak] {
-        if (auto node = weak.lock(); node && node->prior_action) node->prior_action();
+    case XUI_BUTTON:
+        if (n->navigation_owned_button) break;
+        as<xui::Button>(n).on_click([weak] {
+        if (auto node = weak.lock())
+            if (const auto* prior = node->prior_callbacks.get<callbacks::Action>()) (*prior)();
         dispatch(weak, XUI_CLICK);
     }); break;
     case XUI_TOGGLE: as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
     case XUI_TEXT_INPUT:
         as<xui::TextInput>(n).on_change([weak](const std::wstring& text) {
-            if (auto node = weak.lock(); node && node->prior_change) node->prior_change(text);
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Input>(); prior && prior->change) prior->change(text);
             dispatch(weak, XUI_CHANGE);
         });
-        as<xui::TextInput>(n).on_submit([weak] { dispatch(weak, XUI_SUBMIT); }); break;
+        as<xui::TextInput>(n).on_submit([weak] {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Input>(); prior && prior->submit) prior->submit();
+            dispatch(weak, XUI_SUBMIT);
+        }); break;
     case XUI_FILE_LIST:
         as<xui::FileList>(n).on_selection_change([weak] { dispatch(weak, XUI_SELECTION); });
         as<xui::FileList>(n).on_view_change([weak] { dispatch(weak, XUI_VIEW); }); break;
@@ -719,6 +740,32 @@ struct ControlStyleResource {
     std::shared_ptr<const xui::ControlStyle> value;
     xui_handle identity{};
 };
+xui::Element& style_element(const std::shared_ptr<Node>& node) {
+    require(node->element != nullptr, XUI_WRONG_KIND, "Expected a styleable element.");
+    return *node->element;
+}
+struct StyleHost {
+    std::shared_ptr<Node> node;
+    bool tooltip;
+    StyleHost(std::shared_ptr<Node> value, bool is_tooltip) : node(std::move(value)), tooltip(is_tooltip) {
+        if (tooltip) require(node->kind == XUI_WINDOW, XUI_WRONG_KIND, "Expected a Window tooltip host.");
+        else style_element(node);
+    }
+    void set_style(std::shared_ptr<const xui::ControlStyle> value) const {
+        if (tooltip) node->owner->window->set_tooltip_style(std::move(value));
+        else style_element(node).set_control_style(std::move(value));
+    }
+    void set_values(xui::StylePart part, xui::PartStyleValues values) const {
+        if (tooltip) node->owner->window->set_tooltip_style_values(part, std::move(values));
+        else style_element(node).set_control_style_values(part, std::move(values));
+    }
+    const xui::PartStyleValues* values(xui::StylePart part, bool effective) const {
+        if (tooltip) return effective ? node->owner->window->effective_tooltip_style_values(part) :
+            &node->owner->window->tooltip_style_values(part);
+        const auto& element = style_element(node);
+        return effective ? element.effective_control_style_values(part) : &element.control_style_values(part);
+    }
+};
 void prune_control_style(const std::shared_ptr<State>& owner, xui_handle identity) {
     if (!owner->control_styles) return;
     auto& cache = *owner->control_styles;
@@ -726,10 +773,11 @@ void prune_control_style(const std::shared_ptr<State>& owner, xui_handle identit
     if (found != cache.end() && found->second.expired()) cache.erase(found);
     if (cache.empty()) owner->control_styles.reset();
 }
-void apply_control_style(const std::shared_ptr<Node>& n,
+void apply_control_style(const StyleHost& host,
     std::shared_ptr<const xui::ControlStyle> definition, xui_handle identity) {
+    const auto& n = host.node;
     const auto previous = n->control_style_identity;
-    control(n).set_control_style(std::move(definition));
+    host.set_style(std::move(definition));
     n->control_style_identity = identity;
     prune_control_style(n->owner, previous);
 }
@@ -740,10 +788,16 @@ xui::PartStyleValues read_control_property(const xui_style_property& p) {
     switch (p.property) {
         case XUI_STYLE_BACKGROUND: case XUI_STYLE_FOREGROUND: case XUI_STYLE_BORDER_BRUSH: type = XUI_STYLE_COLOR; break;
         case XUI_STYLE_BORDER_THICKNESS: case XUI_STYLE_PADDING: type = XUI_STYLE_INSETS; break;
-        case XUI_STYLE_CORNER_RADIUS: case XUI_STYLE_SIZE: type = XUI_STYLE_NUMBER; break;
+        case XUI_STYLE_CORNER_RADIUS: case XUI_STYLE_SIZE: case XUI_STYLE_FONT_SIZE: case XUI_STYLE_FONT_WEIGHT:
+        case XUI_STYLE_FONT_STYLE: case XUI_STYLE_HORIZONTAL_ALIGNMENT: case XUI_STYLE_VERTICAL_ALIGNMENT:
+        case XUI_STYLE_SPACING: case XUI_STYLE_ROW_HEIGHT: case XUI_STYLE_HEADER_HEIGHT: case XUI_STYLE_INDENTATION:
+        case XUI_STYLE_THICKNESS: case XUI_STYLE_WIDTH: case XUI_STYLE_HEIGHT: case XUI_STYLE_ROW_GAP:
+        case XUI_STYLE_COLUMN_GAP: case XUI_STYLE_MAXIMUM_LINES: case XUI_STYLE_WRAPPING: type = XUI_STYLE_NUMBER; break;
+        case XUI_STYLE_FONT_FAMILY: type = XUI_STYLE_TEXT; break;
         default: require(false, XUI_INVALID_ARGUMENT, "Unknown style property.");
     }
-    require(p.value_type == type && !p.reserved && !p.text.data && !p.text.length && !p.text.reserved,
+    require(p.value_type == type && !p.reserved && !p.text.reserved &&
+        (type == XUI_STYLE_TEXT ? p.text.data && p.text.length && p.text.length <= 1024 : !p.text.data && !p.text.length),
         XUI_INVALID_ARGUMENT, "Invalid style property type, text, or reserved fields.");
     require(type == XUI_STYLE_COLOR || (!p.color.light && !p.color.dark),
         XUI_INVALID_ARGUMENT, "Unused style color must be zero.");
@@ -762,6 +816,31 @@ xui::PartStyleValues read_control_property(const xui_style_property& p) {
         case XUI_STYLE_PADDING: result.padding = edges; break;
         case XUI_STYLE_CORNER_RADIUS: result.corner_radius = static_cast<float>(p.number); break;
         case XUI_STYLE_SIZE: result.size = static_cast<float>(p.number); break;
+        case XUI_STYLE_FONT_FAMILY:
+            result.font_family = xui::make_style_font_family({p.text.data, p.text.length}); break;
+        case XUI_STYLE_FONT_SIZE: result.font_size = static_cast<float>(p.number); break;
+        case XUI_STYLE_SPACING: result.spacing = static_cast<float>(p.number); break;
+        case XUI_STYLE_ROW_HEIGHT: result.row_height = static_cast<float>(p.number); break;
+        case XUI_STYLE_HEADER_HEIGHT: result.header_height = static_cast<float>(p.number); break;
+        case XUI_STYLE_INDENTATION: result.indentation = static_cast<float>(p.number); break;
+        case XUI_STYLE_THICKNESS: result.thickness = static_cast<float>(p.number); break;
+        case XUI_STYLE_WIDTH: result.width = static_cast<float>(p.number); break;
+        case XUI_STYLE_HEIGHT: result.height = static_cast<float>(p.number); break;
+        case XUI_STYLE_ROW_GAP: result.row_gap = static_cast<float>(p.number); break;
+        case XUI_STYLE_COLUMN_GAP: result.column_gap = static_cast<float>(p.number); break;
+        case XUI_STYLE_FONT_WEIGHT: case XUI_STYLE_FONT_STYLE: case XUI_STYLE_HORIZONTAL_ALIGNMENT:
+        case XUI_STYLE_VERTICAL_ALIGNMENT: case XUI_STYLE_MAXIMUM_LINES: case XUI_STYLE_WRAPPING:
+            require(std::floor(p.number) == p.number, XUI_INVALID_ARGUMENT, "Style enumeration or count must be an integer.");
+            if (p.property == XUI_STYLE_FONT_WEIGHT) result.font_weight = static_cast<uint32_t>(p.number);
+            if (p.property == XUI_STYLE_FONT_STYLE) result.font_style = static_cast<xui::StyleFontStyle>(static_cast<uint32_t>(p.number));
+            if (p.property == XUI_STYLE_HORIZONTAL_ALIGNMENT) result.horizontal_alignment = static_cast<xui::StyleAlignment>(static_cast<uint32_t>(p.number));
+            if (p.property == XUI_STYLE_VERTICAL_ALIGNMENT) result.vertical_alignment = static_cast<xui::StyleAlignment>(static_cast<uint32_t>(p.number));
+            if (p.property == XUI_STYLE_MAXIMUM_LINES) result.maximum_lines = static_cast<uint32_t>(p.number);
+            if (p.property == XUI_STYLE_WRAPPING) {
+                require(p.number <= 1, XUI_INVALID_ARGUMENT, "Wrapping requires zero or one.");
+                result.wrapping = p.number != 0;
+            }
+            break;
     }
     return result;
 }
@@ -807,8 +886,50 @@ std::vector<xui_style_property> write_control_properties(uint32_t part, const xu
     edges(XUI_STYLE_BORDER_THICKNESS, v.border_thickness); edges(XUI_STYLE_PADDING, v.padding);
     if (v.corner_radius) record(XUI_STYLE_CORNER_RADIUS, XUI_STYLE_NUMBER).number = *v.corner_radius;
     if (v.size) record(XUI_STYLE_SIZE, XUI_STYLE_NUMBER).number = *v.size;
+    if (v.font_family) record(XUI_STYLE_FONT_FAMILY, XUI_STYLE_TEXT).text = {
+        v.font_family->utf8.data(), static_cast<uint32_t>(v.font_family->utf8.size()), 0};
+    const auto number = [&](uint32_t property, const auto& value) {
+        if (value) record(property, XUI_STYLE_NUMBER).number = static_cast<double>(*value);
+    };
+    number(XUI_STYLE_FONT_SIZE, v.font_size); number(XUI_STYLE_FONT_WEIGHT, v.font_weight);
+    number(XUI_STYLE_FONT_STYLE, v.font_style); number(XUI_STYLE_HORIZONTAL_ALIGNMENT, v.horizontal_alignment);
+    number(XUI_STYLE_VERTICAL_ALIGNMENT, v.vertical_alignment); number(XUI_STYLE_SPACING, v.spacing);
+    number(XUI_STYLE_ROW_HEIGHT, v.row_height); number(XUI_STYLE_HEADER_HEIGHT, v.header_height);
+    number(XUI_STYLE_INDENTATION, v.indentation); number(XUI_STYLE_THICKNESS, v.thickness);
+    number(XUI_STYLE_WIDTH, v.width); number(XUI_STYLE_HEIGHT, v.height);
+    number(XUI_STYLE_ROW_GAP, v.row_gap); number(XUI_STYLE_COLUMN_GAP, v.column_gap);
+    number(XUI_STYLE_MAXIMUM_LINES, v.maximum_lines); number(XUI_STYLE_WRAPPING, v.wrapping);
     return result;
 }
+}
+xui_status XUI_CALL xui_control_style_get_schema(uint32_t target, uint32_t part, uint64_t* properties,
+    uint64_t* states, uint64_t* state_properties) noexcept {
+    return control_style_boundary([&] {
+        require(properties && states && state_properties, XUI_INVALID_ARGUMENT, "Missing schema output.");
+        const auto& schema = xui::control_style_schema(static_cast<xui::StyleTarget>(target));
+        xui::validate_part(static_cast<xui::StyleTarget>(target), static_cast<xui::StylePart>(part));
+        for (const auto& value : schema.parts) if (static_cast<uint32_t>(value.part) == part) {
+            *properties = value.allowed; *states = value.states; *state_properties = value.allowed & value.state_allowed; return;
+        }
+    });
+}
+xui_status XUI_CALL xui_control_style_get_limits(uint32_t target, uint32_t part, float* maximum_font_size,
+    uint32_t* maximum_font_family_utf16, uint32_t* font_styles, uint32_t* horizontal_alignments,
+    uint32_t* vertical_alignments) noexcept {
+    return control_style_boundary([&] {
+        require(maximum_font_size && maximum_font_family_utf16 && font_styles && horizontal_alignments && vertical_alignments,
+            XUI_INVALID_ARGUMENT, "Missing limits output.");
+        const auto& schema = xui::control_style_schema(static_cast<xui::StyleTarget>(target));
+        xui::validate_part(static_cast<xui::StyleTarget>(target), static_cast<xui::StylePart>(part));
+        for (const auto& value : schema.parts) if (static_cast<uint32_t>(value.part) == part) {
+            *maximum_font_size = value.limits.maximum_font_size;
+            *maximum_font_family_utf16 = value.limits.maximum_font_family_utf16;
+            *font_styles = value.limits.font_styles;
+            *horizontal_alignments = value.limits.horizontal_alignments;
+            *vertical_alignments = value.limits.vertical_alignments;
+            return;
+        }
+    });
 }
 xui_status XUI_CALL xui_control_style_create(xui_handle window,
     const xui_control_style_options* options, xui_handle* result) noexcept {
@@ -867,21 +988,24 @@ xui_status XUI_CALL xui_control_style_reacquire(xui_handle window, xui_handle id
         } else prune_control_style(n->owner, identity);
     });
 }
-xui_status XUI_CALL xui_control_try_set_style(xui_handle control, xui_handle identity, uint32_t* applied) noexcept {
+namespace {
+xui_status try_set_host_style(xui_handle control, xui_handle identity, uint32_t* applied, bool tooltip) noexcept {
     return control_style_boundary([&] {
         require(applied, XUI_INVALID_ARGUMENT, "Missing style application result."); *applied = 0;
-        auto n = get(control); editable(n->owner); ::control(n);
+        auto n = get(control); editable(n->owner);
+        const StyleHost host(n, tooltip);
         if (!n->owner->control_styles) return;
         const auto found = n->owner->control_styles->find(identity);
         if (found == n->owner->control_styles->end()) return;
         if (auto value = found->second.lock()) {
-            apply_control_style(n, std::move(value), identity); *applied = 1;
+            apply_control_style(host, std::move(value), identity); *applied = 1;
         } else prune_control_style(n->owner, identity);
     });
 }
-xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) noexcept {
+xui_status set_host_style(xui_handle control, xui_handle style, bool tooltip) noexcept {
     return control_style_boundary([&] {
         auto n = get(control); editable(n->owner);
+        const StyleHost host(n, tooltip);
         std::shared_ptr<const xui::ControlStyle> definition;
         xui_handle identity{};
         if (style) {
@@ -889,34 +1013,62 @@ xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) 
             const auto value = resource<ControlStyleResource>(s, control_style_kind);
             definition = value->value; identity = value->identity;
         }
-        apply_control_style(n, std::move(definition), identity);
+        apply_control_style(host, std::move(definition), identity);
     });
 }
-xui_status XUI_CALL xui_control_set_style_values(xui_handle control, uint32_t part,
-    const xui_style_property* properties, uint32_t count) noexcept {
+xui_status set_host_style_values(xui_handle control, uint32_t part,
+    const xui_style_property* properties, uint32_t count, bool tooltip) noexcept {
     return control_style_boundary([&] {
         auto n = get(control); editable(n->owner);
+        const StyleHost host(n, tooltip);
         auto groups = read_control_properties(properties, count);
         require(groups.size() <= 1 && (groups.empty() ||
             (static_cast<uint32_t>(groups[0].part) == part && !groups[0].state)),
             XUI_INVALID_ARGUMENT, "Local properties must name one part and state zero.");
-        ::control(n).set_control_style_values(static_cast<xui::StylePart>(part),
+        host.set_values(static_cast<xui::StylePart>(part),
             groups.empty() ? xui::PartStyleValues{} : groups[0].values);
     });
 }
-xui_status XUI_CALL xui_control_get_style_values(xui_handle control, uint32_t part, uint32_t effective,
-    xui_style_property* properties, uint32_t capacity, uint32_t* count) noexcept {
+xui_status get_host_style_values(xui_handle control, uint32_t part, uint32_t effective,
+    xui_style_property* properties, uint32_t capacity, uint32_t* count, bool tooltip) noexcept {
     return control_style_boundary([&] {
         require(count && effective <= 1 && capacity <= 2048 && (properties || !capacity),
             XUI_INVALID_ARGUMENT, "Invalid style output span or selector.");
         auto n = get(control);
-        const auto& value = ::control(n);
-        const auto selected = effective ? value.effective_control_style_values(static_cast<xui::StylePart>(part)) :
-            &value.control_style_values(static_cast<xui::StylePart>(part));
+        const auto selected = StyleHost(n, tooltip).values(static_cast<xui::StylePart>(part), effective != 0);
         const auto output = write_control_properties(part, selected ? *selected : xui::PartStyleValues{});
         *count = static_cast<uint32_t>(output.size());
         if (!capacity) return;
         require(capacity >= output.size(), XUI_BUFFER_TOO_SMALL, "Style output buffer is too small.");
         std::copy(output.begin(), output.end(), properties);
     });
+}
+}
+xui_status XUI_CALL xui_control_try_set_style(xui_handle control, xui_handle identity, uint32_t* applied) noexcept {
+    return try_set_host_style(control, identity, applied, false);
+}
+xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) noexcept {
+    return set_host_style(control, style, false);
+}
+xui_status XUI_CALL xui_control_set_style_values(xui_handle control, uint32_t part,
+    const xui_style_property* properties, uint32_t count) noexcept {
+    return set_host_style_values(control, part, properties, count, false);
+}
+xui_status XUI_CALL xui_control_get_style_values(xui_handle control, uint32_t part, uint32_t effective,
+    xui_style_property* properties, uint32_t capacity, uint32_t* count) noexcept {
+    return get_host_style_values(control, part, effective, properties, capacity, count, false);
+}
+xui_status XUI_CALL xui_window_try_set_tooltip_style(xui_handle window, xui_handle identity, uint32_t* applied) noexcept {
+    return try_set_host_style(window, identity, applied, true);
+}
+xui_status XUI_CALL xui_window_set_tooltip_style(xui_handle window, xui_handle style) noexcept {
+    return set_host_style(window, style, true);
+}
+xui_status XUI_CALL xui_window_set_tooltip_style_values(xui_handle window, uint32_t part,
+    const xui_style_property* properties, uint32_t count) noexcept {
+    return set_host_style_values(window, part, properties, count, true);
+}
+xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint32_t part, uint32_t effective,
+    xui_style_property* properties, uint32_t capacity, uint32_t* count) noexcept {
+    return get_host_style_values(window, part, effective, properties, capacity, count, true);
 }

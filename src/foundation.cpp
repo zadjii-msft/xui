@@ -1,4 +1,5 @@
 #include "xui/foundation.hpp"
+#include "layout_styling.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
@@ -36,6 +37,25 @@ void require_choice(const std::vector<ChoiceItem>& items, std::uint64_t id) {
     if (it == items.end() || !it->enabled) throw std::invalid_argument("Selected choice must exist and be enabled");
 }
 struct NumericLayout { Rect editor, decrease, increase; };
+Rect choice_style_content(const Element& owner, Rect bounds, StylePart part = StylePart::root) {
+    if (!owner.has_control_styling()) return bounds;
+    const auto* values = owner.effective_control_style_values(part);
+    if (!values) return bounds;
+    const auto padding = values->padding.value_or(Insets{});
+    const auto border = values->border_thickness.value_or(Insets{});
+    const float left = std::min(bounds.width, padding.left + border.left);
+    const float top = std::min(bounds.height, padding.top + border.top);
+    return {bounds.x + left, bounds.y + top,
+        std::max(0.0f, bounds.width - left - padding.right - border.right),
+        std::max(0.0f, bounds.height - top - padding.bottom - border.bottom)};
+}
+float choice_header_height(const Element& owner) {
+    if (!owner.has_control_styling()) return 0;
+    const auto style = owner.control_style();
+    if (owner.control_style_values(StylePart::header).empty() && (!style || !style->has_part(StylePart::header))) return 0;
+    const auto* header = owner.effective_control_style_values(StylePart::header);
+    return header ? header->header_height.value_or(24) : 0;
+}
 NumericLayout numeric_layout(Rect bounds, VisualStyle style, NumberSpinPlacement placement) {
     if (placement == NumberSpinPlacement::hidden)
         return {bounds, {bounds.x + bounds.width, bounds.y, 0, 0}, {bounds.x + bounds.width, bounds.y, 0, 0}};
@@ -64,16 +84,33 @@ void NumericRange::validate() const {
         throw std::invalid_argument("Range requires finite increasing bounds and positive finite steps");
 }
 RangeInput::RangeInput(std::wstring name) : Control(ControlRole::range_input, std::move(name), {320, 42}) {}
+SliderVisual RangeInput::slider_geometry() const {
+    const double fraction = (preview_value() - range_.minimum) / (range_.maximum - range_.minimum);
+    const auto* track = has_control_styling() ? effective_control_style_values(StylePart::track) : nullptr;
+    const auto* thumb = has_control_styling() ? effective_control_style_values(StylePart::thumb) : nullptr;
+    const auto content = choice_style_content(*this, {0, 0, bounds().width, bounds().height});
+    auto geometry = slider_visual({content.width, content.height}, orientation_, reversed_, fraction, visual_style(),
+        track && track->thickness ? *track->thickness : 4, thumb ? thumb->size : std::optional<float>{});
+    for (auto* rect : {&geometry.track, &geometry.filled, &geometry.thumb}) {
+        rect->x += content.x; rect->y += content.y;
+    }
+    return geometry;
+}
+StyleStateMask RangeInput::control_style_state_bits() const {
+    return Control::control_style_state_bits() | (dragging() ? style_states::dragging : 0) |
+        (preview_value() == range_.minimum ? style_states::minimum : 0) |
+        (preview_value() == range_.maximum ? style_states::maximum : 0);
+}
 void RangeInput::set_range(NumericRange value) {
     value.validate();
     if (range_ == value) return;
     cancel(); range_ = value; value_ = std::clamp(value_, value.minimum, value.maximum);
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 void RangeInput::set_value(double value) {
     bounded(value, range_);
     if (value_ == value && !preview_) return;
-    preview_.reset(); value_ = value; invalidate(Invalidation::paint);
+    preview_.reset(); value_ = value; invalidate_state();
 }
 void RangeInput::set_orientation(Axis value) {
     if (value != Axis::horizontal && value != Axis::vertical) throw std::invalid_argument("Invalid orientation");
@@ -99,6 +136,7 @@ bool RangeInput::begin_drag(double fraction) {
     if (!enabled()) return false;
     if (!std::isfinite(fraction)) throw std::invalid_argument("Pointer fraction must be finite");
     preview_ = value_;
+    invalidate_state();
     return drag(fraction);
 }
 bool RangeInput::drag(double fraction) {
@@ -112,7 +150,7 @@ bool RangeInput::drag(double fraction) {
     const double value = std::clamp(snapped, range_.minimum, range_.maximum);
     if (*preview_ == value) return true;
     preview_ = value;
-    invalidate(Invalidation::paint);
+    invalidate_state();
     auto callback = preview_callback_;
     if (callback) callback(value);
     return true;
@@ -121,13 +159,13 @@ bool RangeInput::commit_drag() {
     if (!preview_) return false;
     const auto value = *preview_;
     preview_.reset();
-    invalidate(Invalidation::paint);
+    invalidate_state();
     return change_value(value);
 }
 void RangeInput::cancel() {
     Control::cancel();
     if (!preview_) return;
-    preview_.reset(); invalidate(Invalidation::paint);
+    preview_.reset(); invalidate_state();
 }
 void RangeInput::cancel_drag() {
     if (!preview_) return;
@@ -201,18 +239,34 @@ bool RadioGroup::accept() {
     return true;
 }
 float RadioGroup::effective_row_height() const {
+    if (has_control_styling()) {
+        const auto* root = effective_control_style_values(StylePart::root);
+        if (root && root->row_height) return *root->row_height;
+    }
     return visual_style() == VisualStyle::winui ?
         (role() == ControlRole::choice_list ? item_height_ : 32.0f) : row_height;
 }
 float RadioGroup::effective_row_pitch() const {
+    if (has_control_styling()) {
+        const auto* root = effective_control_style_values(StylePart::root);
+        if (root && root->spacing) return effective_row_height() + *root->spacing;
+    }
     return effective_row_height() +
         (visual_style() == VisualStyle::winui && role() == ControlRole::choice_list ? 4.0f : 0.0f);
 }
 float RadioGroup::effective_vertical_padding() const {
+    if (has_control_styling()) {
+        const auto* root = effective_control_style_values(StylePart::root);
+        if (root && root->padding) return root->padding->top;
+    }
     // ItemsPresenter margin 4 plus the popup border 1.
     return visual_style() == VisualStyle::winui && role() == ControlRole::choice_list ? 5.0f : 0.0f;
 }
 float RadioGroup::effective_horizontal_padding() const {
+    if (has_control_styling()) {
+        const auto* root = effective_control_style_values(StylePart::root);
+        if (root && root->padding) return root->padding->left;
+    }
     return visual_style() == VisualStyle::winui && role() == ControlRole::choice_list ? 6.0f : 0.0f;
 }
 Size RadioGroup::measure(Size available) {
@@ -223,19 +277,66 @@ Size RadioGroup::measure(Size available) {
         reveal_selected();
     }
     auto desired = Control::measure(available);
-    if (visual_style() == VisualStyle::winui && role() == ControlRole::radio_group && !preferred_size_explicit())
-        desired.height = static_cast<float>(items_.size()) * effective_row_height();
+    if ((has_control_styling() || (visual_style() == VisualStyle::winui && role() == ControlRole::radio_group)) && !preferred_size_explicit())
+        desired.height = static_cast<float>(items_.size()) * effective_row_pitch() + 2 * effective_vertical_padding();
     return constrain(desired, available);
 }
 void RadioGroup::presentation_changed() { reveal_selected(); }
+PartStyleValues RadioGroup::item_style_values(StylePart part, std::size_t index, bool hovered, bool pressed) const {
+    if (index >= items_.size()) throw std::out_of_range("Choice style index is outside the item range");
+    const auto& item = items_[index];
+    const bool selected = selected_ == item.id;
+    const auto state = (selected ? style_states::selected : 0) |
+        (selected && focused() ? style_states::focused : 0) |
+        (hovered && item.enabled ? style_states::hovered : 0) |
+        (pressed && item.enabled ? style_states::pressed : 0) |
+        (!item.enabled ? style_states::disabled : 0);
+    return resolve_control_style_part(part, state);
+}
+Rect RadioGroup::item_content_bounds(std::size_t index, bool hovered, bool pressed) const {
+    const auto row = item_style_values(StylePart::item, index, hovered, pressed);
+    const auto b = item_bounds(index);
+    const auto padding = row.padding.value_or(Insets{role() == ControlRole::radio_group ? 4.0f : 11.0f, 2, 11, 2});
+    const auto border = row.border_thickness.value_or(Insets{});
+    const float left = std::min(b.width, padding.left + border.left);
+    const float top = std::min(b.height, padding.top + border.top);
+    return {b.x + left, b.y + top,
+        std::max(0.0f, b.width - left - padding.right - border.right),
+        std::max(0.0f, b.height - top - padding.bottom - border.bottom)};
+}
+Rect RadioGroup::indicator_bounds(std::size_t index, bool hovered, bool pressed) const {
+    if (role() != ControlRole::radio_group) return {};
+    const auto content = item_content_bounds(index, hovered, pressed);
+    const auto indicator = item_style_values(StylePart::indicator, index, hovered, pressed);
+    const float diameter = std::min({content.width, content.height,
+        indicator.size.value_or(visual_style() == VisualStyle::winui ? 19.0f : 16.0f)});
+    return {content.x, content.y + (content.height - diameter) / 2, diameter, diameter};
+}
+Rect RadioGroup::label_bounds(std::size_t index, bool hovered, bool pressed) const {
+    auto content = item_content_bounds(index, hovered, pressed);
+    if (role() == ControlRole::radio_group) {
+        const float prefix = std::min(content.width, indicator_bounds(index, hovered, pressed).width + 8);
+        content.x += prefix; content.width -= prefix;
+    }
+    return content;
+}
 Rect RadioGroup::item_bounds(std::size_t index) const {
     if (index < first_ || index >= items_.size()) return {};
-    const float padding = effective_vertical_padding();
+    const auto content = content_bounds();
+    const float padding = content.y;
     const float margin = (effective_row_pitch() - effective_row_height()) / 2;
     const float y = padding + margin + static_cast<float>(index - first_) * effective_row_pitch();
-    const float x = std::min(effective_horizontal_padding(), bounds().width / 2);
-    return {x, y, std::max(0.0f, bounds().width - 2 * x),
-        std::max(0.0f, std::min(effective_row_height(), bounds().height - padding - y))};
+    return {content.x, y, content.width,
+        std::max(0.0f, std::min(effective_row_height(), content.y + content.height - y))};
+}
+Rect RadioGroup::content_bounds() const {
+    const float x = effective_horizontal_padding(), y = effective_vertical_padding();
+    if (has_control_styling()) {
+        const auto* root = effective_control_style_values(StylePart::root);
+        if (root && (root->padding || root->border_thickness))
+            return choice_style_content(*this, {0, 0, bounds().width, bounds().height});
+    }
+    return {x, y, std::max(0.0f, bounds().width - 2 * x), std::max(0.0f, bounds().height - 2 * y)};
 }
 std::optional<Rect> RadioGroup::selected_item_bounds() const {
     if (!selected_) return {};
@@ -245,8 +346,9 @@ std::optional<Rect> RadioGroup::selected_item_bounds() const {
     return value.height > 0 ? std::optional(value) : std::nullopt;
 }
 std::optional<std::size_t> RadioGroup::hit_test(float y) const {
-    const float padding = effective_vertical_padding();
-    if (!std::isfinite(y) || y < padding || y >= bounds().height - padding) return {};
+    const auto content = content_bounds();
+    const float padding = content.y;
+    if (!std::isfinite(y) || y < padding || y >= content.y + content.height) return {};
     const auto index = first_ + static_cast<std::size_t>((y - padding) / effective_row_pitch());
     if (index >= items_.size()) return {};
     const auto row = item_bounds(index);
@@ -258,7 +360,7 @@ void RadioGroup::reveal_selected() {
     const auto it = choice(items_, *selected_);
     if (it == items_.end()) return;
     const auto index = static_cast<std::size_t>(it - items_.begin());
-    const float height = std::max(0.0f, bounds().height - 2 * effective_vertical_padding());
+    const float height = content_bounds().height;
     const auto rows = std::max<std::size_t>(1, static_cast<std::size_t>(height / effective_row_pitch()));
     if (visual_style() == VisualStyle::winui)
         first_ = std::min(first_, items_.size() > rows ? items_.size() - rows : 0);
@@ -303,10 +405,17 @@ Rect place_popup(Rect anchor, Size desired, Rect viewport, PopupPlacement placem
 }
 Popup::Popup(std::shared_ptr<Element> content, std::wstring name)
     : Control(ControlRole::popup, std::move(name), {320, 240}), children_{std::move(content)} { adopt(children_[0]); }
+Size Popup::measure(Size available) {
+    if (!auto_size()) return Element::measure(available);
+    const auto p = layout_style::insets(effective_control_style_values(StylePart::root));
+    return constrain(layout_style::outer(content()->measure(layout_style::inner(available, p)), p), available);
+}
+Rect Popup::content_bounds() const { return layout_style::content(*this, bounds()); }
 void Popup::arrange(Rect value) {
     Element::arrange(value);
-    children_[0]->measure({value.width, value.height});
-    children_[0]->arrange(value);
+    const auto area = content_bounds();
+    children_[0]->measure({area.width, area.height});
+    children_[0]->arrange(area);
 }
 void Popup::set_placement(PopupPlacement value) {
     if (value < PopupPlacement::below || value > PopupPlacement::center) throw std::invalid_argument("Invalid popup placement");
@@ -320,6 +429,7 @@ void Popup::set_window_background(bool value) {
 void Popup::opened() {
     if (open_) throw std::logic_error("Popup is already open");
     open_ = true; ++generation_;
+    invalidate_control_style_state();
 }
 void Popup::closed(PopupDismissReason reason) {
     auto callback = close_transition(reason);
@@ -328,6 +438,7 @@ void Popup::closed(PopupDismissReason reason) {
 std::function<void()> Popup::close_transition(PopupDismissReason reason) {
     if (!open_) return {};
     open_ = false; ++generation_;
+    invalidate_control_style_state();
     arrange({}); invalidate(Invalidation::layout);
     auto callback = dismiss_;
     return callback ? std::function<void()>([callback = std::move(callback), reason] { callback(reason); }) : std::function<void()>{};
@@ -339,11 +450,21 @@ ComboBox::ComboBox(std::wstring name, bool editable)
     if (editable) {
         editor_ = std::make_shared<TextInput>(name + L" text");
         editor_->set_caption_visible(false);
-        editor_->on_change([this](const auto& text) { auto callback = edit_; if (callback) callback(text); });
+        editor_->on_change([this](const auto& text) {
+            invalidate_state();
+            auto callback = edit_; if (callback) callback(text);
+        });
         children_.push_back(editor_); adopt(editor_);
     }
 }
 ComboBox::~ComboBox() { if (editor_) editor_->on_change({}); }
+StyleStateMask ComboBox::control_style_state_bits() const {
+    const bool empty = editor_ ? editor_->text().empty() : !selected_;
+    return Control::control_style_state_bits() | (popup_->is_open() ? style_states::open : 0) |
+        (empty ? style_states::empty : 0) |
+        (editor_ && editor_->focused() ? style_states::focused : 0) |
+        (editor_ && editor_->hovered() ? style_states::hovered : 0);
+}
 void ComboBox::set_items(std::vector<ChoiceItem> items, std::optional<std::uint64_t> selected) {
     if (!selected && selected_) {
         const auto old = choice(items, *selected_);
@@ -352,14 +473,14 @@ void ComboBox::set_items(std::vector<ChoiceItem> items, std::optional<std::uint6
     choices_->set_items(std::move(items), selected);
     selected_ = choices_->selected();
     if (editor_) editor_->set_text(selected_text());
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 void ComboBox::set_selected(std::uint64_t id) {
     require_choice(items(), id);
     if (selected_ == id) return;
     selected_ = id;
     if (editor_) editor_->set_text(selected_text());
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 bool ComboBox::select(std::uint64_t id) {
     require_choice(items(), id);
@@ -381,19 +502,37 @@ void ComboBox::prepare_popup() {
 void ComboBox::update_popup_size() {
     choices_->measure({std::max(160.0f, bounds().width), 504});
     const float row = choices_->effective_row_pitch();
-    const float padding = 2 * choices_->effective_vertical_padding();
+    float padding = 2 * choices_->effective_vertical_padding();
+    if (choices_->has_control_styling()) {
+        const auto* root = choices_->effective_control_style_values(StylePart::root);
+        if (root && root->padding) padding = root->padding->top + root->padding->bottom;
+        if (root && root->border_thickness) padding += root->border_thickness->top + root->border_thickness->bottom;
+    }
     const float maximum = visual_style() == VisualStyle::winui ? 504.0f : 8 * row;
     popup_->set_preferred_size({std::max(160.0f, bounds().width),
         std::min(maximum, std::max(1.0f, static_cast<float>(items().size())) * row + padding)});
 }
 Rect ComboBox::drop_down_bounds() const {
-    const auto value = bounds();
-    const float width = std::min(value.width, visual_style() == VisualStyle::winui ? 38.0f : 40.0f);
+    const auto value = choice_style_content(*this, field_bounds(), StylePart::field);
+    const auto* arrow = has_control_styling() ? effective_control_style_values(StylePart::arrow) : nullptr;
+    const float width = std::min(value.width, arrow && arrow->size ? *arrow->size :
+        visual_style() == VisualStyle::winui ? 38.0f : 40.0f);
     return {value.x + value.width - width, value.y, width, value.height};
 }
 Rect ComboBox::editor_bounds() const {
-    const auto value = bounds();
+    const auto value = choice_style_content(*this, field_bounds(), StylePart::field);
     return {value.x, value.y, value.width - drop_down_bounds().width, value.height};
+}
+Rect ComboBox::header_bounds() const {
+    auto value = choice_style_content(*this, bounds());
+    value.height = std::min(value.height, choice_header_height(*this));
+    return value;
+}
+Rect ComboBox::field_bounds() const {
+    auto value = choice_style_content(*this, bounds());
+    const float header = header_bounds().height;
+    value.y += header; value.height -= header;
+    return value;
 }
 void ComboBox::presentation_changed() {
     choices_->set_visual_style(visual_style());
@@ -420,6 +559,14 @@ NumericInput::NumericInput(std::wstring name)
 NumericInput::~NumericInput() {
     editor_->on_change({}); decrease_->on_click({}); increase_->on_click({});
 }
+StyleStateMask NumericInput::control_style_state_bits() const {
+    return Control::control_style_state_bits() | (!valid_ ? style_states::invalid : 0) |
+        (value_ == range_.minimum ? style_states::minimum : 0) |
+        (value_ == range_.maximum ? style_states::maximum : 0) |
+        (editor_->focused() || decrease_->focused() || increase_->focused() ? style_states::focused : 0) |
+        (editor_->hovered() || decrease_->hovered() || increase_->hovered() ? style_states::hovered : 0) |
+        (decrease_->pressed() || increase_->pressed() ? style_states::pressed : 0);
+}
 void NumericInput::format() {
     std::wostringstream stream; stream.imbue(locale_);
     stream << std::setprecision(std::numeric_limits<double>::max_digits10) << value_;
@@ -428,18 +575,18 @@ void NumericInput::format() {
 }
 void NumericInput::set_locale(std::locale value) {
     if (locale_ == value) return;
-    locale_ = std::move(value); format(); invalidate(Invalidation::paint);
+    locale_ = std::move(value); format(); invalidate_state();
 }
 void NumericInput::set_range(NumericRange value) {
     value.validate();
     if (range_ == value) return;
     range_ = value; value_ = std::clamp(value_, value.minimum, value.maximum);
-    format(); invalidate(Invalidation::paint);
+    format(); invalidate_state();
 }
 void NumericInput::set_value(double value) {
     bounded(value, range_);
     if (value_ == value && valid_) return;
-    value_ = value; format(); invalidate(Invalidation::paint);
+    value_ = value; format(); invalidate_state();
 }
 bool NumericInput::change_value(double value) {
     bounded(value, range_);
@@ -462,25 +609,36 @@ bool NumericInput::commit_text(const std::wstring& text) {
     stream >> std::ws;
     const bool valid = parsed && stream.eof() && std::isfinite(value) && value >= range_.minimum && value <= range_.maximum;
     editor_->set_text(text);
-    if (valid_ != valid) { valid_ = valid; invalidate(Invalidation::paint); }
+    if (valid_ != valid) { valid_ = valid; invalidate_state(); }
     editor_->set_help_text(valid ? L"" : L"Enter a finite number within the allowed range.");
     if (!valid) return false;
     const bool changed = value_ != value;
-    value_ = value; invalidate(Invalidation::paint);
+    value_ = value; invalidate_state();
     auto callback = change_;
     if (changed && callback) callback(value);
     return true;
 }
 void NumericInput::arrange(Rect value) {
     Element::arrange(value);
-    const auto layout = numeric_layout(bounds(), visual_style(), spin_placement_);
+    const auto layout = numeric_layout(choice_style_content(*this, field_bounds(), StylePart::field), visual_style(), spin_placement_);
     editor_->arrange(layout.editor);
     decrease_->arrange(layout.decrease);
     increase_->arrange(layout.increase);
 }
-Rect NumericInput::editor_bounds() const { return numeric_layout(bounds(), visual_style(), spin_placement_).editor; }
-Rect NumericInput::decrease_bounds() const { return numeric_layout(bounds(), visual_style(), spin_placement_).decrease; }
-Rect NumericInput::increase_bounds() const { return numeric_layout(bounds(), visual_style(), spin_placement_).increase; }
+Rect NumericInput::editor_bounds() const { return numeric_layout(choice_style_content(*this, field_bounds(), StylePart::field), visual_style(), spin_placement_).editor; }
+Rect NumericInput::decrease_bounds() const { return numeric_layout(choice_style_content(*this, field_bounds(), StylePart::field), visual_style(), spin_placement_).decrease; }
+Rect NumericInput::increase_bounds() const { return numeric_layout(choice_style_content(*this, field_bounds(), StylePart::field), visual_style(), spin_placement_).increase; }
+Rect NumericInput::header_bounds() const {
+    auto value = choice_style_content(*this, bounds());
+    value.height = std::min(value.height, choice_header_height(*this));
+    return value;
+}
+Rect NumericInput::field_bounds() const {
+    auto value = choice_style_content(*this, bounds());
+    const float header = header_bounds().height;
+    value.y += header; value.height -= header;
+    return value;
+}
 void NumericInput::set_spin_placement(NumberSpinPlacement value) {
     if (value != NumberSpinPlacement::hidden && value != NumberSpinPlacement::inline_buttons)
         throw std::invalid_argument("Invalid number spin placement");
@@ -506,7 +664,9 @@ Expander::Expander(std::wstring header, std::shared_ptr<Element> content)
     : Control(ControlRole::expander, std::move(header), {320, 180}), children_{std::move(content)} { adopt(children_[0]); }
 void Expander::set_expanded(bool value) {
     if (expanded_ == value) return;
-    expanded_ = value; invalidate(Invalidation::layout);
+    expanded_ = value;
+    invalidate_control_style_state();
+    invalidate(Invalidation::layout);
 }
 void Expander::activate() {
     set_expanded(!expanded_);
@@ -514,6 +674,42 @@ void Expander::activate() {
     if (callback) callback(expanded_);
 }
 Size Expander::measure(Size available) {
+    const auto* root_style = effective_control_style_values(StylePart::root);
+    const auto* header_style = effective_control_style_values(StylePart::header);
+    const auto* body_style = effective_control_style_values(StylePart::content);
+    const auto* disclosure_style = effective_control_style_values(StylePart::disclosure);
+    const auto* text_style = effective_control_style_values(StylePart::text);
+    const bool styled_metrics = (root_style && (root_style->padding || root_style->border_thickness)) ||
+        (header_style && (header_style->padding || header_style->border_thickness || header_style->height)) ||
+        (body_style && (body_style->padding || body_style->border_thickness)) ||
+        (disclosure_style && disclosure_style->size) ||
+        (text_style && (text_style->font_family || text_style->font_size || text_style->font_weight || text_style->font_style));
+    if (styled_metrics) {
+        if (!visible()) return {};
+        const auto root = layout_style::insets(effective_control_style_values(StylePart::root));
+        const auto header = layout_style::insets(effective_control_style_values(StylePart::header));
+        const auto* disclosure = effective_control_style_values(StylePart::disclosure);
+        const auto indicator = disclosure ? disclosure->size.value_or(visual_style() == VisualStyle::winui ? 32.0f : 24.0f) :
+            visual_style() == VisualStyle::winui ? 32.0f : 24.0f;
+        const auto text = measured_text();
+        measured_header_height_ = std::max(visual_style() == VisualStyle::winui ? 48.0f : header_height,
+            std::max(text.height, indicator) + header.top + header.bottom);
+        const auto fixed = Element::measure(available);
+        if (preferred_size_explicit() && expanded_) return fixed;
+        Size desired{std::max(fixed.width - root.left - root.right, text.width + indicator + 24 + header.left + header.right),
+            effective_header_height()};
+        if (expanded_) {
+            const auto body = layout_style::insets(effective_control_style_values(StylePart::content),
+                visual_style() == VisualStyle::winui ? Insets{expander_content_inset, expander_content_padding, expander_content_inset,
+                    expander_body_chrome - expander_content_padding} : Insets{});
+            auto inner = layout_style::inner(available, root);
+            inner.height = std::max(0.0f, inner.height - desired.height);
+            const auto child = layout_style::outer(content()->measure(layout_style::inner(inner, body)), body);
+            desired.width = std::max(desired.width, child.width);
+            desired.height += child.height;
+        }
+        return constrain(layout_style::outer(desired, root), available);
+    }
     if (visual_style() == VisualStyle::classic) {
         if (expanded_) return Element::measure(available);
         return constrain({Element::measure(available).width, header_height}, available);
@@ -533,13 +729,31 @@ Size Expander::measure(Size available) {
     return constrain(desired, available);
 }
 float Expander::effective_header_height() const {
+    if (has_control_styling()) {
+        const auto* header = effective_control_style_values(StylePart::header);
+        if (header && header->height) return *header->height;
+        const auto p = layout_style::insets(header);
+        const auto* indicator = effective_control_style_values(StylePart::disclosure);
+        const auto size = indicator ? indicator->size.value_or(24.0f) : 24.0f;
+        const auto* text = effective_control_style_values(StylePart::text);
+        const bool typography = text && (text->font_family || text->font_size || text->font_weight || text->font_style);
+        const auto fallback = visual_style() == VisualStyle::winui || typography ? measured_header_height_ : header_height;
+        return std::max(fallback, size + p.top + p.bottom);
+    }
     return visual_style() == VisualStyle::winui ? measured_header_height_ : header_height;
 }
 Rect Expander::header_bounds() const {
-    const auto value = bounds();
+    const auto value = layout_style::content(*this, bounds());
     return {value.x, value.y, value.width, std::min(effective_header_height(), value.height)};
 }
 Rect Expander::content_bounds() const {
+    if (has_control_styling()) {
+        if (!expanded_) return {bounds().x, bounds().y, 0, 0};
+        return layout_style::inset(content_surface_bounds(), layout_style::insets(
+            effective_control_style_values(StylePart::content), visual_style() == VisualStyle::winui ?
+                Insets{expander_content_inset, expander_content_padding, expander_content_inset,
+                    expander_body_chrome - expander_content_padding} : Insets{}));
+    }
     const auto value = bounds();
     const float body_y = value.y + header_bounds().height;
     if (!expanded_) return {value.x, body_y, 0, 0};
@@ -550,6 +764,32 @@ Rect Expander::content_bounds() const {
         std::max(0.0f, value.width - 2 * expander_content_inset),
         std::max(0.0f, body_height - expander_body_chrome)};
 }
+Rect Expander::content_surface_bounds() const {
+    const auto value = layout_style::content(*this, bounds());
+    const auto height = header_bounds().height;
+    return {value.x, value.y + height, expanded_ ? value.width : 0,
+        expanded_ ? std::max(0.0f, value.height - height) : 0};
+}
+Rect Expander::disclosure_bounds() const {
+    const auto fluent = visual_style() == VisualStyle::winui;
+    const auto area = layout_style::inset(header_bounds(), layout_style::insets(effective_control_style_values(StylePart::header),
+        fluent ? Insets{17, 0, 9, 0} : Insets{10, 0, 12, 0}));
+    const auto* values = effective_control_style_values(StylePart::disclosure);
+    const auto size = std::min({area.width, area.height, values ? values->size.value_or(fluent ? 32.0f : 24.0f) : fluent ? 32.0f : 24.0f});
+    return {fluent ? area.x + area.width - size : area.x, area.y + (area.height - size) / 2, size, size};
+}
+Rect Expander::header_text_bounds() const {
+    const auto fluent = visual_style() == VisualStyle::winui;
+    auto area = layout_style::inset(header_bounds(), layout_style::insets(effective_control_style_values(StylePart::header),
+        fluent ? Insets{17, 0, 9, 0} : Insets{10, 0, 12, 0}));
+    const auto disclosure = disclosure_bounds();
+    if (fluent) area.width = std::max(0.0f, disclosure.x - area.x - 20);
+    else {
+        const auto inset = std::min(area.width, disclosure.width + 2);
+        area.x += inset; area.width -= inset;
+    }
+    return area;
+}
 void Expander::presentation_changed() { arrange(bounds()); }
 void Expander::arrange(Rect value) {
     Element::arrange(value);
@@ -557,6 +797,14 @@ void Expander::arrange(Rect value) {
     children_[0]->measure({content.width, content.height}); children_[0]->arrange(content);
 }
 Progress::Progress(std::wstring name) : Control(ControlRole::progress, std::move(name), {320, 42}) {}
+Rect Progress::content_bounds() const {
+    return choice_style_content(*this, {0, 0, bounds().width, bounds().height});
+}
+StyleStateMask Progress::control_style_state_bits() const {
+    constexpr StyleStateMask states[]{style_states::determinate, style_states::indeterminate,
+        style_states::paused, style_states::error, style_states::unknown};
+    return (Control::control_style_state_bits() & style_states::disabled) | states[static_cast<unsigned>(state_)];
+}
 void Progress::set_range(double minimum, double maximum) {
     NumericRange value{minimum, maximum}; value.validate();
     if (range_ == value) return;
@@ -570,7 +818,7 @@ void Progress::set_value(double value) {
 void Progress::set_state(ProgressState value) {
     if (value < ProgressState::determinate || value > ProgressState::unknown) throw std::invalid_argument("Invalid progress state");
     if (state_ == value) return;
-    state_ = value; invalidate(Invalidation::paint);
+    state_ = value; invalidate_state();
 }
 void Progress::set_capacity(double used, double total, std::wstring unit) {
     if (!std::isfinite(used) || !std::isfinite(total) || total <= 0 || used < 0 || used > total)
@@ -578,7 +826,7 @@ void Progress::set_capacity(double used, double total, std::wstring unit) {
     std::wostringstream stream; stream << used << L" / " << total << L" " << unit;
     const auto text = stream.str();
     if (range_.minimum == 0 && range_.maximum == total && value_ == used && text_ == text && state_ == ProgressState::determinate) return;
-    range_ = {0, total}; value_ = used; text_ = text; state_ = ProgressState::determinate; invalidate(Invalidation::paint);
+    range_ = {0, total}; value_ = used; text_ = text; state_ = ProgressState::determinate; invalidate_state();
 }
 SplitButton::SplitButton(std::wstring primary_name, std::wstring secondary_name)
     : Stack(Axis::horizontal), primary_(std::make_shared<Button>(std::move(primary_name))),

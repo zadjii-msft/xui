@@ -54,8 +54,11 @@ public:
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
     Rect canvas_bounds() const;
+    Rect content_bounds() const;
 protected:
     VectorCanvas(ControlRole role, std::wstring name);
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::vector_canvas; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     std::shared_ptr<const VectorScene> scene_;
     std::shared_ptr<VirtualCollection> items_;

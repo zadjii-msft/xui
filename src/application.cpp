@@ -133,6 +133,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::uint64_t tooltip_target{};
     bool tooltip_shown{};
     Rect tooltip_bounds{};
+    std::unique_ptr<ControlStyleAttachment> tooltip_styling;
     HWND window{}, last_focus{};
     UINT dpi{96};
     Drawing drawing;
@@ -454,8 +455,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         return DefSubclassProc(hwnd, message, wparam, lparam);
     }
+    bool layout_style_context_enabled(const Peer* parent) const {
+        const auto owner = popup_owner(parent);
+        for (auto it = popups.rbegin(); it != popups.rend(); ++it) {
+            if (it->popup->id() == owner) break;
+            if (it->dialog) return false;
+        }
+        for (const auto& entry : popups)
+            if (entry.popup->id() == owner && !command_popup_current(entry)) return false;
+        for (auto* ancestor = parent; ancestor; ancestor = ancestor->parent)
+            if (!ancestor->control->enabled()) return false;
+        return true;
+    }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
+            stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
                 if (pages->child_count()) collect(pages->child_at(pages->selected()), surface || stack->surface(), parent, adaptive);
                 return;
@@ -565,19 +579,49 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (role == ControlRole::label || role == ControlRole::button || role == ControlRole::toggle)
             peer->control->set_text_measurer([this, added](std::wstring_view text, TextStyle style) {
                 Size measured{};
-                added->text_layout = drawing.layout(text, style, measured);
+                const auto& control = *added->control;
+                const auto* label = dynamic_cast<const Label*>(&control);
+                const auto button_text = control.role() == ControlRole::button && control.has_control_styling() ?
+                    static_cast<const Button&>(control).content_style_values(StylePart::label) : PartStyleValues{};
+                const auto* values = control.role() == ControlRole::button && control.has_control_styling() ? &button_text :
+                    control.has_control_styling() ?
+                    control.effective_control_style_values(label ? label->text_part() : StylePart::label) : nullptr;
+                if (values && label) {
+                    auto typography = *values;
+                    typography.wrapping = label->wrapping();
+                    typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(label->maximum_lines(), UINT32_MAX));
+                    added->text_layout = drawing.styled_layout(text, style, typography, measured);
+                } else added->text_layout = values ? drawing.styled_layout(text, style, *values, measured) :
+                    drawing.layout(text, style, measured);
                 return measured;
             });
-        if (role == ControlRole::radio_group || role == ControlRole::choice_list || role == ControlRole::expander)
+        if (role == ControlRole::radio_group || role == ControlRole::choice_list)
             peer->control->set_text_measurer([this](std::wstring_view text, TextStyle style) {
                 Size measured{};
                 drawing.layout(text, style, measured);
                 return measured;
             });
+        if (role == ControlRole::expander)
+            peer->control->set_text_measurer([this, added](std::wstring_view text, TextStyle style) {
+                Size measured{};
+                const auto& control = *added->control;
+                const auto* values = control.has_control_styling() ?
+                    control.effective_control_style_values(StylePart::text) : nullptr;
+                if (values) drawing.styled_layout(text, style, *values, measured);
+                else drawing.layout(text, style, measured);
+                return measured;
+            });
         if (auto label = std::dynamic_pointer_cast<Label>(peer->control))
             label->set_wrapped_text_measurer([this, added](std::wstring_view text, TextStyle style, float width, std::size_t lines) {
                 Size measured{};
-                added->text_layout = drawing.layout(text, style, measured, width, lines);
+                const auto& label = static_cast<const Label&>(*added->control);
+                const auto* values = label.has_control_styling() ? label.effective_control_style_values(label.text_part()) : nullptr;
+                if (values) {
+                    auto typography = *values;
+                    typography.wrapping = label.wrapping();
+                    typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(lines, UINT32_MAX));
+                    added->text_layout = drawing.styled_layout(text, style, typography, measured, width, lines);
+                } else added->text_layout = drawing.layout(text, style, measured, width, lines);
                 return measured;
             });
         peers.push_back(std::move(peer));
@@ -665,6 +709,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (window) KillTimer(window, tooltip_timer);
         tooltip_target = 0;
         if (std::exchange(tooltip_shown, false)) invalidate(Invalidation::paint);
+    }
+    void place_tooltip(const Peer& peer) {
+        const auto view = root->bounds();
+        Size size{std::min(400.0f, view.width), 48};
+        if (tooltip_styling) {
+            const auto* face = tooltip_styling->effective(StylePart::root, style_states::open);
+            const auto* text = tooltip_styling->effective(StylePart::text, style_states::open);
+            const auto padding = face && face->padding ? *face->padding : Insets{10, 2, 10, 2};
+            const auto border = face && face->border_thickness ? *face->border_thickness : Insets{1, 1, 1, 1};
+            const float horizontal = padding.left + padding.right + border.left + border.right;
+            const float vertical = padding.top + padding.bottom + border.top + border.bottom;
+            Size measured{};
+            auto typography = text ? *text : PartStyleValues{};
+            typography.wrapping = true;
+            drawing.styled_layout(peer.control->help_text(), TextStyle::caption, typography,
+                measured, std::max(1.0f, size.width - horizontal));
+            size.height = std::min(view.height, std::max(48.0f, measured.height + vertical));
+        }
+        tooltip_bounds = place_popup(peer.control->bounds(), size, view, PopupPlacement::below);
+    }
+    void tooltip_style_changed() {
+        if (tooltip_styling && tooltip_styling->fully_empty()) tooltip_styling.reset();
+        if (tooltip_shown) for (const auto& peer : peers) if (peer->control->id() == tooltip_target) {
+            place_tooltip(*peer);
+            break;
+        }
+        invalidate(Invalidation::paint);
     }
     void sync_native_occlusion() {
         struct Region { HRGN handle; ~Region() { if (handle) DeleteObject(handle); } };
@@ -1062,7 +1133,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                                 for (std::size_t i = 0; i < items.size(); ++i)
                                     if (combo->selected() == items[i].id) { index = i; break; }
                                 const auto row = choices->item_bounds(index);
-                                entry.combo_alignment = entry.anchor->bounds().height / 2 -
+                                const auto combo_field = combo->field_bounds();
+                                entry.combo_alignment = combo_field.y - entry.anchor->bounds().y + combo_field.height / 2 -
                                     (choices->bounds().y - placed.y + row.y + row.height / 2);
                                 entry.combo_alignment_size = {placed.width, placed.height};
                             }
@@ -1107,8 +1179,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 if (peer->document) {
                     if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
-                        bounds.height = std::max(0.0f, bounds.height - 32);
-                    if (palette.style == VisualStyle::winui &&
+                        bounds.height = std::max(0.0f, bounds.height - password->reveal_extent());
+                    const auto* field_style = peer->control->effective_control_style_values(StylePart::root);
+                    if (field_style) {
+                        const auto padding = field_style->padding.value_or(Insets{4, 3, 4, 3});
+                        const auto border = field_style->border_thickness.value_or(Insets{});
+                        bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
+                        bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
+                        bounds.height = std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom);
+                    } else if (palette.style == VisualStyle::winui &&
                         (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
                         bounds.x += 4; bounds.y += 3;
                         bounds.width = std::max(0.0f, bounds.width - 8);
@@ -1131,13 +1210,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto number = peer->parent ? dynamic_cast<const NumericInput*>(peer->parent->control.get()) : nullptr;
                     const bool combo = peer->parent && peer->parent->control->role() == ControlRole::combo_box;
                     const bool reserved_end = combo || (number && number->spin_placement() == NumberSpinPlacement::inline_buttons);
-                    peer->edit->set_insets({search ? 40.0f : winui && !combo ? 11.0f : 12.0f, winui ? 6.0f : 10.0f,
-                        input.shortcut_visible(bounds.width) ? 78.0f :
+                    const auto* field_style = input.effective_control_style_values(StylePart::root);
+                    auto insets = input.field_insets({search ? 40.0f : winui && !combo ? 11.0f : 12.0f, winui ? 6.0f : 10.0f,
+                        input.shortcut_visible(bounds.width) ? input.shortcut_size().width + 28.0f :
                             peer->clear_button && peer->clear_button->visible() ? 37.0f :
                             winui ? reserved_end ? 1.0f : 7.0f : 12.0f, winui ? 7.0f : 10.0f});
+                    if (field_style && field_style->padding) {
+                        if (search) insets.left += 28;
+                        if (input.shortcut_visible(bounds.width)) insets.right += input.shortcut_size().width + 16;
+                        else if (peer->clear_button && peer->clear_button->visible()) insets.right += 30;
+                    }
+                    peer->edit->set_insets(insets);
                     ShowWindow(peer->caption, !input.caption_visible() || !visible(*peer) ? SW_HIDE : SW_SHOWNA);
                     if (input.caption_visible()) {
-                        const float caption_height = style_metrics(options.visual_style).input_header_height;
+                        const float caption_height = input.caption_height();
                         platform::place(peer->caption, {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
                         bounds.y += input.caption_extent();
                         bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
@@ -1231,7 +1317,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     platform::native_color(palette.text), platform::native_color(palette.secondary));
                 SendMessageW(peer->window, EM_SETLIMITTEXT, input.maximum_length(), 0);
                 peer->edit->set_placeholder(input.placeholder());
-                peer->edit->set_placeholder_color(platform::native_color(palette.secondary));
+                const auto* placeholder = input.effective_control_style_values(StylePart::placeholder);
+                peer->edit->set_placeholder_color(platform::native_color(placeholder && placeholder->foreground && !palette.high_contrast ?
+                    D2D1::ColorF(placeholder->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.secondary : palette.disabled));
+                peer->edit->set_colors(platform::native_color(input_ink(*peer)), platform::native_color(input_fill(*peer)));
+                const auto* text_style = input.effective_control_style_values(StylePart::text);
+                const PartStyleValues default_text;
+                const auto native_font = Drawing::font_descriptor(text_style ? *text_style : default_text,
+                    drawing.edit_font_family(), 14.0f);
+                peer->edit->set_font(native_font.family_name(), native_font.size, static_cast<int>(native_font.weight),
+                    native_font.style == StyleFontStyle::italic);
+                const auto* header_values = input.effective_control_style_values(StylePart::header);
+                peer->edit->set_caption_font(peer->caption, header_values, font,
+                    drawing.edit_font_family(), palette.style == VisualStyle::winui ? VisualMetrics::body_size : VisualMetrics::caption_size);
+                peer->edit->set_caption_color(peer->caption, platform::native_color(header_values && header_values->foreground &&
+                    !palette.high_contrast ? D2D1::ColorF(header_values->foreground->resolve(palette.mode)) :
+                    enabled(*peer) ? palette.text : palette.disabled));
                 if (!peer->edit->composing() && peer->edit->text() != input.text())
                     peer->edit->set_model_text(input.text());
                 if (peer->caption_text != input.name()) {
@@ -1275,6 +1376,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (tooltip_target) {
             auto it = std::find_if(peers.begin(), peers.end(), [&](const auto& p) { return p->control->id() == tooltip_target; });
             if (it == peers.end() || !enabled(**it) || !onscreen(**it) || (*it)->control->help_text().empty()) hide_tooltip();
+            else if (tooltip_shown && tooltip_styling) place_tooltip(**it);
         }
         if (window) {
             sync_native_occlusion();
@@ -1300,6 +1402,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             self->dismiss_above(source->popup()->id(), PopupDismissReason::cancel);
             if (self->closing || !source->popup()->is_open()) return;
             auto child = std::make_shared<CommandSurface>(source->menu()->commands()->find(id)->label, false);
+            const auto forward = [](const Element& from, Element& to, StyleTarget target) {
+                if (!from.has_control_styling()) return;
+                to.set_control_style(from.control_style());
+                for (const auto& part : control_style_schema(target).parts) {
+                    const auto& values = from.control_style_values(part.part);
+                    if (!values.empty()) to.set_control_style_values(part.part, values);
+                }
+            };
+            forward(*source->menu(), *child->menu(), StyleTarget::command_menu);
+            forward(*source->popup(), *child->popup(), StyleTarget::popup);
+            forward(*source->status(), *child->status(), StyleTarget::label);
+            forward(*source->content(), *child->content(), StyleTarget::stack);
+            forward(*source->results(), *child->results(), StyleTarget::stack);
             child->set_commands(source->menu()->commands(), id);
             child->set_current([weak] { auto source = weak.lock(); return source && source->current(); });
             child->popup()->set_placement(PopupPlacement::right);
@@ -1432,6 +1547,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     static Rect viewport(const Peer& peer) {
         if (auto scroll = dynamic_cast<ScrollView*>(peer.control.get())) return scroll->viewport();
+        if (auto content = dynamic_cast<ContentView*>(peer.control.get())) return content->content_bounds();
+        if (auto expander = dynamic_cast<Expander*>(peer.control.get())) return expander->content_bounds();
+        if (auto popup = dynamic_cast<Popup*>(peer.control.get())) return popup->content_bounds();
         return peer.control->bounds();
     }
     bool onscreen(const Peer& peer) const {
@@ -1453,7 +1571,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* popup = dynamic_cast<Popup*>(ancestor->control.get()); popup && !popup->is_open()) return false;
             if (ancestor != &peer)
                 if (auto* expander = dynamic_cast<Expander*>(ancestor->control.get()); expander && !expander->expanded()) return false;
-            const auto rect = viewport(*ancestor);
+            const auto rect = ancestor == &peer ? ancestor->control->bounds() : viewport(*ancestor);
             if (rect.width <= 0 || rect.height <= 0) return false;
         }
         return true;
@@ -1475,8 +1593,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         switch (key_code) {
         case VK_UP: scroll.scroll_by(-32); break;
         case VK_DOWN: scroll.scroll_by(32); break;
-        case VK_PRIOR: scroll.scroll_by(-scroll.bounds().height); break;
-        case VK_NEXT: scroll.scroll_by(scroll.bounds().height); break;
+        case VK_PRIOR: scroll.scroll_by(-scroll.viewport().height); break;
+        case VK_NEXT: scroll.scroll_by(scroll.viewport().height); break;
         case VK_HOME: scroll.set_offset(0); break;
         case VK_END: scroll.set_offset(scroll.maximum_offset()); break;
         default: return false;
@@ -1496,7 +1614,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         owner->wheel_remainder %= WHEEL_DELTA;
         UINT lines = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-        const float distance = lines == WHEEL_PAGESCROLL ? scroll.bounds().height : 16.0f * lines;
+        const float distance = lines == WHEEL_PAGESCROLL ? scroll.viewport().height : 16.0f * lines;
         const auto before = scroll.offset();
         scroll.scroll_by(-ticks * distance);
         update();
@@ -1504,10 +1622,31 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     void paint_surfaces(const Stack& stack) {
-        if (stack.surface()) {
+        if (const auto* style = stack.effective_control_style_values(StylePart::root)) {
+            drawing.styled_surface(stack.bounds(), palette, *style, stack.surface() ? palette.surface : D2D1::ColorF(0, 0.0f),
+                palette.border, stack.surface() ? 4.0f : 0.0f, stack.surface() ? Insets{1, 1, 1, 1} : Insets{});
+        } else if (stack.surface()) {
             drawing.surface_frame(stack.bounds(), palette);
         }
-        if (stack.separator_after()) {
+        if (const auto* style = stack.effective_separator_style()) {
+            const bool dialog_footer = palette.style == VisualStyle::winui && std::any_of(popups.begin(), popups.end(),
+                [&](const auto& entry) { return entry.dialog && entry.dialog->footer().get() == &stack; });
+            if (const auto* split = dynamic_cast<const SplitButton*>(&stack)) {
+                const auto primary = split->primary()->bounds(), secondary = split->secondary()->bounds();
+                const float gap = std::max(0.0f, secondary.x - primary.x - primary.width);
+                const float thickness = std::min(1.0f, gap);
+                const auto top = std::max(primary.y, secondary.y);
+                const auto height = std::max(0.0f, std::min(primary.y + primary.height, secondary.y + secondary.height) - top);
+                drawing.fill({primary.x + primary.width + (gap - thickness) / 2,
+                    top, thickness, height},
+                    !palette.high_contrast && style->background ? D2D1::ColorF(style->background->resolve(palette.mode)) : palette.border);
+            } else if (!dialog_footer) {
+                const auto bounds = stack.bounds();
+                const auto thickness = std::min(bounds.height, style->thickness.value_or(1.0f));
+                drawing.fill({bounds.x, bounds.y + bounds.height - thickness, bounds.width, thickness},
+                    !palette.high_contrast && style->background ? D2D1::ColorF(style->background->resolve(palette.mode)) : palette.border);
+            }
+        } else if (stack.separator_after()) {
             const auto bounds = stack.bounds();
             drawing.line(bounds.x, bounds.y + bounds.height + 3.5f,
                 bounds.x + bounds.width, bounds.y + bounds.height + 3.5f, palette.border);
@@ -1518,20 +1657,53 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (element->bounds().width <= 0 || element->bounds().height <= 0) return;
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) paint_surfaces(*stack);
         else if (auto scroll = std::dynamic_pointer_cast<ScrollView>(element)) {
+            if (const auto* style = scroll->effective_control_style_values(StylePart::root))
+                drawing.styled_surface(scroll->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             drawing.push_clip(scroll->viewport());
             paint_content_surface(scroll->content());
             drawing.pop_clip();
         } else if (auto content = std::dynamic_pointer_cast<ContentView>(element)) {
-            drawing.push_clip(content->bounds());
+            if (const auto* style = content->effective_control_style_values(StylePart::root))
+                drawing.styled_surface(content->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            drawing.push_clip(content->content_bounds());
             paint_content_surface(content->content());
             drawing.pop_clip();
         } else if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
+            if (const auto* style = split->effective_control_style_values(StylePart::root))
+                drawing.styled_surface(split->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            const auto area = split->pane_area(), divider = split->divider();
+            if (const auto* style = split->effective_control_style_values(StylePart::first_pane))
+                drawing.styled_surface({area.x, area.y, split->expanded() ? divider.x - area.x : area.width, area.height},
+                    palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            if (split->expanded()) if (const auto* style = split->effective_control_style_values(StylePart::second_pane))
+                drawing.styled_surface({divider.x + divider.width, area.y,
+                    std::max(0.0f, area.x + area.width - divider.x - divider.width), area.height},
+                    palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             paint_content_surface(split->first());
             paint_content_surface(split->second());
         } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
             drawing.push_clip(control->bounds());
+            if (control->visible() && (dynamic_cast<NavigationView*>(control.get()) || dynamic_cast<NavigationPane*>(control.get()) ||
+                dynamic_cast<Breadcrumb*>(control.get()) || dynamic_cast<CommandBar*>(control.get()) || dynamic_cast<TitleBar*>(control.get()))) {
+                if (const auto* style = control->effective_control_style_values(StylePart::root))
+                    drawing.styled_surface(control->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            }
+            if (auto bar = dynamic_cast<CommandBar*>(control.get()); bar && bar->visible()) {
+                if (const auto* style = bar->effective_control_style_values(StylePart::separator))
+                    for (std::size_t i = 1; i < bar->retained_children().size(); ++i) {
+                        const auto bounds = bar->separator_bounds(i);
+                        if (bounds.width > 0 && bounds.height > 0)
+                            drawing.styled_surface(bounds, palette, *style, palette.border, palette.border, 0, {});
+                    }
+            }
+            if (auto expander = std::dynamic_pointer_cast<Expander>(control); expander && expander->has_control_styling()) {
+                if (const auto* style = expander->effective_control_style_values(StylePart::root))
+                    drawing.styled_surface(expander->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+                if (expander->expanded()) if (const auto* style = expander->effective_control_style_values(StylePart::content))
+                    drawing.styled_surface(expander->content_surface_bounds(), palette, *style, palette.surface, palette.border, 0, {});
+            }
             if (auto expander = std::dynamic_pointer_cast<Expander>(control);
-                expander && expander->expanded() && palette.style == VisualStyle::winui) {
+                expander && !expander->has_control_styling() && expander->expanded() && palette.style == VisualStyle::winui) {
                 const auto bounds = expander->bounds();
                 drawing.rounded({bounds.x + 0.5f, bounds.y + 0.5f,
                     std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)}, palette.surface, 4);
@@ -1562,8 +1734,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (!visible(*peer)) return;
                     for (auto* parent = peer->parent; parent; parent = parent->parent)
                         drawing.push_clip(viewport(*parent));
+                    std::size_t host_clips{};
+                    if (!palette.high_contrast) for (auto* parent = peer->parent; parent; parent = parent->parent) {
+                        if (!dynamic_cast<RuntimeHost*>(parent->control.get()) && !dynamic_cast<VectorCanvas*>(parent->control.get())) continue;
+                        if (const auto* style = parent->control->effective_control_style_values(StylePart::root))
+                            host_clips += drawing.push_rounded_clip(parent->control->bounds(),
+                                style->corner_radius.value_or(palette.style == VisualStyle::winui ? 4.0f : 0.0f));
+                    }
                     if (peer->document) {
-                        if (palette.style == VisualStyle::winui &&
+                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
+                        if (root_style) {
+                            const auto bounds = peer->control->bounds();
+                            drawing.styled_surface(bounds, palette, *root_style, palette.field, palette.border, 4, {1, 1, 1, 1});
+                            if (peer->control->focused()) drawing.focus_ring(bounds, palette);
+                        } else if (palette.style == VisualStyle::winui &&
                             (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
                             const auto bounds = peer->control->bounds();
                             drawing.field_frame({bounds.x + 1, bounds.y + 1, std::max(0.0f, bounds.width - 2),
@@ -1572,12 +1756,29 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed()) {
                             const auto bounds = password->bounds();
                             const float inset = palette.style == VisualStyle::winui ? 4.0f : 0.0f;
-                            const Rect preview{bounds.x + inset, bounds.y + std::max(0.0f, bounds.height - 32),
-                                std::max(0.0f, bounds.width - 2 * inset), std::min(32.0f - inset, bounds.height)};
+                            const Rect preview{bounds.x + inset, bounds.y + std::max(0.0f, bounds.height - password->reveal_extent()),
+                                std::max(0.0f, bounds.width - 2 * inset), std::min(password->reveal_extent() - inset, bounds.height)};
                             drawing.push_clip(preview);
-                            drawing.fill(preview, palette.style == VisualStyle::winui ? palette.field : palette.surface);
+                            drawing.fill(preview, root_style && root_style->background && !palette.high_contrast ?
+                                D2D1::ColorF(root_style->background->resolve(palette.mode)) :
+                                palette.style == VisualStyle::winui ? palette.field : palette.surface);
+                            const auto* text_style = password->effective_control_style_values(StylePart::text);
+                            const auto ink = text_style && text_style->foreground && !palette.high_contrast ?
+                                D2D1::ColorF(text_style->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.text : palette.disabled;
                             password->with_password([&](std::wstring_view value) {
-                                drawing.text(value, {preview.x + 8, preview.y, std::max(0.0f, preview.width - 16), preview.height}, palette.text);
+                                const Rect text{preview.x + 8, preview.y, std::max(0.0f, preview.width - 16), preview.height};
+                                if (text_style) {
+                                    auto native_text = *text_style;
+                                    if (!native_text.font_family) {
+                                        static const auto family = make_style_font_family("Segoe UI");
+                                        native_text.font_family = family;
+                                    }
+                                    native_text.font_size = native_text.font_size.value_or(14.0f);
+                                    native_text.font_weight = native_text.font_weight.value_or(FW_NORMAL);
+                                    native_text.font_style = native_text.font_style.value_or(StyleFontStyle::normal);
+                                    drawing.private_text(value, text, ink, native_text);
+                                }
+                                else drawing.text(value, text, ink);
                             });
                             drawing.pop_clip();
                         }
@@ -1592,6 +1793,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         drawing.origin(0, 0);
                         drawing.pop_clip();
                     }
+                    while (host_clips) { drawing.pop_rounded_clip(); --host_clips; }
                     for (auto* parent = peer->parent; parent; parent = parent->parent) drawing.pop_clip();
                 };
                 for (const auto& peer : peers) if (!popup_owner(peer.get()) && !(peer->adaptive && peer->adaptive->overlay_active())) paint_peer(peer);
@@ -1654,15 +1856,26 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                                 D2D1::ColorF(0, 0.025f * (1 - spread / (command_shadow_extent + 1))), 8 + spread);
                     }
                     const auto popup_background = entry.popup->window_background() ? palette.background : palette.surface;
-                    if (!entry.commands && palette.style == VisualStyle::classic) drawing.fill(bounds, popup_background);
                     const float radius = entry.commands || palette.style == VisualStyle::winui ? 8.0f : 4.0f;
+                    const auto* popup_style = entry.popup->effective_control_style_values(StylePart::root);
+                    if (popup_style) drawing.styled_surface(bounds, palette, *popup_style, popup_background, palette.border, radius, {1, 1, 1, 1});
+                    else if (!entry.commands && palette.style == VisualStyle::classic) drawing.fill(bounds, popup_background);
                     paint_content_surface(entry.popup);
                     if (entry.dialog && palette.style == VisualStyle::winui) {
                         const auto footer = entry.dialog->footer_bounds();
                         drawing.push_clip(footer);
-                        drawing.rounded(frame, palette.background, radius);
+                        if (const auto* style = entry.dialog->footer()->effective_control_style_values(StylePart::root))
+                            drawing.styled_surface(footer, palette, *style, palette.background, palette.border, 0, {});
+                        else drawing.rounded(frame, palette.background, radius);
                         drawing.pop_clip();
-                        drawing.line(frame.x + 1, footer.y - 0.5f, frame.x + frame.width - 1, footer.y - 0.5f, palette.border);
+                        const auto* separator = entry.dialog->footer()->effective_control_style_values(StylePart::separator);
+                        const auto color = separator && separator->background && !palette.high_contrast ?
+                            D2D1::ColorF(separator->background->resolve(palette.mode)) : palette.border;
+                        const float thickness = std::min(separator && separator->thickness ? *separator->thickness : 1,
+                            footer.height + 1);
+                        const float separator_y = footer.y + std::max(0.0f, thickness - 1) - thickness / 2;
+                        if (thickness > 0) drawing.line(frame.x + 1, separator_y, frame.x + frame.width - 1, separator_y,
+                            color, thickness);
                     }
                     std::vector<HWND> popup_native;
                     for (const auto& peer : peers) if (popup_owner(peer.get()) == entry.popup->id()) {
@@ -1673,14 +1886,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                     drawing.present_native(popup_native);
                     paint_adaptive(entry.popup->id());
-                    drawing.rounded(frame, entry.commands && palette.style == VisualStyle::classic ?
+                    if (!popup_style) drawing.rounded(frame, entry.commands && palette.style == VisualStyle::classic ?
                         palette.secondary : palette.border, radius, true);
                 }
                 if (composed && tooltip_shown) {
                     for (const auto& peer : peers) if (peer->control->id() == tooltip_target) {
-                        drawing.surface_frame(tooltip_bounds, palette);
-                        drawing.text(peer->control->help_text(), {tooltip_bounds.x + 10, tooltip_bounds.y + 2,
-                            std::max(0.0f, tooltip_bounds.width - 20), tooltip_bounds.height - 4}, palette.text, true);
+                        if (tooltip_styling) {
+                            const auto* face = tooltip_styling->effective(StylePart::root, style_states::open);
+                            const auto* text = tooltip_styling->effective(StylePart::text, style_states::open);
+                            drawing.styled_surface(tooltip_bounds, palette, face ? *face : PartStyleValues{},
+                                palette.surface, palette.border, 6, {1, 1, 1, 1});
+                            const auto padding = face && face->padding ? *face->padding : Insets{10, 2, 10, 2};
+                            const auto border = face && face->border_thickness ? *face->border_thickness : Insets{1, 1, 1, 1};
+                            const Rect area{tooltip_bounds.x + padding.left + border.left, tooltip_bounds.y + padding.top + border.top,
+                                std::max(0.0f, tooltip_bounds.width - padding.left - padding.right - border.left - border.right),
+                                std::max(0.0f, tooltip_bounds.height - padding.top - padding.bottom - border.top - border.bottom)};
+                            const auto ink = text && text->foreground && !palette.high_contrast ?
+                                D2D1::ColorF(text->foreground->resolve(palette.mode)) : palette.text;
+                            drawing.push_clip(tooltip_bounds);
+                            auto typography = text ? *text : PartStyleValues{};
+                            typography.wrapping = true;
+                            drawing.styled_text(peer->control->help_text(), area, ink, typography, TextStyle::caption);
+                            drawing.pop_clip();
+                        } else {
+                            drawing.surface_frame(tooltip_bounds, palette);
+                            drawing.text(peer->control->help_text(), {tooltip_bounds.x + 10, tooltip_bounds.y + 2,
+                                std::max(0.0f, tooltip_bounds.width - 20), tooltip_bounds.height - 4}, palette.text, true);
+                        }
                     }
                 }
                 redraw = !composed || !drawing.end();
@@ -1743,13 +1975,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 } else if (auto* grid = dynamic_cast<DataGrid*>(peer->control.get())) {
                     source = grid->source();
                     const auto column = grid->display_column(0);
-                    float x = -static_cast<float>(grid->horizontal_offset());
+                    float x = grid->geometry().left - static_cast<float>(grid->horizontal_offset());
                     if (column) for (size_t i = 0; i < *column; ++i) x += grid->columns()[i].width;
                     if (column && x < rect.x + rect.width && x + grid->columns()[*column].width > rect.x) {
                         const auto [begin, end] = grid->visible_rows();
                         for (auto row = begin; row < end && rows.size() < RowImages::maximum_rows; ++row) {
-                            const auto y = DataGrid::header_height + static_cast<float>(row * double(DataGrid::row_height) - grid->offset());
-                            if (y + DataGrid::row_height <= rect.y || y >= rect.y + rect.height) continue;
+                            const auto box = grid->row_bounds(row);
+                            if (box.y + box.height <= rect.y || box.y >= rect.y + rect.height) continue;
                             rows.push_back({grid->source()->key(row), grid->source()->visual(row, 0)});
                         }
                     }
@@ -1770,10 +2002,32 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         changed = sync_images() || changed;
         if (changed) invalidate(Invalidation::paint);
     }
+    D2D1_COLOR_F input_ink(const Peer& peer) const {
+        if (!palette.high_contrast) {
+            const auto* text_values = peer.control->effective_control_style_values(StylePart::text);
+            if (text_values && text_values->foreground) return D2D1::ColorF(text_values->foreground->resolve(palette.mode));
+            if (peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
+                peer.parent->control->role() == ControlRole::combo_box)) {
+                const auto* owner_field = peer.parent->control->effective_control_style_values(StylePart::field);
+                if (owner_field && owner_field->foreground) return D2D1::ColorF(owner_field->foreground->resolve(palette.mode));
+            }
+        }
+        return enabled(peer) ? palette.text : palette.disabled;
+    }
     D2D1_COLOR_F input_fill(const Peer& peer) const {
+        if (peer.edit) {
+            const auto* editor_style = peer.control->effective_control_style_values(StylePart::root);
+            if (editor_style && editor_style->background && !palette.high_contrast)
+                return D2D1::ColorF(editor_style->background->resolve(palette.mode));
+        }
         const auto* owner = &peer;
         if (peer.edit && peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
             peer.parent->control->role() == ControlRole::combo_box)) owner = peer.parent;
+        if (owner->control->role() == ControlRole::numeric_input || owner->control->role() == ControlRole::combo_box) {
+            const auto* owner_field = owner->control->effective_control_style_values(StylePart::field);
+            if (owner_field && owner_field->background && !palette.high_contrast)
+                return D2D1::ColorF(owner_field->background->resolve(palette.mode));
+        }
         bool hovered = owner->control->hovered();
         for (const auto& child : owner->control->retained_children())
             if (const auto* control = dynamic_cast<const Control*>(child.get())) hovered |= control->hovered();
@@ -1788,23 +2042,43 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             bounds.y += input.caption_extent();
             bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
         }
+        drawing.push_clip(bounds);
         const auto number = peer.parent ? dynamic_cast<NumericInput*>(peer.parent->control.get()) : nullptr;
         const bool invalid = number && !number->valid();
         const bool focused = GetFocus() == peer.window || (peer.clear_window && GetFocus() == peer.clear_window);
-        const bool composite = palette.style == VisualStyle::winui && peer.parent &&
-            (number || dynamic_cast<ComboBox*>(peer.parent->control.get()));
-        if (!composite) {
+        const bool composite = peer.parent && (number || dynamic_cast<ComboBox*>(peer.parent->control.get())) &&
+            (palette.style == VisualStyle::winui || peer.parent->control->has_control_styling());
+        const auto* style = input.effective_control_style_values(StylePart::root);
+        if (!composite || style) {
             const Rect frame = palette.style == VisualStyle::winui ? Rect{bounds.x + 0.5f, bounds.y + 0.5f,
                 std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)} : bounds;
-            drawing.field_frame(frame, palette, focused, enabled(peer), invalid, input_fill(peer));
+            if (style) {
+                drawing.styled_surface(frame, palette, *style, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
+                if (focused) drawing.focus_ring(frame, palette);
+            } else drawing.field_frame(frame, palette, focused, enabled(peer), invalid, input_fill(peer));
         }
-        if (input.search_style()) drawing.search_icon({bounds.x + 12, bounds.y + (bounds.height - 18) / 2, 18, 18}, palette.secondary);
+        const auto ink = [&](StylePart part, D2D1_COLOR_F fallback) {
+            const auto* values = input.effective_control_style_values(part);
+            return values && values->foreground && !palette.high_contrast ?
+                D2D1::ColorF(values->foreground->resolve(palette.mode)) : enabled(peer) ? fallback : palette.disabled;
+        };
+        const auto padding = style && style->padding ? *style->padding : Insets{12, 0, 12, 0};
+        const auto border = style && style->border_thickness ? *style->border_thickness : Insets{};
+        if (input.search_style()) drawing.search_icon({bounds.x + padding.left + border.left,
+            bounds.y + (bounds.height - 18) / 2, 18, 18}, ink(StylePart::icon, palette.secondary));
         const auto& hint = input.shortcut_hint();
         if (input.shortcut_visible(bounds.width)) {
-            const auto top = bounds.y + (bounds.height - 20) / 2;
-            drawing.rounded({bounds.x + bounds.width - 62, top, 50, 20}, palette.border, 4, true);
-            drawing.text(hint, {bounds.x + bounds.width - 56, top, 42, 20}, palette.secondary, true);
+            const auto size = input.shortcut_size();
+            const Rect badge{bounds.x + std::max(0.0f, bounds.width - size.width - padding.right - border.right),
+                bounds.y + (bounds.height - size.height) / 2, size.width, size.height};
+            const auto* shortcut = input.effective_control_style_values(StylePart::shortcut);
+            if (shortcut) drawing.styled_surface(badge, palette, *shortcut, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
+            else drawing.rounded(badge, palette.border, 4, true);
+            const Rect text{badge.x + 6, badge.y, std::max(0.0f, badge.width - 8), badge.height};
+            if (shortcut) drawing.styled_text(hint, text, ink(StylePart::shortcut, palette.secondary), *shortcut, TextStyle::caption);
+            else drawing.text(hint, text, palette.secondary, true);
         }
+        drawing.pop_clip();
     }
     D2D1_COLOR_F status_fill(StatusSeverity severity) const {
         if (palette.high_contrast || palette.style == VisualStyle::classic) return palette.surface;
@@ -1816,6 +2090,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         default: return D2D1::ColorF(colors.information_fill);
         }
     }
+    void paint_host_text(const Control& control, StylePart part, std::wstring_view text, Rect area,
+        D2D1_COLOR_F fallback) {
+        const auto* values = control.effective_control_style_values(part);
+        const auto ink = values && values->foreground && !palette.high_contrast ?
+            D2D1::ColorF(values->foreground->resolve(palette.mode)) : fallback;
+        if (values) drawing.styled_text(text, area, ink, *values, TextStyle::caption);
+        else drawing.text(text, area, ink, true);
+    }
     void paint_control(Peer& peer) {
         auto& canvas = drawing;
         auto& control = *peer.control;
@@ -1825,39 +2107,97 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const bool focus_visible = control.focused() && (!fluent || keyboard_focus_visible);
         if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
             const auto area = runtime->visual_bounds();
-            canvas.fill(area, palette.field);
-            if (!peer.runtime || !peer.runtime->active())
-                canvas.text(L"Explicit load required. Native runtime is not active.", {12, 12, std::max(0.0f, area.width - 24), 48}, palette.secondary, true);
-            if (fluent && (!peer.runtime || !peer.runtime->active()))
+            const auto* root_values = runtime->effective_control_style_values(StylePart::root);
+            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
+                palette.field, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+            else canvas.fill(area, palette.field);
+            if (!peer.runtime || !peer.runtime->active()) {
+                const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
+                    {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
+                canvas.push_clip(area);
+                const auto* caption = runtime->effective_control_style_values(StylePart::caption);
+                const bool has_caption = caption && !caption->empty();
+                if (has_caption) paint_host_text(control, StylePart::caption, runtime->name(),
+                    {area.x + 12, area.y + 8, std::max(0.0f, area.width - 24), 24}, palette.text);
+                paint_host_text(control, runtime->state() == HostState::error ? StylePart::error : StylePart::placeholder,
+                    runtime->state() == HostState::error ? std::wstring_view(runtime->error()) :
+                    L"Explicit load required. Native runtime is not active.",
+                    {area.x + 12, area.y + (has_caption ? 36.0f : 12.0f), std::max(0.0f, area.width - 24), 48},
+                    runtime->state() == HostState::error ? palette.error : palette.secondary);
+                canvas.pop_clip();
+                if (rounded_clip) canvas.pop_rounded_clip();
+            }
+            if (!root_values && fluent && (!peer.runtime || !peer.runtime->active()))
                 canvas.rounded(area, palette.border, 4, true);
+            if (focus_visible) canvas.focus_ring(area, palette);
             return;
         }
         if (auto* vector = dynamic_cast<VectorCanvas*>(&control)) {
             const auto area = vector->canvas_bounds();
-            canvas.fill(area, palette.field);
+            const auto* root_values = vector->effective_control_style_values(StylePart::root);
+            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
+                palette.field, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+            else canvas.fill(area, palette.field);
+            const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
+                {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
             canvas.push_clip(area);
-            canvas.scene(vector->scene(), vector->selected(), palette.accent);
+            const auto* selection = vector->effective_control_style_values(StylePart::selection);
+            const auto highlight = selection && selection->foreground && !palette.high_contrast ?
+                D2D1::ColorF(selection->foreground->resolve(palette.mode)) : palette.accent;
+            canvas.origin(bounds.x + area.x, bounds.y + area.y);
+            canvas.scene(vector->scene(), vector->selected(), highlight);
+            canvas.origin(bounds.x, bounds.y);
             if (auto* map = dynamic_cast<MapView*>(vector)) {
                 const auto center = map->center();
-                canvas.text(L"Offline coordinate map | " + std::to_wstring(center.latitude).substr(0, 7) + L", " +
+                paint_host_text(control, StylePart::coordinate, L"Offline coordinate map | " + std::to_wstring(center.latitude).substr(0, 7) + L", " +
                     std::to_wstring(center.longitude).substr(0, 8) + L" | zoom " + std::to_wstring(map->zoom()).substr(0, 4),
-                    {8, 4, std::max(0.0f, area.width - 16), 24}, palette.text, true);
-                if (!map->error().empty()) canvas.text(map->error(), {8, 30, std::max(0.0f, area.width - 16), 32}, palette.error, true);
+                    {area.x + 8, area.y + 4, std::max(0.0f, area.width - 16), 24}, palette.text);
+                if (!map->error().empty()) paint_host_text(control, StylePart::error, map->error(),
+                    {area.x + 8, area.y + 30, std::max(0.0f, area.width - 16), 32}, palette.error);
+            } else if ((!vector->scene() || vector->scene()->shapes().empty()) && vector->has_control_styling()) {
+                paint_host_text(control, StylePart::empty, L"No shapes",
+                    {area.x + 8, area.y + 4, std::max(0.0f, area.width - 16), 32}, palette.secondary);
             }
             canvas.pop_clip();
-            if (fluent) {
-                canvas.rounded(area, palette.border, 4, true);
-                if (control.focused()) canvas.focus_ring(area, palette);
-            }
+            if (rounded_clip) canvas.pop_rounded_clip();
+            if (!root_values && fluent) canvas.rounded(area, palette.border, 4, true);
+            if ((fluent && control.focused()) || focus_visible) canvas.focus_ring(area, palette);
             return;
         }
         if (control.role() == ControlRole::popup) return;
         if (auto* number = dynamic_cast<NumericInput*>(&control)) {
+            if (number->has_control_styling()) {
+                const PartStyleValues empty;
+                const auto* root_values = number->effective_control_style_values(StylePart::root);
+                const auto* field_values = number->effective_control_style_values(StylePart::field);
+                const auto* header = number->effective_control_style_values(StylePart::header);
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
+                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+                auto frame = number->field_bounds();
+                frame.x -= control.bounds().x; frame.y -= control.bounds().y;
+                canvas.styled_surface(frame, palette, field_values ? *field_values : empty, input_fill(peer),
+                    !number->valid() ? palette.error : palette.border, fluent ? 4.0f : 6.0f, {1, 1, 1, 1});
+                if (header) {
+                    auto rect = number->header_bounds();
+                    rect.x -= control.bounds().x; rect.y -= control.bounds().y;
+                    const auto ink = !palette.high_contrast && header->foreground ?
+                        D2D1::ColorF(header->foreground->resolve(palette.mode)) : foundation_text;
+                    canvas.styled_text(control.name(), rect, ink, *header, TextStyle::caption);
+                }
+                if (IsChild(peer.window, GetFocus())) canvas.focus_ring(frame, palette);
+                return;
+            }
             if (fluent) canvas.field_frame({0.5f, 0.5f, std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)},
                 palette, IsChild(peer.window, GetFocus()) != FALSE, enabled(peer), !number->valid(), input_fill(peer));
             return;
         }
         if (auto* status = dynamic_cast<InlineStatus*>(&control)) {
+            const PartStyleValues* host_message = nullptr;
+            if (const auto* host = peer.parent ? dynamic_cast<const RuntimeHost*>(peer.parent->control.get()) : nullptr;
+                host && host->has_control_styling())
+                host_message = host->effective_control_style_values(
+                    host->state() == HostState::error ? StylePart::error : StylePart::status);
+            if (host_message && host_message->empty()) host_message = nullptr;
             auto ink = status->severity() == StatusSeverity::error ? palette.error :
                 status->severity() == StatusSeverity::warning ? palette.folder : palette.accent;
             if (fluent && !palette.high_contrast) {
@@ -1866,6 +2206,38 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 else if (status->severity() == StatusSeverity::warning) ink = D2D1::ColorF(colors.warning);
             }
             if (!enabled(peer)) ink = palette.disabled;
+            if (status->has_control_styling()) {
+                const PartStyleValues empty;
+                const auto part = [&](StylePart value) -> const PartStyleValues& {
+                    const auto* values = status->effective_control_style_values(value);
+                    return values ? *values : empty;
+                };
+                const auto ink_for = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
+                    return !palette.high_contrast && values.foreground ?
+                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : fallback;
+                };
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
+                    status_fill(status->severity()), palette.border, fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+                const auto content = status->content_bounds();
+                const auto& stripe = part(StylePart::stripe);
+                const float stripe_width = stripe.size.value_or(fluent ? 0.0f : 4.0f);
+                canvas.styled_surface({content.x, content.y, stripe_width, content.height}, palette, stripe, ink, ink, 2, {});
+                const auto& icon = part(StylePart::icon);
+                const float icon_size = icon.size.value_or(24);
+                const Rect icon_rect{content.x + stripe_width + 8, content.y + 6, icon_size,
+                    std::max(0.0f, std::min(38.0f, content.height - 12))};
+                const Symbol symbols[]{Symbol::information, Symbol::success, Symbol::warning, Symbol::error};
+                canvas.symbol(symbols[static_cast<int>(status->severity())], icon_rect, ink_for(icon, ink), icon_size);
+                float end = content.x + content.width - 8;
+                for (const auto& child : status->retained_children()) if (static_cast<Control&>(*child).visible())
+                    end = std::min(end, child->bounds().x - control.bounds().x);
+                const float left = icon_rect.x + icon_size + 6;
+                const auto message = host_message ? merge_part_values(*host_message, part(StylePart::message)) :
+                    part(StylePart::message);
+                canvas.styled_text(control.name(), {left, content.y + 6, std::max(0.0f, end - left - 4),
+                    std::max(0.0f, content.height - 12)}, ink_for(message, foundation_text), message);
+                return;
+            }
             const Rect frame{1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)};
             canvas.rounded(frame, status_fill(status->severity()), fluent ? 4.0f : 6.0f);
             if (fluent) canvas.rounded(frame, palette.border, 4, true);
@@ -1878,31 +2250,94 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             float end = bounds.width - 8;
             for (const auto& child : status->retained_children()) if (static_cast<Control&>(*child).visible())
                 end = std::min(end, child->bounds().x - control.bounds().x);
-            canvas.text(control.name(), {42, 6, std::max(0.0f, end - 46), std::max(0.0f, bounds.height - 12)}, foundation_text);
+            const Rect message_bounds{42, 6, std::max(0.0f, end - 46), std::max(0.0f, bounds.height - 12)};
+            if (host_message) {
+                const auto message_ink = !palette.high_contrast && host_message->foreground ?
+                    D2D1::ColorF(host_message->foreground->resolve(palette.mode)) : foundation_text;
+                canvas.styled_text(control.name(), message_bounds, message_ink, *host_message);
+            } else canvas.text(control.name(), message_bounds, foundation_text);
             return;
         }
         if (auto* color = dynamic_cast<ColorPicker*>(&control)) {
             const auto value = color->value();
             const D2D1_COLOR_F rgba{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f, value.alpha / 255.0f};
-            const Rect preview{2, 2, std::max(0.0f, bounds.width - 4), 42};
-            canvas.fill(preview, palette.field);
-            for (int y = 0; y < 3; ++y) for (int x = 0; x < static_cast<int>(bounds.width / 14) + 1; ++x)
-                if ((x + y) % 2) canvas.fill({2.0f + x * 14, 2.0f + y * 14, std::min(14.0f, std::max(0.0f, bounds.width - 4 - x * 14)), 14}, palette.border);
+            const auto content = color->content_bounds();
+            const Rect preview{content.x + 2, content.y + 2, std::max(0.0f, content.width - 4), 42};
+            const PartStyleValues empty;
+            const auto part = [&](StylePart value) -> const PartStyleValues& {
+                const auto* values = color->has_control_styling() ? color->effective_control_style_values(value) : nullptr;
+                return values ? *values : empty;
+            };
+            const auto& checkerboard_light = part(StylePart::checkerboard_light);
+            const auto& checkerboard_dark = part(StylePart::checkerboard_dark);
+            const auto light = !palette.high_contrast && checkerboard_light.background ?
+                D2D1::ColorF(checkerboard_light.background->resolve(palette.mode)) : palette.field;
+            const auto dark = !palette.high_contrast && checkerboard_dark.background ?
+                D2D1::ColorF(checkerboard_dark.background->resolve(palette.mode)) : palette.border;
+            if (color->has_control_styling()) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette,
+                part(StylePart::root), D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            canvas.fill(preview, light);
+            for (int y = 0; y < 3; ++y) for (int x = 0; x < static_cast<int>(content.width / 14) + 1; ++x)
+                if ((x + y) % 2) canvas.fill({preview.x + x * 14, preview.y + y * 14,
+                    std::min(14.0f, std::max(0.0f, preview.width - x * 14)), 14}, dark);
             canvas.fill(preview, rgba);
-            if (fluent) canvas.rounded(preview, palette.border, 4, true);
+            if (color->has_control_styling()) canvas.styled_surface(preview, palette, part(StylePart::preview),
+                D2D1::ColorF(0, 0.0f), fluent ? palette.border : palette.text, fluent ? 4.0f : 0.0f, {1, 1, 1, 1});
+            else if (fluent) canvas.rounded(preview, palette.border, 4, true);
             else canvas.outline(preview, palette.text);
             const wchar_t* channels[]{L"Red", L"Green", L"Blue", L"Alpha"};
-            for (int i = 0; i < 4; ++i) canvas.text(channels[i], {8, 52.0f + i * 42, 52, 38}, foundation_text);
+            for (int i = 0; i < 4; ++i) {
+                const auto label = color->has_control_styling() ?
+                    color->channel_label_style_values(static_cast<std::size_t>(i)) : PartStyleValues{};
+                const auto padding = label.padding.value_or(Insets{});
+                const auto label_ink = !palette.high_contrast && label.foreground ?
+                    D2D1::ColorF(label.foreground->resolve(palette.mode)) : foundation_text;
+                const Rect rect{content.x + 8 + padding.left, content.y + 52.0f + i * 42 + padding.top,
+                    std::max(0.0f, 52 - padding.left - padding.right), std::max(0.0f, 38 - padding.top - padding.bottom)};
+                if (color->has_control_styling()) canvas.styled_text(channels[i], rect, label_ink, label);
+                else canvas.text(channels[i], rect, foundation_text);
+            }
             return;
         }
         if (peer.parent) if (auto* picker = dynamic_cast<ColorPicker*>(peer.parent->control.get())) {
             const auto children = picker->retained_children();
             for (std::size_t i = 4; i < children.size() && i - 4 < picker->swatches().size(); ++i) if (children[i].get() == &control) {
                 const auto value = picker->swatches()[i - 4];
-                const D2D1_COLOR_F rgb{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f, 1};
+                const D2D1_COLOR_F rgb{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f,
+                    picker->has_control_styling() ? value.alpha / 255.0f : 1};
+                if (picker->has_control_styling() && value.alpha < 255) {
+                    const auto* checkerboard_light = picker->effective_control_style_values(StylePart::checkerboard_light);
+                    const auto* checkerboard_dark = picker->effective_control_style_values(StylePart::checkerboard_dark);
+                    const auto light = !palette.high_contrast && checkerboard_light && checkerboard_light->background ?
+                        D2D1::ColorF(checkerboard_light->background->resolve(palette.mode)) : palette.field;
+                    const auto dark = !palette.high_contrast && checkerboard_dark && checkerboard_dark->background ?
+                        D2D1::ColorF(checkerboard_dark->background->resolve(palette.mode)) : palette.border;
+                    canvas.fill({2, 2, std::max(0.0f, bounds.width - 4), std::max(0.0f, bounds.height - 4)}, light);
+                    for (int y = 0; y * 8 < bounds.height - 4; ++y) for (int x = 0; x * 8 < bounds.width - 4; ++x)
+                        if ((x + y) % 2) canvas.fill({2.0f + x * 8, 2.0f + y * 8,
+                            std::min(8.0f, std::max(0.0f, bounds.width - 4 - x * 8)),
+                            std::min(8.0f, std::max(0.0f, bounds.height - 4 - y * 8))}, dark);
+                }
                 canvas.rounded({2, 2, std::max(0.0f, bounds.width - 4), bounds.height - 4}, rgb, 4);
                 const Rect frame{1, 1, std::max(0.0f, bounds.width - 2), bounds.height - 2};
-                if (fluent) {
+                if (picker->has_control_styling()) {
+                    const auto state = (picker->value() == value ? style_states::selected : 0) |
+                        (control.focused() ? style_states::focused : 0) |
+                        (control.hovered() ? style_states::hovered : 0) |
+                        (control.pressed() ? style_states::pressed : 0) |
+                        (!enabled(peer) ? style_states::disabled : 0);
+                    auto swatch = picker->resolve_control_style_part(StylePart::swatch, state);
+                    const auto& button = static_cast<const Button&>(control);
+                    if (button.has_control_styling() || button.effective_style_values()) {
+                        const auto child = button.surface_style_values();
+                        if (child.border_brush) swatch.border_brush = child.border_brush;
+                        if (child.border_thickness) swatch.border_thickness = child.border_thickness;
+                        if (child.corner_radius) swatch.corner_radius = child.corner_radius;
+                    }
+                    canvas.styled_surface(frame, palette, swatch, D2D1::ColorF(0, 0.0f),
+                        picker->value() == value ? palette.accent : palette.border, 4, {1, 1, 1, 1});
+                    if (control.focused()) canvas.focus_ring(frame, palette);
+                } else if (fluent) {
                     canvas.rounded(frame, palette.border, 4, true);
                     if (control.focused()) canvas.focus_ring(frame, palette);
                 } else canvas.outline(frame, control.focused() ? palette.accent : palette.text);
@@ -1913,33 +2348,97 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const bool commands = control.role() == ControlRole::command_menu;
             const auto* items = dynamic_cast<ItemsView*>(collection);
             const bool trailing_shortcuts = items && items->trailing_shortcut_badges();
-            const auto hovered = commands && control.hovered() && peer.command_pointer && enabled(peer) ?
+            const auto hovered = control.hovered() && peer.command_pointer && enabled(peer) ?
                 collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
-            const auto hovered_key = hovered && collection->source()->selectable(*hovered) ?
+            const auto hovered_key = hovered ?
                 std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
-            canvas.fill({0, 0, bounds.width, bounds.height}, commands || (fluent && peer.surface) ? palette.surface : palette.background);
-            canvas.push_clip({0, 0, std::max(0.0f, bounds.width - VirtualCollection::bar_width), bounds.height});
+            const auto collection_background = commands || (fluent && peer.surface) ? palette.surface : palette.background;
+            if (collection->has_control_styling())
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette,
+                    collection->resolve_control_style_part(StylePart::root, 0), collection_background, palette.border, 0, {});
+            else canvas.fill({0, 0, bounds.width, bounds.height}, collection_background);
+            const auto viewport = collection->content_viewport();
+            canvas.push_clip(viewport);
             for (auto row : collection->visible_content()) {
+                if (peer.command_pointer) row.hovered = row.content.enabled && enabled(peer) && hovered_key == row.key;
                 if (peer.row_images) {
                     const auto visual = peer.row_images->visual(row.key);
                     row.content.icon = visual.icon;
                     row.content.image_path = visual.image_path;
                 }
                 canvas.collection_row(row, collection->selection().contains(row.key),
-                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette, hovered_key == row.key,
-                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands);
+                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette,
+                    row.content.enabled && enabled(peer) && hovered_key == row.key,
+                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands, collection);
             }
             if (!collection->source() || !collection->source()->size())
-                canvas.text(commands ? L"No matching commands" : L"No matching items",
+                if (collection->has_control_styling()) {
+                    const auto values = collection->resolve_control_style_part(StylePart::empty, 0);
+                    canvas.styled_text(commands ? L"No matching commands" : L"No matching items",
+                        {viewport.x + 12, viewport.y + 10, std::max(0.0f, viewport.width - 24), 32},
+                        values.foreground && !palette.high_contrast ? D2D1::ColorF(values.foreground->resolve(palette.mode)) : palette.secondary, values);
+                } else canvas.text(commands ? L"No matching commands" : L"No matching items",
                     {12, 10, std::max(0.0f, bounds.width - 24), 32}, palette.secondary);
             canvas.pop_clip(); const auto thumb = collection->thumb();
             if (thumb.height) {
-                if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging, enabled(peer));
+                if (collection->has_control_styling()) {
+                    const auto track = collection->resolve_control_style_part(StylePart::scrollbar_track, 0);
+                    canvas.styled_surface({viewport.x + viewport.width, viewport.y, collection->scrollbar_width(), viewport.height},
+                        palette, track, collection_background, palette.border, 0, {});
+                    const auto values = collection->resolve_control_style_part(StylePart::scrollbar_thumb, 0);
+                    canvas.styled_surface(thumb, palette, values, enabled(peer) ? palette.secondary : palette.disabled, palette.border, 3, {});
+                } else if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging, enabled(peer));
                 else canvas.rounded(thumb, palette.secondary, 3);
             }
             return;
         }
         if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
+            if (choices->has_control_styling()) {
+                const PartStyleValues empty;
+                const auto* root_values = choices->effective_control_style_values(StylePart::root);
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
+                    palette.surface, palette.border, fluent ? 4.0f : 0.0f, {});
+                const bool radio = control.role() == ControlRole::radio_group;
+                const auto ink_for = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
+                    return !palette.high_contrast && values.foreground ?
+                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : fallback;
+                };
+                for (std::size_t i = 0; i < choices->items().size(); ++i) {
+                    const auto b = choices->item_bounds(i);
+                    if (b.height <= 0) continue;
+                    const auto& item = choices->items()[i];
+                    const bool selected = choices->selected() == item.id;
+                    const bool hovered = enabled(peer) && item.enabled && peer.hovered_choice == i;
+                    const bool pressed = hovered && peer.pressed_choice == item.id;
+                    const auto row = choices->item_style_values(StylePart::item, i, hovered, pressed);
+                    const auto label = choices->item_style_values(StylePart::label, i, hovered, pressed);
+                    auto ink = !enabled(peer) || !item.enabled ? palette.disabled :
+                        selected && !radio ? palette.selection_text : palette.text;
+                    canvas.styled_surface(b, palette, row, selected && !radio ? palette.selection :
+                        hovered && !radio ? palette.hover : D2D1::ColorF(0, 0.0f), palette.border, 4, {});
+                    if (radio) {
+                        const auto indicator = choices->item_style_values(StylePart::indicator, i, hovered, pressed);
+                        const auto mark = choices->item_style_values(StylePart::mark, i, hovered, pressed);
+                        const auto circle = choices->indicator_bounds(i, hovered, pressed);
+                        const float diameter = circle.width;
+                        canvas.styled_surface(circle, palette, indicator, selected ? palette.accent : palette.field,
+                            ink, diameter / 2, {1, 1, 1, 1});
+                        if (selected) {
+                            const float dot = std::min(diameter, mark.size.value_or(diameter / 2));
+                            canvas.rounded({circle.x + (diameter - dot) / 2, circle.y + (diameter - dot) / 2, dot, dot},
+                                ink_for(mark, palette.high_contrast ? palette.selection_text : palette.background), dot / 2);
+                        }
+                    } else if (selected) {
+                        const auto marker = choices->item_style_values(StylePart::selected_marker, i, hovered, pressed);
+                        const float width = std::min(b.width, marker.size.value_or(3));
+                        canvas.styled_surface({b.x, b.y + b.height / 4, width, b.height / 2}, palette, marker,
+                            palette.accent, palette.border, width / 2, {});
+                    }
+                    canvas.styled_text(item.text, choices->label_bounds(i, hovered, pressed), ink_for(label, ink), label);
+                    if (selected && focus_visible) canvas.focus_ring(b, palette);
+                }
+                return;
+            }
             if (!fluent)
                 canvas.fill({0, 0, bounds.width, bounds.height}, palette.surface);
             else if (control.role() != ControlRole::radio_group &&
@@ -1985,6 +2484,40 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* combo = dynamic_cast<ComboBox*>(&control)) {
+            if (combo->has_control_styling()) {
+                const PartStyleValues empty;
+                const auto part = [&](StylePart value) -> const PartStyleValues& {
+                    const auto* values = combo->effective_control_style_values(value);
+                    return values ? *values : empty;
+                };
+                const auto ink_for = [&](const PartStyleValues& values) {
+                    return !palette.high_contrast && values.foreground ?
+                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : foundation_text;
+                };
+                const auto local = [&](Rect rect) {
+                    rect.x -= control.bounds().x; rect.y -= control.bounds().y; return rect;
+                };
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
+                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+                const auto frame = local(combo->field_bounds());
+                canvas.styled_surface(frame, palette, part(StylePart::field), input_fill(peer), palette.border,
+                    fluent ? 4.0f : 6.0f, {1, 1, 1, 1});
+                const auto& header = part(StylePart::header);
+                if (const auto rect = local(combo->header_bounds()); rect.height > 0)
+                    canvas.styled_text(control.name(), rect, ink_for(header), header, TextStyle::caption);
+                if (!combo->editor()) {
+                    auto text = local(combo->editor_bounds());
+                    const float pad = std::min(12.0f, text.width / 2);
+                    text.x += pad; text.width -= 2 * pad;
+                    const auto& values = part(StylePart::text);
+                    canvas.styled_text(combo->selected_text(), text, ink_for(values), values);
+                }
+                const auto arrow = local(combo->drop_down_bounds());
+                if (fluent) canvas.chevron(arrow, ink_for(part(StylePart::arrow)), true);
+                else canvas.text(L"\u25be", arrow, ink_for(part(StylePart::arrow)));
+                if (focus_visible || IsChild(peer.window, GetFocus())) canvas.focus_ring(frame, palette);
+                return;
+            }
             const float edge = fluent ? 0.5f : 1.0f;
             const Rect face{edge, edge, std::max(0.0f, bounds.width - 2 * edge), std::max(0.0f, bounds.height - 2 * edge)};
             if (fluent) {
@@ -2009,6 +2542,28 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* expander = dynamic_cast<Expander*>(&control)) {
+            if (expander->has_control_styling()) {
+                const auto local = [&](Rect value) { value.x -= control.bounds().x; value.y -= control.bounds().y; return value; };
+                const PartStyleValues empty;
+                const auto* header = expander->effective_control_style_values(StylePart::header);
+                const auto* text = expander->effective_control_style_values(StylePart::text);
+                const auto* disclosure = expander->effective_control_style_values(StylePart::disclosure);
+                const auto face = local(expander->header_bounds());
+                canvas.styled_surface(face, palette, header ? *header : empty,
+                    control.pressed() && fluent ? palette.selection : control.hovered() ? palette.hover : palette.surface,
+                    palette.border, fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+                const auto ink = [&](const PartStyleValues* values) {
+                    return !palette.high_contrast && values && values->foreground ?
+                        D2D1::ColorF(values->foreground->resolve(palette.mode)) : foundation_text;
+                };
+                canvas.styled_text(control.name(), local(expander->header_text_bounds()), ink(text), text ? *text : empty);
+                canvas.chevron(local(expander->disclosure_bounds()), ink(disclosure), expander->expanded());
+                if (focus_visible) {
+                    if (fluent) canvas.focus_ring(face, palette);
+                    else canvas.rounded(face, palette.accent, 6, true);
+                }
+                return;
+            }
             const auto height = fluent ? std::min(bounds.height, expander->effective_header_height()) : expander->effective_header_height();
             const float edge = fluent ? 0.5f : 1.0f;
             const Rect header{edge, edge, std::max(0.0f, bounds.width - 2 * edge),
@@ -2037,9 +2592,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* range = dynamic_cast<RangeInput*>(&control)) {
-            const auto fraction = (range->preview_value() - range->range().minimum) / (range->range().maximum - range->range().minimum);
-            const auto visual = slider_visual({bounds.width, bounds.height}, range->orientation(), range->reversed(), fraction, palette.style);
+            const auto visual = range->slider_geometry();
             const auto track = visual.track, thumb = visual.thumb;
+            if (range->has_control_styling()) {
+                const PartStyleValues empty;
+                const auto part = [&](StylePart value) -> const PartStyleValues& {
+                    const auto* values = range->effective_control_style_values(value);
+                    return values ? *values : empty;
+                };
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
+                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+                const auto ink = enabled(peer) ? palette.accent : palette.disabled;
+                canvas.styled_surface(track, palette, part(StylePart::track), palette.border, palette.border, 2, {});
+                const auto& fill = part(StylePart::fill);
+                const auto fill_ink = !palette.high_contrast && fill.foreground ?
+                    D2D1::ColorF(fill.foreground->resolve(palette.mode)) : ink;
+                canvas.styled_surface(visual.filled, palette, fill, fill_ink, palette.border, 2, {});
+                canvas.styled_surface(thumb, palette, part(StylePart::thumb), ink, palette.border, thumb.width / 2, {1, 1, 1, 1});
+                if (control.focused()) canvas.focus_ring({1, 1, std::max(0.0f, bounds.width - 2),
+                    std::max(0.0f, bounds.height - 2)}, palette);
+                return;
+            }
             canvas.rounded(track, fluent && enabled(peer) ? palette.secondary : palette.border, 2);
             if (fluent && visual.filled.width > 0 && visual.filled.height > 0)
                 canvas.rounded(visual.filled, enabled(peer) ? palette.accent : palette.disabled, 2);
@@ -2059,33 +2632,211 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* progress = dynamic_cast<Progress*>(&control)) {
-            const auto thickness = style_metrics(palette.style).progress_thickness;
-            const Rect track{2, std::max(2.0f, bounds.height - 10), std::max(0.0f, bounds.width - 4), thickness};
+            const PartStyleValues empty;
+            const auto part = [&](StylePart value) -> const PartStyleValues& {
+                const auto* values = progress->has_control_styling() ? progress->effective_control_style_values(value) : nullptr;
+                return values ? *values : empty;
+            };
+            const auto& root_style = part(StylePart::root);
+            const auto& track_style = part(StylePart::track);
+            const auto& fill_style = part(StylePart::fill);
+            const auto& caption_style = part(StylePart::caption);
+            const auto thickness = track_style.thickness.value_or(style_metrics(palette.style).progress_thickness);
+            const auto content = progress->content_bounds();
+            const Rect track{content.x + 2, content.y + std::max(2.0f, content.height - std::max(10.0f, thickness + 2)),
+                std::max(0.0f, content.width - 4), std::min(thickness, content.height)};
             auto ink = !enabled(peer) ? palette.disabled : progress->state() == ProgressState::error ? palette.error :
                 progress->state() == ProgressState::paused ? palette.secondary : palette.accent;
             if (fluent && enabled(peer) && !palette.high_contrast && progress->state() == ProgressState::paused)
                 ink = D2D1::ColorF(winui_status_colors(palette.mode).warning);
-            canvas.rounded(track, palette.border, thickness / 2);
+            if (progress->has_control_styling())
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_style,
+                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            if (progress->has_control_styling())
+                canvas.styled_surface(track, palette, track_style, palette.border, palette.border, thickness / 2, {});
+            else canvas.rounded(track, palette.border, thickness / 2);
+            const auto segment = [&](Rect rect) {
+                if (progress->has_control_styling())
+                    canvas.styled_surface(rect, palette, fill_style, ink, palette.border, thickness / 2, {});
+                else canvas.rounded(rect, ink, thickness / 2);
+            };
             std::wstring text = progress->value_text();
             if (progress->state() == ProgressState::indeterminate || progress->state() == ProgressState::unknown) {
                 text = progress->state() == ProgressState::unknown ? L"Unknown" : L"In progress";
                 if (progress->state() == ProgressState::indeterminate) {
                     if (fluent)
-                        canvas.rounded({track.x + track.width * 0.3f, track.y, track.width * 0.4f, track.height}, ink, thickness / 2);
-                    else for (int i = 0; i < 5; ++i) canvas.rounded({track.x + track.width * (i + 1) / 6 - 3, track.y, 6, 6}, ink, 3);
+                        segment({track.x + track.width * 0.3f, track.y, track.width * 0.4f, track.height});
+                    else for (int i = 0; i < 5; ++i) segment({track.x + track.width * (i + 1) / 6 - 3, track.y, 6, thickness});
                 }
             } else {
                 const auto fraction = (progress->value() - progress->range().minimum) / (progress->range().maximum - progress->range().minimum);
                 if (fraction > 0)
-                    canvas.rounded({track.x, track.y, track.width * static_cast<float>(fraction), track.height}, ink, thickness / 2);
+                    segment({track.x, track.y, track.width * static_cast<float>(fraction), track.height});
                 if (text.empty()) text = std::to_wstring(static_cast<int>(fraction * 100)) + L"%";
                 if (progress->state() == ProgressState::paused) text += L" (paused)";
                 if (progress->state() == ProgressState::error) text += L" (error)";
             }
-            canvas.text(text, {4, 0, std::max(0.0f, bounds.width - 8), std::max(0.0f, bounds.height - 12)}, foundation_text, true);
+            const Rect caption{content.x + 4, content.y, std::max(0.0f, content.width - 8),
+                std::max(0.0f, track.y - content.y - 2)};
+            if (progress->has_control_styling()) {
+                const auto caption_ink = !palette.high_contrast && caption_style.foreground ?
+                    D2D1::ColorF(caption_style.foreground->resolve(palette.mode)) : foundation_text;
+                canvas.styled_text(text, caption, caption_ink, caption_style, TextStyle::caption);
+            } else canvas.text(text, caption, foundation_text, true);
             return;
         }
         if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
+            if (grid->has_control_styling()) {
+                const auto g = grid->geometry();
+                const auto view = g.viewport();
+                const auto grid_root_values = grid->part_style(StylePart::root);
+                const auto ink = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
+                    return Drawing::style_foreground(values, palette, fallback);
+                };
+                const auto inset = [](Rect box, const PartStyleValues& values, Insets fallback) {
+                    const auto p = values.padding.value_or(fallback), b = values.border_thickness.value_or(Insets{});
+                    const auto left = p.left + b.left, top = p.top + b.top;
+                    return Rect{box.x + left, box.y + top, std::max(0.0f, box.width - left - p.right - b.right),
+                        std::max(0.0f, box.height - top - p.bottom - b.bottom)};
+                };
+                const auto text = [&](std::wstring_view value, Rect box, PartStyleValues values, D2D1_COLOR_F fallback, bool numeric) {
+                    if (numeric && !values.horizontal_alignment) values.horizontal_alignment = StyleAlignment::end;
+                    canvas.styled_text(value, box, ink(values, fallback), values, TextStyle::caption);
+                };
+                const auto check = [&](Rect box, const PartStyleValues& values, bool checked, bool mixed) {
+                    if (values.empty() || palette.high_contrast) {
+                        canvas.check_indicator(box, palette, checked, enabled(peer), mixed);
+                        return;
+                    }
+                    const auto fallback = checked || mixed ? palette.accent : palette.field;
+                    canvas.styled_surface(box, palette, values, fallback, palette.border, 2, {1, 1, 1, 1});
+                    if (checked || mixed) canvas.text(mixed ? L"\u2212" : L"\u2713", inset(box, values, {}),
+                        ink(values, checked || mixed ? palette.selection_text : foundation_text));
+                };
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, grid_root_values,
+                    fluent ? palette.surface : palette.background, palette.border, fluent ? 4.0f : 0.0f,
+                    fluent ? Insets{1, 1, 1, 1} : Insets{});
+                const auto [first, end] = grid->visible_rows();
+                const auto& source = grid->source();
+                canvas.push_clip(view);
+                for (auto row = first; row < end; ++row) {
+                    const auto state = grid->row_style_states(row, enabled(peer), peer.grid_drag != 0);
+                    const bool selected = (state & style_states::selected) != 0, hovered = (state & style_states::hovered) != 0;
+                    const auto values = grid->row_style(StylePart::row, row, enabled(peer), peer.grid_drag != 0);
+                    const auto row_box = g.row(row);
+                    auto face = row_box;
+                    if (fluent) face = {face.x + 2, face.y + 2, std::max(0.0f, face.width - 4), std::max(0.0f, face.height - 4)};
+                    canvas.styled_surface(face, palette, values,
+                        selected ? palette.selection : hovered ? palette.hover : !fluent && row % 2 ? palette.surface : D2D1::ColorF(0, 0.0f),
+                        palette.border, fluent ? 4.0f : 0.0f, {});
+                    if (fluent && selected) canvas.rounded({view.x + 2, row_box.y + 9, 3, std::max(0.0f, row_box.height - 18)}, palette.accent, 1.5f);
+                    for (std::size_t c = 0; c < grid->columns().size(); ++c) {
+                        const auto source_column = grid->source_column(c);
+                        const auto cell = grid->cell_bounds(row, source_column);
+                        if (cell.x + cell.width <= view.x || cell.x >= view.x + view.width) continue;
+                        const auto& column = grid->columns()[c];
+                        canvas.push_clip(cell);
+                        auto content = inset(cell, values, {12, 0, 12, 0});
+                        const auto line = grid->row_style(StylePart::grid_line, row, enabled(peer), peer.grid_drag != 0);
+                        if (!line.empty()) {
+                            content.width = std::max(0.0f, content.width - line.thickness.value_or(1));
+                            content.height = std::max(0.0f, content.height - line.thickness.value_or(1));
+                        }
+                        const auto cell_values = grid->row_style(StylePart::cell, row, enabled(peer), peer.grid_drag != 0);
+                        const auto fallback = !enabled(peer) ? palette.disabled : selected ? palette.selection_text : palette.text;
+                        if (column.checkable) {
+                            check({cell.x + 10, cell.y + (cell.height - 16) / 2, 16, 16},
+                                grid->row_style(StylePart::indicator, row, enabled(peer), peer.grid_drag != 0), selected, false);
+                            content.x += 24; content.width = std::max(0.0f, content.width - 24);
+                        }
+                        if (source_column == 0 && peer.row_images) {
+                            const auto item_key = source->key(row);
+                            const auto visual = peer.row_images->visual(item_key);
+                            if (visual.icon != ButtonIcon::none || !visual.image_path.empty()) {
+                                canvas.item_visual(visual, peer.row_images->pixels(item_key),
+                                    {content.x, content.y + (content.height - 24) / 2, 24, 24}, ink(cell_values, fallback));
+                                content.x += 32; content.width = std::max(0.0f, content.width - 32);
+                            }
+                        }
+                        text(source->text(row, source_column), content, cell_values, fallback, column.numeric);
+                        if (!line.empty() && line.thickness.value_or(1) > 0) {
+                            const auto thickness = line.thickness.value_or(1);
+                            const auto right = cell.x + cell.width - thickness / 2, bottom = cell.y + cell.height - thickness / 2;
+                            canvas.line(right, cell.y, right, cell.y + cell.height, ink(line, palette.border), thickness);
+                            canvas.line(cell.x, bottom, cell.x + cell.width, bottom, ink(line, palette.border), thickness);
+                        }
+                        canvas.pop_clip();
+                    }
+                    if (state & style_states::focused) canvas.focus_ring({row_box.x + 1, row_box.y + 1,
+                        std::max(0.0f, row_box.width - 2), std::max(0.0f, row_box.height - 2)}, palette);
+                    else if (hovered && palette.high_contrast) canvas.outline(face, palette.text);
+                }
+                if (!source || !source->size()) canvas.text(L"No matching rows",
+                    {view.x + 16, view.y + 14, std::max(0.0f, view.width - 32), 40}, palette.secondary);
+                canvas.pop_clip();
+                canvas.push_clip(g.header());
+                canvas.fill(g.header(), palette.surface);
+                for (std::size_t c = 0; c < grid->columns().size(); ++c) {
+                    const auto column = grid->source_column(c);
+                    const auto box = g.column(grid->columns(), c);
+                    const bool dragging = peer.grid_drag >= 3 && peer.grid_column == c;
+                    const auto state = grid->header_style_states(column, enabled(peer), dragging);
+                    const auto values = grid->header_style(StylePart::header, column, enabled(peer), dragging);
+                    canvas.push_clip(box);
+                    canvas.styled_surface(box, palette, values, palette.surface, palette.border, 0, {});
+                    auto content = inset(box, values, {12, 0, 12, 0});
+                    const auto line = grid->header_style(StylePart::grid_line, column, enabled(peer), dragging);
+                    const auto thickness = line.thickness.value_or(1);
+                    content.width = std::max(0.0f, content.width - thickness);
+                    content.height = std::max(0.0f, content.height - thickness);
+                    const auto& definition = grid->columns()[c];
+                    if (definition.checkable) { content.x += 24; content.width = std::max(0.0f, content.width - 24); }
+                    if (definition.filterable) content.width = std::max(0.0f, content.width - 20);
+                    if (state & style_states::sorted) {
+                        const auto sort = grid->header_style(StylePart::sort_icon, column, enabled(peer), dragging);
+                        canvas.symbol(grid->descending() ? Symbol::down : Symbol::up,
+                            {content.x + std::max(0.0f, content.width - 20), content.y, 20, content.height}, ink(sort, foundation_text), 12);
+                        content.width = std::max(0.0f, content.width - 20);
+                    }
+                    text(definition.name, content, values, enabled(peer) ? palette.secondary : palette.disabled, definition.numeric);
+                    if (definition.checkable) check({box.x + 10, box.y + (box.height - 16) / 2, 16, 16},
+                        grid->header_style(StylePart::indicator, column, enabled(peer), dragging),
+                        (state & style_states::checked) != 0, (state & style_states::mixed) != 0);
+                    if (definition.filterable) {
+                        const auto filter = grid->header_style(StylePart::filter_icon, column, enabled(peer), dragging);
+                        canvas.symbol(Symbol::filter, grid->header_part_bounds(column, GridHeaderPart::filter),
+                            ink(filter, state & style_states::filtered ? palette.accent : palette.secondary), 12);
+                    }
+                    if (thickness > 0) {
+                        const auto right = box.x + box.width - thickness / 2, bottom = box.y + box.height - thickness / 2;
+                        canvas.line(right, box.y + 8, right, box.y + std::max(8.0f, box.height - 8), ink(line, palette.border), thickness);
+                        canvas.line(box.x, bottom, box.x + box.width, bottom, ink(line, palette.border), thickness);
+                    }
+                    if (state & style_states::focused) canvas.focus_ring(grid->header_part_bounds(column, grid->header_part()), palette);
+                    canvas.pop_clip();
+                }
+                if (peer.grid_drag == 5) {
+                    float marker = g.left - static_cast<float>(grid->horizontal_offset());
+                    for (std::size_t c = 0; c < std::min(peer.grid_drop, grid->columns().size()); ++c) marker += grid->columns()[c].width;
+                    const auto values = grid->part_style(StylePart::reorder_marker, style_states::dragging);
+                    const auto thickness = values.thickness.value_or(3);
+                    if (thickness > 0) canvas.fill({marker - thickness / 2, g.top + 2, thickness, std::max(0.0f, g.header_height - 4)}, ink(values, palette.accent));
+                }
+                canvas.pop_clip();
+                for (bool vertical : {true, false}) {
+                    const bool dragging = peer.grid_drag == (vertical ? 1 : 2);
+                    const auto state = dragging ? style_states::dragging : 0;
+                    const auto track = grid->part_style(StylePart::scrollbar_track, state);
+                    canvas.styled_surface(vertical ? g.vertical_track() : g.horizontal_track(), palette, track,
+                        ink(track, D2D1::ColorF(0, 0.0f)), palette.border, 0, {});
+                    const auto thumb = vertical ? grid->vertical_thumb() : grid->horizontal_thumb();
+                    if (thumb.width <= 0 || thumb.height <= 0) continue;
+                    const auto values = grid->part_style(StylePart::scrollbar_thumb, state);
+                    if (values.empty()) canvas.scrollbar_thumb(thumb, palette, dragging, enabled(peer));
+                    else canvas.styled_surface(thumb, palette, values, ink(values, enabled(peer) ? palette.secondary : palette.disabled), palette.border, 3, {});
+                }
+                return;
+            }
             canvas.fill({0, 0, bounds.width, bounds.height}, fluent ? palette.surface : palette.background);
             canvas.push_clip({0, 0, grid->viewport_width(), bounds.height});
             const auto [first, end] = grid->visible_rows();
@@ -2197,22 +2948,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* chart = dynamic_cast<HistoryChart*>(&control)) {
-            const Rect plot{12, 38, std::max(0.0f, bounds.width - 24), std::max(0.0f, bounds.height - 58)};
-            if (fluent) canvas.surface_frame({1, 1, bounds.width - 2, bounds.height - 2}, palette);
+            const auto plot = chart->plot_bounds();
+            const auto chart_root_values = chart->part_style(StylePart::root), title = chart->part_style(StylePart::title),
+                caption = chart->part_style(StylePart::caption), grid_line = chart->part_style(StylePart::grid_line), series = chart->part_style(StylePart::plot);
+            if (chart->has_control_styling()) canvas.styled_surface({1, 1, bounds.width - 2, bounds.height - 2}, palette, chart_root_values,
+                palette.surface, palette.border, VisualMetrics::radius, fluent ? Insets{1, 1, 1, 1} : Insets{});
+            else if (fluent) canvas.surface_frame({1, 1, bounds.width - 2, bounds.height - 2}, palette);
             else canvas.rounded({1, 1, bounds.width - 2, bounds.height - 2}, palette.surface);
-            canvas.text(chart->name(), {12, 2, bounds.width - 24, 32}, foundation_text, true);
+            if (title.empty()) canvas.text(chart->name(), chart->title_bounds(), foundation_text, true);
+            else canvas.styled_text(chart->name(), chart->title_bounds(), Drawing::style_foreground(title, palette, foundation_text), title, TextStyle::caption);
+            if (chart->has_control_styling()) canvas.push_clip(plot);
             for (int i = 0; i <= 4; ++i) {
                 const float y = plot.y + plot.height * i / 4;
-                canvas.line(plot.x, y, plot.x + plot.width, y, palette.border);
+                if (grid_line.thickness.value_or(1) > 0) canvas.line(plot.x, y, plot.x + plot.width, y,
+                    Drawing::style_foreground(grid_line, palette, palette.border), grid_line.thickness.value_or(1));
             }
             for (std::size_t i = 1; i < chart->size(); ++i) {
                 const auto before = chart->at(i - 1), after = chart->at(i);
                 if (!before || !after) continue;
                 const float x = plot.x + plot.width * static_cast<float>(HistoryChart::capacity - chart->size() + i) / (HistoryChart::capacity - 1);
-                canvas.line(x - plot.width / (HistoryChart::capacity - 1), plot.y + plot.height * static_cast<float>(1 - *before / chart->maximum()),
-                    x, plot.y + plot.height * static_cast<float>(1 - *after / chart->maximum()), palette.accent, 2);
+                if (series.thickness.value_or(2) > 0) canvas.line(x - plot.width / (HistoryChart::capacity - 1), plot.y + plot.height * static_cast<float>(1 - *before / chart->maximum()),
+                    x, plot.y + plot.height * static_cast<float>(1 - *after / chart->maximum()),
+                    Drawing::style_foreground(series, palette, palette.accent), series.thickness.value_or(2));
             }
-            canvas.text(L"60 samples   \u00b7   oldest \u2192 newest", {12, bounds.height - 22, bounds.width - 24, 20}, palette.secondary, true);
+            if (chart->has_control_styling()) canvas.pop_clip();
+            if (caption.empty()) canvas.text(L"60 samples   \u00b7   oldest \u2192 newest", chart->caption_bounds(), palette.secondary, true);
+            else canvas.styled_text(L"60 samples   \u00b7   oldest \u2192 newest", chart->caption_bounds(),
+                Drawing::style_foreground(caption, palette, palette.secondary), caption, TextStyle::caption);
             return;
         }
         if (control.role() == ControlRole::content_view) return;
@@ -2221,9 +2983,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             auto d = split.divider();
             if (!d.width) return;
             d.x -= bounds.x; d.y -= bounds.y;
-            canvas.fill(d, palette.background);
-            canvas.rounded({d.x + 3, d.height / 2 - 22, 4, 44},
-                control.focused() || peer.dragging ? palette.accent : fluent ? palette.secondary : palette.border, 2);
+            const auto* divider_style = split.effective_control_style_values(StylePart::divider);
+            const auto* grip_style = split.effective_control_style_values(StylePart::grip);
+            const PartStyleValues empty;
+            canvas.styled_surface(d, palette, divider_style ? *divider_style : empty, palette.background, palette.border, 0, {});
+            const auto width = std::min(4.0f, d.width), height = std::min(44.0f, d.height);
+            canvas.styled_surface({d.x + (d.width - width) / 2, d.y + (d.height - height) / 2, width, height},
+                palette, grip_style ? *grip_style : empty,
+                control.focused() || peer.dragging ? palette.accent : fluent ? palette.secondary : palette.border,
+                palette.border, 2, {});
             if (fluent && control.focused()) canvas.focus_ring(d, palette, 2);
             return;
         }
@@ -2234,15 +3002,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (peer.image) {
-            canvas.fill({0, 0, bounds.width, bounds.height}, palette.surface);
-            peer.image->paint(canvas, {2, 2, std::max(0.0f, bounds.width - 4), std::max(0.0f, bounds.height - 4)});
             const auto& image = static_cast<const Image&>(control);
+            const auto* root_values = image.effective_control_style_values(StylePart::root);
+            const auto area = image.content_bounds();
+            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
+                palette.surface, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+            else canvas.fill({0, 0, bounds.width, bounds.height}, palette.surface);
+            const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
+                {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
+            if (root_values) canvas.push_clip(area);
+            peer.image->paint(canvas, area);
             if (image.status() != ImageStatus::ready)
-                canvas.text(image.status() == ImageStatus::error ? image.error() :
+                paint_host_text(control, image.status() == ImageStatus::error ? StylePart::error : StylePart::placeholder,
+                    image.status() == ImageStatus::error ? image.error() :
                     image.status() == ImageStatus::loading ? L"Loading image..." : L"No image",
-                    {8, 0, std::max(0.0f, bounds.width - 16), bounds.height},
-                    image.status() == ImageStatus::error ? palette.error : palette.secondary, true);
-            if (fluent) canvas.rounded({1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)}, palette.border, 4, true);
+                    root_values ? Rect{area.x + 6, area.y, std::max(0.0f, area.width - 12), area.height} :
+                        Rect{8, 0, std::max(0.0f, bounds.width - 16), bounds.height},
+                    image.status() == ImageStatus::error ? palette.error : palette.secondary);
+            if (root_values) canvas.pop_clip();
+            if (rounded_clip) canvas.pop_rounded_clip();
+            if (!root_values && fluent) canvas.rounded({1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)}, palette.border, 4, true);
+            if (focus_visible) canvas.focus_ring({0, 0, bounds.width, bounds.height}, palette);
             return;
         }
         if (control.role() == ControlRole::scroll_view) {
@@ -2251,11 +3031,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             auto thumb = scroll.thumb();
             thumb.x -= bounds.x;
             thumb.y -= bounds.y;
-            if (!scroll.overlay_scrollbar())
-                canvas.fill({std::max(0.0f, bounds.width - ScrollView::bar_width), 0,
-                    std::min(bounds.width, ScrollView::bar_width), bounds.height}, palette.background);
+            const auto* track_style = scroll.effective_control_style_values(StylePart::scrollbar_track);
+            const auto* thumb_style = scroll.effective_control_style_values(StylePart::scrollbar_thumb);
+            if (!scroll.overlay_scrollbar() || track_style) {
+                auto track = scroll.scrollbar_track(); track.x -= bounds.x; track.y -= bounds.y;
+                const PartStyleValues empty;
+                canvas.styled_surface(track, palette, track_style ? *track_style : empty, palette.background, palette.border, 0, {});
+            }
             if (thumb.height) {
-                if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
+                if (thumb_style) canvas.styled_surface(thumb, palette, *thumb_style,
+                    !enabled(peer) ? palette.border : peer.dragging || control.hovered() ? palette.accent : palette.secondary,
+                    palette.border, 4, {});
+                else if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
                 else canvas.rounded(thumb, control.enabled() ?
                     (peer.dragging || control.hovered() ? palette.accent : palette.secondary) : palette.border, 4);
             }
@@ -2267,8 +3054,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (is_caption_button(control)) {
-            canvas.caption_button({0, 0, bounds.width, bounds.height}, static_cast<const Button&>(control).icon(),
-                palette, caption_active, enabled(peer), control.hovered(), control.pressed(), control.focused());
+            const auto& button = static_cast<const Button&>(control);
+            const auto state = (caption_active ? style_states::active : style_states::inactive) |
+                (titlebar->maximized() ? style_states::maximized : 0) |
+                (control.hovered() ? style_states::hovered : 0) | (control.pressed() ? style_states::pressed : 0) |
+                (control.focused() ? style_states::focused : 0) | (!enabled(peer) ? style_states::disabled : 0);
+            auto values = titlebar->has_control_styling() ? titlebar->resolve_control_style_part(
+                button.icon() == ButtonIcon::close ? StylePart::caption_close : StylePart::caption_button, state) : PartStyleValues{};
+            values = merge_part_values(std::move(values), button.surface_style_values());
+            const auto icon_values = button.content_style_values(StylePart::icon);
+            canvas.caption_button({0, 0, bounds.width, bounds.height}, button.icon(),
+                palette, caption_active, enabled(peer), control.hovered(), control.pressed(), control.focused(),
+                values.empty() ? nullptr : &values, nullptr, icon_values.empty() ? nullptr : &icon_values);
             return;
         }
         const auto* wrapping_label = dynamic_cast<const Label*>(&control);
@@ -2286,6 +3083,66 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const Rect box{inset_size, inset_size, std::max(0.0f, bounds.width - 2 * inset_size), std::max(0.0f, bounds.height - 2 * inset_size)};
         const auto text = enabled(peer) ? palette.text : palette.disabled;
         const auto role = control.role();
+        if (role == ControlRole::button) {
+            if (const auto owner = peer.clear_owner.lock(); owner && (owner->has_control_styling() || control.has_control_styling())) {
+                const auto& input = static_cast<const TextInput&>(*owner);
+                const auto state = (control.focused() ? style_states::focused : 0) |
+                    (control.hovered() ? style_states::hovered : 0) | (control.pressed() ? style_states::pressed : 0) |
+                    (!enabled(peer) ? style_states::disabled : 0) | (input.text().empty() ? style_states::empty : 0);
+                const auto defaults = input.resolve_control_style_part(StylePart::clear_action, state);
+                if (!defaults.empty() || control.has_control_styling()) {
+                    canvas.styled_button(static_cast<const Button&>(control), {0, 0, bounds.width, bounds.height},
+                        palette, enabled(peer), focus_visible, {}, 0, {}, &defaults,
+                        fluent ? std::optional{Symbol::clear} : std::nullopt);
+                    return;
+                }
+            }
+        }
+        if (role == ControlRole::button && peer.parent) {
+            const auto* breadcrumb = dynamic_cast<const Breadcrumb*>(peer.parent->control.get());
+            if (breadcrumb && (breadcrumb->has_control_styling() || control.has_control_styling())) {
+                const auto& button = static_cast<const Button&>(control);
+                bool separator = &button == breadcrumb->overflow_button().get();
+                std::wstring_view label;
+                const auto children = breadcrumb->retained_children();
+                for (std::size_t i = 0; i < breadcrumb->segments().size(); ++i) if (children[i + 1].get() == &button) {
+                    label = breadcrumb->segments()[i].label;
+                    separator = i + 1 != breadcrumb->segments().size();
+                    break;
+                }
+                const auto content = button.content_bounds({0, 0, bounds.width, bounds.height});
+                const auto arrow = &button == breadcrumb->overflow_button().get() ?
+                    button.content_style_values(StylePart::arrow) : PartStyleValues{};
+                const auto arrow_padding = arrow.padding.value_or(Insets{});
+                const auto separator_width = separator ?
+                    std::min(arrow.size.value_or(20.0f) + arrow_padding.left + arrow_padding.right, content.width / 2) : 0.0f;
+                canvas.styled_button(button, {0, 0, bounds.width, bounds.height}, palette, enabled(peer), focus_visible,
+                    label, separator_width);
+                if (separator) {
+                    const auto* values = breadcrumb->effective_control_style_values(StylePart::separator);
+                    auto ink = values && values->foreground && !palette.high_contrast ?
+                        D2D1::ColorF(values->foreground->resolve(palette.mode)) : text;
+                    if (arrow.foreground && !palette.high_contrast) ink = D2D1::ColorF(arrow.foreground->resolve(palette.mode));
+                    const Rect glyph{content.x + content.width - separator_width + arrow_padding.left,
+                        content.y + arrow_padding.top,
+                        std::max(0.0f, separator_width - arrow_padding.left - arrow_padding.right),
+                        std::max(0.0f, content.height - arrow_padding.top - arrow_padding.bottom)};
+                    canvas.symbol(Symbol::breadcrumb_separator,
+                        glyph, ink, std::min({arrow.size ? *arrow.size * 0.6f : 12.0f, glyph.width, glyph.height}));
+                }
+                return;
+            }
+        }
+        if (role == ControlRole::button && control.has_control_styling()) {
+            std::optional<bool> step_increment;
+            if (peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
+                const auto& numeric = static_cast<const NumericInput&>(*peer.parent->control);
+                step_increment = numeric.increase_button().get() == &control;
+            }
+            canvas.styled_button(static_cast<const Button&>(control), {0, 0, bounds.width, bounds.height},
+                palette, enabled(peer), focus_visible, {}, 0, step_increment);
+            return;
+        }
         if (role == ControlRole::toggle && control.has_control_styling()) {
             canvas.styled_toggle(static_cast<const Toggle&>(control), {0, 0, bounds.width, bounds.height},
                 palette, enabled(peer), peer.text_layout.Get(), focus_visible);
@@ -2293,6 +3150,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (role == ControlRole::label) {
             auto& label = static_cast<Label&>(control);
+            if (label.has_control_styling()) {
+                canvas.styled_label(label, {0, 0, bounds.width, bounds.height}, palette, enabled(peer));
+                return;
+            }
             const auto color = !enabled(peer) ? palette.disabled : label.tone() == TextTone::accent ? palette.accent :
                 label.tone() == TextTone::secondary ? palette.secondary :
                 label.tone() == TextTone::error ? palette.error : text;
@@ -2473,12 +3334,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     double range_fraction(const RangeInput& range, LPARAM point) const {
-        const bool vertical = range.orientation() == Axis::vertical;
-        const double length = (vertical ? range.bounds().height : range.bounds().width) - 24;
-        if (length <= 0) return 0;
-        const double coordinate = (vertical ? GET_Y_LPARAM(point) : GET_X_LPARAM(point)) * 96.0 / dpi;
-        const double fraction = (coordinate - 12) / length;
-        return vertical ? 1 - fraction : fraction;
+        return range.slider_geometry().pointer_fraction(
+            {GET_X_LPARAM(point) * 96.0f / dpi, GET_Y_LPARAM(point) * 96.0f / dpi}, range.orientation());
     }
     LRESULT control_message(Peer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         auto& control = *peer.control;
@@ -2497,7 +3354,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         };
         const auto choice_hit = [&](const RadioGroup& choices) {
             auto hit = choices.hit_test(GET_Y_LPARAM(lparam) * 96.0f / dpi);
-            if (hit && options.visual_style == VisualStyle::winui) {
+            if (hit && (options.visual_style == VisualStyle::winui || choices.has_control_styling())) {
                 const auto body = choices.item_bounds(*hit);
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
                 if (!inside() || x < body.x || x >= body.x + body.width) hit.reset();
@@ -2522,7 +3379,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
                 POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
                 const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
-                const auto cursor = peer.grid_drag == 3 || (y >= 0 && y < DataGrid::header_height && grid->resize_boundary(x)) ?
+                const auto cursor = peer.grid_drag == 3 || (y >= grid->geometry().top && y < grid->geometry().header_bottom() && grid->resize_boundary(x)) ?
                     IDC_SIZEWE : peer.grid_drag == 5 ? IDC_SIZEALL : IDC_ARROW;
                 SetCursor(LoadCursorW(nullptr, cursor)); return TRUE;
             }
@@ -2539,7 +3396,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* map = dynamic_cast<MapView*>(&control)) {
                 if (!enabled(peer)) return 0;
                 POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                map->zoom_at(GET_WHEEL_DELTA_WPARAM(wparam) / 120.0, {point.x * 96.0f / dpi, point.y * 96.0f / dpi}); return 0;
+                map->zoom_at(GET_WHEEL_DELTA_WPARAM(wparam) / 120.0,
+                    {point.x * 96.0f / dpi, point.y * 96.0f / dpi}); return 0;
             }
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
                 if (!enabled(peer)) return 0;
@@ -2552,7 +3410,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 peer.wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
                 const int ticks = peer.wheel_remainder / WHEEL_DELTA;
                 peer.wheel_remainder %= WHEEL_DELTA;
-                grid->set_offset(grid->offset() - ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) ? 0 : ticks * 96),
+                grid->set_offset(grid->offset() - ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) ? 0 : ticks * 3.0 * grid->effective_row_height()),
                     grid->horizontal_offset() - ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) ? ticks * 96 : 0));
                 return 0;
             }
@@ -2626,11 +3484,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control); collection && (peer.collection_drag || peer.collection_scroll)) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 if (peer.collection_scroll) {
-                    const auto track = control.bounds().height - collection->thumb().height;
+                    const auto track = collection->content_viewport().height - collection->thumb().height;
                     if (track > 0) collection->set_offset(peer.drag_offset + (y - peer.drag_y) * collection->maximum_offset() / track);
                 } else if (peer.collection_anchor) {
-                    if (const auto row = collection->hit_test({std::clamp(x, 0.0f, std::max(0.0f, control.bounds().width - 13)),
-                        std::clamp(y, 0.0f, std::max(0.0f, control.bounds().height - 1))})) {
+                    const auto viewport = collection->content_viewport();
+                    if (const auto row = collection->hit_test({std::clamp(x, viewport.x, viewport.x + std::max(0.0f, viewport.width - 1)),
+                        std::clamp(y, viewport.y, viewport.y + std::max(0.0f, viewport.height - 1))})) {
                         collection->set_selection(peer.collection_before);
                         collection->select_rectangle(*peer.collection_anchor, collection->source()->key(*row), peer.collection_additive);
                     }
@@ -2648,9 +3507,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (peer.grid_drag == 4 && (std::abs(x - peer.drag_y) >= 6 || std::abs(y - peer.drag_offset) >= 6))
                         peer.grid_drag = 5;
                     if (peer.grid_drag == 5) {
-                        if (x < 24 || x > grid.viewport_width() - 24)
-                            grid.set_offset(grid.offset(), grid.horizontal_offset() + (x < 24 ? -32 : 32));
-                        float edge = -static_cast<float>(grid.horizontal_offset());
+                        const auto view = grid.geometry().viewport();
+                        if (x < view.x + 24 || x > view.x + view.width - 24)
+                            grid.set_offset(grid.offset(), grid.horizontal_offset() + (x < view.x + 24 ? -32 : 32));
+                        float edge = view.x - static_cast<float>(grid.horizontal_offset());
                         peer.grid_drop = 0;
                         for (const auto& column : grid.columns()) {
                             if (x < edge + column.width / 2) break;
@@ -2671,23 +3531,25 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (peer.dragging) {
                 if (auto split = dynamic_cast<SplitView*>(&control)) {
-                    const float width = split->bounds().width - SplitView::divider_width;
-                    if (width > 0) split->set_ratio((GET_X_LPARAM(lparam) * 96.0f / dpi - peer.drag_offset) / width);
+                    const auto area = split->pane_area();
+                    const float width = area.width - split->effective_divider_width();
+                    if (width > 0) split->set_ratio((GET_X_LPARAM(lparam) * 96.0f / dpi - peer.drag_offset -
+                        (area.x - split->bounds().x)) / width);
                     update();
                     return 0;
                 }
                 auto& scroll = static_cast<ScrollView&>(control);
-                const float track = scroll.bounds().height - scroll.thumb().height;
+                const float track = scroll.scrollbar_thumb_track().height - scroll.thumb().height;
                 if (track > 0) scroll.set_offset(peer.drag_offset +
                     (GET_Y_LPARAM(lparam) * 96.0f / dpi - peer.drag_y) * scroll.maximum_offset() / track);
                 update();
                 return 0;
             }
-            if (auto* menu = dynamic_cast<CommandMenu*>(&control)) {
+            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                const auto previous = peer.command_pointer ? menu->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
+                const auto previous = peer.command_pointer ? collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
                 peer.command_pointer = point;
-                if (previous != menu->hit_test(point)) invalidate(Invalidation::paint);
+                if (previous != collection->hit_test(point)) invalidate(Invalidation::paint);
             }
             control.pointer_move(inside());
             if (control.captured() && control.hovered() && peer.repeat_cycle && !peer.repeating) repeat_start(peer, false);
@@ -2710,7 +3572,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 SetFocus(hwnd);
                 const Point p{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
                 const auto area = vector->canvas_bounds();
-                if (p.x < 0 || p.y < 0 || p.x >= area.width || p.y >= area.height) return 0;
+                if (p.x < area.x || p.y < area.y || p.x >= area.x + area.width || p.y >= area.y + area.height) return 0;
                 if (auto id = vector->hit_test(p)) { vector->select(*id); return 0; }
                 if (dynamic_cast<MapView*>(vector)) { peer.dragging = true; peer.drag_offset = p.x; peer.drag_y = p.y; SetCapture(hwnd); }
                 return 0;
@@ -2718,17 +3580,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
                 SetFocus(hwnd);
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                if (point.x >= control.bounds().width - VirtualCollection::bar_width) {
+                const auto viewport = collection->content_viewport();
+                if (point.x >= viewport.x + viewport.width && point.x < viewport.x + viewport.width + collection->scrollbar_width() &&
+                    point.y >= viewport.y && point.y < viewport.y + viewport.height) {
                     const auto thumb = collection->thumb();
                     if (thumb.height && point.y >= thumb.y && point.y < thumb.y + thumb.height) {
                         peer.collection_scroll = true; peer.drag_y = point.y; peer.drag_offset = static_cast<float>(collection->offset()); SetCapture(hwnd);
-                    } else collection->set_offset(collection->offset() + (point.y < thumb.y ? -control.bounds().height : control.bounds().height));
+                    } else collection->set_offset(collection->offset() +
+                        (point.y < thumb.y ? -collection->content_viewport().height : collection->content_viewport().height));
                 } else if (const auto index = collection->hit_test(point)) {
                     const auto source = collection->source(); const auto item_key = source->key(*index);
                     const auto info = source->hierarchy(*index); const auto b = collection->item_bounds(*index);
                     const auto* nav_list = dynamic_cast<NavigationList*>(collection);
                     const bool disclosure = nav_list ? nav_list->disclosure_hit(point) :
-                        info.expandable && point.x < b.x + 34 + std::min<float>(static_cast<float>(info.depth) * 20, b.width / 3);
+                        collection->disclosure_hit(*index, point);
                     if (disclosure) { collection->disclose(item_key, !info.expanded); return 0; }
                     if (b.width >= 160 && point.x >= b.x + b.width - 74 && !source->item(*index).action.empty()) {
                         collection->activate_item(item_key, true); return 0;
@@ -2770,17 +3635,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 grid->hover_pointer({});
                 SetFocus(hwnd);
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                if (x >= grid->viewport_width() && y >= DataGrid::header_height) {
+                const auto g = grid->geometry();
+                const auto vertical_track = g.vertical_track(), horizontal_track = g.horizontal_track();
+                const auto contains = [x, y](Rect box) { return x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height; };
+                if (contains(vertical_track)) {
                     const auto thumb = grid->vertical_thumb();
                     if (thumb.height && y >= thumb.y && y < thumb.y + thumb.height) {
                         peer.grid_drag = 1; peer.drag_y = y; peer.drag_offset = static_cast<float>(grid->offset()); SetCapture(hwnd);
                     } else grid->set_offset(grid->offset() + (y < thumb.y ? -grid->viewport_height() : grid->viewport_height()), grid->horizontal_offset());
-                } else if (y >= control.bounds().height - DataGrid::bar_width) {
+                } else if (contains(horizontal_track)) {
                     const auto thumb = grid->horizontal_thumb();
                     if (thumb.width && x >= thumb.x && x < thumb.x + thumb.width) {
                         peer.grid_drag = 2; peer.drag_y = x; peer.drag_offset = static_cast<float>(grid->horizontal_offset()); SetCapture(hwnd);
                     } else grid->set_offset(grid->offset(), grid->horizontal_offset() + (x < thumb.x ? -grid->viewport_width() : grid->viewport_width()));
-                } else if (y < DataGrid::header_height) {
+                } else if (contains(g.header())) {
                     if (const auto c = grid->resize_boundary(x)) {
                         peer.grid_drag = 3; peer.grid_column = *c; peer.drag_y = x; peer.drag_offset = grid->columns()[*c].width;
                         SetCapture(hwnd); return 0;
@@ -2793,7 +3661,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         peer.grid_drag = 4; peer.grid_column = *column; peer.grid_drop = *column;
                         peer.drag_y = x; peer.drag_offset = y; SetCapture(hwnd);
                     }
-                } else if (const auto row = grid->row_at(y)) {
+                } else if (const auto row = contains(g.viewport()) ? grid->row_at(y) : std::nullopt) {
                     const auto column = grid->column_at(x);
                     if (column && grid->columns()[*column].checkable && grid->header_part_at(x) == GridHeaderPart::check)
                         grid->toggle_check(grid->source()->key(*row));
@@ -2807,7 +3675,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
                 keyboard_focus_visible = false;
                 invalidate(Invalidation::paint);
-                if (auto index = tabs->hit_test(GET_X_LPARAM(lparam) * 96.0f / dpi)) {
+                if (auto index = tabs->hit_test(Point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
                     const auto close = tabs->close_bounds(*index);
                     const auto id = tabs->tabs()[*index].id;
                     const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
@@ -2824,6 +3692,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (x >= d.x - split->bounds().x && x < d.x - split->bounds().x + d.width) {
                     SetFocus(hwnd);
                     peer.dragging = true;
+                    split->set_style_dragging(true);
                     peer.drag_offset = x - (d.x - split->bounds().x);
                     SetCapture(hwnd);
                 }
@@ -2835,13 +3704,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const float y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
                 const auto thumb = scroll.thumb();
-                if (x >= scroll.bounds().width - ScrollView::bar_width && thumb.height) {
+                const auto track = scroll.scrollbar_track();
+                if (x >= track.x - scroll.bounds().x && x < track.x + track.width - scroll.bounds().x &&
+                    y >= track.y - scroll.bounds().y && y < track.y + track.height - scroll.bounds().y && thumb.height) {
                     if (y >= thumb.y - scroll.bounds().y && y < thumb.y - scroll.bounds().y + thumb.height) {
                         peer.dragging = true;
+                        scroll.set_style_dragging(true);
                         peer.drag_y = y;
                         peer.drag_offset = scroll.offset();
                         SetCapture(hwnd);
-                    } else scroll.scroll_by(y < thumb.y - scroll.bounds().y ? -scroll.bounds().height : scroll.bounds().height);
+                    } else scroll.scroll_by(y < thumb.y - scroll.bounds().y ? -scroll.viewport().height : scroll.viewport().height);
                     update();
                 }
                 return 0;
@@ -2882,7 +3754,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && peer.grid_drag >= 4 && enabled(peer)) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                if (y >= 0 && y < DataGrid::header_height && x >= 0 && x < grid->viewport_width()) {
+                const auto header = grid->geometry().header();
+                if (y >= header.y && y < header.y + header.height && x >= header.x && x < header.x + header.width) {
                     if (peer.grid_drag == 5) {
                         const auto to = peer.grid_drop - (peer.grid_drop > peer.grid_column ? 1 : 0);
                         grid->reorder_column(peer.grid_column, to);
@@ -2894,6 +3767,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             peer.grid_drag = 0;
             peer.dragging = false;
+            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
+            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
             if (is_caption_button(control)) control.pointer_move(inside());
             activated(peer, control.pointer_up(inside()));
             if (GetCapture() == hwnd) ReleaseCapture();
@@ -2915,6 +3790,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return control_message(peer, hwnd, WM_LBUTTONDOWN, wparam, lparam);
         case WM_CANCELMODE:
+            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
+            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
@@ -2925,6 +3802,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_CAPTURECHANGED:
+            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
+            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
@@ -2937,7 +3816,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (wparam == VK_LEFT || wparam == VK_RIGHT) { map->pan(wparam == VK_LEFT ? 32 : -32, 0); return 0; }
                 if (wparam == VK_UP || wparam == VK_DOWN) { map->pan(0, wparam == VK_UP ? 32 : -32); return 0; }
                 if (wparam == VK_ADD || wparam == VK_OEM_PLUS || wparam == VK_SUBTRACT || wparam == VK_OEM_MINUS) {
-                    const auto b = map->canvas_bounds(); map->zoom_at(wparam == VK_ADD || wparam == VK_OEM_PLUS ? 1 : -1, {b.width / 2, b.height / 2}); return 0;
+                    const auto b = map->canvas_bounds();
+                    map->zoom_at(wparam == VK_ADD || wparam == VK_OEM_PLUS ? 1 : -1, {b.x + b.width / 2, b.y + b.height / 2}); return 0;
                 }
                 if (wparam == VK_HOME) { map->set_view({}, 1); return 0; }
             }
@@ -2966,7 +3846,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (wparam == VK_LEFT || wparam == VK_RIGHT) { collection->horizontal(wparam == VK_RIGHT, gesture()); return 0; }
                 if (wparam == VK_HOME || wparam == VK_END) { collection->edge(wparam == VK_END, gesture()); return 0; }
                 if (wparam == VK_PRIOR || wparam == VK_NEXT) {
-                    collection->step((wparam == VK_PRIOR ? -1 : 1) * std::max(1, static_cast<int>(control.bounds().height / collection->item_size().height)) *
+                    collection->step((wparam == VK_PRIOR ? -1 : 1) * std::max(1, static_cast<int>(collection->content_viewport().height / collection->item_size().height)) *
                         static_cast<int>(collection->columns()), gesture()); return 0;
                 }
                 if (wparam == VK_SPACE && collection->selection().focused()) {
@@ -3056,7 +3936,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (wparam == VK_DOWN) { grid->focus_header(false); grid->step(0); return 0; }
                 } else {
                     if (wparam == VK_UP || wparam == VK_DOWN) { grid->step(wparam == VK_UP ? -1 : 1, gesture()); return 0; }
-                    if (wparam == VK_PRIOR || wparam == VK_NEXT) { grid->step((wparam == VK_PRIOR ? -1 : 1) * std::max(1, static_cast<int>(grid->viewport_height() / DataGrid::row_height)), gesture()); return 0; }
+                    if (wparam == VK_PRIOR || wparam == VK_NEXT) { grid->step((wparam == VK_PRIOR ? -1 : 1) * grid->page_rows(), gesture()); return 0; }
                     if (wparam == VK_HOME || wparam == VK_END) { grid->edge(wparam == VK_END, gesture()); return 0; }
                     if (wparam == VK_SPACE) { if (!(lparam & (1LL << 30)) && grid->selected()) grid->toggle_check(grid->selected()); return 0; }
                     if (wparam == VK_RETURN) { if (!(lparam & (1LL << 30))) grid->activate_selected(); return 0; }
@@ -3328,8 +4208,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) { hide_tooltip(); return 0; }
                 for (const auto& peer : peers) if (peer->control->id() == tooltip_target && visible(*peer) && enabled(*peer)) {
                     if (peer->control->help_text().empty()) break;
-                    const auto view = root->bounds();
-                    tooltip_bounds = place_popup(peer->control->bounds(), {std::min(400.0f, view.width), 48}, view, PopupPlacement::below);
+                    place_tooltip(*peer);
                     tooltip_shown = true; invalidate(Invalidation::paint); return 0;
                 }
                 hide_tooltip(); return 0;
@@ -3353,6 +4232,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_CANCELMODE: cancel_input(); return DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_ACTIVATE:
             caption_active = LOWORD(wparam) != WA_INACTIVE;
+            if (titlebar) titlebar->set_active(caption_active);
             if (titlebar) invalidate(Invalidation::paint);
             if (LOWORD(wparam) == WA_INACTIVE && !IsChild(hwnd, reinterpret_cast<HWND>(lparam))) {
                 cancel_input();
@@ -3439,14 +4319,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 (reinterpret_cast<HWND>(lparam) && GetDlgCtrlID(reinterpret_cast<HWND>(lparam)) >= 100);
             bool on_surface{};
             auto editable_fill = palette.field;
+            auto native_ink = IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ? palette.text : palette.disabled;
+            bool styled_field{};
             for (const auto& peer : peers) {
-                if (peer->caption == reinterpret_cast<HWND>(lparam)) { on_surface = peer->surface; break; }
-                if (peer->edit && peer->window == reinterpret_cast<HWND>(lparam)) { editable_fill = input_fill(*peer); break; }
+                const bool caption = peer->caption == reinterpret_cast<HWND>(lparam);
+                if (!caption && (!peer->native() || peer->window != reinterpret_cast<HWND>(lparam))) continue;
+                on_surface = peer->surface;
+                const auto* text_style = peer->control->effective_control_style_values(caption ? StylePart::header : StylePart::text);
+                if (!caption && peer->edit) native_ink = input_ink(*peer);
+                else if (text_style && text_style->foreground && !palette.high_contrast)
+                    native_ink = D2D1::ColorF(text_style->foreground->resolve(palette.mode));
+                if (!caption) {
+                    if (peer->edit) editable_fill = input_fill(*peer);
+                    else {
+                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
+                        if (root_style && root_style->background && !palette.high_contrast)
+                            editable_fill = D2D1::ColorF(root_style->background->resolve(palette.mode));
+                    }
+                    styled_field = peer->control->has_control_styling();
+                    if (peer->edit && peer->parent &&
+                        (peer->parent->control->role() == ControlRole::numeric_input || peer->parent->control->role() == ControlRole::combo_box))
+                        styled_field = styled_field || peer->parent->control->has_control_styling();
+                }
+                break;
             }
-            SetTextColor(dc, platform::native_color(IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ?
-                palette.text : palette.disabled));
+            SetTextColor(dc, platform::native_color(native_ink));
             SetBkColor(dc, platform::native_color(editable ? editable_fill : on_surface ? palette.surface : palette.background));
-            if (editable && palette.style == VisualStyle::winui) {
+            if (editable && (palette.style == VisualStyle::winui || styled_field)) {
                 SetDCBrushColor(dc, platform::native_color(editable_fill));
                 return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
             }
@@ -3624,6 +4523,41 @@ void Window::set_visual_style(VisualStyle style) {
     impl_->invalidate(Invalidation::layout);
 }
 VisualStyle Window::visual_style() const { return impl_->options.visual_style; }
+void Window::set_tooltip_style(std::shared_ptr<const ControlStyle> style) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set tooltip styles on the window UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (!style && !impl_->tooltip_styling) return;
+    auto next = impl_->tooltip_styling ? nullptr : std::make_unique<ControlStyleAttachment>(StyleTarget::tooltip);
+    auto* attachment = next ? next.get() : impl_->tooltip_styling.get();
+    if (!attachment->assign_style(std::move(style), impl_->tooltip_shown ? style_states::open : 0)) return;
+    if (next) impl_->tooltip_styling = std::move(next);
+    impl_->tooltip_style_changed();
+}
+std::shared_ptr<const ControlStyle> Window::tooltip_style() const {
+    return impl_->tooltip_styling ? impl_->tooltip_styling->style() : nullptr;
+}
+void Window::set_tooltip_style_values(StylePart part, PartStyleValues values) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set tooltip styles on the window UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    validate_part_values(StyleTarget::tooltip, part, values);
+    if (values.empty() && !impl_->tooltip_styling) return;
+    auto next = impl_->tooltip_styling ? nullptr : std::make_unique<ControlStyleAttachment>(StyleTarget::tooltip);
+    auto* attachment = next ? next.get() : impl_->tooltip_styling.get();
+    if (!attachment->assign_local(part, std::move(values), impl_->tooltip_shown ? style_states::open : 0)) return;
+    if (next) impl_->tooltip_styling = std::move(next);
+    impl_->tooltip_style_changed();
+}
+const PartStyleValues& Window::tooltip_style_values(StylePart part) const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read tooltip styles on the window UI thread");
+    validate_part(StyleTarget::tooltip, part);
+    static const PartStyleValues empty;
+    return impl_->tooltip_styling ? impl_->tooltip_styling->local(part) : empty;
+}
+const PartStyleValues* Window::effective_tooltip_style_values(StylePart part) const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read tooltip styles on the window UI thread");
+    validate_part(StyleTarget::tooltip, part);
+    return impl_->tooltip_styling ? impl_->tooltip_styling->effective(part, impl_->tooltip_shown ? style_states::open : 0) : nullptr;
+}
 const std::wstring& Window::error() const { return impl_->error; }
 bool Window::focus(Control& control, bool select_all) {
     const auto impl = impl_;

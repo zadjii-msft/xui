@@ -22,18 +22,83 @@ template<class T> std::shared_ptr<T> resource(const std::shared_ptr<Node>& n, ui
     return std::static_pointer_cast<T>(n->resource);
 }
 uint64_t number_bits(double v) { return std::bit_cast<uint64_t>(v); }
+void wire_navigation_button_notifications(const std::shared_ptr<Node>& n) {
+    if (n->navigation_button_observer_installed) return;
+    std::weak_ptr<Node> weak = n;
+    auto notify = [weak](const xui::Button& invoked) {
+        if (const auto owner = weak.lock(); owner && !owner->owner->closed) {
+            const auto handle = event_target(owner->owner, &invoked);
+            if (handle) dispatch(get(handle), XUI_CLICK);
+        }
+    };
+    if (n->kind == XUI_COMMAND_BAR) as<xui::CommandBar>(n).set_button_invoked_handler(std::move(notify));
+    else if (n->kind == XUI_BREADCRUMB) as<xui::Breadcrumb>(n).set_button_invoked_handler(std::move(notify));
+    else {
+        require(n->kind == XUI_WINDOW && n->owner->window->titlebar(), XUI_WRONG_KIND, "Expected a custom title bar.");
+        n->owner->window->titlebar()->set_button_invoked_handler(std::move(notify));
+    }
+    n->navigation_button_observer_installed = true;
+}
 void wire_feature(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     switch (n->kind) {
     case XUI_RANGE_INPUT:
-        as<xui::RangeInput>(n).on_change([weak](double v) { dispatch(weak, XUI_CHANGE, number_bits(v)); });
-        as<xui::RangeInput>(n).on_preview([weak](double v) { dispatch(weak, XUI_PREVIEW, number_bits(v)); });
-        as<xui::RangeInput>(n).on_cancel([weak](double v) { dispatch(weak, XUI_CANCEL, number_bits(v)); }); break;
-    case XUI_NUMERIC_INPUT: as<xui::NumericInput>(n).on_change([weak](double v) { dispatch(weak, XUI_CHANGE, number_bits(v)); }); break;
-    case XUI_RADIO_GROUP: as<xui::RadioGroup>(n).on_change([weak](uint64_t v) { dispatch(weak, XUI_SELECTION, v); }); break;
+        if (!n->feature_callbacks_captured) {
+            const auto& range = as<xui::RangeInput>(n);
+            n->prior_callbacks.capture(callbacks::Range{range.change_callback(), range.preview_callback(), range.cancel_callback()});
+            n->feature_callbacks_captured = true;
+        }
+        as<xui::RangeInput>(n).on_preview([weak](double v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->preview) prior->preview(v);
+            dispatch(weak, XUI_PREVIEW, number_bits(v));
+        });
+        as<xui::RangeInput>(n).on_cancel([weak](double v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->cancel) prior->cancel(v);
+            dispatch(weak, XUI_CANCEL, number_bits(v));
+        });
+        as<xui::RangeInput>(n).on_change([weak](double v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->change) prior->change(v);
+            dispatch(weak, XUI_CHANGE, number_bits(v));
+        });
+        break;
+    case XUI_NUMERIC_INPUT:
+        if (!n->feature_callbacks_captured) {
+            n->prior_callbacks.capture(as<xui::NumericInput>(n).change_callback());
+            n->feature_callbacks_captured = true;
+        }
+        as<xui::NumericInput>(n).on_change([weak](double v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Number>()) (*prior)(v);
+            dispatch(weak, XUI_CHANGE, number_bits(v));
+        });
+        break;
+    case XUI_RADIO_GROUP:
+        if (!n->feature_callbacks_captured) {
+            n->prior_callbacks.capture(as<xui::RadioGroup>(n).change_callback());
+            n->feature_callbacks_captured = true;
+        }
+        as<xui::RadioGroup>(n).on_change([weak](uint64_t v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Selection>()) (*prior)(v);
+            dispatch(weak, XUI_SELECTION, v);
+        });
+        break;
     case XUI_COMBO_BOX: as<xui::ComboBox>(n).on_change([weak](uint64_t v) { dispatch(weak, XUI_SELECTION, v); }); break;
     case XUI_EXPANDER: as<xui::Expander>(n).on_change([weak](bool v) { dispatch(weak, XUI_CHANGE, v); }); break;
-    case XUI_POPUP: as<xui::Popup>(n).on_dismiss([weak](xui::PopupDismissReason v) { dispatch(weak, XUI_DISMISS, static_cast<uint64_t>(v)); }); break;
+    case XUI_POPUP:
+        if (!n->feature_callbacks_captured) {
+            n->prior_callbacks.capture(as<xui::Popup>(n).dismiss_callback());
+            n->feature_callbacks_captured = true;
+        }
+        as<xui::Popup>(n).on_dismiss([weak](xui::PopupDismissReason v) {
+            if (auto node = weak.lock())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Dismiss>()) (*prior)(v);
+            dispatch(weak, XUI_DISMISS, static_cast<uint64_t>(v));
+        });
+        break;
     case XUI_MULTILINE_TEXT: case XUI_RICH_TEXT:
         feature<xui::DocumentText>(n).on_change([weak](const std::wstring&) { dispatch(weak, XUI_CHANGE); }); break;
     case XUI_PASSWORD_INPUT: as<xui::PasswordInput>(n).on_change([weak] { dispatch(weak, XUI_CHANGE); }); break;
@@ -599,39 +664,171 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         std::shared_ptr<xui::Element> e; uint32_t kind{};
         switch (n->kind) {
         case XUI_WINDOW: {
-            limit(index, 2);
+            limit(index, 7);
             const auto& titlebar = n->owner->window->titlebar();
             require(titlebar != nullptr, XUI_WRONG_KIND, "The window has no custom title bar.");
-            if (index == 1) { e = titlebar->leading(); kind = XUI_BUTTON; }
-            else { e = index == 2 ? titlebar->secondary_tabs() : titlebar->tabs(); kind = XUI_TAB_STRIP; }
+            switch (index) {
+            case 0: e = titlebar->tabs(); kind = XUI_TAB_STRIP; break;
+            case 1: e = titlebar->leading(); kind = XUI_BUTTON; break;
+            case 2: e = titlebar->secondary_tabs(); kind = XUI_TAB_STRIP; break;
+            case 3: e = titlebar; kind = XUI_RETAINED_ELEMENT; break;
+            case 4: e = titlebar->title(); kind = XUI_LABEL; break;
+            case 5: e = titlebar->minimize(); kind = XUI_BUTTON; break;
+            case 6: e = titlebar->maximize(); kind = XUI_BUTTON; break;
+            case 7: e = titlebar->close(); kind = XUI_BUTTON; break;
+            }
+            if (index >= 5) wire_navigation_button_notifications(n);
             break;
         }
-        case XUI_NAVIGATION_VIEW: limit(index, 0); e = as<xui::NavigationView>(n).search(); kind = XUI_TEXT_INPUT; break;
+        case XUI_NAVIGATION_VIEW: {
+            limit(index, 6);
+            const auto& view = as<xui::NavigationView>(n);
+            switch (index) {
+            case 0: e = view.search(); kind = XUI_TEXT_INPUT; break;
+            case 1: e = view.toggle_button(); kind = XUI_BUTTON; break;
+            case 2: e = view.items(); kind = XUI_RETAINED_ELEMENT; break;
+            case 3: e = view.header_items(); kind = XUI_RETAINED_ELEMENT; break;
+            case 4: e = view.footer_items(); kind = XUI_RETAINED_ELEMENT; break;
+            case 5: e = view.title(); kind = XUI_LABEL; break;
+            case 6: e = view.empty_message(); kind = XUI_LABEL; break;
+            }
+            break;
+        }
+        case XUI_BREADCRUMB: limit(index, 0); e = as<xui::Breadcrumb>(n).overflow_button(); kind = XUI_BUTTON; break;
+        case XUI_COMMAND_BAR: limit(index, 0); e = as<xui::CommandBar>(n).overflow_button(); kind = XUI_BUTTON; break;
         case XUI_SPLIT_BUTTON: limit(index, 1); e = index ? as<xui::SplitButton>(n).secondary() : as<xui::SplitButton>(n).primary(); kind = XUI_BUTTON; break;
-        case XUI_CONTENT_DIALOG: limit(index, 1); { auto r = resource<xui::ContentDialog>(n, n->kind); e = index ? r->cancel_button() : r->primary(); kind = XUI_BUTTON; } break;
-        case XUI_LOCATION_PICKER: limit(index, 1); { auto r = resource<xui::LocationPicker>(n, n->kind); if (index) { e = r->navigation(); kind = XUI_NAVIGATION_PANE; } else { e = r->editor(); kind = XUI_TEXT_INPUT; } } break;
-        case XUI_VIEW_PICKER: limit(index, 1); { auto r = resource<xui::ViewPicker>(n, n->kind); if (index) { e = r->size(); kind = XUI_RANGE_INPUT; } else { e = r->choices(); kind = XUI_RADIO_GROUP; } } break;
-        case XUI_NAVIGATION_PANE: limit(index, 0); e = as<xui::NavigationPane>(n).items(); kind = XUI_ITEMS_VIEW; break;
+        case XUI_COMBO_BOX: {
+            limit(index, 2);
+            const auto& combo = as<xui::ComboBox>(n);
+            if (index == 0) {
+                e = combo.editor(); kind = XUI_TEXT_INPUT;
+                if (!e) return;
+            }
+            else if (index == 1) { e = combo.popup(); kind = XUI_POPUP; }
+            else { e = combo.choices(); kind = XUI_RADIO_GROUP; }
+            break;
+        }
+        case XUI_NUMERIC_INPUT: {
+            limit(index, 2);
+            const auto& number = as<xui::NumericInput>(n);
+            if (index == 0) { e = number.editor(); kind = XUI_TEXT_INPUT; }
+            else if (index == 1) { e = number.decrease_button(); kind = XUI_BUTTON; }
+            else { e = number.increase_button(); kind = XUI_BUTTON; }
+            break;
+        }
+        case XUI_INLINE_STATUS: {
+            limit(index, 1);
+            const auto& status = as<xui::InlineStatus>(n);
+            e = index ? status.dismiss_button() : status.action_button(); kind = XUI_BUTTON;
+            break;
+        }
+        case XUI_COLOR_PICKER: {
+            const auto& picker = as<xui::ColorPicker>(n);
+            if (index < 4) { e = picker.channels()[index]; kind = XUI_NUMERIC_INPUT; }
+            else {
+                require(index - 4 < picker.swatches().size(), XUI_INVALID_ARGUMENT, "Color swatch index is outside the swatch range.");
+                e = picker.swatch_button(index - 4); kind = XUI_BUTTON;
+            }
+            break;
+        }
+        case XUI_CONTENT_DIALOG: {
+            limit(index, 5);
+            const auto r = resource<xui::ContentDialog>(n, n->kind);
+            switch (index) {
+            case 0: e = r->primary(); kind = XUI_BUTTON; break;
+            case 1: e = r->cancel_button(); kind = XUI_BUTTON; break;
+            case 2: e = r->title(); kind = XUI_LABEL; break;
+            case 3: e = r->validation(); kind = XUI_INLINE_STATUS; break;
+            case 4: e = r->body(); kind = XUI_STACK; break;
+            case 5: e = r->footer(); kind = XUI_STACK; break;
+            }
+            break;
+        }
+        case XUI_COMMAND_SURFACE: {
+            limit(index, 6);
+            const auto r = resource<xui::CommandSurface>(n, n->kind);
+            switch (index) {
+            case 0: e = r->editor(); kind = XUI_TEXT_INPUT; break;
+            case 1: e = r->title(); kind = XUI_LABEL; break;
+            case 2: e = r->status(); kind = XUI_LABEL; break;
+            case 3: e = r->close_button(); kind = XUI_BUTTON; break;
+            case 4: e = r->content(); kind = XUI_STACK; break;
+            case 5: e = r->results(); kind = XUI_STACK; break;
+            case 6: e = r->menu(); kind = XUI_RETAINED_ELEMENT; break;
+            }
+            break;
+        }
+        case XUI_LOCATION_PICKER: {
+            limit(index, 4);
+            const auto r = resource<xui::LocationPicker>(n, n->kind);
+            switch (index) {
+            case 0: e = r->editor(); kind = XUI_TEXT_INPUT; break;
+            case 1: e = r->navigation(); kind = XUI_NAVIGATION_PANE; break;
+            case 2: e = r->content(); kind = XUI_STACK; break;
+            case 3: e = r->footer(); kind = XUI_LABEL; break;
+            case 4: e = r->toolbar(); kind = XUI_COMMAND_BAR; break;
+            }
+            break;
+        }
+        case XUI_VIEW_PICKER: {
+            limit(index, 2);
+            const auto r = resource<xui::ViewPicker>(n, n->kind);
+            if (index == 0) { e = r->choices(); kind = XUI_RADIO_GROUP; }
+            else if (index == 1) { e = r->size(); kind = XUI_RANGE_INPUT; }
+            else { e = r->content(); kind = XUI_STACK; }
+            break;
+        }
+        case XUI_NAVIGATION_PANE: {
+            limit(index, 4);
+            const auto& pane = as<xui::NavigationPane>(n);
+            if (index == 0) { e = pane.items(); kind = XUI_ITEMS_VIEW; }
+            else if (index == 1) { e = pane.status(); kind = XUI_LABEL; }
+            else if (index == 2) { e = pane.content(); kind = XUI_STACK; }
+            else if (index == 3) { e = pane.group(); kind = XUI_EXPANDER; }
+            else { e = pane.progress(); kind = XUI_PROGRESS; }
+            break;
+        }
         default: throw Failure{XUI_WRONG_KIND, "This composition has no exposed children."};
         }
+        require(e != nullptr, XUI_WRONG_KIND, "The retained child is unavailable.");
         for (auto h : n->children) if (get(h)->element == e) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
-        *out = insert(n->owner, kind, e); get(*out)->attached = true; n->children.push_back(*out);
-        if (n->kind == XUI_NAVIGATION_VIEW) {
-            std::weak_ptr<Node> weak = n;
-            get(*out)->prior_change = [weak](const std::wstring& text) {
-                if (auto parent = weak.lock()) as<xui::NavigationView>(parent).set_filter(text);
-            };
-        }
-        if (n->kind == XUI_CONTENT_DIALOG) {
-            std::weak_ptr<Node> weak = n;
-            get(*out)->prior_action = [weak, index] {
-                if (auto parent = weak.lock()) {
-                    auto dialog = resource<xui::ContentDialog>(parent, XUI_CONTENT_DIALOG);
-                    if (index) dialog->cancel(); else dialog->accept();
-                }
-            };
-        }
+        *out = insert(n->owner, kind, e);
+        const auto child = get(*out);
+        child->attached = true;
+        child->navigation_owned_button = n->kind == XUI_WINDOW && index >= 5;
+        n->children.push_back(*out);
+    });
+}
+xui_status XUI_CALL xui_breadcrumb_segment_button(xui_handle target, uint64_t id, uint64_t version, xui_handle* out) noexcept {
+    return boundary([&] {
+        require(out != nullptr, XUI_INVALID_ARGUMENT, "Missing output handle."); *out = 0;
+        auto n = get(target, XUI_BREADCRUMB); editable(n->owner);
+        const auto button = as<xui::Breadcrumb>(n).segment_button({id, version});
+        require(button != nullptr, XUI_INVALID_ARGUMENT, "Breadcrumb segment key is absent.");
+        wire_navigation_button_notifications(n);
+        for (auto h : n->children) if (get(h)->element == button) { *out = h; return; }
+        n->children.reserve(n->children.size() + 1);
+        const auto handle = insert(n->owner, XUI_BUTTON, button);
+        const auto child = get(handle);
+        child->attached = true; child->navigation_owned_button = true;
+        n->children.push_back(handle); *out = handle;
+    });
+}
+xui_status XUI_CALL xui_command_bar_button(xui_handle target, uint64_t id, xui_handle* out) noexcept {
+    return boundary([&] {
+        require(out != nullptr, XUI_INVALID_ARGUMENT, "Missing output handle."); *out = 0;
+        auto n = get(target, XUI_COMMAND_BAR); editable(n->owner);
+        auto& bar = as<xui::CommandBar>(n);
+        const auto button = bar.command_button(id);
+        require(button != nullptr, XUI_INVALID_ARGUMENT, "Command button ID is absent.");
+        wire_navigation_button_notifications(n);
+        for (auto h : n->children) if (get(h)->element == button) { *out = h; return; }
+        n->children.reserve(n->children.size() + 1);
+        const auto handle = insert(n->owner, XUI_BUTTON, button);
+        const auto child = get(handle);
+        child->attached = true; child->navigation_owned_button = true;
+        n->children.push_back(handle); *out = handle;
     });
 }
 xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child, uint32_t row, uint32_t column, uint32_t rows, uint32_t columns) noexcept {

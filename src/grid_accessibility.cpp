@@ -202,8 +202,8 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             const auto count = s.grid ? s.grid->size() : 0;
-            const auto first = std::min(count, static_cast<std::size_t>(s.grid_y / DataGrid::row_height));
-            const auto end = std::min(count, first + static_cast<std::size_t>(std::ceil(s.grid_height / DataGrid::row_height)) + 1);
+            const auto first = static_cast<std::size_t>(std::min(double(count), s.grid_y / s.grid_geometry.row_height));
+            const auto end = first + static_cast<std::size_t>(std::min(double(count - first), std::ceil(s.grid_height / s.grid_geometry.row_height) + 1));
             if (direction == NavigateDirection_Parent && kind_ != root) {
                 if (kind_ == cell) *value = make(row, key_);
                 else if (kind_ == header_filter || kind_ == header_check) *value = make(header, {}, column_);
@@ -266,23 +266,19 @@ public:
         RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
         const double scale = GetDpiForWindow(s.window) / 96.0;
-        double x{}, y{}, width = s.grid_width, height = s.grid_height + DataGrid::header_height + DataGrid::bar_width;
-        if (kind_ == header || kind_ == cell) {
-            x = -s.grid_x;
-            const auto column = ordinal(s);
-            for (std::size_t c = 0; c < column; ++c) x += s.columns[c].width;
-            width = s.columns[column].width;
-            if (kind_ == header_filter) { x += width - 32; width = 28; }
-            if (kind_ == header_check) { x += 4; width = 28; }
+        const auto& g = s.grid_geometry;
+        Rect box = g.frame();
+        const bool body = kind_ == row || kind_ == cell;
+        if (body) box = g.row(*s.grid->find(key_));
+        if (kind_ == header || kind_ == header_filter || kind_ == header_check || kind_ == cell) {
+            const auto column = g.column(s.columns, ordinal(s));
+            box.x = column.x; box.width = column.width;
+            if (!body) box = kind_ == header ? column : g.header_part(s.columns, ordinal(s),
+                kind_ == header_filter ? GridHeaderPart::filter : GridHeaderPart::check);
         }
-        if (kind_ == header || kind_ == header_filter || kind_ == header_check) height = DataGrid::header_height;
-        if (kind_ == row || kind_ == cell) {
-            y = DataGrid::header_height + static_cast<double>(*s.grid->find(key_)) * DataGrid::row_height - s.grid_y;
-            height = DataGrid::row_height;
-        }
-        double left = std::max(0.0, x), right = std::min(s.grid_width, x + width);
-        double top = std::max(kind_ == row || kind_ == cell ? double(DataGrid::header_height) : 0.0, y);
-        double bottom = std::min(kind_ == row || kind_ == cell ? DataGrid::header_height + s.grid_height : height, y + height);
+        const auto viewport_clip = body ? g.viewport() : kind_ == root ? g.frame() : g.header();
+        double left = std::max(box.x, viewport_clip.x), right = std::min(box.x + box.width, viewport_clip.x + viewport_clip.width);
+        double top = std::max(box.y, viewport_clip.y), bottom = std::min(box.y + box.height, viewport_clip.y + viewport_clip.height);
         if (right <= left || bottom <= top) return;
         RECT rect{window.left + static_cast<LONG>(std::lround(left * scale)), window.top + static_cast<LONG>(std::lround(top * scale)),
             window.left + static_cast<LONG>(std::lround(right * scale)), window.top + static_cast<LONG>(std::lround(bottom * scale))};
@@ -329,15 +325,26 @@ public:
             if (x < rect.left || x >= rect.left + rect.width || y < rect.top || y >= rect.top + rect.height) return S_OK;
             RECT window{}; GetWindowRect(s.window, &window);
             const double scale = GetDpiForWindow(s.window) / 96.0;
-            x = (x - window.left) / scale + s.grid_x; y = (y - window.top) / scale;
+            x = (x - window.left) / scale; y = (y - window.top) / scale;
+            const auto& g = s.grid_geometry;
+            const auto view = g.viewport();
+            if (x < view.x || x >= view.x + view.width || y < g.top || y >= view.y + view.height) {
+                *value = this; AddRef(); return S_OK;
+            }
+            const double local_x = x;
+            x += s.grid_x - g.left;
             std::size_t c{};
             while (c < s.columns.size() && x >= s.columns[c].width) x -= s.columns[c++].width;
             if (c < s.columns.size()) {
-                if (y < DataGrid::header_height) *value = make(s.columns[c].checkable && x < 32 ? header_check :
-                    s.columns[c].filterable && x >= s.columns[c].width - 32 ? header_filter : header, {}, s.column_order[c]);
+                if (y < g.header_bottom()) {
+                    const auto check = g.header_part(s.columns, c, GridHeaderPart::check);
+                    const auto filter = g.header_part(s.columns, c, GridHeaderPart::filter);
+                    *value = make(check.width && local_x >= check.x && local_x < check.x + check.width ? header_check :
+                        filter.width && local_x >= filter.x && local_x < filter.x + filter.width ? header_filter : header, {}, s.column_order[c]);
+                }
                 else {
-                    const auto index = static_cast<std::size_t>((y - DataGrid::header_height + s.grid_y) / DataGrid::row_height);
-                    if (s.grid && index < s.grid->size()) *value = make(cell, s.grid->key(index), s.column_order[c]);
+                    const auto index = (y - g.header_bottom() + s.grid_y) / g.row_height;
+                    if (s.grid && index >= 0 && index < double(s.grid->size())) *value = make(cell, s.grid->key(static_cast<std::size_t>(index)), s.column_order[c]);
                 }
             }
             if (!*value) { *value = this; AddRef(); }
@@ -461,7 +468,7 @@ public:
     static double maximum(const ControlSnapshot& s, bool horizontal) {
         double extent{};
         if (horizontal) { for (const auto& c : s.columns) extent += c.width; }
-        else if (s.grid) extent = static_cast<double>(s.grid->size()) * DataGrid::row_height;
+        else if (s.grid) extent = static_cast<double>(s.grid->size()) * s.grid_geometry.row_height;
         return std::max(0.0, extent - (horizontal ? s.grid_width : s.grid_height));
     }
     HRESULT number(double* value, bool horizontal, bool percent) {
@@ -489,16 +496,17 @@ public:
         return with([&](const auto& s) -> HRESULT {
             if (horizontal < ScrollAmount_LargeDecrement || horizontal > ScrollAmount_SmallIncrement ||
                 vertical < ScrollAmount_LargeDecrement || vertical > ScrollAmount_SmallIncrement) return E_INVALIDARG;
-            const auto delta = [](ScrollAmount amount, double viewport) {
+            const auto delta = [](ScrollAmount amount, double viewport, double step) {
                 switch (amount) {
                 case ScrollAmount_LargeDecrement: return -viewport;
-                case ScrollAmount_SmallDecrement: return -32.0;
+                case ScrollAmount_SmallDecrement: return -step;
                 case ScrollAmount_LargeIncrement: return viewport;
-                case ScrollAmount_SmallIncrement: return 32.0;
+                case ScrollAmount_SmallIncrement: return step;
                 default: return 0.0;
                 }
             };
-            return send(s, {GridAction::scroll, {}, 0, s.grid_x + delta(horizontal, s.grid_width), s.grid_y + delta(vertical, s.grid_height)});
+            return send(s, {GridAction::scroll, {}, 0, s.grid_x + delta(horizontal, s.grid_width, 32),
+                s.grid_y + delta(vertical, s.grid_height, s.grid_geometry.row_height)});
         });
     }
 };

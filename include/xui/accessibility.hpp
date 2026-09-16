@@ -31,6 +31,7 @@ struct AccessibleSnapshot {
     std::shared_ptr<const std::wstring> name;
     std::shared_ptr<const std::wstring> automation_id;
     std::shared_ptr<const std::wstring> help_text;
+    float row_left_inset_pixels{}, row_top_inset_pixels{}, row_bottom_inset_pixels{};
 };
 
 struct AccessibilityState {

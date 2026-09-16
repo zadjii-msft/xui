@@ -52,15 +52,20 @@ public:
         return focused_ ? model_.find_visible(*focused_) : std::nullopt;
     }
     std::optional<ItemId> focused_id() const { return focused_; }
-    float row_height() const { return 32.0f; }
-    float offset() const { return offset_; }
+    float row_height() const;
+    float scrollbar_width() const;
+    Rect content_viewport(float width) const;
+    float content_height() const { return content_viewport(0).height; }
+    float offset() const {
+        return clamp_scroll(model_.visible_indices().size(), row_height(), offset_, content_height());
+    }
     float viewport_height() const { return viewport_height_; }
     void set_viewport_height(float height) {
         viewport_height_ = height > 0 ? std::min(height, std::numeric_limits<float>::max()) : 0;
         scroll_to(offset_);
     }
     VisibleRange visible_rows() const {
-        return visible_range(model_.visible_indices().size(), row_height(), offset_, viewport_height_);
+        return visible_range(model_.visible_indices().size(), row_height(), offset(), content_height());
     }
     void set_items(std::shared_ptr<const std::vector<FileItem>> items) {
         auto previous = model_.view();
@@ -91,11 +96,11 @@ public:
         notify_view();
     }
     void scroll_to(float offset) {
-        offset_ = clamp_scroll(model_.visible_indices().size(), row_height(), offset, viewport_height_);
+        offset_ = clamp_scroll(model_.visible_indices().size(), row_height(), offset, content_height());
         invalidate(Invalidation::paint);
     }
     void reveal(size_t index) {
-        scroll_to(reveal_row(index, row_height(), offset_, viewport_height_));
+        scroll_to(reveal_row(index, row_height(), offset(), content_height()));
     }
     void select(size_t index, bool ensure_visible = true) {
         model_.select_index(index);
@@ -127,7 +132,7 @@ public:
     }
     void navigate(Navigation navigation) {
         const int page = static_cast<int>(std::clamp(
-            static_cast<double>(viewport_height_) / row_height(), 1.0,
+            static_cast<double>(content_height()) / row_height(), 1.0,
             static_cast<double>(std::numeric_limits<int>::max())));
         if (const auto focused = focused_index()) model_.select_index(*focused);
         switch (navigation) {
@@ -142,6 +147,11 @@ public:
         if (const auto selected = model_.selected_index()) reveal(*selected);
         invalidate(Invalidation::paint);
         notify_selection();
+    }
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::file_list; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() & (style_states::focused | style_states::hovered | style_states::disabled);
     }
 private:
     friend class ListPeer;

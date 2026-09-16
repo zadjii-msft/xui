@@ -9,6 +9,7 @@ internal static class Tests
         try
         {
             StylingTests.Definitions();
+            if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }
             if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); StylingTests.Native(); }

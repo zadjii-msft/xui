@@ -150,7 +150,9 @@ The ABI constructor test covers all 35 added kinds.
 Both language test suites exercise typed properties, source limits, callback failures, and disposal.
 The tests preserve the existing native focus and accessibility assertions.
 
-### Generic control styles (Toggle pilot)
+<a id="generic-control-styles-toggle-pilot"></a>
+
+### Generic control styles
 
 `xui_control_style_create` accepts a bounded array of `xui_style_property` records.
 Each record identifies a part, a property, a value type, and a 64-bit state.
@@ -158,9 +160,18 @@ State zero specifies an ordinary value.
 Other records require one supported state bit.
 The record contains separate color, insets, number, and text carriers.
 Unused carriers and reserved fields must contain zero.
-The pilot rejects text properties.
+The text carrier supplies immutable font-family names, not user input.
+Each schema accepts only text properties that its adapter supports.
 Colors retain separate light and dark RGB24 values.
 Dimensions require finite values from zero through 32768 DIPs.
+Font sizes and row heights must also be positive.
+Per-part limits can further restrict font size, UTF-16 family length, font style, and alignment.
+Native paragraph parts reject vertical stretch, while supported container layout retains it.
+
+`xui_control_style_get_schema` exposes base/local properties, states, and the separate state-rule property mask.
+`xui_control_style_get_limits` exposes the per-part font and alignment limits.
+These queries require no window.
+The C#, Rust, and compiler catalogs use the same exported contracts.
 
 Records contain exact size and version fields.
 A definition accepts at most 2048 property records and 16 inheritance layers.
@@ -194,12 +205,80 @@ Both wrappers keep weak per-window identities and release temporary native handl
 Definition construction copies the supplied part and rule collections.
 The [Toggle examples](control-styling.md#toggle-pilot) show declaration and application.
 
+### Retained composition children
+
+ContentDialog, CommandSurface, LocationPicker, and ViewPicker handles already refer to their real Popup for generic Element styling.
+Their root accepts `StyleTarget.Popup`, not a facade-specific style target.
+Only `open` and inherited `disabled` states exist on these roots.
+Root `invalid`, `loading`, `error`, `selected`, and `overflowed` rules reject.
+Dialog validation uses the retained InlineStatus's error state; LocationPicker navigation uses its NavigationPane's actual query states.
+CommandSurface status Labels do not expose automatic query-state selectors.
+Child accessors return existing Elements with their own native targets and attachments.
+Repeated lookup preserves the native handle, and C# properties also retain the same wrapper.
+Children belong to the parent Window and do not have independent destruction.
+
+C# exposes these retained children:
+
+- `Window`: `Titlebar`, `TitlebarTitle`, `TitlebarMinimize`, `TitlebarMaximize`, `TitlebarClose`, `TitlebarTabs`, `TitlebarLeading`, and `TitlebarSecondaryTabs`.
+- `NavigationView`: `Search`, `ToggleButton`, `Items`, `HeaderItems`, `FooterItems`, `Title`, and `EmptyMessage`.
+- `Breadcrumb`: `OverflowButton` and `SegmentButton(ItemKey)`.
+- `CommandBar`: `OverflowButton` and `CommandButton(id)`.
+- `ContentDialog`: `Primary`, `CancelButton`, `Title`, `Validation`, `Body`, and `Footer`.
+- `CommandSurface`: `Editor`, `Title`, `Status`, `CloseButton`, `Content`, `Results`, and `Menu`.
+- `LocationPicker`: `Editor`, `Navigation`, `Content`, `Footer`, and `Toolbar`.
+- `ViewPicker`: `Choices`, `Size`, and `Content`.
+- `NavigationPane`: `Items`, `Status`, `Content`, `Group`, and `Progress`.
+- `ComboBox`: optional `Editor`, `Popup`, and `Choices`.
+- `NumericInput`: `Editor`, `DecreaseButton`, and `IncreaseButton`.
+- `InlineStatus`: `ActionButton` and `DismissButton`.
+- `ColorPicker`: `Channel(index)` and `SwatchButton(index)`.
+
+Rust exposes the corresponding methods with snake-case names.
+`CommandSurface.Menu` returns a C# `RetainedElement`; Rust `menu()` returns an `Element`.
+The native object remains a CommandMenu, not an ItemsView.
+This accessor exposes ordinary Element styling and layout, not a new CommandMenu factory or typed collection API.
+
+Window titlebar access requires a custom titlebar.
+`Window.Titlebar` and the NavigationView lists also use C# `RetainedElement` and Rust `Element` wrappers.
+Their native style targets remain `TitleBar` and `NavigationList`.
+The wrappers do not cast these objects to ContentView or TreeView.
+NavigationPane exposes its existing Expander as `Group` and its query indicator as `Progress`.
+
+Breadcrumb segment lookup uses both the item ID and version.
+CommandBar lookup uses the command ID, not its current position.
+Missing keys reject explicitly.
+The ABI provides `xui_breadcrumb_segment_button` and `xui_command_bar_button` for these lookups.
+CommandBar snapshot refresh preserves retained Button identity and subscriptions.
+Removed command and segment Buttons become non-actionable, even when an application retains their handles.
+Reintroduced keys use the current child, not a detached Button's obsolete action.
+
+The noneditable ComboBox editor returns C# `null`, Rust `None`, or ABI success with handle zero.
+Its `Choices` object uses the `ChoiceList` style target, although its typed wrapper is `RadioGroup`.
+ColorPicker channels use red, green, blue, and alpha indices 0 through 3.
+Swatch access rejects indices outside the current palette.
+Swatch fills remain authored RGBA data, not child theme substitutions.
+Applications can style the retained swatch Button border and radius.
+Child accessors do not change action visibility or expose an unsupported ColorPicker `channel_field` part.
+
+The ABI extends `xui_feature_child` without changing existing indices.
+The public header lists each index and identifies the retained-only `XUI_RETAINED_ELEMENT` kind.
+Button and TextInput event subscriptions preserve the composition's original action, change, and submit callbacks.
+NumericInput, RadioGroup, RangeInput, and Popup subscriptions also preserve their original callbacks.
+Repeated subscriptions do not wrap the binding callbacks recursively.
+Style replacement and clearing preserve child-local values.
+
+The `.xui` compiler rejects facade-specific style declarations.
+`Content(existingElement, style: PopupStyle)` can apply a Popup definition to an existing Popup-backed facade.
+The native target check still rejects a definition for the wrong child.
+Complete schema-based authoring requires the generated catalog that matches the native library.
+
 ### Button styles (additive stage 1)
 
 Button styles change presentation.
 Native behavior, input, and accessibility stay unchanged.
-This stage supports `Button` only.
-It does not provide control templates, item templates, typography, animations, or arbitrary brushes.
+This compatible `ButtonStyle` API supports `Button` only.
+Typography and named parts use the [generic control-style API](#generic-control-styles).
+Neither API provides control templates, item templates, animations, or arbitrary brushes.
 `Window.Style` selects Classic or WinUI presentation.
 `Button.Style` supplies an application-authored definition on that presentation.
 

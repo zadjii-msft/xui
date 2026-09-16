@@ -1,7 +1,8 @@
 # Control styles and color resources
 
-XUI supports reusable, sparse Button styles in C++, the C ABI, C#, Rust, and `.xui`.
-The Toggle pilot uses a shared control-style engine with named visual parts.
+XUI supports reusable, sparse styles in C++, the C ABI, C#, Rust, and `.xui`.
+The shared control-style engine supports named parts, state rules, and typography across control families.
+The [inventory](control-styling-inventory.md) and [binding contract](bindings.md) identify available styling surfaces and remaining gaps.
 This feature does not provide WPF API or XAML compatibility.
 Control templates and item templates are not available.
 The [design proposal](styling-and-templates-design.md) describes those later stages.
@@ -52,7 +53,7 @@ The [language guide](xui-language.md) defines the complete grammar and diagnosti
 
 ## Properties and precedence
 
-The sparse properties are `background`, `foreground`, `borderBrush`, `borderThickness`, `cornerRadius`, and `padding`.
+The sparse Button foundation properties are `background`, `foreground`, `borderBrush`, `borderThickness`, `cornerRadius`, and `padding`.
 Colors contain opaque RGB24 light and dark values.
 Dimensions use device-independent pixels and must be finite, from zero through 32768.
 Insets use left, top, right, bottom order.
@@ -80,6 +81,12 @@ For repeated native rules with the same state, the last specified property wins.
 The `.xui` compiler rejects duplicate declarations.
 Toggle declarations also reject duplicate state blocks.
 Button declarations retain repeated state blocks for compatibility.
+
+A Button definition that adds typography or named parts can inherit a legacy-compatible Button definition.
+The compiler creates shared generic copies of legacy ancestors for that derived chain.
+References to the original legacy definitions remain `ButtonStyle` references.
+Promotion preserves theme colors, sparse values, inheritance depth, and field-wise precedence for repeated legacy state blocks.
+Style reload replaces both graphs without replacing controls.
 
 Local values survive style replacement and removal.
 Clearing a local property exposes the effective style value again.
@@ -169,7 +176,7 @@ No native IME, undo, or input implementation changes are part of this stage.
 
 ## Storage and binding boundaries
 
-Control has an optional generic attachment pointer.
+Element has an optional generic attachment pointer.
 Button retains its separate, compatible style-state pointer.
 An unstyled control does not allocate an attachment.
 Virtualized collection rows do not retain style instances.
@@ -184,13 +191,18 @@ The [binding contract](bindings.md) describes handles, window ownership, sharing
 The wrappers share definitions per window without retaining unused native handles.
 
 This stage does not support selectors, implicit styles, animated transitions, custom visual trees, or resource dictionaries on arbitrary elements.
-Styles currently target Button and Toggle.
+The exported catalog defines supported targets across the control families.
+Each target accepts only the properties and states that its presentation supports.
 Resource values currently contain only theme-aware colors.
 Final counterbalanced measurements stayed within the working default-path guardrail for the sampled workloads.
 Authored styles still have a separate workload cost.
 The [implementation evidence](../llm/control-styling.md) records measurements and unresolved test variability.
 
 ## Toggle pilot
+
+This example and its original property subset describe the committed Toggle foundation.
+The current generic schema also supports root/label typography and alignment.
+The inventory and exported catalog describe the complete current coverage.
 
 Toggle uses `ControlStyle`, not `ButtonStyle`.
 The generic engine stores sparse per-part state rules instead of every possible state combination.
@@ -199,7 +211,7 @@ The pilot accepts `focused`, `checked`, `hovered`, `pressed`, and `disabled`, in
 Each rule selects one state.
 Inherited state values remain separate from ordinary values.
 
-The Toggle schema has four parts:
+The foundation schema has four parts:
 
 - The implicit root accepts background, foreground, border brush, border thickness, corner radius, and padding.
 - `label` accepts foreground.
@@ -244,10 +256,11 @@ style CompactToggle for Toggle {
 
 The declaration belongs inside a component.
 `Toggle("Active", style: CompactToggle)` applies it.
-Part declarations belong directly in a Toggle style.
+Part declarations belong directly in a style.
 A part can contain properties and `when` rules.
 Nested parts and parts inside `when` rules are invalid.
-Button grammar does not accept parts or `size`.
+Button declarations also accept their supported named parts and typography.
+The compiler retains the compatible `ButtonStyle` path for declarations that use only the original Button properties.
 
 ```csharp
 var style = new Xui.ControlStyle(Xui.StyleTarget.Toggle,
@@ -260,9 +273,227 @@ toggle.SetStyle(null); // Local label foreground remains.
 toggle.SetStyleValues(Xui.StylePart.Label, new()); // Default presentation returns.
 ```
 
-C++ exposes the common attachment through `Control::set_control_style` and `Control::set_control_style_values`.
+C++ exposes the common attachment through `Element::set_control_style` and `Element::set_control_style_values`.
 Toggle convenience methods forward to that attachment.
-C# exposes `Control.SetControlStyle` and `Control.SetControlStyleValues`.
+C# exposes `Element.SetControlStyle` and `Element.SetControlStyleValues`.
 Rust exposes `Element::set_control_style` and `Element::set_control_style_values`.
 Unsupported control types reject generic styles.
-The [binding contract](bindings.md#generic-control-styles-toggle-pilot) defines record and handle behavior.
+The [binding contract](bindings.md#generic-control-styles) defines current record and handle behavior.
+
+## Native field boundaries
+
+`TextInput`, `MultilineText`, `RichText`, `PasswordInput`, and `DateTimePicker` have distinct style targets.
+Each target exposes only properties that its owned frame or native editor supports.
+The native editor retains text input, selection, IME composition, undo, and ownership.
+
+Date/time styles can change the owned frame surface and native text typography.
+The adapter uses `WM_SETFONT` for native date/time typography.
+The themed native date/time control does not reliably support authored text foreground or background.
+Those text properties are rejected rather than accepted without an effect.
+Calendar internals remain platform-owned.
+
+Multiline and rich-document typography changes use `EM_SETCHARFORMAT` with `SCF_DEFAULT`.
+They change native character defaults, not application-authored rich runs.
+Styles must not rewrite existing rich runs or clear the undo history.
+The separate `RichText` target preserves this distinction.
+
+`TextInput` exposes its existing header and clear-action parts.
+The `clear_action` part accepts only `background`, `foreground`, `borderBrush`, and `cornerRadius`.
+Padding, border thickness, size, and typography are unsupported on this part.
+The native action bounds and editor reservation remain unchanged.
+Styles do not create a clear action where the native presentation does not show one.
+
+The renderer resolves parent defaults from the actual clear Button interaction state and the owner disabled and empty states.
+It passes these defaults directly to the shared Button renderer, without a child attachment or another cache.
+Explicit child legacy styles, generic styles, and local values override these defaults.
+The WinUI renderer preserves `Symbol::clear`, the existing Button identity, and the native undoable clear action.
+
+Document, password, and date/time controls do not expose an owned header part.
+Applications can place a separately styled Label beside those controls.
+Password reveal uses the existing reveal API and state, not a synthetic reveal-button part.
+Unsupported header and reveal-button parts produce explicit schema errors.
+
+### Numeric and editable ComboBox insets
+
+`NumericInput` and editable `ComboBox` use nested surfaces with additive insets.
+Root padding and borders inset the composition.
+Field padding and borders then inset the retained editor and the spin-button or arrow regions within the field frame.
+ComboBox and NumericInput show an owned header only when the application explicitly authors the `header` part.
+The header paints the existing control name without creating a Label, native window, or accessibility provider.
+Its default height is 24 DIPs, or the authored `headerHeight`, limited by available space.
+Unstyled controls do not have an always-visible header.
+The retained native `TextInput` keeps its own default or authored text-content insets.
+Parent field insets do not replace these child insets.
+
+To change the native text inset, set `root.padding` explicitly on the retained child editor.
+
+### ColorPicker parts and retained children
+
+The `checkerboard_light` and `checkerboard_dark` parts each accept `background`.
+The `channel_label` part accepts text properties and padding.
+Its `invalid` rule applies only to the corresponding invalid channel.
+Root `invalid` remains global when any channel is invalid.
+The `channel_field` part is unsupported and rejects explicitly.
+Styles do not replace the selected color or the color represented by a swatch.
+
+In C++, `ColorPicker::channels()` exposes the retained NumericInput children.
+Applications can style each channel and its existing editor and Buttons through their own targets.
+`ColorPicker::swatch_button(index)` exposes a retained swatch Button.
+C# exposes `Channel(index)` and `SwatchButton(index)`.
+Rust exposes `channel(index)` and `swatch_button(index)`.
+The [binding contract](bindings.md) defines binding coverage.
+
+## Owned hosts and scenes
+
+Host styles affect owned frames, overlays, placeholder text, status text, and selection indicators.
+They do not recolor decoded images, authored scene data, native media content, or web page content.
+Media and web captions appear only while the native content surface is inactive.
+Frame geometry and clipping preserve the existing native child identity.
+
+WebContent supports its actual `idle`, `loading`, `ready`, `stopped`, `suspended`, and `error` states.
+It does not advertise media-only `playing` or `paused` states.
+Image states are `empty`, `loading`, `ready`, and `error`.
+Style application does not restart requests, change request tokens, or transfer cancellation ownership.
+
+## Retained child projections
+
+A native composition adapter can project parent part values into an existing child with `Element::set_control_style_projection`.
+This parent layer has lower precedence than the child's own generic style and local values.
+The projection uses the child's existing attachment, not a second cache or a replacement control.
+An empty projection clears only the parent layer.
+The adapter must clear its projections when the parent style or composition no longer supplies them.
+
+The child's ordinary local-value getter does not include the projection.
+The effective-value getter includes it.
+`control_style_projection_values` and `own_control_style_values` keep the layers separate for adapters that also support legacy Button styles.
+Legacy child styles and local values must remain above the projected parent defaults.
+Repeated projection updates on existing parts require no allocation.
+
+## Shared typography and content geometry
+
+`StylePartSchema::typography_from` declares the source of missing font fields.
+The source must precede the destination in the schema.
+Inheritance covers font fields, alignment, wrapping, and line limits, but only properties that the destination accepts.
+An explicit destination value overrides its inherited value.
+
+Cached and transient resolution use the same inheritance rules.
+Transient non-root rules use the requested item state, plus disabled context from the owner.
+Root values use the actual owner state, including when other parts inherit them.
+An authored root hover rule can therefore change the inherited foreground of every unoverridden item.
+Owner hover and focus do not activate individual item hover or focus rules.
+An immutable `StyleFontFamily` owns both UTF-8 and native wide-string encodings.
+Font inheritance shares that owner without a separate font allocation for each part.
+Each part can specify font limits through `StylePartSchema::limits`.
+These limits include the maximum font size, UTF-16 family length, and supported font styles.
+Separate horizontal and vertical masks restrict alignment to values that each part supports.
+Text parts reject vertical stretch when the renderer cannot stretch the text.
+Layout parts can retain stretch for their arranged children.
+An inheritance source cannot permit fonts that its destination rejects.
+The schema export supplies the same limits to managed bindings and the `.xui` compiler.
+
+`style_content_insets` combines padding and border thickness.
+`style_content_bounds` applies those insets and clamps the remaining width and height to zero.
+Both helpers accept default padding and border values.
+An explicit zero overrides the corresponding default.
+
+Stack padding and spacing use this precedence, from lowest to highest:
+
+1. Built-in or composition defaults.
+2. Style definitions, overridden by local style values.
+3. Explicit structural values from `set_padding` and `set_spacing`, including zero.
+
+Composition constructors use `set_default_padding` and `set_default_spacing` without marking those values explicit.
+Later default calls cannot overwrite explicit structural values.
+Clearing a style restores composition defaults unless an explicit structural value takes precedence.
+Root borders and separator insets remain additive to the effective padding.
+Default setters do not create a style attachment.
+
+The `.xui` compiler emits Stack padding and spacing setters only for authored arguments.
+Omitted arguments leave style values and composition defaults available.
+Explicit `padding: 0` and `spacing: 0` remain structural overrides on both stack axes, including after style reload.
+
+`rowHeight` requires a positive value of at most 32768 DIPs.
+Zero, negative values, and nonfinite values produce an error before attachment.
+This restriction prevents zero-sized rows in virtualized geometry.
+
+### Uniform metrics and state rules
+
+Each part has separate property masks for base/local values and state rules.
+`StylePartSchema::allowed` defines base/local properties.
+`StylePartSchema::state_allowed` further restricts properties in state rules.
+The default state mask permits every property that `allowed` permits.
+Unsupported rule properties produce an error before style publication.
+
+ItemsView uses `tile.width` for uniform tile width, not `root.width`.
+Base definitions and local values can change tile width and the resulting column count.
+Every state rule on `tile.width` is rejected.
+Tile padding, borders, colors, and supported text typography remain state-capable where the renderer consumes them.
+Text stays within the explicit uniform row or tile extent, without a source scan for automatic sizing.
+Collection scrollbar reservation uses `scrollbar.width`, not `scrollbar.size`.
+
+Grid row height and header height belong to the root, not individual rows, cells, or headers.
+Grid scrollbar width belongs to the scrollbar part.
+The grid root supports actual owner `focused`, `hovered`, and `disabled` states.
+These states can change root metrics for the whole grid.
+The scrollbar width supports the owner `disabled` state.
+Per-row padding remains an internal content inset and does not change the uniform row extent.
+Unsupported grid indicator size and per-item width, spacing, or row-height properties reject.
+
+RadioGroup and ChoiceList keep uniform row height and spacing on the root.
+Their supported owner-state metrics change actual row geometry.
+Supported per-item padding and indicator size remain state-capable because they change actual item content geometry.
+No variable-row layout or per-source-row style cache is part of this contract.
+
+The C ABI exports the effective rule mask as `state_properties`, intersected with the part's allowed properties.
+Generated C#, Rust, and compiler catalogs carry this separate mask.
+Definition validation and `.xui` diagnostics use it, rather than treating independent property and state support as sufficient.
+The catalog parity checks compare base properties, states, and rule properties separately.
+
+## Window tooltips
+
+Tooltip styles use the Window API, not an Element handle.
+The Window retains one optional attachment for the `Tooltip` target.
+Style application and removal do not show a hidden tooltip.
+The existing tooltip timing, focus, and placement rules remain in effect.
+The `open` state means that the existing tooltip is visible.
+It does not request visibility.
+
+The C++ API provides `set_tooltip_style`, `tooltip_style`, `set_tooltip_style_values`, `tooltip_style_values`, and `effective_tooltip_style_values`.
+An empty local value replaces that part's local layer.
+A null definition clears the style but preserves locals.
+
+The C ABI provides `xui_window_set_tooltip_style` and `xui_window_try_set_tooltip_style`.
+They use existing generic style handles and weak identities.
+`xui_window_set_tooltip_style_values` and `xui_window_get_tooltip_style_values` use the existing typed property records.
+These functions require a Window handle and obey its lifetime, thread, and mutation guards.
+
+```csharp
+window.SetTooltipStyle(new ControlStyle(StyleTarget.Tooltip, [
+    new(StylePart.Root, new() { Padding = new Insets(8), CornerRadius = 4 }),
+    new(StylePart.Text, new() { FontSize = 16 })
+]));
+window.SetTooltipStyleValues(StylePart.Root, new() { Foreground = new ThemeColor(0) });
+var effective = window.GetTooltipStyleValues(StylePart.Text, effective: true);
+window.SetTooltipStyle(null);
+window.SetTooltipStyleValues(StylePart.Root, new());
+```
+
+Rust provides `Window::set_tooltip_style`, `set_tooltip_style_values`, and `tooltip_style_values`.
+`None` clears the definition, and default `PartStyleValues` clear a local layer.
+
+The `.xui` compiler does not provide Window-style application syntax.
+It rejects Tooltip declarations rather than creating a style that a component cannot apply.
+Applications can construct and apply Tooltip styles through the native, C#, or Rust Window API.
+
+## Portable schema catalogs
+
+The `.xui` compiler and managed definition constructors use compiled, checked-in schema catalogs.
+They do not load the native DLL for validation.
+The native schema and limit queries support an explicit export and parity-check step.
+They are not prerequisites for ordinary markup compilation.
+
+The exporter records the exact supported target, part, property, state, and value-limit metadata.
+The same snapshot generates the C#, Rust, and compiler catalogs.
+Portable tests compare those catalogs and prevent native library loads during managed definition construction.
+The native parity check detects differences between the snapshot and the current DLL.
+The [contributor guide](../../CONTRIBUTING.md#binding-generation-and-compatibility) describes the export and check commands.

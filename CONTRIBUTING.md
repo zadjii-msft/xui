@@ -320,6 +320,34 @@ After a feature-header or manifest change, regenerate the declarations:
 python bindings\generate_features.py
 ```
 
+Normal `.xui` builds and managed style construction use checked-in catalogs.
+They do not load the native DLL to discover schemas.
+After a native schema change, build the exporter in the selected native build directory:
+
+```powershell
+cmake --build $build --config Release --target xui_style_catalog
+python bindings\generate_control_styles.py --native-executable "$build\Release\xui_style_catalog.exe"
+python bindings\generate_control_styles.py --native-executable "$build\Release\xui_style_catalog.exe" --check
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+```
+
+The executable exports exact schemas and limits through the public C ABI.
+Python does not load the target DLL into its own process.
+Thus, an ARM64 exporter does not require an ARM64 Python installation.
+The exporter also compiles exhaustive C/C++ identifier assertions.
+
+The portable generator tests compare the snapshot against managed and compiler catalogs.
+They exercise real managed definition validation with a native-load guard.
+If Python is available, CTest registers the read-only `xui_control_style_catalog_parity` check.
+That check compares the current DLL snapshot and all generated catalog files.
+
+To regenerate from the checked-in snapshot without native execution, run:
+
+```powershell
+python bindings\generate_control_styles.py
+python bindings\generate_control_styles.py --check
+```
+
 The ARM64 integration scripts currently assume Visual Studio 2022 Preview at its standard installation path.
 `binding-features.ps1` also publishes with `--no-restore`.
 Before its first run, restore both managed projects for the required publish modes:

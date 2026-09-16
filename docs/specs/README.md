@@ -10,8 +10,8 @@ The root [README](../../README.md) introduces the framework.
 - [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
-- [Control styles and color resources](control-styling.md): Button styles, the Toggle parts pilot, state rules, declarative authoring, and binding contracts.
-- [Control styling inventory](control-styling-inventory.md): Target properties, visual parts, states, and native-content boundaries across the control catalog.
+- [Control styles and color resources](control-styling.md): Shared schemas, named parts, typography, state rules, declarative authoring, and binding contracts.
+- [Control styling inventory](control-styling-inventory.md): Delivered coverage, exact value limits, retained-child paths, and remaining native/binding gaps.
 
 ## Control contracts
 

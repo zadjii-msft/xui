@@ -174,7 +174,7 @@ void target_and_part_validation() {
     rejects([&] { plain.local(static_cast<StylePart>(50)); }, "ControlStyleAttachment::local rejects an unsupported part");
     rejects([&] { plain.effective(static_cast<StylePart>(50), 0); }, "ControlStyleAttachment::effective rejects an unsupported part");
 
-    rejects([] { ControlStyleAttachment foreign(static_cast<StyleTarget>(5)); },
+    rejects([] { ControlStyleAttachment foreign(static_cast<StyleTarget>(0xffffffff)); },
         "An attachment rejects an unsupported target at construction");
     rejects([&] { style->resolve(StylePart::root, 1ull << 40); }, "Resolve rejects unsupported state bits");
     rejects([&] { plain.effective(StylePart::root, 1ull << 40); }, "Empty attachment rejects unsupported state bits");
@@ -186,7 +186,7 @@ void target_and_part_validation() {
     plain.assign_local(StylePart::root, local, 0);
     rejects([&] { plain.effective(StylePart::label, 1ull << 40); }, "Local-only attachment rejects unsupported state bits");
     require(plain.effective(StylePart::label, 0)->foreground == local.foreground, "Rejected mask preserves local inheritance");
-    Button unsupported(L"Button");
+    Element unsupported;
     rejects([&] { unsupported.set_control_style(style); }, "A Button rejects a generic Toggle style");
     rejects([&] { unsupported.control_style_values(StylePart::root); }, "Unsupported control getters reject generic style values");
     rejects([&] { unsupported.effective_control_style_values(StylePart::root); }, "Unsupported control effective getters reject generic style values");
@@ -556,14 +556,14 @@ void exhaustive_allocation_failures() {
     PartStyleValues root; root.foreground = ThemeColor{3};
     auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::root, root}}, {});
     auto replacement = ControlStyle::create(StyleTarget::toggle, {{StylePart::root, root}, {StylePart::indicator, indicator}}, {});
-    for (unsigned scenario = 0; scenario < 4; ++scenario) {
+    for (unsigned scenario = 0; scenario < 6; ++scenario) {
         unsigned failures{};
         bool completed{};
         for (std::size_t point = 1; point <= 64; ++point) {
             Toggle toggle(L"");
             unsigned notifications{};
             toggle.set_invalidator([&](Invalidation) { ++notifications; });
-            if (scenario >= 2) {
+            if (scenario == 2 || scenario == 3 || scenario == 5) {
                 toggle.set_style(style);
                 toggle.set_style_values(StylePart::root, root);
             }
@@ -576,7 +576,8 @@ void exhaustive_allocation_failures() {
                 AllocationScope probe;
                 allocation_probe::fail_at = point;
                 try {
-                    if (scenario % 2 == 0) toggle.set_style(replacement);
+                    if (scenario >= 4) toggle.set_control_style_projection(StylePart::indicator, indicator);
+                    else if (scenario % 2 == 0) toggle.set_style(replacement);
                     else toggle.set_style_values(StylePart::indicator, indicator);
                 } catch (const std::bad_alloc&) { threw = true; }
             }
@@ -588,7 +589,8 @@ void exhaustive_allocation_failures() {
                 toggle.style_values(StylePart::root).foreground == before_local.foreground,
                 "Every allocation failure preserves locals and cached values");
             require(!toggle.effective_style_values(StylePart::indicator), "Failed assignments do not publish new slots");
-            if (scenario < 2) require(!toggle.has_control_styling(), "Failed first activation does not retain an empty sidecar");
+            require(toggle.control_style_projection_values(StylePart::indicator).empty(), "Failed projections preserve the parent layer");
+            if (scenario < 2 || scenario == 4) require(!toggle.has_control_styling(), "Failed first activation does not retain an empty sidecar");
         }
         require(completed && failures > 0, "Failure sweep reaches success after exercising every allocation point");
         std::cout << "Allocation failure sweep scenario=" << scenario << " points=" << failures << " passed\n";

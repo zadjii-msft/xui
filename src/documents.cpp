@@ -45,7 +45,7 @@ void DocumentText::set_text(std::wstring value) {
     if (text_ == value && runs_.empty()) return;
     text_ = std::move(value); runs_.clear(); ++revision_;
     selection_ = {}; ++selection_revision_;
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 void DocumentText::set_maximum_length(std::size_t value) {
     if (!value || value > document_limit || value < text_.size()) throw std::invalid_argument("Invalid document limit");
@@ -54,7 +54,7 @@ void DocumentText::set_maximum_length(std::size_t value) {
 }
 void DocumentText::set_read_only(bool value) {
     if (read_only_ == value) return;
-    read_only_ = value; invalidate(Invalidation::paint);
+    read_only_ = value; invalidate_state();
 }
 void DocumentText::set_monospace(bool value) {
     if (monospace_ == value) return;
@@ -79,7 +79,7 @@ void DocumentText::assign_runs(std::vector<TextRun> value) {
     }
     if (runs_ == value && text_ == text) return;
     text_ = std::move(text); runs_ = std::move(value); ++revision_;
-    selection_ = {}; ++selection_revision_; invalidate(Invalidation::paint);
+    selection_ = {}; ++selection_revision_; invalidate_state();
 }
 void DocumentText::set_selection(TextSelection value) {
     if (value.start > value.end || value.end > text_.size()) throw std::out_of_range("Invalid document selection");
@@ -135,7 +135,7 @@ void DocumentText::commit_text(std::wstring value) {
         if (next.size() <= 4096) runs_ = std::move(next); else runs_.clear();
     }
     text_ = std::move(value);
-    invalidate(Invalidation::paint);
+    invalidate_state();
     auto callback = change_;
     if (callback) { Notification notification(notifying_); callback(text_); }
 }
@@ -153,7 +153,7 @@ PasswordInput::~PasswordInput() { erase_secret(value_); }
 void PasswordInput::set_password(std::wstring value) {
     try { validate_text(value, maximum_); } catch (...) { erase_secret(value); throw; }
     if (value_ == value) { erase_secret(value); return; }
-    erase_secret(value_); value_.swap(value); erase_secret(value); ++revision_; invalidate(Invalidation::paint);
+    erase_secret(value_); value_.swap(value); erase_secret(value); ++revision_; invalidate_state();
 }
 void PasswordInput::with_password(const std::function<void(std::wstring_view)>& receiver) const {
     if (!receiver) throw std::invalid_argument("Password receiver is required");
@@ -177,7 +177,12 @@ void PasswordInput::set_revealed(bool value) {
 }
 Size PasswordInput::measure(Size available) {
     const auto size = Control::measure(available);
-    return visible() && revealed_ ? constrain({size.width, size.height + 32}, available) : size;
+    return visible() && revealed_ ? constrain({size.width, size.height + reveal_extent()}, available) : size;
+}
+float PasswordInput::reveal_extent() const {
+    if (!revealed_) return 0;
+    const auto* text = effective_control_style_values(StylePart::text);
+    return text && text->font_size ? std::max(32.0f, *text->font_size * 1.5f + 4) : 32.0f;
 }
 void PasswordInput::commit_password(std::wstring value) {
     if (value_ == value || notifying_) { erase_secret(value); return; }
@@ -212,6 +217,18 @@ bool DateTimePicker::change_value(DateTimeValue value) {
     if (!enabled() || value_ == value) return false;
     set_value(value); auto callback = change_; if (callback) callback(value); return true;
 }
+static Rect status_style_content(const Element& owner, Rect bounds) {
+    if (!owner.has_control_styling()) return bounds;
+    const auto* root = owner.effective_control_style_values(StylePart::root);
+    if (!root) return bounds;
+    const auto padding = root->padding.value_or(Insets{});
+    const auto border = root->border_thickness.value_or(Insets{});
+    const float left = std::min(bounds.width, padding.left + border.left);
+    const float top = std::min(bounds.height, padding.top + border.top);
+    return {bounds.x + left, bounds.y + top,
+        std::max(0.0f, bounds.width - left - padding.right - border.right),
+        std::max(0.0f, bounds.height - top - padding.bottom - border.bottom)};
+}
 InlineStatus::InlineStatus(std::wstring message)
     : Control(ControlRole::inline_status, std::move(message), {400, 64}),
       action_(std::make_shared<Button>(L"Action")), dismiss_(std::make_shared<Button>(L"Dismiss message")), children_{action_, dismiss_} {
@@ -222,20 +239,26 @@ InlineStatus::InlineStatus(std::wstring message)
     dismiss_->set_icon(ButtonIcon::close); dismiss_->on_click([this] { dismiss(); });
 }
 InlineStatus::~InlineStatus() { dismiss_->on_click({}); }
+StyleStateMask InlineStatus::control_style_state_bits() const {
+    constexpr StyleStateMask states[]{style_states::information, style_states::success,
+        style_states::warning, style_states::error};
+    return (Control::control_style_state_bits() & style_states::disabled) | states[static_cast<unsigned>(severity_)] |
+        (dismissed_ ? style_states::dismissed : 0);
+}
 void InlineStatus::set_message(std::wstring message, StatusSeverity severity) {
     validate_text(message, 4096);
     if (severity < StatusSeverity::information || severity > StatusSeverity::error) throw std::invalid_argument("Invalid status severity");
     if (severity_ == severity && name() == message) return;
-    severity_ = severity; set_name(std::move(message)); invalidate(Invalidation::paint);
+    severity_ = severity; set_name(std::move(message)); invalidate_state();
 }
 void InlineStatus::set_dismissible(bool value) {
     if (dismissible_ == value) return;
     dismissible_ = value; dismiss_->set_visible(value); invalidate(Invalidation::layout);
 }
-void InlineStatus::show() { dismissed_ = false; set_visible(true); }
+void InlineStatus::show() { dismissed_ = false; set_visible(true); invalidate_state(); }
 void InlineStatus::dismiss() {
     if (!dismissible_ || dismissed_) return;
-    dismissed_ = true; set_visible(false); auto callback = dismiss_callback_; if (callback) callback();
+    dismissed_ = true; set_visible(false); invalidate_state(); auto callback = dismiss_callback_; if (callback) callback();
 }
 void InlineStatus::set_action(std::wstring label, std::function<void()> callback) {
     validate_text(label, 128);
@@ -243,9 +266,14 @@ void InlineStatus::set_action(std::wstring label, std::function<void()> callback
 }
 void InlineStatus::arrange(Rect bounds) {
     Element::arrange(bounds);
+    const auto content = content_bounds();
+    bounds = {bounds.x + content.x, bounds.y + content.y, content.width, content.height};
     const auto close_width = dismissible_ ? 36.0f : 0.0f;
     dismiss_->arrange({bounds.x + std::max(0.0f, bounds.width - close_width), bounds.y + 8, close_width, 36});
     action_->arrange({bounds.x + std::max(0.0f, bounds.width - close_width - 116), bounds.y + 8, 112, 36});
+}
+Rect InlineStatus::content_bounds() const {
+    return status_style_content(*this, {0, 0, bounds().width, bounds().height});
 }
 ColorPicker::ColorPicker(std::wstring name) : Control(ControlRole::color_picker, std::move(name), {400, 280}) {
     const wchar_t* names[]{L"Red", L"Green", L"Blue", L"Alpha"};
@@ -263,6 +291,17 @@ ColorPicker::ColorPicker(std::wstring name) : Control(ControlRole::color_picker,
 ColorPicker::~ColorPicker() {
     for (auto& channel : channels_) channel->on_change({});
     for (std::size_t i = 4; i < children_.size(); ++i) std::static_pointer_cast<Button>(children_[i])->on_click({});
+}
+StyleStateMask ColorPicker::control_style_state_bits() const {
+    const bool invalid = std::any_of(channels_.begin(), channels_.end(), [](const auto& channel) { return !channel->valid(); });
+    return (Control::control_style_state_bits() & style_states::disabled) | (invalid ? style_states::invalid : 0);
+}
+PartStyleValues ColorPicker::channel_label_style_values(std::size_t index) const {
+    if (index >= channels_.size()) throw std::out_of_range("Color channel index is outside the channel range");
+    const auto& channel = channels_[index];
+    const auto state = (channel->valid() ? 0 : style_states::invalid) |
+        (channel->enabled() ? 0 : style_states::disabled);
+    return resolve_control_style_part(StylePart::channel_label, state);
 }
 void ColorPicker::sync() {
     channels_[0]->set_value(value_.red); channels_[1]->set_value(value_.green);
@@ -300,11 +339,16 @@ void ColorPicker::set_swatches(std::vector<RgbaColor> values) {
 }
 void ColorPicker::arrange(Rect bounds) {
     Element::arrange(bounds);
+    const auto content = content_bounds();
+    bounds = {bounds.x + content.x, bounds.y + content.y, content.width, content.height};
     for (std::size_t i = 0; i < 4; ++i)
         channels_[i]->arrange({bounds.x + 64, bounds.y + 52 + i * 42, std::max(0.0f, bounds.width - 64), 38});
     const auto width = swatches_.empty() ? 0.0f : bounds.width / static_cast<float>(swatches_.size());
     for (std::size_t i = 4; i < children_.size(); ++i)
         children_[i]->arrange({bounds.x + (i - 4) * width, bounds.y + 226, std::max(0.0f, width - 4), 36});
+}
+Rect ColorPicker::content_bounds() const {
+    return status_style_content(*this, {0, 0, bounds().width, bounds().height});
 }
 class ContentDialog::Layout final : public Stack {
     class Body final : public Stack {
@@ -313,11 +357,13 @@ class ContentDialog::Layout final : public Stack {
             std::shared_ptr<InlineStatus> validation)
             : Stack(Axis::vertical), title_(std::move(title)), content_(std::move(content)),
               validation_(std::move(validation)) {
-            set_spacing(10);
+            set_default_spacing(10);
             add(title_); add(content_); add(validation_);
         }
         void set_style(VisualStyle style) {
             style_ = style;
+            set_default_spacing(style == VisualStyle::winui ? 12.0f : 10.0f);
+            set_default_padding(style == VisualStyle::winui ? Insets{24, 24, 24, 25} : Insets{});
             title_->set_subtitle(style == VisualStyle::winui);
             title_->set_wrapping(style == VisualStyle::winui, style == VisualStyle::winui ? 2 : 0);
             title_->set_visible(style == VisualStyle::classic || !title_->text().empty());
@@ -325,9 +371,10 @@ class ContentDialog::Layout final : public Stack {
         }
         Size measure(Size available) override {
             if (style_ == VisualStyle::classic) return Stack::measure(available);
-            const auto sizes = measure_children(std::max(0.0f, available.width - 48));
-            const float width = std::max({sizes[0].width, sizes[1].width, sizes[2].width}) + 48;
-            const float height = 49 + sizes[0].height + title_gap(sizes) +
+            const auto inset = content_insets();
+            const auto sizes = measure_children(std::max(0.0f, available.width - inset.left - inset.right));
+            const float width = std::max({sizes[0].width, sizes[1].width, sizes[2].width}) + inset.left + inset.right;
+            const float height = inset.top + inset.bottom + sizes[0].height + title_gap(sizes) +
                 sizes[1].height + validation_gap(sizes) + sizes[2].height;
             return constrain({width, height}, available);
         }
@@ -335,26 +382,46 @@ class ContentDialog::Layout final : public Stack {
             if (style_ == VisualStyle::classic) { Stack::arrange(rectangle); return; }
             Element::arrange(rectangle);
             rectangle = bounds();
-            const float width = std::max(0.0f, rectangle.width - 48);
+            const auto inset = content_insets();
+            const float width = std::max(0.0f, rectangle.width - inset.left - inset.right);
             const auto sizes = measure_children(width);
-            const float x = rectangle.x + std::min(24.0f, rectangle.width);
-            float y = rectangle.y + std::min(24.0f, rectangle.height);
-            title_->arrange({x, y, width, sizes[0].height});
+            const float x = rectangle.x + std::min(inset.left, rectangle.width);
+            float y = rectangle.y + std::min(inset.top, rectangle.height);
+            const auto* style = effective_control_style_values(StylePart::root);
+            const auto vertical = style ? style->vertical_alignment.value_or(StyleAlignment::start) : StyleAlignment::start;
+            const float total = sizes[0].height + title_gap(sizes) + sizes[1].height + validation_gap(sizes) + sizes[2].height;
+            if (vertical == StyleAlignment::center || vertical == StyleAlignment::end)
+                y += std::max(0.0f, rectangle.height - inset.top - inset.bottom - total) /
+                    (vertical == StyleAlignment::center ? 2 : 1);
+            const auto place = [&](Element& child, Size size, float top) {
+                const auto horizontal = style ? style->horizontal_alignment.value_or(StyleAlignment::stretch) : StyleAlignment::stretch;
+                const float actual = horizontal == StyleAlignment::stretch ? width : std::min(width, size.width);
+                const float offset = horizontal == StyleAlignment::center ? (width - actual) / 2 :
+                    horizontal == StyleAlignment::end ? width - actual : 0;
+                child.arrange({x + offset, top, actual, size.height});
+            };
+            place(*title_, sizes[0], y);
             y += sizes[0].height + title_gap(sizes);
-            content_->arrange({x, y, width, sizes[1].height});
+            place(*content_, sizes[1], y);
             y += sizes[1].height + validation_gap(sizes);
-            validation_->arrange({x, y, width, sizes[2].height});
+            place(*validation_, sizes[2], y);
         }
     private:
+        Insets content_insets() const {
+            return effective_layout_insets();
+        }
+        float gap() const {
+            return effective_spacing();
+        }
         std::array<Size, 3> measure_children(float width) const {
             const Size available{width, (std::numeric_limits<float>::max)()};
             return {title_->measure(available), content_->measure(available), validation_->measure(available)};
         }
-        static float title_gap(const std::array<Size, 3>& sizes) {
-            return sizes[0].height > 0 && sizes[1].height > 0 ? 12.0f : 0.0f;
+        float title_gap(const std::array<Size, 3>& sizes) const {
+            return sizes[0].height > 0 && sizes[1].height > 0 ? gap() : 0.0f;
         }
-        static float validation_gap(const std::array<Size, 3>& sizes) {
-            return sizes[2].height > 0 && (sizes[0].height > 0 || sizes[1].height > 0) ? 12.0f : 0.0f;
+        float validation_gap(const std::array<Size, 3>& sizes) const {
+            return sizes[2].height > 0 && (sizes[0].height > 0 || sizes[1].height > 0) ? gap() : 0.0f;
         }
         VisualStyle style_{VisualStyle::classic};
         std::shared_ptr<Label> title_;
@@ -366,7 +433,7 @@ public:
         std::shared_ptr<InlineStatus> validation, std::shared_ptr<Stack> actions)
         : Stack(Axis::vertical), body_(std::make_shared<Body>(std::move(title), std::move(content), std::move(validation))),
           scroll_(std::make_shared<ScrollView>(body_, L"Dialog content")), actions_(std::move(actions)) {
-        set_padding({16, 16, 16, 16}); set_spacing(10);
+        set_default_padding({16, 16, 16, 16}); set_default_spacing(10);
         scroll_->set_tab_stop(false);
         scroll_->set_overlay_scrollbar(true);
         scroll_->set_passthrough(true);
@@ -376,11 +443,13 @@ public:
         if (style_ == style) return;
         style_ = style;
         body_->set_style(style);
+        actions_->set_separator_inset_enabled(style != VisualStyle::winui);
         scroll_->set_passthrough(style == VisualStyle::classic);
         footer_ = {};
         invalidate(Invalidation::layout);
     }
     Rect footer_bounds() const { return footer_; }
+    std::shared_ptr<Stack> body() const { return body_; }
     Size measure(Size available) override {
         if (style_ == VisualStyle::classic) return Stack::measure(available);
         const auto width_limit = std::min(548.0f, dimension(available.width));
@@ -391,7 +460,7 @@ public:
             button_width = std::max(button_width, actions_->child_at(i)->measure(inner).width);
         const float width = std::min(width_limit, std::max({320.0f, body.width, 2 * button_width + 56}));
         const float height = body_->measure({width, unlimited}).height +
-            action_height(std::max(0.0f, width - 48)) + 48;
+            action_height(std::max(0.0f, width - 48)) + 48 + separator_extent();
         return {width, std::min(dimension(available.height), std::clamp(height, 184.0f, 756.0f))};
     }
     void arrange(Rect rectangle) override {
@@ -400,18 +469,24 @@ public:
         rectangle = bounds();
         const float inner_width = std::max(0.0f, rectangle.width - 48);
         const auto buttons_height = action_height(inner_width);
-        const auto footer_height_here = std::min(buttons_height + 48, rectangle.height);
+        const auto separator = separator_extent();
+        const auto footer_height_here = std::min(buttons_height + 48 + separator, rectangle.height);
         const float body_height = rectangle.height - footer_height_here;
         footer_ = {rectangle.x, rectangle.y + body_height, rectangle.width, footer_height_here};
         const float left = std::min(24.0f, rectangle.width);
         scroll_->arrange({rectangle.x, rectangle.y, rectangle.width, body_height});
-        const float action_top = std::min(24.0f, footer_height_here);
+        const float action_top = std::min(24.0f + separator, footer_height_here);
         actions_->arrange({rectangle.x + left, footer_.y + action_top, inner_width,
             std::min(buttons_height, std::max(0.0f, footer_height_here - action_top - 24))});
     }
 private:
     static constexpr float unlimited = (std::numeric_limits<float>::max)();
+    float separator_extent() const {
+        const auto* values = actions_->effective_control_style_values(StylePart::separator);
+        return values && values->thickness ? std::max(0.0f, *values->thickness - 1) : 0;
+    }
     float action_height(float width) const {
+        if (actions_->has_control_styling()) return actions_->measure({width, unlimited}).height;
         float height = 0;
         const Size column{std::max(0.0f, (width - 8) / 2), unlimited};
         for (std::size_t i = 0; i < actions_->child_count(); ++i)
@@ -427,9 +502,9 @@ private:
 };
 ContentDialog::ContentDialog(std::wstring title, std::shared_ptr<Element> content) {
     if (!content) throw std::invalid_argument("Dialog content is required");
-    auto heading = std::make_shared<Label>(title); heading->set_heading(true);
+    auto heading = title_ = std::make_shared<Label>(title); heading->set_heading(true);
     validation_ = std::make_shared<InlineStatus>(); validation_->set_visible(false);
-    auto row = std::make_shared<Stack>(Axis::horizontal); row->set_spacing(8);
+    auto row = footer_ = std::make_shared<Stack>(Axis::horizontal); row->set_default_spacing(8);
     primary_ = std::make_shared<Button>(L"OK"); cancel_ = std::make_shared<Button>(L"Cancel");
     primary_->set_appearance(ButtonAppearance::accent);
     row->add(primary_, 1); row->add(cancel_, 1);
@@ -468,6 +543,7 @@ Size ContentDialog::measure(Size available) {
     return desired;
 }
 Rect ContentDialog::footer_bounds() const { return layout_->footer_bounds(); }
+std::shared_ptr<Stack> ContentDialog::body() const { return layout_->body(); }
 void ContentDialog::accept() {
     auto lifetime = weak_from_this().lock();
     if (!popup_->is_open() || !primary_->enabled()) return;

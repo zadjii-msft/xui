@@ -1,4 +1,5 @@
 #include "xui/commands.hpp"
+#include "layout_styling.hpp"
 #include <algorithm>
 #include <cwctype>
 
@@ -234,15 +235,15 @@ void CommandMenu::horizontal(bool right, SelectionGesture) {
     else { auto callback = back_; if (callback) callback(); }
 }
 CommandSurface::CommandSurface(std::wstring name, bool searchable) {
-    auto content = std::make_shared<Stack>(Axis::vertical);
-    content->set_padding({16, 16, 16, 16}); content->set_spacing(12);
+    auto content = content_ = std::make_shared<Stack>(Axis::vertical);
+    content->set_default_padding({16, 16, 16, 16}); content->set_default_spacing(12);
     menu_ = std::make_shared<CommandMenu>(name);
     if (searchable) {
         auto header = std::make_shared<Stack>(Axis::horizontal);
-        header->set_spacing(12);
-        auto title = std::make_shared<Label>(name);
-        title->set_heading(true); title->set_preferred_size({448, 32});
-        header->add(title, 1);
+        header->set_default_spacing(12);
+        title_ = std::make_shared<Label>(name);
+        title_->set_heading(true); title_->set_preferred_size({448, 32});
+        header->add(title_, 1);
         close_ = std::make_shared<Button>(L"Close command palette");
         close_->set_icon(ButtonIcon::close); close_->set_fixed_size({32, 32});
         close_->on_click([this] { menu_->horizontal(false, SelectionGesture::replace); });
@@ -255,7 +256,7 @@ CommandSurface::CommandSurface(std::wstring name, bool searchable) {
         editor_->on_submit([this] { if (auto key = menu_->selection().focused()) menu_->execute(key->id); });
         content->add(editor_);
     }
-    auto results = std::make_shared<Stack>(Axis::vertical);
+    auto results = results_ = std::make_shared<Stack>(Axis::vertical);
     results->add(menu_, 1); results->set_separator_after(true);
     content->add(results, 1);
     status_ = std::make_shared<Label>(searchable ? command_help : menu_help);
@@ -269,7 +270,36 @@ Size CommandSurface::measure(Size available) const {
     auto desired = popup_->measure(available);
     const auto source = menu_->source();
     const auto rows = source ? source->row_start(source->size(), menu_->item_size().height) : 0;
-    desired.height = std::min(desired.height, (editor_ ? 172.0f : 68.0f) + static_cast<float>(std::max(48.0, rows)));
+    const auto metrics = [](const Element& element, StyleTarget target) {
+        if (!element.has_control_styling()) return false;
+        for (const auto& part : control_style_schema(target).parts)
+            if (const auto* values = element.effective_control_style_values(part.part);
+                values && !part_style_layout_equal(*values, PartStyleValues{})) return true;
+        return false;
+    };
+    const bool authored_metrics = metrics(*popup_, StyleTarget::popup) || metrics(*content_, StyleTarget::stack) ||
+        metrics(*results_, StyleTarget::stack) || metrics(*menu_, StyleTarget::command_menu) ||
+        metrics(*status_, StyleTarget::label) || (title_ && metrics(*title_, StyleTarget::label)) ||
+        (editor_ && metrics(*editor_, StyleTarget::text_input)) || (close_ && metrics(*close_, StyleTarget::button));
+    float chrome = editor_ ? 172.0f : 68.0f;
+    if (authored_metrics) {
+        const auto padding = content_->effective_layout_insets();
+        const auto results_padding = results_->effective_layout_insets();
+        const auto vertical = [](const Element& element) {
+            const auto* root = element.effective_control_style_values(StylePart::root);
+            if (!root) return 0.0f;
+            const auto padding = root->padding.value_or(Insets{});
+            const auto border = root->border_thickness.value_or(Insets{});
+            return padding.top + padding.bottom + border.top + border.bottom;
+        };
+        chrome = padding.top + padding.bottom + results_padding.top + results_padding.bottom +
+            content_->effective_spacing() * static_cast<float>(content_->child_count() - 1) + vertical(*popup_) + vertical(*menu_);
+        const auto inner = layout_style::content(*popup_, {0, 0, desired.width, available.height});
+        const Size child_size{std::max(0.0f, inner.width - padding.left - padding.right), available.height};
+        for (std::size_t i = 0; i < content_->child_count(); ++i)
+            if (content_->child_at(i) != results_) chrome += content_->child_at(i)->measure(child_size).height;
+    }
+    desired.height = std::min(desired.height, chrome + static_cast<float>(std::max(48.0, rows)));
     return desired;
 }
 CommandSurface::~CommandSurface() {
@@ -308,39 +338,152 @@ void CommandSurface::cancel() { stop_.request_stop(); ++generation_; }
 CommandBar::CommandBar(std::wstring name) : Control(ControlRole::content_view, std::move(name), {480, 40}),
     overflow_(std::make_shared<Button>(L"More commands")) { overflow_->set_behavior(ButtonBehavior::dropdown); }
 CommandBar::~CommandBar() {
-    for (const auto& child : children_) std::static_pointer_cast<Button>(child)->on_click({});
+    if (button_invoked_) button_invoked_->owner = nullptr;
+    for (const auto& child : children_) {
+        const auto button = std::static_pointer_cast<Button>(child);
+        button->on_click({});
+        button->on_toggle({});
+    }
+}
+void CommandBar::bind_command_button(const std::shared_ptr<Button>& button,
+    const std::shared_ptr<const CommandSet>& commands, CommandId id) {
+    const auto install = [&](auto dispatch) {
+        if (commands->find(id)->checked) {
+            button->on_click({});
+            button->on_toggle([dispatch = std::move(dispatch)](bool) { dispatch(); });
+        } else {
+            button->on_toggle({});
+            button->on_click(std::move(dispatch));
+        }
+    };
+    // Keep the unexposed callback within MSVC std::function's inline storage.
+    if (!button_invoked_) {
+        install([commands, id, weak = std::weak_ptr<Button>(button)] {
+            const auto value = weak.lock();
+            if (!value || !value->enabled()) return;
+            if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
+            if (value->enabled()) commands->invoke(id);
+        });
+        return;
+    }
+    install([commands, id, weak = std::weak_ptr<Button>(button),
+        observer = std::weak_ptr<ButtonObserver>(button_invoked_)] {
+        const auto value = weak.lock();
+        const auto signal = observer.lock();
+        if (!value || !value->enabled() || !signal || !signal->owner ||
+            signal->owner->command_button(id) != value) return;
+        if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
+        if (!value->enabled()) return;
+        commands->invoke(id);
+        if (signal->owner && signal->owner->command_button(id) == value && signal->callback) {
+            const auto callback = signal->callback;
+            callback(*value);
+        }
+    });
+}
+void CommandBar::set_button_invoked_handler(std::function<void(const Button&)> handler) {
+    if (!button_invoked_) {
+        if (!handler) return;
+        button_invoked_ = std::make_shared<ButtonObserver>();
+        button_invoked_->owner = this;
+        try {
+            for (std::size_t i = 0; i < ids_.size(); ++i)
+                bind_command_button(std::static_pointer_cast<Button>(children_[i]), commands_, ids_[i]);
+        } catch (...) {
+            button_invoked_.reset();
+            throw;
+        }
+    }
+    button_invoked_->callback = std::move(handler);
 }
 void CommandBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     if (!commands || commands->records().size() > 64) throw std::invalid_argument("Command bar supports at most 64 records");
+    if (commands_ == commands) return;
+    for (const auto& r : commands->records())
+        if (!r.parent && r.kind != CommandKind::separator && r.kind != CommandKind::section && r.kind != CommandKind::action)
+            throw std::invalid_argument("Command bar roots must be actions");
     std::vector<std::shared_ptr<Element>> children;
     std::vector<CommandId> ids;
+    std::uint64_t separators{};
+    bool pending_separator{};
     for (const auto& r : commands->records()) {
-        if (r.parent || r.kind == CommandKind::separator || r.kind == CommandKind::section) continue;
-        if (r.kind != CommandKind::action) throw std::invalid_argument("Command bar roots must be actions");
-        auto button = std::make_shared<Button>(r.label); button->set_enabled(r.enabled);
+        if (r.parent || r.kind == CommandKind::section) continue;
+        if (r.kind == CommandKind::separator) { pending_separator = !children.empty(); continue; }
+        if (pending_separator) separators |= std::uint64_t{1} << ids.size();
+        pending_separator = false;
+        const auto retained = command_button(r.id);
+        auto button = retained ? retained : std::make_shared<Button>(r.label);
+        button->set_name(r.label); button->set_enabled(r.enabled);
         button->set_icon(r.icon);
-        if (r.checked) { button->set_behavior(ButtonBehavior::toggle); button->set_checked(*r.checked); }
-        button->on_click([commands, id = r.id, weak = std::weak_ptr<Button>(button)] {
-            if (auto value = weak.lock()) if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
-            commands->invoke(id);
-        });
-        adopt(button); children.push_back(button); ids.push_back(r.id);
+        button->set_behavior(r.checked ? ButtonBehavior::toggle : ButtonBehavior::momentary);
+        button->set_checked(r.checked.value_or(false));
+        bind_command_button(button, commands, r.id);
+        if (!retained) adopt(button);
+        children.push_back(button); ids.push_back(r.id);
     }
     if (children_.empty()) adopt(overflow_);
-    children.push_back(overflow_); children_ = std::move(children); ids_ = std::move(ids); commands_ = std::move(commands);
+    children.push_back(overflow_);
+    for (std::size_t i = 0; i < ids_.size(); ++i) {
+        if (std::find(children.begin(), children.end(), children_[i]) != children.end()) continue;
+        const auto retired = std::static_pointer_cast<Button>(children_[i]);
+        retired->on_click({}); retired->on_toggle({}); retired->set_enabled(false);
+    }
+    children_ = std::move(children); ids_ = std::move(ids); commands_ = std::move(commands);
+    separators_ = separators;
     invalidate(Invalidation::layout);
 }
+StyleStateMask CommandBar::control_style_state_bits() const {
+    return (Control::control_style_state_bits() & style_states::disabled) | (overflowed() ? style_states::overflowed : 0);
+}
+
+std::shared_ptr<Button> CommandBar::command_button(CommandId id) const {
+    const auto found = std::find(ids_.begin(), ids_.end(), id);
+    return found == ids_.end() ? nullptr :
+        std::static_pointer_cast<Button>(children_[static_cast<std::size_t>(found - ids_.begin())]);
+}
+
+float CommandBar::separator_gap() const {
+    const auto* values = effective_control_style_values(StylePart::separator);
+    return values ? std::max(4.0f, values->thickness.value_or(1.0f)) : 4.0f;
+}
+
+Rect CommandBar::separator_bounds(std::size_t before_index) const {
+    if (!before_index || before_index >= visible_ || !(separators_ & (std::uint64_t{1} << before_index))) return {};
+    const auto* values = effective_control_style_values(StylePart::separator);
+    if (!values) return {};
+    const auto before = children_[before_index - 1]->bounds(), after = children_[before_index]->bounds();
+    const float gap = std::max(0.0f, after.x - before.x - before.width);
+    const float thickness = std::min(gap, values->thickness.value_or(1.0f));
+    const float top = std::max(before.y, after.y);
+    return {before.x + before.width + (gap - thickness) / 2, top, thickness,
+        std::max(0.0f, std::min(before.y + before.height, after.y + after.height) - top)};
+}
+
 void CommandBar::arrange(Rect bounds) {
+    const bool was_overflowed = overflowed();
     Element::arrange(bounds);
-    bounds = this->bounds();
-    const auto fit = static_cast<std::size_t>(std::max(0.0f, bounds.width) / 112);
-    visible_ = fit >= ids_.size() ? ids_.size() : fit ? fit - 1 : 0;
+    bounds = layout_style::content(*this, this->bounds());
+    const float separator_width = separator_gap();
+    const auto extent = [&](std::size_t count) {
+        float width = 112.0f * static_cast<float>(count);
+        for (std::size_t i = 1; i < count; ++i)
+            if (separators_ & (std::uint64_t{1} << i)) width += separator_width - 4;
+        return width;
+    };
+    visible_ = ids_.size();
+    if (extent(visible_) > bounds.width) {
+        visible_ = 0;
+        while (visible_ < ids_.size() && extent(visible_ + 1) + 112 <= bounds.width) ++visible_;
+    }
     float x = bounds.x;
     for (std::size_t i = 0; i < ids_.size(); ++i) {
+        if (i && i < visible_) x += separators_ & (std::uint64_t{1} << i) ? separator_width : 4;
         children_[i]->arrange(i < visible_ ? Rect{x, bounds.y, 108, bounds.height} : Rect{});
-        if (i < visible_) x += 112;
+        if (i < visible_) x += 108;
     }
+    if (visible_) x += 4;
     overflow_->arrange(visible_ < ids_.size() ? Rect{x, bounds.y, std::min(108.0f, std::max(0.0f, bounds.width - (x - bounds.x))), bounds.height} : Rect{});
+    if (was_overflowed != overflowed()) invalidate_control_style_state();
 }
 std::shared_ptr<const CommandSet> CommandBar::overflow_commands() const {
     std::vector<CommandRecord> records;
