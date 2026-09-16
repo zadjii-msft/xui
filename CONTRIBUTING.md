@@ -500,6 +500,8 @@ npm run docs:build
 The build writes `build\retype-site`.
 It checks rendered page coverage, sidebar order, local links, anchors, assets, and the `/xui/` URL prefix.
 It also compares every rendered code block with its Markdown source.
+Control examples must use the tab order `.xui`, `C#`, `Rust`, `C++`.
+The source check rejects missing languages, malformed groups, and C++ examples outside their language tab.
 Unexpected output files stop the build before artifact upload.
 It does not publish the output.
 The build uses Retype's public [GitHub Pages community key](https://retype.com/community/).
@@ -524,6 +526,32 @@ Fenced examples remain unchanged.
 Template processing is disabled so C++ initializer braces remain literal text.
 The adapter tests are in `tests/test_docs_site.py`.
 Page frontmatter requires an explicit adapter update rather than a silent metadata override.
+
+Control guides use GitBook tab directives in their Markdown source:
+
+````markdown
+{% tabs %}
+{% tab title=".xui" %}
+Declarative example and any required C# construction.
+{% endtab %}
+{% tab title="C#" %}
+Handwritten C# example.
+{% endtab %}
+{% tab title="Rust" %}
+Rust example.
+{% endtab %}
+{% tab title="C++" %}
+C++ example.
+{% endtab %}
+{% endtabs %}
+````
+
+The helper converts these directives to Retype tabs in generated input.
+It leaves fenced code unchanged.
+GitBook retains its native tab syntax, and both renderers show `.xui` first.
+Put shared behavior notes outside the group.
+For an unbound API, state the limitation in its tab instead of inventing a call.
+For a bound control without a markup constructor, show C# creation and a `.xui` `Content(...)` component.
 
 #### Enable public deployment
 

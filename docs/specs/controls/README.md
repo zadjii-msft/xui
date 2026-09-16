@@ -18,11 +18,144 @@ They complement the [public contracts](../README.md), which define behavior and 
 
 ## Use the examples
 
-The C++ examples use the public headers.
-Except for complete class definitions, each block is an independent function-body fragment.
-The examples do not form one concatenated application.
+Each example has tabs in this order: **.xui**, **C#**, **Rust**, **C++**.
+The first tab shows the declarative path.
+Some controls require C# construction and the `Content(...)` bridge rather than a dedicated `.xui` node.
+Those tabs include the required setup.
+An unavailable API has an explicit support note instead of a substitute with different behavior.
 
-Use this context for the fragments:
+Each example is independent. The examples do not form one concatenated application.
+Use the matching context below unless a guide supplies a complete application or additional source parameters.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+A `.xui` tab contains a complete component.
+Save this example as `GuidePanel.xui`:
+
+```xui
+namespace ControlExamples;
+
+component GuidePanel {
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Ready");
+        }
+    }
+}
+```
+
+Create the component from an STA entry point:
+
+```csharp
+using System;
+using Xui;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main()
+    {
+        try
+        {
+            using var window = new Window("Control example", 800, 600);
+            _ = new ControlExamples.GuidePanel(window);
+            window.Run();
+            return 0;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+    }
+}
+```
+
+Replace component creation with the selected guide's constructor and any required C# setup.
+The component attaches its own Stack root by default.
+An element passed to `Content(...)` must belong to this window and must not already have a parent.
+The [declarative guide](../languages/declarative.md#project-integration) describes project integration.
+
+{% endtab %}
+{% tab title="C#" %}
+
+C# fragments use `window`, `root`, and `anchor` from this context.
+Put complete helper types at file scope.
+
+```csharp
+using System;
+using Xui;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main()
+    {
+        try
+        {
+            using var window = new Window("Control example", 800, 600);
+            var root = window.Stack().Padding(16).Spacing(8);
+            var anchor = window.Button("Open");
+            root.Add(anchor);
+            // Insert one C# guide fragment here.
+            window.SetContent(root);
+            window.Run();
+            return 0;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+    }
+}
+```
+
+The window disposes its owned controls after `Run` returns.
+The [C# guide](../languages/csharp.md#project-integration) describes the managed reference, manifest, and native DLL.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+Rust fragments use `window`, `root`, and `anchor` from this context.
+Question marks propagate native errors to the caller.
+Insert the fragment inside `example`, where these three values are borrowed references.
+
+```rust
+use xui::*;
+
+fn example(
+    window: &Window,
+    root: &Stack,
+    anchor: &Button,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let _ = (window, root, anchor);
+    // Insert one Rust guide fragment here.
+    Ok(())
+}
+
+fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let window = Window::new("Control example", 800., 600.)?;
+    let root = window.stack(Axis::Vertical)?;
+    root.padding(16.)?;
+    root.spacing(8.)?;
+    let anchor = window.button("Open")?;
+    root.add(&anchor, 0.)?;
+    example(&window, &root, &anchor)?;
+    window.set_content(&root)?;
+    window.run()?;
+    Ok(())
+}
+```
+
+Use weak control or Window captures for callbacks that the same native owner retains.
+The [Rust guide](../languages/rust.md#ownership-and-callback-cycles) explains ownership and callback errors.
+
+{% endtab %}
+{% tab title="C++" %}
+
+C++ fragments use `window`, `root`, and `anchor` from this context:
 
 ```cpp
 #include "xui\application.hpp"
@@ -46,8 +179,11 @@ The anchor already belongs to the root.
 Popup examples open only from its callback, after the window starts.
 All referenced local variables remain alive during `Application::run`.
 
+{% endtab %}
+{% endtabs %}
+
 For executable setup, use [application composition](../application.md#application-example).
-For C# and Rust examples, use the [binding guide](../bindings.md#examples).
+For binding setup and coverage, use the [binding guide](../bindings.md#examples).
 For declarative components, use the [`.xui` language guide](../xui-language.md).
 
 ### Shared ownership and input rules

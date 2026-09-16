@@ -9,6 +9,9 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from docs_site import convert_tabs
+
 LINK = re.compile(r"\[[^\]\n]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE = re.compile(r"^(`{3,}|~{3,})")
 
@@ -99,6 +102,11 @@ def main():
         if not page.is_file():
             errors.append(f"Missing page: {page.relative_to(ROOT)}")
             continue
+        if page.parent == ROOT / "docs/specs/controls":
+            try:
+                convert_tabs(page.read_text(encoding="utf-8"), require_language_tabs=True)
+            except ValueError as error:
+                errors.append(f"{page.relative_to(ROOT)}: {error}")
         for href in LINK.findall(prose(page.read_text(encoding="utf-8"))):
             target = local_link(page, href)
             if target is None:

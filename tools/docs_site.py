@@ -27,6 +27,8 @@ COMMUNITY_KEY = (
 ENTRY = re.compile(r"^( *)\* \[([^\]]+)\]\(([^)]+)\)$")
 LINK = re.compile(r"(!?\[[^\]\n]*\]\()([^)\s]+)([^)]*\))")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+LANGUAGE_TABS = [".xui", "C#", "Rust", "C++"]
+TAB = re.compile(r'^\{% tab title="([^"]+)" %\}$')
 
 
 def slug(text):
@@ -123,6 +125,69 @@ def rewrite_links(text, source, destination, pages, revision):
     return "".join(lines)
 
 
+def convert_tabs(text, require_language_tabs=False):
+    lines = []
+    groups = []
+    titles = None
+    active = None
+    has_content = False
+    fence = None
+    for number, line in enumerate(text.splitlines(keepends=True), 1):
+        stripped = line.strip()
+        marker = FENCE.match(line)
+        if marker:
+            if fence is None:
+                language = line[marker.end():].strip().split(" ", 1)[0]
+                if require_language_tabs and language == "cpp" and active != "C++":
+                    raise ValueError(f"Line {number}: C++ control example needs language tabs")
+                fence = marker[1]
+            elif marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
+                fence = None
+            lines.append(line)
+            has_content = True
+            continue
+        if fence is not None:
+            lines.append(line)
+            continue
+        if stripped == "{% tabs %}":
+            if titles is not None:
+                raise ValueError(f"Line {number}: nested tab groups are not supported")
+            titles = []
+        elif match := TAB.fullmatch(stripped):
+            if titles is None or active is not None:
+                raise ValueError(f"Line {number}: tab is outside a group or overlaps another tab")
+            active = match[1]
+            if active in titles:
+                raise ValueError(f"Line {number}: duplicate tab title: {active}")
+            titles.append(active)
+            has_content = False
+            lines.append(f"+++ {active}\n")
+        elif stripped == "{% endtab %}":
+            if active is None or not has_content:
+                raise ValueError(f"Line {number}: unmatched or empty tab")
+            active = None
+        elif stripped == "{% endtabs %}":
+            if titles is None or active is not None or not titles:
+                raise ValueError(f"Line {number}: unmatched or incomplete tab group")
+            if require_language_tabs and titles != LANGUAGE_TABS:
+                raise ValueError(f"Line {number}: expected tab order {LANGUAGE_TABS}, got {titles}")
+            groups.append(titles)
+            titles = None
+            lines.append("+++\n")
+        elif stripped.startswith("{%") and ("tab" in stripped):
+            raise ValueError(f"Line {number}: unsupported tab directive: {stripped}")
+        else:
+            if titles is not None and active is None and stripped:
+                raise ValueError(f"Line {number}: content between tabs must be outside the group")
+            has_content |= bool(stripped)
+            lines.append(line)
+    if titles is not None:
+        raise ValueError("Unclosed tab group")
+    if require_language_tabs and not groups:
+        raise ValueError("Control guides must contain language tabs")
+    return "".join(lines), groups
+
+
 def prepare(revision):
     pages, folders = navigation()
     files = {}
@@ -133,8 +198,11 @@ def prepare(revision):
         metadata = f"---\nlabel: {json.dumps(label)}\norder: {order}\n"
         if source == SUMMARY:
             metadata += "visibility: hidden\n"
+        converted, _ = convert_tabs(
+            text, source.parent == ROOT / "docs/specs/controls"
+        )
         files[destination] = metadata + "---\n" + rewrite_links(
-            text, source, destination, pages, revision
+            converted, source, destination, pages, revision
         )
     for directory, (label, order) in folders.items():
         if directory / "index.md" in files:
@@ -161,6 +229,9 @@ class HtmlPage(HTMLParser):
         self.links = []
         self.code_blocks = []
         self.in_pre = False
+        self.tab_groups = []
+        self.tab_title_pending = False
+        self.in_tab_title = False
         self.feed(text)
 
     def handle_starttag(self, tag, attrs):
@@ -168,6 +239,14 @@ class HtmlPage(HTMLParser):
             self.in_pre = True
             self.code_blocks.append("")
         attrs = dict(attrs)
+        if tag == "doc-tabs":
+            self.tab_groups.append([])
+        elif tag == "doc-tab":
+            self.tab_groups[-1].append("")
+            self.tab_title_pending = True
+        elif tag == "template" and "#title" in attrs and self.tab_title_pending:
+            self.in_tab_title = True
+            self.tab_title_pending = False
         if "id" in attrs:
             self.ids.add(attrs["id"])
         if tag == "a" and "name" in attrs:
@@ -179,10 +258,16 @@ class HtmlPage(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "pre":
             self.in_pre = False
+        elif tag == "template":
+            self.in_tab_title = False
+        elif tag == "doc-tab":
+            self.tab_title_pending = False
 
     def handle_data(self, data):
         if self.in_pre:
             self.code_blocks[-1] += data
+        if self.in_tab_title:
+            self.tab_groups[-1][-1] += data
 
 
 def fenced_code(text):
@@ -286,13 +371,22 @@ def check_navigation_and_code(pages, output=OUTPUT):
     if navigation_pages != expected:
         raise ValueError("Rendered sidebar differs from SUMMARY.md page order")
     blocks = 0
+    tab_groups = 0
     for source, (destination, _, _) in pages.items():
         rendered = HtmlPage((output / html_path(destination)).read_text(encoding="utf-8"))
-        original = fenced_code(source.read_text(encoding="utf-8"))
+        text = source.read_text(encoding="utf-8")
+        original = fenced_code(text)
         if original != [block.strip() for block in rendered.code_blocks]:
             raise ValueError(f"Rendered code differs from its source: {source}")
+        _, groups = convert_tabs(text)
+        if groups != rendered.tab_groups:
+            raise ValueError(f"Rendered language tabs differ from their source: {source}")
         blocks += len(original)
-    print(f"Retype navigation/code checks passed: {len(expected)} entries, {blocks} code blocks.")
+        tab_groups += len(groups)
+    print(
+        f"Retype navigation/code checks passed: {len(expected)} entries, "
+        f"{blocks} code blocks, {tab_groups} tab groups."
+    )
 
 
 def retype_command():

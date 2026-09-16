@@ -2,14 +2,85 @@
 
 [Control catalog](README.md) · [Navigation contract](../commands-and-navigation.md) · [Binding coverage](../bindings.md)
 
-Examples use the [C++ fragment context](README.md#use-the-examples).
-Add `xui\navigation.hpp`.
+Examples use the [shared fragment context](README.md#use-the-examples).
+C++ examples also need `xui\navigation.hpp`.
+C# fragments assume `using System;` and `using Xui;`.
+Rust fragments use `use xui::*;` inside the shared `example` function.
+That function returns `std::result::Result<(), Box<dyn std::error::Error>>`.
+Rust callbacks use weak handles to avoid ownership cycles.
 Navigation actions request application changes. They do not perform filesystem I/O.
 
 ## NavigationView
 
 Use `NavigationView` for application sections with shared selection, search, and an expandable pane.
 Use TreeView for lazy general-purpose hierarchies.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component ApplicationPages {
+    view {
+        VStack() {
+            NavigationView("Application pages", ref: Navigation);
+            Text("Home", ref: Page);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var component = new ControlExamples.ApplicationPages(window);
+component.Navigation.SetItems([
+    new(1, "Home", Icon: ButtonIcon.Home),
+    new(2, "Documents", Icon: ButtonIcon.Folder),
+    new(3, "Recent documents", Parent: 2, Icon: ButtonIcon.History)
+]).Select(1);
+component.Navigation.Event += e => {
+    if (e.Kind == EventKind.Selection) component.Page.Text = $"Page {e.Value}";
+};
+```
+
+The C# model uses IDs without versions. It has no pane-width setter or section placement field.
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var navigation = window.NavigationView("Application pages").SetItems([
+    new(1, "Home", Icon: ButtonIcon.Home),
+    new(2, "Documents", Icon: ButtonIcon.Folder),
+    new(3, "Recent documents", Parent: 2, Icon: ButtonIcon.History)
+]).Select(1);
+var page = window.Label("Home");
+navigation.Event += e => {
+    if (e.Kind == EventKind.Selection) page.Text = $"Page {e.Value}";
+};
+root.Add(navigation, 1).Add(page);
+```
+
+The binding has no pane-width setter or section placement field. Entries use IDs without versions.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+The wrapper exposes NavigationView construction and retained children, but no entry setter.
+It cannot reproduce this populated hierarchy.
+This fragment configures the supported pane and search-help surfaces.
+
+```rust
+let navigation = window.navigation_view("Application pages")?;
+navigation.set_expanded(true)?;
+navigation.search()?.help("Search application pages.")?;
+root.add(&navigation, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
 
 ```cpp
 auto navigation = std::make_shared<xui::NavigationView>(L"Application pages");
@@ -27,6 +98,9 @@ navigation->on_select([page](xui::ItemKey key) {
 root->add(navigation, 1);
 root->add(page);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `NavigationItem::section` selects header, main, or footer placement.
 Keys are unique across sections.
@@ -49,12 +123,72 @@ NavigationView owns three NavigationList children:
 `header_items()`, `items()`, and `footer_items()`.
 There is no public NavigationList constructor.
 
+{% tabs %}
+{% tab title=".xui" %}
+
+NavigationList has no markup constructor. Its NavigationView owns the retained list.
+
+```text
+namespace ControlExamples;
+component PageListOwner {
+    param global::Xui.Element Owner;
+    view {
+        VStack() {
+            Content(Owner);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var navigation = window.NavigationView("Pages")
+    .SetItems([new(1, "Home", Icon: ButtonIcon.Home)]);
+navigation.Items.SetControlStyleValues(StylePart.PrimaryText, new PartStyleValues { FontSize = 14 });
+var component = new ControlExamples.PageListOwner(window, navigation);
+```
+
+The retained Element has style APIs, but no typed help-text setter. It stays inside NavigationView.
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var navigation = window.NavigationView("Pages")
+    .SetItems([new(1, "Home", Icon: ButtonIcon.Home)]);
+navigation.Items.SetControlStyleValues(StylePart.PrimaryText, new PartStyleValues { FontSize = 14 });
+root.Add(navigation, 1);
+```
+
+The retained Element has style APIs, but no typed help-text setter. Do not mount `navigation.Items` separately.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+The wrapper has no navigation entry setter. This fragment styles the retained list without another parent.
+
+```rust
+let navigation = window.navigation_view("Pages")?;
+navigation.items()?.set_control_style_values(StylePart::PrimaryText, PartStyleValues {
+    font_size: Some(14.), ..Default::default()
+})?;
+root.add(&navigation, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto navigation = std::make_shared<xui::NavigationView>(L"Pages");
 navigation->set_items({{{1, 1}, {}, L"Home", xui::ButtonIcon::home}});
 navigation->items()->set_help_text(L"Choose an application page.");
 root->add(navigation, 1);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 Do not add these children to another parent.
 The NavigationView coordinates their shared selection and hierarchy.
@@ -70,6 +204,82 @@ C# and Rust expose retained Element wrappers, not TreeView factories.
 Use `Breadcrumb` for a committed path of stable segments.
 Use TextInput for raw address entry.
 
+{% tabs %}
+{% tab title=".xui" %}
+
+Breadcrumb has no markup constructor.
+
+```text
+namespace ControlExamples;
+component CommittedLocation {
+    param global::Xui.Element Path;
+    view {
+        VStack() {
+            Content(Path);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var path = window.Breadcrumb("Current location").SetSegments([
+    new(1, "Workspace", Version: 1), new(2, "Documents", Version: 1),
+    new(3, "Reports", Version: 1)
+]);
+path.Event += e => {
+    if (e.Kind == EventKind.Selection) Console.WriteLine($"Requested location {e.Value}");
+};
+var component = new ControlExamples.CommittedLocation(window, path);
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var path = window.Breadcrumb("Current location").SetSegments([
+    new(1, "Workspace", Version: 1), new(2, "Documents", Version: 1),
+    new(3, "Reports", Version: 1)
+]);
+var request = window.Label("No navigation request");
+path.Event += e => {
+    if (e.Kind == EventKind.Selection) request.Text = $"Requested location {e.Value}";
+};
+root.Add(path).Add(request);
+```
+
+Events report the ID. The application retains the corresponding segment version.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let path = window.breadcrumb("Current location")?;
+path.set_segments(&[
+    Choice { id: 1, version: 1, text: "Workspace".into(), enabled: true },
+    Choice { id: 2, version: 1, text: "Documents".into(), enabled: true },
+    Choice { id: 3, version: 1, text: "Reports".into(), enabled: true },
+])?;
+let request = window.label("No navigation request")?;
+let weak_request = request.downgrade();
+path.on_event(move |event| {
+    if event.kind == 5 && let Some(request) = weak_request.upgrade() {
+        request.set_text(&format!("Requested location {}", event.value))
+            .inspect_err(|error| eprintln!("Breadcrumb navigation: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&path, 0.)?;
+root.add(&request, 0.)?;
+Ok(())
+```
+
+Selection event kind `5` reports the ID, not the segment version.
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto path = std::make_shared<xui::Breadcrumb>(L"Current location");
 path->set_segments({
@@ -84,6 +294,9 @@ path->on_navigate([request](xui::ItemKey key) {
 root->add(path);
 root->add(request);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 Activation requests navigation but does not replace the path.
 After successful navigation, update `set_segments` from the committed application state.
@@ -103,6 +316,79 @@ It composes ItemsView, Expander, Progress, and status text.
 
 This fragment requires `std::shared_ptr<const xui::ItemsSource> cached_locations`:
 
+{% tabs %}
+{% tab title=".xui" %}
+
+NavigationPane has no markup constructor.
+The setup accepts an additional `ImmutableSource cachedLocations` parameter.
+
+```text
+namespace ControlExamples;
+component QuickAccessLocations {
+    param global::Xui.Element Pane;
+    view {
+        VStack() {
+            Content(Pane);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var pane = window.NavigationPane("Quick access").SetSource(cachedLocations);
+pane.Event += e => {
+    if (e.Kind == EventKind.Selection) Console.WriteLine($"Requested {e.Value}");
+};
+var component = new ControlExamples.QuickAccessLocations(window, pane);
+```
+
+The binding supports cached sources, but not the C++ query request/completion service.
+
+{% endtab %}
+{% tab title="C#" %}
+
+This fragment accepts an additional `ImmutableSource cachedLocations` parameter.
+
+```csharp
+var pane = window.NavigationPane("Quick access").SetSource(cachedLocations);
+var request = window.Label("No location requested");
+pane.Event += e => {
+    if (e.Kind == EventKind.Selection) request.Text = $"Requested {e.Value}";
+};
+root.Add(pane, 1).Add(request);
+```
+
+The binding supports cached sources, but not the C++ query request/completion service.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `cached_locations: &ImmutableSource` parameter.
+
+```rust
+let pane = window.navigation_pane("Quick access")?;
+pane.set_source(cached_locations)?;
+let request = window.label("No location requested")?;
+let weak_request = request.downgrade();
+pane.on_event(move |event| {
+    if event.kind == 5 && let Some(request) = weak_request.upgrade() {
+        request.set_text(&format!("Requested {}", event.value))
+            .inspect_err(|error| eprintln!("Quick-access navigation: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&pane, 1.)?;
+root.add(&request, 0.)?;
+Ok(())
+```
+
+The binding supports cached sources, but not the C++ query request/completion service.
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto pane = std::make_shared<xui::NavigationPane>(L"Quick access");
 pane->set_items(cached_locations);
@@ -113,6 +399,9 @@ pane->on_navigate([request](xui::ItemKey key) {
 root->add(pane, 1);
 root->add(request);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `on_query` receives a `NavigationQuery`.
 `request(text)` starts that query path.
@@ -133,6 +422,91 @@ It adds a CommandBar toolbar and keyboard footer.
 
 This fragment requires `std::shared_ptr<const xui::ItemsSource> cached_locations`:
 
+{% tabs %}
+{% tab title=".xui" %}
+
+LocationPicker has no markup constructor.
+Its Element handle is the actual Popup root, not its retained content Stack.
+The setup accepts an additional `ImmutableSource cachedLocations` parameter.
+
+```text
+namespace ControlExamples;
+component LocationChoicePopup {
+    param global::Xui.Element Picker;
+    view {
+        Content(Picker);
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var picker = window.LocationPicker("Choose location");
+picker.Navigation.SetSource(cachedLocations);
+picker.Editor.Text = @"C:\Data";
+picker.Navigation.Event += e => {
+    if (e.Kind == EventKind.Selection) Console.WriteLine($"Requested location {e.Value}");
+};
+var component = new ControlExamples.LocationChoicePopup(window, picker, attach: false);
+anchor.Click += () => picker.Show(anchor);
+```
+
+`Show` mounts the Popup root. Do not add the component root or retained children to `root`.
+
+{% endtab %}
+{% tab title="C#" %}
+
+This fragment accepts an additional `ImmutableSource cachedLocations` parameter.
+
+```csharp
+var picker = window.LocationPicker("Choose location");
+picker.Navigation.SetSource(cachedLocations);
+picker.Editor.Text = @"C:\Data";
+var requested = window.Label("No location requested");
+picker.Navigation.Event += e => {
+    if (e.Kind == EventKind.Selection) requested.Text = $"Requested location {e.Value}";
+};
+anchor.Click += () => picker.Show(anchor);
+root.Add(requested);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `cached_locations: &ImmutableSource` parameter.
+
+```rust
+let picker = window.location_picker("Choose location")?;
+picker.navigation()?.set_source(cached_locations)?;
+picker.editor()?.set_text(r"C:\Data")?;
+let requested = window.label("No location requested")?;
+let weak_requested = requested.downgrade();
+picker.navigation()?.on_event(move |event| {
+    if event.kind == 5 && let Some(requested) = weak_requested.upgrade() {
+        requested.set_text(&format!("Requested location {}", event.value))
+            .inspect_err(|error| eprintln!("Location navigation: {error}"))?;
+    }
+    Ok(())
+})?;
+let weak_picker = picker.weak();
+let weak_anchor = anchor.downgrade();
+anchor.on_event(move |event| {
+    if event.kind == 1
+        && let (Some(picker), Some(anchor)) = (weak_picker.upgrade(), weak_anchor.upgrade())
+    {
+        picker.show(&anchor)
+            .inspect_err(|error| eprintln!("Show location picker: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&requested, 0.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto picker = std::make_shared<xui::LocationPicker>(L"Choose location");
 picker->navigation()->set_items(cached_locations);
@@ -146,6 +520,9 @@ anchor->on_click([&window, &anchor, picker] {
 });
 root->add(requested);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `show_location_picker` retains the composition and routes editor arrows to virtual rows.
 The application decides whether a selected location is valid and commits navigation.
@@ -164,6 +541,74 @@ It does not change FileList presentation.
 
 This fragment requires `std::shared_ptr<const xui::ItemsSource> item_source`:
 
+{% tabs %}
+{% tab title=".xui" %}
+
+ViewPicker has no markup constructor. Its Element handle is the actual Popup root.
+The setup accepts an additional `ImmutableSource itemSource` parameter.
+
+```text
+namespace ControlExamples;
+component ResultsViewPopup {
+    param global::Xui.Element Picker;
+    view {
+        Content(Picker);
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var items = window.ItemsView("Results").SetSource(itemSource);
+var picker = window.ViewPicker("View options", items);
+var component = new ControlExamples.ResultsViewPopup(window, picker, attach: false);
+anchor.Click += () => picker.Show(anchor);
+root.Add(items, 1);
+```
+
+`Show` mounts the Popup root. The target ItemsView remains in the page.
+Do not mount the retained choices, range, or content Stack separately.
+
+{% endtab %}
+{% tab title="C#" %}
+
+This fragment accepts an additional `ImmutableSource itemSource` parameter.
+
+```csharp
+var items = window.ItemsView("Results").SetSource(itemSource);
+var picker = window.ViewPicker("View options", items);
+anchor.Click += () => picker.Show(anchor);
+root.Add(items, 1);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `item_source: &ImmutableSource` parameter.
+
+```rust
+let items = window.items_view("Results")?;
+items.set_source(item_source)?;
+let picker = window.view_picker("View options", &items)?;
+let weak_picker = picker.weak();
+let weak_anchor = anchor.downgrade();
+anchor.on_event(move |event| {
+    if event.kind == 1
+        && let (Some(picker), Some(anchor)) = (weak_picker.upgrade(), weak_anchor.upgrade())
+    {
+        picker.show(&anchor)
+            .inspect_err(|error| eprintln!("Show view picker: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&items, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto items = std::make_shared<xui::ItemsView>(L"Results");
 items->set_items(item_source);
@@ -173,6 +618,9 @@ anchor->on_click([&window, &anchor, picker] {
 });
 root->add(items, 1);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 The picker retains radio choices and a separate vertical RangeInput.
 `choices()` changes presentation.

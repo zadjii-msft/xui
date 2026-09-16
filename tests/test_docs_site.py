@@ -165,6 +165,63 @@ class DocumentationSiteTests(unittest.TestCase):
                             [str(docs_site.ROOT / "node_modules" / suffix)],
                         )
 
+    def tab_fixture(self, titles=None):
+        titles = docs_site.LANGUAGE_TABS if titles is None else titles
+        return "{% tabs %}\n" + "".join(
+            '{% tab title="' + title + '" %}\nExample text.\n{% endtab %}\n'
+            for title in titles
+        ) + "{% endtabs %}\n"
+
+    def test_gitbook_tabs_convert_in_requested_order(self):
+        converted, groups = docs_site.convert_tabs(self.tab_fixture(), True)
+        self.assertEqual(groups, [docs_site.LANGUAGE_TABS])
+        self.assertEqual(
+            converted,
+            "+++ .xui\nExample text.\n+++ C#\nExample text.\n"
+            "+++ Rust\nExample text.\n+++ C++\nExample text.\n+++\n",
+        )
+
+    def test_tab_directives_in_code_remain_literal(self):
+        text = "````markdown\n" + self.tab_fixture() + "````\n"
+        self.assertEqual(docs_site.convert_tabs(text), (text, []))
+
+    def test_tab_validation_rejects_wrong_order_and_missing_languages(self):
+        for titles in (["C++", ".xui", "C#", "Rust"], [".xui", "C#"]):
+            with self.subTest(titles=titles):
+                with self.assertRaisesRegex(ValueError, "expected tab order"):
+                    docs_site.convert_tabs(self.tab_fixture(titles), True)
+
+    def test_tab_validation_rejects_malformed_groups(self):
+        examples = [
+            "{% tabs %}\n{% tabs %}\n",
+            '{% tab title=".xui" %}\n',
+            "{% endtab %}\n",
+            "{% endtabs %}\n",
+            '{% tabs %}\n{% tab title=".xui" %}\n{% endtab %}\n',
+            "{% tabs %}\n",
+            self.tab_fixture([".xui", ".xui"]),
+        ]
+        for text in examples:
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError):
+                    docs_site.convert_tabs(text)
+
+    def test_control_cpp_examples_cannot_escape_tabs(self):
+        with self.assertRaisesRegex(ValueError, "C\\+\\+ control example needs language tabs"):
+            docs_site.convert_tabs("```cpp\nint value = 1;\n```\n", True)
+        with self.assertRaisesRegex(ValueError, "must contain language tabs"):
+            docs_site.convert_tabs("Only prose.", True)
+
+    def test_rendered_tab_titles_preserve_language_order(self):
+        html = "<doc-tabs>" + "".join(
+            f'<doc-tab><template #title>{title}</template>'
+            '<pre><code>literal {{ code }}</code></pre></doc-tab>'
+            for title in docs_site.LANGUAGE_TABS
+        ) + "</doc-tabs>"
+        page = docs_site.HtmlPage(html)
+        self.assertEqual(page.tab_groups, [docs_site.LANGUAGE_TABS])
+        self.assertEqual(page.code_blocks, ["literal {{ code }}"] * 4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,9 +2,13 @@
 
 [Control catalog](README.md) · [Collection contract](../collections.md) · [Binding coverage](../bindings.md)
 
-Examples use the [C++ fragment context](README.md#use-the-examples).
-Add `xui\collections.hpp` and `xui\data_grid.hpp`.
+Examples use the [shared fragment context](README.md#use-the-examples).
+C++ examples also need `xui\collections.hpp` and `xui\data_grid.hpp`.
 Class definitions belong at file scope.
+C# fragments assume `using System;` and `using Xui;`.
+Rust fragments use `use xui::*;` inside the shared `example` function.
+That function returns `std::result::Result<(), Box<dyn std::error::Error>>`.
+Rust callbacks use weak handles to avoid ownership cycles.
 
 ## Choose a collection
 
@@ -27,6 +31,80 @@ Identity lookup must not enumerate all rows.
 Use `FileList` for immutable `FileItem` records with stable IDs.
 The synchronous convenience setters suit small sources.
 
+{% tabs %}
+{% tab title=".xui" %}
+
+FileList has no markup constructor. This component accepts the configured control through an Element parameter.
+
+```text
+namespace ControlExamples;
+component WorkspaceFiles {
+    param global::Xui.Element Files;
+    view {
+        VStack() {
+            Content(Files);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var files = window.FileList("Workspace files").SetItems([
+    new(1, "Notes.txt", @"C:\Data\Notes.txt"),
+    new(2, "Archive", @"C:\Data\Archive", Directory: true)
+]);
+files.Event += e => {
+    if (e.Kind == EventKind.Selection)
+        Console.WriteLine("File selection changed");
+};
+var component = new ControlExamples.WorkspaceFiles(window, files);
+```
+
+The bindings expose selection events, but not the C++ FileList activation callback or empty-text setter.
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var files = window.FileList("Workspace files").SetItems([
+    new(1, "Notes.txt", @"C:\Data\Notes.txt"),
+    new(2, "Archive", @"C:\Data\Archive", Directory: true)
+]);
+files.Event += e => {
+    if (e.Kind == EventKind.Selection)
+        Console.WriteLine("File selection changed");
+};
+root.Add(files, 1);
+```
+
+The binding exposes selection events, but not the C++ activation callback or `set_empty_text`.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let files = window.file_list("Workspace files")?;
+files.set_items(&[
+    FileItem { id: 1, name: "Notes.txt", path: r"C:\Data\Notes.txt", directory: false },
+    FileItem { id: 2, name: "Archive", path: r"C:\Data\Archive", directory: true },
+])?;
+files.on_event(|event| {
+    if event.kind == 5 {
+        println!("File selection changed");
+    }
+    Ok(())
+})?;
+root.add(&files, 1.)?;
+Ok(())
+```
+
+Event kind `5` is selection. The binding does not expose the C++ activation callback or empty-text setter.
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto files = std::make_shared<xui::FileList>(L"Workspace files");
 files->set_items(std::make_shared<const std::vector<xui::FileItem>>(
@@ -42,6 +120,9 @@ files->on_activate([selected](const xui::FileItem& item, xui::FileActivation) {
 root->add(files, 1);
 root->add(selected);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `select` uses the visible row index.
 `focused_id` and model selection remain separate.
@@ -68,6 +149,83 @@ Styles do not recolor decoded thumbnails or Shell icon pixels.
 Use `ItemsView` for generic immutable sources.
 This example source generates rows without a retained array of row strings.
 
+{% tabs %}
+{% tab title=".xui" %}
+
+Source callbacks belong in C#, not markup.
+This complete component accepts an application-supplied `ImmutableSource source` from the same window.
+
+```text
+namespace ControlExamples;
+component GeneratedItems {
+    view {
+        VStack() {
+            ItemsView("Results", ref: Items);
+        }
+    }
+}
+```
+
+C# setup, with `ImmutableSource source` as an additional function parameter:
+
+```csharp
+var component = new ControlExamples.GeneratedItems(window);
+component.Items.SetSource(source);
+```
+
+The C# tab supplies a complete source declaration.
+
+{% endtab %}
+{% tab title="C#" %}
+
+This whole declaration belongs at file scope.
+
+```csharp
+public sealed class ExampleItems : IReadOnlyImmutableSource
+{
+    public ulong Count => 1000;
+    public ItemKey Key(ulong index) => new(index + 1, 1);
+    public ulong? Find(ItemKey key) =>
+        key.Version == 1 && key.Id > 0 && key.Id <= Count ? key.Id - 1 : null;
+    public ItemContent Item(ulong index, ulong column = 0) =>
+        new($"Item {index + 1}", "Example row");
+}
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This source declaration can live inside the example function.
+
+```rust
+struct ExampleItems;
+impl ReadOnlyImmutableSource for ExampleItems {
+    fn count(&self) -> u64 { 1000 }
+    fn key(&self, index: u64) -> xui::Result<ItemKey> {
+        Ok(ItemKey { id: index + 1, version: 1 })
+    }
+    fn find(&self, key: ItemKey) -> xui::Result<Option<u64>> {
+        Ok(if key.version == 1 && key.id > 0 && key.id <= self.count() {
+            Some(key.id - 1)
+        } else { None })
+    }
+    fn item(&self, index: u64, _column: u64) -> xui::Result<ItemContent> {
+        Ok(ItemContent {
+            primary: format!("Item {}", index + 1), secondary: "Example row".into(),
+            enabled: true, progress: None, checked: None,
+        })
+    }
+}
+let source = window.immutable_source(ExampleItems)?;
+let items = window.items_view("Results")?;
+items.set_source(&source)?;
+root.add(&items, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 class ExampleItems final : public xui::ItemsSource {
 public:
@@ -86,7 +244,87 @@ public:
 };
 ```
 
+{% endtab %}
+{% endtabs %}
+
 The next fragment requires the file-scope `ExampleItems` definition:
+
+{% tabs %}
+{% tab title=".xui" %}
+
+The setup accepts an additional `ImmutableSource source` parameter.
+
+```text
+namespace ControlExamples;
+component ResultTiles {
+    view {
+        VStack() {
+            ItemsView("Results", ref: Items);
+            Text("No item activated", ref: Status);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var component = new ControlExamples.ResultTiles(window);
+component.Items.SetSource(source).SetPresentation(ItemsPresentation.Tiles).ItemSize(180, 56);
+component.Items.Event += e => {
+    if (e.Kind == EventKind.Click) component.Status.Text = $"Activated {e.Value}";
+};
+```
+
+There is no binding setter for the C++ select-all scope.
+
+{% endtab %}
+{% tab title="C#" %}
+
+The source declaration is in the preceding example.
+
+```csharp
+using var source = window.ImmutableSource(new ExampleItems());
+var items = window.ItemsView("Results").SetSource(source)
+    .SetPresentation(ItemsPresentation.Tiles).ItemSize(180, 56);
+var status = window.Label("No item activated");
+items.Event += e => {
+    if (e.Kind == EventKind.Click) status.Text = $"Activated {e.Value}";
+};
+root.Add(items, 1).Add(status);
+```
+
+The control retains the attached source after the local lease is disposed.
+There is no binding setter for the C++ select-all scope.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `source: &ImmutableSource` parameter.
+
+```rust
+let items = window.items_view("Results")?;
+items.set_source(source)?;
+items.set_presentation(ItemsPresentation::Tiles)?;
+items.item_size(180., 56.)?;
+let status = window.label("No item activated")?;
+let weak_status = status.downgrade();
+items.on_event(move |event| {
+    if event.kind == 1 && let Some(status) = weak_status.upgrade() {
+        status.set_text(&format!("Activated {}", event.value))
+            .inspect_err(|error| eprintln!("Item activation: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&items, 1.)?;
+root.add(&status, 0.)?;
+Ok(())
+```
+
+There is no binding setter for the C++ select-all scope.
+
+{% endtab %}
+{% tab title="C++" %}
 
 ```cpp
 auto items = std::make_shared<xui::ItemsView>(L"Results");
@@ -101,6 +339,9 @@ items->on_activate([status](xui::ItemKey key) {
 root->add(items, 1);
 root->add(status);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `list`, `tiles`, and `grouped` share the same selection model.
 Groups come from `ItemsSource::groups` and use ordered, nonoverlapping ranges.
@@ -127,6 +368,80 @@ Use `TreeView` for cached roots and lazily supplied children.
 
 This fragment requires `std::shared_ptr<const xui::TreeSource> tree_source` from the application:
 
+{% tabs %}
+{% tab title=".xui" %}
+
+TreeView has no markup constructor.
+The setup accepts an additional `ImmutableSource source` parameter for cached roots.
+
+```text
+namespace ControlExamples;
+component FolderHierarchy {
+    param global::Xui.Element Tree;
+    view {
+        VStack() {
+            Content(Tree);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var tree = window.TreeView("Folder hierarchy").SetSource(source);
+tree.Event += e => {
+    if (e.Kind == EventKind.Click) Console.WriteLine($"Node {e.Value}");
+};
+var component = new ControlExamples.FolderHierarchy(window, tree);
+```
+
+This example supplies cached roots only. Expandable nodes also require an `OnRequest` handler.
+
+{% endtab %}
+{% tab title="C#" %}
+
+This fragment accepts an additional `ImmutableSource source` parameter for cached roots.
+
+```csharp
+var tree = window.TreeView("Folder hierarchy").SetSource(source);
+var status = window.Label("No node activated");
+tree.Event += e => {
+    if (e.Kind == EventKind.Click) status.Text = $"Node {e.Value}";
+};
+root.Add(tree, 1).Add(status);
+```
+
+The source reports cached child availability through `HasChildren`.
+Expandable nodes require `OnRequest` and owner-specific `TreeRequest.Complete`.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `source: &ImmutableSource` parameter for cached roots.
+
+```rust
+let tree = window.tree_view("Folder hierarchy")?;
+tree.set_source(source)?;
+let status = window.label("No node activated")?;
+let weak_status = status.downgrade();
+tree.on_event(move |event| {
+    if event.kind == 1 && let Some(status) = weak_status.upgrade() {
+        status.set_text(&format!("Node {}", event.value))
+            .inspect_err(|error| eprintln!("Tree activation: {error}"))?;
+    }
+    Ok(())
+})?;
+root.add(&tree, 1.)?;
+root.add(&status, 0.)?;
+Ok(())
+```
+
+This example has no lazy provider. `on_request` uses the same subscription slot as `on_event`, so a later registration replaces it.
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto tree = std::make_shared<xui::TreeView>(L"Folder hierarchy");
 tree->set_tree(tree_source);
@@ -137,6 +452,9 @@ tree->on_activate([status](xui::ItemKey key) {
 root->add(tree, 1);
 root->add(status);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 For lazy children:
 
@@ -164,6 +482,81 @@ Use layout Grid for retained form cells.
 
 This file-scope source supplies one logical column:
 
+{% tabs %}
+{% tab title=".xui" %}
+
+Source callbacks belong in C#.
+This component accepts the source through C# setup, not a markup source declaration.
+
+```text
+namespace ControlExamples;
+component RecordSourceGrid {
+    view {
+        VStack() {
+            DataGrid("Records", ref: Records, columns: [new("Name", 240)]);
+        }
+    }
+}
+```
+
+C# setup, with an additional `ImmutableSource source` parameter:
+
+```csharp
+var component = new ControlExamples.RecordSourceGrid(window);
+component.Records.SetSource(source);
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+This whole declaration belongs at file scope.
+
+```csharp
+public sealed class ExampleGrid : IReadOnlyImmutableSource
+{
+    public ulong Count => 1000;
+    public ItemKey Key(ulong index) => new(index + 1, 1);
+    public ulong? Find(ItemKey key) =>
+        key.Version == 1 && key.Id > 0 && key.Id <= Count ? key.Id - 1 : null;
+    public ItemContent Item(ulong index, ulong column = 0) => new($"Record {index + 1}");
+}
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+struct ExampleGrid;
+impl ReadOnlyImmutableSource for ExampleGrid {
+    fn count(&self) -> u64 { 1000 }
+    fn key(&self, index: u64) -> xui::Result<ItemKey> {
+        Ok(ItemKey { id: index + 1, version: 1 })
+    }
+    fn find(&self, key: ItemKey) -> xui::Result<Option<u64>> {
+        Ok(if key.version == 1 && key.id > 0 && key.id <= self.count() {
+            Some(key.id - 1)
+        } else { None })
+    }
+    fn item(&self, index: u64, _column: u64) -> xui::Result<ItemContent> {
+        Ok(ItemContent {
+            primary: format!("Record {}", index + 1), secondary: String::new(),
+            enabled: true, progress: None, checked: None,
+        })
+    }
+}
+let source = window.immutable_source(ExampleGrid)?;
+let grid = window.data_grid("Records")?;
+grid.set_columns(&[GridColumn {
+    name: "Name".into(), width: 240., numeric: false, filterable: false, checkable: false,
+}])?;
+grid.set_source(&source)?;
+root.add(&grid, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 class ExampleGrid final : public xui::GridSource {
 public:
@@ -182,7 +575,64 @@ public:
 };
 ```
 
+{% endtab %}
+{% endtabs %}
+
 The next fragment requires the file-scope `ExampleGrid` definition:
+
+{% tabs %}
+{% tab title=".xui" %}
+
+The setup accepts an additional `ImmutableSource source` parameter.
+
+```text
+namespace ControlExamples;
+component SelectedRecords {
+    view {
+        VStack() {
+            DataGrid("Records", ref: Records, columns: [new("Name", 240)]);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var component = new ControlExamples.SelectedRecords(window);
+component.Records.SetSource(source).Select(new(1, 1));
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+The source declaration is in the preceding example.
+
+```csharp
+using var source = window.ImmutableSource(new ExampleGrid());
+var grid = window.DataGrid("Records").SetColumns([new("Name", 240)])
+    .SetSource(source).Select(new(1, 1));
+root.Add(grid, 1);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+This fragment accepts an additional `source: &ImmutableSource` parameter.
+
+```rust
+let grid = window.data_grid("Records")?;
+grid.set_columns(&[GridColumn {
+    name: "Name".into(), width: 240., numeric: false, filterable: false, checkable: false,
+}])?;
+grid.set_source(source)?;
+grid.select(ItemKey { id: 1, version: 1 })?;
+root.add(&grid, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
 
 ```cpp
 auto grid = std::make_shared<xui::DataGrid>(L"Records");
@@ -191,6 +641,9 @@ grid->set_source(std::make_shared<const ExampleGrid>());
 grid->select({1, 1});
 root->add(grid, 1);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 The application supplies actual sorted and filtered snapshots.
 `on_sort` requests sorting. A sort indicator alone does not reorder the source.
@@ -219,6 +672,63 @@ Styles do not replace sources, sort records, or allocate a visual tree per cell.
 Use `HistoryChart` for a bounded recent metric.
 It retains 60 samples.
 
+{% tabs %}
+{% tab title=".xui" %}
+
+HistoryChart has no markup constructor.
+The binding supports numeric samples, but not the C++ scale, gap, or history-read APIs.
+
+```text
+namespace ControlExamples;
+component CpuHistory {
+    param global::Xui.Element History;
+    view {
+        VStack() {
+            Content(History);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+var history = window.HistoryChart("CPU usage percent");
+history.Append(25);
+history.Append(40);
+var component = new ControlExamples.CpuHistory(window, history);
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var history = window.HistoryChart("CPU usage percent");
+history.Append(25);
+history.Append(40);
+root.Add(history);
+```
+
+The binding supports numeric samples, but not the C++ scale, gap, or history-read APIs.
+The missing sample is omitted, not replaced with zero.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let history = window.history_chart("CPU usage percent")?;
+history.append(25.)?;
+history.append(40.)?;
+root.add(&history, 0.)?;
+Ok(())
+```
+
+The binding supports numeric samples, but not the C++ scale, gap, or history-read APIs.
+The missing sample is omitted, not replaced with zero.
+
+{% endtab %}
+{% tab title="C++" %}
+
 ```cpp
 auto history = std::make_shared<xui::HistoryChart>(L"CPU usage percent");
 history->set_scale(100);
@@ -227,6 +737,9 @@ history->append(std::nullopt);
 history->append(40);
 root->add(history);
 ```
+
+{% endtab %}
+{% endtabs %}
 
 `std::nullopt` records a gap, not an invented zero.
 `at(index)` reads retained history.
