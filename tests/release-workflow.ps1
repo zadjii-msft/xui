@@ -23,6 +23,11 @@ function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 try {
+    $expectedAssets = @('Xui.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate',
+        'Xui.Samples.1.2.3.win-x64.zip', 'Xui.Samples.1.2.3.win-arm64.zip')
+    Assert (!(Compare-Object $expectedAssets (Get-XuiReleaseAssetNames '1.2.3'))) 'Incorrect release asset inventory.'
+    Assert (@(Get-XuiSamples).BaseName.Contains('TaskCard')) 'TaskCard must remain in local sample checks.'
+    Assert (!(Compare-Object @('DeclarativeSample', 'FileExplorer', 'Minesweeper', 'Sample') @((Get-XuiSamples -ReleaseOnly).BaseName))) 'Incorrect release sample inventory.'
     foreach ($version in '0.0.0', '1.2.3', '100.20.3') { Assert-ReleaseVersion $version }
     foreach ($version in '01.2.3', '1.2', '1.2.3.4', '1.2.3-beta', '1.2.3/extra', '1.2.3;bad') {
         $rejected = $false
@@ -54,6 +59,16 @@ try {
         Assert $rejected "Release operation did not reject $failure."
         Assert (@($calls | Where-Object { $_ -like 'release *' }).Count -eq 0) "Release mutation after $failure."
     }
+    $calls.Clear()
+    Remove-Item (Join-Path $work 'Xui.Samples.1.2.3.win-arm64.zip')
+    $rejected = $false
+    try {
+        & "$repo\scripts\New-DraftRelease.ps1" -Tag 'release/1.2.3' -Repository 'fixture/xui' -AssetDirectory $work
+    } catch {
+        $rejected = $true
+    }
+    Assert $rejected 'Accepted a release with a missing architecture archive.'
+    Assert ($calls.Count -eq 0) 'Contacted GitHub before checking all assets.'
     Write-Output 'Release versions, draft creation, reruns, and publication guards passed without network calls.'
     $global:LASTEXITCODE = 0
 } finally {

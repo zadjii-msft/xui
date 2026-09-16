@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Xui.FileExplorer.Models;
 
@@ -31,9 +32,12 @@ public sealed class ExplorerState
     }
 }
 
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(ExplorerState))]
+internal partial class ExplorerStateJsonContext : JsonSerializerContext;
+
 public sealed class AppStateStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const long MaximumFileSize = 4 * 1024 * 1024;
     private readonly string statePath;
     private bool corruptState;
@@ -52,7 +56,7 @@ public sealed class AppStateStore
             using var stream = new FileStream(statePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (stream.Length > MaximumFileSize)
                 throw new InvalidDataException("The state file is too large.");
-            var state = JsonSerializer.Deserialize<ExplorerState>(stream, JsonOptions)
+            var state = JsonSerializer.Deserialize(stream, ExplorerStateJsonContext.Default.ExplorerState)
                 ?? throw new InvalidDataException("The state file contains null.");
             Validate(state);
             corruptState = false;
@@ -80,7 +84,7 @@ public sealed class AppStateStore
         if (corruptState)
             throw new InvalidDataException($"Cannot overwrite corrupt explorer state '{statePath}'. Remove or repair it, then load it again.");
         Validate(state);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(state, ExplorerStateJsonContext.Default.ExplorerState);
         if (bytes.Length > MaximumFileSize)
             throw new InvalidDataException("The explorer state is too large.");
         var directory = System.IO.Path.GetDirectoryName(statePath)!;

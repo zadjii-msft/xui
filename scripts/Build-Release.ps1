@@ -22,14 +22,29 @@ Invoke-Checked { & $cmake --build $build --config Release --parallel 4 }
 Invoke-Checked { & $cmake --install $build --config Release --component Native --prefix $native }
 Invoke-Checked { & $cmake --install $build --config Release --component Samples --prefix "$samples\native" }
 
-foreach ($project in Get-XuiSamples) {
+foreach ($project in Get-XuiSamples -ReleaseOnly) {
     $destination = Join-Path $samples "dotnet\$($project.BaseName)"
-    Invoke-Checked { dotnet publish $project.FullName -c Release -r $rid --self-contained true "-p:Version=$Version" "-p:XuiNativeDir=$native" -o $destination --nologo }
+    Invoke-Checked {
+        dotnet publish $project.FullName -c Release -r $rid --self-contained true `
+            -p:PublishAot=true -p:IlcOptimizationPreference=Size -p:DebugType=None -p:DebugSymbols=false `
+            "-p:Version=$Version" "-p:XuiNativeDir=$native" -o $destination --nologo
+    }
     Assert-SameFile "$native\xui.dll" "$destination\xui.dll"
-    if (!(Test-Path "$destination\$($project.BaseName).exe") -or !(Test-Path "$destination\coreclr.dll")) {
-        throw "Incomplete self-contained sample: $destination"
+    if (!(Test-Path "$destination\$($project.BaseName).exe")) {
+        throw "Incomplete NativeAOT sample: $destination"
+    }
+    foreach ($name in 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'Xui.Managed.dll', "$($project.BaseName).dll") {
+        if (Test-Path "$destination\$name") { throw "Managed runtime or assembly in NativeAOT sample: $destination\$name" }
     }
     if (Test-Path "$destination\Xui.Development.dll") { throw "Development host leaked into $destination" }
+    $resolved = Invoke-Checked {
+        dotnet msbuild $project.FullName -p:Configuration=Release "-p:RuntimeIdentifier=$rid" -p:PublishAot=true `
+            -target:ResolveFrameworkReferences -getItem:ResolvedRuntimePack -getProperty:PkgMicrosoft_DotNet_ILCompiler
+    } | ConvertFrom-Json
+    $runtimePack = @($resolved.Items.ResolvedRuntimePack | Where-Object FrameworkName -EQ 'Microsoft.NETCore.App')
+    if ($runtimePack.Count -ne 1) { throw "Expected one .NET runtime pack for $($project.Name)" }
+    Copy-Item "$($runtimePack[0].PackageDirectory)\LICENSE.txt" "$destination\DOTNET-LICENSE.txt"
+    Copy-Item "$($resolved.Properties.PkgMicrosoft_DotNet_ILCompiler)\THIRD-PARTY-NOTICES.TXT" $destination
 }
 
 $vcvars = Get-XuiVcVars $Architecture
