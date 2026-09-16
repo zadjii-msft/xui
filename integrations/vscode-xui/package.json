@@ -2,7 +2,7 @@
   "name": "xui",
   "displayName": "XUI Syntax",
   "description": "Syntax highlighting and snippets for the XUI declarative UI language.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "zadjii-msft",
   "license": "MIT",
   "engines": {

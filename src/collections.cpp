@@ -193,6 +193,7 @@ public:
             if (const auto it = states.find(key); it != states.end()) {
                 info.expanded = it->second.first; info.pending = it->second.second;
             }
+            info.error = !info.pending && messages.contains(key);
         }
         return info;
     }
@@ -219,6 +220,83 @@ public:
 };
 }
 VirtualCollection::VirtualCollection(ControlRole role, std::wstring name) : Control(role, std::move(name), {600, 320}) {}
+StyleStateMask collection_row_style_state(const CollectionRow& row, bool selected, bool focused,
+    bool enabled, bool hovered) {
+    using namespace style_states;
+    StyleStateMask state = selected ? style_states::selected : 0;
+    if (focused) state |= style_states::focused;
+    if (row.content.checked.value_or(false)) state |= checked;
+    if (row.expanded) state |= row.content.submenu ? open : expanded;
+    if (row.pending) state |= loading;
+    if (row.error) state |= error;
+    if (row.selected_descendant) state |= selected_descendant;
+    if (row.compact) state |= compact;
+    if (!enabled || !row.content.enabled) state |= disabled;
+    else if (hovered || row.hovered) state |= style_states::hovered;
+    return state;
+}
+std::optional<StyleTarget> VirtualCollection::control_style_target() const {
+    switch (role()) {
+    case ControlRole::items_view: return StyleTarget::items_view;
+    case ControlRole::tree_view: return StyleTarget::tree_view;
+    case ControlRole::command_menu: return StyleTarget::command_menu;
+    default: return {};
+    }
+}
+StyleStateMask VirtualCollection::control_style_state_bits() const {
+    return Control::control_style_state_bits() & (style_states::focused | style_states::hovered | style_states::disabled);
+}
+Size VirtualCollection::item_size() const {
+    if (!has_control_styling()) return item_size_;
+    auto result = item_size_;
+    const auto* root = effective_control_style_values(StylePart::root);
+    if (root) result.height = std::max(1.0f, root->row_height.value_or(result.height));
+    if (role() == ControlRole::items_view)
+        if (const auto* tile = effective_control_style_values(StylePart::tile))
+            result.width = std::max(1.0f, tile->width.value_or(result.width));
+    return result;
+}
+float VirtualCollection::scrollbar_width() const {
+    if (has_control_styling())
+        if (const auto* bar = effective_control_style_values(StylePart::scrollbar))
+            return bar->width.value_or(bar_width);
+    return bar_width;
+}
+Rect VirtualCollection::content_viewport() const {
+    Insets inset{};
+    if (has_control_styling()) if (const auto* root = effective_control_style_values(StylePart::root)) {
+        const auto padding = root->padding.value_or(Insets{});
+        const auto border = root->border_thickness.value_or(Insets{});
+        inset = {padding.left + border.left, padding.top + border.top,
+            padding.right + border.right, padding.bottom + border.bottom};
+    }
+    const auto x = std::min(inset.left, bounds().width), y = std::min(inset.top, bounds().height);
+    return {x, y, std::max(0.0f, bounds().width - x - inset.right - scrollbar_width()),
+        std::max(0.0f, bounds().height - y - inset.bottom)};
+}
+PartStyleValues VirtualCollection::row_style_values(StylePart part, const CollectionRow& row, StyleStateMask state) const {
+    state |= control_style_state_bits() & style_states::disabled;
+    auto result = resolve_control_style_part(part, state);
+    const auto face = row.group ? StylePart::group_header :
+        role() == ControlRole::items_view && presentation() == ItemsPresentation::tiles ? StylePart::tile : StylePart::row;
+    if (face == StylePart::row) return result;
+    const auto& schema = control_style_schema(*control_style_target());
+    const auto definition = control_style();
+    auto current = part;
+    for (std::size_t depth = 0; depth < schema.parts.size(); ++depth) {
+        if (current == StylePart::root) break;
+        if (current == StylePart::row) {
+            result.foreground = resolve_control_style_part(face, state).foreground;
+            break;
+        }
+        const auto metadata = std::find_if(schema.parts.begin(), schema.parts.end(), [&](const auto& entry) { return entry.part == current; });
+        if (metadata == schema.parts.end()) break;
+        const auto authored = definition ? definition->resolve(current, state & metadata->states) : std::nullopt;
+        if (control_style_values(current).foreground || (authored && authored->foreground) || !metadata->foreground_from) break;
+        current = *metadata->foreground_from;
+    }
+    return result;
+}
 void VirtualCollection::changed() {
     invalidate(Invalidation::paint);
     auto callback = change_; if (callback) callback();
@@ -279,11 +357,12 @@ void VirtualCollection::set_item_size(Size value) {
     item_size_ = value; set_offset(offset_); invalidate(Invalidation::paint);
 }
 std::size_t VirtualCollection::columns() const {
-    return presentation_ == ItemsPresentation::tiles ? static_cast<std::size_t>(std::max(1.0f, std::floor(std::max(0.0f, bounds().width - bar_width) / item_size_.width))) : 1;
+    return presentation_ == ItemsPresentation::tiles ? static_cast<std::size_t>(std::max(1.0f, std::floor(content_viewport().width / item_size().width))) : 1;
 }
 double VirtualCollection::maximum_offset() const {
-    return std::max(0.0, (source_ ? columns() == 1 ? source_->row_start(source_->size(), item_size_.height) :
-        std::ceil(double(source_->size()) / columns()) * item_size_.height : 0) - bounds().height);
+    const auto height = item_size().height;
+    return std::max(0.0, (source_ ? columns() == 1 ? source_->row_start(source_->size(), height) :
+        std::ceil(double(source_->size()) / columns()) * height : 0) - content_viewport().height);
 }
 void VirtualCollection::set_offset(double value) {
     value = std::clamp(std::isfinite(value) ? value : 0, 0.0, maximum_offset());
@@ -292,31 +371,85 @@ void VirtualCollection::set_offset(double value) {
 }
 Rect VirtualCollection::item_bounds(std::size_t index) const {
     const auto cols = columns();
-    const float width = std::max(0.0f, bounds().width - bar_width) / cols;
+    const auto viewport = content_viewport();
+    const auto height = item_size().height;
+    const float width = viewport.width / cols;
+    const auto scroll = std::min(offset_, maximum_offset());
     if (source_ && cols == 1) {
-        const auto top = source_->row_start(index, item_size_.height);
-        return {0, static_cast<float>(top - offset_), width,
-            static_cast<float>(source_->row_start(index + 1, item_size_.height) - top)};
+        const auto top = source_->row_start(index, height);
+        return {viewport.x, viewport.y + static_cast<float>(top - scroll), width,
+            static_cast<float>(source_->row_start(index + 1, height) - top)};
     }
-    return {float(index % cols) * width, static_cast<float>(double(index / cols) * item_size_.height - offset_), width, item_size_.height};
+    return {viewport.x + float(index % cols) * width,
+        viewport.y + static_cast<float>(double(index / cols) * height - scroll), width, height};
+}
+Rect VirtualCollection::disclosure_bounds(const CollectionRow &row, bool hovered) const {
+    auto b = row.bounds;
+    if (row.navigation)
+        return {b.x + std::max(0.0f, b.width - 32), b.y, std::min(b.width, 32.0f), b.height};
+    float indent = 20;
+    if (has_control_styling()) {
+        const auto state = collection_row_style_state(row, selection_.contains(row.key), focused() && selection_.focused() == row.key,
+                                                      enabled(), hovered || row.hovered);
+        const auto values =
+            resolve_control_style_part(row.group ? StylePart::group_header
+                                       : role() == ControlRole::items_view && presentation() == ItemsPresentation::tiles ? StylePart::tile
+                                                                                                                         : StylePart::row,
+                                       state);
+        const auto p = values.padding.value_or(Insets{}), t = values.border_thickness.value_or(Insets{});
+        const auto left = std::min(b.width, p.left + t.left), top = std::min(b.height, p.top + t.top);
+        b = {b.x + left, b.y + top, std::max(0.0f, b.width - left - p.right - t.right),
+             std::max(0.0f, b.height - top - p.bottom - t.bottom)};
+        const auto root = resolve_control_style_part(StylePart::root, 0);
+        indent = root.indentation.value_or(indent);
+    }
+    const float left = b.x + 10 + std::min(static_cast<float>(row.depth) * indent, b.width / 3) + (row.content.checked ? 24 : 0);
+    return {left, b.y, std::min(24.0f, std::max(0.0f, b.x + b.width - left)), b.height};
+}
+bool VirtualCollection::disclosure_hit(std::size_t index, Point point) const {
+    if (!source_ || index >= source_->size())
+        return false;
+    const auto info = source_->hierarchy(index);
+    if (!info.expandable)
+        return false;
+    CollectionRow row{source_->key(index), source_->item(index), item_bounds(index), index};
+    row.group = info.group;
+    row.depth = info.depth;
+    row.expanded = info.expanded;
+    row.pending = info.pending;
+    row.error = info.error;
+    row.hovered = true;
+    if (row.content.submenu)
+        return false;
+    if (!has_control_styling())
+        return point.x < row.bounds.x + 34 + std::min<float>(static_cast<float>(row.depth) * 20, row.bounds.width / 3);
+    const auto b = disclosure_bounds(row);
+    return point.x >= b.x && point.x < b.x + b.width && point.y >= b.y && point.y < b.y + b.height;
 }
 VisibleRange VirtualCollection::visible_items() const {
-    if (!source_ || bounds().height <= 0 || bounds().width <= 0) return {};
-    if (columns() == 1) return {source_->row_at(offset_, item_size_.height),
-        std::min(source_->size(), source_->row_at(offset_ + bounds().height, item_size_.height) + 1)};
-    const auto cols = columns(), first = static_cast<std::size_t>(offset_ / item_size_.height) * cols;
+    const auto viewport = content_viewport();
+    if (!source_ || viewport.height <= 0 || viewport.width <= 0) return {};
+    const auto height = item_size().height;
+    const auto scroll = std::min(offset_, maximum_offset());
+    if (columns() == 1) return {source_->row_at(scroll, height),
+        std::min(source_->size(), source_->row_at(scroll + viewport.height, height) + 1)};
+    const auto cols = columns(), first = static_cast<std::size_t>(scroll / height) * cols;
     return {std::min(first, source_->size()), std::min(source_->size(),
-        first + (static_cast<std::size_t>(std::ceil(bounds().height / item_size_.height)) + 1) * cols)};
+        first + (static_cast<std::size_t>(std::ceil(viewport.height / height)) + 1) * cols)};
 }
 std::optional<std::size_t> VirtualCollection::hit_test(Point point) const {
-    if (!source_ || point.x < 0 || point.y < 0 || point.x >= bounds().width - bar_width || point.y >= bounds().height) return {};
+    const auto viewport = content_viewport();
+    point.x -= viewport.x; point.y -= viewport.y;
+    if (!source_ || point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height) return {};
     const auto cols = columns();
+    const auto height = item_size().height;
+    const auto scroll = std::min(offset_, maximum_offset());
     if (cols == 1) {
-        const auto row = source_->row_at(point.y + offset_, item_size_.height);
+        const auto row = source_->row_at(point.y + scroll, height);
         return row < source_->size() ? std::optional{row} : std::nullopt;
     }
-    const auto row = static_cast<std::size_t>((point.y + offset_) / item_size_.height) * cols +
-        static_cast<std::size_t>(point.x / ((bounds().width - bar_width) / cols));
+    const auto row = static_cast<std::size_t>((point.y + scroll) / height) * cols +
+        static_cast<std::size_t>(point.x / (viewport.width / cols));
     return row < source_->size() ? std::optional{row} : std::nullopt;
 }
 std::vector<CollectionRow> VirtualCollection::visible_content() const {
@@ -329,14 +462,19 @@ void VirtualCollection::reveal(ItemKey key) {
     const auto row = source_ ? source_->find(key) : std::nullopt;
     if (!row) return;
     const auto b = item_bounds(*row);
-    if (b.y < 0) set_offset(offset_ + b.y);
-    else if (b.y + b.height > bounds().height) set_offset(offset_ + b.y + b.height - bounds().height);
+    const auto viewport = content_viewport();
+    if (b.y < viewport.y) set_offset(offset() + b.y - viewport.y);
+    else if (b.y + b.height > viewport.y + viewport.height)
+        set_offset(offset() + b.y + b.height - viewport.y - viewport.height);
 }
 Rect VirtualCollection::thumb() const {
-    if (!maximum_offset() || bounds().height <= 0) return {};
-    const auto height = bounds().height;
+    const auto viewport = content_viewport();
+    if (!maximum_offset() || viewport.height <= 0 || scrollbar_width() <= 0) return {};
+    const auto height = viewport.height;
     const float length = std::min(height, std::max(24.0f, float(height * height / (maximum_offset() + height))));
-    return {bounds().width - 9, float(offset_ / maximum_offset()) * (height - length), 6, length};
+    const auto width = scrollbar_width();
+    return {viewport.x + viewport.width + width / 4,
+        viewport.y + float(offset() / maximum_offset()) * (height - length), width / 2, length};
 }
 void VirtualCollection::arrange(Rect value) {
     const auto before = columns(); Control::arrange(value); set_offset(offset_);
@@ -487,6 +625,7 @@ std::vector<CollectionRow> TreeView::visible_content() const {
         row.expandable = tree_ && tree_->has_children(row.key); row.expanded = expanded(row.key);
         if (const auto it = branches_.find(row.key); it != branches_.end()) {
             row.pending = it->second.pending;
+            row.error = !it->second.error.empty();
             if (row.pending) row.content.secondary = L"Loading children";
             else if (!it->second.error.empty()) row.content.secondary = it->second.error + L". Right arrow retries.";
         }

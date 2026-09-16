@@ -74,6 +74,7 @@ The [binding reference](docs/specs/bindings.md#rust-ownership-and-use) includes 
 
 Classic is the default appearance. The optional [WinUI-style skin](docs/specs/winui-style.md) supports light, dark, and high-contrast themes.
 It is not WinUI or XAML compatibility.
+Shared [control styles](docs/specs/control-styling.md) customize colors, typography, named visual parts, and state rules without replacing control behavior.
 
 ## Documentation
 

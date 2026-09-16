@@ -53,9 +53,11 @@ try {
     Write-Fixture 'Program.cs' 'internal static class Program { private static void Main() {} }'
     Write-Fixture 'Baseline.xui' 'namespace Demo; component Baseline { view { VStack() { Text("Baseline"); } } }'
     Write-Fixture 'Composition.xui' ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Fixtures\Composition.xui')))
+    Write-Fixture 'Styling.xui' ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Fixtures\Styling.xui')))
     Build-Fixture
     Assert (Has-Type 'Demo.Baseline') 'The initial state-free component was not compiled.'
     Assert (Has-Type 'Demo.Composition') 'Extended composition did not compile against the real bindings.'
+    Assert (Has-Type 'Demo.Styling') 'Named styles and resources did not compile against the real bindings.'
     Write-Fixture 'ConstructorChecks.cs' @'
 internal static class ConstructorChecks {
     internal static void Compile(Xui.Window window, Xui.Element body) {
@@ -93,6 +95,7 @@ internal static class ConstructorChecks {
 
     [System.IO.File]::Delete((Join-Path $fixture 'Baseline.xui'))
     [System.IO.File]::Delete((Join-Path $fixture 'Composition.xui'))
+    [System.IO.File]::Delete((Join-Path $fixture 'Styling.xui'))
     [System.IO.File]::Delete((Join-Path $fixture 'ConstructorChecks.cs'))
     Build-Fixture
     Assert (!(Has-Type 'Demo.Baseline')) 'Deleting the last .xui left its compiled type behind.'

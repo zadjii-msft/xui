@@ -45,6 +45,13 @@ public:
 protected:
     DocumentText(std::wstring name, bool rich);
     void assign_runs(std::vector<TextRun> value);
+    std::optional<StyleTarget> control_style_target() const override {
+        return rich_ ? StyleTarget::rich_text : StyleTarget::multiline_text;
+    }
+    StyleStateMask control_style_state_bits() const override {
+        return (Control::control_style_state_bits() & (style_states::focused | style_states::disabled)) |
+            (text_.empty() ? style_states::empty : 0) | (read_only_ ? style_states::read_only : 0);
+    }
 private:
     std::wstring text_;
     std::vector<TextRun> runs_;
@@ -81,10 +88,17 @@ public:
     PasswordRevealPolicy reveal_policy() const { return policy_; }
     void set_revealed(bool value);
     bool revealed() const { return revealed_; }
+    float reveal_extent() const;
     Size measure(Size available) override;
     std::uint64_t revision() const { return revision_; }
     void on_change(std::function<void()> callback) { change_ = std::move(callback); }
     void commit_password(std::wstring value);
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::password_input; }
+    StyleStateMask control_style_state_bits() const override {
+        return (Control::control_style_state_bits() & (style_states::focused | style_states::disabled)) |
+            (value_.empty() ? style_states::empty : 0) | (revealed_ ? style_states::revealed : 0);
+    }
 private:
     std::wstring value_;
     std::size_t maximum_{256};
@@ -112,6 +126,11 @@ public:
     void on_change(std::function<void(DateTimeValue)> callback) { change_ = std::move(callback); }
     bool change_value(DateTimeValue value);
     std::uint64_t revision() const { return revision_; }
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::date_time_picker; }
+    StyleStateMask control_style_state_bits() const override {
+        return Control::control_style_state_bits() & (style_states::focused | style_states::disabled);
+    }
 private:
     DateTimePresentation presentation_;
     DateTimeValue minimum_{1601, 1, 1}, maximum_{9999, 12, 31, 23, 59, 59}, value_;
@@ -132,8 +151,14 @@ public:
     void dismiss();
     void on_dismiss(std::function<void()> callback) { dismiss_callback_ = std::move(callback); }
     void set_action(std::wstring label, std::function<void()> callback);
+    const std::shared_ptr<Button>& action_button() const { return action_; }
+    const std::shared_ptr<Button>& dismiss_button() const { return dismiss_; }
+    Rect content_bounds() const;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::inline_status; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     StatusSeverity severity_{};
     bool dismissible_{}, dismissed_{};
@@ -158,8 +183,17 @@ public:
     void set_swatches(std::vector<RgbaColor> values);
     const std::vector<RgbaColor>& swatches() const { return swatches_; }
     const std::array<std::shared_ptr<NumericInput>, 4>& channels() const { return channels_; }
+    PartStyleValues channel_label_style_values(std::size_t index) const;
+    std::shared_ptr<Button> swatch_button(std::size_t index) const {
+        if (index >= swatches_.size()) throw std::out_of_range("Color swatch index is outside the swatch range");
+        return std::static_pointer_cast<Button>(children_[index + 4]);
+    }
+    Rect content_bounds() const;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::color_picker; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     void sync();
     RgbaColor value_;
@@ -179,6 +213,9 @@ public:
     const std::shared_ptr<Button>& primary() const { return primary_; }
     const std::shared_ptr<Button>& cancel_button() const { return cancel_; }
     const std::shared_ptr<InlineStatus>& validation() const { return validation_; }
+    const std::shared_ptr<Label>& title() const { return title_; }
+    std::shared_ptr<Stack> body() const;
+    const std::shared_ptr<Stack>& footer() const { return footer_; }
     // Backend presentation uses the same retained content and actions in both styles.
     void set_visual_style(VisualStyle style);
     // WinUI reserves a 24-DIP margin within the supplied viewport.
@@ -194,6 +231,8 @@ public:
     void notify_result(DialogResult result);
 private:
     class Layout;
+    std::shared_ptr<Label> title_;
+    std::shared_ptr<Stack> footer_;
     std::shared_ptr<Layout> layout_;
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<Button> primary_, cancel_;

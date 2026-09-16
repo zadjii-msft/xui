@@ -56,11 +56,232 @@
       "end": "(?=\\})",
       "patterns": [
         { "include": "#comments" },
+        { "include": "#resources" },
+        { "include": "#style" },
         { "include": "#state" },
         { "include": "#param" },
         { "include": "#view" },
         { "include": "#code" },
         { "include": "#keywords" }
+      ]
+    },
+    "resources": {
+      "name": "meta.resources.xui",
+      "begin": "\\bresources\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.resources.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.constant.resource.xui" },
+            { "include": "#style-value" }
+          ]
+        }
+      ]
+    },
+    "style": {
+      "name": "meta.style.xui",
+      "begin": "\\bstyle\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.style.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": "\\bfor\\b",
+          "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
+          "end": "(?=\\bbasedOn\\b|[{}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-targets" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.xui" }
+          ]
+        },
+        { "include": "#style-base" },
+        { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.style.xui" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-part" },
+            { "include": "#style-rule" },
+            { "include": "#style-properties" },
+            { "include": "#unrecognized-style-block" }
+          ]
+        }
+      ]
+    },
+    "style-base": {
+      "begin": "\\bbasedOn\\b",
+      "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
+      "end": "(?=[{}])",
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.style.xui" }
+      ]
+    },
+    "style-part": {
+      "name": "meta.style-part.xui",
+      "begin": "\\bpart\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.part.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#style-parts" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-rule" },
+            { "include": "#style-properties" },
+            { "include": "#unrecognized-style-block" }
+          ]
+        }
+      ]
+    },
+    "style-targets": {
+      "match": "\\b(?:AdaptiveLayout|Breadcrumb|Button|ChoiceList|ColorPicker|ComboBox|CommandBar|CommandMenu|ContentView|DataGrid|DateTimePicker|Expander|FileList|Grid|HStack|HistoryChart|Image|InlineStatus|ItemsView|Label|MapView|MediaPlayback|MultilineText|NavigationList|NavigationPane|NavigationView|NumericInput|PageView|PasswordInput|Popup|Progress|RadioGroup|RangeInput|RichText|ScrollView|SplitButton|SplitView|Stack|TabStrip|Text|TextInput|TitleBar|Toggle|TreeView|VStack|VectorCanvas|WebContent|Wrap)\\b",
+      "name": "support.class.node.xui"
+    },
+    "style-parts": {
+      "match": "\\b(?:action|alternatingRow|arrow|badge|caption|captionButton|captionClose|cell|channelLabel|checkerboardDark|checkerboardLight|clearAction|closeAction|content|coordinate|disclosure|divider|empty|error|field|fill|filterIcon|firstPane|focusMarker|gridLine|grip|groupHeader|header|heading|icon|indicator|item|label|mark|message|pending|placeholder|plot|preview|primaryText|reorderMarker|row|scrollbar|scrollbarThumb|scrollbarTrack|secondPane|secondaryText|selectedMarker|selection|separator|shortcut|sortIcon|status|stripe|swatch|tab|text|thumb|tile|title|track)\\b",
+      "name": "constant.language.style-part.xui"
+    },
+    "style-property-names": {
+      "match": "\\b(?:background|borderBrush|borderThickness|columnGap|cornerRadius|fontFamily|fontSize|fontStyle|fontWeight|foreground|headerHeight|height|horizontalAlignment|indentation|maximumLines|padding|rowGap|rowHeight|size|spacing|thickness|verticalAlignment|width|wrapping)\\b",
+      "name": "support.type.property-name.xui"
+    },
+    "style-states": {
+      "match": "\\b(?:active|checked|compact|descending|determinate|disabled|dismissed|dragging|empty|error|expanded|filterPending|filtered|focused|hovered|idle|inactive|indeterminate|information|invalid|loading|maximized|maximum|minimum|mixed|open|overflowed|paused|playing|pressed|readOnly|ready|revealed|scrollable|selected|selectedDescendant|sorted|stopped|success|suspended|unknown|warning)\\b",
+      "name": "constant.language.style-state.xui"
+    },
+    "unrecognized-style-block": {
+      "name": "meta.unrecognized-block.xui",
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#unrecognized-style-block" },
+        { "include": "#style-value" }
+      ]
+    },
+    "style-rule": {
+      "name": "meta.style-rule.xui",
+      "begin": "\\bwhen\\b",
+      "beginCaptures": { "0": { "name": "keyword.control.when.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#style-states" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-properties" },
+            { "include": "#unrecognized-style-block" }
+          ]
+        }
+      ]
+    },
+    "style-properties": {
+      "patterns": [
+        { "include": "#style-enum-property" },
+        { "include": "#style-property-names" },
+        { "include": "#style-value" }
+      ]
+    },
+    "style-enum-property": {
+      "begin": "\\b(fontStyle|horizontalAlignment|verticalAlignment)\\b",
+      "beginCaptures": { "1": { "name": "support.type.property-name.xui" } },
+      "end": ";|(?=\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": ":",
+          "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
+          "end": "(?=;|\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-enum-values" },
+            { "include": "#expression" }
+          ]
+        }
+      ]
+    },
+    "style-enum-values": {
+      "match": "\\b(?:normal|italic|oblique|start|center|end|stretch)\\b",
+      "name": "constant.language.style-value.xui"
+    },
+    "style-value": {
+      "begin": ":",
+      "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
+      "end": ";|(?=\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#color-functions" },
+        { "include": "#expression" }
+      ]
+    },
+    "color-functions": {
+      "patterns": [
+        {
+          "name": "meta.color.resource.xui",
+          "begin": "(?<![\\w.@])@?resource\\b",
+          "beginCaptures": { "0": { "name": "support.function.color.xui" } },
+          "end": "\\)|(?=[;}])",
+          "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
+          "patterns": [
+            { "include": "#comments" },
+            {
+              "begin": "\\(",
+              "beginCaptures": { "0": { "name": "punctuation.section.arguments.begin.xui" } },
+              "end": "(?=[);}])",
+              "patterns": [
+                { "include": "#comments" },
+                { "match": "@?[A-Za-z_][A-Za-z0-9_]*(?![\\w\"])", "name": "variable.other.resource.xui" },
+                { "include": "#expression" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "meta.color.theme.xui",
+          "begin": "(?<![\\w.@])@?theme\\b",
+          "beginCaptures": { "0": { "name": "support.function.color.xui" } },
+          "end": "\\)|(?=[;}])",
+          "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
+          "patterns": [
+            { "include": "#comments" },
+            {
+              "begin": "\\(",
+              "beginCaptures": { "0": { "name": "punctuation.section.arguments.begin.xui" } },
+              "end": "(?=[);}])",
+              "patterns": [
+                { "include": "#comments" },
+                { "match": "(?<![\\w@])@?(?:light|dark)\\b", "name": "variable.parameter.named.xui" },
+                { "match": ":", "name": "punctuation.separator.key-value.xui" },
+                { "match": ",", "name": "punctuation.separator.arguments.xui" },
+                { "include": "#expression" }
+              ]
+            }
+          ]
+        }
       ]
     },
     "state": {
@@ -150,6 +371,46 @@
       "contentName": "meta.embedded.expression.csharp",
       "patterns": [
         {
+          "begin": "\\b(fontStyle|horizontalAlignment|verticalAlignment)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-enum-values" },
+            { "include": "#expression" }
+          ]
+        },
+        {
+          "name": "meta.style-reference.xui",
+          "begin": "\\b(style)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "@?[A-Za-z_][A-Za-z0-9_]*(?![\\w\"])", "name": "variable.other.style.xui" },
+            { "include": "#expression" }
+          ]
+        },
+        {
+          "begin": "\\b(background|foreground|borderBrush)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#color-functions" },
+            { "include": "#expression" }
+          ]
+        },
+        {
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(:)(?!:)",
           "captures": {
             "1": { "name": "variable.parameter.named.xui" },
@@ -224,7 +485,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(?:component|state|param|view|code|csharp|namespace)\\b",
+      "match": "\\b(?:component|state|param|view|code|csharp|namespace|resources|style|basedOn|when)\\b",
       "name": "keyword.other.xui"
     }
   }

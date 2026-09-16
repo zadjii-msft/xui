@@ -17,7 +17,7 @@ struct MapRequest {
 class MapView final : public VectorCanvas {
 public:
     explicit MapView(std::wstring name = L"Offline coordinate map");
-    ~MapView() override { cancel_request(); }
+    ~MapView() override { stop_.request_stop(); }
     static double wrap_longitude(double longitude);
     static GeoPoint normalize(GeoPoint point);
     static WorldPoint project(GeoPoint point);
@@ -35,7 +35,11 @@ public:
     bool complete(const MapRequest& request, MapOverlay overlay, std::wstring error = {});
     void cancel_request();
     const std::wstring& error() const { return error_; }
+    bool loading() const { return loading_; }
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::map_view; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     GeoPoint center_{};
     double zoom_{1};
@@ -43,6 +47,8 @@ private:
     std::stop_source stop_;
     std::uint64_t generation_{};
     std::wstring error_;
+    bool loading_{};
+    Size scene_size_{};
     std::function<void(MapRequest)> request_callback_;
     void rebuild();
 };

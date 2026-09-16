@@ -345,6 +345,14 @@ void miller_appearance(Window& window, HWND hwnd, MillerColumns& columns, TextIn
                         const float left = std::round(separator.x * scale);
                         const float right = std::round((separator.x + separator.width) * scale);
                         const float x = columns.bounds().x + (left + right) / (2 * scale);
+                        if (sample(x, columns.bounds().y + separator.y + 8) != color(palette.border) ||
+                            sample(x, columns.bounds().y + separator.y + 60) != color(palette.border))
+                            std::cerr << "Miller separator: offset=" << offset << ", column=" << i <<
+                                ", bounds=" << separator.x << "," << separator.y << "," << separator.width << "," << separator.height <<
+                                ", origin=" << columns.bounds().x << "," << columns.bounds().y <<
+                                ", header=" << std::hex << sample(x, columns.bounds().y + separator.y + 8) <<
+                                ", list=" << sample(x, columns.bounds().y + separator.y + 60) <<
+                                ", expected=" << color(palette.border) << std::dec << '\n';
                         require(sample(x, columns.bounds().y + separator.y + 8) == color(palette.border) &&
                             sample(x, columns.bounds().y + separator.y + 60) == color(palette.border),
                             "A pixel-aligned separator spans the header and list after fractional horizontal scrolling");

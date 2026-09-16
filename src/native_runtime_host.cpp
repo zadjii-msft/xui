@@ -116,6 +116,8 @@ struct NativeRuntimeHost::State : std::enable_shared_from_this<State> {
     std::function<bool()> can_activate;
     HWND parent{}, visual{};
     RECT placed_bounds{};
+    RECT placed_clip{};
+    int placed_radius{};
     bool placed{};
     bool shown{}, disposed{}, has_request{}, has_video{};
     std::uint64_t revision{}, epoch{};
@@ -485,14 +487,40 @@ struct NativeRuntimeHost::State : std::enable_shared_from_this<State> {
 #endif
     void resize(UINT dpi) {
         const auto b = model->visual_bounds(); const float scale = dpi / 96.0f;
-        const RECT bounds{0, 0, static_cast<LONG>(std::lround(b.width * scale)), static_cast<LONG>(std::lround(b.height * scale))};
+        const RECT bounds{static_cast<LONG>(std::lround(b.x * scale)), static_cast<LONG>(std::lround(b.y * scale)),
+            static_cast<LONG>(std::lround((b.x + b.width) * scale)), static_cast<LONG>(std::lround((b.y + b.height) * scale))};
         const bool changed = !placed || !EqualRect(&bounds, &placed_bounds);
+        const auto* style = model->effective_control_style_values(StylePart::root);
+        const auto outer = model->bounds();
+        HIGHCONTRASTW contrast{sizeof(contrast)};
+        const bool high_contrast = style && SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+            (contrast.dwFlags & HCF_HIGHCONTRASTON);
+        const float radius = style && !high_contrast ? style->corner_radius.value_or(
+            model->visual_style() == VisualStyle::winui ? 4.0f : 0.0f) : 0.0f;
+        const int clip_radius = static_cast<int>(std::lround(std::min({radius, outer.width / 2, outer.height / 2}) * scale));
+        const RECT clip{-bounds.left, -bounds.top,
+            static_cast<LONG>(std::lround(outer.width * scale)) - bounds.left,
+            static_cast<LONG>(std::lround(outer.height * scale)) - bounds.top};
+        if (clip_radius != placed_radius || (clip_radius && !EqualRect(&clip, &placed_clip))) {
+            HRGN region = clip_radius ? CreateRoundRectRgn(clip.left, clip.top, clip.right + 1, clip.bottom + 1,
+                clip_radius * 2, clip_radius * 2) : nullptr;
+            if ((clip_radius && !region) || !SetWindowRgn(visual, region, FALSE)) {
+                if (region) DeleteObject(region);
+                throw std::runtime_error("Cannot clip the owned runtime surface");
+            }
+            placed_radius = clip_radius; placed_clip = clip;
+        }
         if (changed) {
-            SetWindowPos(visual, HWND_TOP, 0, 0, bounds.right, bounds.bottom, SWP_NOACTIVATE | SWP_NOREDRAW);
+            SetWindowPos(visual, HWND_TOP, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+                SWP_NOACTIVATE | SWP_NOREDRAW);
             placed_bounds = bounds; placed = true;
         }
 #ifdef XUI_ENABLE_WEBVIEW2
-        if (controller) { if (changed) controller->put_Bounds(bounds); controller->NotifyParentWindowPositionChanged(); }
+        if (controller) {
+            const RECT content{0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top};
+            if (changed) controller->put_Bounds(content);
+            controller->NotifyParentWindowPositionChanged();
+        }
 #endif
         if (player && changed) player->UpdateVideo();
     }

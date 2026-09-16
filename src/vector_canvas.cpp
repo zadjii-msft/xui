@@ -1,4 +1,5 @@
 #include "xui/vector_canvas.hpp"
+#include "style_hosts_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -134,6 +135,7 @@ void VectorCanvas::set_scene(std::shared_ptr<const VectorScene> scene) {
     static_cast<SceneItems&>(*items_).replace(source);
     if (selected_ && !source->find({*selected_, 1})) selected_.reset();
     set_selected(selected_);
+    invalidate_state();
     invalidate(layout ? Invalidation::layout : Invalidation::paint);
 }
 void VectorCanvas::set_selected(std::optional<ShapeId> id) {
@@ -143,7 +145,7 @@ void VectorCanvas::set_selected(std::optional<ShapeId> id) {
     CollectionSelection selection;
     if (id) { selection.set({*id, 1}, true); selection.set_focus(ItemKey{*id, 1}); }
     items_->set_selection(std::move(selection));
-    if (changed) invalidate(Invalidation::paint);
+    if (changed) invalidate_state();
 }
 bool VectorCanvas::select(ShapeId id) {
     if (!enabled() || !items_->source() || !items_->source()->find({id, 1})) return false;
@@ -154,19 +156,31 @@ bool VectorCanvas::select(ShapeId id) {
     return true;
 }
 Rect VectorCanvas::canvas_bounds() const {
-    const auto b = bounds();
+    const auto b = content_bounds();
     const float list = items_->source() && items_->source()->size() ? std::min(108.0f, b.height / 3) : 0;
-    return {0, 0, b.width, std::max(0.0f, b.height - list)};
+    return {b.x, b.y, b.width, std::max(0.0f, b.height - list)};
+}
+Rect VectorCanvas::content_bounds() const {
+    const auto b = bounds();
+    const auto* root = effective_control_style_values(StylePart::root);
+    return host_content_rect({0, 0, b.width, b.height}, root, {},
+        root && visual_style() == VisualStyle::winui ? Insets{1, 1, 1, 1} : Insets{});
+}
+StyleStateMask VectorCanvas::control_style_state_bits() const {
+    return Control::control_style_state_bits() | (selected_ ? style_states::selected : 0) |
+        ((!scene_ || scene_->shapes().empty()) ? style_states::empty : 0);
 }
 std::optional<ShapeId> VectorCanvas::hit_test(Point point) const {
     finite(point.x); finite(point.y);
     const auto area = canvas_bounds();
+    point.x -= area.x; point.y -= area.y;
     if (point.x < 0 || point.y < 0 || point.x >= area.width || point.y >= area.height || !scene_) return {};
     return scene_->hit_test(point);
 }
 void VectorCanvas::arrange(Rect b) {
     Control::arrange(b);
     const auto area = canvas_bounds();
-    items_->arrange({b.x, b.y + area.height, b.width, b.height - area.height});
+    const auto content = content_bounds();
+    items_->arrange({b.x + content.x, b.y + area.y + area.height, content.width, content.height - area.height});
 }
 }

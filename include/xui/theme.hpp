@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 
 namespace xui {
 
@@ -96,19 +97,38 @@ constexpr StyleMetrics style_metrics(VisualStyle style) {
 
 struct SliderVisual {
     Rect track, filled, thumb;
+    double pointer_fraction(Point point, Axis orientation) const {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            (orientation != Axis::horizontal && orientation != Axis::vertical))
+            throw std::invalid_argument("Invalid slider pointer geometry");
+        const bool vertical = orientation == Axis::vertical;
+        const float length = vertical ? track.height : track.width;
+        if (length <= 0) return 0;
+        const double value = vertical ? 1.0 - (point.y - track.y) / length : (point.x - track.x) / length;
+        return std::clamp(value, 0.0, 1.0);
+    }
 };
 
-inline SliderVisual slider_visual(Size bounds, Axis orientation, bool reversed, double fraction, VisualStyle style) {
+inline SliderVisual slider_visual(Size bounds, Axis orientation, bool reversed, double fraction, VisualStyle style,
+    float thickness = 4, std::optional<float> thumb_size = {}) {
+    if (!std::isfinite(bounds.width) || !std::isfinite(bounds.height) || bounds.width < 0 || bounds.height < 0 ||
+        !std::isfinite(fraction) || fraction < 0 || fraction > 1 ||
+        !std::isfinite(thickness) || thickness < 0 || thickness > 32768 ||
+        (thumb_size && (!std::isfinite(*thumb_size) || *thumb_size < 0 || *thumb_size > 32768)) ||
+        (orientation != Axis::horizontal && orientation != Axis::vertical))
+        throw std::invalid_argument("Invalid slider geometry");
     const bool vertical = orientation == Axis::vertical;
     if (reversed) fraction = 1 - fraction;
-    const float length = std::max(0.0f, (vertical ? bounds.height : bounds.width) - 24);
-    const float position = 12 + static_cast<float>(vertical ? 1 - fraction : fraction) * length;
-    const Rect track = vertical ? Rect{bounds.width / 2 - 2, 12, 4, length} : Rect{12, bounds.height / 2 - 2, length, 4};
-    const float start = vertical == reversed ? 12.0f : 12.0f + length;
+    const float radius = thumb_size ? *thumb_size / 2 : style == VisualStyle::winui ? 10.0f : 8.0f;
+    const float inset = std::min(std::max(12.0f, radius), std::max(0.0f, vertical ? bounds.height : bounds.width) / 2);
+    const float length = std::max(0.0f, (vertical ? bounds.height : bounds.width) - 2 * inset);
+    const float position = inset + static_cast<float>(vertical ? 1 - fraction : fraction) * length;
+    const Rect track = vertical ? Rect{(bounds.width - thickness) / 2, inset, thickness, length} :
+        Rect{inset, (bounds.height - thickness) / 2, length, thickness};
+    const float start = vertical == reversed ? inset : inset + length;
     const float filled = std::abs(position - start);
-    const Rect fill = vertical ? Rect{track.x, std::min(start, position), 4, filled} :
-        Rect{std::min(start, position), track.y, filled, 4};
-    const float radius = style == VisualStyle::winui ? 10.0f : 8.0f;
+    const Rect fill = vertical ? Rect{track.x, std::min(start, position), thickness, filled} :
+        Rect{std::min(start, position), track.y, filled, thickness};
     const Rect thumb = vertical ? Rect{bounds.width / 2 - radius, position - radius, 2 * radius, 2 * radius} :
         Rect{position - radius, bounds.height / 2 - radius, 2 * radius, 2 * radius};
     return {track, fill, thumb};

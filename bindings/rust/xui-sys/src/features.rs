@@ -13,6 +13,115 @@ pub type SourceQuery =
 pub type ContextRef = Option<unsafe extern "C" fn(*mut c_void)>;
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct ThemeColor {
+    pub light: u32,
+    pub dark: u32,
+}
+impl Default for ThemeColor {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct StyleInsets {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+impl Default for StyleInsets {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ButtonStyleValues {
+    pub size: u32,
+    pub version: u32,
+    pub mask: u32,
+    pub reserved: u32,
+    pub background: ThemeColor,
+    pub foreground: ThemeColor,
+    pub border_brush: ThemeColor,
+    pub border_thickness: StyleInsets,
+    pub padding: StyleInsets,
+    pub corner_radius: f32,
+    pub reserved_end: u32,
+}
+impl Default for ButtonStyleValues {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ButtonStyleRule {
+    pub size: u32,
+    pub state: u32,
+    pub values: ButtonStyleValues,
+}
+impl Default for ButtonStyleRule {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ButtonStyleOptions {
+    pub size: u32,
+    pub version: u32,
+    pub values: ButtonStyleValues,
+    pub rules: *const ButtonStyleRule,
+    pub rule_count: u32,
+    pub reserved: u32,
+    pub based_on: u64,
+}
+impl Default for ButtonStyleOptions {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct StyleProperty {
+    pub size: u32,
+    pub version: u32,
+    pub property: u32,
+    pub value_type: u32,
+    pub part: u32,
+    pub reserved: u32,
+    pub state: u64,
+    pub color: ThemeColor,
+    pub insets: StyleInsets,
+    pub number: f64,
+    pub text: Text,
+}
+impl Default for StyleProperty {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ControlStyleOptions {
+    pub size: u32,
+    pub version: u32,
+    pub target: u32,
+    pub reserved: u32,
+    pub properties: *const StyleProperty,
+    pub property_count: u32,
+    pub reserved_end: u32,
+    pub based_on: u64,
+}
+impl Default for ControlStyleOptions {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct NavigationEntry {
     pub size: u32,
     pub flags: u32,
@@ -304,6 +413,76 @@ impl Default for MapMarker {
     }
 }
 unsafe extern "C" {
+    pub fn xui_button_style_create(
+        window: u64,
+        options: *const ButtonStyleOptions,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_button_style_release(style: u64) -> i32;
+    pub fn xui_button_style_reacquire(window: u64, identity: u64, result: *mut u64) -> i32;
+    pub fn xui_button_try_set_style(button: u64, identity: u64, applied: *mut u32) -> i32;
+    pub fn xui_button_set_style(button: u64, style: u64) -> i32;
+    pub fn xui_button_set_style_values(button: u64, values: *const ButtonStyleValues) -> i32;
+    pub fn xui_button_get_style_values(
+        button: u64,
+        effective: u32,
+        values: *mut ButtonStyleValues,
+    ) -> i32;
+    pub fn xui_control_style_create(
+        window: u64,
+        options: *const ControlStyleOptions,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_control_style_get_schema(
+        target: u32,
+        part: u32,
+        properties: *mut u64,
+        states: *mut u64,
+        state_properties: *mut u64,
+    ) -> i32;
+    pub fn xui_control_style_get_limits(
+        target: u32,
+        part: u32,
+        maximum_font_size: *mut f32,
+        maximum_font_family_utf16: *mut u32,
+        font_styles: *mut u32,
+        horizontal_alignments: *mut u32,
+        vertical_alignments: *mut u32,
+    ) -> i32;
+    pub fn xui_window_set_tooltip_style(window: u64, style: u64) -> i32;
+    pub fn xui_window_try_set_tooltip_style(window: u64, identity: u64, applied: *mut u32) -> i32;
+    pub fn xui_window_set_tooltip_style_values(
+        window: u64,
+        part: u32,
+        properties: *const StyleProperty,
+        count: u32,
+    ) -> i32;
+    pub fn xui_window_get_tooltip_style_values(
+        window: u64,
+        part: u32,
+        effective: u32,
+        properties: *mut StyleProperty,
+        capacity: u32,
+        count: *mut u32,
+    ) -> i32;
+    pub fn xui_control_style_release(style: u64) -> i32;
+    pub fn xui_control_style_reacquire(window: u64, identity: u64, result: *mut u64) -> i32;
+    pub fn xui_control_try_set_style(control: u64, identity: u64, applied: *mut u32) -> i32;
+    pub fn xui_control_set_style(control: u64, style: u64) -> i32;
+    pub fn xui_control_set_style_values(
+        control: u64,
+        part: u32,
+        properties: *const StyleProperty,
+        count: u32,
+    ) -> i32;
+    pub fn xui_control_get_style_values(
+        control: u64,
+        part: u32,
+        effective: u32,
+        properties: *mut StyleProperty,
+        capacity: u32,
+        count: *mut u32,
+    ) -> i32;
     pub fn xui_navigation_items_visual(
         target: u64,
         items: *const NavigationEntry,
@@ -347,6 +526,13 @@ unsafe extern "C" {
         has_selection: u32,
     ) -> i32;
     pub fn xui_feature_child(target: u64, index: u32, result: *mut u64) -> i32;
+    pub fn xui_breadcrumb_segment_button(
+        target: u64,
+        id: u64,
+        version: u64,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_command_bar_button(target: u64, id: u64, result: *mut u64) -> i32;
     pub fn xui_panel_add(
         target: u64,
         child: u64,

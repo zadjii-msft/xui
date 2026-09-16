@@ -24,6 +24,24 @@ public:
     virtual ItemVisual visual(std::size_t, std::size_t) const { return {}; }
 };
 enum class GridHeaderPart { sort, filter, check };
+// Value-only geometry can be copied into a UIA snapshot without retaining visuals.
+struct GridGeometry {
+    float left{}, top{}, width{}, height{}, row_height{32}, header_height{38}, scrollbar_width{12};
+    double vertical{}, horizontal{};
+    float frame_width{}, frame_height{};
+    Rect frame() const { return {0, 0, frame_width, frame_height}; }
+    float header_bottom() const { return top + header_height; }
+    float viewport_width() const;
+    float viewport_height() const;
+    Rect viewport() const;
+    Rect header() const;
+    Rect row(std::size_t index) const;
+    Rect column(std::span<const GridColumn> columns, std::size_t display) const;
+    Rect header_part(std::span<const GridColumn> columns, std::size_t display, GridHeaderPart part) const;
+    Rect vertical_track() const;
+    Rect horizontal_track() const;
+    bool operator==(const GridGeometry&) const = default;
+};
 struct GridFilterRequest {
     std::uint64_t generation{};
     std::size_t column{};
@@ -130,7 +148,22 @@ public:
     std::size_t focused_column() const { return focused_column_; }
     void focus_header(bool value);
     void step_header(int delta);
+    GridGeometry geometry() const;
+    Rect cell_bounds(std::size_t row, std::size_t source_column) const;
+    Rect row_bounds(std::size_t row) const { return geometry().row(row); }
+    float effective_row_height() const;
+    float effective_header_height() const;
+    float effective_scrollbar_width() const;
+    int page_rows() const;
+    PartStyleValues row_style(StylePart part, std::size_t row, bool context_enabled = true, bool dragging = false) const;
+    PartStyleValues header_style(StylePart part, std::size_t source_column, bool context_enabled = true, bool dragging = false) const;
+    PartStyleValues part_style(StylePart part, StyleStateMask states = 0) const;
+    StyleStateMask row_style_states(std::size_t row, bool context_enabled = true, bool dragging = false) const;
+    StyleStateMask header_style_states(std::size_t source_column, bool context_enabled = true, bool dragging = false) const;
     static constexpr float row_height = 32, header_height = 38, bar_width = 12;
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
+    StyleStateMask control_style_state_bits() const override;
 private:
     void reveal_selection();
     std::shared_ptr<const GridSource> source_;
@@ -149,6 +182,7 @@ private:
     std::stop_source filter_stop_;
     std::uint64_t filter_generation_{};
     bool filter_pending_{};
+    std::size_t filter_column_{};
     std::function<void(std::size_t)> filter_open_;
     std::function<void(GridFilterRequest)> filter_callback_;
     std::function<void(std::size_t, bool)> sort_callback_;
@@ -171,7 +205,15 @@ public:
     double maximum() const { return maximum_; }
     std::size_t size() const { return size_; }
     std::optional<double> at(std::size_t index) const;
+    bool empty() const;
+    Rect plot_bounds() const;
+    Rect title_bounds() const;
+    Rect caption_bounds() const;
+    PartStyleValues part_style(StylePart part) const;
     static constexpr std::size_t capacity = 60;
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
+    StyleStateMask control_style_state_bits() const override;
 private:
     std::array<std::optional<double>, capacity> values_{};
     std::size_t next_{}, size_{};

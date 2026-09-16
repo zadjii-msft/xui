@@ -82,6 +82,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     private readonly StringBuilder output = new();
     private readonly List<Node> nodes = [];
     private readonly List<Binding> bindings = [];
+    private readonly StyleCompiler styling = new(component);
     private sealed record Binding(string Name, int Node, string Type, string Setter, Expression Value, string[] Dependencies);
     private void Line(string value = "") => output.AppendLine(value);
     // #line filenames do not interpret backslash escapes like C# string expressions.
@@ -131,8 +132,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         if (node.Kind is "VStack" or "HStack")
         {
-            Bind("spacing", "float", "Spacing({0})", "0");
-            Bind("padding", "float", "Padding({0})", "0");
+            if (node.Arguments.ContainsKey("spacing")) Bind("spacing", "float", "Spacing({0})", "0");
+            if (node.Arguments.ContainsKey("padding")) Bind("padding", "float", "Padding({0})", "0");
         }
         else if (node.Kind is not ("Content" or "Grid"))
         {
@@ -166,6 +167,35 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             ("windowBackground", "bool", "SetWindowBackground({0})")
         })
             if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
+        var styleValue = node.Arguments.GetValueOrDefault("style");
+        string styleTarget = node.Kind == "Content" && styleValue is not null ? styling.ReferenceTarget(styleValue) : StyleCompiler.TargetName(node.Kind);
+        bool genericStyle = styleValue is not null && styling.GenericReference(styleValue);
+        if (node.Kind == "Content" && styleValue is null) {
+            var untypedLocal = node.Arguments.FirstOrDefault(pair => StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key));
+            if (untypedLocal.Value is not null)
+                throw new ParseError("Content style properties require a named style to identify the target schema.", untypedLocal.Value.Offset);
+        }
+        if (styleValue is not null) {
+            string reference = styling.Reference(styleValue, styleTarget);
+            if (!genericStyle && node.Kind != "Button")
+                throw new ParseError("A legacy Button style requires a Button node.", styleValue.Offset);
+            bindings.Add(new($"__xuiB{index}_style", index, genericStyle ? "global::Xui.ControlStyle" : "global::Xui.ButtonStyle",
+                genericStyle ? $"__xuiN{index}.SetControlStyle({{0}})" : $"__xuiN{index}.Style = {{0}}",
+                new(reference, styleValue.Offset), []));
+        }
+        if (styleTarget == "Button" || StyleCatalog.TargetExists(styleTarget)) {
+            var local = node.Arguments.Where(pair =>
+                (StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key)) &&
+                !((node.Kind is "VStack" or "HStack") && (pair.Key is "spacing" or "padding"))).ToDictionary();
+            foreach (var pair in local)
+                if (!StyleCompiler.AllowedProperties(styleTarget, "root").Contains(pair.Key))
+                    throw new ParseError($"Unsupported {styleTarget} root style property '{pair.Key}'.", pair.Value.Offset);
+            bool genericLocal = styleTarget != "Button" || genericStyle || local.Keys.Any(key => !StyleCompiler.Properties.Contains(key));
+            if (local.Count != 0)
+                bindings.Add(new($"__xuiB{index}_styleValues", index, genericLocal ? "global::Xui.PartStyleValues" : "global::Xui.ButtonStyleValues",
+                    genericLocal ? $"__xuiN{index}.SetControlStyleValues(global::Xui.StylePart.Root, {{0}})" : $"__xuiN{index}.StyleValues = {{0}}",
+                    new(styling.Values(local, genericLocal ? "generic" : "Button", styleTarget), local.First().Value.Offset), []));
+        }
         if (node.Kind == "Grid")
         {
             const string tracks = "new global::Xui.GridTrack[] { new(global::Xui.TrackSizing.Star, 1) }";
@@ -205,6 +235,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
 
     internal string Emit()
     {
+        styling.Validate();
         Collect(component.Root);
         var names = new HashSet<string>(StringComparer.Ordinal) { "Root", component.Name.TrimStart('@') };
         void Reserve(string name, int offset)
@@ -214,6 +245,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Errors.Add(new ParseError($"Member name '{name}' is reserved or duplicated.", offset));
         }
         foreach (var state in component.States) Reserve(state.Name, state.Offset);
+        foreach (var style in component.Styles) Reserve(SyntaxFactory.ParseToken(style.Name).ValueText, style.Offset);
         foreach (var parameter in component.Parameters)
         {
             Reserve(parameter.Name, parameter.Offset);
@@ -233,6 +265,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line($"public sealed partial class {component.Name}");
         Unmap();
         Line("{");
+        if (component.Styles.Count != 0) EmitStyles();
         Line("private readonly global::Xui.Window __xuiWindow;");
         Line($"public global::Xui.{Type(component.Root)} Root => __xuiN0;");
         foreach (var parameter in component.Parameters)
@@ -277,6 +310,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("#if XUI_HOT_RELOAD");
         Line("private readonly string __xuiOriginalShape;");
         Line("private string __xuiShape() => " + Literal(Part(Shape(component.Root)) +
+            Part(string.Concat(component.Resources.Select(r => Part(r.Name)))) +
+            Part(string.Concat(component.Styles.Select(s => Part(s.Name)))) +
             string.Concat(component.Parameters.Select(p => Part(p.Type) + Part(p.Name))) +
             string.Concat(component.States.Select(s => Part(s.Type) + Part(s.Name) + Part(s.Initializer.Text)))) + ";");
         Line("private bool __xuiReload()");
@@ -415,5 +450,28 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("}");
         return output.ToString();
+    }
+
+    private void EmitStyles()
+    {
+        // A method-body revision changes under hot reload. Static field initializers do not rerun.
+        Line("private static readonly object __xuiStyleLock = new();");
+        Line("private static string? __xuiStyleRevision;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, object>? __xuiStyleCache;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, object> __xuiGetStyles()");
+        Line("{");
+        string definitions = styling.Definitions();
+        string revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(definitions)));
+        Line("const string __xuiRevision = " + Literal(revision) + ";");
+        Line("lock (__xuiStyleLock)");
+        Line("{");
+        Line("if (__xuiStyleCache is not null && __xuiStyleRevision == __xuiRevision) return __xuiStyleCache;");
+        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, object>(global::System.StringComparer.Ordinal);");
+        Line(definitions);
+        Line("__xuiStyleCache = __xuiStyles;");
+        Line("__xuiStyleRevision = __xuiRevision;");
+        Line("return __xuiStyles;");
+        Line("}");
+        Line("}");
     }
 }

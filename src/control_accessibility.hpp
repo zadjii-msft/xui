@@ -39,12 +39,13 @@ struct ControlSnapshot {
     std::vector<float> tab_edges;
     std::optional<std::uint64_t> selected_tab;
     double split_ratio{};
-    float split_left{}, split_width{};
+    float split_left{}, split_top{}, split_width{}, split_height{};
     std::shared_ptr<const GridSource> grid;
     std::vector<GridColumn> columns;
     std::vector<std::size_t> column_order;
     std::optional<RowKey> selected_row;
     double grid_x{}, grid_y{}, grid_width{}, grid_height{};
+    GridGeometry grid_geometry;
     std::size_t sort_column{}, header_column{};
     bool descending{}, header_focus{};
     std::wstring help_text, value_text;
@@ -59,6 +60,7 @@ struct ControlSnapshot {
     CollectionSelection selection;
     std::size_t collection_columns{1};
     double collection_item_height{56}, collection_offset{}, collection_width{}, collection_height{};
+    double collection_viewport_x{}, collection_viewport_y{};
     std::vector<std::wstring> grid_filters;
     GridHeaderPart header_part{};
     std::shared_ptr<const CollectionIndex> full_source;

@@ -3,11 +3,44 @@
 #include "xui/theme.hpp"
 #include "xui/controls.hpp"
 #include "suggestion_peer.hpp"
+#include "drawing.hpp"
 #include <commctrl.h>
 #include <cmath>
 #include <cwctype>
+#include <cstring>
 
 namespace xui {
+
+NativeFieldFont::~NativeFieldFont() { if (font_) DeleteObject(font_); }
+void NativeFieldFont::update(HWND window, const PartStyleValues* values, UINT dpi, HFONT fallback,
+    const wchar_t* family, float size) {
+    if (!values || (!values->font_family && !values->font_size && !values->font_weight && !values->font_style)) {
+        if (font_) {
+            SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(fallback), TRUE);
+            DeleteObject(font_); font_ = nullptr; descriptor_ = {};
+        }
+        return;
+    }
+    const auto descriptor = Drawing::font_descriptor(*values, family, size);
+    LOGFONTW next{};
+    next.lfHeight = -std::max(1L, std::lround(descriptor.size * dpi / 96.0f));
+    next.lfWeight = descriptor.weight;
+    next.lfItalic = descriptor.style == StyleFontStyle::italic;
+    next.lfCharSet = DEFAULT_CHARSET;
+    const auto* face = descriptor.family_name();
+    if (wcslen(face) >= LF_FACESIZE) throw std::invalid_argument("Native editor font family is too long");
+    wcscpy_s(next.lfFaceName, face);
+    if (font_ && std::memcmp(&next, &descriptor_, sizeof(next)) == 0) {
+        if (reinterpret_cast<HFONT>(SendMessageW(window, WM_GETFONT, 0, 0)) != font_)
+            SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+        return;
+    }
+    const auto replacement = CreateFontIndirectW(&next);
+    win32_require(replacement != nullptr, "Create styled native field font");
+    SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(replacement), TRUE);
+    if (font_) DeleteObject(font_);
+    font_ = replacement; descriptor_ = next;
+}
 
 NativeEditBridge::NativeEditBridge() = default;
 NativeEditBridge::~NativeEditBridge() {
@@ -37,15 +70,29 @@ void NativeEditBridge::set_dpi(UINT dpi) {
 }
 
 void NativeEditBridge::set_font_family(std::wstring family) {
-    if (family.empty()) throw std::invalid_argument("A native edit font family is required");
-    if (font_family_ == family) return;
-    font_family_ = std::move(family);
+    set_font(family, font_size_, font_weight_, font_italic_);
+}
+
+void NativeEditBridge::set_font(std::wstring_view family, float size, int weight, bool italic) {
+    if (family.empty() || family.size() >= LF_FACESIZE || family.find(L'\0') != std::wstring::npos ||
+        !std::isfinite(size) || size <= 0 || size > 512 || weight < 1 || weight > 999)
+        throw std::invalid_argument("Invalid native editor font");
+    if (composing_) return;
+    if (font_family_ == family && font_size_ == size && font_weight_ == weight && font_italic_ == italic) return;
+    font_family_.assign(family);
+    font_size_ = size;
+    font_weight_ = weight;
+    font_italic_ = italic;
     if (window_) update_font(dpi_);
+}
+void NativeEditBridge::set_caption_font(HWND caption, const PartStyleValues* values, HFONT fallback,
+    const wchar_t* family, float size) {
+    caption_font_.update(caption, values, dpi_, fallback, family, size);
 }
 
 void NativeEditBridge::update_font(UINT dpi) {
-    HFONT replacement = CreateFontW(-MulDiv(static_cast<int>(VisualMetrics::body_size), static_cast<int>(dpi), 96), 0, 0, 0, FW_NORMAL,
-        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+    HFONT replacement = CreateFontW(-std::max(1, static_cast<int>(std::lround(font_size_ * dpi / 96.0f))), 0, 0, 0, font_weight_,
+        font_italic_, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH, font_family_.c_str());
     win32_require(replacement != nullptr, "Create search font");
     const auto dc = GetDC(window_);
@@ -192,6 +239,16 @@ void NativeEditBridge::set_placeholder_color(COLORREF color) {
     placeholder_color_ = color;
     if (window_) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh search hint");
 }
+void NativeEditBridge::set_colors(COLORREF text, COLORREF background) {
+    if (colors_set_ && text_color_ == text && background_color_ == background) return;
+    text_color_ = text; background_color_ = background; colors_set_ = true;
+    if (window_) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh native field colors");
+}
+void NativeEditBridge::set_caption_color(HWND caption, COLORREF color) {
+    if (caption_color_set_ && caption_color_ == color) return;
+    caption_color_ = color; caption_color_set_ = true;
+    if (caption) win32_require(InvalidateRect(caption, nullptr, FALSE) != 0, "Refresh native field header color");
+}
 
 void NativeEditBridge::set_placeholder(std::wstring text) {
     if (placeholder_ == text) return;
@@ -200,6 +257,8 @@ void NativeEditBridge::set_placeholder(std::wstring text) {
 }
 
 void NativeEditBridge::set_insets(Insets insets) {
+    if (insets_ && insets_->left == insets.left && insets_->top == insets.top &&
+        insets_->right == insets.right && insets_->bottom == insets.bottom) return;
     insets_ = insets;
     invalidate(Invalidation::layout);
 }

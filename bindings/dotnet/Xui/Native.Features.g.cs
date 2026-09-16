@@ -3,6 +3,73 @@ using System.Runtime.InteropServices;
 namespace Xui;
 internal static unsafe partial class Native {
 [StructLayout(LayoutKind.Sequential)]
+internal struct ThemeColor {
+internal uint Light;
+internal uint Dark;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct StyleInsets {
+internal float Left;
+internal float Top;
+internal float Right;
+internal float Bottom;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ButtonStyleValues {
+internal uint Size;
+internal uint Version;
+internal uint Mask;
+internal uint Reserved;
+internal ThemeColor Background;
+internal ThemeColor Foreground;
+internal ThemeColor BorderBrush;
+internal StyleInsets BorderThickness;
+internal StyleInsets Padding;
+internal float CornerRadius;
+internal uint ReservedEnd;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ButtonStyleRule {
+internal uint Size;
+internal uint State;
+internal ButtonStyleValues Values;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ButtonStyleOptions {
+internal uint Size;
+internal uint Version;
+internal ButtonStyleValues Values;
+internal ButtonStyleRule* Rules;
+internal uint RuleCount;
+internal uint Reserved;
+internal ulong BasedOn;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct StyleProperty {
+internal uint Size;
+internal uint Version;
+internal uint Property;
+internal uint ValueType;
+internal uint Part;
+internal uint Reserved;
+internal ulong State;
+internal ThemeColor Color;
+internal StyleInsets Insets;
+internal double Number;
+internal Text Text;
+}
+[StructLayout(LayoutKind.Sequential)]
+internal struct ControlStyleOptions {
+internal uint Size;
+internal uint Version;
+internal uint Target;
+internal uint Reserved;
+internal StyleProperty* Properties;
+internal uint PropertyCount;
+internal uint ReservedEnd;
+internal ulong BasedOn;
+}
+[StructLayout(LayoutKind.Sequential)]
 internal struct NavigationEntry {
 internal uint Size;
 internal uint Flags;
@@ -186,6 +253,46 @@ internal double Latitude;
 internal double Longitude;
 internal Text Name;
 }
+[LibraryImport("xui", EntryPoint = "xui_button_style_create")]
+internal static partial int ButtonStyleCreate(ulong @window, ButtonStyleOptions* @options, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_button_style_release")]
+internal static partial int ButtonStyleRelease(ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_button_style_reacquire")]
+internal static partial int ButtonStyleReacquire(ulong @window, ulong @identity, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_button_try_set_style")]
+internal static partial int ButtonTrySetStyle(ulong @button, ulong @identity, uint* @applied);
+[LibraryImport("xui", EntryPoint = "xui_button_set_style")]
+internal static partial int ButtonSetStyle(ulong @button, ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_button_set_style_values")]
+internal static partial int ButtonSetStyleValues(ulong @button, ButtonStyleValues* @values);
+[LibraryImport("xui", EntryPoint = "xui_button_get_style_values")]
+internal static partial int ButtonGetStyleValues(ulong @button, uint @effective, ButtonStyleValues* @values);
+[LibraryImport("xui", EntryPoint = "xui_control_style_create")]
+internal static partial int ControlStyleCreate(ulong @window, ControlStyleOptions* @options, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_control_style_get_schema")]
+internal static partial int ControlStyleGetSchema(uint @target, uint @part, ulong* @properties, ulong* @states, ulong* @state_properties);
+[LibraryImport("xui", EntryPoint = "xui_control_style_get_limits")]
+internal static partial int ControlStyleGetLimits(uint @target, uint @part, float* @maximum_font_size, uint* @maximum_font_family_utf16, uint* @font_styles, uint* @horizontal_alignments, uint* @vertical_alignments);
+[LibraryImport("xui", EntryPoint = "xui_window_set_tooltip_style")]
+internal static partial int WindowSetTooltipStyle(ulong @window, ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_window_try_set_tooltip_style")]
+internal static partial int WindowTrySetTooltipStyle(ulong @window, ulong @identity, uint* @applied);
+[LibraryImport("xui", EntryPoint = "xui_window_set_tooltip_style_values")]
+internal static partial int WindowSetTooltipStyleValues(ulong @window, uint @part, StyleProperty* @properties, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_window_get_tooltip_style_values")]
+internal static partial int WindowGetTooltipStyleValues(ulong @window, uint @part, uint @effective, StyleProperty* @properties, uint @capacity, uint* @count);
+[LibraryImport("xui", EntryPoint = "xui_control_style_release")]
+internal static partial int ControlStyleRelease(ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_control_style_reacquire")]
+internal static partial int ControlStyleReacquire(ulong @window, ulong @identity, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_control_try_set_style")]
+internal static partial int ControlTrySetStyle(ulong @control, ulong @identity, uint* @applied);
+[LibraryImport("xui", EntryPoint = "xui_control_set_style")]
+internal static partial int ControlSetStyle(ulong @control, ulong @style);
+[LibraryImport("xui", EntryPoint = "xui_control_set_style_values")]
+internal static partial int ControlSetStyleValues(ulong @control, uint @part, StyleProperty* @properties, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_control_get_style_values")]
+internal static partial int ControlGetStyleValues(ulong @control, uint @part, uint @effective, StyleProperty* @properties, uint @capacity, uint* @count);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items_visual")]
 internal static partial int NavigationItemsVisual(ulong @target, NavigationEntry* @items, ItemVisual* @visuals, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items")]
@@ -228,6 +335,10 @@ internal static partial int FeatureAction(ulong @target, uint @action, ulong @fi
 internal static partial int Choices(ulong @target, Choice* @items, uint @count, ulong @selected, uint @has_selection);
 [LibraryImport("xui", EntryPoint = "xui_feature_child")]
 internal static partial int FeatureChild(ulong @target, uint @index, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_breadcrumb_segment_button")]
+internal static partial int BreadcrumbSegmentButton(ulong @target, ulong @id, ulong @version, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_command_bar_button")]
+internal static partial int CommandBarButton(ulong @target, ulong @id, ulong* @result);
 [LibraryImport("xui", EntryPoint = "xui_panel_add")]
 internal static partial int PanelAdd(ulong @target, ulong @child, uint @row, uint @column, uint @row_span, uint @column_span);
 [LibraryImport("xui", EntryPoint = "xui_popup_show")]

@@ -1,4 +1,5 @@
 #include "xui/runtime_hosts.hpp"
+#include "style_hosts_geometry.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
@@ -16,15 +17,31 @@ void local_path(const std::wstring& path) {
 }
 RuntimeHost::RuntimeHost(ControlRole role, std::wstring name) : Control(role, std::move(name), {480, 300}),
     status_(std::make_shared<InlineStatus>(L"Not loaded")), children_{status_} { adopt(status_); }
-Rect RuntimeHost::visual_bounds() const { const auto b = bounds(); return {0, 0, b.width, std::max(0.0f, b.height - 44)}; }
+StyleStateMask RuntimeHost::control_style_state_bits() const {
+    constexpr StyleStateMask states[]{style_states::idle, style_states::loading, style_states::ready,
+        style_states::playing, style_states::paused, style_states::stopped, style_states::suspended, style_states::error};
+    return Control::control_style_state_bits() | states[static_cast<unsigned>(state_)];
+}
+Rect RuntimeHost::content_bounds() const {
+    const auto b = bounds();
+    const auto* root = effective_control_style_values(StylePart::root);
+    return host_content_rect({0, 0, b.width, b.height}, root, {},
+        root && visual_style() == VisualStyle::winui ? Insets{1, 1, 1, 1} : Insets{});
+}
+Rect RuntimeHost::visual_bounds() const {
+    const auto b = content_bounds();
+    return {b.x, b.y, b.width, std::max(0.0f, b.height - 44)};
+}
 void RuntimeHost::arrange(Rect b) {
-    Control::arrange(b); const auto v = visual_bounds(); status_->arrange({b.x, b.y + v.height, b.width, b.height - v.height});
+    Control::arrange(b); const auto v = visual_bounds(); const auto content = content_bounds();
+    status_->arrange({b.x + v.x, b.y + v.y + v.height, v.width, content.height - v.height});
 }
 void RuntimeHost::publish_state(HostState state, std::wstring message) {
     if (message.size() > 4096) message.resize(4096);
     if (state_ == state && status_->name() == message) return;
     state_ = state; error_ = state == HostState::error ? message : L"";
     status_->set_message(std::move(message), state == HostState::error ? StatusSeverity::error : StatusSeverity::information);
+    invalidate_state();
     auto callback = state_callback_; if (callback) callback(state);
 }
 MediaPlayback::MediaPlayback(std::wstring name) : RuntimeHost(ControlRole::media_playback, std::move(name)) {

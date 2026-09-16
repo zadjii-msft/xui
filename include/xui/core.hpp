@@ -24,6 +24,12 @@ struct Rect { float x{}, y{}, width{}, height{}; };
 struct Insets { float left{}, top{}, right{}, bottom{}; };
 
 enum class Invalidation { paint, layout };
+enum class StyleTarget : uint32_t;
+enum class StylePart : uint32_t;
+using StyleStateMask = std::uint64_t;
+struct PartStyleValues;
+class ControlStyle;
+class ControlStyleAttachment;
 
 // Layout invalidation also requires a repaint. Dimensions are finite and nonnegative.
 class Element {
@@ -48,13 +54,32 @@ public:
     bool preferred_size_explicit() const { return preferred_explicit_; }
     void set_minimum_size(Size size);
     void set_maximum_size(Size size);
+    void set_control_style(std::shared_ptr<const ControlStyle> style);
+    bool has_control_styling() const { return control_style_ != nullptr; }
+    std::shared_ptr<const ControlStyle> control_style() const;
+    void set_control_style_values(StylePart part, PartStyleValues values);
+    const PartStyleValues& control_style_values(StylePart part) const;
+    const PartStyleValues* effective_control_style_values(StylePart part) const;
+    PartStyleValues resolve_control_style_part(StylePart part, StyleStateMask item_state) const;
+    // Retained-child adapters project defaults below the child's own style and locals.
+    // Empty projection values remove only the parent layer.
+    void set_control_style_projection(StylePart part, PartStyleValues values);
+    const PartStyleValues& control_style_projection_values(StylePart part) const;
+    PartStyleValues own_control_style_values(StylePart part) const;
 
 protected:
     Size constrain(Size desired, Size available) const;
     void adopt(const std::shared_ptr<Element>& child);
     void set_default_size(Size size);
+    virtual std::optional<StyleTarget> control_style_target() const { return std::nullopt; }
+    virtual StyleStateMask control_style_state_bits() const;
+    bool invalidate_control_style_state();
+    virtual void control_style_changed(Invalidation kind) { invalidate(kind); }
 
 private:
+    friend class Window;
+    void set_control_style_context_enabled(bool enabled);
+    StyleStateMask effective_control_style_state_bits() const;
     struct InvalidationState;
     friend class Stack;
     std::uint64_t id_;
@@ -65,6 +90,7 @@ private:
     bool preferred_explicit_{};
     Rect bounds_{};
     std::shared_ptr<InvalidationState> invalidation_;
+    std::unique_ptr<ControlStyleAttachment> control_style_;
 };
 
 enum class Axis { horizontal, vertical };
@@ -74,6 +100,11 @@ public:
     explicit Stack(Axis axis);
     void set_spacing(float spacing);
     void set_padding(Insets padding);
+    // Composition defaults stay below authored styles and explicit layout setters.
+    void set_default_spacing(float spacing);
+    void set_default_padding(Insets padding);
+    // A composition can reserve and paint its separator outside the Stack's content.
+    void set_separator_inset_enabled(bool value);
     bool surface() const { return surface_; }
     void set_surface(bool value) { surface_ = value; invalidate(Invalidation::paint); }
     bool separator_after() const { return separator_after_; }
@@ -85,7 +116,14 @@ public:
     const std::shared_ptr<Element>& child_at(std::size_t index) const { return children_.at(index).element; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
+    Insets effective_layout_insets() const;
+    float effective_spacing() const;
+    Rect layout_content_bounds() const;
+    const PartStyleValues* effective_separator_style() const;
+    float effective_separator_inset() const;
 
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
 private:
     struct Child {
         std::shared_ptr<Element> element;
@@ -94,8 +132,10 @@ private:
     Axis axis_;
     float spacing_{};
     Insets padding_{};
+    bool spacing_explicit_{}, padding_explicit_{};
     bool surface_{};
     bool separator_after_{};
+    bool separator_inset_enabled_{true};
     std::vector<Child> children_;
     std::vector<Size> layout_children(Size available);
 };

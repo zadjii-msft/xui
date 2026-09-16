@@ -2,6 +2,214 @@
 #define XUI_FEATURES_H
 /* Included by xui.h. Existing ABI records and the 1.0 negotiation stay unchanged. */
 #define XUI_FEATURE_VERSION 0x00010001u
+/* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
+   Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
+   Records and rule arrays are copied before return. Existing records are unchanged. */
+#define XUI_BUTTON_STYLE_VERSION 0x00010000u
+enum {
+    XUI_BUTTON_STYLE_BACKGROUND = 1, XUI_BUTTON_STYLE_FOREGROUND = 2,
+    XUI_BUTTON_STYLE_BORDER_BRUSH = 4, XUI_BUTTON_STYLE_BORDER_THICKNESS = 8,
+    XUI_BUTTON_STYLE_PADDING = 16, XUI_BUTTON_STYLE_CORNER_RADIUS = 32
+};
+enum {
+    XUI_BUTTON_STYLE_FOCUSED = 0, XUI_BUTTON_STYLE_CHECKED = 1,
+    XUI_BUTTON_STYLE_HOVERED = 2, XUI_BUTTON_STYLE_PRESSED = 3,
+    XUI_BUTTON_STYLE_DISABLED = 4
+};
+typedef struct xui_theme_color {
+    uint32_t light, dark;
+} xui_theme_color;
+typedef struct xui_style_insets {
+    float left, top, right, bottom;
+} xui_style_insets;
+typedef struct xui_button_style_values {
+    uint32_t size, version, mask, reserved;
+    xui_theme_color background, foreground, border_brush;
+    xui_style_insets border_thickness, padding;
+    float corner_radius;
+    uint32_t reserved_end;
+} xui_button_style_values;
+typedef struct xui_button_style_rule {
+    uint32_t size, state;
+    xui_button_style_values values;
+} xui_button_style_rule;
+typedef struct xui_button_style_options {
+    uint32_t size, version;
+    xui_button_style_values values;
+    const xui_button_style_rule* rules;
+    uint32_t rule_count, reserved;
+    xui_handle based_on;
+} xui_button_style_options;
+/* Styles belong to one window. At most 256 rules and 16 inheritance layers.
+   A base must be a live style handle from the same window.
+   Release removes the caller's handle. Buttons retain the applied definition.
+   Derived styles retain copied inherited values, not the base definition. */
+XUI_API xui_status XUI_CALL xui_button_style_create(xui_handle window,
+    const xui_button_style_options* options, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_button_style_release(xui_handle style) XUI_NOEXCEPT;
+/* A create result is also a weak identity, usable after releasing its handle.
+   Reacquire returns a new releasable handle to the exact definition, or zero if
+   it is no longer retained in this window. It never rebuilds a definition.
+   Unknown, zero, expired, or other-window identities are successful cache misses. */
+XUI_API xui_status XUI_CALL xui_button_style_reacquire(xui_handle window,
+    xui_handle identity, xui_handle* result) XUI_NOEXCEPT;
+/* Applies a retained identity without allocating a handle or rebuilding values.
+   Sets applied=1 on a hit (including an unchanged assignment), otherwise zero.
+   A miss preserves the button. Both helpers enforce normal mutation guards. */
+XUI_API xui_status XUI_CALL xui_button_try_set_style(xui_handle button,
+    xui_handle identity, uint32_t* applied) XUI_NOEXCEPT;
+/* A zero style clears the shared style, but preserves local values. */
+XUI_API xui_status XUI_CALL xui_button_set_style(xui_handle button, xui_handle style) XUI_NOEXCEPT;
+/* An empty values record clears local overrides. Invalid input changes nothing. */
+XUI_API xui_status XUI_CALL xui_button_set_style_values(xui_handle button,
+    const xui_button_style_values* values) XUI_NOEXCEPT;
+/* effective=0 returns local overrides. effective=1 returns the merged state values,
+   before platform defaults and high-contrast protection. */
+XUI_API xui_status XUI_CALL xui_button_get_style_values(xui_handle button,
+    uint32_t effective, xui_button_style_values* values) XUI_NOEXCEPT;
+#define XUI_CONTROL_STYLE_VERSION 0x00010000u
+enum {
+    XUI_STYLE_TARGET_TOGGLE = 0, XUI_STYLE_TARGET_BUTTON, XUI_STYLE_TARGET_LABEL, XUI_STYLE_TARGET_TEXT_INPUT,
+    XUI_STYLE_TARGET_MULTILINE_TEXT, XUI_STYLE_TARGET_RICH_TEXT, XUI_STYLE_TARGET_PASSWORD_INPUT, XUI_STYLE_TARGET_DATE_TIME_PICKER,
+    XUI_STYLE_TARGET_RADIO_GROUP, XUI_STYLE_TARGET_CHOICE_LIST, XUI_STYLE_TARGET_COMBO_BOX, XUI_STYLE_TARGET_NUMERIC_INPUT,
+    XUI_STYLE_TARGET_RANGE_INPUT, XUI_STYLE_TARGET_PROGRESS, XUI_STYLE_TARGET_INLINE_STATUS, XUI_STYLE_TARGET_COLOR_PICKER,
+    XUI_STYLE_TARGET_STACK, XUI_STYLE_TARGET_GRID, XUI_STYLE_TARGET_WRAP, XUI_STYLE_TARGET_ADAPTIVE_LAYOUT,
+    XUI_STYLE_TARGET_PAGE_VIEW, XUI_STYLE_TARGET_CONTENT_VIEW, XUI_STYLE_TARGET_SCROLL_VIEW, XUI_STYLE_TARGET_SPLIT_VIEW,
+    XUI_STYLE_TARGET_EXPANDER, XUI_STYLE_TARGET_POPUP, XUI_STYLE_TARGET_FILE_LIST, XUI_STYLE_TARGET_ITEMS_VIEW,
+    XUI_STYLE_TARGET_TREE_VIEW, XUI_STYLE_TARGET_NAVIGATION_LIST, XUI_STYLE_TARGET_COMMAND_MENU, XUI_STYLE_TARGET_DATA_GRID,
+    XUI_STYLE_TARGET_HISTORY_CHART, XUI_STYLE_TARGET_NAVIGATION_VIEW, XUI_STYLE_TARGET_BREADCRUMB, XUI_STYLE_TARGET_NAVIGATION_PANE,
+    XUI_STYLE_TARGET_LOCATION_PICKER, XUI_STYLE_TARGET_VIEW_PICKER, XUI_STYLE_TARGET_TAB_STRIP, XUI_STYLE_TARGET_SPLIT_BUTTON,
+    XUI_STYLE_TARGET_COMMAND_BAR, XUI_STYLE_TARGET_COMMAND_SURFACE, XUI_STYLE_TARGET_COMMAND_PALETTE, XUI_STYLE_TARGET_SHELL_MENU,
+    XUI_STYLE_TARGET_CONTENT_DIALOG, XUI_STYLE_TARGET_TITLE_BAR, XUI_STYLE_TARGET_TOOLTIP, XUI_STYLE_TARGET_IMAGE,
+    XUI_STYLE_TARGET_VECTOR_CANVAS, XUI_STYLE_TARGET_MAP_VIEW, XUI_STYLE_TARGET_MEDIA_PLAYBACK, XUI_STYLE_TARGET_WEB_CONTENT
+};
+enum {
+    XUI_STYLE_ROOT = 0, XUI_STYLE_LABEL, XUI_STYLE_INDICATOR, XUI_STYLE_MARK, XUI_STYLE_TEXT_PART,
+    XUI_STYLE_ICON, XUI_STYLE_CONTENT, XUI_STYLE_HEADER, XUI_STYLE_FOOTER, XUI_STYLE_SEPARATOR, XUI_STYLE_FIELD,
+    XUI_STYLE_PLACEHOLDER, XUI_STYLE_CLEAR_ACTION, XUI_STYLE_SHORTCUT, XUI_STYLE_REVEAL_ACTION,
+    XUI_STYLE_DECREMENT, XUI_STYLE_INCREMENT, XUI_STYLE_ITEM, XUI_STYLE_SELECTED_MARKER, XUI_STYLE_ARROW,
+    XUI_STYLE_POPUP, XUI_STYLE_TRACK, XUI_STYLE_FILL, XUI_STYLE_THUMB, XUI_STYLE_CAPTION, XUI_STYLE_MESSAGE,
+    XUI_STYLE_ACTION, XUI_STYLE_DISMISS, XUI_STYLE_STRIPE, XUI_STYLE_PREVIEW, XUI_STYLE_CHECKERBOARD,
+    XUI_STYLE_SWATCH, XUI_STYLE_CHANNEL, XUI_STYLE_ROW, XUI_STYLE_SECONDARY_TEXT, XUI_STYLE_FOCUS_MARKER,
+    XUI_STYLE_SCROLLBAR, XUI_STYLE_SCROLLBAR_TRACK, XUI_STYLE_SCROLLBAR_THUMB, XUI_STYLE_TILE,
+    XUI_STYLE_GROUP_HEADER, XUI_STYLE_DISCLOSURE, XUI_STYLE_PENDING, XUI_STYLE_ERROR_PART, XUI_STYLE_CELL,
+    XUI_STYLE_GRID_LINE, XUI_STYLE_SORT_ICON, XUI_STYLE_FILTER_ICON, XUI_STYLE_REORDER_MARKER,
+    XUI_STYLE_ALTERNATING_ROW, XUI_STYLE_TITLE, XUI_STYLE_PLOT, XUI_STYLE_PANE, XUI_STYLE_DIVIDER, XUI_STYLE_GRIP,
+    XUI_STYLE_TAB, XUI_STYLE_CLOSE_ACTION, XUI_STYLE_ADD_ACTION, XUI_STYLE_OVERFLOW, XUI_STYLE_SEARCH,
+    XUI_STYLE_PRIMARY_ACTION, XUI_STYLE_CANCEL_ACTION, XUI_STYLE_SELECTION, XUI_STYLE_EMPTY_PART,
+    XUI_STYLE_VALIDATION, XUI_STYLE_BADGE, XUI_STYLE_TOOLBAR, XUI_STYLE_COORDINATE, XUI_STYLE_STATUS,
+    XUI_STYLE_PRIMARY_TEXT, XUI_STYLE_HEADING, XUI_STYLE_FIRST_PANE, XUI_STYLE_SECOND_PANE,
+    XUI_STYLE_CHECKERBOARD_LIGHT, XUI_STYLE_CHECKERBOARD_DARK, XUI_STYLE_CHANNEL_LABEL, XUI_STYLE_CHANNEL_FIELD,
+    XUI_STYLE_CAPTION_BUTTON, XUI_STYLE_CAPTION_CLOSE
+};
+enum { XUI_STYLE_COLOR = 1, XUI_STYLE_INSETS = 2, XUI_STYLE_NUMBER = 3, XUI_STYLE_TEXT = 4 };
+enum {
+    XUI_STYLE_BACKGROUND = 1, XUI_STYLE_FOREGROUND = 2, XUI_STYLE_BORDER_BRUSH = 4,
+    XUI_STYLE_BORDER_THICKNESS = 8, XUI_STYLE_PADDING = 16, XUI_STYLE_CORNER_RADIUS = 32, XUI_STYLE_SIZE = 64,
+    XUI_STYLE_FONT_FAMILY = 128, XUI_STYLE_FONT_SIZE = 256, XUI_STYLE_FONT_WEIGHT = 512, XUI_STYLE_FONT_STYLE = 1024,
+    XUI_STYLE_HORIZONTAL_ALIGNMENT = 2048, XUI_STYLE_VERTICAL_ALIGNMENT = 4096, XUI_STYLE_SPACING = 8192,
+    XUI_STYLE_ROW_HEIGHT = 16384, XUI_STYLE_HEADER_HEIGHT = 32768, XUI_STYLE_INDENTATION = 65536,
+    XUI_STYLE_THICKNESS = 131072, XUI_STYLE_WIDTH = 262144, XUI_STYLE_HEIGHT = 524288,
+    XUI_STYLE_ROW_GAP = 1048576, XUI_STYLE_COLUMN_GAP = 2097152, XUI_STYLE_MAXIMUM_LINES = 4194304,
+    XUI_STYLE_WRAPPING = 8388608
+};
+enum {
+    XUI_STYLE_FOCUSED = 1, XUI_STYLE_CHECKED = 2, XUI_STYLE_HOVERED = 4,
+    XUI_STYLE_PRESSED = 8, XUI_STYLE_DISABLED = 16
+};
+#define XUI_STYLE_STATE_SELECTED (UINT64_C(1) << 5)
+#define XUI_STYLE_STATE_EXPANDED (UINT64_C(1) << 6)
+#define XUI_STYLE_STATE_INVALID (UINT64_C(1) << 7)
+#define XUI_STYLE_STATE_LOADING (UINT64_C(1) << 8)
+#define XUI_STYLE_STATE_ERROR (UINT64_C(1) << 9)
+#define XUI_STYLE_STATE_EMPTY (UINT64_C(1) << 10)
+#define XUI_STYLE_STATE_OPEN (UINT64_C(1) << 11)
+#define XUI_STYLE_STATE_DRAGGING (UINT64_C(1) << 12)
+#define XUI_STYLE_STATE_MINIMUM (UINT64_C(1) << 13)
+#define XUI_STYLE_STATE_MAXIMUM (UINT64_C(1) << 14)
+#define XUI_STYLE_STATE_INDETERMINATE (UINT64_C(1) << 15)
+#define XUI_STYLE_STATE_PAUSED (UINT64_C(1) << 16)
+#define XUI_STYLE_STATE_UNKNOWN (UINT64_C(1) << 17)
+#define XUI_STYLE_STATE_INFORMATION (UINT64_C(1) << 18)
+#define XUI_STYLE_STATE_SUCCESS (UINT64_C(1) << 19)
+#define XUI_STYLE_STATE_WARNING (UINT64_C(1) << 20)
+#define XUI_STYLE_STATE_DISMISSED (UINT64_C(1) << 21)
+#define XUI_STYLE_STATE_REVEALED (UINT64_C(1) << 22)
+#define XUI_STYLE_STATE_READ_ONLY (UINT64_C(1) << 23)
+#define XUI_STYLE_STATE_SORTED (UINT64_C(1) << 24)
+#define XUI_STYLE_STATE_DESCENDING (UINT64_C(1) << 25)
+#define XUI_STYLE_STATE_FILTERED (UINT64_C(1) << 26)
+#define XUI_STYLE_STATE_MIXED (UINT64_C(1) << 27)
+#define XUI_STYLE_STATE_FILTER_PENDING (UINT64_C(1) << 28)
+#define XUI_STYLE_STATE_SELECTED_DESCENDANT (UINT64_C(1) << 29)
+#define XUI_STYLE_STATE_COMPACT (UINT64_C(1) << 30)
+#define XUI_STYLE_STATE_OVERFLOWED (UINT64_C(1) << 31)
+#define XUI_STYLE_STATE_CURRENT (UINT64_C(1) << 32)
+#define XUI_STYLE_STATE_ACTIVE (UINT64_C(1) << 33)
+#define XUI_STYLE_STATE_INACTIVE (UINT64_C(1) << 34)
+#define XUI_STYLE_STATE_MAXIMIZED (UINT64_C(1) << 35)
+#define XUI_STYLE_STATE_READY (UINT64_C(1) << 36)
+#define XUI_STYLE_STATE_IDLE (UINT64_C(1) << 37)
+#define XUI_STYLE_STATE_PLAYING (UINT64_C(1) << 38)
+#define XUI_STYLE_STATE_STOPPED (UINT64_C(1) << 39)
+#define XUI_STYLE_STATE_SUSPENDED (UINT64_C(1) << 40)
+#define XUI_STYLE_STATE_SCROLLABLE (UINT64_C(1) << 41)
+#define XUI_STYLE_STATE_DETERMINATE (UINT64_C(1) << 42)
+/* One typed property on one part. State zero denotes an ordinary value.
+   All inactive carriers and reserved fields must be zero. Font family uses UTF-8
+   text. Colors preserve both themes. Dimensions use finite DIPs [0,32768].
+   Unknown targets, parts, properties, types, and state bits are errors. */
+typedef struct xui_style_property {
+    uint32_t size, version, property, value_type, part, reserved;
+    uint64_t state;
+    xui_theme_color color;
+    xui_style_insets insets;
+    double number;
+    xui_string text;
+} xui_style_property;
+typedef struct xui_control_style_options {
+    uint32_t size, version, target, reserved;
+    const xui_style_property* properties;
+    uint32_t property_count, reserved_end;
+    xui_handle based_on;
+} xui_control_style_options;
+/* At most 2048 property records and 16 inheritance layers. Duplicate
+   (part,state,property) records are errors. Inputs are copied before return.
+   Styles and live handles belong to one window. Release preserves attachments.
+   A create result is also a weak identity. Expired/unknown identities miss. */
+XUI_API xui_status XUI_CALL xui_control_style_create(xui_handle window,
+    const xui_control_style_options* options, xui_handle* result) XUI_NOEXCEPT;
+/* Pure schema lookup. Unsupported targets or parts are errors. No window is required. */
+XUI_API xui_status XUI_CALL xui_control_style_get_schema(uint32_t target, uint32_t part,
+    uint64_t* properties, uint64_t* states, uint64_t* state_properties) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_style_get_limits(uint32_t target, uint32_t part,
+    float* maximum_font_size, uint32_t* maximum_font_family_utf16, uint32_t* font_styles,
+    uint32_t* horizontal_alignments, uint32_t* vertical_alignments) XUI_NOEXCEPT;
+/* Tooltip styling uses the Window host, not an Element handle. Zero style clears the definition. */
+XUI_API xui_status XUI_CALL xui_window_set_tooltip_style(xui_handle window, xui_handle style) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_try_set_tooltip_style(xui_handle window, xui_handle identity,
+    uint32_t* applied) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_set_tooltip_style_values(xui_handle window, uint32_t part,
+    const xui_style_property* properties, uint32_t count) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint32_t part, uint32_t effective,
+    xui_style_property* properties, uint32_t capacity, uint32_t* count) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_style_release(xui_handle style) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_style_reacquire(xui_handle window,
+    xui_handle identity, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_try_set_style(xui_handle control,
+    xui_handle identity, uint32_t* applied) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_control_set_style(xui_handle control, xui_handle style) XUI_NOEXCEPT;
+/* Replaces all local properties of one part. An empty span clears that part.
+   Each record must name this part and state zero. Invalid input changes nothing. */
+XUI_API xui_status XUI_CALL xui_control_set_style_values(xui_handle control, uint32_t part,
+    const xui_style_property* properties, uint32_t count) XUI_NOEXCEPT;
+/* effective=0 reads locals; effective=1 reads merged values before platform policy.
+   count receives the required capacity. A zero-capacity query succeeds.
+   With insufficient capacity, no records change and XUI_BUFFER_TOO_SMALL results.
+   Output records contain their own size/version and state zero.
+   Output text is borrowed until the next style mutation or owner destruction. */
+XUI_API xui_status XUI_CALL xui_control_get_style_values(xui_handle control, uint32_t part,
+    uint32_t effective, xui_style_property* properties, uint32_t capacity, uint32_t* count) XUI_NOEXCEPT;
 enum {
     XUI_RANGE_INPUT = 10, XUI_RADIO_GROUP, XUI_COMBO_BOX, XUI_NUMERIC_INPUT,
     XUI_EXPANDER, XUI_PROGRESS, XUI_POPUP, XUI_SPLIT_BUTTON,
@@ -11,7 +219,9 @@ enum {
     XUI_PASSWORD_INPUT, XUI_DATE_TIME_PICKER, XUI_INLINE_STATUS, XUI_COLOR_PICKER,
     XUI_CONTENT_DIALOG, XUI_VECTOR_CANVAS, XUI_MAP_VIEW, XUI_MEDIA_PLAYBACK,
     XUI_WEB_CONTENT, XUI_TAB_STRIP, XUI_SPLIT_VIEW, XUI_PAGE_VIEW, XUI_DATA_GRID,
-    XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW, XUI_MILLER_COLUMNS
+    XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW, XUI_MILLER_COLUMNS,
+    /* Retained Element exposure only; xui_feature_create does not create this kind. */
+    XUI_RETAINED_ELEMENT
 };
 enum { XUI_PREVIEW = 7, XUI_CANCEL = 8, XUI_ACTION = 9, XUI_DISMISS = 10, XUI_REQUEST = 11, XUI_FILTER_OPEN = 12, XUI_FOCUS_ENTERED = 13 };
 enum {
@@ -137,10 +347,36 @@ XUI_API xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* ite
     uint32_t count, uint64_t selected, uint32_t has_selection) XUI_NOEXCEPT;
 /* Borrowed child handles remain valid only while their window lives.
    Window indices: 0 = title tabs, 1 = leading button, 2 = secondary title tabs.
-   Window children require a custom title bar. NavigationView index 0 returns its search input.
-   Secondary tabs and the leading button are hidden by default. */
+   Window: titlebar root 3, title 4, minimize 5, maximize 6, close 7.
+   Window children require a custom title bar.
+   NavigationView: search 0, toggle 1, items 2, header items 3, footer items 4, title 5, empty message 6.
+   Titlebar roots and NavigationLists use XUI_RETAINED_ELEMENT with their actual style targets.
+   Breadcrumb and CommandBar: overflow button 0. Dynamic buttons use keyed functions below.
+   Secondary tabs and the leading button are hidden by default.
+   ContentDialog: primary 0, cancel 1, title 2, validation 3, body 4, footer 5.
+   CommandSurface: editor 0, title 1, status 2, close button 3, content 4, results 5, menu 6.
+   LocationPicker: editor 0, navigation 1, content 2, footer 3, toolbar 4.
+   ViewPicker: choices 0, size 1, content 2.
+   NavigationPane: items 0, status 1, content 2, group 3, progress 4.
+   SplitButton: primary 0, secondary 1.
+   ComboBox: optional editor 0, popup 1, choices 2 (ChoiceList style target).
+   A noneditable ComboBox returns XUI_OK and handle 0 for editor 0.
+   NumericInput: editor 0, decrease button 1, increase button 2.
+   InlineStatus: action button 0, dismiss button 1.
+   ColorPicker: red 0, green 1, blue 2, alpha 3, swatch buttons at 4 + swatch index.
+   An unavailable swatch index returns XUI_INVALID_ARGUMENT.
+   Children preserve their native targets. CommandSurface menu is exposed as
+   XUI_RETAINED_ELEMENT, not ItemsView. Repeated lookup returns the same handle.
+   Facade root handles continue to style their real Popup, not a facade-specific target. */
 XUI_API xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index,
     xui_handle* result) XUI_NOEXCEPT;
+/* Keyed Button handles retain actual native identity, not an ordinal.
+   Missing keys return XUI_INVALID_ARGUMENT and clear result. Breadcrumb keys include version.
+   CommandBar subscriptions survive snapshot refresh and preserve native command dispatch. */
+XUI_API xui_status XUI_CALL xui_breadcrumb_segment_button(xui_handle target,
+    uint64_t id, uint64_t version, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_command_bar_button(xui_handle target,
+    uint64_t id, xui_handle* result) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child,
     uint32_t row, uint32_t column, uint32_t row_span, uint32_t column_span) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_popup_show(xui_handle target, xui_handle anchor) XUI_NOEXCEPT;

@@ -1,4 +1,5 @@
 #include "xui/titlebar.hpp"
+#include "layout_styling.hpp"
 #include <algorithm>
 #include <stdexcept>
 namespace xui {
@@ -17,7 +18,7 @@ TitleBar::TitleBar(std::wstring title) : Control(ControlRole::content_view, L"Wi
     close_->set_automation_id(L"caption-close"); tabs_->set_automation_id(L"caption-tabs");
     minimize_->set_icon(ButtonIcon::minimize); maximize_->set_icon(ButtonIcon::maximize); close_->set_icon(ButtonIcon::close);
 }
-TitleBar::~TitleBar() { on_caption({}); }
+TitleBar::~TitleBar() { button_invoked_.reset(); on_caption({}); }
 void TitleBar::set_title(std::wstring title) { title_->set_text(std::move(title)); }
 void TitleBar::set_title_visible(bool visible) { title_->set_visible(visible); invalidate(Invalidation::layout); }
 void TitleBar::set_tab_panes(const std::shared_ptr<Element>& first, const std::shared_ptr<Element>& second) {
@@ -26,16 +27,50 @@ void TitleBar::set_tab_panes(const std::shared_ptr<Element>& first, const std::s
     first_pane_ = first; second_pane_ = second; invalidate(Invalidation::layout);
 }
 void TitleBar::set_maximized(bool value) {
+    if (maximized_ != value) { maximized_ = value; invalidate_state(); }
     maximize_->set_name(value ? L"Restore" : L"Maximize"); maximize_->set_icon(value ? ButtonIcon::restore : ButtonIcon::maximize);
 }
+void TitleBar::set_active(bool value) {
+    if (active_ == value) return;
+    active_ = value; invalidate_state();
+}
+StyleStateMask TitleBar::control_style_state_bits() const {
+    return Control::control_style_state_bits() | (active_ ? style_states::active : style_states::inactive) |
+        (maximized_ ? style_states::maximized : 0);
+}
 void TitleBar::on_caption(std::function<void(CaptionAction)> callback) {
-    minimize_->on_click(callback ? std::function<void()>{[callback] { callback(CaptionAction::minimize); }} : std::function<void()>{});
-    maximize_->on_click(callback ? std::function<void()>{[callback] { callback(CaptionAction::maximize_restore); }} : std::function<void()>{});
-    close_->on_click(callback ? std::function<void()>{[callback] { callback(CaptionAction::close); }} : std::function<void()>{});
+    bind_caption_button(minimize_, callback ? std::function<void()>{[callback] { callback(CaptionAction::minimize); }} : std::function<void()>{});
+    bind_caption_button(maximize_, callback ? std::function<void()>{[callback] { callback(CaptionAction::maximize_restore); }} : std::function<void()>{});
+    bind_caption_button(close_, callback ? std::function<void()>{[callback] { callback(CaptionAction::close); }} : std::function<void()>{});
+}
+void TitleBar::bind_caption_button(const std::shared_ptr<Button>& button, std::function<void()> callback) {
+    if (!button_invoked_) { button->on_click(std::move(callback)); return; }
+    button->on_click([callback = std::move(callback), weak = std::weak_ptr<Button>(button),
+        observer = std::weak_ptr<std::function<void(const Button&)>>(button_invoked_)] {
+        if (callback) callback();
+        if (auto signal = observer.lock(); signal && *signal) if (auto value = weak.lock()) {
+            const auto notify = *signal;
+            notify(*value);
+        }
+    });
+}
+void TitleBar::set_button_invoked_handler(std::function<void(const Button&)> handler) {
+    if (!button_invoked_) {
+        if (!handler) return;
+        button_invoked_ = std::make_shared<std::function<void(const Button&)>>();
+        try {
+            for (const auto& button : {minimize_, maximize_, close_})
+                bind_caption_button(button, button->click_callback());
+        } catch (...) {
+            button_invoked_.reset();
+            throw;
+        }
+    }
+    *button_invoked_ = std::move(handler);
 }
 void TitleBar::arrange(Rect b) {
     Element::arrange(b);
-    b = bounds();
+    b = layout_style::content(*this, bounds());
     const float caption = std::min(caption_width, b.width / 3), remaining = std::max(0.0f, b.width - caption * 3);
     const float button_height = std::min(caption_height, b.height);
     const float leading = leading_->visible() ? std::min(44.0f, remaining) : 0;
@@ -78,7 +113,7 @@ CaptionHit TitleBar::hit_test(Point point) const {
         auto button = tabs.new_tab_button_bounds();
         button.x += tabs.bounds().x; button.y += tabs.bounds().y;
         return tabs.visible() && inside(tabs.bounds()) &&
-            (tabs.hit_test(point.x - tabs.bounds().x) || inside(button));
+            (tabs.hit_test(Point{point.x - tabs.bounds().x, point.y - tabs.bounds().y}) || inside(button));
     };
     if (tab_client(*secondary_tabs_) || tab_client(*tabs_)) return CaptionHit::client;
     return CaptionHit::drag;

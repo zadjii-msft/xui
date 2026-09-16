@@ -19,6 +19,8 @@ public:
         std::size_t row_span = 1, std::size_t column_span = 1);
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
 private:
     struct Cell { std::size_t row, column, rows, columns; };
     std::pair<std::vector<float>, std::vector<float>> sizes(Size available);
@@ -26,6 +28,10 @@ private:
     std::vector<Cell> cells_;
     Insets padding_{};
     float horizontal_{}, vertical_{};
+    bool padding_explicit_{}, gap_explicit_{};
+    Insets layout_insets() const;
+    float horizontal_gap() const;
+    float vertical_gap() const;
 };
 class Wrap : public Stack {
 public:
@@ -37,10 +43,13 @@ public:
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     std::size_t columns() const { return columns_; }
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
 private:
     Size layout(Size available, bool arrange, Point origin);
     Insets padding_{};
     float spacing_{8}, width_{180};
+    bool spacing_explicit_{}, padding_explicit_{};
     std::size_t columns_{1};
 };
 enum class CompactNavigation { stacked, overlay };
@@ -58,6 +67,9 @@ public:
     bool compact() const { return compact_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override;
+    StyleStateMask control_style_state_bits() const override;
 private:
     float breakpoint_{640}, extent_{220};
     bool compact_{};

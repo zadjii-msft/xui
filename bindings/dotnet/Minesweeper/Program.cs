@@ -35,7 +35,7 @@ internal static class Program
     private static void Build(Window window, int? seed)
     {
         var board = new Minefield(window);
-        if (seed.HasValue) board.Game = GameState.New(seed);
+        board.SetGame(seed.HasValue ? GameState.New(seed) : board.Game);
         window.Key += e =>
         {
             if ((e.Value & 0xffff) == 0x46) board.ToggleFlagMode();

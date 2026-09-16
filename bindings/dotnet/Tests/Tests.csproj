@@ -8,7 +8,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Xui\Xui.csproj" />
-  </ItemGroup>
+  <Import Project="..\Xui.Declarative.targets" />
 </Project>

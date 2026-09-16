@@ -9,13 +9,14 @@ internal sealed record Expression(string Text, int Offset);
 internal sealed record State(string Type, string Name, Expression Initializer, int Offset);
 internal sealed record Parameter(string Type, string Name, int Offset);
 internal sealed record Node(string Kind, int Offset, Dictionary<string, Expression> Arguments, List<Node> Children);
-internal sealed record Component(string Namespace, string Name, int Offset, List<State> States, List<Parameter> Parameters, Node Root, Expression Code);
+internal sealed record Component(string Namespace, string Name, int Offset, List<State> States, List<Parameter> Parameters, Node Root, Expression Code,
+    List<ColorResource> Resources, List<StyleDefinition> Styles);
 internal sealed class ParseError(string message, int offset) : Exception(message)
 {
     internal int Offset { get; } = offset;
 }
 
-internal sealed class Parser(string text)
+internal sealed partial class Parser(string text)
 {
     private int position;
     internal List<ParseError> Errors { get; } = [];
@@ -62,12 +63,32 @@ internal sealed class Parser(string text)
         Expect("{");
         var states = new List<State>();
         var parameters = new List<Parameter>();
+        var resources = new List<ColorResource>();
+        var styles = new List<StyleDefinition>();
         Node? root = null;
         Expression code = new("", 0);
         bool hasCode = false;
         while (!Is("}"))
         {
-            if (Is("param"))
+            if (Is("resources"))
+            {
+                Take(); Expect("{");
+                while (!Is("}"))
+                {
+                    int resourceStart = Offset;
+                    string resourceName = Identifier();
+                    Expect(":");
+                    resources.Add(new(resourceName, ReadStyleExpression(), resourceStart));
+                    Expect(";");
+                    if (resources.Count > 256) throw new ParseError("A component supports at most 256 color resources.", resourceStart);
+                }
+                Expect("}");
+            }
+            else if (Is("style"))
+            {
+                styles.Add(ParseStyle());
+            }
+            else if (Is("param"))
             {
                 Take();
                 int fieldStart = position;
@@ -131,12 +152,12 @@ internal sealed class Parser(string text)
                 hasCode = true;
                 position += block.FullSpan.Length;
             }
-            else throw new ParseError("Expected param, state, view, code csharp, or '}'.", Offset);
+            else throw new ParseError("Expected resources, style, param, state, view, code csharp, or '}'.", Offset);
         }
         Expect("}");
         if (!Peek().IsKind(SyntaxKind.EndOfFileToken))
             throw new ParseError("Only one component is supported per .xui file.", Offset);
-        return new(ns, name, start, states, parameters, root ?? throw new ParseError("A component requires a view.", start), code);
+        return new(ns, name, start, states, parameters, root ?? throw new ParseError("A component requires a view.", start), code, resources, styles);
     }
     private Node ParseNode()
     {
@@ -146,8 +167,8 @@ internal sealed class Parser(string text)
         {
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
-            "Button" => ["value", "click", "icon"],
-            "Toggle" => ["value", "checked", "change"],
+            "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
+            "Toggle" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],
@@ -158,6 +179,11 @@ internal sealed class Parser(string text)
             "Content" => ["value"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
+        string styleTarget = StyleCompiler.TargetName(kind);
+        if (kind == "Content")
+            allowed = [.. allowed, "style", .. StyleCompiler.Properties, .. StyleCompiler.ExtendedProperties];
+        else if (kind == "Button" || StyleCatalog.TargetExists(styleTarget))
+            allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
         bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView";
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];

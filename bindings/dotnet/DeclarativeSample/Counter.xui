@@ -3,13 +3,45 @@ component Counter {
   state int Count = 0;
   state bool Active = false;
   state string Entry = "";
+  resources {
+    DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
+    OnDangerFill: 0xFFFFFF;
+    DangerEdge: theme(light: 0x68110C, dark: 0xFFA198);
+    DangerHover: theme(light: 0xD92D20, dark: 0xB42318);
+    DisabledFill: theme(light: 0xD0D5DD, dark: 0x475467);
+  }
+  style DangerButton for Button {
+    background: resource(DangerFill);
+    foreground: resource(OnDangerFill);
+    cornerRadius: 0;
+    borderBrush: resource(DangerEdge);
+    borderThickness: (3, 0, 0, 0);
+    when hovered { background: resource(DangerHover); }
+    when disabled { background: resource(DisabledFill); }
+  }
+  style CompactToggle for Toggle {
+    foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+    part indicator {
+      background: theme(light: 0xEEEEEE, dark: 0x202020);
+      borderBrush: resource(DangerEdge);
+      borderThickness: 1;
+      cornerRadius: 3;
+      size: 18;
+      when checked { background: resource(DangerFill); }
+    }
+    part mark { foreground: 0xFFFFFF; }
+    when disabled { foreground: resource(DisabledFill); }
+  }
+  style Panel for Stack { padding: 12; spacing: 8; }
+  style Heading for Label { fontSize: 24; }
   view {
-    VStack(spacing: 8, padding: 16) {
-      Text($"Foo: {Count}", id: "count");
+    VStack(style: Panel) {
+      Text($"Foo: {Count}", id: "count", style: Heading);
       Button("Increment", click: Increment, id: "increment");
-      Toggle("Active", checked: Active, change: SetActive, id: "active");
+      Toggle("Active", checked: Active, change: SetActive, id: "active", style: CompactToggle);
       TextInput("Entry", text: Entry, change: SetEntry, id: "entry");
       Text($"Entry: {Entry}", id: "echo");
+      Button("Delete", style: DangerButton);
     }
   }
   code csharp {

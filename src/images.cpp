@@ -1,4 +1,5 @@
 #include "images.hpp"
+#include "style_hosts_geometry.hpp"
 #include "async.hpp"
 #include "drawing.hpp"
 #include <wincodec.h>
@@ -418,6 +419,16 @@ Service& service() {
 }
 
 Image::Image(std::wstring name) : Control(ControlRole::image, std::move(name), {192, 144}) {}
+StyleStateMask Image::control_style_state_bits() const {
+    constexpr StyleStateMask states[]{style_states::empty, style_states::loading, style_states::ready, style_states::error};
+    return Control::control_style_state_bits() | states[static_cast<unsigned>(status_)];
+}
+Rect Image::content_bounds() const {
+    const auto b = bounds();
+    const auto* root = effective_control_style_values(StylePart::root);
+    return host_content_rect({0, 0, b.width, b.height}, root, {2, 2, 2, 2},
+        root && visual_style() == VisualStyle::winui ? Insets{1, 1, 1, 1} : Insets{});
+}
 void Image::set_source(std::wstring path, ImageSize size) {
     if (path.size() > 32767 || path.find(L'\0') != std::wstring::npos)
         throw std::invalid_argument("The image path is invalid or too long.");
@@ -434,7 +445,7 @@ void Image::publish(ImageStatus status, std::wstring error) {
     if (status_ == status && error_ == error) return;
     status_ = status;
     error_ = std::move(error);
-    invalidate(Invalidation::paint);
+    invalidate_state();
 }
 ImagePixels::~ImagePixels() {
     // Release the allocation before returning its budget to another decode.

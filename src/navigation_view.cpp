@@ -1,4 +1,5 @@
 #include "xui/navigation.hpp"
+#include "layout_styling.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
@@ -380,8 +381,13 @@ Size NavigationView::measure(Size available) {
     if (!visible()) return {};
     return constrain({expanded_ ? expanded_width_ : collapsed_width_, available.height}, available);
 }
+StyleStateMask NavigationView::control_style_state_bits() const {
+    return (Control::control_style_state_bits() & style_states::disabled) |
+        (expanded_ ? style_states::expanded : style_states::compact) |
+        (main_->source()->size() == 0 ? style_states::empty : 0);
+}
 void NavigationView::arrange(Rect bounds) {
-    Element::arrange(bounds); bounds = this->bounds();
+    Element::arrange(bounds); bounds = layout_style::content(*this, this->bounds());
     if (!visible()) {
         for (const auto& child : children_) {
             std::static_pointer_cast<Control>(child)->set_visible(false);
@@ -407,8 +413,18 @@ void NavigationView::arrange(Rect bounds) {
     if (header_visible_) y += top + 4;
     place(*search_, 40, expanded_ && search_visible_);
     const float remaining = std::max(0.0f, bottom - y);
-    const float header_height = std::min(static_cast<float>(header_->source()->size()) * 40, remaining * 0.3f);
-    const float footer_height = std::min(static_cast<float>(footer_->source()->size()) * 40, remaining * 0.3f);
+    const auto section_height = [](const NavigationList& list) {
+        if (list.source()->size() == 0) return 0.0f;
+        float height = static_cast<float>(list.source()->size()) * list.item_size().height;
+        if (const auto* root = list.effective_control_style_values(StylePart::root)) {
+            const auto padding = root->padding.value_or(Insets{});
+            const auto border = root->border_thickness.value_or(Insets{});
+            height += padding.top + padding.bottom + border.top + border.bottom;
+        }
+        return height;
+    };
+    const float header_height = std::min(section_height(*header_), remaining * 0.3f);
+    const float footer_height = std::min(section_height(*footer_), remaining * 0.3f);
     place(*header_, header_height, header_height > 0);
     const float main_height = std::max(0.0f, bottom - y - (footer_height > 0 ? footer_height + 4 : 0));
     const bool empty = main_->source()->size() == 0;

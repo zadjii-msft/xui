@@ -43,10 +43,12 @@ xui_status XUI_CALL visual_query(void* context, uint64_t, uint64_t, uint32_t* ic
     ++static_cast<Source*>(context)->visuals; *icon = 18; *required = 0; return XUI_OK;
 }
 xui_status XUI_CALL event(void* c,const xui_event* e) { *static_cast<xui_event*>(c)=*e; return 0; }
+xui_status XUI_CALL count_event(void* c, const xui_event*) { ++*static_cast<unsigned*>(c); return XUI_OK; }
 xui_status XUI_CALL miller_event(void* context, const xui_miller_event* e) {
     *static_cast<xui_miller_event*>(context) = *e; return XUI_OK;
 }
 void miller_contracts() {
+    static_assert(XUI_MILLER_COLUMNS == 46 && XUI_RETAINED_ELEMENT == 47);
     static_assert(sizeof(xui_miller_column) == 48);
     static_assert(sizeof(xui_miller_event) == 32);
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Miller contracts"), 600, 400};
@@ -114,7 +116,435 @@ xui_status XUI_CALL posted(void* c, uint32_t execute) {
     if (execute) ++counts.first; else ++counts.second;
     return XUI_OK;
 }
+void retained_navigation_style_bridges() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Navigation bridges"), 500, 400};
+    xui_handle window{};
+    ok(xui_window_create_features(&options, 1, &window));
+    const auto navigation = create(window, XUI_NAVIGATION_VIEW);
+    const auto breadcrumb = create(window, XUI_BREADCRUMB);
+    const auto bar = create(window, XUI_COMMAND_BAR);
+    struct Child { xui_handle parent; uint32_t index, target; };
+    const Child children[]{
+        {window, 0, XUI_STYLE_TARGET_TAB_STRIP}, {window, 1, XUI_STYLE_TARGET_BUTTON},
+        {window, 2, XUI_STYLE_TARGET_TAB_STRIP}, {window, 3, XUI_STYLE_TARGET_TITLE_BAR},
+        {window, 4, XUI_STYLE_TARGET_LABEL}, {window, 5, XUI_STYLE_TARGET_BUTTON},
+        {window, 6, XUI_STYLE_TARGET_BUTTON}, {window, 7, XUI_STYLE_TARGET_BUTTON},
+        {navigation, 0, XUI_STYLE_TARGET_TEXT_INPUT}, {navigation, 1, XUI_STYLE_TARGET_BUTTON},
+        {navigation, 2, XUI_STYLE_TARGET_NAVIGATION_LIST}, {navigation, 3, XUI_STYLE_TARGET_NAVIGATION_LIST},
+        {navigation, 4, XUI_STYLE_TARGET_NAVIGATION_LIST}, {navigation, 5, XUI_STYLE_TARGET_LABEL},
+        {navigation, 6, XUI_STYLE_TARGET_LABEL}, {breadcrumb, 0, XUI_STYLE_TARGET_BUTTON},
+        {bar, 0, XUI_STYLE_TARGET_BUTTON}
+    };
+    xui_style_property property{sizeof(property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND,
+        XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x654321}};
+    for (const auto& entry : children) {
+        xui_handle child{}, again{}, style{};
+        ok(xui_feature_child(entry.parent, entry.index, &child));
+        ok(xui_feature_child(entry.parent, entry.index, &again)); expect(child == again);
+        xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION, entry.target, 0, &property, 1};
+        ok(xui_control_style_create(window, &definition, &style));
+        ok(xui_control_set_style(child, style));
+        ok(xui_control_set_style_values(child, XUI_STYLE_ROOT, &property, 1));
+        ok(xui_control_set_style(child, 0));
+        xui_style_property values[8]{}; uint32_t count{};
+        ok(xui_control_get_style_values(again, XUI_STYLE_ROOT, 1, values, 8, &count));
+        expect(count == 1 && values[0].color.light == 0x123456);
+        ok(xui_control_set_style_values(child, XUI_STYLE_ROOT, nullptr, 0));
+        ok(xui_control_style_release(style));
+    }
+    xui_choice segments[]{
+        {sizeof(xui_choice), 0, 10, 7, text("Root")},
+        {sizeof(xui_choice), 0, 20, 9, text("Leaf")}
+    };
+    ok(xui_choices(breadcrumb, segments, 2, 0, 0));
+    xui_handle segment{}, again{};
+    ok(xui_breadcrumb_segment_button(breadcrumb, 20, 9, &segment));
+    ok(xui_breadcrumb_segment_button(breadcrumb, 20, 9, &again)); expect(segment == again);
+    ok(xui_control_set_style_values(segment, XUI_STYLE_ROOT, &property, 1));
+    xui_event navigated{}; unsigned segment_clicks{};
+    ok(xui_subscribe(breadcrumb, event, &navigated));
+    ok(xui_subscribe(segment, count_event, &segment_clicks));
+    ok(xui_subscribe(segment, count_event, &segment_clicks));
+    ok(xui_invoke(segment)); expect(navigated.kind == XUI_SELECTION && navigated.value == 20 && segment_clicks == 1);
+    std::swap(segments[0], segments[1]); segments[0].text = text("Renamed leaf");
+    ok(xui_choices(breadcrumb, segments, 2, 0, 0));
+    ok(xui_invoke(segment)); expect(navigated.value == 20 && segment_clicks == 2);
+    ok(xui_breadcrumb_segment_button(breadcrumb, 20, 9, &again)); expect(again == segment);
+    xui_style_property segment_values[8]{}; uint32_t segment_count{};
+    ok(xui_control_get_style_values(segment, XUI_STYLE_ROOT, 1, segment_values, 8, &segment_count));
+    expect(segment_count == 1 && segment_values[0].color.light == 0x123456);
+    ok(xui_subscribe(segment, nullptr, nullptr));
+    navigated = {}; ok(xui_invoke(segment)); expect(navigated.value == 20 && segment_clicks == 2);
+    again = 99;
+    expect(xui_breadcrumb_segment_button(breadcrumb, 20, 8, &again) == XUI_INVALID_ARGUMENT && again == 0);
+    expect(xui_breadcrumb_segment_button(bar, 20, 9, &again) == XUI_WRONG_KIND && again == 0);
+    expect(xui_breadcrumb_segment_button(breadcrumb, 20, 9, nullptr) == XUI_INVALID_ARGUMENT);
+    ok(xui_subscribe(segment, count_event, &segment_clicks));
+    segments[0].version = 10;
+    ok(xui_choices(breadcrumb, segments, 2, 0, 0));
+    navigated = {};
+    expect(xui_invoke(segment) == XUI_INVALID_ARGUMENT && navigated.kind == 0 && segment_clicks == 2);
+    ok(xui_subscribe(segment, count_event, &segment_clicks));
+    expect(xui_invoke(segment) == XUI_INVALID_ARGUMENT && navigated.kind == 0 && segment_clicks == 2);
+    expect(xui_breadcrumb_segment_button(breadcrumb, 20, 9, &again) == XUI_INVALID_ARGUMENT && again == 0);
+    ok(xui_breadcrumb_segment_button(breadcrumb, 20, 10, &again)); expect(again != segment);
+    xui_handle minimize{}; unsigned caption_clicks{};
+    ok(xui_feature_child(window, 5, &minimize));
+    ok(xui_subscribe(minimize, count_event, &caption_clicks));
+    ok(xui_subscribe(minimize, count_event, &caption_clicks));
+    ok(xui_invoke(minimize)); expect(caption_clicks == 1);
+    ok(xui_subscribe(minimize, nullptr, nullptr));
+    ok(xui_invoke(minimize)); expect(caption_clicks == 1);
+
+    xui_command_record command{sizeof(command), 0, 42, 0, text("Command"), {}, {}, 6, 0};
+    ok(xui_commands_set(bar, &command, 1));
+    xui_handle button{}; ok(xui_command_bar_button(bar, 42, &button));
+    ok(xui_control_set_style_values(button, XUI_STYLE_ROOT, &property, 1));
+    unsigned actions{}, clicks{};
+    ok(xui_subscribe(bar, count_event, &actions));
+    for (const uint32_t flags : {6u, 0u, 4u, 6u}) {
+        command.flags = flags; command.label = text("Refreshed");
+        ok(xui_commands_set(bar, &command, 1));
+        ok(xui_command_bar_button(bar, 42, &again)); expect(again == button);
+        ok(xui_subscribe(button, count_event, &clicks));
+        ok(xui_subscribe(button, count_event, &clicks));
+        const auto before_actions = actions, before_clicks = clicks;
+        ok(xui_invoke(button)); expect(actions == before_actions + 1 && clicks == before_clicks + 1);
+        auto checked = value(); ok(xui_feature_get(button, XUI_F_BUTTON_CHECKED, &checked));
+        expect(checked.first == ((flags & 2) != 0));
+        ok(xui_subscribe(button, nullptr, nullptr));
+        ok(xui_invoke(button)); expect(actions == before_actions + 2 && clicks == before_clicks + 1);
+        xui_style_property values[8]{}; uint32_t count{};
+        ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 1, values, 8, &count));
+        expect(count == 1 && values[0].color.light == 0x123456);
+    }
+    // Refresh while subscribed: no second lookup or subscription may be required.
+    ok(xui_subscribe(button, count_event, &clicks));
+    for (const uint32_t flags : {0u, 4u, 6u}) {
+        command.flags = flags; ok(xui_commands_set(bar, &command, 1));
+        const auto before_actions = actions, before_clicks = clicks;
+        ok(xui_invoke(button)); expect(actions == before_actions + 1 && clicks == before_clicks + 1);
+    }
+    ok(xui_window_visual_style_set(window, XUI_STYLE_WINUI));
+    ok(xui_command_bar_button(bar, 42, &again)); expect(again == button);
+    expect(xui_command_bar_button(bar, 99, &again) == XUI_INVALID_ARGUMENT && again == 0);
+    expect(xui_command_bar_button(breadcrumb, 42, &again) == XUI_WRONG_KIND && again == 0);
+    expect(xui_command_bar_button(bar, 42, nullptr) == XUI_INVALID_ARGUMENT);
+    std::thread wrong_thread([&] {
+        xui_handle result = 99;
+        expect(xui_command_bar_button(bar, 42, &result) == XUI_WRONG_THREAD && result == 0);
+    });
+    wrong_thread.join();
+    const auto retired_actions = actions, retired_clicks = clicks;
+    ok(xui_commands_set(bar, nullptr, 0));
+    expect(xui_invoke(button) == XUI_INVALID_ARGUMENT && actions == retired_actions && clicks == retired_clicks);
+    command.flags = 1;
+    ok(xui_commands_set(bar, &command, 1));
+    xui_handle replacement{}; unsigned replacement_clicks{};
+    ok(xui_command_bar_button(bar, 42, &replacement)); expect(replacement != button);
+    ok(xui_subscribe(button, count_event, &clicks));
+    ok(xui_subscribe(replacement, count_event, &replacement_clicks));
+    expect(xui_invoke(button) == XUI_INVALID_ARGUMENT && xui_invoke(replacement) == XUI_INVALID_ARGUMENT);
+    expect(actions == retired_actions && clicks == retired_clicks && replacement_clicks == 0);
+    command.flags = 0; ok(xui_commands_set(bar, &command, 1));
+    expect(xui_invoke(button) == XUI_INVALID_ARGUMENT);
+    ok(xui_invoke(replacement));
+    expect(actions == retired_actions + 1 && clicks == retired_clicks && replacement_clicks == 1);
+    ok(xui_window_destroy(window));
+    expect(xui_command_bar_button(bar, 42, &again) == XUI_INVALID_HANDLE && again == 0);
+    expect(xui_invoke(button) == XUI_INVALID_HANDLE);
+}
+void retained_facade_style_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Retained facade styles"), 400, 300};
+    xui_handle window{}, body{};
+    ok(xui_window_create(&options, &window));
+    ok(xui_stack_create(window, 0, &body));
+    const auto dialog = create(window, XUI_CONTENT_DIALOG, body);
+    const auto commands = create(window, XUI_COMMAND_SURFACE);
+    const auto location = create(window, XUI_LOCATION_PICKER);
+    const auto items = create(window, XUI_ITEMS_VIEW);
+    const auto view = create(window, XUI_VIEW_PICKER, items);
+    const auto pane = create(window, XUI_NAVIGATION_PANE);
+    const auto combo = create(window, XUI_COMBO_BOX);
+    xui_feature_options editable_options{sizeof(editable_options), XUI_FEATURE_VERSION, text("Editable")};
+    editable_options.mode = 1;
+    xui_handle editable_combo{};
+    ok(xui_feature_create(window, XUI_COMBO_BOX, &editable_options, &editable_combo));
+    const auto number = create(window, XUI_NUMERIC_INPUT);
+    const auto status = create(window, XUI_INLINE_STATUS);
+    const auto picker = create(window, XUI_COLOR_PICKER);
+    struct Child { xui_handle parent; uint32_t index, target; };
+    const Child children[] {
+        {dialog, 0, XUI_STYLE_TARGET_BUTTON}, {dialog, 1, XUI_STYLE_TARGET_BUTTON},
+        {dialog, 2, XUI_STYLE_TARGET_LABEL}, {dialog, 3, XUI_STYLE_TARGET_INLINE_STATUS},
+        {dialog, 4, XUI_STYLE_TARGET_STACK}, {dialog, 5, XUI_STYLE_TARGET_STACK},
+        {commands, 0, XUI_STYLE_TARGET_TEXT_INPUT}, {commands, 1, XUI_STYLE_TARGET_LABEL},
+        {commands, 2, XUI_STYLE_TARGET_LABEL}, {commands, 3, XUI_STYLE_TARGET_BUTTON},
+        {commands, 4, XUI_STYLE_TARGET_STACK}, {commands, 5, XUI_STYLE_TARGET_STACK},
+        {commands, 6, XUI_STYLE_TARGET_COMMAND_MENU},
+        {location, 0, XUI_STYLE_TARGET_TEXT_INPUT}, {location, 1, XUI_STYLE_TARGET_NAVIGATION_PANE},
+        {location, 2, XUI_STYLE_TARGET_STACK}, {location, 3, XUI_STYLE_TARGET_LABEL},
+        {location, 4, XUI_STYLE_TARGET_COMMAND_BAR},
+        {view, 0, XUI_STYLE_TARGET_RADIO_GROUP}, {view, 1, XUI_STYLE_TARGET_RANGE_INPUT},
+        {view, 2, XUI_STYLE_TARGET_STACK}, {pane, 0, XUI_STYLE_TARGET_ITEMS_VIEW},
+        {pane, 1, XUI_STYLE_TARGET_LABEL}, {pane, 2, XUI_STYLE_TARGET_STACK},
+        {pane, 3, XUI_STYLE_TARGET_EXPANDER}, {pane, 4, XUI_STYLE_TARGET_PROGRESS},
+        {editable_combo, 0, XUI_STYLE_TARGET_TEXT_INPUT}, {combo, 1, XUI_STYLE_TARGET_POPUP},
+        {combo, 2, XUI_STYLE_TARGET_CHOICE_LIST},
+        {number, 0, XUI_STYLE_TARGET_TEXT_INPUT}, {number, 1, XUI_STYLE_TARGET_BUTTON},
+        {number, 2, XUI_STYLE_TARGET_BUTTON}, {status, 0, XUI_STYLE_TARGET_BUTTON},
+        {status, 1, XUI_STYLE_TARGET_BUTTON},
+        {picker, 0, XUI_STYLE_TARGET_NUMERIC_INPUT}, {picker, 1, XUI_STYLE_TARGET_NUMERIC_INPUT},
+        {picker, 2, XUI_STYLE_TARGET_NUMERIC_INPUT}, {picker, 3, XUI_STYLE_TARGET_NUMERIC_INPUT},
+        {picker, 4, XUI_STYLE_TARGET_BUTTON}, {picker, 8, XUI_STYLE_TARGET_BUTTON}
+    };
+    xui_style_property property{sizeof(property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND,
+        XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x654321}};
+    xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION, 0, 0, &property, 1};
+    for (const auto& entry : children) {
+        xui_handle child{}, again{}, style{};
+        ok(xui_feature_child(entry.parent, entry.index, &child));
+        ok(xui_feature_child(entry.parent, entry.index, &again));
+        expect(child == again);
+        definition.target = entry.target;
+        ok(xui_control_style_create(window, &definition, &style));
+        ok(xui_control_set_style(child, style));
+        auto local = property; local.color = {0, 0};
+        ok(xui_control_set_style_values(child, XUI_STYLE_ROOT, &local, 1));
+        ok(xui_control_set_style(child, 0));
+        xui_style_property result[8]{}; uint32_t count{};
+        ok(xui_control_get_style_values(again, XUI_STYLE_ROOT, 1, result, 8, &count));
+        expect(count == 1 && result[0].property == XUI_STYLE_BACKGROUND && result[0].color.light == 0);
+        ok(xui_control_set_style_values(child, XUI_STYLE_ROOT, nullptr, 0));
+        ok(xui_control_style_release(style));
+    }
+    xui_handle absent = 99;
+    ok(xui_feature_child(combo, 0, &absent)); expect(absent == 0);
+    expect(xui_feature_child(picker, 9, &absent) == XUI_INVALID_ARGUMENT && absent == 0);
+    expect(xui_feature_child(picker, UINT32_MAX, &absent) == XUI_INVALID_ARGUMENT && absent == 0);
+    xui_handle red{}, increase{}, swatch{};
+    ok(xui_feature_child(picker, 0, &red));
+    ok(xui_feature_child(red, 2, &increase));
+    ok(xui_feature_child(picker, 6, &swatch));
+    unsigned changes{}, clicks{};
+    ok(xui_subscribe(red, count_event, &changes));
+    ok(xui_subscribe(red, count_event, &changes));
+    ok(xui_subscribe(increase, count_event, &clicks));
+    ok(xui_subscribe(increase, count_event, &clicks));
+    ok(xui_feature_action(red, XUI_A_CHANGE_VALUE, std::bit_cast<uint64_t>(21.0), 0));
+    auto color = value(); ok(xui_feature_get(picker, XUI_F_COLOR, &color));
+    expect((color.first & 255) == 21 && changes == 1);
+    ok(xui_invoke(increase));
+    color = value(); ok(xui_feature_get(picker, XUI_F_COLOR, &color));
+    expect((color.first & 255) == 22 && changes == 2 && clicks == 1);
+    ok(xui_subscribe(swatch, count_event, &clicks));
+    ok(xui_subscribe(swatch, count_event, &clicks));
+    ok(xui_invoke(swatch));
+    color = value(); ok(xui_feature_get(picker, XUI_F_COLOR, &color));
+    expect(color.first == (220ull | 45ull << 8 | 45ull << 16 | 255ull << 24) && clicks == 2);
+    definition.target = XUI_STYLE_TARGET_POPUP;
+    xui_handle popup_style{};
+    for (const auto state : {XUI_STYLE_STATE_INVALID, XUI_STYLE_STATE_LOADING, XUI_STYLE_STATE_ERROR,
+        XUI_STYLE_STATE_SELECTED, XUI_STYLE_STATE_OVERFLOWED}) {
+        property.state = state;
+        expect(xui_control_style_create(window, &definition, &popup_style) == XUI_INVALID_ARGUMENT);
+    }
+    property.state = 0;
+    ok(xui_control_style_create(window, &definition, &popup_style));
+    for (const auto facade : {dialog, commands, location, view}) {
+        ok(xui_control_set_style(facade, popup_style));
+        ok(xui_control_set_style(facade, 0));
+        xui_handle missing = 99;
+        expect(xui_feature_child(facade, UINT32_MAX, &missing) == XUI_INVALID_ARGUMENT && missing == 0);
+    }
+    ok(xui_control_style_release(popup_style));
+    for (const auto target : {XUI_STYLE_TARGET_CONTENT_DIALOG, XUI_STYLE_TARGET_COMMAND_SURFACE,
+        XUI_STYLE_TARGET_LOCATION_PICKER, XUI_STYLE_TARGET_VIEW_PICKER}) {
+        definition.target = target;
+        xui_handle unsupported{};
+        expect(xui_control_style_create(window, &definition, &unsupported) == XUI_INVALID_ARGUMENT);
+    }
+    xui_handle menu{};
+    ok(xui_feature_child(commands, 6, &menu));
+    xui_handle missing = 99;
+    expect(xui_feature_child(menu, 0, &missing) == XUI_WRONG_KIND && missing == 0);
+    xui_status wrong_thread{};
+    xui_handle wrong_thread_child = 99;
+    std::thread worker([&] { wrong_thread = xui_feature_child(dialog, 2, &wrong_thread_child); });
+    worker.join(); expect(wrong_thread == XUI_WRONG_THREAD && wrong_thread_child == 0);
+    xui_handle retained_title{};
+    ok(xui_feature_child(dialog, 2, &retained_title));
+    ok(xui_window_close(window));
+    ok(xui_feature_child(dialog, 2, &body));
+    expect(body == retained_title);
+    expect(xui_window_post(window, [](void*, uint32_t) -> xui_status { return XUI_OK; }, nullptr) == XUI_CLOSED);
+    ok(xui_window_destroy(window));
+    body = 99;
+    expect(xui_feature_child(dialog, 2, &body) == XUI_INVALID_HANDLE && body == 0);
+}
+void control_style_contracts() {
+    static_assert(sizeof(xui_style_property) == 80);
+    static_assert(sizeof(xui_control_style_options) == 40);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Generic style ABI"), 400, 300};
+    xui_handle window{}, other{}, toggle{}, button{}, style{};
+    ok(xui_window_create(&options, &window)); ok(xui_window_create(&options, &other));
+    ok(xui_create(window, XUI_TOGGLE, text("Toggle"), 0, &toggle));
+    ok(xui_create(window, XUI_BUTTON, text("Button"), 0, &button));
+    xui_style_property records[] {
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_FOREGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_ROOT, 0, 0, {0x123456, 0x654321}},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_SIZE, XUI_STYLE_NUMBER, XUI_STYLE_INDICATOR},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_INDICATOR, 0, XUI_STYLE_CHECKED, {0x445566, 0x665544}}
+    };
+    records[1].number = 80;
+    xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_TARGET_TOGGLE,
+        0, records, 3};
+    ok(xui_control_style_create(window, &definition, &style));
+    ok(xui_control_set_style(toggle, style));
+    expect(xui_control_set_style(button, style) == XUI_INVALID_ARGUMENT);
+    uint32_t count{};
+    xui_style_property output[8]{};
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_LABEL, 1, output, 8, &count));
+    expect(count == 1 && output[0].property == XUI_STYLE_FOREGROUND &&
+        output[0].color.light == 0x123456 && output[0].color.dark == 0x654321);
+    ok(xui_invoke(toggle));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, output, 8, &count));
+    expect(count == 2 && output[0].color.light == 0x445566 && output[1].number == 80);
+    const auto unchanged = output[0];
+    expect(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, output, 1, &count) == XUI_BUFFER_TOO_SMALL);
+    expect(count == 2 && std::memcmp(&output[0], &unchanged, sizeof(unchanged)) == 0);
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_INDICATOR, 1, nullptr, 0, &count)); expect(count == 2);
+    expect(xui_control_get_style_values(toggle, 99, 1, output, 8, &count) == XUI_INVALID_ARGUMENT);
+    auto local = records[0]; local.color = {0, 0};
+    ok(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &local, 1));
+    ok(xui_control_set_style(toggle, 0));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_LABEL, 1, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 0);
+    ok(xui_control_set_style(toggle, style));
+    for (int mutation = 0; mutation < 11; ++mutation) {
+        auto bad = records[0];
+        switch (mutation) {
+            case 0: bad.size--; break;
+            case 1: bad.version++; break;
+            case 2: bad.property = 128; break;
+            case 3: bad.value_type = XUI_STYLE_NUMBER; break;
+            case 4: bad.part = 99; break;
+            case 5: bad.reserved = 1; break;
+            case 6: bad.state = 1ull << 40; break;
+            case 7: bad.color.dark = 0x1000000; break;
+            case 8: bad.number = 1; break;
+            case 9: bad.text = text("unused"); break;
+            case 10: bad.insets.top = 1; break;
+        }
+        auto invalid = definition; invalid.properties = &bad; invalid.property_count = 1;
+        xui_handle failed = 123;
+        expect(xui_control_style_create(window, &invalid, &failed) ==
+            (mutation == 1 ? XUI_VERSION_MISMATCH : XUI_INVALID_ARGUMENT));
+        expect(failed == 0);
+    }
+    auto duplicate = std::vector<xui_style_property>{records[0], records[0]};
+    auto invalid = definition; invalid.properties = duplicate.data(); invalid.property_count = 2;
+    xui_handle failed{};
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.target = 99; invalid.property_count = 0;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.property_count = 2049;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.properties = nullptr;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    auto bad_local = local; bad_local.state = XUI_STYLE_CHECKED;
+    expect(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &bad_local, 1) == XUI_INVALID_ARGUMENT);
+    bad_local = local; bad_local.part = XUI_STYLE_MARK;
+    expect(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, &bad_local, 1) == XUI_INVALID_ARGUMENT);
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_ROOT, 0, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 0);
+    xui_handle foreign{};
+    ok(xui_control_style_create(other, &definition, &foreign));
+    expect(xui_control_set_style(toggle, foreign) == XUI_INVALID_ARGUMENT);
+    invalid = definition; invalid.based_on = foreign;
+    expect(xui_control_style_create(window, &invalid, &failed) == XUI_INVALID_ARGUMENT);
+    expect(xui_control_style_release(button) == XUI_WRONG_KIND);
+    std::thread worker([&] { expect(xui_control_set_style(toggle, style) == XUI_WRONG_THREAD); }); worker.join();
+    ok(xui_control_style_release(style));
+    expect(xui_control_style_release(style) == XUI_INVALID_HANDLE);
+    xui_handle retained{};
+    ok(xui_control_style_reacquire(window, style, &retained)); expect(retained && retained != style);
+    ok(xui_control_style_release(retained));
+    uint32_t applied{};
+    ok(xui_control_try_set_style(toggle, style, &applied)); expect(applied == 1);
+    ok(xui_control_set_style(toggle, 0));
+    ok(xui_control_style_reacquire(window, style, &retained)); expect(!retained);
+    ok(xui_control_try_set_style(toggle, style, &applied)); expect(!applied);
+    ok(xui_control_set_style_values(toggle, XUI_STYLE_ROOT, nullptr, 0));
+    ok(xui_control_get_style_values(toggle, XUI_STYLE_ROOT, 1, output, 8, &count)); expect(!count);
+    ok(xui_window_destroy(window)); ok(xui_window_destroy(other));
+    expect(xui_control_style_release(foreign) == XUI_INVALID_HANDLE);
+}
+void tooltip_style_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Tooltip style ABI"), 300, 200};
+    xui_handle window{}, other{}, button{}, style{}, foreign{};
+    ok(xui_window_create(&options, &window)); ok(xui_window_create(&options, &other));
+    ok(xui_create(window, XUI_BUTTON, text("Button"), 0, &button));
+    xui_style_property records[]{
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_ROOT, 0, 0, {1, 2}},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_FOREGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_ROOT, 0, 0, {3, 4}},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_FOREGROUND, XUI_STYLE_COLOR,
+            XUI_STYLE_ROOT, 0, XUI_STYLE_STATE_OPEN, {5, 6}}
+    };
+    xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_TARGET_TOOLTIP,
+        0, records, 3};
+    ok(xui_control_style_create(window, &definition, &style));
+    ok(xui_control_style_create(other, &definition, &foreign));
+    ok(xui_window_set_tooltip_style(window, style));
+    expect(xui_window_set_tooltip_style(button, style) == XUI_WRONG_KIND);
+    expect(xui_control_set_style(window, style) == XUI_WRONG_KIND);
+    expect(xui_control_set_style(button, style) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_set_tooltip_style(window, foreign) == XUI_INVALID_ARGUMENT);
+    uint32_t count{};
+    xui_style_property output[8]{};
+    ok(xui_window_get_tooltip_style_values(window, XUI_STYLE_ROOT, 1, output, 8, &count));
+    expect(count == 2 && output[1].color.light == 3); // Applying a style does not open the tooltip.
+    const auto saved = output[0];
+    expect(xui_window_get_tooltip_style_values(window, XUI_STYLE_ROOT, 1, output, 1, &count) == XUI_BUFFER_TOO_SMALL);
+    expect(count == 2 && std::memcmp(&saved, &output[0], sizeof(saved)) == 0);
+    auto local = records[1]; local.color = {7, 8};
+    ok(xui_window_set_tooltip_style_values(window, XUI_STYLE_ROOT, &local, 1));
+    auto invalid = local; invalid.state = XUI_STYLE_STATE_OPEN;
+    expect(xui_window_set_tooltip_style_values(window, XUI_STYLE_ROOT, &invalid, 1) == XUI_INVALID_ARGUMENT);
+    invalid = local; invalid.part = XUI_STYLE_TEXT_PART;
+    expect(xui_window_set_tooltip_style_values(window, XUI_STYLE_ROOT, &invalid, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_get_tooltip_style_values(window, XUI_STYLE_INDICATOR, 1, output, 8, &count) == XUI_INVALID_ARGUMENT);
+    xui_style_property font{sizeof(font), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_FONT_FAMILY, XUI_STYLE_TEXT,
+        XUI_STYLE_TEXT_PART};
+    font.text = text("Segoe UI");
+    ok(xui_window_set_tooltip_style_values(window, XUI_STYLE_TEXT_PART, &font, 1));
+    ok(xui_window_get_tooltip_style_values(window, XUI_STYLE_TEXT_PART, 0, output, 8, &count));
+    expect(count == 1 && output[0].text.length == 8 && std::memcmp(output[0].text.data, "Segoe UI", 8) == 0);
+    std::thread worker([&] {
+        expect(xui_window_set_tooltip_style(window, 0) == XUI_WRONG_THREAD);
+        expect(xui_window_get_tooltip_style_values(window, XUI_STYLE_ROOT, 1, nullptr, 0, &count) == XUI_WRONG_THREAD);
+    }); worker.join();
+    ok(xui_control_style_release(style));
+    uint32_t applied{};
+    ok(xui_window_try_set_tooltip_style(window, style, &applied)); expect(applied == 1);
+    ok(xui_window_set_tooltip_style(window, 0));
+    ok(xui_window_get_tooltip_style_values(window, XUI_STYLE_ROOT, 1, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 7);
+    ok(xui_window_try_set_tooltip_style(window, style, &applied)); expect(applied == 0);
+    ok(xui_window_set_tooltip_style_values(window, XUI_STYLE_ROOT, nullptr, 0));
+    ok(xui_window_set_tooltip_style_values(window, XUI_STYLE_TEXT_PART, nullptr, 0));
+    ok(xui_window_get_tooltip_style_values(window, XUI_STYLE_ROOT, 1, nullptr, 0, &count)); expect(count == 0);
+    ok(xui_window_destroy(window)); ok(xui_window_destroy(other));
+    expect(xui_window_set_tooltip_style(window, 0) == XUI_INVALID_HANDLE);
+    expect(xui_control_style_release(foreign) == XUI_INVALID_HANDLE);
+}
 void explorer_contracts() {
+    static_assert(sizeof(xui_button_style_values) == 80);
+    static_assert(sizeof(xui_button_style_rule) == 88);
+    static_assert(sizeof(xui_button_style_options) == 112);
     static_assert(sizeof(xui_navigation_entry) == 56);
     static_assert(sizeof(xui_item_visual) == 24);
     static_assert(sizeof(xui_source_options) == 48);
@@ -122,6 +552,155 @@ void explorer_contracts() {
     static_assert(sizeof(xui_navigation_event) == 32);
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Explorer primitives"), 600, 400};
     xui_handle window{}; ok(xui_window_create_features(&options, 1, &window));
+    {
+        xui_handle button{}, style{}, derived{}, foreign{}, other_window{};
+        ok(xui_create(window, XUI_BUTTON, text("Styled"), 0, &button));
+        auto empty = [] { return xui_button_style_values{sizeof(xui_button_style_values), XUI_BUTTON_STYLE_VERSION}; };
+        xui_button_style_options definition{sizeof(definition), XUI_BUTTON_STYLE_VERSION, empty()};
+        definition.values.mask = XUI_BUTTON_STYLE_BACKGROUND | XUI_BUTTON_STYLE_PADDING;
+        definition.values.background = {0x123456, 0x654321};
+        definition.values.padding = {1, 2, 3, 4};
+        ok(xui_button_style_create(window, &definition, &style));
+        auto inherited = definition;
+        inherited.values = empty(); inherited.values.mask = XUI_BUTTON_STYLE_CORNER_RADIUS;
+        inherited.values.corner_radius = 4; inherited.based_on = style;
+        ok(xui_button_style_create(window, &inherited, &derived));
+        auto local = empty(); local.mask = XUI_BUTTON_STYLE_CORNER_RADIUS; local.corner_radius = 7;
+        ok(xui_button_set_style_values(button, &local));
+        ok(xui_button_set_style(button, derived));
+        auto output = empty(); ok(xui_button_get_style_values(button, 0, &output));
+        expect(output.mask == local.mask && output.corner_radius == 7);
+        ok(xui_button_get_style_values(button, 1, &output));
+        expect(output.mask == 49 && output.background.light == 0x123456 && output.corner_radius == 7);
+        auto invalid = local; invalid.corner_radius = NAN;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.size = 0;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.version = 0;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_VERSION_MISMATCH);
+        invalid = local; invalid.background.light = 1;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.mask |= 1; invalid.background.dark = 0xff123456;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.mask |= 8; invalid.border_thickness.left = -1;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.reserved = 1;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        invalid = local; invalid.mask = 64;
+        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_set_style_values(button, nullptr) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_set_style_values(window, &local) == XUI_WRONG_KIND);
+        expect(xui_button_get_style_values(button, 2, &output) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_get_style_values(button, 0, nullptr) == XUI_INVALID_ARGUMENT);
+        xui_handle failed = 123;
+        auto bad_definition = definition; bad_definition.size = 0;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT && failed == 0);
+        bad_definition = definition; bad_definition.based_on = button;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_WRONG_KIND && failed == 0);
+        bad_definition = definition; bad_definition.rule_count = 1;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
+        xui_button_style_rule rule{sizeof(rule), 5, empty()};
+        bad_definition.rules = &rule;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
+        rule.state = XUI_BUTTON_STYLE_DISABLED; rule.size = 0;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
+        bad_definition = definition; bad_definition.rule_count = 257;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
+        xui_handle deepest{};
+        auto layer = definition;
+        layer.values = empty();
+        for (unsigned depth = 0; depth < 16; ++depth) {
+            layer.based_on = deepest;
+            xui_handle next{};
+            ok(xui_button_style_create(window, &layer, &next));
+            if (deepest) ok(xui_button_style_release(deepest));
+            deepest = next;
+        }
+        layer.based_on = deepest;
+        expect(xui_button_style_create(window, &layer, &failed) == XUI_INVALID_ARGUMENT && !failed);
+        ok(xui_button_style_release(deepest));
+        rule = {sizeof(rule), XUI_BUTTON_STYLE_DISABLED, empty()};
+        rule.values.mask = XUI_BUTTON_STYLE_FOREGROUND;
+        rule.values.foreground = {0xffffff, 0};
+        bad_definition = definition; bad_definition.rules = &rule; bad_definition.rule_count = 1;
+        xui_handle state_style{};
+        ok(xui_button_style_create(window, &bad_definition, &state_style));
+        ok(xui_button_set_style(button, state_style));
+        xui_property disabled{sizeof(xui_property), XUI_ENABLED, button};
+        ok(xui_update(window, &disabled, 1));
+        ok(xui_button_get_style_values(button, 1, &output));
+        expect((output.mask & 2) && output.foreground.light == 0xffffff);
+        disabled.integer = 1; ok(xui_update(window, &disabled, 1));
+        ok(xui_button_set_style(button, derived)); ok(xui_button_style_release(state_style));
+        ok(xui_window_create_features(&options, 0, &other_window));
+        ok(xui_button_style_create(other_window, &definition, &foreign));
+        expect(xui_button_set_style(button, foreign) == XUI_INVALID_ARGUMENT);
+        bad_definition = definition; bad_definition.based_on = foreign;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_set_style(button, window) == XUI_WRONG_KIND);
+        expect(xui_button_style_release(button) == XUI_WRONG_KIND);
+        std::thread worker([&] {
+            expect(xui_button_set_style(button, 0) == XUI_WRONG_THREAD);
+            expect(xui_button_style_release(style) == XUI_WRONG_THREAD);
+        }); worker.join();
+        ok(xui_button_get_style_values(button, 0, &output)); expect(output.corner_radius == 7 && output.mask == 32);
+        ok(xui_button_style_release(style)); ok(xui_button_style_release(derived));
+        expect(xui_button_style_release(style) == XUI_INVALID_HANDLE);
+        expect(xui_button_set_style(button, style) == XUI_INVALID_HANDLE);
+        xui_handle reused{}, peer{};
+        uint32_t applied{99};
+        ok(xui_create(window, XUI_BUTTON, text("Shared identity"), 0, &peer));
+        ok(xui_button_try_set_style(peer, derived, &applied)); expect(applied == 1);
+        ok(xui_button_set_style(button, 0));
+        ok(xui_button_try_set_style(button, derived, &applied)); expect(applied == 1);
+        ok(xui_button_style_reacquire(window, derived, &reused)); expect(reused != 0 && reused != derived);
+        ok(xui_button_set_style(peer, 0));
+        ok(xui_button_set_style(button, 0));
+        ok(xui_button_set_style(button, reused));
+        ok(xui_button_style_release(reused));
+        ok(xui_button_try_set_style(peer, derived, &applied)); expect(applied == 1);
+        ok(xui_button_set_style(peer, 0));
+        ok(xui_button_style_reacquire(other_window, derived, &reused)); expect(reused == 0);
+        ok(xui_button_try_set_style(button, foreign, &applied)); expect(applied == 0);
+        ok(xui_button_try_set_style(button, 0, &applied)); expect(applied == 0);
+        ok(xui_button_try_set_style(button, UINT64_MAX, &applied)); expect(applied == 0);
+        expect(xui_button_try_set_style(button, derived, nullptr) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_style_reacquire(window, derived, nullptr) == XUI_INVALID_ARGUMENT);
+        expect(xui_button_try_set_style(window, derived, &applied) == XUI_WRONG_KIND && applied == 0);
+        std::thread identity_worker([&] {
+            uint32_t result{99}; xui_handle retained{99};
+            expect(xui_button_try_set_style(button, derived, &result) == XUI_WRONG_THREAD && result == 0);
+            expect(xui_button_style_reacquire(window, derived, &retained) == XUI_WRONG_THREAD && retained == 0);
+        }); identity_worker.join();
+        bad_definition = definition; bad_definition.based_on = style;
+        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_HANDLE);
+        ok(xui_button_get_style_values(button, 1, &output));
+        expect(output.mask == 49 && output.background.dark == 0x654321 && output.corner_radius == 7);
+        ok(xui_button_set_style(button, 0));
+        ok(xui_button_try_set_style(button, derived, &applied)); expect(applied == 0);
+        ok(xui_button_style_reacquire(window, derived, &reused)); expect(reused == 0);
+        ok(xui_button_get_style_values(button, 1, &output)); expect(output.mask == 32 && output.corner_radius == 7);
+        local = empty(); ok(xui_button_set_style_values(button, &local));
+        ok(xui_button_get_style_values(button, 1, &output)); expect(output.mask == 0);
+        ok(xui_button_set_style(button, 0));
+        xui_handle permanent{};
+        ok(xui_button_style_create(window, &definition, &permanent));
+        ok(xui_button_set_style(peer, permanent));
+        ok(xui_button_style_release(permanent));
+        for (unsigned i = 0; i < 65537; ++i) {
+            xui_handle transient{};
+            ok(xui_button_style_create(window, &definition, &transient));
+            ok(xui_button_set_style(button, transient));
+            ok(xui_button_style_release(transient));
+            ok(xui_button_set_style(button, 0));
+        }
+        ok(xui_button_try_set_style(button, permanent, &applied)); expect(applied == 1);
+        ok(xui_button_set_style(peer, 0));
+        ok(xui_button_set_style(button, 0));
+        ok(xui_button_style_reacquire(window, permanent, &reused)); expect(reused == 0);
+        ok(xui_window_destroy(other_window));
+        expect(xui_button_style_release(foreign) == XUI_INVALID_HANDLE);
+    }
     uint32_t style{};
     ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_CLASSIC);
     ok(xui_window_visual_style_set(window, XUI_STYLE_WINUI));
@@ -184,7 +763,7 @@ void explorer_contracts() {
     expect(read_colors.mask == 0);
     auto v = value(); ok(xui_feature_get(second, XUI_F_VISIBLE, &v)); expect(!v.first);
     v = value(); v.first = 1; ok(xui_feature_set(second, XUI_F_VISIBLE, &v));
-    expect(xui_feature_child(window, 3, &again) == XUI_INVALID_ARGUMENT);
+    expect(xui_feature_child(window, 8, &again) == XUI_INVALID_ARGUMENT);
     auto navigation = create(window, XUI_NAVIGATION_VIEW);
     ok(xui_window_navigation_handler(window, nullptr, nullptr));
     expect(xui_window_navigation_handler(navigation, nullptr, nullptr) == XUI_WRONG_KIND);
@@ -277,6 +856,10 @@ void explorer_contracts() {
 }
 }
 int main() {
+    retained_navigation_style_bridges();
+    retained_facade_style_contracts();
+    control_style_contracts();
+    tooltip_style_contracts();
     miller_contracts();
     explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);

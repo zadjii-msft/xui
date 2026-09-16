@@ -31,6 +31,11 @@ public class Window
 }
 public abstract class Element
 {
+    public ControlStyle? ControlStyle { get; private set; }
+    public int ControlStyleSets { get; private set; }
+    public readonly Dictionary<StylePart, PartStyleValues> Locals = [];
+    public Element SetControlStyle(ControlStyle? value) { ControlStyle = value; ControlStyleSets++; return this; }
+    public Element SetControlStyleValues(StylePart part, PartStyleValues values) { Locals[part] = values; return this; }
     public (float Width, float Height) Size;
     public int SizeSets;
     public (float Width, float Height) Preferred;
@@ -80,16 +85,87 @@ public abstract class Control : Element
 public sealed class Label : Control;
 public sealed class Button : Control
 {
+    private ButtonStyle? style;
+    public int StyleSets;
+    public ButtonStyle? Style { get => style; set { style = value; StyleSets++; } }
+    public ButtonStyleValues StyleValues { get; set; } = new();
     public ButtonIcon Icon;
     public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
     public event Action? Click;
     public void Invoke() => Click?.Invoke();
 }
+public readonly record struct ThemeColor(uint Light, uint Dark)
+{
+    public ThemeColor(uint uniform) : this(uniform, uniform) { }
+}
+public readonly record struct Insets(float Left, float Top, float Right, float Bottom)
+{
+    public Insets(float uniform) : this(uniform, uniform, uniform, uniform) { }
+}
+public sealed record ButtonStyleValues
+{
+    public ThemeColor? Background { get; init; }
+    public ThemeColor? Foreground { get; init; }
+    public ThemeColor? BorderBrush { get; init; }
+    public float? CornerRadius { get; init; }
+    public Insets? BorderThickness { get; init; }
+    public Insets? Padding { get; init; }
+}
+public enum ButtonStyleState { Focused, Checked, Hovered, Pressed, Disabled }
+public sealed record ButtonStyleRule(ButtonStyleState State, ButtonStyleValues Values);
+public sealed class ButtonStyle(ButtonStyleValues values, IReadOnlyList<ButtonStyleRule>? rules = null, ButtonStyle? basedOn = null)
+{
+    public ButtonStyleValues Values { get; } = values;
+    public IReadOnlyList<ButtonStyleRule> Rules { get; } = rules ?? [];
+    public ButtonStyle? BasedOn { get; } = basedOn;
+}
 public sealed class Toggle : Control
 {
+    public int StyleSets => ControlStyleSets;
+    public ControlStyle? Style { get => ControlStyle; set => SetControlStyle(value); }
+    public Toggle SetStyleValues(StylePart part, PartStyleValues values) { SetControlStyleValues(part, values); return this; }
     public bool Checked { get; set; }
     public event Action<bool>? Changed;
     public void Invoke(bool value) { Checked = value; Changed?.Invoke(value); }
+}
+public enum StyleFontStyle : uint { Normal, Italic, Oblique }
+public enum StyleAlignment : uint { Start, Center, End, Stretch }
+public sealed record PartStyleValues
+{
+    public ThemeColor? Background { get; init; }
+    public ThemeColor? Foreground { get; init; }
+    public ThemeColor? BorderBrush { get; init; }
+    public float? CornerRadius { get; init; }
+    public float? Size { get; init; }
+    public Insets? BorderThickness { get; init; }
+    public Insets? Padding { get; init; }
+    public string? FontFamily { get; init; }
+    public float? FontSize { get; init; }
+    public uint? FontWeight { get; init; }
+    public StyleFontStyle? FontStyle { get; init; }
+    public StyleAlignment? HorizontalAlignment { get; init; }
+    public StyleAlignment? VerticalAlignment { get; init; }
+    public float? Spacing { get; init; }
+    public float? RowHeight { get; init; }
+    public float? HeaderHeight { get; init; }
+    public float? Indentation { get; init; }
+    public float? Thickness { get; init; }
+    public float? Width { get; init; }
+    public float? Height { get; init; }
+    public float? RowGap { get; init; }
+    public float? ColumnGap { get; init; }
+    public uint? MaximumLines { get; init; }
+    public bool? Wrapping { get; init; }
+}
+public sealed record PartStyle(StylePart Part, PartStyleValues Values);
+public sealed record ControlStyleRule(StylePart Part, StyleState State, PartStyleValues Values);
+public sealed class ControlStyle(StyleTarget target, IReadOnlyList<PartStyle> parts,
+    IReadOnlyList<ControlStyleRule>? rules = null, ControlStyle? basedOn = null)
+{
+    public StyleTarget Target { get; } = target;
+    public IReadOnlyList<PartStyle> Parts { get; } = parts;
+    public IReadOnlyList<ControlStyleRule> Rules { get; } = rules ?? [];
+    public ControlStyle? BasedOn { get; } = basedOn;
 }
 public sealed class TextInput : Control
 {

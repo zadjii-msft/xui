@@ -63,7 +63,13 @@ internal static unsafe class Features
     internal static void Action(Element e, uint action, ulong first = 0, ulong second = 0)
     { e.Window.Guard(); e.Window.Check(Native.FeatureAction(e.Handle, action, first, second)); }
     internal static ulong Child(Element e, uint index)
-    { e.Window.Guard(); ulong h; e.Window.Check(Native.FeatureChild(e.Handle, index, &h)); return h; }
+        => OptionalChild(e, index) ?? throw new InvalidOperationException("The retained child is unavailable.");
+    internal static ulong? OptionalChild(Element e, uint index)
+    { e.Window.Guard(); ulong h; e.Window.Check(Native.FeatureChild(e.Handle, index, &h)); return h == 0 ? null : h; }
+    internal static ulong SegmentButton(Element e, ItemKey key)
+    { e.Window.Guard(); ulong h; e.Window.Check(Native.BreadcrumbSegmentButton(e.Handle, key.Id, key.Version, &h)); return h; }
+    internal static ulong CommandButton(Element e, ulong id)
+    { e.Window.Guard(); ulong h; e.Window.Check(Native.CommandBarButton(e.Handle, id, &h)); return h; }
     internal static void Choices(Element e, ReadOnlySpan<Choice> choices, ulong? selected)
     {
         e.Window.Guard(); if (choices.Length > 4096) throw new ArgumentOutOfRangeException(nameof(choices));
@@ -144,6 +150,11 @@ public sealed partial class RangeInput
 }
 public sealed partial class NumericInput
 {
+    private TextInput? editor;
+    private Button? decreaseButton, increaseButton;
+    public TextInput Editor => editor ??= new(Window, Features.Child(this, 0));
+    public Button DecreaseButton => decreaseButton ??= new(Window, Features.Child(this, 1));
+    public Button IncreaseButton => increaseButton ??= new(Window, Features.Child(this, 2));
     public void OnChange(Action<double> callback)
     { ArgumentNullException.ThrowIfNull(callback); Event += e => { if (e.Kind == EventKind.Change) callback(BitConverter.UInt64BitsToDouble(e.Value)); }; }
     public NumericInput ChangeValue(double value) { Features.Action(this, 2, BitConverter.DoubleToUInt64Bits(value)); return this; }
@@ -156,6 +167,20 @@ public sealed partial class RadioGroup
 }
 public sealed partial class ComboBox
 {
+    private TextInput? editor;
+    private Popup? popup;
+    private RadioGroup? choices;
+    public TextInput? Editor
+    {
+        get
+        {
+            if (editor is not null) return editor;
+            var handle = Features.OptionalChild(this, 0);
+            return handle is { } value ? editor = new(Window, value) : null;
+        }
+    }
+    public Popup Popup => popup ??= new(Window, Features.Child(this, 1));
+    public RadioGroup Choices => choices ??= new(Window, Features.Child(this, 2));
     public ComboBox SetItems(ReadOnlySpan<Choice> items, ulong? selected = null) { Features.Choices(this, items, selected); return this; }
     public ComboBox Select(ulong id) { Features.Action(this, 1, id); return this; }
 }
@@ -164,7 +189,21 @@ public sealed partial class TabStrip
     public TabStrip SetTabs(ReadOnlySpan<Choice> items, ulong? selected = null) { Features.Choices(this, items, selected); return this; }
     public TabStrip Select(ulong id) { Features.Action(this, 1, id); return this; }
 }
-public sealed partial class Breadcrumb { public Breadcrumb SetSegments(ReadOnlySpan<Choice> segments) { Features.Choices(this, segments, null); return this; } }
+public sealed partial class Breadcrumb
+{
+    private Button? overflow;
+    private Dictionary<ulong, Button>? segmentButtons;
+    public Button OverflowButton => overflow ??= new(Window, Features.Child(this, 0));
+    public Button SegmentButton(ItemKey key)
+    {
+        var handle = Features.SegmentButton(this, key);
+        segmentButtons ??= [];
+        if (!segmentButtons.TryGetValue(handle, out var button))
+            segmentButtons.Add(handle, button = new(Window, handle));
+        return button;
+    }
+    public Breadcrumb SetSegments(ReadOnlySpan<Choice> segments) { Features.Choices(this, segments, null); return this; }
+}
 public sealed partial class SplitButton
 {
     private Button? primary, secondary;
@@ -175,6 +214,9 @@ public sealed partial class Popup { public void Show(Control anchor) => Features
 public sealed partial class ContentDialog
 {
     private Button? primary, cancel;
+    private Label? title;
+    private InlineStatus? validation;
+    private Stack? body, footer;
     public ContentDialog SetValidationMessage(string message)
     {
         Window.Guard(); using var pins = new Window.Pins();
@@ -184,26 +226,54 @@ public sealed partial class ContentDialog
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public Button Primary => primary ??= new(Window, Features.Child(this, 0));
     public Button CancelButton => cancel ??= new(Window, Features.Child(this, 1));
+    public Label Title => title ??= new(Window, Features.Child(this, 2));
+    public InlineStatus Validation => validation ??= new(Window, Features.Child(this, 3));
+    public Stack Body => body ??= new(Window, Features.Child(this, 4));
+    public Stack Footer => footer ??= new(Window, Features.Child(this, 5));
     public void OnResult(Action<bool> result) => Window.SetSubscription(Handle, e => result(e.Value == 0));
 }
 public sealed partial class LocationPicker
 {
     private TextInput? editor;
     private NavigationPane? navigation;
+    private Stack? content;
+    private Label? footer;
+    private CommandBar? toolbar;
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public TextInput Editor => editor ??= new(Window, Features.Child(this, 0));
     public NavigationPane Navigation => navigation ??= new(Window, Features.Child(this, 1));
+    public Stack Content => content ??= new(Window, Features.Child(this, 2));
+    public Label Footer => footer ??= new(Window, Features.Child(this, 3));
+    public CommandBar Toolbar => toolbar ??= new(Window, Features.Child(this, 4));
 }
 public sealed partial class ViewPicker
 {
     private RadioGroup? choices;
     private RangeInput? size;
+    private Stack? content;
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public RadioGroup Choices => choices ??= new(Window, Features.Child(this, 0));
     public RangeInput Size => size ??= new(Window, Features.Child(this, 1));
+    public Stack Content => content ??= new(Window, Features.Child(this, 2));
+}
+public sealed class RetainedElement : Element
+{
+    internal RetainedElement(Window window, ulong handle) : base(window, handle) { }
 }
 public sealed partial class CommandSurface
 {
+    private TextInput? editor;
+    private Label? title, status;
+    private Button? closeButton;
+    private Stack? content, results;
+    private RetainedElement? menu;
+    public TextInput Editor => editor ??= new(Window, Features.Child(this, 0));
+    public Label Title => title ??= new(Window, Features.Child(this, 1));
+    public Label Status => status ??= new(Window, Features.Child(this, 2));
+    public Button CloseButton => closeButton ??= new(Window, Features.Child(this, 3));
+    public Stack Content => content ??= new(Window, Features.Child(this, 4));
+    public Stack Results => results ??= new(Window, Features.Child(this, 5));
+    public RetainedElement Menu => menu ??= new(Window, Features.Child(this, 6));
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public CommandSurface SetCommands(ReadOnlySpan<Command> commands) { Features.Commands(this, commands); return this; }
     public void OnCommand(Action<ulong, bool> action) => Window.SetSubscription(Handle, e => action(e.Value, (uint)e.Kind == 9));
@@ -212,6 +282,17 @@ public sealed partial class CommandSurface
 }
 public sealed partial class CommandBar
 {
+    private Button? overflow;
+    private Dictionary<ulong, Button>? commandButtons;
+    public Button OverflowButton => overflow ??= new(Window, Features.Child(this, 0));
+    public Button CommandButton(ulong id)
+    {
+        var handle = Features.CommandButton(this, id);
+        commandButtons ??= [];
+        if (!commandButtons.TryGetValue(handle, out var button))
+            commandButtons.Add(handle, button = new(Window, handle));
+        return button;
+    }
     public CommandBar SetCommands(ReadOnlySpan<Command> commands) { Features.Commands(this, commands); return this; }
     public void Invoke(ulong id, bool pin = false) => Features.InvokeCommand(this, id, pin);
     public CommandBar Bind(ulong id, uint virtualKey, KeyModifiers modifiers) { Features.BindCommand(this, id, virtualKey, modifiers); return this; }
@@ -294,7 +375,32 @@ public sealed partial class DateTimePicker
     }
 }
 public sealed partial class InlineStatus
-{ public InlineStatus SetMessage(string message, StatusSeverity severity = StatusSeverity.Information) { Features.Set(this, 20, text: message, first: (uint)severity); return this; } }
+{
+    private Button? actionButton, dismissButton;
+    public Button ActionButton => actionButton ??= new(Window, Features.Child(this, 0));
+    public Button DismissButton => dismissButton ??= new(Window, Features.Child(this, 1));
+    public InlineStatus SetMessage(string message, StatusSeverity severity = StatusSeverity.Information) { Features.Set(this, 20, text: message, first: (uint)severity); return this; }
+}
+public sealed partial class ColorPicker
+{
+    private NumericInput?[]? channels;
+    private Dictionary<ulong, Button>? swatchButtons;
+    public NumericInput Channel(uint index)
+    {
+        if (index >= 4) throw new ArgumentOutOfRangeException(nameof(index));
+        channels ??= new NumericInput?[4];
+        return channels[index] ??= new(Window, Features.Child(this, index));
+    }
+    public Button SwatchButton(uint index)
+    {
+        if (index >= 16) throw new ArgumentOutOfRangeException(nameof(index));
+        var handle = Features.Child(this, index + 4);
+        swatchButtons ??= new();
+        if (!swatchButtons.TryGetValue(handle, out var button))
+            swatchButtons.Add(handle, button = new(Window, handle));
+        return button;
+    }
+}
 public sealed partial class MediaPlayback
 {
     public HostState State => (HostState)Features.Get(this, 38).First;
@@ -401,8 +507,16 @@ public sealed partial class ItemsView
 public sealed partial class NavigationPane
 {
     private ItemsView? items;
+    private Label? status;
+    private Stack? content;
+    private Expander? group;
+    private Progress? progress;
     public NavigationPane SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
     public ItemsView Items => items ??= new(Window, Features.Child(this, 0));
+    public Label Status => status ??= new(Window, Features.Child(this, 1));
+    public Stack Content => content ??= new(Window, Features.Child(this, 2));
+    public Expander Group => group ??= new(Window, Features.Child(this, 3));
+    public Progress Progress => progress ??= new(Window, Features.Child(this, 4));
 }
 public sealed unsafe partial class TreeView
 {

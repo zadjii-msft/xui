@@ -6,9 +6,106 @@
 #include <numeric>
 
 namespace xui {
+float GridGeometry::viewport_width() const { return std::max(0.0f, width - scrollbar_width); }
+float GridGeometry::viewport_height() const { return std::max(0.0f, height - header_height - scrollbar_width); }
+Rect GridGeometry::viewport() const { return {left, header_bottom(), viewport_width(), viewport_height()}; }
+Rect GridGeometry::header() const { return {left, top, viewport_width(), std::min(height, header_height)}; }
+Rect GridGeometry::row(std::size_t index) const {
+    return {left, header_bottom() + static_cast<float>(index * double(row_height) - vertical), viewport_width(), row_height};
+}
+Rect GridGeometry::column(std::span<const GridColumn> columns, std::size_t display) const {
+    if (display >= columns.size()) return {};
+    float x = left - static_cast<float>(horizontal);
+    for (std::size_t i = 0; i < display; ++i) x += columns[i].width;
+    return {x, top, columns[display].width, header_height};
+}
+Rect GridGeometry::header_part(std::span<const GridColumn> columns, std::size_t display, GridHeaderPart part) const {
+    auto box = column(columns, display);
+    if (display >= columns.size()) return {};
+    const auto& c = columns[display];
+    if (part == GridHeaderPart::check) return c.checkable ? Rect{box.x + 4, top, 28, header_height} : Rect{};
+    if (part == GridHeaderPart::filter) return c.filterable ? Rect{box.x + box.width - 32, top, 28, header_height} : Rect{};
+    return {box.x + (c.checkable ? 32 : 0), top,
+        std::max(0.0f, box.width - (c.checkable ? 32 : 0) - (c.filterable ? 32 : 0)), header_height};
+}
+Rect GridGeometry::vertical_track() const { return {left + viewport_width(), header_bottom(), std::min(width, scrollbar_width), viewport_height()}; }
+Rect GridGeometry::horizontal_track() const { return {left, top + std::max(0.0f, height - scrollbar_width), viewport_width(), std::min(height, scrollbar_width)}; }
+
+std::optional<StyleTarget> DataGrid::control_style_target() const { return StyleTarget::data_grid; }
+StyleStateMask DataGrid::control_style_state_bits() const {
+    return Control::control_style_state_bits() & (style_states::focused | style_states::hovered | style_states::disabled);
+}
+PartStyleValues DataGrid::part_style(StylePart part, StyleStateMask states) const {
+    return resolve_control_style_part(part, states);
+}
+float DataGrid::effective_row_height() const { return part_style(StylePart::root).row_height.value_or(row_height); }
+float DataGrid::effective_header_height() const { return part_style(StylePart::root).header_height.value_or(header_height); }
+float DataGrid::effective_scrollbar_width() const { return part_style(StylePart::scrollbar).width.value_or(bar_width); }
+int DataGrid::page_rows() const {
+    return std::max(1, static_cast<int>(std::min(double(INT_MAX), double(viewport_height()) / effective_row_height())));
+}
+GridGeometry DataGrid::geometry() const {
+    const auto style = part_style(StylePart::root);
+    const auto p = style.padding.value_or(Insets{}), b = style.border_thickness.value_or(Insets{});
+    const auto left = std::min(bounds().width, p.left + b.left), top = std::min(bounds().height, p.top + b.top);
+    return {left, top, std::max(0.0f, bounds().width - left - p.right - b.right),
+        std::max(0.0f, bounds().height - top - p.bottom - b.bottom),
+        style.row_height.value_or(row_height), style.header_height.value_or(header_height), effective_scrollbar_width(),
+        offset_, horizontal_, bounds().width, bounds().height};
+}
+Rect DataGrid::cell_bounds(std::size_t row, std::size_t source) const {
+    const auto display = display_column(source);
+    if (!display || !source_ || row >= source_->size()) return {};
+    const auto g = geometry();
+    auto box = g.row(row);
+    const auto column = g.column(columns_, *display);
+    box.x = column.x; box.width = column.width;
+    return box;
+}
+StyleStateMask DataGrid::row_style_states(std::size_t row, bool context_enabled, bool dragging) const {
+    StyleStateMask state = !enabled() || !context_enabled ? style_states::disabled : 0;
+    if (!source_ || row >= source_->size()) return state;
+    const auto key = source_->key(row);
+    if (selection_.contains(key)) state |= style_states::selected | style_states::checked;
+    if (!(state & style_states::disabled)) {
+        if (!dragging && hovered_row() == row) state |= style_states::hovered;
+        if (focused() && !header_focus_ && selected_ == key) state |= style_states::focused;
+    }
+    return state;
+}
+StyleStateMask DataGrid::header_style_states(std::size_t column, bool context_enabled, bool dragging) const {
+    StyleStateMask state = !enabled() || !context_enabled ? style_states::disabled : 0;
+    const auto display = display_column(column);
+    if (!display) return state;
+    if (column == sort_) state |= style_states::sorted | (descending_ ? style_states::descending : 0);
+    if (!filters_[column].empty()) state |= style_states::filtered;
+    if (filter_pending_ && column == filter_column_) state |= style_states::filter_pending;
+    if (columns_[*display].checkable) {
+        const auto check = check_state();
+        if (check == SelectionState::all) state |= style_states::checked;
+        else if (check == SelectionState::mixed) state |= style_states::mixed;
+    }
+    if (!(state & style_states::disabled)) {
+        if (focused() && header_focus_ && focused_column_ == *display) state |= style_states::focused;
+        if (dragging) state |= style_states::dragging;
+    }
+    return state;
+}
+PartStyleValues DataGrid::row_style(StylePart part, std::size_t row, bool context_enabled, bool dragging) const {
+    const auto state = row_style_states(row, context_enabled, dragging);
+    auto values = part_style(part, state);
+    if (part == StylePart::row && row % 2) values = merge_part_values(std::move(values), part_style(StylePart::alternating_row, state));
+    if (part == StylePart::cell && !values.foreground) values.foreground = row_style(StylePart::row, row, context_enabled, dragging).foreground;
+    return values;
+}
+PartStyleValues DataGrid::header_style(StylePart part, std::size_t source, bool context_enabled, bool dragging) const {
+    return part_style(part, header_style_states(source, context_enabled, dragging));
+}
+
 void DataGrid::prepare_context_menu(std::optional<Point> position) {
     if (position) {
-        const auto row = position->x >= 0 && position->x < viewport_width() ? row_at(position->y) : std::nullopt;
+        const auto view = geometry().viewport();
+        const auto row = position->x >= view.x && position->x < view.x + view.width ? row_at(position->y) : std::nullopt;
         if (row && source_) {
             const auto key = source_->key(*row);
             select(key, selection_.contains(key) ? SelectionGesture::focus_only : SelectionGesture::replace, false);
@@ -19,9 +116,10 @@ void DataGrid::prepare_context_menu(std::optional<Point> position) {
 DataGrid::DataGrid(std::wstring name) : Control(ControlRole::data_grid, std::move(name), {640, 360}) {}
 bool DataGrid::file_drop_hit(Point point, std::optional<RowKey>& key) const {
     key.reset();
+    const auto view = geometry().viewport();
     if (!enabled() || !visible() || !std::isfinite(point.x) || !std::isfinite(point.y) ||
-        point.x < 0 || point.x >= viewport_width() || point.y < header_height ||
-        point.y >= header_height + viewport_height()) return false;
+        point.x < view.x || point.x >= view.x + view.width || point.y < view.y ||
+        point.y >= view.y + view.height) return false;
     if (auto row = row_at(point.y)) {
         if (!source_->selectable(*row)) return false;
         key = source_->key(*row);
@@ -199,7 +297,7 @@ void DataGrid::filter(std::size_t column, std::wstring text) {
     set_filter(column, std::move(text));
     filter_stop_.request_stop(); filter_stop_ = std::stop_source{};
     const GridFilterRequest request{++filter_generation_, column, filters_, filter_stop_.get_token()};
-    filter_pending_ = true; invalidate(Invalidation::paint);
+    filter_pending_ = true; filter_column_ = column; invalidate(Invalidation::paint);
     auto callback = filter_callback_;
     if (callback) {
         try { callback(request); } catch (...) { cancel(); throw; }
@@ -222,11 +320,7 @@ void DataGrid::cancel() {
 }
 Rect DataGrid::header_part_bounds(std::size_t column, GridHeaderPart part) const {
     const auto display = display_column(column); if (!display) return {};
-    const auto& c = columns_[*display]; float x = -static_cast<float>(horizontal_);
-    for (std::size_t i = 0; i < *display; ++i) x += columns_[i].width;
-    if (part == GridHeaderPart::check) return c.checkable ? Rect{x + 4, 0, 28, header_height} : Rect{};
-    if (part == GridHeaderPart::filter) return c.filterable ? Rect{x + c.width - 32, 0, 28, header_height} : Rect{};
-    return {x + (c.checkable ? 32 : 0), 0, std::max(0.0f, c.width - (c.checkable ? 32 : 0) - (c.filterable ? 32 : 0)), header_height};
+    return geometry().header_part(columns_, *display, part);
 }
 GridHeaderPart DataGrid::header_part_at(float x) const {
     const auto display = column_at(x); if (!display) return GridHeaderPart::sort;
@@ -242,9 +336,9 @@ void DataGrid::set_header_part(GridHeaderPart part) {
     header_part_ = part; invalidate(Invalidation::paint);
 }
 float DataGrid::content_width() const { float width{}; for (const auto& c : columns_) width += c.width; return width; }
-float DataGrid::viewport_width() const { return std::max(0.0f, bounds().width - bar_width); }
-float DataGrid::viewport_height() const { return std::max(0.0f, bounds().height - header_height - bar_width); }
-double DataGrid::maximum_offset() const { return std::max(0.0, (source_ ? static_cast<double>(source_->size()) * row_height : 0) - viewport_height()); }
+float DataGrid::viewport_width() const { return geometry().viewport_width(); }
+float DataGrid::viewport_height() const { return geometry().viewport_height(); }
+double DataGrid::maximum_offset() const { return std::max(0.0, (source_ ? static_cast<double>(source_->size()) * effective_row_height() : 0) - viewport_height()); }
 double DataGrid::maximum_horizontal() const { return std::max(0.0f, content_width() - viewport_width()); }
 void DataGrid::set_offset(double vertical, double horizontal) {
     const auto y = std::clamp(std::isfinite(vertical) ? vertical : 0, 0.0, maximum_offset());
@@ -255,13 +349,16 @@ void DataGrid::set_offset(double vertical, double horizontal) {
 void DataGrid::arrange(Rect rect) { Control::arrange(rect); set_offset(offset_, horizontal_); }
 std::pair<std::size_t, std::size_t> DataGrid::visible_rows() const {
     if (!source_ || viewport_height() <= 0) return {};
-    const auto first = std::min(source_->size(), static_cast<std::size_t>(offset_ / row_height));
-    return {first, std::min(source_->size(), first + static_cast<std::size_t>(std::ceil(viewport_height() / row_height)) + 1)};
+    const auto height = effective_row_height();
+    const auto first = static_cast<std::size_t>(std::min(double(source_->size()), offset_ / height));
+    const auto count = static_cast<std::size_t>(std::min(double(source_->size() - first), std::ceil(double(viewport_height()) / height) + 1));
+    return {first, first + count};
 }
 std::optional<std::size_t> DataGrid::row_at(float y) const {
-    if (!source_ || y < header_height || y >= header_height + viewport_height()) return {};
-    auto row = static_cast<std::size_t>((y - header_height + offset_) / row_height);
-    return row < source_->size() ? std::optional{row} : std::nullopt;
+    const auto g = geometry();
+    if (!source_ || !std::isfinite(y) || y < g.header_bottom() || y >= g.header_bottom() + g.viewport_height()) return {};
+    const auto row = (y - g.header_bottom() + offset_) / g.row_height;
+    return row >= 0 && row < double(source_->size()) ? std::optional{static_cast<std::size_t>(row)} : std::nullopt;
 }
 void DataGrid::hover_pointer(std::optional<Point> position) {
     if (position && (!std::isfinite(position->x) || !std::isfinite(position->y)))
@@ -271,22 +368,25 @@ void DataGrid::hover_pointer(std::optional<Point> position) {
     if (previous != hovered_row()) invalidate(Invalidation::paint);
 }
 std::optional<std::size_t> DataGrid::hovered_row() const {
-    if (!enabled() || !visible() || !hover_pointer_ || hover_pointer_->x < 0 || hover_pointer_->x >= viewport_width()) return {};
+    const auto view = geometry().viewport();
+    if (!enabled() || !visible() || !hover_pointer_ || hover_pointer_->x < view.x || hover_pointer_->x >= view.x + view.width) return {};
     const auto row = row_at(hover_pointer_->y);
     return row && source_->selectable(*row) ? row : std::nullopt;
 }
 std::optional<std::size_t> DataGrid::column_at(float x) const {
-    if (x < 0 || x >= viewport_width()) return {};
-    x += static_cast<float>(horizontal_);
+    const auto view = geometry().viewport();
+    if (!std::isfinite(x) || x < view.x || x >= view.x + view.width) return {};
+    x += static_cast<float>(horizontal_) - view.x;
     for (std::size_t i = 0; i < columns_.size(); ++i) { if (x < columns_[i].width) return i; x -= columns_[i].width; }
     return {};
 }
 std::optional<std::size_t> DataGrid::resize_boundary(float x) const {
-    if (x < 0 || x >= viewport_width()) return {};
-    float edge = -static_cast<float>(horizontal_);
+    const auto view = geometry().viewport();
+    if (x < view.x || x >= view.x + view.width) return {};
+    float edge = view.x - static_cast<float>(horizontal_);
     for (std::size_t c = 0; c < columns_.size(); ++c) {
         edge += columns_[c].width;
-        if (edge >= 0 && edge < viewport_width() && std::abs(x - edge) <= 5) return c;
+        if (edge >= view.x && edge < view.x + view.width && std::abs(x - edge) <= 5) return c;
     }
     return {};
 }
@@ -296,21 +396,24 @@ void DataGrid::reveal_selection() {
 bool DataGrid::reveal(RowKey key) {
     const auto row = source_ ? source_->find(key) : std::nullopt;
     if (!row) return false;
-    const double top = static_cast<double>(*row) * row_height;
-    set_offset(top < offset_ ? top : top + row_height > offset_ + viewport_height() ? top + row_height - viewport_height() : offset_, horizontal_);
+    const auto height = effective_row_height();
+    const double top = static_cast<double>(*row) * height;
+    set_offset(top < offset_ ? top : top + height > offset_ + viewport_height() ? top + height - viewport_height() : offset_, horizontal_);
     return true;
 }
 Rect DataGrid::vertical_thumb() const {
     const auto height = viewport_height();
     if (!maximum_offset() || height <= 0) return {};
     const float length = std::min(height, std::max(24.0f, static_cast<float>(height * height / (maximum_offset() + height))));
-    return {viewport_width() + 3, header_height + static_cast<float>(offset_ / maximum_offset()) * (height - length), 6, length};
+    const auto track = geometry().vertical_track();
+    return {track.x + track.width / 4, track.y + static_cast<float>(offset_ / maximum_offset()) * (height - length), track.width / 2, length};
 }
 Rect DataGrid::horizontal_thumb() const {
     const auto width = viewport_width();
     if (!maximum_horizontal() || width <= 0) return {};
     const float length = std::min(width, std::max(24.0f, width * width / content_width()));
-    return {static_cast<float>(horizontal_ / maximum_horizontal()) * (width - length), bounds().height - 9, length, 6};
+    const auto track = geometry().horizontal_track();
+    return {track.x + static_cast<float>(horizontal_ / maximum_horizontal()) * (width - length), track.y + track.height / 4, length, track.height / 2};
 }
 void DataGrid::resize_column(std::size_t column, float width) {
     if (column >= columns_.size() || !std::isfinite(width)) return;
@@ -334,6 +437,35 @@ void DataGrid::step_header(int delta) {
     invalidate(Invalidation::paint);
 }
 HistoryChart::HistoryChart(std::wstring name) : Control(ControlRole::history_chart, std::move(name), {400, 160}) {}
+std::optional<StyleTarget> HistoryChart::control_style_target() const { return StyleTarget::history_chart; }
+StyleStateMask HistoryChart::control_style_state_bits() const {
+    return (Control::control_style_state_bits() & style_states::disabled) | (empty() ? style_states::empty : 0);
+}
+PartStyleValues HistoryChart::part_style(StylePart part) const {
+    return resolve_control_style_part(part, empty() ? style_states::empty : 0);
+}
+bool HistoryChart::empty() const {
+    for (std::size_t i = 0; i < size_; ++i) if (at(i)) return false;
+    return true;
+}
+Rect HistoryChart::title_bounds() const {
+    const auto style = part_style(StylePart::root);
+    const auto p = style.padding.value_or(Insets{12, 2, 12, 0}), b = style.border_thickness.value_or(Insets{});
+    return {p.left + b.left, p.top + b.top, std::max(0.0f, bounds().width - p.left - p.right - b.left - b.right),
+        std::min(32.0f, std::max(0.0f, bounds().height - p.top - p.bottom - b.top - b.bottom))};
+}
+Rect HistoryChart::caption_bounds() const {
+    const auto style = part_style(StylePart::root);
+    const auto p = style.padding.value_or(Insets{12, 2, 12, 0}), b = style.border_thickness.value_or(Insets{});
+    const auto title = title_bounds();
+    const float bottom = std::max(title.y, bounds().height - p.bottom - b.bottom);
+    return {title.x, std::max(title.y, bottom - 22), title.width, std::min(20.0f, std::max(0.0f, bottom - title.y))};
+}
+Rect HistoryChart::plot_bounds() const {
+    const auto title = title_bounds(), caption = caption_bounds();
+    const float top = title.y + title.height + 4;
+    return {title.x, top, title.width, std::max(0.0f, caption.y + 2 - top)};
+}
 void HistoryChart::set_scale(double value) {
     if (!std::isfinite(value) || value <= 0) throw std::invalid_argument("Chart scale must be positive and finite");
     maximum_ = value; invalidate(Invalidation::paint);
@@ -341,6 +473,7 @@ void HistoryChart::set_scale(double value) {
 void HistoryChart::append(std::optional<double> value) {
     if (value && (!std::isfinite(*value) || *value < 0 || *value > maximum_)) value.reset();
     values_[next_] = value; next_ = (next_ + 1) % capacity; size_ = std::min(size_ + 1, capacity);
+    invalidate_control_style_state();
     invalidate(Invalidation::paint);
 }
 std::optional<double> HistoryChart::at(std::size_t index) const {

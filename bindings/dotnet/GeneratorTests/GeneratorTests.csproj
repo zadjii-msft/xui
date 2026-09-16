@@ -7,8 +7,12 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\Xui\ControlStyleCatalog.g.cs" Link="ControlStyleCatalog.g.cs" />
+    <EmbeddedResource Include="..\..\control_style_catalog.json" LogicalName="GeneratorTests.StyleCatalog.json" />
     <EmbeddedResource Include="Fixtures\Composition.xui" />
+    <EmbeddedResource Include="Fixtures\Styling.xui" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
+    <ProjectReference Include="..\Xui\Xui.csproj" Aliases="RuntimeXui" />
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" />
     <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.CSharp.dll" />
   </ItemGroup>

@@ -1,4 +1,6 @@
 #include "xui/core.hpp"
+#include "xui/control_styling.hpp"
+#include "layout_styling.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -9,6 +11,101 @@
 #include <utility>
 
 namespace xui {
+StyleStateMask Element::control_style_state_bits() const {
+    return control_style_ && !control_style_->context_enabled() ? style_states::disabled : 0;
+}
+StyleStateMask Element::effective_control_style_state_bits() const {
+    const auto target = control_style_target();
+    if (!target) return 0;
+    StyleStateMask supported{};
+    for (const auto& part : control_style_schema(*target).parts) supported |= part.states;
+    return control_style_state_bits() & supported;
+}
+bool Element::invalidate_control_style_state() {
+    if (!control_style_) return false;
+    control_style_changed(control_style_->state_changed(effective_control_style_state_bits()));
+    return true;
+}
+void Element::set_control_style(std::shared_ptr<const ControlStyle> style) {
+    const auto target = control_style_target();
+    if (style && (!target || *target != style->target()))
+        throw std::invalid_argument("Element does not support this style target");
+    if (!control_style_ && !style) return;
+    if (control_style_ && control_style_->style() == style) return;
+    auto next = control_style_ ? nullptr : std::make_unique<ControlStyleAttachment>(*target);
+    const auto result = (next ? next.get() : control_style_.get())->assign_style(std::move(style), effective_control_style_state_bits());
+    if (next) control_style_ = std::move(next);
+    if (control_style_->fully_empty()) control_style_.reset();
+    if (result) control_style_changed(*result);
+}
+std::shared_ptr<const ControlStyle> Element::control_style() const {
+    return control_style_ ? control_style_->style() : nullptr;
+}
+void Element::set_control_style_values(StylePart part, PartStyleValues values) {
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part_values(*target, part, values);
+    if (!control_style_ && values.empty()) return;
+    auto next = control_style_ ? nullptr : std::make_unique<ControlStyleAttachment>(*target);
+    const auto result = (next ? next.get() : control_style_.get())->assign_local(part, std::move(values), effective_control_style_state_bits());
+    if (next) control_style_ = std::move(next);
+    if (control_style_->fully_empty()) control_style_.reset();
+    if (result) control_style_changed(*result);
+}
+void Element::set_control_style_projection(StylePart part, PartStyleValues values) {
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part_values(*target, part, values);
+    if (!control_style_ && values.empty()) return;
+    auto next = control_style_ ? nullptr : std::make_unique<ControlStyleAttachment>(*target);
+    const auto result = (next ? next.get() : control_style_.get())->assign_projection(
+        part, std::move(values), effective_control_style_state_bits());
+    if (next) control_style_ = std::move(next);
+    if (control_style_->fully_empty()) control_style_.reset();
+    if (result) control_style_changed(*result);
+}
+const PartStyleValues& Element::control_style_projection_values(StylePart part) const {
+    if (control_style_) return control_style_->projection(part);
+    return control_style_values(part);
+}
+PartStyleValues Element::own_control_style_values(StylePart part) const {
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part(*target, part);
+    const auto mask = effective_control_style_state_bits();
+    return control_style_ ? control_style_->resolve_transient(part, mask, mask, false) : PartStyleValues{};
+}
+const PartStyleValues& Element::control_style_values(StylePart part) const {
+    static const PartStyleValues empty_values;
+    if (control_style_) return control_style_->local(part);
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part(*target, part);
+    return empty_values;
+}
+const PartStyleValues* Element::effective_control_style_values(StylePart part) const {
+    if (control_style_) return control_style_->effective(part, effective_control_style_state_bits());
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part(*target, part);
+    return nullptr;
+}
+PartStyleValues Element::resolve_control_style_part(StylePart part, StyleStateMask item_state) const {
+    const auto target = control_style_target();
+    if (!target) throw std::invalid_argument("Element does not support control styling");
+    validate_part(*target, part);
+    if (control_style_) return control_style_->resolve_transient(part, item_state, effective_control_style_state_bits());
+    const auto& schema = control_style_schema(*target);
+    StyleStateMask supported{};
+    for (const auto& p : schema.parts) supported |= p.states;
+    if (item_state & ~supported) throw std::invalid_argument("Unsupported transient style state");
+    return {};
+}
+void Element::set_control_style_context_enabled(bool enabled) {
+    if (!control_style_ || control_style_->context_enabled() == enabled) return;
+    control_style_->set_context_enabled(enabled);
+    invalidate_control_style_state();
+}
 namespace {
 
 constexpr float maximum = (std::numeric_limits<float>::max)();
@@ -154,9 +251,61 @@ void Element::adopt(const std::shared_ptr<Element>& child) {
 
 Stack::Stack(Axis axis) : axis_(axis) {}
 
-void Stack::set_spacing(float spacing) {
+std::optional<StyleTarget> Stack::control_style_target() const { return StyleTarget::stack; }
+Insets Stack::effective_layout_insets() const {
+    auto result = layout_style::insets(effective_control_style_values(StylePart::root), padding_, padding_explicit_);
+    result.bottom += effective_separator_inset();
+    return result;
+}
+float Stack::effective_separator_inset() const {
+    if (!separator_inset_enabled_) return 0;
+    if (const auto* separator = effective_separator_style()) {
+        for (const auto& part : control_style_schema(*control_style_target()).parts)
+            if (part.part == StylePart::separator && (part.allowed & style_property(StyleProperty::thickness))) {
+                return separator->thickness.value_or(1.0f);
+            }
+    }
+    return 0;
+}
+void Stack::set_separator_inset_enabled(bool value) {
+    if (separator_inset_enabled_ == value) return;
+    separator_inset_enabled_ = value;
+    invalidate(Invalidation::layout);
+}
+const PartStyleValues* Stack::effective_separator_style() const {
+    if (!has_control_styling()) return nullptr;
+    const auto target = control_style_target();
+    if (!target) return nullptr;
+    for (const auto& part : control_style_schema(*target).parts)
+        if (part.part == StylePart::separator) return effective_control_style_values(StylePart::separator);
+    return nullptr;
+}
+float Stack::effective_spacing() const {
+    const auto* values = effective_control_style_values(StylePart::root);
+    return !spacing_explicit_ && values && values->spacing ? *values->spacing : spacing_;
+}
+Rect Stack::layout_content_bounds() const { return layout_style::inset(bounds(), effective_layout_insets()); }
+
+void Stack::set_default_spacing(float spacing) {
+    if (spacing_explicit_) return;
     spacing = dimension(spacing);
     if (spacing_ == spacing) return;
+    spacing_ = spacing;
+    invalidate(Invalidation::layout);
+}
+void Stack::set_default_padding(Insets padding) {
+    if (padding_explicit_) return;
+    padding = {dimension(padding.left), dimension(padding.top),
+        dimension(padding.right), dimension(padding.bottom)};
+    if (padding_.left == padding.left && padding_.top == padding.top &&
+        padding_.right == padding.right && padding_.bottom == padding.bottom) return;
+    padding_ = padding;
+    invalidate(Invalidation::layout);
+}
+void Stack::set_spacing(float spacing) {
+    spacing = dimension(spacing);
+    if (spacing_explicit_ && spacing_ == spacing) return;
+    spacing_explicit_ = true;
     spacing_ = spacing;
     invalidate(Invalidation::layout);
 }
@@ -164,8 +313,9 @@ void Stack::set_spacing(float spacing) {
 void Stack::set_padding(Insets padding) {
     padding = {dimension(padding.left), dimension(padding.top),
         dimension(padding.right), dimension(padding.bottom)};
-    if (padding_.left == padding.left && padding_.top == padding.top &&
+    if (padding_explicit_ && padding_.left == padding.left && padding_.top == padding.top &&
         padding_.right == padding.right && padding_.bottom == padding.bottom) return;
+    padding_explicit_ = true;
     padding_ = padding;
     invalidate(Invalidation::layout);
 }
@@ -187,12 +337,13 @@ void Stack::add(std::shared_ptr<Element> child, float flex) {
 }
 
 std::vector<Size> Stack::layout_children(Size available) {
+    const auto spacing = effective_spacing();
     available = normalized(available);
     const bool horizontal = axis_ == Axis::horizontal;
     const double main = horizontal ? available.width : available.height;
     const float cross = horizontal ? available.height : available.width;
     const double gaps = children_.empty() ? 0.0 :
-        static_cast<double>(spacing_) * static_cast<double>(children_.size() - 1);
+        static_cast<double>(spacing) * static_cast<double>(children_.size() - 1);
     double remaining = (std::max)(0.0, main - gaps);
     double total_flex = 0.0;
     std::vector<Size> sizes(children_.size());
@@ -226,14 +377,16 @@ std::vector<Size> Stack::layout_children(Size available) {
 }
 
 Size Stack::measure(Size available) {
+    const auto padding = effective_layout_insets();
+    const auto spacing = effective_spacing();
     available = normalized(available);
-    const double padding_width = static_cast<double>(padding_.left) + padding_.right;
-    const double padding_height = static_cast<double>(padding_.top) + padding_.bottom;
+    const double padding_width = static_cast<double>(padding.left) + padding.right;
+    const double padding_height = static_cast<double>(padding.top) + padding.bottom;
     const Size inner{dimension(available.width - padding_width),
         dimension(available.height - padding_height)};
     const auto sizes = layout_children(inner);
     double main = sizes.empty() ? 0.0 :
-        static_cast<double>(spacing_) * static_cast<double>(sizes.size() - 1);
+        static_cast<double>(spacing) * static_cast<double>(sizes.size() - 1);
     double cross = 0.0;
     for (const auto size : sizes) {
         main += axis_ == Axis::horizontal ? size.width : size.height;
@@ -247,26 +400,41 @@ Size Stack::measure(Size available) {
 }
 
 void Stack::arrange(Rect rectangle) {
+    const auto padding = effective_layout_insets();
+    const auto spacing = effective_spacing();
     Element::arrange(rectangle);
     rectangle = bounds();
-    const float left = (std::min)(padding_.left, rectangle.width);
-    const float top = (std::min)(padding_.top, rectangle.height);
+    const float left = (std::min)(padding.left, rectangle.width);
+    const float top = (std::min)(padding.top, rectangle.height);
     const Size inner{
-        dimension(static_cast<double>(rectangle.width) - left - padding_.right),
-        dimension(static_cast<double>(rectangle.height) - top - padding_.bottom)};
+        dimension(static_cast<double>(rectangle.width) - left - padding.right),
+        dimension(static_cast<double>(rectangle.height) - top - padding.bottom)};
     const auto sizes = layout_children(inner);
     const bool horizontal = axis_ == Axis::horizontal;
     const double main_limit = horizontal ? inner.width : inner.height;
     double position = 0.0;
+    const auto* style = effective_control_style_values(StylePart::root);
+    const auto alignment = style ? (horizontal ? style->horizontal_alignment : style->vertical_alignment) : std::nullopt;
+    if (alignment && (*alignment == StyleAlignment::center || *alignment == StyleAlignment::end)) {
+        double total = sizes.empty() ? 0 : spacing * (sizes.size() - 1);
+        for (const auto& size : sizes) total += horizontal ? size.width : size.height;
+        position = std::max(0.0, main_limit - total) / (*alignment == StyleAlignment::center ? 2 : 1);
+    }
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const float length = dimension((std::min)(
             static_cast<double>(horizontal ? sizes[index].width : sizes[index].height),
             (std::max)(0.0, main_limit - position)));
         const double x = static_cast<double>(rectangle.x) + left + (horizontal ? position : 0.0);
         const double y = static_cast<double>(rectangle.y) + top + (horizontal ? 0.0 : position);
-        children_[index].element->arrange({coordinate(x), coordinate(y),
-            horizontal ? length : inner.width, horizontal ? inner.height : length});
-        position = (std::min)(main_limit, position + length + spacing_);
+        Rect child_bounds{coordinate(x), coordinate(y), horizontal ? length : inner.width, horizontal ? inner.height : length};
+        if (style) {
+            auto cross_style = *style;
+            if (horizontal) cross_style.horizontal_alignment.reset();
+            else cross_style.vertical_alignment.reset();
+            child_bounds = layout_style::aligned(child_bounds, sizes[index], &cross_style);
+        }
+        children_[index].element->arrange(child_bounds);
+        position = (std::min)(main_limit, position + length + spacing);
     }
 }
 

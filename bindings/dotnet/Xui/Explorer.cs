@@ -22,7 +22,16 @@ public enum ButtonIcon : uint
 public sealed unsafe partial class NavigationView
 {
     private TextInput? search;
+    private Button? toggleButton;
+    private RetainedElement? items, headerItems, footerItems;
+    private Label? title, emptyMessage;
     public TextInput Search => search ??= new(Window, Features.Child(this, 0));
+    public Button ToggleButton => toggleButton ??= new(Window, Features.Child(this, 1));
+    public RetainedElement Items => items ??= new(Window, Features.Child(this, 2));
+    public RetainedElement HeaderItems => headerItems ??= new(Window, Features.Child(this, 3));
+    public RetainedElement FooterItems => footerItems ??= new(Window, Features.Child(this, 4));
+    public Label Title => title ??= new(Window, Features.Child(this, 5));
+    public Label EmptyMessage => emptyMessage ??= new(Window, Features.Child(this, 6));
     public NavigationView Select(ulong id) { Features.Action(this, 1, id); return this; }
     public NavigationView SetItems(ReadOnlySpan<NavigationEntry> items)
     {
@@ -69,6 +78,14 @@ public sealed unsafe partial class Window
 {
     private TabStrip? titlebarTabs, titlebarSecondaryTabs;
     private Button? titlebarLeading;
+    private RetainedElement? titlebar;
+    private Label? titlebarTitle;
+    private Button? titlebarMinimize, titlebarMaximize, titlebarClose;
+    public RetainedElement Titlebar => titlebar ??= new(this, TitlebarChild(3));
+    public Label TitlebarTitle => titlebarTitle ??= new(this, TitlebarChild(4));
+    public Button TitlebarMinimize => titlebarMinimize ??= new(this, TitlebarChild(5));
+    public Button TitlebarMaximize => titlebarMaximize ??= new(this, TitlebarChild(6));
+    public Button TitlebarClose => titlebarClose ??= new(this, TitlebarChild(7));
     private GCHandle keyRoot;
     private Func<UiKeyEvent, bool>? keyHandler;
     private GCHandle navigationRoot;

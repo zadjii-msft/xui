@@ -1,0 +1,25 @@
+component ExpandedStylingFixture {
+    style Legacy for Button {
+        background: 0x123456;
+        when disabled { foreground: 0x112233; }
+        when disabled { background: 0x445566; }
+    }
+    style Intermediate for Button basedOn Legacy { cornerRadius: 3; }
+    style Typography for Button basedOn Intermediate {
+        fontSize: 24;
+        part label { foreground: 0xABCDEF; }
+    }
+    style OtherTypography for Button basedOn Intermediate { fontSize: 18; }
+    style Panel for Stack { padding: 7; spacing: 9; }
+    style Heading for Label { foreground: 0xFEDCBA; fontSize: 20; }
+    view {
+        VStack(ref: PanelRoot, style: Panel) {
+            Button("Legacy", ref: LegacyButton, style: Intermediate);
+            Button("Generic", ref: GenericButton, style: Typography);
+            Button("Other", ref: OtherButton, style: OtherTypography);
+            Text("Heading", ref: HeadingLabel, style: Heading);
+            HStack(ref: ExplicitPanel, style: Panel, padding: 0, spacing: 0) {}
+            TextInput("Retained", ref: Input);
+        }
+    }
+}

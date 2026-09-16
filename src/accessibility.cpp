@@ -42,7 +42,7 @@ struct View {
 
     double height() const noexcept {
         return std::max(0.0, static_cast<double>(snapshot.screen_bounds.bottom) -
-            snapshot.screen_bounds.top);
+            snapshot.screen_bounds.top - snapshot.row_top_inset_pixels - snapshot.row_bottom_inset_pixels);
     }
 
     double row_height() const noexcept {
@@ -66,18 +66,19 @@ struct View {
     UiaRect bounds(std::optional<size_t> index = {}) const noexcept {
         const RECT& rect = snapshot.screen_bounds;
         double width = static_cast<double>(rect.right) - rect.left;
-        if (index) width = std::max(0.0, width - snapshot.row_right_inset_pixels);
-        if (!window || !IsWindowVisible(window) || width <= 0 || height() <= 0)
+        if (index) width = std::max(0.0, width - snapshot.row_right_inset_pixels - snapshot.row_left_inset_pixels);
+        if (!window || !IsWindowVisible(window) || width <= 0 || (index && height() <= 0))
             return {};
         double top = rect.top;
         double bottom = rect.bottom;
         if (index) {
             if (row_height() <= 0) return {};
-            const double row_top = rect.top + static_cast<double>(*index) * row_height() - offset();
+            top += snapshot.row_top_inset_pixels; bottom -= snapshot.row_bottom_inset_pixels;
+            const double row_top = rect.top + snapshot.row_top_inset_pixels + static_cast<double>(*index) * row_height() - offset();
             top = std::max(top, row_top);
             bottom = std::min(bottom, row_top + row_height());
         }
-        double left = rect.left, right = left + width;
+        double left = rect.left + (index ? snapshot.row_left_inset_pixels : 0), right = left + width;
         // Keep the list's own viewport for row geometry and scroll percentages.
         // Ancestor clipping changes only the exposed bounds, not virtual row indices.
         for (auto parent = GetParent(window); parent; parent = GetParent(parent)) {
@@ -389,8 +390,11 @@ public:
             if (x < bounds.left || x >= bounds.left + bounds.width ||
                 y < bounds.top || y >= bounds.top + bounds.height) return S_OK;
             if (view.row_height() > 0 &&
-                x < view.snapshot.screen_bounds.right - view.snapshot.row_right_inset_pixels) {
-                const double index = std::floor((y - view.snapshot.screen_bounds.top + view.offset()) / view.row_height());
+                x >= view.snapshot.screen_bounds.left + view.snapshot.row_left_inset_pixels &&
+                x < view.snapshot.screen_bounds.right - view.snapshot.row_right_inset_pixels &&
+                y >= view.snapshot.screen_bounds.top + view.snapshot.row_top_inset_pixels &&
+                y < view.snapshot.screen_bounds.bottom - view.snapshot.row_bottom_inset_pixels) {
+                const double index = std::floor((y - view.snapshot.screen_bounds.top - view.snapshot.row_top_inset_pixels + view.offset()) / view.row_height());
                 if (index >= 0 && index < static_cast<double>(view.count()))
                     return child(view, static_cast<size_t>(index), result);
             }
@@ -760,6 +764,12 @@ void raise_list_properties(IRawElementProviderSimple* provider,
     };
     number(UIA_ScrollVerticalScrollPercentPropertyId, percent(before), percent(next));
     number(UIA_ScrollVerticalViewSizePropertyId, size(before), size(next));
+    if (previous.row_height_pixels != next.snapshot.row_height_pixels ||
+        previous.row_right_inset_pixels != next.snapshot.row_right_inset_pixels ||
+        previous.row_left_inset_pixels != next.snapshot.row_left_inset_pixels ||
+        previous.row_top_inset_pixels != next.snapshot.row_top_inset_pixels ||
+        previous.row_bottom_inset_pixels != next.snapshot.row_bottom_inset_pixels)
+        UiaRaiseAutomationEvent(provider, UIA_LayoutInvalidatedEventId);
     boolean(provider, UIA_ScrollVerticallyScrollablePropertyId, before.scrollable(), next.scrollable());
     boolean(provider, UIA_IsEnabledPropertyId, previous.enabled, next.snapshot.enabled);
     boolean(provider, UIA_HasKeyboardFocusPropertyId, previous.focused && !previous.focused_item,

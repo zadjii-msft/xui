@@ -14,14 +14,22 @@ public:
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     void arrange(Rect bounds) override;
     Rect visual_bounds() const;
+    Rect content_bounds() const;
     // Adapter boundary. No native interface crosses the public API.
     void publish_state(HostState state, std::wstring message);
 protected:
     RuntimeHost(ControlRole role, std::wstring name);
+    std::optional<StyleTarget> control_style_target() const override {
+        return role() == ControlRole::media_playback ? StyleTarget::media_playback : StyleTarget::web_content;
+    }
+    StyleStateMask control_style_state_bits() const override;
 private:
     friend class NativeRuntimeHost;
     void detached() noexcept {
-        if (state_ != HostState::idle && state_ != HostState::error) state_ = HostState::suspended;
+        if (state_ != HostState::idle && state_ != HostState::error) {
+            state_ = HostState::suspended;
+            try { invalidate_state(); } catch (...) {}
+        }
     }
     HostState state_{HostState::idle};
     std::wstring error_;

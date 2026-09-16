@@ -26,6 +26,8 @@ struct Palette {
     D2D1_COLOR_F input_fill(bool enabled, bool focused, bool hovered, bool on_surface) const;
 };
 
+D2D1_COLOR_F style_foreground(const PartStyleValues& values, const Palette& palette, D2D1_COLOR_F fallback);
+
 class Drawing {
 public:
     Drawing() = default;
@@ -39,6 +41,23 @@ public:
     void initialize(VisualStyle style = VisualStyle::classic);
     void set_visual_style(VisualStyle style);
     const wchar_t* edit_font_family() const { return variable_font_ ? L"Segoe UI Variable Text" : L"Segoe UI"; }
+    struct FontDescriptor {
+        const std::shared_ptr<const StyleFontFamily> authored_family;
+        const wchar_t* const fallback_family;
+        const float size;
+        const uint32_t weight;
+        const StyleFontStyle style;
+        const wchar_t* family_name() const { return authored_family ? authored_family->name.c_str() : fallback_family; }
+    };
+    // The fallback family must outlive the descriptor; built-in family names have static storage.
+    static FontDescriptor font_descriptor(const PartStyleValues& values, const wchar_t* fallback_family,
+        float fallback_size, uint32_t fallback_weight = 400, StyleFontStyle fallback_style = StyleFontStyle::normal) {
+        return {values.font_family, fallback_family, values.font_size.value_or(fallback_size),
+            values.font_weight.value_or(fallback_weight), values.font_style.value_or(fallback_style)};
+    }
+    static D2D1_COLOR_F style_foreground(const PartStyleValues& values, const Palette& palette, D2D1_COLOR_F fallback) {
+        return xui::style_foreground(values, palette, fallback);
+    }
     const wchar_t* symbol_font_family() const { return symbol_family_; }
     bool has_symbol(Symbol symbol) const;
     void symbol(Symbol symbol, Rect bounds, D2D1_COLOR_F color, float size = 16);
@@ -56,6 +75,14 @@ public:
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
     void surface_frame(Rect bounds, const Palette& palette);
+    void styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
+        D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness);
+    void styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
+        IDWriteTextLayout* label, bool focus_visible);
+    void styled_button(const Button& button, Rect bounds, const Palette& palette, bool enabled, bool focus_visible,
+        std::wstring_view label_override = {}, float trailing_space = 0, std::optional<bool> step_increment = {},
+        const PartStyleValues* inherited_defaults = nullptr, std::optional<Symbol> glyph_override = {});
+    void styled_label(const Label& label, Rect bounds, const Palette& palette, bool enabled);
     D2D1_COLOR_F check_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool mixed = false,
         bool hovered = false, bool pressed = false);
     D2D1_COLOR_F radio_indicator(Rect bounds, const Palette& palette, bool checked, bool enabled, bool hovered = false, bool pressed = false);
@@ -63,25 +90,41 @@ public:
     void scrollbar_thumb(Rect bounds, const Palette& palette, bool active, bool enabled = true);
     D2D1_COLOR_F button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
         bool enabled, bool hovered, bool pressed, bool checked);
+    D2D1_COLOR_F styled_button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
+        bool enabled, bool hovered, bool pressed, bool checked, const ButtonStyleValues& values);
     void line(float x1, float y1, float x2, float y2, D2D1_COLOR_F color, float thickness = 1);
     void icon(Rect bounds, D2D1_COLOR_F color, bool folder);
     void search_icon(Rect bounds, D2D1_COLOR_F color);
     void button_icon(Rect bounds, D2D1_COLOR_F color, ButtonIcon icon);
     void caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
-        bool active, bool enabled, bool hovered, bool pressed, bool focused);
+        bool active, bool enabled, bool hovered, bool pressed, bool focused,
+        const PartStyleValues* style = nullptr, const ButtonStyleValues* local = nullptr,
+        const PartStyleValues* icon_style = nullptr);
     void tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
         bool focus_visible, std::optional<Point> pointer = {});
     void heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F color);
     void text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool small_text = false);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout(std::wstring_view value, TextStyle style, Size& measured,
         float wrap_width = 0, std::size_t maximum_lines = 0);
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> styled_layout(std::wstring_view value, TextStyle fallback,
+        const PartStyleValues& values, Size& measured, float width = 0, std::size_t maximum_lines = 0);
+    void styled_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
+        const PartStyleValues& values, TextStyle fallback = TextStyle::body);
+    void private_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
+        const PartStyleValues& values, TextStyle fallback = TextStyle::body);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
     void cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool numeric);
     void item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink);
     void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered = false,
-        const std::shared_ptr<const ImagePixels>& pixels = {}, bool trailing_shortcut_badges = false, bool command_menu = false);
+        const std::shared_ptr<const ImagePixels>& pixels = {}, bool trailing_shortcut_badges = false, bool command_menu = false,
+        const VirtualCollection* owner = nullptr);
+    void styled_collection_row(const VirtualCollection& owner, const CollectionRow& row, bool selected, bool focused,
+        bool enabled, const Palette& palette, bool hovered, const std::shared_ptr<const ImagePixels>& pixels,
+        bool trailing_shortcut_badges, bool command_menu);
     void push_clip(Rect bounds);
     void pop_clip();
+    bool push_rounded_clip(Rect bounds, float radius);
+    void pop_rounded_clip();
     void origin(float x, float y);
     bool image(const std::shared_ptr<const ImagePixels>& pixels, Rect bounds);
     void keep_images(std::span<const std::uint64_t> ids);
@@ -105,6 +148,24 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format_, small_format_, heading_format_, subtitle_format_, strong_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> numeric_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> caption_format_;
+    struct StyledFormat {
+        TextStyle fallback{};
+        PartStyleValues typography;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
+    };
+    struct StyledLayout {
+        std::wstring text;
+        TextStyle fallback{};
+        PartStyleValues typography;
+        float width{};
+        std::size_t maximum_lines{};
+        Size measured{};
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    };
+    std::vector<StyledFormat> styled_formats_;
+    std::vector<StyledLayout> styled_layouts_;
+    std::size_t next_styled_format_{}, next_styled_layout_{};
+    IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values);
     Microsoft::WRL::ComPtr<IDWriteFontFace> symbol_face_;
     const wchar_t* symbol_family_{L""};
     DWRITE_FONT_METRICS symbol_font_metrics_{};
@@ -143,6 +204,12 @@ private:
         bool used{};
     };
     std::vector<SceneCache> scenes_;
+    struct RoundedClip {
+        Rect bounds;
+        float radius{};
+        Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> geometry;
+    };
+    std::vector<RoundedClip> rounded_clips_;
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> scene_stroke_;
     void erase_bitmap(std::size_t index);
 };

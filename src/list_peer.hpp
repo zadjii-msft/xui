@@ -43,7 +43,7 @@ private:
     void invalidate();
     void viewport();
     void changed();
-    void select_at(int y);
+    bool select_at(int x, int y);
     void pointer_down(LPARAM);
     void pointer_move(LPARAM);
     float width() const;
@@ -56,6 +56,7 @@ private:
     Palette palette_{};
     ScrollThumb thumb_{};
     std::optional<std::size_t> hovered_;
+    std::optional<Point> pointer_;
     bool hover_scrollbar_{}, dragging_{}, tracking_{};
     float drag_offset_{};
     int wheel_delta_{};

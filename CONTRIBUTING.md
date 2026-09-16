@@ -251,12 +251,121 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Control styling
+
+Build and run the focused style checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_styling_tests xui_styling_window_tests xui_abi_features_tests
+ctest --test-dir $build -C Release -R '^xui_(styling_tests|styling_window_tests|abi_features_tests)$' --output-on-failure
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --styling
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+.\bindings\dotnet\GeneratorTests\BuildTests.ps1
+```
+
+The presentation test requires `XUI_DESKTOP_TESTS=ON` for CTest registration.
+It checks actual Direct2D pixels, native editor identity, resource retention, and idle paints.
+
+For the Toggle pilot, run these additional focused checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_control_tests xui_control_styling_tests xui_styling_window_tests xui_abi_c_test xui_abi_features_tests
+ctest --test-dir $build -C Release -R '^xui_(control_tests|control_styling_tests|abi_c_test|abi_features_tests)$' --output-on-failure
+& ".\$build\Release\xui_styling_window_tests.exe" --toggle-only
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui control_styling::tests -- --test-threads=1
+```
+
+The Rust test binary requires the matching native library and import library.
+The Toggle presentation checks use native input, UIA, and owned-window rendering.
+The `--toggle-only` option excludes the historical Button benchmarks and lifetime cycles.
+Managed compiler and definition checks do not require an updated native library:
+
+```powershell
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Tests -c Release -- --styling-definitions
+cargo check --manifest-path bindings\rust\Cargo.toml --workspace --tests
+```
+
+Use `xui_styling_window_tests.exe --trace-resources` to investigate transient USER-object failures.
+Do not increase resource limits to hide an unexplained failure.
+
+After all builds and other desktop tests finish, run the separate styled workload:
+
+```powershell
+& ".\$build\Release\xui_styling_window_tests.exe" --benchmark
+```
+
+The benchmark reports styled and unstyled CPU time, latency, and resource counts.
+It does not replace a pristine baseline comparison.
+Record repeated samples, medians, absolute deltas, and interference.
+Do not report noisy results as performance acceptance.
+
+`tests\button_style_probe.cpp` also compiles against the pre-style headers.
+Use the same ARM64 or x64 Release library and compiler flags for both comparison executables.
+For an ARM64 developer shell:
+
+```powershell
+cl /nologo /std:c++20 /O2 /EHsc /MT /Iinclude tests\button_style_probe.cpp `
+    /Fo"$build\button-probe.obj" /Fe"$build\button-probe.exe" "$build\Release\xui_core.lib" psapi.lib /link /LTCG
+& ".\$build\button-probe.exe"
+```
+
+Preserve the pristine executable before rebuilding.
+Alternate pristine and changed runs without simultaneous builds or desktop tests.
+The [styling evidence](docs/llm/control-styling.md) describes the initial samples and their limitations.
+
+For a complete paired comparison, prepare both versions before reserving a quiet interval:
+
+```powershell
+.\tests\measure-button-styling.ps1 `
+    -BaselineDirectory "$build\baseline-build\Release" `
+    -ChangedDirectory "$build\Release" `
+    -BaselineProbe "$build\button-baseline.exe" `
+    -ChangedProbe "$build\button-final.exe" `
+    -BaselineCollections "$build\baseline\xui_performance_tests.exe" `
+    -OutputDirectory "$build\counterbalanced-comparison" -WindowPairs 6
+```
+
+The script performs no native builds or dependency restoration.
+It alternates execution order, requires foreground ownership, and records detected interference.
+It reports incomplete batches explicitly.
+Its eight-minute deadline prevents another phase from starting after the agreed interval.
+Individual test executables retain their own timeout guards.
+
 ### Binding generation and compatibility
 
 After a feature-header or manifest change, regenerate the declarations:
 
 ```powershell
 python bindings\generate_features.py
+```
+
+Normal `.xui` builds and managed style construction use checked-in catalogs.
+They do not load the native DLL to discover schemas.
+After a native schema change, build the exporter in the selected native build directory:
+
+```powershell
+cmake --build $build --config Release --target xui_style_catalog
+python bindings\generate_control_styles.py --native-executable "$build\Release\xui_style_catalog.exe"
+python bindings\generate_control_styles.py --native-executable "$build\Release\xui_style_catalog.exe" --check
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+```
+
+The executable exports exact schemas and limits through the public C ABI.
+Python does not load the target DLL into its own process.
+Thus, an ARM64 exporter does not require an ARM64 Python installation.
+The exporter also compiles exhaustive C/C++ identifier assertions.
+
+The portable generator tests compare the snapshot against managed and compiler catalogs.
+They exercise real managed definition validation with a native-load guard.
+If Python is available, CTest registers the read-only `xui_control_style_catalog_parity` check.
+That check compares the current DLL snapshot and all generated catalog files.
+
+To regenerate from the checked-in snapshot without native execution, run:
+
+```powershell
+python bindings\generate_control_styles.py
+python bindings\generate_control_styles.py --check
 ```
 
 The ARM64 integration scripts currently assume Visual Studio 2022 Preview at its standard installation path.

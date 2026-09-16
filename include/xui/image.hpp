@@ -43,6 +43,10 @@ public:
     ImageStatus status() const { return status_; }
     const std::wstring& error() const { return error_; }
     std::uint64_t revision() const { return revision_; }
+    Rect content_bounds() const;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::image; }
+    StyleStateMask control_style_state_bits() const override;
 private:
     friend struct ImagePeer;
     void publish(ImageStatus status, std::wstring error = {});

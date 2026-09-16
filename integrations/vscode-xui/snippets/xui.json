@@ -28,6 +28,109 @@
     "body": "state ${1:int} ${2:Count} = ${3:0};",
     "description": "Component state with a C# initializer"
   },
+  "Color resources": {
+    "prefix": "resources",
+    "body": [
+      "resources {",
+      "\t${1:DangerFill}: theme(light: ${2:0xB42318}, dark: ${3:0x8F1D16});",
+      "\t$0",
+      "}"
+    ],
+    "description": "Component color resources with light and dark values"
+  },
+  "Button style": {
+    "prefix": "style",
+    "body": [
+      "style ${1:DangerButton} for Button {",
+      "\tbackground: resource(${2:DangerFill});",
+      "\tcornerRadius: 0;",
+      "\tborderThickness: (3, 0, 0, 0);",
+      "\t$0",
+      "}"
+    ],
+    "description": "Named sparse Button style"
+  },
+  "Style state": {
+    "prefix": "when",
+    "body": ["when ${1:hovered} {", "\tbackground: resource(${2:DangerHover});", "\t$0", "}"],
+    "description": "Style state override on a part that supports background"
+  },
+  "Derived Button style": {
+    "prefix": "stylebasedon",
+    "body": [
+      "style ${1:CompactDanger} for Button basedOn ${2:DangerButton} {",
+      "\tpadding: (8, 2, 8, 2);",
+      "\t$0",
+      "}"
+    ],
+    "description": "Sparse Button style derived from a declared base style"
+  },
+  "Styled Button": {
+    "prefix": "styledbutton",
+    "body": "Button(\"${1:Delete}\", style: ${2:DangerButton});",
+    "description": "Button with a declared named style"
+  },
+  "Toggle style": {
+    "prefix": "togglestyle",
+    "body": [
+      "style ${1:CompactToggle} for Toggle {",
+      "\tforeground: theme(light: 0x202020, dark: 0xEEEEEE);",
+      "\tpart indicator {",
+      "\t\tbackground: theme(light: 0xEEEEEE, dark: 0x202020);",
+      "\t\tborderBrush: 0x777777;",
+      "\t\tborderThickness: 1;",
+      "\t\tcornerRadius: 3;",
+      "\t\tsize: 18;",
+      "\t\twhen checked { background: 0x2468AD; }",
+      "\t}",
+      "\tpart mark { foreground: 0xFFFFFF; }",
+      "\twhen disabled { foreground: 0x888888; }",
+      "\t$0",
+      "}"
+    ],
+    "description": "Toggle style with an indicator, check mark, and state overrides"
+  },
+  "Styled Toggle": {
+    "prefix": "styledtoggle",
+    "body": "Toggle(\"${1:Active}\", style: ${2:CompactToggle});",
+    "description": "Toggle with a declared named style"
+  },
+  "Control style": {
+    "prefix": "controlstyle",
+    "body": [
+      "style ${1:Heading} for ${2:Label} {",
+      "\tforeground: ${3:0x202020};",
+      "\t$0",
+      "}"
+    ],
+    "description": "Named style for a supported catalog target"
+  },
+  "Style part": {
+    "prefix": "part",
+    "body": ["part ${1:label} {", "\tforeground: ${2:0x202020};", "\t$0", "}"],
+    "description": "Direct style part with a supported foreground property"
+  },
+  "Typography style": {
+    "prefix": "typographystyle",
+    "body": [
+      "style ${1:Heading} for Label {",
+      "\tfontFamily: \"Segoe UI\";",
+      "\tfontSize: 20;",
+      "\tfontWeight: 600;",
+      "\tfontStyle: normal;",
+      "\thorizontalAlignment: start;",
+      "\twrapping: true;",
+      "\tmaximumLines: 2;",
+      "\t$0",
+      "}"
+    ],
+    "description": "Label typography style, applicable with Text or Content"
+  },
+  "Styled content": {
+    "prefix": "styledcontent",
+    "body": "Content(${1:ExistingElement}, style: ${2:Heading});",
+    "description": "Apply a named generic style to an existing element of the matching target"
+  },
   "View": {
     "prefix": "view",
     "body": ["view {", "\t$0", "}"],

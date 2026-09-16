@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
@@ -379,8 +380,22 @@ void native_tests(const std::filesystem::path& fixture, bool text_only = false) 
                 require(submits == 0, "Typing does not navigate");
                 require(Drawing::live_targets() == 1, "Popup creates no D2D target");
                 RECT a{}, p{}; GetWindowRect(edit, &a); GetWindowRect(popup, &p);
-                require(p.left == a.left - MulDiv(12, GetDpiForWindow(edit), 96) &&
-                    p.top == a.bottom + MulDiv(10, GetDpiForWindow(edit), 96), "Popup aligns with the full native input field");
+                const auto bounds = input->bounds();
+                const auto dpi = GetDpiForWindow(edit);
+                const auto scale = dpi / 96.0f;
+                POINT field_bottom{static_cast<LONG>(std::lround(bounds.x * scale)),
+                    static_cast<LONG>(std::lround((bounds.y + bounds.height) * scale))};
+                require(ClientToScreen(host, &field_bottom) != FALSE, "Map the full input field to screen coordinates");
+                if (p.left != field_bottom.x || p.top != field_bottom.y) {
+                    std::cerr << "Suggestion geometry: edit=" << a.left << ',' << a.top << ',' << a.right << ',' << a.bottom
+                        << " popup=" << p.left << ',' << p.top << ',' << p.right << ',' << p.bottom
+                        << " input=" << bounds.x << ',' << bounds.y << ',' << bounds.width << ',' << bounds.height
+                        << " expected_anchor=" << field_bottom.x << ',' << field_bottom.y
+                        << " caption_extent=" << input->caption_extent() << " dpi=" << dpi << '\n';
+                }
+                require(p.left == field_bottom.x && p.top == field_bottom.y &&
+                    p.left == a.left - MulDiv(12, dpi, 96) && p.top >= a.bottom + MulDiv(10, dpi, 96),
+                    "Popup aligns with the full native input field");
             });
             PostMessageW(edit, WM_KEYDOWN, VK_DOWN, 0);
             PostMessageW(edit, WM_KEYDOWN, VK_TAB, 0);

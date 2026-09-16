@@ -4,8 +4,10 @@ The `.xui` language describes a retained control tree with C# state and behavior
 The compiler generates C# that uses the existing XUI bindings.
 It does not add a runtime parser, virtual tree, or reconciler.
 
-The initial implementation supports fixed compositions.
-It does not support arbitrary dynamic children, custom row templates, or a complete styling language.
+The implementation supports fixed compositions.
+It supports named control styles, named visual parts, state rules, typography, and color resources.
+The [control inventory](control-styling-inventory.md) describes the available presentation surfaces.
+It does not support arbitrary dynamic children, control templates, or custom row templates.
 The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
 
 ## Author a component
@@ -40,7 +42,8 @@ The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextI
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.
-Arguments use C# expressions.
+Most arguments use C# expressions.
+Style arguments use the bounded style syntax described below.
 
 All nodes support `ref: Identifier`, `size: (width, height)`, and `preferredSize: (width, height)`.
 Size values use DIPs.
@@ -69,6 +72,242 @@ Its `searchId` and `searchHelp` arguments configure the native search input.
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
+
+<a id="declare-button-styles-and-resources"></a>
+
+## Declare control styles and resources
+
+Resources and named styles belong directly inside a component:
+
+```text
+component DangerActions {
+    resources {
+        DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
+        OnDangerFill: 0xFFFFFF;
+        DangerEdge: theme(light: 0x68110C, dark: 0xFFA198);
+        DangerHover: theme(light: 0xD92D20, dark: 0xB42318);
+        DisabledFill: theme(light: 0xD0D5DD, dark: 0x475467);
+        DestructiveFill: resource(DangerFill);
+    }
+
+    style DangerButton for Button {
+        background: resource(DangerFill);
+        foreground: resource(OnDangerFill);
+        cornerRadius: 0;
+        borderBrush: resource(DangerEdge);
+        borderThickness: (3, 0, 0, 0);
+        when hovered { background: resource(DangerHover); }
+        when disabled { background: resource(DisabledFill); }
+    }
+
+    view {
+        VStack() {
+            Button("Delete", style: DangerButton);
+        }
+    }
+}
+```
+
+The sample `DeclarativeSample\Counter.xui` includes this Delete button beside the existing counter controls.
+The button demonstrates appearance and does not delete data.
+
+### Grammar
+
+The following grammar describes the style structure.
+The exported catalog restricts each target, part, property, state, and value combination.
+`Identifier` uses the same identifier syntax as other XUI names.
+Brackets mark optional syntax, and braces after `=` mark repetition.
+Quoted braces are literal delimiters.
+
+```text
+Resources   = "resources" "{" { Identifier ":" Color ";" } "}"
+Style       = "style" Identifier "for" Target [ "basedOn" Identifier ]
+              "{" { Property | Rule | Part } "}"
+Part        = "part" PartName "{" { Property | Rule } "}"
+Rule        = "when" State "{" { Property } "}"
+Property    = PropertyName ":" Value ";"
+Color       = Rgb24
+            | "theme" "(" "light" ":" Rgb24 "," "dark" ":" Rgb24 ")"
+            | "resource" "(" Identifier ")"
+Insets      = Dimension | "(" Dimension "," Dimension "," Dimension "," Dimension ")"
+```
+
+`Target`, `PartName`, `State`, and `PropertyName` must match the supported catalog names.
+`Value` must match the property's type and the part's limits.
+Targets use case-sensitive PascalCase names, such as `TextInput`, `ItemsView`, and `NavigationView`.
+Part, property, and state names use lower camel case.
+The target aliases are `Text` for `Label` and `VStack` or `HStack` for `Stack`.
+The [style contract](control-styling.md) describes shared behavior and target-specific boundaries.
+Root and part rules accept only states that the corresponding native model supplies.
+Support for a property and a state does not imply support for that property inside the state rule.
+For example, `ItemsView` accepts base `tile.width`, but rejects `tile.width` in every state rule.
+Parts cannot contain other parts.
+State blocks cannot contain parts.
+Generic styles reject duplicate parts and duplicate state blocks within one part.
+The root is implicit, so `part root` is invalid.
+Base and derived styles must target the same control type.
+Per-part local values use the C++, C ABI, C#, or Rust setter.
+Style-value and part-rule edits update the method-body revision for hot reload.
+They preserve the existing control tree.
+
+The compiler accepts the Element-applicable targets in the [exported catalog](../../bindings/control_style_catalog.json).
+Tooltip declarations reject because tooltips require the Window API.
+`ContentDialog`, `CommandSurface`, `LocationPicker`, and `ViewPicker` are facades, not style targets.
+Their root styles use `Popup`.
+Retained children use their actual control targets.
+
+### Property values
+
+The catalog determines which properties each target and part accept.
+This vocabulary does not imply that every property applies to every part.
+
+| Properties | Value syntax |
+| --- | --- |
+| `background`, `foreground`, `borderBrush` | RGB24 integer, `resource(Name)`, or `theme(light: RGB24, dark: RGB24)` |
+| `padding`, `borderThickness` | One dimension or four dimensions in left, top, right, bottom order |
+| `fontFamily` | Nonempty C# string literal with valid Unicode and no NUL |
+| `fontSize` | Positive numeric literal, limited by the part |
+| `fontWeight` | Integer literal from 1 through 999 |
+| `fontStyle` | Bare `normal`, `italic`, or `oblique`, limited by the part |
+| `horizontalAlignment`, `verticalAlignment` | Bare `start`, `center`, `end`, or `stretch`, limited by the part |
+| `wrapping` | `true` or `false` |
+| `maximumLines` | Integer literal from 0 through 32768 |
+| `cornerRadius`, `size`, `spacing`, `headerHeight`, `indentation`, `thickness`, `width`, `height`, `rowGap`, `columnGap` | Dimension |
+| `rowHeight` | Positive dimension |
+
+Font families have a maximum length of 1024 UTF-8 bytes and must also fit the part's UTF-16 limit.
+Native text parts restrict font size to 512 DIPs and family length to 31 UTF-16 code units.
+Those native parts accept normal or italic fonts, not oblique.
+Paragraph parts reject vertical stretch.
+Supported layout parts can accept stretch.
+Enum values are unquoted names, not strings or C# enum expressions.
+
+`Rgb24` is an integer literal from `0x000000` through `0xFFFFFF`.
+Hexadecimal values use `0xRRGGBB`, not alpha or COLORREF byte order.
+Decimal and other C# integer literal forms are also valid within that range.
+`Dimension` is a finite numeric literal from 0 through 32768 DIPs.
+Negative values, arithmetic expressions, state references, and method calls are not style values.
+Insets use left, top, right, bottom order.
+A single dimension applies to all four edges.
+Parenthesized expressions, named tuple elements, and two-value inset shorthand are not supported.
+
+The `theme(light: ..., dark: ...)` order is fixed.
+This explicit pair keeps light and dark values together without separate theme blocks or ambiguous override order.
+It also permits each resource alias to identify one complete color.
+The generator preserves both colors in `ThemeColor`.
+The native renderer selects the active theme at paint time.
+The generator does not read the current theme or freeze the color during construction.
+
+All `resources` blocks in one component form one color scope.
+Resource names are case-sensitive and must be unique within that scope.
+Aliases and style properties can refer to resources declared later in the component.
+The compiler checks every resource, including unused resources.
+Cross-component resources, mutable resource dictionaries, and other resource types are not supported.
+
+### Sparse values, derivation, and local properties
+
+A style sets only its declared properties.
+An omitted property remains absent, not zero.
+Explicit zero therefore differs from an omitted corner radius, inset, or black color.
+State rules also contain sparse values.
+Repeated properties within the same style body or rule are errors.
+Legacy Button declarations permit repeated state blocks and retain their declaration order.
+Generic declarations reject duplicate state blocks.
+Rules cannot contain other rules.
+
+A derived style names its base after `for Button`:
+
+```text
+style CompactDanger for Button basedOn DangerButton {
+    padding: (8, 2, 8, 2);
+    when pressed { background: 0x68110C; }
+}
+```
+
+Base styles can appear later in the component.
+Style names must be unique and cannot conflict with generated members, state, parameters, references, or methods.
+Resources and styles have separate name scopes.
+The compiler rejects missing base styles and inheritance cycles.
+
+Native nodes accept a declared style name in `style: Identifier`.
+The supported nodes are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, and `Content`.
+The style target must match the node.
+Other supported targets use `Content(existingElement, style: NamedStyle)`, without a new constructor syntax.
+Native attachment checks the actual target of that existing element.
+`Content` requires a named style before it accepts local style properties.
+Legacy Button styles require a `Button` node, not `Content`.
+
+Style names are XUI references, not fields available inside `code csharp`.
+A Button also accepts the six foundation properties directly as named arguments:
+
+```text
+Button("Delete", style: DangerButton, padding: (8, 2, 8, 2), cornerRadius: 0);
+Button("Local only", background: resource(DangerFill), foreground: 0xFFFFFF);
+```
+
+Local properties use the same constant syntax as style properties.
+Legacy Button properties produce sparse `Button.StyleValues`, separate from `Button.Style`.
+Parts or extended properties select generic `ControlStyle` definitions.
+Generic local properties use the root part's supported property set.
+The native engine resolves local overrides, state rules, base styles, and defaults.
+
+The node argument `size: (width, height)` remains structural size, not the scalar style property `size`.
+Button scalar `size` belongs only to its supported icon and arrow parts.
+Stack node arguments `padding` and `spacing` remain structural float setters and override style values.
+Omitted Stack arguments leave style values available.
+Explicit zero overrides them.
+Padding inside a style declaration still accepts four-edge insets.
+
+```xui
+style Heading for Label {
+    foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+    fontFamily: "Segoe UI";
+    fontSize: 20;
+    fontWeight: 600;
+    wrapping: true;
+    maximumLines: 2;
+}
+style Panel for Stack { padding: 12; spacing: 8; }
+```
+
+`Text("Title", style: Heading)` and `VStack(style: Panel)` apply these declarations inside the component's view.
+These declarations do not replace the controls or their input behavior.
+
+The [style contract](control-styling.md) describes that precedence and the native rendering boundaries.
+This stage does not change control ownership, events, keyboard behavior, accessibility, or the control tree.
+It does not implement `ItemTemplate`, control templates, implicit styles, arbitrary selectors, or state expressions.
+
+### Bounds and diagnostics
+
+A component supports at most 256 color resources.
+A style supports at most 256 rules.
+Style inheritance supports at most 16 layers, including the applied style.
+Resource aliases can traverse the bounded component scope but cannot form a cycle.
+The compiler checks unused styles and resources as well as referenced declarations.
+
+Invalid declarations produce `XUI001` at the `.xui` source location and a mapped C# error that blocks the build.
+These errors include duplicate names, missing references, cycles, unsupported targets, properties, states, invalid literal types, and values outside the limits.
+Invalid inset lengths, duplicate properties, and excess resources, rules, or inheritance layers also block the build.
+General control expressions outside the style subset retain their existing C# diagnostics.
+
+### Shared definitions and reload
+
+The generated class shares immutable style definitions across its component instances.
+The managed binding creates native handles for each owning window.
+Components without named styles do not allocate a style cache.
+
+Edits to existing colors, aliases, properties, state rules, base-style references, and applied style references can update existing controls.
+The generated cache checks a revision from a method body during refresh.
+A changed revision creates new shared definitions and applies them to the existing elements.
+Unchanged definitions do not trigger another native style assignment.
+Local value edits update the existing local override binding.
+These refreshes preserve component state, input state, event subscriptions, and control ownership.
+
+Resource and style declaration names and order belong to the structural signature.
+Adding, deleting, renaming, or reordering those declarations requires replacement.
+Adding or removing a style binding or local property also requires replacement.
+This prevents a removed property from remaining on a retained element.
+The general runtime restrictions in [reload behavior](#understand-reload-behavior) still apply.
 
 ## Reuse a component
 

@@ -36,6 +36,126 @@ internal static class FeatureTests
         using (var source = window.ImmutableSource(data)) items.SetSource(source);
         return new(data);
     }
+    internal static void NavigationStyleBridges()
+    {
+        using var w = new Window(customTitlebar: true);
+        var navigation = w.NavigationView("Navigation");
+        var pane = w.NavigationPane("Query");
+        (Element Child, StyleTarget Target)[] children = [
+            (w.Titlebar, StyleTarget.TitleBar), (w.TitlebarTitle, StyleTarget.Label),
+            (w.TitlebarMinimize, StyleTarget.Button), (w.TitlebarMaximize, StyleTarget.Button),
+            (w.TitlebarClose, StyleTarget.Button), (navigation.Search, StyleTarget.TextInput),
+            (navigation.ToggleButton, StyleTarget.Button), (navigation.Items, StyleTarget.NavigationList),
+            (navigation.HeaderItems, StyleTarget.NavigationList), (navigation.FooterItems, StyleTarget.NavigationList),
+            (navigation.Title, StyleTarget.Label), (navigation.EmptyMessage, StyleTarget.Label),
+            (pane.Group, StyleTarget.Expander), (pane.Progress, StyleTarget.Progress)
+        ];
+        foreach (var (child, target) in children)
+        {
+            child.SetControlStyle(new ControlStyle(target, [new(StylePart.Root, new() { Background = new ThemeColor(0x123456) })]));
+            child.SetControlStyleValues(StylePart.Root, new() { Background = new ThemeColor(0x654321) });
+            child.SetControlStyle(null);
+            Expect(child.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x654321));
+            child.SetControlStyleValues(StylePart.Root, new());
+        }
+        Expect(ReferenceEquals(w.Titlebar, w.Titlebar) && ReferenceEquals(navigation.Items, navigation.Items));
+        int captions = 0;
+        Action captionClick = () => ++captions;
+        w.TitlebarMinimize.Click += captionClick;
+        w.TitlebarMinimize.Click += captionClick;
+        w.TitlebarMinimize.Invoke(); Expect(captions == 2);
+        w.TitlebarMinimize.Click -= captionClick; w.TitlebarMinimize.Click -= captionClick;
+        w.TitlebarMinimize.Invoke(); Expect(captions == 2);
+        Expect(ReferenceEquals(pane.Group, pane.Group) && ReferenceEquals(pane.Progress, pane.Progress));
+        int toggles = 0;
+        Action toggleClick = () => ++toggles;
+        navigation.ToggleButton.Click += toggleClick;
+        navigation.ToggleButton.Click += toggleClick;
+        var expanded = navigation.Expanded;
+        navigation.ToggleButton.Invoke();
+        Expect(navigation.Expanded != expanded && toggles == 2);
+        navigation.ToggleButton.Click -= toggleClick;
+        navigation.ToggleButton.Click -= toggleClick;
+        navigation.ToggleButton.Invoke();
+        Expect(navigation.Expanded == expanded && toggles == 2);
+
+        var breadcrumb = w.Breadcrumb("Path").SetSegments([new(10, "Root", Version: 7), new(20, "Leaf", Version: 9)]);
+        var segment = breadcrumb.SegmentButton(new(20, 9));
+        Expect(ReferenceEquals(segment, breadcrumb.SegmentButton(new(20, 9))));
+        ulong navigated = 0; int segments = 0;
+        breadcrumb.Event += e => navigated = e.Value;
+        Action segmentClick = () => ++segments;
+        segment.Click += segmentClick;
+        segment.Invoke(); Expect(navigated == 20 && segments == 1);
+        breadcrumb.SetSegments([new(20, "Renamed leaf", Version: 9), new(10, "Root", Version: 7)]);
+        segment.Invoke(); Expect(navigated == 20 && segments == 2);
+        Expect(ReferenceEquals(segment, breadcrumb.SegmentButton(new(20, 9))));
+        segment.Click -= segmentClick;
+        navigated = 0; segment.Invoke(); Expect(navigated == 20 && segments == 2);
+        Fails(() => breadcrumb.SegmentButton(new(20, 8)));
+        _ = breadcrumb.OverflowButton;
+        segment.Click += segmentClick;
+        breadcrumb.SetSegments([new(20, "Replacement", Version: 10)]);
+        navigated = 0;
+        Fails(segment.Invoke); Expect(navigated == 0 && segments == 2);
+        segment.Click -= segmentClick; segment.Click += segmentClick;
+        Fails(segment.Invoke); Expect(navigated == 0 && segments == 2);
+        Fails(() => breadcrumb.SegmentButton(new(20, 9)));
+        Expect(!ReferenceEquals(segment, breadcrumb.SegmentButton(new(20, 10))));
+
+        var bar = w.CommandBar("Commands").SetCommands([new(42, "Checked", Checked: true)]);
+        var button = bar.CommandButton(42);
+        _ = bar.OverflowButton;
+        button.SetControlStyleValues(StylePart.Root, new() { Background = new ThemeColor(0x123456) });
+        int actions = 0, clicks = 0;
+        bar.Event += e => { Expect(e.Value == 42); ++actions; };
+        Action click = () => ++clicks;
+        button.Click += click;
+        foreach (var state in new bool?[] { true, null, false, true })
+        {
+            bar.SetCommands([new(42, "Refreshed", Checked: state)]);
+            var previousActions = actions; var previousClicks = clicks;
+            button.Invoke();
+            Expect(actions == previousActions + 1 && clicks == previousClicks + 1 && button.IsChecked() == (state == true));
+            Expect(ReferenceEquals(button, bar.CommandButton(42)));
+            button.Click -= click;
+            button.Invoke(); Expect(actions == previousActions + 2 && clicks == previousClicks + 1);
+            button.Click += click;
+            Expect(button.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x123456));
+        }
+        button.Click += click;
+        var before = clicks;
+        bar.SetCommands([new(42, "Momentary")]); button.Invoke(); Expect(clicks == before + 2);
+        button.Click -= click; button.Click -= click;
+        foreach (var state in new bool?[] { true, null, false })
+        {
+            bar.SetCommands([new(42, "Unsubscribed", Checked: state)]);
+            var previousActions = actions; var previousClicks = clicks;
+            button.Invoke();
+            Expect(actions == previousActions + 1 && clicks == previousClicks && button.IsChecked() == (state == true));
+            Expect(ReferenceEquals(button, bar.CommandButton(42)));
+            Expect(button.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x123456));
+        }
+        Fails(() => bar.CommandButton(99));
+        Task.Run(() => Fails(() => bar.CommandButton(42))).GetAwaiter().GetResult();
+        w.SetVisualStyle(VisualStyle.WinUI);
+        Expect(ReferenceEquals(button, bar.CommandButton(42)));
+        button.Click += click;
+        var retiredActions = actions; var retiredClicks = clicks;
+        bar.SetCommands([]);
+        Fails(button.Invoke); Expect(actions == retiredActions && clicks == retiredClicks);
+        bar.SetCommands([new(42, "Disabled replacement", Enabled: false)]);
+        var replacement = bar.CommandButton(42);
+        Expect(!ReferenceEquals(button, replacement));
+        int replacementClicks = 0;
+        replacement.Click += () => ++replacementClicks;
+        button.Click -= click; button.Click += click;
+        Fails(button.Invoke); Fails(replacement.Invoke);
+        Expect(actions == retiredActions && clicks == retiredClicks && replacementClicks == 0);
+        bar.SetCommands([new(42, "Enabled replacement")]);
+        Fails(button.Invoke); replacement.Invoke();
+        Expect(actions == retiredActions + 1 && clicks == retiredClicks && replacementClicks == 1);
+    }
     private static void MillerContracts()
     {
         using var window = new Window();
@@ -92,6 +212,7 @@ internal static class FeatureTests
 
     internal static void Run()
     {
+        NavigationStyleBridges();
         MillerContracts();
         VisualTests.Run();
         ExplorerPrimitives();
@@ -163,7 +284,48 @@ internal static class FeatureTests
             var date = w.DateTimePicker("Date", DateTimePresentation.Calendar); date.Value = new DateTime(2028, 2, 29, 12, 34, 56); Expect(date.Value.Day == 29);
             var status = w.InlineStatus("Status"); status.Dismissible = true; status.SetMessage("Done", StatusSeverity.Success); status.Dismiss(); status.Show();
             var color = w.ColorPicker("Color"); color.Value = new(1, 2, 3, 4); Expect(color.Value == new RgbaColor(1, 2, 3, 4));
+            Expect(w.ComboBox("Noneditable").Editor is null && combo.Editor is not null);
+            Expect(ReferenceEquals(combo.Editor, combo.Editor) && ReferenceEquals(combo.Choices, combo.Choices));
+            Expect(ReferenceEquals(number.Editor, number.Editor) && ReferenceEquals(number.IncreaseButton, number.IncreaseButton));
+            Expect(ReferenceEquals(color.Channel(0), color.Channel(0)) && ReferenceEquals(color.SwatchButton(2), color.SwatchButton(2)));
+            Fails(() => color.SwatchButton(5));
+            int channelChanges = 0, stepClicks = 0;
+            var red = color.Channel(0);
+            red.OnChange(_ => ++channelChanges);
+            red.OnChange(_ => ++channelChanges);
+            red.IncreaseButton.Click += () => ++stepClicks;
+            red.IncreaseButton.Click += () => ++stepClicks;
+            red.ChangeValue(21);
+            Expect(color.Value == new RgbaColor(21, 2, 3, 4) && channelChanges == 2);
+            red.IncreaseButton.Invoke();
+            Expect(color.Value == new RgbaColor(22, 2, 3, 4) && channelChanges == 4 && stepClicks == 2);
+            int swatchClicks = 0;
+            color.SwatchButton(2).Click += () => ++swatchClicks;
+            color.SwatchButton(2).Click += () => ++swatchClicks;
+            color.SwatchButton(2).Invoke();
+            Expect(color.Value == new RgbaColor(220, 45, 45) && swatchClicks == 2);
             var dialog = w.ContentDialog("Dialog", w.Stack()); dialog.SetValidationMessage("Required"); dialog.SetValidationMessage("");
+            Expect(ReferenceEquals(dialog.Title, dialog.Title) && ReferenceEquals(dialog.Body, dialog.Body));
+            Expect(ReferenceEquals(surface.Menu, surface.Menu) && ReferenceEquals(location.Toolbar, location.Toolbar));
+            Element[] retained = [dialog.Title, dialog.Validation, dialog.Body, dialog.Footer,
+                surface.Editor, surface.Title, surface.Status, surface.CloseButton, surface.Content, surface.Results, surface.Menu,
+                location.Content, location.Footer, location.Toolbar, view.Content, pane.Status, pane.Content,
+                combo.Editor!, combo.Popup, combo.Choices, number.Editor, number.DecreaseButton, number.IncreaseButton,
+                status.ActionButton, status.DismissButton, color.Channel(0), color.Channel(1), color.Channel(2), color.Channel(3)];
+            foreach (var child in retained)
+            {
+                child.SetControlStyleValues(StylePart.Root, new() { Background = new ThemeColor(0x123456) });
+                child.SetControlStyle(null);
+                Expect(child.GetControlStyleValues(StylePart.Root, true).Background == new ThemeColor(0x123456));
+                child.SetControlStyleValues(StylePart.Root, new());
+                Expect(child.GetControlStyleValues(StylePart.Root).Background is null);
+            }
+            int closeClicks = 0;
+            surface.CloseButton.Click += () => ++closeClicks;
+            surface.CloseButton.Invoke();
+            surface.CloseButton.Click += () => ++closeClicks;
+            surface.CloseButton.Invoke();
+            Expect(closeClicks == 3);
             var canvas = w.VectorCanvas("Scene"); canvas.SetScene([new VectorShape(1, [new(0,0),new(40,0),new(40,40)], "Triangle", true, true)]);
             var map = w.MapView("Map"); map.SetView(new(47, -122), 3); map.SetMarkers([new(1, new(47,-122), "Here")]); Expect(map.View.Zoom == 3);
             using var stale = map.RequestOverlay(); using var current = map.RequestOverlay(); Fails(() => stale.Complete([])); current.Complete([]);

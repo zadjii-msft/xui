@@ -170,6 +170,8 @@ public:
             const auto scale = GetDpiForWindow(s.window) / 96.0f;
             rect.left += static_cast<LONG>(std::lround(s.split_left * scale));
             rect.right = rect.left + static_cast<LONG>(std::lround(s.split_width * scale));
+            rect.top += static_cast<LONG>(std::lround(s.split_top * scale));
+            rect.bottom = rect.top + static_cast<LONG>(std::lround(s.split_height * scale));
         }
         if (root_) {
             for (std::size_t i = 0; i < s.tabs.size(); ++i) if (s.tabs[i].id == id_ && s.tab_edges.size() > 2 * i + 1) {
