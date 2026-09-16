@@ -1,5 +1,6 @@
 #include "control_accessibility.hpp"
 #include "xui/map_view.hpp"
+#include "xui/miller_columns.hpp"
 #include "xui/image.hpp"
 #include "xui/foundation.hpp"
 #include "xui/documents.hpp"
@@ -248,7 +249,7 @@ public:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (id == UIA_ScrollPatternId && snapshot.role == ControlRole::scroll_view)
+            if (id == UIA_ScrollPatternId && (snapshot.role == ControlRole::scroll_view || snapshot.horizontal_scroll))
                 *value = static_cast<IScrollProvider*>(this);
             if (id == UIA_ScrollItemPatternId && root_)
                 *value = static_cast<IScrollItemProvider*>(this);
@@ -318,10 +319,12 @@ public:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if (!snapshot.enabled) return UIA_E_ELEMENTNOTENABLED;
-            if (horizontal != ScrollAmount_NoAmount) return UIA_E_INVALIDOPERATION;
-            if (vertical == ScrollAmount_NoAmount) return S_OK;
+            const auto amount = snapshot.horizontal_scroll ? horizontal : vertical;
+            const auto other = snapshot.horizontal_scroll ? vertical : horizontal;
+            if (other != ScrollAmount_NoAmount) return UIA_E_INVALIDOPERATION;
+            if (amount == ScrollAmount_NoAmount) return S_OK;
             if (snapshot.scroll_extent <= snapshot.viewport_height) return UIA_E_INVALIDOPERATION;
-            switch (vertical) {
+            switch (amount) {
             case ScrollAmount_SmallDecrement: return send(snapshot, 2);
             case ScrollAmount_SmallIncrement: return send(snapshot, 3);
             case ScrollAmount_LargeDecrement: return send(snapshot, 4);
@@ -335,11 +338,13 @@ public:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if (!snapshot.enabled) return UIA_E_ELEMENTNOTENABLED;
-            if (horizontal != UIA_ScrollPatternNoScroll) return UIA_E_INVALIDOPERATION;
-            if (vertical == UIA_ScrollPatternNoScroll) return S_OK;
-            if (!std::isfinite(vertical) || vertical < 0 || vertical > 100) return E_INVALIDARG;
+            const auto percent = snapshot.horizontal_scroll ? horizontal : vertical;
+            const auto other = snapshot.horizontal_scroll ? vertical : horizontal;
+            if (other != UIA_ScrollPatternNoScroll) return UIA_E_INVALIDOPERATION;
+            if (percent == UIA_ScrollPatternNoScroll) return S_OK;
+            if (!std::isfinite(percent) || percent < 0 || percent > 100) return E_INVALIDARG;
             if (snapshot.scroll_extent <= snapshot.viewport_height) return UIA_E_INVALIDOPERATION;
-            return send(snapshot, 1000 + static_cast<LPARAM>(std::lround(vertical * 100)));
+            return send(snapshot, 1000 + static_cast<LPARAM>(std::lround(percent * 100)));
         });
     }
     HRESULT STDMETHODCALLTYPE get_HorizontalScrollPercent(double* value) override { return number(value, 0); }
@@ -459,9 +464,11 @@ private:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             const bool scrolls = snapshot.scroll_extent > snapshot.viewport_height;
-            *value = property == 0 ? UIA_ScrollPatternNoScroll : property == 2 ? 100.0 :
-                property == 3 ? (scrolls ? snapshot.viewport_height * 100 / snapshot.scroll_extent : 100.0) :
-                scrolls ? snapshot.scroll_offset * 100 / (snapshot.scroll_extent - snapshot.viewport_height) : UIA_ScrollPatternNoScroll;
+            const bool matching_axis = (property % 2 == 0) == snapshot.horizontal_scroll;
+            *value = property >= 2 ?
+                (matching_axis && scrolls ? snapshot.viewport_height * 100 / snapshot.scroll_extent : 100.0) :
+                (matching_axis && scrolls ? snapshot.scroll_offset * 100 /
+                    (snapshot.scroll_extent - snapshot.viewport_height) : UIA_ScrollPatternNoScroll);
             return S_OK;
         });
     }
@@ -470,7 +477,8 @@ private:
         *value = FALSE;
         std::lock_guard lock(state_->mutex);
         if (!state_->snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-        *value = vertical && state_->snapshot.scroll_extent > state_->snapshot.viewport_height;
+        *value = vertical != state_->snapshot.horizontal_scroll &&
+            state_->snapshot.scroll_extent > state_->snapshot.viewport_height;
         return S_OK;
     }
     HRESULT available() {
@@ -592,6 +600,12 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.scroll_extent = scroll.extent();
         next.viewport_height = scroll.viewport().height;
     }
+    if (const auto* columns = dynamic_cast<const MillerColumns*>(&control)) {
+        next.horizontal_scroll = true;
+        next.scroll_offset = columns->horizontal_offset();
+        next.viewport_height = columns->bounds().width;
+        next.scroll_extent = columns->maximum_horizontal() + next.viewport_height;
+    }
     if (const auto tabs = dynamic_cast<const TabStrip*>(&control)) {
         next.tabs = tabs->tabs();
         next.selected_tab = tabs->selected();
@@ -661,13 +675,14 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         raise_workspace_changes(provider, previous, read(state));
         return;
     }
-    if (control.role() == ControlRole::content_view) return;
-    if (control.role() == ControlRole::scroll_view) {
+    const auto current = read(state);
+    if (control.role() == ControlRole::content_view && !current.horizontal_scroll) return;
+    if (control.role() == ControlRole::scroll_view || current.horizontal_scroll) {
         name_event(provider, previous.name, control.role() == ControlRole::image ? read(state).name : control.name());
-        const auto& scroll = static_cast<const ScrollView&>(control);
+        const double maximum = current.scroll_extent - current.viewport_height;
         const double before = previous.scroll_extent > previous.viewport_height ?
             previous.scroll_offset * 100 / (previous.scroll_extent - previous.viewport_height) : UIA_ScrollPatternNoScroll;
-        const double after = scroll.maximum_offset() > 0 ? scroll.offset() * 100 / scroll.maximum_offset() : UIA_ScrollPatternNoScroll;
+        const double after = maximum > 0 ? current.scroll_offset * 100 / maximum : UIA_ScrollPatternNoScroll;
         const auto number_event = [&](PROPERTYID property, double old_number, double new_number) {
             if (old_number == new_number) return;
             VARIANT old_value{}, new_value{};
@@ -676,12 +691,13 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
             new_value.dblVal = new_number;
             UiaRaiseAutomationPropertyChangedEvent(provider, property, old_value, new_value);
         };
-        number_event(UIA_ScrollVerticalScrollPercentPropertyId, before, after);
-        number_event(UIA_ScrollVerticalViewSizePropertyId, previous.scroll_extent > previous.viewport_height ?
-            previous.viewport_height * 100 / previous.scroll_extent : 100, scroll.extent() > scroll.viewport().height ?
-            scroll.viewport().height * 100 / scroll.extent() : 100);
-        boolean_event(provider, UIA_ScrollVerticallyScrollablePropertyId,
-            previous.scroll_extent > previous.viewport_height, scroll.maximum_offset() > 0);
+        number_event(current.horizontal_scroll ? UIA_ScrollHorizontalScrollPercentPropertyId :
+            UIA_ScrollVerticalScrollPercentPropertyId, before, after);
+        number_event(current.horizontal_scroll ? UIA_ScrollHorizontalViewSizePropertyId : UIA_ScrollVerticalViewSizePropertyId,
+            previous.scroll_extent > previous.viewport_height ? previous.viewport_height * 100 / previous.scroll_extent : 100,
+            maximum > 0 ? current.viewport_height * 100 / current.scroll_extent : 100);
+        boolean_event(provider, current.horizontal_scroll ? UIA_ScrollHorizontallyScrollablePropertyId : UIA_ScrollVerticallyScrollablePropertyId,
+            previous.scroll_extent > previous.viewport_height, maximum > 0);
         boolean_event(provider, UIA_IsEnabledPropertyId, previous.enabled, enabled);
         boolean_event(provider, UIA_HasKeyboardFocusPropertyId, previous.focused, control.focused());
         if (!previous.focused && control.focused()) UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);

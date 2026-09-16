@@ -283,12 +283,12 @@ void search_disclosure(IUIAutomation* automation, IUIAutomationElement* root) {
     };
     check(disclosure->Collapse(), "Collapse category before search");
     set_value(value.Get(), L"collections");
-    require(eventually([&] { return expanded() && count() == 5; }), "Search expands a collapsed category with matches");
+    require(eventually([&] { return expanded() && count() == 6; }), "Search expands a collapsed category with matches");
     check(disclosure->Collapse(), "Collapse catalog category during search");
     require(eventually([&] { return !expanded() && count() == 0; }), "Collapsed search category hides its example rows");
     set_value(value.Get(), L"COLLECTION");
     require(eventually([&] { return !expanded() && count() == 0; }), "Query edits retain manual category collapse");
-    const auto filtered_count = L"5 of " + std::to_wstring(gallery::entries.size()) + L" examples";
+    const auto filtered_count = L"6 of " + std::to_wstring(gallery::entries.size()) + L" examples";
     require(eventually([&] {
         return named(automation, root, filtered_count.c_str(), UIA_TextControlTypeId) &&
             identified(automation, root, L"gallery-page-files");
@@ -300,11 +300,11 @@ void search_disclosure(IUIAutomation* automation, IUIAutomationElement* root) {
     require(eventually([&] { return identified(automation, root, L"gallery-page-files") != nullptr; }),
         "Returning matches restore a page preview without reopening the category");
     check(disclosure->Expand(), "Reopen catalog category during search");
-    require(eventually([&] { return expanded() && count() == 5; }), "Search category expands through UIA");
+    require(eventually([&] { return expanded() && count() == 6; }), "Search category expands through UIA");
     set_value(value.Get(), L"");
     require(eventually([&] { return !expanded(); }), "Clearing search restores the previously collapsed category");
     set_value(value.Get(), L"collections");
-    require(eventually([&] { return expanded() && count() == 5; }), "A new search starts without manual overrides");
+    require(eventually([&] { return expanded() && count() == 6; }), "A new search starts without manual overrides");
     set_value(value.Get(), L"");
     check(disclosure->Expand(), "Restore original catalog disclosure");
     require(eventually([&] { return count() == gallery::entries.size(); }), "Search disclosure check restores the complete catalog");
@@ -618,6 +618,33 @@ void catalog_style_roundtrip(IUIAutomation* automation, IUIAutomationElement* ro
         }
     }
 }
+void miller_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
+    auto page = identified(automation, root, L"gallery-page-miller-columns");
+    require(page != nullptr, "Miller gallery page loads directly");
+    auto deep = identified(automation, root, L"gallery-miller-deep-path");
+    check(pattern<IUIAutomationInvokePattern>(deep.Get(), UIA_InvokePatternId)->Invoke(), "Show the deep Miller hierarchy");
+    auto columns = identified(automation, root, L"gallery-miller-columns");
+    auto scroll = pattern<IUIAutomationScrollPattern>(columns.Get(), UIA_ScrollPatternId);
+    require(eventually([&] {
+        BOOL horizontal{};
+        check(scroll->get_CurrentHorizontallyScrollable(&horizontal), "Read horizontal gallery range");
+        return horizontal != FALSE;
+    }), "The deep gallery path overflows horizontally");
+    check(scroll->SetScrollPercent(0, UIA_ScrollPatternNoScroll), "Reveal the first gallery column");
+    double percent{};
+    check(scroll->get_CurrentHorizontalScrollPercent(&percent), "Read first-column position");
+    require(percent == 0, "Gallery scrolling does not snap back to the active descendant");
+    check(scroll->SetScrollPercent(100, UIA_ScrollPatternNoScroll), "Reveal the last gallery column");
+    check(scroll->get_CurrentHorizontalScrollPercent(&percent), "Read last-column position");
+    require(percent == 100, "The gallery can scroll through the complete path");
+    auto reset = named(automation, root, L"Reset path", UIA_ButtonControlTypeId);
+    check(pattern<IUIAutomationInvokePattern>(reset.Get(), UIA_InvokePatternId)->Invoke(), "Reset the gallery path");
+    require(eventually([&] {
+        BOOL horizontal{};
+        check(scroll->get_CurrentHorizontallyScrollable(&horizontal), "Read reset gallery range");
+        return !horizontal;
+    }), "Reset removes horizontal overflow without replacing the control");
+}
 int wmain(int argc, wchar_t** argv) {
     std::cout << std::unitbuf;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
@@ -625,8 +652,9 @@ int wmain(int argc, wchar_t** argv) {
     const bool palette_only = argc == 3 && std::wstring_view(argv[2]) == L"--palette";
     const bool winui_only = argc == 3 && std::wstring_view(argv[2]) == L"--winui";
     const bool winui_catalog = argc == 3 && std::wstring_view(argv[2]) == L"--winui-catalog";
-    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog) {
-        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog]\n";
+    const bool miller_only = argc == 3 && std::wstring_view(argv[2]) == L"--miller-only";
+    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only) {
+        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only]\n";
         return 1;
     }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -637,6 +665,7 @@ int wmain(int argc, wchar_t** argv) {
         Process process;
         std::wstring command = L"\"" + std::wstring(argv[1]) + L"\"";
         if (palette_only) command += L" --page commands";
+        if (miller_only) command += L" --page miller-columns";
         if (winui_only) command += L" --winui";
         if (winui_catalog) command += L" --winui-catalog";
         STARTUPINFOW startup{sizeof(startup)};
@@ -646,13 +675,18 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
-        if (!search_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+        if (!search_only && !miller_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
             SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (miller_only) {
+            miller_smoke(automation.Get(), root.Get());
+            std::cout << "Miller gallery deep-path, horizontal scrolling, and reset checks passed\n";
+            return 0;
+        }
         if (winui_catalog) {
             auto style = identified(automation.Get(), root.Get(), L"gallery-style");
             require(style && name(style.Get()) == L"Style: WinUI", "Full gallery launches initially in WinUI");
@@ -938,10 +972,10 @@ int wmain(int argc, wchar_t** argv) {
         search_disclosure(automation.Get(), root.Get());
         focus(search.Get(), "Focus catalog search");
         set_value(search_value.Get(), L"collections");
-        require(eventually([&] { return catalog_count() == 5; }), "Search filters category names");
+        require(eventually([&] { return catalog_count() == 6; }), "Search filters category names");
         require(identified(automation.Get(), root.Get(), L"gallery-page-files") != nullptr,
             "A hidden selected item previews the first matching example");
-        const auto filtered_count = L"5 of " + std::to_wstring(gallery::entries.size()) + L" examples";
+        const auto filtered_count = L"6 of " + std::to_wstring(gallery::entries.size()) + L" examples";
         require(named(automation.Get(), root.Get(), filtered_count.c_str(), UIA_TextControlTypeId) != nullptr,
             "Filtered count retains the complete main catalog denominator");
         require(focused(search.Get()), "Search never moves focus per keystroke");
@@ -1112,6 +1146,8 @@ int wmain(int argc, wchar_t** argv) {
                     check(grid_pattern->GetItem(99999, 1, &last), "Get virtual last cell");
                     require(name(last.Get()) == L"1600000 bytes", "Grid calculates the last row without retained cells");
                 }
+                if (!round && std::wstring_view(gallery::entries[i].id) == L"miller-columns")
+                    miller_smoke(automation.Get(), root.Get());
                 if (!round && (i == 0 || i == 9 || i == 15 || i >= 17)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     suggestion_capture::bitmap(process.window, nullptr, captures / (std::wstring(gallery::entries[i].id) + L"-dark.bmp"));

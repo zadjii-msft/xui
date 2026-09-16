@@ -120,7 +120,8 @@ The [C# guide](../languages/csharp.md#project-integration) describes the managed
 
 Rust fragments use `window`, `root`, and `anchor` from this context.
 Question marks propagate native errors to the caller.
-Insert the fragment inside `example`, where these three values are borrowed references.
+Replace the body of `example` with the selected fragment.
+The three parameters are borrowed references.
 
 ```rust
 use xui::*;
@@ -131,7 +132,7 @@ fn example(
     anchor: &Button,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let _ = (window, root, anchor);
-    // Insert one Rust guide fragment here.
+    // Replace this body with one Rust guide fragment.
     Ok(())
 }
 
@@ -246,6 +247,8 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `FileList` | [FileList](collections.md#filelist) | `FileList` | `file_list` |
 | `ItemsView` variants | [ItemsView](collections.md#itemsview) | `ItemsView` | `items_view` |
 | `TreeView` | [TreeView](collections.md#treeview) | `TreeView` | `tree_view` |
+| `MillerColumns` | [Miller columns](collections.md#millercolumns) | `MillerColumns` | `miller_columns`, construction only |
+| `MillerColumnList` retained child | [Miller columns](collections.md#millercolumns) | Borrowed `MillerColumns.Column(index)` as `ItemsView` | No typed child accessor |
 | `DataGrid` | [DataGrid](collections.md#datagrid) | `DataGrid` | `data_grid` |
 | `HistoryChart` | [HistoryChart](collections.md#historychart) | `HistoryChart` | `history_chart` |
 | `NavigationView` | [NavigationView](navigation.md#navigationview) | `NavigationView` | `navigation_view` |
@@ -272,6 +275,7 @@ The [binding reference](../bindings.md) defines the exact surface.
 `Element` is constructible in C++, but it has no control behavior or style target.
 `NativeEditBridge` is a public Windows backend boundary, not a normal application-tree control.
 `NavigationList` has a private constructor and belongs to `NavigationView`.
+`MillerColumnList` has a private constructor and belongs to `MillerColumns`.
 `ChoiceList` is a `RadioGroup` presentation, not a C++ class.
 `ContentDialog`, `CommandSurface`, `LocationPicker`, and `ViewPicker` expose real Popup roots.
 Tooltip has no control constructor.

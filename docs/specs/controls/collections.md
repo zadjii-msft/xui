@@ -17,6 +17,7 @@ Rust callbacks use weak handles to avoid ownership cycles.
 | File records with existing snapshot/filter support | FileList |
 | Generic list, tiles, groups, or inline actions | ItemsView |
 | Lazy hierarchical data | TreeView |
+| A hierarchy path shown as adjacent sibling lists | MillerColumns |
 | Virtual rows with multiple logical columns | DataGrid |
 | Fixed recent numeric history | HistoryChart |
 | A small set of retained cards | [Wrap](layout.md#wrap) |
@@ -750,6 +751,104 @@ The accessible name must identify the metric and units.
 The chart exposes read-only metric text, not an editable range.
 The style target is `history_chart`.
 Title, caption, grid lines, and plot line styles do not rewrite sample values.
+
+## MillerColumns
+
+Use `MillerColumns` for adjacent sibling lists along a hierarchy path.
+The application supplies immutable snapshots and loads the next column after selection.
+These examples reuse the file-scope `ExampleItems` definition from [ItemsView](#itemsview).
+The sample source contains flat rows; it does not perform directory queries.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+There is no `MillerColumns(...)` markup constructor.
+Create the control in C# and pass it through `Content`.
+
+```text
+namespace ControlExamples;
+
+component HierarchyColumns {
+    param global::Xui.Element Columns;
+    view {
+        VStack() {
+            Content(Columns, flex: 1);
+        }
+    }
+}
+```
+
+C# setup:
+
+```csharp
+using var source = window.ImmutableSource(new ExampleItems());
+var columns = window.MillerColumns("Hierarchy").SetColumnWidth(240);
+columns.SetColumns([new("Root", source)]);
+columns.SelectionChanged += item =>
+    Console.WriteLine($"Selected column {item.Column}, item {item.Key.Id}");
+_ = new ControlExamples.HierarchyColumns(window, columns);
+```
+
+The component attaches its own Stack root.
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+using var source = window.ImmutableSource(new ExampleItems());
+var columns = window.MillerColumns("Hierarchy").SetColumnWidth(240);
+columns.SetColumns([new("Root", source)]);
+columns.SelectionChanged += item =>
+    Console.WriteLine($"Selected column {item.Column}, item {item.Key.Id}");
+root.Add(columns, 1);
+```
+
+`ItemActivated` reports explicit activation separately from selection.
+`SetColumns` silently replaces the path.
+
+{% endtab %}
+{% tab title="Rust" %}
+
+The typed wrapper currently supplies construction but not column population or typed item events.
+This fragment mounts an empty control, not the populated C# or C++ example.
+The raw `xui-sys` crate exposes the `xui_miller_*` ABI for applications that implement their own unsafe adapter.
+
+```rust
+let columns = window.miller_columns("Hierarchy")?;
+root.add(&columns, 1.)?;
+Ok(())
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+Also include `xui\miller_columns.hpp`.
+
+```cpp
+auto columns = std::make_shared<xui::MillerColumns>(L"Hierarchy");
+columns->set_column_width(240);
+columns->set_columns({{L"Root", std::make_shared<ExampleItems>(), {}}});
+auto status = std::make_shared<xui::Label>(L"No selection");
+columns->on_selection([status](std::size_t column, xui::ItemKey key) {
+    status->set_text(L"Selected column " + std::to_wstring(column) +
+        L", item " + std::to_wstring(key.id));
+});
+root->add(columns, 1);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+Each `MillerColumnList` belongs to its `MillerColumns` owner and has no public constructor.
+C++ `column_list(index)` and C# `Column(index)` return retained lists, not independently mountable controls.
+Set their sources through the owner, not through a borrowed list.
+The composite root has no style schema. Retained lists use the `ItemsView` schema.
+
+The control retains at most 32 columns. Each column has independent vertical scrolling and single selection.
+Column width accepts 120 to 2,000 DIPs.
+The application must reject obsolete query results before it replaces descendants.
+The [Miller column contract](../collections.md#miller-columns) describes focus, scrolling, activation, and cancellation.
 
 ## Language notes
 

@@ -159,6 +159,35 @@ void control_tests() {
     tabs.set_enabled(true);
     tabs.on_select([&](auto) { tabs.set_tabs({{1, L"First"}}, 1); });
     require(!tabs.activate_tab(2) && tab_events.empty(), "Selection callbacks can revoke a stale activation");
+    tabs.on_select({});
+    int created{};
+    tabs.on_new_tab([&] { ++created; });
+    require(!tabs.new_tab_button_visible(), "New tab action is opt-in");
+    tabs.request_new_tab();
+    require(created == 0, "Hidden new tab action cannot dispatch");
+    tabs.set_new_tab_button_visible(true);
+    const auto button = std::static_pointer_cast<Button>(tabs.retained_children().front());
+    require(button->name() == L"New tab" && button->icon() == ButtonIcon::add && button->focusable(),
+        "New tab retains the standard accessible icon button");
+    for (float width : {0.0f, 16.0f, 32.0f, 48.0f, 160.0f, 420.0f, 800.0f}) {
+        tabs.arrange({10, 20, width, 38});
+        tabs.set_tabs({{1, L"First"}, {2, L"Second"}, {3, L"Third"}, {4, L"Fourth"}}, 4);
+        const auto action = tabs.new_tab_button_bounds(), last = tabs.tab_bounds(3);
+        require(action.x >= 0 && action.width >= 0 && action.x + action.width <= width &&
+            action.y + action.height <= tabs.bounds().height, "New tab action stays bounded in tiny and overflow layouts");
+        require(last.width == 0 || last.x + last.width == action.x, "New tab follows the rightmost visible tab");
+        require(!tabs.hit_test(action.x + action.width / 2), "New tab button is not a selectable tab");
+        require(button->bounds().x == tabs.bounds().x + action.x, "Native action geometry follows the strip");
+    }
+    tabs.set_tabs({}, {});
+    require(tabs.new_tab_button_bounds().x == 0, "The empty strip retains its new tab action");
+    button->invoke();
+    require(created == 1 && !tabs.selected(), "New tab dispatch does not select or create a tab");
+    tabs.set_enabled(false); button->invoke();
+    tabs.set_enabled(true); tabs.set_new_tab_button_visible(false); button->invoke();
+    require(created == 1, "Disabled and hidden new tab actions reject invocation");
+    tabs.arrange({0, 0, 420, 38}); tabs.set_tabs({{1, L"First"}}, 1);
+    require(tabs.tab_bounds(0).width == 180, "Opt-out restores the original tab geometry");
     auto a = std::make_shared<TextInput>(L"A"), b = std::make_shared<TextInput>(L"B");
     SplitView split(a, b);
     split.arrange({10, 20, 1000, 500});

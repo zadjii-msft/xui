@@ -6,6 +6,68 @@ Examples in this reference use C++ unless stated otherwise.
 
 ## Feature bindings (1.1 extension)
 
+### Windows file transfers
+
+The C# library supports filesystem clipboard transfers and native OLE drag-and-drop without Windows Forms or WPF.
+The declarations are in `include\xui\xui_file_transfer.h`, included by `xui.h`.
+The .NET declarations are handwritten in `Native.FileTransfers.cs`. The generated feature files remain unchanged.
+The [collection contract](collections.md#file-drag-and-drop) describes grid selection and target behavior.
+
+```csharp
+[Flags]
+public enum FileTransferEffect { None = 0, Copy = 1, Move = 2 }
+public sealed record FileClipboardContent(string[] Paths, FileTransferEffect Effect);
+
+window.SetFileClipboard(paths, FileTransferEffect.Copy); // Move means cut.
+FileClipboardContent? clipboard = window.GetFileClipboard();
+window.SetClipboardText("A path or other text");
+bool complete = window.TransferFiles(paths, destination, FileTransferEffect.Move);
+bool? pasted = window.PasteFiles(destination);
+```
+
+All methods require the creating UI thread. They work before or during `Run`, but not after closure.
+`SetFileClipboard` accepts Copy or Move, not a combination.
+Cut places paths on the clipboard without deleting files.
+The clipboard contains Unicode `CF_HDROP` and `Preferred DropEffect`.
+XUI flushes its OLE clipboard data, so the paths remain available after application exit.
+Clipboard calls retry temporary contention for at most two seconds per call, then report an explicit error.
+`SetClipboardText` supplies `CF_UNICODETEXT` and does not intercept editor keyboard input.
+The C++ counterpart is `set_clipboard_text`. The existing `copy_text` method still requires a running window.
+
+`GetFileClipboard` returns null for a clipboard without filesystem paths.
+Its result is a snapshot, not ownership of the clipboard.
+`PasteFiles` retains the original `IDataObject` throughout the transfer.
+It returns null for no file clipboard, true for complete work, or false for cancellation or skipped work.
+After success, it sends the Shell completion formats to that original object.
+Foreign sources can reject optional notification formats. XUI never requests source-side deletion.
+It clears a completed cut only when the clipboard sequence still matches, with the comparison inside the clipboard lock.
+
+`TransferFiles` uses Windows `IFileOperation` with normal conflict, progress, and elevation UI.
+It returns true only when every requested item completes without reported cancellation, skipped work, or errors.
+Native errors throw `XuiException`. Cancellation and skipped work return false.
+The operation runs synchronously in the UI STA. Shell dialogs can dispatch nested window messages.
+XUI rejects another transfer on that thread until the current transfer returns.
+Closure requests cancel remaining work. Earlier completed copies or moves are not rolled back.
+
+CAUTION: Do not delete source files in completion callbacks or after a false result.
+The Shell owns each copy or move, including source deletion.
+After a partial result, refresh both locations before another attempt.
+`GetFileClipboard` plus `TransferFiles` does not supply clipboard completion notifications. Use `PasteFiles` for clipboard paste.
+
+Each transfer accepts 1 to 4,096 absolute filesystem paths.
+Each path has a limit of 32,767 UTF-16 units. The complete `CF_HDROP` payload has a 16 MiB limit.
+Each ABI UTF-8 span also has the existing 1 MiB limit.
+An empty drag snapshot cancels the drag. Relative paths, embedded NULs, and link effects are not supported.
+The clipboard reader accepts Unicode and ANSI `CF_HDROP`, but not virtual files in `FILECONTENTS`.
+
+The ABI uses borrowed path spans in `xui_file_receiver` and `xui_file_drop_handler`.
+Callback consumers must copy paths before the callback returns.
+The clipboard receiver receives zero paths for no file clipboard.
+`xui_window_transfer_files` writes 1 for complete or 0 for cancellation or skipped work.
+`xui_window_paste_files` writes 0 for no files, 1 for complete, or 2 for cancellation or skipped work.
+The standard status result remains separate and reports errors.
+Callback exceptions use the existing callback-error contract and close the owning window.
+
 ### Fluent C# setters
 
 C# configuration methods return the original object, with its concrete type.
@@ -39,7 +101,7 @@ Void delegate assignments can require a lambda, such as `Action apply = () => ra
 
 This extension supersedes earlier statements that the new controls have C++ APIs only.
 The original nine control kinds remain available.
-The current feature manifest adds 36 typed constructors to both C# and Rust, including `NavigationView`.
+The extension adds typed constructors to both C# and Rust, including `NavigationView` and `MillerColumns`.
 These include compositions and the earlier workspace controls.
 The bindings use the existing native controls, layout, drawing, input, and accessibility.
 They contain no second renderer or retained row array.
@@ -65,6 +127,51 @@ They contain no second renderer or retained row array.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
 The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
+
+### Miller columns in C#
+
+`Window.MillerColumns` creates the native hierarchy control.
+`SetColumns` accepts a complete path of `MillerColumn` records.
+Each record contains a title, an `ImmutableSource`, and an optional selected key.
+The source supplies `HasChildren` for branch indicators.
+
+```csharp
+var columns = window.MillerColumns("Folders");
+using var source = window.ImmutableSource(rootItems);
+columns.SetColumns([new("Root", source)]);
+columns.SelectionChanged += item => StartChildQuery(item.Column, item.Key);
+columns.ItemActivated += item => OpenItem(item.Column, item.Key);
+```
+
+The application supplies `rootItems`, `StartChildQuery`, and `OpenItem`.
+The application delivers completed queries through `Window.Post`.
+The application must reject obsolete results after selection, tab changes, cancellation, or window closure.
+`SetColumns` is a silent setter. Neither selection nor source replacement opens a file.
+
+`ActiveColumn` identifies the active sibling list. `ColumnWidth` accepts 120 to 2,000 DIPs.
+`FocusColumn` reveals a column and moves native focus into its list.
+`Column(index)` returns a stable borrowed list for selection, scrolling, focus, and context menus.
+The owning control supplies column sources through `SetColumns`, not through the borrowed list.
+`MillerColumns.MaxColumns` is 32.
+
+`HorizontalOffset` reads or sets the horizontal position in DIPs.
+`MaximumHorizontalOffset` supplies the current limit. The limit is zero before layout.
+The setter rejects non-finite values and positions outside the current range.
+Horizontal wheel input, Shift+wheel, and the bottom scrollbar work without application event handlers.
+Horizontal movement preserves selection and the vertical position of each column.
+
+The native control retains source references after an `ImmutableSource` wrapper is disposed.
+A disposed wrapper cannot be supplied to a later `SetColumns` call.
+Applications can retain wrappers for unchanged columns and dispose them after path replacement.
+Events contain the column index and both parts of `ItemKey`.
+
+`xui_miller_*` exports supply the C ABI.
+The generated Rust FFI includes these exports.
+The typed Rust wrapper currently supplies construction only, without the C# path and event helpers.
+Declarative markup can contain the control through an application-supplied element.
+The FileExplorer sample creates it in C# inside its declarative layout.
+
+### ABI versions
 
 The baseline `xui_abi_version()` remains `0x00010000`.
 Old records, kind values, exports, and version negotiation remain unchanged.

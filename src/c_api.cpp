@@ -116,6 +116,9 @@ struct Node {
     bool input_callbacks_captured{};
     bool navigation_owned_button{}, navigation_button_observer_installed{};
     bool feature_callbacks_captured{};
+    std::weak_ptr<Node> miller_owner;
+    xui_miller_callback miller_callback{};
+    void* miller_context{};
     unsigned dispatching{};
     xui_callback callback{};
     void* context{};
@@ -134,6 +137,12 @@ struct Node {
     std::vector<std::wstring> menu_shell_paths;
     std::function<bool()> menu_current;
     xui::ShellMenuPresentation menu_presentation{};
+    xui_callback file_drag_callback{};
+    void* file_drag_context{};
+    xui_file_drop_handler file_drop_callback{};
+    void* file_drop_context{};
+    bool file_requesting{}, file_dispatching{};
+    std::vector<std::wstring> file_paths;
 };
 std::mutex registry_mutex;
 std::unordered_map<xui_handle, std::shared_ptr<Node>> registry;
@@ -218,7 +227,11 @@ void wire(const std::shared_ptr<Node>& n) {
         n->input_callbacks_captured = true;
     }
     if (auto* c = dynamic_cast<xui::Control*>(n->element.get()))
-        c->on_focus([weak] { dispatch(weak, XUI_FOCUS_ENTERED); });
+        c->on_focus([weak] {
+            if (auto node = weak.lock(); node && !node->miller_owner.expired())
+                if (const auto* prior = node->prior_callbacks.get<callbacks::Action>()) (*prior)();
+            dispatch(weak, XUI_FOCUS_ENTERED);
+        });
     switch (n->kind) {
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
@@ -1072,3 +1085,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
     xui_style_property* properties, uint32_t capacity, uint32_t* count) noexcept {
     return get_host_style_values(window, part, effective, properties, capacity, count, true);
 }
+#include "c_api_file_transfer.inc"

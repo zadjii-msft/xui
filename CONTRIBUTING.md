@@ -161,6 +161,20 @@ dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$P
 & ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe" "D:\Documents"
 ```
 
+If the explorer closes unexpectedly, capture its error output and process exit code:
+
+```powershell
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$errorLog = Join-Path $env:TEMP "xui-file-explorer-error.log"
+$process = Start-Process -FilePath $exe -ArgumentList "`"$PWD`"" -PassThru -Wait -RedirectStandardError $errorLog
+Get-Content $errorLog
+$process.ExitCode
+```
+
+PowerShell can return immediately after it starts a GUI executable.
+`$LASTEXITCODE` alone does not prove that the explorer finished successfully.
+The command above waits until the explorer closes and preserves managed error details.
+
 For markup changes, use restart-on-save:
 
 ```powershell
@@ -170,6 +184,9 @@ dotnet watch --project bindings\dotnet\FileExplorer --no-hot-reload --non-intera
 The explorer disables in-place reload because its controllers own asynchronous work and native event subscriptions.
 A restart resets transient pane state. Bookmarks and recents retain their normal persistence behavior.
 The DLL must include the visual-style API in `xui_layout.h`.
+File clipboard and drag-and-drop commands also require the file-transfer APIs from this checkout.
+The New tab buttons require the tab-action APIs from this checkout.
+An older `xui.dll` does not provide these APIs.
 
 ### NativeAOT and deployment
 
@@ -238,6 +255,7 @@ For a focused native change, select the relevant tests:
 ctest --test-dir $build -C Release -R "xui_(explorer|split_window)" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_abi" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
+ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
 Compiler and model checks do not need a native window:
@@ -255,7 +273,9 @@ For declarative UI integration, build the probe and use matching architecture ar
 cmake --build $build --config Release --target xui xui_language_probe
 .\tests\xui-language.ps1 -NativeDirectory "$build\Release" -RuntimeIdentifier $rid
 .\tests\minesweeper.ps1 -NativeDirectory "$build\Release" -RuntimeIdentifier $rid
-& ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe" --smoke
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer smoke failed with exit code $($process.ExitCode)." }
 ```
 
 Build the C# explorer before its smoke run.

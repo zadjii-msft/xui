@@ -7,16 +7,16 @@
 namespace xui::platform {
 
 Runtime::Runtime() {
-    hr_require(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Initialize COM on the UI thread");
+    hr_require(OleInitialize(nullptr), "Initialize OLE on the UI thread");
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES};
     if (!InitCommonControlsEx(&controls)) {
         const auto error = GetLastError();
-        CoUninitialize();
+        OleUninitialize();
         SetLastError(error);
         win32_require(false, "Initialize Windows controls");
     }
 }
-Runtime::~Runtime() { CoUninitialize(); }
+Runtime::~Runtime() { OleUninitialize(); }
 int Runtime::run(const std::function<bool(MSG&)>& translate, HANDLE ready,
     const std::function<void()>& accept) {
     for (;;) {

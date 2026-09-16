@@ -753,7 +753,10 @@ One retained control supplies virtual tab providers, not one native peer per tab
 
 The style target is `tab_strip`.
 Tab labels, selection markers, and close actions use stable tab identities.
-There is no tab icon, add action, or drag state in this model.
+Tab icons and drag states are not supported.
+C++ supplies `set_new_tab_button_visible` and `on_new_tab` for an optional New tab button.
+C# supplies `SetNewTabButtonVisible`; activation raises `EventKind.Action`.
+The typed Rust wrapper does not expose this new-tab configuration.
 
 ## Related contracts
 

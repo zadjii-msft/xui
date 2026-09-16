@@ -92,7 +92,7 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
         if (colors.row_background) values.background = ThemeColor{*colors.row_background};
         styled_surface({0, 0, bounds.width, bounds.height}, palette, values, rail, border, 0, {});
     } else fill({0, 0, bounds.width, bounds.height}, rail);
-    const auto content_bounds = strip.content_bounds();
+    const auto content_bounds = strip.content_bounds({0, 0, bounds.width, bounds.height});
     push_clip(content_bounds);
     const auto hovered = enabled && pointer ? strip.hit_test(*pointer) : std::nullopt;
     const auto is_selected = [&](std::size_t index) { return strip.selected() == strip.tabs()[index].id; };

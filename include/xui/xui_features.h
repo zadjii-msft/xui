@@ -219,7 +219,7 @@ enum {
     XUI_PASSWORD_INPUT, XUI_DATE_TIME_PICKER, XUI_INLINE_STATUS, XUI_COLOR_PICKER,
     XUI_CONTENT_DIALOG, XUI_VECTOR_CANVAS, XUI_MAP_VIEW, XUI_MEDIA_PLAYBACK,
     XUI_WEB_CONTENT, XUI_TAB_STRIP, XUI_SPLIT_VIEW, XUI_PAGE_VIEW, XUI_DATA_GRID,
-    XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW,
+    XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW, XUI_MILLER_COLUMNS,
     /* Retained Element exposure only; xui_feature_create does not create this kind. */
     XUI_RETAINED_ELEMENT
 };
@@ -282,6 +282,30 @@ XUI_API xui_status XUI_CALL xui_window_navigation_handler(xui_handle window,
    Callbacks must not throw. Close rejects further posts with XUI_CLOSED. */
 XUI_API xui_status XUI_CALL xui_window_post(xui_handle window,
     xui_post_callback callback, void* context) XUI_NOEXCEPT;
+/* Miller columns retain immutable sources. All handles must belong to one window.
+   Set replaces the complete column path silently. Maximum depth is 32. */
+typedef struct xui_miller_column {
+    uint32_t size, has_selection;
+    xui_string title;
+    xui_handle source;
+    uint64_t selected_id, selected_version;
+} xui_miller_column;
+typedef struct xui_miller_event {
+    uint32_t size, kind, column, reserved;
+    uint64_t id, version;
+} xui_miller_event;
+typedef xui_status (XUI_CALL *xui_miller_callback)(void*, const xui_miller_event*);
+XUI_API xui_status XUI_CALL xui_miller_set_columns(xui_handle target,
+    const xui_miller_column* columns, uint32_t count) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_state(xui_handle target,
+    uint32_t* count, uint32_t* active, double* width) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_active(xui_handle target, uint32_t column) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_width(xui_handle target, double width) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_scroll_state(xui_handle target,
+    double* offset, double* maximum) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_scroll(xui_handle target, double offset) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_miller_subscribe(xui_handle target,
+    xui_miller_callback callback, void* context) XUI_NOEXCEPT;
 typedef struct xui_feature_options {
     uint32_t size, version;
     xui_string name;
@@ -436,7 +460,8 @@ typedef struct xui_command_record {
     xui_string label, hint, pin_label;
     uint32_t flags, icon; /* disabled=1, checked=2, has-check=4 */
 } xui_command_record;
-/* Independent of the control event subscription. Request supplies items synchronously.
+/* DataGrid and virtual collections, including borrowed Miller column lists.
+   Independent of the control event subscription. Request supplies items synchronously.
    Action carries the selected command ID. Menus support flat actions and separators.
    A null callback revokes the menu. Callbacks use the window UI thread. */
 XUI_API xui_status XUI_CALL xui_context_menu_bind(xui_handle target,

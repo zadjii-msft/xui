@@ -7,6 +7,8 @@
 #include <wrl/client.h>
 #include <psapi.h>
 #include <iostream>
+#include <cmath>
+#include <limits>
 #include <thread>
 
 namespace {
@@ -238,6 +240,313 @@ void automation(HWND hwnd) {
     while (IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
     require(!IsWindow(hwnd) && FAILED(selected->Select()), "Retained UIA child rejects actions after owner teardown");
 }
+void miller_appearance(Window& window, HWND hwnd, MillerColumns& columns, TextInput& edit) {
+    struct Snapshot {
+        HDC dc{};
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        ~Snapshot() {
+            if (previous) SelectObject(dc, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (dc) DeleteDC(dc);
+        }
+    };
+    const UINT original_dpi = GetDpiForWindow(hwnd);
+    RECT original{}; GetWindowRect(hwnd, &original);
+    const auto first = columns.column_list(0);
+    columns.set_active_column(0); flush(hwnd);
+    require(window.focus(*first), "Focus the Miller list to identify its native peer");
+    const auto first_hwnd = GetFocus();
+    require(first_hwnd != nullptr && first->focused(), "Identify the list peer, not its same-named header");
+    require(window.focus(edit), "Restore editor focus before hover checks");
+    for (auto style : {VisualStyle::classic, VisualStyle::winui})
+        for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+            for (UINT dpi : {96u, 120u, 144u, 192u}) {
+                std::cout << "Miller pixels: style " << static_cast<int>(style) << ", theme " <<
+                    static_cast<int>(theme) << ", DPI " << dpi << std::endl;
+                window.set_visual_style(style); window.set_theme(theme);
+                RECT rectangle = original;
+                rectangle.right = rectangle.left + MulDiv(700, dpi, 96);
+                rectangle.bottom = rectangle.top + MulDiv(480, dpi, 96);
+                SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rectangle));
+                columns.set_active_column(0); columns.set_horizontal_offset(0); first->set_offset(0);
+                window.focus(edit); flush(hwnd);
+                const auto selected = first->selection().focused();
+                const auto palette = Palette::system(theme, style);
+                const auto color = [](D2D1_COLOR_F value) {
+                    return RGB(int(value.r * 255 + .5f), int(value.g * 255 + .5f), int(value.b * 255 + .5f));
+                };
+                RECT outer{}; GetWindowRect(hwnd, &outer);
+                POINT client{}; ClientToScreen(hwnd, &client);
+                Snapshot capture;
+                capture.dc = CreateCompatibleDC(nullptr);
+                require(capture.dc != nullptr, "Create owned Miller capture context");
+                BITMAPINFO info{};
+                info.bmiHeader = {sizeof(BITMAPINFOHEADER), outer.right - outer.left, -(outer.bottom - outer.top), 1, 32, BI_RGB};
+                void* pixels{};
+                capture.bitmap = CreateDIBSection(capture.dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                require(capture.bitmap != nullptr, "Create owned Miller capture bitmap");
+                capture.previous = SelectObject(capture.dc, capture.bitmap);
+                const auto paint = [&] {
+                    flush(hwnd);
+                    require(RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW),
+                        "Paint Miller transitions");
+                    require(PrintWindow(hwnd, capture.dc, 2), "Capture only the owned Miller window");
+                };
+                const auto sample = [&](float x, float y) {
+                    const auto result = GetPixel(capture.dc, int(x * dpi / 96) + client.x - outer.left,
+                        int(y * dpi / 96) + client.y - outer.top);
+                    require(result != CLR_INVALID, "Miller sample stays inside the owned window");
+                    return result;
+                };
+                const auto at = [&](float x, float y) {
+                    return MAKELPARAM(static_cast<int>(std::lround(x * dpi / 96)), static_cast<int>(std::lround(y * dpi / 96)));
+                };
+                const auto row_color = [&](float y) {
+                    const auto b = first->bounds(); return sample(b.x + 100, b.y + y);
+                };
+                SendMessageW(first_hwnd, WM_MOUSELEAVE, 0, 0); paint();
+                require(row_color(45) == color(palette.background), "Unselected Miller rows start without hover");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45)); paint();
+                if (first->hovered_row() != 1 || row_color(45) != color(palette.hover)) {
+                    const auto hovered = first->hovered_row();
+                    std::cerr << "Miller hover: row=" << (hovered ? std::to_string(*hovered) : "none") <<
+                        ", offset=" << first->offset() << ", capture=" << GetCapture() <<
+                        ", actual=" << std::hex << row_color(45) << ", expected=" << color(palette.hover) <<
+                        std::dec << '\n';
+                }
+                require(first->hovered_row() == 1 && row_color(45) == color(palette.hover),
+                    "Native pointer movement paints Miller row hover in every theme and DPI");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 85)); paint();
+                require(row_color(45) == color(palette.background) && row_color(85) == color(palette.hover),
+                    "Hover moves between rows without leaving the previous highlight");
+                require(first->selection().focused() == selected && edit.focused() && columns.active_column() == 0,
+                    "Hover leaves selection, editor focus and active column unchanged");
+                SetCapture(first_hwnd);
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, MK_LBUTTON, at(20, 85)); paint();
+                require(!first->hovered_row() && row_color(85) == color(palette.background),
+                    "Captured pointer gestures suppress the row hover");
+                SendMessageW(first_hwnd, WM_CANCELMODE, 0, 0);
+                require(GetCapture() != first_hwnd, "Cancellation releases the synthetic capture");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45));
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(first->bounds().width - 2, 45)); paint();
+                require(!first->hovered_row() && row_color(45) == color(palette.background),
+                    "Vertical scrollbar input does not highlight a row");
+                SendMessageW(first_hwnd, WM_MOUSEMOVE, 0, at(20, 45));
+                SendMessageW(first_hwnd, WM_MOUSELEAVE, 0, 0); paint();
+                require(!first->hovered_row() && row_color(45) == color(palette.background), "Pointer leave clears visible hover");
+                for (double offset : {0.0, 43.25, columns.maximum_horizontal()}) {
+                    columns.set_horizontal_offset(offset); paint();
+                    bool found{};
+                    for (std::size_t i = 0; i + 1 < columns.columns().size(); ++i) {
+                        const auto separator = columns.separator_bounds(i);
+                        if (separator.width <= 0) continue;
+                        const float scale = dpi / 96.0f;
+                        const float left = std::round(separator.x * scale);
+                        const float right = std::round((separator.x + separator.width) * scale);
+                        const float x = columns.bounds().x + (left + right) / (2 * scale);
+                        if (sample(x, columns.bounds().y + separator.y + 8) != color(palette.border) ||
+                            sample(x, columns.bounds().y + separator.y + 60) != color(palette.border))
+                            std::cerr << "Miller separator: offset=" << offset << ", column=" << i <<
+                                ", bounds=" << separator.x << "," << separator.y << "," << separator.width << "," << separator.height <<
+                                ", origin=" << columns.bounds().x << "," << columns.bounds().y <<
+                                ", header=" << std::hex << sample(x, columns.bounds().y + separator.y + 8) <<
+                                ", list=" << sample(x, columns.bounds().y + separator.y + 60) <<
+                                ", expected=" << color(palette.border) << std::dec << '\n';
+                        require(sample(x, columns.bounds().y + separator.y + 8) == color(palette.border) &&
+                            sample(x, columns.bounds().y + separator.y + 60) == color(palette.border),
+                            "A pixel-aligned separator spans the header and list after fractional horizontal scrolling");
+                        found = true;
+                    }
+                    require(found, "The fixture has at least one visible adjacent-column separator");
+                }
+            }
+    window.set_visual_style(VisualStyle::classic); window.set_theme(ThemeMode::dark);
+    SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(original_dpi, original_dpi), reinterpret_cast<LPARAM>(&original));
+    columns.set_active_column(0); columns.set_horizontal_offset(0); flush(hwnd);
+}
+void miller_window() {
+    Window window({L"XUI Miller host contracts", {700, 480}, ThemeMode::dark});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto columns = std::make_shared<MillerColumns>(L"Folders");
+    auto edit = std::make_shared<TextInput>(L"Find in folders");
+    auto source = std::make_shared<Items>(1000000);
+    std::vector<MillerColumn> path;
+    for (size_t i = 0; i < 8; ++i)
+        path.push_back({L"Level " + std::to_wstring(i), source, ItemKey{1, 1}});
+    columns->set_column_width(220);
+    columns->set_columns(path);
+    root->add(columns, 1); root->add(edit);
+    window.set_content(root);
+    unsigned selections{}, activations{};
+    columns->on_selection([&](size_t column, ItemKey key) {
+        require(column == 0 && key == ItemKey{2, 1}, "Selection preserves column and key");
+        ++selections;
+    });
+    columns->on_activate([&](size_t column, ItemKey key) {
+        require(column == 0 && key == ItemKey{2, 1}, "Activation preserves column and key");
+        ++activations;
+    });
+    bool completed{};
+    std::atomic<bool> native_done{};
+    window.on_key([&](const KeyEvent& event) {
+        if (event.key == Key::f11) {
+            columns->set_columns({path.front()});
+            require(columns->active_column() == 0 && !columns->column_list(7)->visible() &&
+                columns->horizontal_offset() == 0 && columns->horizontal_track().width == 0,
+                "Path replacement hides stale peers and removes the horizontal scrollbar");
+            require(selections == 1 && activations == 1, "All scrolling leaves selection and activation unchanged");
+            completed = true; window.close(); return true;
+        }
+        if (event.key != Key::f12) return false;
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI Miller host contracts");
+        require(hwnd != nullptr, "Find owned Miller host");
+        columns->set_active_column(0); flush(hwnd);
+        auto first = columns->column_list(0), second = columns->column_list(1);
+        window.focus(*edit);
+        first->step(1);
+        require(edit->focused() && !first->focused() && selections == 1 && !activations,
+            "Programmatic selection preserves native editor focus and does not activate");
+        window.focus(*first); flush(hwnd);
+        auto first_hwnd = GetFocus();
+        require(first->focused() && first_hwnd, "First Miller list receives native focus");
+        SendMessageW(first_hwnd, WM_KEYDOWN, VK_RIGHT, 0); flush(hwnd);
+        require(columns->active_column() == 1 && second->focused(),
+            "C++ host wires Right to native focus in the next column");
+        SendMessageW(GetFocus(), WM_KEYDOWN, VK_LEFT, 0); flush(hwnd);
+        require(columns->active_column() == 0 && first->focused(), "Left restores native focus to the parent column");
+        SendMessageW(GetFocus(), WM_KEYDOWN, VK_RETURN, 0);
+        require(activations == 1 && selections == 1, "Enter activates without duplicate selection");
+        first->on_context_menu([] { return std::vector<MenuItem>{}; });
+        POINT point{20, 12}; ClientToScreen(first_hwnd, &point);
+        SendMessageW(first_hwnd, WM_CONTEXTMENU, reinterpret_cast<WPARAM>(first_hwnd), MAKELPARAM(point.x, point.y));
+        require(first->selection().focused() == ItemKey{1, 1} && selections == 1,
+            "Context click selects its row without starting a child query");
+        columns->set_active_column(7); flush(hwnd);
+        require(columns->column_list(7)->bounds().width > 0 &&
+            columns->column_list(7)->bounds().x >= columns->bounds().x &&
+            columns->column_list(7)->bounds().x + columns->column_list(7)->bounds().width <=
+                columns->bounds().x + columns->bounds().width,
+            "Deep active column is fully inside the horizontal viewport");
+        require(source->reads < 3000, "Native paint requests bounded visible content");
+        auto last = columns->column_list(7);
+        window.focus(*last); flush(hwnd);
+        auto last_hwnd = GetFocus(), columns_hwnd = native(hwnd, L"Folders");
+        const double end = columns->maximum_horizontal();
+        last->set_offset(80);
+        SendMessageW(last_hwnd, WM_MOUSEHWHEEL, MAKEWPARAM(0, static_cast<WORD>(-30)), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 24 && columns->active_column() == 7 && last->offset() == 80,
+            "Fractional horizontal wheel input moves the viewport without changing the active column or vertical offset");
+        SendMessageW(last_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(MK_SHIFT, 60), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 72 && last->offset() == 80,
+            "Shift plus wheel scrolls horizontally and retains fractional input");
+        SendMessageW(last_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-120)), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 72 && last->offset() > 80,
+            "Unmodified wheel input still scrolls only the pointed column vertically");
+        SendMessageW(native(hwnd, L"Next column"), WM_MOUSEHWHEEL, MAKEWPARAM(0, 30), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 72, "Disabled navigation controls reject horizontal input");
+        SendMessageW(native(hwnd, L"Previous column"), WM_MOUSEHWHEEL, MAKEWPARAM(0, 30), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 48, "Toolbar wheel input routes to the Miller viewport");
+        SendMessageW(last_hwnd, WM_MOUSEHWHEEL, MAKEWPARAM(0, static_cast<WORD>(-12000)), 0); flush(hwnd);
+        require(columns->horizontal_offset() == 0 && columns->active_column() == 7,
+            "Wheel scrolling can hide the focused column without snapping back or changing the active column");
+        window.focus(*edit);
+        columns->set_horizontal_offset(0); flush(hwnd);
+        const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
+        const auto point_at = [&](float x, float y) {
+            const float scale = GetDpiForWindow(hwnd) / 96.0f;
+            return MAKELPARAM(static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)));
+        };
+        const auto start = point_at(thumb.width / 2, track.y + track.height / 2);
+        const auto finish = point_at(track.width - 1, track.y + track.height / 2);
+        SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, finish); flush(hwnd);
+        require(columns->horizontal_offset() > 0 && columns->active_column() == 7 && edit->focused(),
+            "A track click pages without changing selection, active column or native editor focus");
+        columns->set_horizontal_offset(0); flush(hwnd);
+        SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, start);
+        require(GetCapture() == columns_hwnd, "Horizontal thumb drag captures the pointer");
+        SendMessageW(columns_hwnd, WM_MOUSEMOVE, MK_LBUTTON, finish); flush(hwnd);
+        require(columns->horizontal_offset() == end, "Dragging the thumb reaches the final column");
+        SendMessageW(columns_hwnd, WM_LBUTTONUP, 0, finish);
+        require(GetCapture() != columns_hwnd, "Thumb release clears pointer capture");
+        columns->set_horizontal_offset(0); flush(hwnd);
+        SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, start);
+        SendMessageW(columns_hwnd, WM_CANCELMODE, 0, 0);
+        SendMessageW(columns_hwnd, WM_MOUSEMOVE, 0, finish); flush(hwnd);
+        require(GetCapture() != columns_hwnd && columns->horizontal_offset() == 0, "Cancelled thumb drags cannot continue");
+        columns->set_enabled(false); flush(hwnd);
+        SendMessageW(columns_hwnd, WM_MOUSEHWHEEL, MAKEWPARAM(0, 120), 0);
+        SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, finish); flush(hwnd);
+        require(columns->horizontal_offset() == 0 && GetCapture() != columns_hwnd, "Disabled columns reject wheel and track input");
+        columns->set_enabled(true); flush(hwnd);
+        miller_appearance(window, hwnd, *columns, *edit);
+        require(selections == 1 && activations == 1, "Hover and separator changes dispatch no selection or activation");
+        native_done = true;
+        return true;
+    });
+    std::exception_ptr automation_error;
+    std::atomic<bool> driver_exited{};
+    std::jthread driver([&](std::stop_token stop) {
+        struct Finished { std::atomic<bool>& value; ~Finished() { value = true; } } finished{driver_exited};
+        const auto deadline = GetTickCount64() + 60000;
+        while (!stop.stop_requested() && GetTickCount64() < deadline) {
+            if (const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI Miller host contracts"); hwnd && IsWindowVisible(hwnd)) {
+                const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+                try {
+                    success(initialized, "Initialize Miller UIA client");
+                    PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
+                    while (!native_done && IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
+                    require(native_done, "Native Miller scrolling contracts complete before UIA actions");
+                    ComPtr<IUIAutomation> automation;
+                    success(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation)), "Create Miller UIA client");
+                    ComPtr<IUIAutomationElement> element;
+                    success(automation->ElementFromHandle(native(hwnd, L"Folders"), &element), "Read Miller automation element");
+                    ComPtr<IUIAutomationScrollPattern> scroll;
+                    success(element->GetCurrentPatternAs(UIA_ScrollPatternId, IID_PPV_ARGS(&scroll)), "Miller exposes horizontal ScrollPattern");
+                    BOOL horizontal{}, vertical{}; double percent{}, size{};
+                    success(scroll->get_CurrentHorizontallyScrollable(&horizontal), "Read horizontal availability");
+                    success(scroll->get_CurrentVerticallyScrollable(&vertical), "Read vertical availability");
+                    success(scroll->get_CurrentHorizontalViewSize(&size), "Read horizontal view size");
+                    require(horizontal && !vertical && size > 0 && size < 100, "Miller root exposes its horizontal axis only");
+                    success(scroll->SetScrollPercent(25, UIA_ScrollPatternNoScroll), "Scroll Miller through UIA");
+                    success(scroll->get_CurrentHorizontalScrollPercent(&percent), "Read horizontal percent");
+                    require(std::abs(percent - 25) < 0.01, "UIA horizontal percentage matches the requested position");
+                    success(scroll->Scroll(ScrollAmount_SmallIncrement, ScrollAmount_NoAmount), "Increment horizontal UIA scrolling");
+                    success(scroll->get_CurrentHorizontalScrollPercent(&percent), "Read incremented horizontal percent");
+                    require(percent > 25, "UIA scrolling advances the viewport");
+                    success(scroll->get_CurrentVerticalScrollPercent(&percent), "Read absent vertical percent");
+                    require(percent == UIA_ScrollPatternNoScroll, "Miller root does not report column-specific vertical scrolling");
+                    require(scroll->SetScrollPercent(std::numeric_limits<double>::quiet_NaN(), UIA_ScrollPatternNoScroll) == E_INVALIDARG,
+                        "UIA rejects non-finite horizontal percentages");
+                    scroll.Reset(); element.Reset(); automation.Reset();
+                    PostMessageW(hwnd, WM_KEYDOWN, VK_F11, 0);
+                } catch (...) {
+                    automation_error = std::current_exception();
+                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                }
+                if (SUCCEEDED(initialized)) CoUninitialize();
+                return;
+            }
+            Sleep(10);
+        }
+        window.post([&] { window.close(); });
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    while (!driver_exited) {
+        MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message); DispatchMessageW(&message);
+        }
+    }
+    driver.request_stop(); driver.join();
+    if (automation_error) std::rethrow_exception(automation_error);
+    require(result == 0 && completed, "Miller native host contracts pass");
+    require(Drawing::live_targets() == 0, "Miller window releases its drawing target");
+    std::cout << "Miller native focus, context selection, viewport and lifecycle contracts passed\n";
+}
+
 void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
     Window window({L"XUI collection contracts", {920, 760}, theme});
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_spacing(6); root->set_padding({10, 10, 10, 10});
@@ -410,6 +719,7 @@ int main(int argc, char** argv) {
         if (argc == 3 && std::string_view(argv[1]) == "--automation") { automation(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(std::stoull(argv[2])))); return 0; }
         success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Keep the server apartment alive until retained UIA clients exit");
         struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
+        if (argc == 2 && std::string_view(argv[1]) == "--miller-only") { miller_window(); return 0; }
         if (argc == 2 && std::string_view(argv[1]) == "--palette-only") {
             for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
                 for (UINT dpi : {96u, 144u, 192u}) run(theme, dpi, true);
