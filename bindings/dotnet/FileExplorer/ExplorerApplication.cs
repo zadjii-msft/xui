@@ -40,6 +40,7 @@ internal sealed class ExplorerApplication : IDisposable
         active = Left;
         Sidebar = new(this);
         Palettes = new(this);
+        Preview = new(this);
         var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
         notification = layout.Notification;
         split = layout.Panes;
@@ -73,6 +74,7 @@ internal sealed class ExplorerApplication : IDisposable
     public FilePaneView Right { get; }
     public FilePaneView Active => active ?? Left;
     public PaletteController Palettes { get; }
+    public PreviewController Preview { get; }
     public NavigationSidebar Sidebar { get; }
     public IReadOnlyList<ExplorerCommand> Commands { get; }
     public FileTransfers Transfers { get; }
@@ -97,6 +99,7 @@ internal sealed class ExplorerApplication : IDisposable
     public void Activate(FilePaneView pane)
     {
         if (ReferenceEquals(active, pane)) return;
+        Preview?.Dismiss();
         active = pane;
         Sidebar.Refresh();
         UpdateTitle();
@@ -280,6 +283,8 @@ internal sealed class ExplorerApplication : IDisposable
         new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
         new("Up to parent folder", "Alt+Up", () => Active.Up()),
         new("Refresh folder", "F5", () => Active.Refresh()),
+        new("Preview selected item", "Space", () => Preview.ShowSelected(Active),
+            () => Preview.CanPreview(Active)),
         new("Copy files", "Ctrl+C", () => Transfers.Copy(Active, cut: false),
             () => Active.HasSelection && !Transfers.Busy),
         new("Cut files", "Ctrl+X", () => Transfers.Copy(Active, cut: true),
@@ -306,7 +311,7 @@ internal sealed class ExplorerApplication : IDisposable
 
     private bool HandleNavigation(UiNavigationEvent navigation)
     {
-        if (Palettes.IsOpen) return true;
+        if (Palettes.IsOpen || Preview.IsOpen) return true;
         var pane = Active;
         if (navigation.Position is { } point)
         {
@@ -327,6 +332,7 @@ internal sealed class ExplorerApplication : IDisposable
     {
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
+        if (Preview.IsOpen) return Preview.HandleKey(key);
         if (Palettes.HandleKey(vk, modifiers)) return true;
         if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
@@ -340,6 +346,10 @@ internal sealed class ExplorerApplication : IDisposable
         if (Active.HandleFindKey(key)) return true;
         if (Active.FilesFocused)
         {
+            if (modifiers == KeyModifiers.None && vk == 0x20 && Preview.CanPreview(Active))
+            {
+                Preview.ShowSelected(Active); return true;
+            }
             if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x43)
             {
                 Transfers.CopyPaths(Active); return true;
@@ -415,6 +425,7 @@ internal sealed class ExplorerApplication : IDisposable
     {
         Left.Cancel();
         Right.Cancel();
+        Preview.Dispose();
         Work.Dispose();
         Left.DisposeSources();
         Right.DisposeSources();

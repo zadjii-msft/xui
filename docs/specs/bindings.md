@@ -651,6 +651,25 @@ Later headers and wrappers extend this baseline. See [current coverage](#current
 
 Image accepts a copied file path and decode bounds from 1 through 1,024 pixels per dimension.
 An empty path unloads the image. The status query returns Empty, Loading, Ready, or Error.
+`xui_image_source`, C# `Image.Source`, and Rust `Image::source` retain the WIC decoder.
+`xui_image_shell_source`, C# `Image.ShellSource`, and Rust `Image::shell_source` use the shared asynchronous Shell worker.
+The Shell first requests a thumbnail, then an icon for a file or folder without a thumbnail.
+Both paths use physical pixels for decode bounds, independent of the control size in DIPs.
+Changing the source kind cancels the previous request through the normal host update.
+See [standalone Shell images](images.md#standalone-shell-images) for caching, visibility, and resource limits.
+
+```csharp
+var preview = window.Image("Selected file").FixedSize(160, 160)
+    .ShellSource(path, 160, 160);
+var open = window.Button("Open selected file").SetIcon(ButtonIcon.Open);
+```
+
+`ButtonIcon.Open` has value 22. Existing icon values remain unchanged.
+The C constant is `XUI_BUTTON_ICON_OPEN`, for `XUI_F_BUTTON_ICON` and supported visual records.
+Rust provides `ButtonIcon::Open` and `Button::set_icon`.
+WinUI uses the Segoe Fluent glyph U+E8A7. Classic uses vector strokes.
+A button with an icon displays only the icon, but retains its accessible name.
+
 The bindings do not expose image error details, image resource limits, or image resource counters.
 Synchronous API errors still use the status and diagnostic contract below.
 

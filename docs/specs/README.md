@@ -49,7 +49,7 @@ Public headers and binding source define the available symbols.
 ## Samples
 
 - [Control gallery](gallery.md)
-- [C# and C++ file explorers](file-explorers.md)
+- [C# and C++ file explorers](file-explorers.md): Navigation, columns, commands, and C# file previews.
 - [Minesweeper](../../bindings/dotnet/Minesweeper/README.md)
 - [Task Manager](task-manager.md)
 - [Thumbnail sample](thumbnail-sample.md)

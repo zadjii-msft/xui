@@ -106,6 +106,7 @@ unsafe extern "C" {
     pub fn xui_focus(target: Handle, select_all: u32) -> Status;
     pub fn xui_invoke(target: Handle) -> Status;
     pub fn xui_image_source(image: Handle, path: Text, width: u32, height: u32) -> Status;
+    pub fn xui_image_shell_source(image: Handle, path: Text, width: u32, height: u32) -> Status;
     pub fn xui_image_state(image: Handle, state: *mut u32) -> Status;
     pub fn xui_list_items(list: Handle, items: *const FileItem, count: u32) -> Status;
     pub fn xui_list_filter(list: Handle, query: Text) -> Status;

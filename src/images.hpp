@@ -8,7 +8,6 @@
 namespace xui {
 struct TaskWake;
 class Drawing;
-enum class ImageKind { wic, shell };
 ImageKind thumbnail_kind(std::wstring_view path, bool directory = false);
 struct ImagePixels {
     std::uint64_t id{};

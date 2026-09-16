@@ -115,6 +115,8 @@ XUI_API xui_status XUI_CALL xui_focus(xui_handle target, uint32_t select_all) XU
 XUI_API xui_status XUI_CALL xui_invoke(xui_handle target) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_image_source(xui_handle image, xui_string path,
     uint32_t width, uint32_t height) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_image_shell_source(xui_handle image, xui_string path,
+    uint32_t width, uint32_t height) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_image_state(xui_handle image, uint32_t* state) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_list_items(xui_handle list,
     const xui_file_item* items, uint32_t count) XUI_NOEXCEPT;

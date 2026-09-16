@@ -6,6 +6,7 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
 {
     internal const ulong Open = 1, NewTab = 2, OtherPane = 3, Bookmark = 4, Refresh = 5;
     internal const ulong Copy = 6, Cut = 7, Paste = 8, CopyPaths = 9;
+    internal const ulong Preview = 10;
     private FileEntry? target;
     private string[] paths = [];
     private string destination = "";
@@ -23,6 +24,8 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         paths = entries.Select(entry => entry.FullPath).ToArray();
         destination = target is { IsDirectory: true } ? target.FullPath : pane.TransferDirectory;
         List<Command> result = [];
+        if (target is not null)
+            result.Add(new(Preview, "Preview", ShortcutHint: "Space"));
         if (target is { IsDirectory: true })
         {
             bool saved = app.State.Bookmarks.Contains(target.FullPath, StringComparer.OrdinalIgnoreCase);
@@ -73,6 +76,9 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         }
         switch (id)
         {
+            case Preview:
+                app.Preview.Show(pane, entry);
+                break;
             case Open:
                 app.Open(entry, pane);
                 pane.Focus();

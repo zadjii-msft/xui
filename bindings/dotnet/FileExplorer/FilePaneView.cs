@@ -297,6 +297,7 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        app.Preview.DismissFor(this);
         SaveViewport();
         navigation.Cancel();
         navigation.Dispose();
@@ -724,6 +725,7 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        app.Preview?.DismissFor(this);
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();

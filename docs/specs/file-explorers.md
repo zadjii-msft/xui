@@ -21,6 +21,9 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 `SidebarLayout.xui` defines the navigation control.
 `PaletteLayout.xui` defines the folder and command palette.
 `ViewMenuLayout.xui` defines the footer's view-choice flyout.
+`PreviewLayout.xui` defines the file preview popup.
+Its content parameters accept the image, native text, and status controls from `PreviewController`.
+`PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state updates the Find row height and control visibility.
 
@@ -132,6 +135,55 @@ Context menus use the selected row in the column under the pointer.
 Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
 Mode and tab changes detach obsolete native sources and cancel pending work.
 
+### File preview
+
+Space opens a centered preview for one selected item in Details or Columns view.
+The context menu contains **Preview**. The command palette contains **Preview selected item**.
+Preview does not open the file through its association.
+The **Open** button performs that separate action. For folders, **Open folder** navigates within the originating pane.
+
+Escape or **Close preview** closes the popup and restores file-view focus.
+Tab moves between preview controls. Enter activates a focused button.
+Space has no action inside the preview, so a held opening key cannot close it.
+Native text selection, scrolling, and copying remain available.
+The text preview uses Cascadia Mono and has no editor border or read-only banner.
+It retains the native document control because ordinary labels do not support text selection.
+The Open button uses the Open glyph and retains its accessible name.
+Explorer shortcuts and mouse history navigation remain inactive while the preview is open.
+Space in Find or another text input retains its text-input behavior.
+
+The preview supports these content types:
+
+| Content | Behavior |
+| --- | --- |
+| Text and code | Selectable, borderless text for common text, source, configuration, and extensionless files |
+| Images | PNG, JPEG, BMP, GIF, TIFF, and WebP through installed WIC codecs |
+| Folders | Large Shell icon, name, file type, modification date, and an uncalculated-size field |
+| Other formats | Large Shell thumbnail or icon, name, file type, size, and modification date |
+
+The metadata view does not scan folders recursively or report their size as zero.
+File sizes include a readable unit and the exact byte count.
+The image and metadata views omit routine informational banners.
+Truncation, empty text files, and errors retain explicit messages.
+
+Text supports UTF-8 and BOM-marked UTF-16 in either byte order.
+Invalid encoding, binary control characters, and UTF-32 produce an explicit error.
+The loader reads at most 262,145 bytes, including one byte that detects truncation.
+It decodes at most 262,144 bytes and displays at most 65,536 UTF-16 code units.
+Truncation preserves complete surrogate pairs and includes a visible message.
+Line endings use the native document format. Empty files have an explicit empty-file message.
+
+Images use a 1,024-by-1,024-pixel decode box and preserve their aspect ratio.
+The [image contract](images.md) defines file-size limits, shared memory budgets, codec support, and orientation restrictions.
+The image control displays its own loading and decode errors.
+The decode limit belongs to the shared image service. The preview does not display it as a warning.
+The preview does not support PDF rendering, Office preview handlers, media playback, or web content.
+
+The popup closes when focus moves outside it or the originating pane navigates or changes tabs.
+Dismissal cancels pending text delivery, clears the native document, and unloads the image.
+Replacement requests cannot restore obsolete content.
+The popup stays within the application window. It is not a floating window that follows selection changes.
+
 ### Keyboard and palettes
 
 | Input | Action |
@@ -148,6 +200,8 @@ Mode and tab changes detach obsolete native sources and cancel pending work.
 | Alt+Up in the palette | Show the parent folder |
 | Escape in the palette | Close the palette without navigation |
 | Ctrl+Shift+P | Open the searchable command palette |
+| Space with one selected item and file-view focus | Open a file preview |
+| Escape in the preview | Close the preview and restore file-view focus |
 | Ctrl+T / Ctrl+W | Add a tab / close the active tab |
 | Ctrl+F4 | Close the active tab |
 | Ctrl+Shift+PageUp / Ctrl+Shift+PageDown | Shift the active tab left / right |

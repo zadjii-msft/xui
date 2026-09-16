@@ -515,6 +515,16 @@ xui_status XUI_CALL xui_image_state(xui_handle image, uint32_t* state) noexcept 
         *state = static_cast<uint32_t>(as<xui::Image>(get(image, XUI_IMAGE)).status());
     });
 }
+xui_status XUI_CALL xui_image_shell_source(xui_handle image, xui_string path, uint32_t width, uint32_t height) noexcept {
+    return boundary([&] {
+        auto n = get(image, XUI_IMAGE); editable(n->owner); auto text = decode(path);
+        require(text.size() <= 32767, XUI_INVALID_ARGUMENT, "The image path is too long.");
+        require(width > 0 && height > 0 && width <= 1024 && height <= 1024,
+            XUI_INVALID_ARGUMENT, "Invalid image dimensions.");
+        if (text.empty()) as<xui::Image>(n).unload();
+        else as<xui::Image>(n).set_shell_source(std::move(text), {width, height});
+    });
+}
 xui_status XUI_CALL xui_list_items(xui_handle list, const xui_file_item* items, uint32_t count) noexcept {
     return boundary([&] {
         auto n = get(list, XUI_FILE_LIST); editable(n->owner);

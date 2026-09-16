@@ -73,6 +73,9 @@ enums!(
     StatusSeverity {Information=0,Success=1,Warning=2,Error=3},
     HostState {Idle=0,Loading=1,Ready=2,Playing=3,Paused=4,Stopped=5,Suspended=6,Error=7},
     ButtonBehavior {Momentary=0,Repeat=1,Toggle=2,Dropdown=3},
+    ButtonIcon {None=0,Back=1,Forward=2,Up=3,Refresh=4,Split=5,Theme=6,Add=7,
+        Minimize=8,Maximize=9,Restore=10,Close=11,More=12,Navigation=13,Home=14,
+        Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22},
     TrackSizing {Fixed=0,Automatic=1,Star=2},
     CommandKind {Action=0,Submenu=1,Separator=2}
 );
@@ -397,6 +400,15 @@ impl Element {
     }
 }
 impl Button {
+    pub fn set_icon(&self, icon: ButtonIcon) -> Result<()> {
+        self.feature_set(
+            45,
+            sys::FeatureValue {
+                first: icon as u64,
+                ..value_record()
+            },
+        )
+    }
     pub fn is_checked(&self) -> Result<bool> {
         Ok(self.feature_get(10)?.first != 0)
     }

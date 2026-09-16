@@ -67,6 +67,8 @@ internal static unsafe partial class Native
     internal static partial int Invoke(ulong target);
     [LibraryImport("xui", EntryPoint = "xui_image_source")]
     internal static partial int ImageSource(ulong image, Text path, uint width, uint height);
+    [LibraryImport("xui", EntryPoint = "xui_image_shell_source")]
+    internal static partial int ImageShellSource(ulong image, Text path, uint width, uint height);
     [LibraryImport("xui", EntryPoint = "xui_image_state")]
     internal static partial int ImageState(ulong image, out uint state);
     [LibraryImport("xui", EntryPoint = "xui_list_items")]

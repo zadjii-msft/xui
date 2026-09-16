@@ -1,0 +1,23 @@
+namespace Xui.FileExplorer;
+
+component PreviewLayout {
+    param global::Xui.Element Body;
+    param global::Xui.Element Status;
+
+    view {
+        Popup("File preview", id: "file-preview", preferredSize: (800, 600),
+            placement: global::Xui.PopupPlacement.Center, windowBackground: true) {
+            VStack(padding: 12, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("File preview", ref: Title, id: "preview-title", flex: 1);
+                    Button("Open", ref: Open, id: "preview-open", icon: global::Xui.ButtonIcon.Open,
+                        size: (36, 36), help: "Open in the associated application");
+                    Button("Close preview", ref: Close, id: "preview-close", icon: global::Xui.ButtonIcon.Close,
+                        size: (36, 36), help: "Close preview (Escape)");
+                }
+                Content(Body, flex: 1);
+                Content(Status);
+            }
+        }
+    }
+}
