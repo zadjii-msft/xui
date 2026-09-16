@@ -28,8 +28,13 @@ public:
     void horizontal(bool right, SelectionGesture gesture) override;
     std::vector<CollectionRow> visible_content() const override;
     void hover_item(std::optional<ItemKey> key);
+    std::optional<ItemKey> hovered_item() const { return hovered_item_; }
+    std::uint64_t hover_revision() const { return hover_revision_; }
+    std::optional<Rect> hover_anchor() const;
+    void request_hover_help();
     bool disclosure_hit(Point point) const;
     bool remove_selection(ItemKey key);
+    bool prepare_context_menu(std::optional<Point> position);
     void arrange(Rect bounds) override;
 private:
     friend class NavigationView;
@@ -37,6 +42,8 @@ private:
     explicit NavigationList(std::wstring name, NavigationView& owner);
     NavigationView* owner_;
     std::optional<ItemKey> hovered_item_;
+    std::uint64_t hover_revision_{};
+    bool hover_requested_{};
     bool reveal_focus_{};
     void replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected);
 };
@@ -66,6 +73,11 @@ public:
     void on_activate(std::function<void(ItemKey)> callback) { activate_ = std::move(callback); }
     void on_filter(std::function<void(const std::wstring&)> callback) { filter_changed_ = std::move(callback); }
     void on_expanded(std::function<void(bool)> callback) { expanded_changed_ = std::move(callback); }
+    // Hover changes cancel earlier work. Requests occur only after the native tooltip delay.
+    void on_hover_changed(std::function<void(std::optional<ItemKey>)> callback) { hover_changed_ = std::move(callback); }
+    void on_hover_requested(std::function<void(ItemKey)> callback) { hover_requested_ = std::move(callback); }
+    bool set_hover_help(ItemKey key, std::wstring text);
+    void set_hover_delay(unsigned milliseconds);
     const std::shared_ptr<TextInput>& search() const { return search_; }
     const std::shared_ptr<Button>& toggle_button() const { return toggle_; }
     const std::shared_ptr<NavigationList>& items() const { return main_; }
@@ -109,6 +121,8 @@ private:
     std::function<void(ItemKey)> select_, activate_;
     std::function<void(const std::wstring&)> filter_changed_;
     std::function<void(bool)> expanded_changed_;
+    std::function<void(std::optional<ItemKey>)> hover_changed_;
+    std::function<void(ItemKey)> hover_requested_;
 };
 
 struct PathSegment {

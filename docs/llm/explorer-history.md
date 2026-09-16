@@ -5,6 +5,57 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Folder identity and Find behavior, 2026-09-16
+
+Tabs previously supported text only.
+`TabItem` now accepts a vector icon and an image path.
+The C ABI exposes `xui_tab_items_visual`. The managed binding exposes `TabEntry` and `TabStrip.SetTabItems`.
+FileExplorer supplies the folder path and a folder glyph for each tab.
+The shared image worker resolves Shell icons without blocking the UI thread.
+Existing text-only tab calls retain their behavior.
+
+The navigation sidebar uses the same command builder and Shell menus as Details rows.
+The menu captures the clicked path without changing the pane's current folder.
+`NavigationList::prepare_context_menu` changes row focus without selecting a navigation destination.
+Headers, disabled rows, and empty space do not open a menu.
+The managed binding covers the main, header, and footer lists.
+
+The complete explorer smoke passed with native pointer and keyboard menu requests.
+It covers shared command availability, clicked-path snapshots, bookmarks, and opening the folder in a new tab.
+The native navigation model suite passed its pointer, keyboard, header, disabled-row, and pinned-section assertions.
+
+The integrated native build, explorer model tests, feature ABI tests, and complete managed binding suite passed.
+The complete explorer smoke also passed with tab icons and sidebar menus enabled.
+The image suite passed decoding, replacement, cancellation, cache limits, and repeated idle reconciliation.
+The tab-window suite passed icon pixels, icon clicks, close targets, keyboard focus, and overflow checks.
+It covered both visual styles, all three themes, and five DPI settings from 96 through 192.
+Separate navigation-window reruns failed at the existing idle-repaint assertion or real Shell discovery.
+These failures also occurred with the binary from before the tab-icon change.
+
+`ExplorerApplication.UpdateTitle` derives the native caption from the active pane's committed path.
+`ExplorerTab.Apply` clears the filter only when the normalized folder path changes.
+This common commit path covers direct navigation, history, column drilling, and ancestor-column selection.
+Refresh and failed navigation retain the filter.
+
+`Window::Impl::translate` identifies text-producing keys before native translation.
+The application opens Find through `UiKeyEvent.IsTextInput` and returns false.
+The host then directs the original key to the newly focused native editor.
+The host does not convert virtual keys into query text or consume dead-key state.
+The explorer smoke covers the first and subsequent keys in Details and Columns, native non-ASCII input, and navigation keys.
+Physical keyboard layouts and IME candidate-window interaction still need manual coverage.
+
+`src\window_icon.hpp` owns the Shell image request and both native window icons.
+`NavigationSidebar.cs` requests metadata only after the native row-hover delay.
+`FolderMetadata.cs` supplies cancellable recursive totals and explicit partial-result descriptions.
+The shared navigation control owns row tracking and card placement.
+
+The x64 Release library and `win-x64` explorer build passed.
+The complete explorer `--smoke` passed with caption, icon, typing, and folder-filter assertions.
+The managed model suite passed 360 assertions. The native text binding suite passed 31 assertions.
+The native navigation model, navigation window, feature ABI, and window-icon suites passed.
+The icon suite covers Shell decoding, cancellation, replacement, errors, and handle cleanup.
+The navigation window suite covers the hover delay, row-relative placement, multiline content, and input focus.
+
 ## Managed file transfers, 2026-09-15
 
 The managed explorer now connects file clipboard commands and pane drops through `FileTransfers.cs`.

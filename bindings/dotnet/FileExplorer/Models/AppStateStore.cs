@@ -5,7 +5,7 @@ namespace Xui.FileExplorer.Models;
 
 public sealed class ExplorerState
 {
-    public const int RecentLimit = 32;
+    public const int RecentLimit = 10;
     public List<string> Bookmarks { get; set; } = [];
     public List<string> Recents { get; set; } = [];
 
@@ -39,6 +39,7 @@ internal partial class ExplorerStateJsonContext : JsonSerializerContext;
 public sealed class AppStateStore
 {
     private const long MaximumFileSize = 4 * 1024 * 1024;
+    private const int LegacyRecentLimit = 32;
     private readonly string statePath;
     private bool corruptState;
 
@@ -58,7 +59,9 @@ public sealed class AppStateStore
                 throw new InvalidDataException("The state file is too large.");
             var state = JsonSerializer.Deserialize(stream, ExplorerStateJsonContext.Default.ExplorerState)
                 ?? throw new InvalidDataException("The state file contains null.");
-            Validate(state);
+            Validate(state, LegacyRecentLimit);
+            if (state.Recents.Count > ExplorerState.RecentLimit)
+                state.Recents.RemoveRange(ExplorerState.RecentLimit, state.Recents.Count - ExplorerState.RecentLimit);
             corruptState = false;
             return state;
         }
@@ -109,12 +112,12 @@ public sealed class AppStateStore
         }
     }
 
-    private static void Validate(ExplorerState state)
+    private static void Validate(ExplorerState state, int recentLimit = ExplorerState.RecentLimit)
     {
         ArgumentNullException.ThrowIfNull(state);
         if (state.Bookmarks is null || state.Recents is null)
             throw new InvalidDataException("Bookmarks and recents must be lists.");
-        if (state.Bookmarks.Count > 4096 || state.Recents.Count > ExplorerState.RecentLimit)
+        if (state.Bookmarks.Count > 4096 || state.Recents.Count > recentLimit)
             throw new InvalidDataException("The explorer state contains too many saved paths.");
         foreach (var path in state.Bookmarks.Concat(state.Recents))
             ExplorerState.ValidatePath(path);

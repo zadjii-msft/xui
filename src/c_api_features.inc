@@ -121,7 +121,11 @@ void wire_feature(const std::shared_ptr<Node>& n) {
     case XUI_NAVIGATION_PANE: as<xui::NavigationPane>(n).on_navigate([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); }); break;
     case XUI_NAVIGATION_VIEW:
         as<xui::NavigationView>(n).on_select([weak](xui::ItemKey key) { dispatch(weak, XUI_SELECTION, key.id); });
-        as<xui::NavigationView>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); }); break;
+        as<xui::NavigationView>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); });
+        as<xui::NavigationView>(n).on_hover_changed([weak](std::optional<xui::ItemKey> key) {
+            dispatch(weak, XUI_PREVIEW, key ? key->id : 0);
+        });
+        as<xui::NavigationView>(n).on_hover_requested([weak](xui::ItemKey key) { dispatch(weak, XUI_REQUEST, key.id); }); break;
     case XUI_MILLER_COLUMNS: break;
     case XUI_TAB_STRIP:
         as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); });
@@ -218,7 +222,8 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
             node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = result.current;
             node->menu_presentation = xui::ShellMenuPresentation::windows;
             node->menu_requesting = true;
-            const bool success = dispatch_menu(node, XUI_REQUEST, node->kind == XUI_TAB_STRIP && selected ? selected->id : 0);
+            const bool row_target = node->kind == XUI_TAB_STRIP || dynamic_cast<xui::NavigationList*>(node->element.get());
+            const bool success = dispatch_menu(node, XUI_REQUEST, row_target && selected ? selected->id : 0);
             node->menu_requesting = false; node->menu_current = {};
             if (success) {
                 result.items.swap(node->menu_items); result.shell_paths.swap(node->menu_shell_paths);
@@ -284,6 +289,21 @@ xui_status XUI_CALL xui_context_menu_presentation(xui_handle target, uint32_t pr
 xui_status XUI_CALL xui_navigation_items(xui_handle target, const xui_navigation_entry* items, uint32_t count) noexcept {
     return xui_navigation_items_visual(target, items, nullptr, count);
 }
+xui_status XUI_CALL xui_navigation_hover_help(xui_handle target, uint64_t id, xui_string text, uint32_t* applied) noexcept {
+    return boundary([&] {
+        require(applied, XUI_INVALID_ARGUMENT, "Missing hover help result.");
+        auto n = get(target, XUI_NAVIGATION_VIEW); editable(n->owner);
+        *applied = as<xui::NavigationView>(n).set_hover_help({id, 0}, decode(text));
+    });
+}
+xui_status XUI_CALL xui_navigation_hover_delay(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_NAVIGATION_VIEW); editable(n->owner);
+        require(milliseconds >= 100 && milliseconds <= 60000, XUI_INVALID_ARGUMENT,
+            "Navigation hover delay must be 100 to 60000 milliseconds.");
+        as<xui::NavigationView>(n).set_hover_delay(milliseconds);
+    });
+}
 xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_navigation_entry* items,
     const xui_item_visual* visuals, uint32_t count) noexcept {
     return boundary([&] {
@@ -315,6 +335,32 @@ xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_nav
 }
 xui_status XUI_CALL xui_window_title(xui_handle window, xui_string title) noexcept {
     return boundary([&] { auto n = get(window, XUI_WINDOW); editable(n->owner); n->owner->window->set_title(decode(title)); });
+}
+xui_status XUI_CALL xui_window_set_icon_source(xui_handle window, xui_string path) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        auto value = decode(path);
+        require(value.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
+        n->owner->window->set_icon_source(std::move(value));
+    });
+}
+xui_status XUI_CALL xui_window_on_icon_error(xui_handle window, xui_window_icon_error_callback callback, void* context) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        if (!callback) { n->owner->window->on_icon_error({}); return; }
+        n->owner->window->on_icon_error([weak = std::weak_ptr<Node>(n), callback, context](const std::wstring& error) {
+            const auto node = weak.lock();
+            if (!node || node->owner->closed || node->owner->callback_failure) return;
+            const auto state = node->owner;
+            const auto bytes = encode(error);
+            ++state->callbacks;
+            xui_status status{};
+            try { status = callback(context, bytes.data(), static_cast<uint32_t>(bytes.size())); }
+            catch (...) { status = XUI_CALLBACK_FAILED; }
+            --state->callbacks;
+            if (status) { state->callback_failure = status; state->window->close(); }
+        });
+    });
 }
 xui_status XUI_CALL xui_window_key_handler(xui_handle window, xui_key_handler callback, void* context) noexcept {
     return boundary([&] {
@@ -681,6 +727,29 @@ xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items, uint
         else if (n->kind == XUI_COMBO_BOX) as<xui::ComboBox>(n).set_items(std::move(choices), id);
         else if (n->kind == XUI_TAB_STRIP) as<xui::TabStrip>(n).set_tabs(std::move(tabs), id);
         else feature<xui::Breadcrumb>(n).set_segments(std::move(segments));
+    });
+}
+xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* items,
+    const xui_item_visual* visuals, uint32_t count, uint64_t selected, uint32_t has) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_TAB_STRIP); editable(n->owner);
+        require(count <= XUI_MAX_BATCH && (items || !count) && has <= 1 && (has || !selected),
+            XUI_INVALID_ARGUMENT, "Invalid tabs.");
+        std::vector<xui::TabItem> tabs; tabs.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            require(items[i].size == sizeof(xui_choice), XUI_VERSION_MISMATCH, "Choice size mismatch.");
+            require(items[i].flags <= 1, XUI_INVALID_ARGUMENT, "Invalid choice flags.");
+            xui::TabItem tab{items[i].id, decode(items[i].text)};
+            if (visuals) {
+                require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::drive));
+                tab.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
+                tab.image_path = decode(visuals[i].image_path);
+            }
+            tabs.push_back(std::move(tab));
+        }
+        try { as<xui::TabStrip>(n).set_tabs(std::move(tabs), has ? std::optional<uint64_t>(selected) : std::nullopt); }
+        catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Invalid tab identity, selection, or visual."}; }
     });
 }
 xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_handle* out) noexcept {

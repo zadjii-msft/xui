@@ -43,7 +43,12 @@ Arrow keys select tabs while focus stays on the strip. Enter or Space moves focu
 The tab focus rectangle appears only during keyboard navigation.
 See [tab colors and activation](menus-and-input.md#tabs-split-panes-and-activation) for the shared control APIs.
 The title bar does not repeat the window title.
+The native window caption uses `{folder name} ({full path}) - FileExplorer.xui` for the active pane.
+Drive roots use their root path as the folder name.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
+Recents retains the 10 most recently visited folders, newest first.
+Revisiting a folder moves it to the top without creating a duplicate.
+Older saved lists are trimmed on load. Bookmarks are unchanged.
 It has no title header.
 Its filter searches item names and paths.
 The shared `ExplorerStyles.NavigationItems` style gives navigation lists compact rows, smaller text, and smaller icons.
@@ -51,6 +56,27 @@ It uses 28-DIP rows, 12-DIP text, 16-DIP icons, and no extra row padding.
 The folder tree shows the ancestors and immediate child folders of the active location.
 Selecting a folder updates the tree.
 Unchanged navigation rows retain their loaded icons and pending image requests across folder changes.
+Navigation folders use the same context menu as Details rows, including Windows Shell commands and the Windows menu fallback.
+Right-click targets the navigation row without opening its folder or changing the Details selection.
+The menu includes open, new-tab, other-pane, bookmark, copy, cut, paste, path-copy, and refresh commands.
+Keyboard context-menu requests use the focused navigation row.
+Section headers, disabled rows, and empty space have no file menu.
+Source or filter changes cancel an open menu instead of changing its target.
+
+Folder hover cards appear after at least 1,000 ms over the same row.
+Each card sits to the right of that row, within the window bounds.
+It shows the folder name, full path, creation time, recursive subfolder and file counts, and total file size in bytes.
+The background scan starts only after the hover delay.
+Pointer exit, row changes, filtering, scrolling, and window closure cancel obsolete scans.
+The card does not move input focus and offers only the supported click-to-open hint.
+
+Metadata scans exclude links and junctions.
+They stop after 100,000 entries or five seconds between filesystem calls.
+Unreadable folders show unavailable totals instead of zero.
+Skipped entries, access errors, and scan limits produce partial totals with an explanation.
+The shared `NavigationView` exposes `SetHoverDelay` and `SetHoverHelp` in C#.
+Its `Preview` event reports row changes, and its `Request` event starts delayed metadata work.
+
 The collapsed navigation pane is completely hidden.
 The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
@@ -59,6 +85,11 @@ Each pane has its own tabs, navigation history, details view, and Find bar.
 Each tab also has an optional Columns view.
 Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
+Typing with file-view focus opens Find and sends the first key to its native editor.
+Keyboard layouts, dead keys, and IME input use native text translation.
+Shortcuts, the navigation filter, and palette editors do not start a file filter.
+Successful navigation to a different folder clears the filter but retains the Find bar state.
+Refresh, failed navigation, and tab switches preserve the filter.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
 Left, Right, Home, and End retain their text-editing behavior.

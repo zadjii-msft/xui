@@ -721,6 +721,27 @@ void explorer_contracts() {
     ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
     ok(xui_feature_child(window, 2, &second)); ok(xui_feature_child(window, 0, &again));
     expect(tabs == again && tabs != second);
+    xui_choice tab_items[]{{sizeof(xui_choice), 0, 71, 0, text("Folder")},
+        {sizeof(xui_choice), 0, 72, 0, text("Other")}};
+    xui_item_visual tab_visuals[]{{sizeof(xui_item_visual), 15, text("C:\\")},
+        {sizeof(xui_item_visual), 0, text("")}};
+    ok(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 72, 1));
+    ok(xui_tab_items_visual(tabs, tab_items, nullptr, 2, 71, 1));
+    expect(xui_tab_items_visual(leading, tab_items, tab_visuals, 2, 71, 1) == XUI_WRONG_KIND);
+    expect(xui_tab_items_visual(tabs, nullptr, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 4097, 71, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 99, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 0) == XUI_INVALID_ARGUMENT);
+    tab_visuals[0].size = 0;
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_VERSION_MISMATCH);
+    tab_visuals[0].size = sizeof(xui_item_visual); tab_visuals[0].icon = 999;
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
+    tab_visuals[0].icon = 15;
+    tab_items[1].id = 71;
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
+    tab_items[1].id = 72;
+    ok(xui_choices(tabs, tab_items, 2, 71, 1));
+    ok(xui_tab_items_visual(tabs, nullptr, nullptr, 0, 0, 0));
     xui_handle new_tab{}, second_new_tab{};
     ok(xui_feature_child(tabs, 0, &new_tab));
     ok(xui_feature_child(tabs, 0, &again));
@@ -742,6 +763,7 @@ void explorer_contracts() {
     expect(xui_tab_set_new_button(leading, 1) == XUI_WRONG_KIND);
     std::thread tab_worker([&] {
         uint32_t worker_visible{};
+        expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_WRONG_THREAD);
         expect(xui_tab_set_new_button(tabs, 0) == XUI_WRONG_THREAD);
         expect(xui_tab_get_new_button(tabs, &worker_visible) == XUI_WRONG_THREAD);
     });
@@ -824,6 +846,15 @@ void explorer_contracts() {
         {sizeof(xui_navigation_entry), 0, 2, 1, text("Home"), text("folder")}
     };
     ok(xui_navigation_items(navigation, entries, 2));
+    ok(xui_navigation_hover_delay(navigation, 1000));
+    expect(xui_navigation_hover_delay(navigation, 99) == XUI_INVALID_ARGUMENT);
+    expect(xui_navigation_hover_delay(navigation, 60001) == XUI_INVALID_ARGUMENT);
+    expect(xui_navigation_hover_delay(window, 1000) == XUI_WRONG_KIND);
+    uint32_t hover_applied = 1;
+    ok(xui_navigation_hover_help(navigation, 2, text("Stale help"), &hover_applied));
+    expect(hover_applied == 0);
+    expect(xui_navigation_hover_help(navigation, 2, text("Help"), nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_navigation_hover_help(window, 2, text("Help"), &hover_applied) == XUI_WRONG_KIND);
     xui_item_visual visuals[] {{sizeof(xui_item_visual), 18, text("")}, {sizeof(xui_item_visual), 15, text("folder")}};
     ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
     visuals[1].size = 0;
@@ -961,6 +992,14 @@ int main() {
     xui_event menu_event{};
     ok(xui_context_menu_bind(handles[XUI_DATA_GRID], event, &menu_event));
     ok(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event));
+    const auto navigation_menu = create(w, XUI_NAVIGATION_VIEW);
+    for (uint32_t section = 2; section <= 4; ++section) {
+        xui_handle list{}; ok(xui_feature_child(navigation_menu, section, &list));
+        ok(xui_context_menu_bind(list, event, &menu_event));
+        expect(xui_context_menu_items(list, nullptr, 0) == XUI_BUSY);
+        expect(xui_context_menu_shell_paths(list, nullptr, 0) == XUI_BUSY);
+        ok(xui_context_menu_bind(list, nullptr, nullptr));
+    }
     ok(xui_context_menu_bind(handles[XUI_TAB_STRIP], event, &menu_event));
     expect(xui_context_menu_items(handles[XUI_TAB_STRIP], nullptr, 0) == XUI_BUSY);
     ok(xui_context_menu_bind(handles[XUI_TAB_STRIP], nullptr, nullptr));

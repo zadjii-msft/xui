@@ -703,7 +703,8 @@ internal sealed class FilePaneView
         rendering = true;
         try
         {
-            Tabs.SetTabs(Model.Tabs.Select(t => new Choice(t.Id, TabName(t.Path))).ToArray(), Model.Active.Id);
+            Tabs.SetTabItems(Model.Tabs.Select(t => new TabEntry(t.Id, TabName(t.Path),
+                ButtonIcon.Folder, t.Path)).ToArray(), Model.Active.Id);
         }
         finally { rendering = prior; }
     }

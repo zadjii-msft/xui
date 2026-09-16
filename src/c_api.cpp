@@ -238,7 +238,7 @@ void wire(const std::shared_ptr<Node>& n) {
             if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
                 const auto target = event_target(node->owner, e.target);
                 const xui_key_event event{sizeof(xui_key_event), static_cast<uint32_t>(e.key),
-                    uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, 0, target};
+                    uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, uint32_t(e.text_input), target};
                 uint32_t handled{};
                 ++node->owner->callbacks;
                 xui_status status{};

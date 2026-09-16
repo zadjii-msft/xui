@@ -258,8 +258,13 @@ typedef struct xui_item_visual {
 /* Optional parallel visual records. Existing navigation records remain unchanged. */
 XUI_API xui_status XUI_CALL xui_navigation_items_visual(xui_handle target,
     const xui_navigation_entry* items, const xui_item_visual* visuals, uint32_t count) XUI_NOEXCEPT;
+/* Navigation emits PREVIEW on hover changes (0 on exit), REQUEST after the tooltip delay.
+   Help updates apply only to the currently hovered identity; stale updates return applied=0. */
+XUI_API xui_status XUI_CALL xui_navigation_hover_help(xui_handle target,
+    uint64_t id, xui_string text, uint32_t* applied) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_navigation_hover_delay(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
 typedef struct xui_key_event {
-    uint32_t size, virtual_key, modifiers, reserved; /* control=1, shift=2, alt=4 */
+    uint32_t size, virtual_key, modifiers, reserved; /* control=1, shift=2, alt=4; reserved bit 0: text-producing key outside an editor */
     xui_handle target;
 } xui_key_event;
 typedef xui_status (XUI_CALL *xui_key_handler)(void*, const xui_key_event*, uint32_t*);
@@ -273,6 +278,12 @@ typedef xui_status (XUI_CALL *xui_post_callback)(void*, uint32_t);
 XUI_API xui_status XUI_CALL xui_navigation_items(xui_handle target,
     const xui_navigation_entry* items, uint32_t count) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_title(xui_handle window, xui_string title) XUI_NOEXCEPT;
+/* Shared asynchronous Shell thumbnail/icon lookup. Empty clears; replacement cancels old delivery.
+   Error text is borrowed UTF-8, valid only for the UI-thread callback. Null revokes the callback. */
+typedef xui_status (XUI_CALL *xui_window_icon_error_callback)(void*, const char*, uint32_t);
+XUI_API xui_status XUI_CALL xui_window_set_icon_source(xui_handle window, xui_string path) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_on_icon_error(xui_handle window,
+    xui_window_icon_error_callback callback, void* context) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_key_handler(xui_handle window,
     xui_key_handler callback, void* context) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_navigation_handler(xui_handle window,
@@ -345,6 +356,10 @@ XUI_API xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t actio
     uint64_t first, uint64_t second) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items,
     uint32_t count, uint64_t selected, uint32_t has_selection) XUI_NOEXCEPT;
+/* Tab-only optional parallel visuals. A null visuals pointer creates text-only tabs.
+   Choice version/flags keep their legacy tab behavior; the choice ABI does not change. */
+XUI_API xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* items,
+    const xui_item_visual* visuals, uint32_t count, uint64_t selected, uint32_t has_selection) XUI_NOEXCEPT;
 /* Borrowed child handles remain valid only while their window lives.
    Window indices: 0 = title tabs, 1 = leading button, 2 = secondary title tabs.
    Window: titlebar root 3, title 4, minimize 5, maximize 6, close 7.

@@ -36,7 +36,14 @@ enum class Key : std::uint16_t {
     f1 = 0x70, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,
     f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24
 };
-struct KeyEvent { Key key; bool control{}, shift{}; Control* target{}; bool alt{}; };
+struct KeyEvent {
+    Key key;
+    bool control{}, shift{};
+    Control* target{};
+    bool alt{};
+    // A text-producing key outside a native editor. The keyboard layout performs translation.
+    bool text_input{};
+};
 enum class NavigationDirection { back, forward };
 struct NavigationEvent {
     NavigationDirection direction;
@@ -93,6 +100,10 @@ public:
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
     const std::wstring& title() const;
+    // Uses the shared asynchronous Shell thumbnail/icon service. Empty clears the icon.
+    // Replacing the source or closing cancels delivery. Failures use the UI-thread callback.
+    void set_icon_source(std::wstring path);
+    void on_icon_error(std::function<void(const std::wstring&)> callback);
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
     ThemeMode theme() const;

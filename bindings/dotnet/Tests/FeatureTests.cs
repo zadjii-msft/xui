@@ -334,6 +334,22 @@ internal static class FeatureTests
             using (var evaluation = web.Evaluate("1+1")) Expect(evaluation.TryGetResult()?.IsError == true);
             using (var evaluation = web.Evaluate("1+1")) { web.Stop(); Fails(() => evaluation.TryGetResult()); }
             w.TabStrip("Tabs").SetTabs(choices, 1);
+            var visualTabs = w.TabStrip("Visual tabs");
+            int tabSelections = 0;
+            visualTabs.Event += e => { if (e.Kind == EventKind.Selection) ++tabSelections; };
+            Expect(ReferenceEquals(visualTabs, visualTabs.SetTabItems([
+                new(71, "日本語", ButtonIcon.Folder, @"C:\"),
+                new(72, "Text only")], 72)));
+            Expect(tabSelections == 0);
+            Fails(() => visualTabs.SetTabItems([new(71, "Invalid", (ButtonIcon)999)], 71));
+            Fails(() => visualTabs.SetTabItems([new(71, "Duplicate"), new(71, "Duplicate")], 71));
+            Fails(() => visualTabs.SetTabItems([new(71, "Missing selection")], 99));
+            Fails(() => visualTabs.SetTabItems([new(71, "Too long", ButtonIcon.Folder, new string('x', 32768))], 71));
+            visualTabs.Select(71);
+            Expect(tabSelections == 1);
+            Task.Run(() => Fails(() => visualTabs.SetTabItems([]))).GetAwaiter().GetResult();
+            visualTabs.SetTabs([new(71, "Legacy choice")], 71);
+            visualTabs.SetTabItems([]);
             var splitView = w.SplitView("Split", w.Stack(), w.Stack());
             splitView.Ratio = .4;
             Expect(Math.Abs(splitView.Ratio - .4) < .0001);

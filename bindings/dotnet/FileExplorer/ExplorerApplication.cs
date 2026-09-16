@@ -15,6 +15,7 @@ internal sealed class ExplorerApplication : IDisposable
     private bool splitOpen;
     private bool rightInitialized;
     private bool light;
+    private string? iconPath;
 
     public ExplorerApplication(string initialPath, bool smoke = false)
     {
@@ -42,6 +43,7 @@ internal sealed class ExplorerApplication : IDisposable
         Palettes = new(this);
         var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
         notification = layout.Notification;
+        Window.IconErrorHandler = error => Report($"Cannot load the folder window icon: {error}");
         split = layout.Panes;
         split.Event += e =>
         {
@@ -116,7 +118,20 @@ internal sealed class ExplorerApplication : IDisposable
         }
     }
 
-    private void UpdateTitle() => Window.SetTitle($"XUI / Files - {Active.Model.Active.Path}");
+    private void UpdateTitle()
+    {
+        string path = Active.Model.Active.Path;
+        string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+        Window.SetTitle($"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui");
+        if (!string.Equals(iconPath, path, StringComparison.Ordinal))
+        {
+            try { Window.SetIconSource(path); iconPath = path; }
+            catch (Exception error) when (error is XuiException or ArgumentException)
+            {
+                Report($"Cannot load the folder window icon: {error.Message}");
+            }
+        }
+    }
 
     public void ToggleSplit()
     {
@@ -408,11 +423,13 @@ internal sealed class ExplorerApplication : IDisposable
                 case 0x1b when Active.Model.Active.FindOpen: Active.HideFind(); return true;
             }
         }
+        if (key.IsTextInput && Active.FilesFocused) Active.ShowFind();
         return false;
     }
 
     public void Dispose()
     {
+        Sidebar.Dispose();
         Left.Cancel();
         Right.Cancel();
         Work.Dispose();

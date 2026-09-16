@@ -13,6 +13,7 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            assertions += await FolderMetadataTests.Run(fixture);
             TabTests(fixture);
             ColumnTests(fixture);
             PaneTests(fixture);
@@ -165,6 +166,7 @@ internal static class Program
         statefulTab.Commit(read);
         statefulTab.SelectedPath = small.FullPath;
         statefulTab.ScrollOffset = 42;
+        statefulTab.Filter = "small";
         try
         {
             statefulTab.Commit(await service.ReadDirectoryAsync("absent", root, None));
@@ -175,6 +177,7 @@ internal static class Program
         Equal(root, statefulTab.Path);
         Equal(small.FullPath, statefulTab.SelectedPath);
         Equal(42d, statefulTab.ScrollOffset);
+        Equal("small", statefulTab.Filter);
         True(!statefulTab.CanBack);
         Equal(read.Entries.Count, statefulTab.Entries.Count);
         SortTests(read.Entries);
@@ -236,7 +239,7 @@ internal static class Program
         True(ReferenceEquals(ancestor, tab.Columns[0]));
         Equal(alpha.FullPath, tab.Path);
         Equal(alpha.FullPath, tab.Columns[0].SelectedPath);
-        Equal("leaf", tab.Filter);
+        Equal("", tab.Filter);
         tab.CommitColumn(1, new(child.FullPath, []));
         Equal(3, tab.Columns.Count);
         var committed = tab.Entries;
@@ -264,7 +267,7 @@ internal static class Program
         tab.SetViewMode(ExplorerViewMode.Details);
         Equal(0, tab.Columns.Count);
         Equal(beta.FullPath, tab.Path);
-        Equal("leaf", tab.Filter);
+        Equal("", tab.Filter);
         tab.SetViewMode(ExplorerViewMode.Columns);
         tab.Commit(new(root, [alpha]));
         Equal(root, tab.Columns.Single().Snapshot.Path);
@@ -323,6 +326,7 @@ internal static class Program
         tab.Commit(first);
         Equal("missing selection", tab.SelectedPath);
         Equal(91d, tab.ScrollOffset);
+        Equal("filter", tab.Filter);
         tab.CommitHistory(first, 0);
         Equal("missing selection", tab.SelectedPath);
         Equal(91d, tab.ScrollOffset);
@@ -339,6 +343,7 @@ internal static class Program
         tab.Commit(second);
         Equal<string?>(null, tab.SelectedPath);
         Equal(0d, tab.ScrollOffset);
+        Equal("", tab.Filter);
         True(tab.CanBack && !tab.CanForward);
         True(tab.TryGetHistory(-1, out var back));
         Equal(first.Path, back);
@@ -354,7 +359,7 @@ internal static class Program
         tab.ScrollOffset = 123;
         tab.CommitHistory(first, -1);
         True(!tab.CanBack && tab.CanForward);
-        Equal("filter", tab.Filter);
+        Equal("", tab.Filter);
         True(tab.FindOpen && tab.SortDescending);
         Equal(3, tab.SortColumn);
         Equal<string?>(null, tab.SelectedPath);
@@ -514,7 +519,13 @@ internal static class Program
         for (var i = 0; i < 40; i++)
             state.AddRecent(Path.Combine(fixture, i.ToString()));
         Equal(ExplorerState.RecentLimit, state.Recents.Count);
+        Equal(10, state.Recents.Count);
         Equal(Path.Combine(fixture, "39"), state.Recents[0]);
+        Equal(Path.Combine(fixture, "30"), state.Recents[^1]);
+        state.AddRecent(Path.Combine(fixture, "35"));
+        Equal(10, state.Recents.Count);
+        Equal(Path.Combine(fixture, "35"), state.Recents[0]);
+        Equal(Path.Combine(fixture, "30"), state.Recents[^1]);
         store.Save(state);
         using (var saved = JsonDocument.Parse(File.ReadAllBytes(path)))
         {
@@ -548,6 +559,22 @@ internal static class Program
         store.Save(loaded);
         True(File.Exists(unrelated));
         Equal(2, store.Load().Bookmarks.Count);
+
+        var legacy = new ExplorerState
+        {
+            Bookmarks = [unicode],
+            Recents = Enumerable.Range(0, 32).Select(i => Path.Combine(fixture, i.ToString())).ToList()
+        };
+        File.WriteAllText(path, JsonSerializer.Serialize(legacy, ExplorerStateJsonContext.Default.ExplorerState));
+        var migrated = store.Load();
+        Equal(10, migrated.Recents.Count);
+        Sequence(legacy.Recents.Take(10), migrated.Recents);
+        Sequence(legacy.Bookmarks, migrated.Bookmarks);
+        store.Save(migrated);
+        using (var saved = JsonDocument.Parse(File.ReadAllBytes(path)))
+            Equal(10, saved.RootElement.GetProperty("Recents").GetArrayLength());
+        Sequence(migrated.Recents, store.Load().Recents);
+        Throws<InvalidDataException>(() => store.Save(new ExplorerState { Recents = legacy.Recents.Take(11).ToList() }));
 
         foreach (var json in new[]
                  {

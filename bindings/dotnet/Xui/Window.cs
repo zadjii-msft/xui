@@ -162,6 +162,7 @@ public sealed unsafe partial class Window : IDisposable
         Guard();
         if (running || callbacks != 0) throw new XuiException(7, "Close the window and return from Run before Dispose.");
         Check(Native.WindowDestroy(Handle));
+        ReleaseIconCallback();
         Handle = 0;
         foreach (var s in subscriptions.Values) s.Free();
         subscriptions.Clear(); key = null;

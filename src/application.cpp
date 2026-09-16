@@ -10,6 +10,7 @@
 #include "file_transfer.hpp"
 #include "async.hpp"
 #include "images.hpp"
+#include "window_icon.hpp"
 #include "workspace_accessibility.hpp"
 #include "xui/data_grid.hpp"
 #include "xui/adaptive_layout.hpp"
@@ -24,6 +25,7 @@
 #include <commctrl.h>
 #include <windowsx.h>
 #include <cmath>
+#include <chrono>
 #include <utility>
 
 namespace xui {
@@ -136,6 +138,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     unsigned input_depth{};
     std::uint64_t tooltip_target{};
+    std::uint64_t tooltip_revision{};
+    std::optional<Rect> tooltip_anchor;
+    std::chrono::steady_clock::time_point tooltip_due;
     bool tooltip_shown{};
     Rect tooltip_bounds{};
     std::unique_ptr<ControlStyleAttachment> tooltip_styling;
@@ -148,6 +153,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{};
     std::uint64_t paints{}, layouts{};
     std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
+    WindowIcon window_icon;
     std::vector<std::shared_ptr<ViewTask::Impl>> tasks;
     std::vector<std::shared_ptr<SampleTask::Impl>> samples;
     std::function<bool(const KeyEvent&)> key;
@@ -172,8 +178,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (destroying) return;
         destroying = true;
         closing = true;
+        window_icon.close(window);
         close_posts();
-        hide_tooltip();
+        try { hide_tooltip(); }
+        catch (...) { failed = true; error = L"A navigation hover cancellation callback failed."; }
         if (!popups.empty()) {
             try { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::owner_closed, false); }
             catch (...) { failed = true; error = L"A popup dismissal callback failed."; }
@@ -411,7 +419,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             try { peer.host.light_dismiss(&peer); }
             catch (...) { peer.host.fail(); return 0; }
         }
-        if (message == WM_SETFOCUS || message == WM_MOUSEMOVE) {
+        if ((message == WM_SETFOCUS || message == WM_MOUSEMOVE) && !dynamic_cast<NavigationList*>(peer.control.get())) {
             try { peer.host.offer_tooltip(peer); }
             catch (...) { peer.host.fail(); return 0; }
         }
@@ -428,7 +436,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             catch (...) { peer.host.fail(); return 0; }
         }
         if (message == WM_MOUSELEAVE) peer.tracking = false;
-        if (message == WM_KILLFOCUS || message == WM_MOUSELEAVE) peer.host.hide_tooltip();
+        if (message == WM_KILLFOCUS || message == WM_MOUSELEAVE || message == WM_KEYDOWN ||
+            message == WM_SYSKEYDOWN || message == WM_CHAR || message == WM_IME_STARTCOMPOSITION) {
+            try { peer.host.hide_tooltip(); }
+            catch (...) { peer.host.fail(); return 0; }
+        }
         if (message == WM_KILLFOCUS) {
             try { peer.host.focus_departing(reinterpret_cast<HWND>(wparam)); }
             catch (...) { peer.host.fail(); return 0; }
@@ -736,18 +748,35 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& peer : peers) if (peer->adaptive == layout) return popup_owner(peer.get());
         return 0;
     }
-    void hide_tooltip() {
+    void hide_tooltip(bool cancel_hover = true) {
         if (window) KillTimer(window, tooltip_timer);
-        tooltip_target = 0;
+        const auto target = std::exchange(tooltip_target, 0);
+        tooltip_revision = 0;
+        tooltip_anchor.reset();
         if (std::exchange(tooltip_shown, false)) invalidate(Invalidation::paint);
+        if (cancel_hover && target) for (const auto& peer : peers) if (peer->control->id() == target) {
+            const auto list = std::dynamic_pointer_cast<NavigationList>(peer->control);
+            if (list) list->hover_item({});
+            break;
+        }
+    }
+    bool tooltip_current(const Peer& peer) const {
+        if (peer.control->id() != tooltip_target) return false;
+        const auto* list = dynamic_cast<const NavigationList*>(peer.control.get());
+        if (!list) return true;
+        const auto anchor = list->hover_anchor();
+        return list->hover_revision() == tooltip_revision && anchor && tooltip_anchor &&
+            anchor->x == tooltip_anchor->x && anchor->y == tooltip_anchor->y &&
+            anchor->width == tooltip_anchor->width && anchor->height == tooltip_anchor->height;
     }
     void place_tooltip(const Peer& peer) {
         const auto view = root->bounds();
         Size size{std::min(400.0f, view.width), 48};
-        if (tooltip_styling) {
-            const auto* face = tooltip_styling->effective(StylePart::root, style_states::open);
-            const auto* text = tooltip_styling->effective(StylePart::text, style_states::open);
-            const auto padding = face && face->padding ? *face->padding : Insets{10, 2, 10, 2};
+        const auto* list = dynamic_cast<const NavigationList*>(peer.control.get());
+        if (tooltip_styling || list) {
+            const auto* face = tooltip_styling ? tooltip_styling->effective(StylePart::root, style_states::open) : nullptr;
+            const auto* text = tooltip_styling ? tooltip_styling->effective(StylePart::text, style_states::open) : nullptr;
+            const auto padding = face && face->padding ? *face->padding : list ? Insets{12, 12, 12, 12} : Insets{10, 2, 10, 2};
             const auto border = face && face->border_thickness ? *face->border_thickness : Insets{1, 1, 1, 1};
             const float horizontal = padding.left + padding.right + border.left + border.right;
             const float vertical = padding.top + padding.bottom + border.top + border.bottom;
@@ -758,7 +787,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 measured, std::max(1.0f, size.width - horizontal));
             size.height = std::min(view.height, std::max(48.0f, measured.height + vertical));
         }
-        tooltip_bounds = place_popup(peer.control->bounds(), size, view, PopupPlacement::below);
+        auto anchor = list ? list->hover_anchor().value_or(peer.control->bounds()) : peer.control->bounds();
+        if (list) anchor.width += 6;
+        tooltip_bounds = place_popup(anchor, size, view, list ? PopupPlacement::right : PopupPlacement::below);
     }
     void tooltip_style_changed() {
         if (tooltip_styling && tooltip_styling->fully_empty()) tooltip_styling.reset();
@@ -818,9 +849,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void offer_tooltip(Peer& peer) {
         for (const auto& item : peers) if (item->runtime && item->runtime->active()) { hide_tooltip(); return; }
         if (!window || !ready || !onscreen(peer) || !enabled(peer) || !in_top_popup(peer) ||
-            peer.control->help_text().empty() || !IsWindowVisible(window)) return;
-        if (tooltip_target == peer.control->id()) return;
-        hide_tooltip(); tooltip_target = peer.control->id();
+            peer.control->help_text().empty() || !IsWindowVisible(window)) {
+            if (tooltip_target == peer.control->id()) hide_tooltip();
+            return;
+        }
+        const auto* list = dynamic_cast<const NavigationList*>(peer.control.get());
+        const auto anchor = list ? list->hover_anchor() : std::nullopt;
+        if (list && !anchor) { hide_tooltip(); return; }
+        if (tooltip_current(peer)) return;
+        hide_tooltip(tooltip_target != peer.control->id());
+        tooltip_target = peer.control->id();
+        tooltip_revision = list ? list->hover_revision() : 0;
+        tooltip_anchor = anchor;
+        tooltip_due = std::chrono::steady_clock::now() + std::chrono::milliseconds(peer.control->tooltip_delay());
         win32_require(SetTimer(window, tooltip_timer, peer.control->tooltip_delay(), nullptr) != 0, "Start tooltip delay");
     }
     void dismiss_popup(Popup& popup, PopupDismissReason reason, bool restore = true) {
@@ -1048,6 +1089,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         root->set_invalidator([this](Invalidation kind) { invalidate(kind); });
         attached = true;
         ready = true;
+        window_icon.refresh(window, dpi, wake);
         apply_theme();
         layout_pending = true;
         update();
@@ -1411,8 +1453,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (tooltip_target) {
             auto it = std::find_if(peers.begin(), peers.end(), [&](const auto& p) { return p->control->id() == tooltip_target; });
-            if (it == peers.end() || !enabled(**it) || !onscreen(**it) || (*it)->control->help_text().empty()) hide_tooltip();
-            else if (tooltip_shown && tooltip_styling) place_tooltip(**it);
+            if (it == peers.end() || !enabled(**it) || !onscreen(**it) || !tooltip_current(**it) ||
+                (*it)->control->help_text().empty()) hide_tooltip();
+            else if (tooltip_shown) place_tooltip(**it);
         }
         if (window) {
             sync_native_occlusion();
@@ -1487,9 +1530,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
         if (key && (popups.empty() || !popups.back().dialog)) {
+            const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+            const bool altgr = control && (GetKeyState(VK_RMENU) & 0x8000) != 0;
+            const bool editor = target && (target->role() == ControlRole::text_input ||
+                target->role() == ControlRole::document_text || target->role() == ControlRole::password_input);
+            const auto character = MapVirtualKeyExW(static_cast<UINT>(msg.wParam), MAPVK_VK_TO_CHAR, GetKeyboardLayout(0)) & 0x7fffffff;
+            const bool text_input = !editor && ((!control && !alt) || altgr) &&
+                (character >= 32 || msg.wParam == VK_PACKET || msg.wParam == VK_PROCESSKEY);
             auto callback = key;
-            if (callback({static_cast<Key>(msg.wParam), (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, (GetKeyState(VK_MENU) & 0x8000) != 0})) return true;
+            if (callback({static_cast<Key>(msg.wParam), control,
+                (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, alt, text_input})) return true;
+            // Redirect before TranslateMessage so dead keys, Unicode and IME stay in the native editor.
+            if (text_input && GetFocus() != msg.hwnd) {
+                for (const auto& peer : peers) if (peer->window == GetFocus() && peer->edit && enabled(*peer)) {
+                    msg.hwnd = peer->window;
+                    return false;
+                }
+            }
         }
         if (!popups.empty() && popups.back().location) {
             auto picker = popups.back().location;
@@ -1934,12 +1992,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 if (composed && tooltip_shown) {
                     for (const auto& peer : peers) if (peer->control->id() == tooltip_target) {
-                        if (tooltip_styling) {
-                            const auto* face = tooltip_styling->effective(StylePart::root, style_states::open);
-                            const auto* text = tooltip_styling->effective(StylePart::text, style_states::open);
+                        const bool navigation_card = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr;
+                        if (tooltip_styling || navigation_card) {
+                            const auto* face = tooltip_styling ? tooltip_styling->effective(StylePart::root, style_states::open) : nullptr;
+                            const auto* text = tooltip_styling ? tooltip_styling->effective(StylePart::text, style_states::open) : nullptr;
                             drawing.styled_surface(tooltip_bounds, palette, face ? *face : PartStyleValues{},
                                 palette.surface, palette.border, 6, {1, 1, 1, 1});
-                            const auto padding = face && face->padding ? *face->padding : Insets{10, 2, 10, 2};
+                            const auto padding = face && face->padding ? *face->padding :
+                                navigation_card ? Insets{12, 12, 12, 12} : Insets{10, 2, 10, 2};
                             const auto border = face && face->border_thickness ? *face->border_thickness : Insets{1, 1, 1, 1};
                             const Rect area{tooltip_bounds.x + padding.left + border.left, tooltip_bounds.y + padding.top + border.top,
                                 std::max(0.0f, tooltip_bounds.width - padding.left - padding.right - border.left - border.right),
@@ -1974,6 +2034,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::vector<std::uint64_t> retained;
         std::size_t remaining = 48;
         for (const auto& peer : peers) if (peer->image || dynamic_cast<VirtualCollection*>(peer->control.get()) ||
+            dynamic_cast<TabStrip*>(peer->control.get()) ||
             dynamic_cast<DataGrid*>(peer->control.get()) || (peer->list &&
             (static_cast<FileList&>(*peer->control).thumbnails() || peer->list->thumbnail_count()))) {
             Rect rect = peer->control->bounds();
@@ -1996,6 +2057,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             } else if (peer->list) {
                 rect.y -= peer->control->bounds().y;
                 changed = peer->list->sync_thumbnails(shown, rect, wake, retained, remaining) || changed;
+            } else if (const auto* tabs = dynamic_cast<TabStrip*>(peer->control.get())) {
+                if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
+                rect.x -= tabs->bounds().x; rect.y -= tabs->bounds().y;
+                std::vector<RowVisual> rows;
+                if (shown) for (std::size_t i = 0; i < tabs->tabs().size(); ++i) {
+                    const auto b = tabs->tab_bounds(i);
+                    if (b.width <= 0 || b.height <= 0 || b.x + b.width <= rect.x || b.x >= rect.x + rect.width ||
+                        b.y + b.height <= rect.y || b.y >= rect.y + rect.height) continue;
+                    const auto& tab = tabs->tabs()[i];
+                    rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
+                    if (rows.size() == RowImages::maximum_rows) break;
+                }
+                changed = peer->row_images->sync_visuals(std::move(rows), dpi, wake, retained, remaining, 16) || changed;
+                has_images = has_images || peer->row_images->count() != 0;
             } else {
                 if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
                 rect.x -= peer->control->bounds().x; rect.y -= peer->control->bounds().y;
@@ -2039,6 +2114,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return changed;
     }
     void deliver_images() {
+        if (!ready || closing) return;
+        window_icon.deliver(window);
         if (!ready || closing || layout_pending) return;
         bool changed{};
         for (const auto& peer : peers) if (peer->image) changed = peer->image->deliver() || changed;
@@ -3084,7 +3161,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (control.role() == ControlRole::tab_strip) {
             const auto& strip = static_cast<TabStrip&>(control);
             canvas.tab_strip(strip, bounds, palette, enabled(peer), peer.surface,
-                control.focused() && keyboard_focus_visible, peer.tab_pointer);
+                control.focused() && keyboard_focus_visible, peer.tab_pointer, peer.row_images.get());
             return;
         }
         if (peer.image) {
@@ -3495,6 +3572,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_NEXTDLGCTL:
             return SendMessageW(window, message, wparam, lparam);
         case WM_MOUSEWHEEL:
+            hide_tooltip();
             if ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) &&
                 miller_wheel(peer, -GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
             if (auto* map = dynamic_cast<MapView*>(&control)) {
@@ -3521,6 +3599,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (scroll_wheel(peer, wparam)) return 0;
             break;
         case WM_MOUSEHWHEEL:
+            hide_tooltip();
             if (miller_wheel(peer, GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 grid->set_offset(grid->offset(), grid->horizontal_offset() + GET_WHEEL_DELTA_WPARAM(wparam) * 0.8);
@@ -3546,6 +3625,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 if (auto* list = dynamic_cast<MillerColumnList*>(collection)) {
                     if (!list->prepare_context_menu(position)) return 0;
+                } else if (auto* nav = dynamic_cast<NavigationList*>(collection)) {
+                    if (!nav->prepare_context_menu(position)) return 0;
                 } else if (position) {
                     if (const auto row = collection->hit_test(*position)) {
                         const auto source = collection->source();
@@ -3648,8 +3729,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
             }
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
-                const auto row = nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
+                if (tooltip_target && tooltip_target != control.id()) hide_tooltip();
+                const bool hovering = enabled(peer) && !GetCapture() && !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
+                const auto row = hovering ? nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi,
+                    GET_Y_LPARAM(lparam) * 96.0f / dpi}) : std::nullopt;
                 nav_list->hover_item(row ? std::optional{nav_list->source()->key(*row)} : std::nullopt);
+                offer_tooltip(peer);
             }
             if (auto* map = dynamic_cast<MapView*>(&control); map && peer.dragging) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
@@ -4425,7 +4510,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 KillTimer(hwnd, tooltip_timer);
                 if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) { hide_tooltip(); return 0; }
                 for (const auto& peer : peers) if (peer->control->id() == tooltip_target && visible(*peer) && enabled(*peer)) {
-                    if (peer->control->help_text().empty()) break;
+                    if (!tooltip_current(*peer) || peer->control->help_text().empty()) break;
+                    const auto now = std::chrono::steady_clock::now();
+                    if (dynamic_cast<NavigationList*>(peer->control.get()) && now < tooltip_due) {
+                        const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(tooltip_due - now).count();
+                        win32_require(SetTimer(hwnd, tooltip_timer, static_cast<UINT>(remaining), nullptr) != 0,
+                            "Continue tooltip delay");
+                        return 0;
+                    }
+                    const auto control = peer->control;
+                    if (auto* list = dynamic_cast<NavigationList*>(control.get())) list->request_hover_help();
+                    if (!window || closing || !tooltip_current(*peer) || !visible(*peer) || !enabled(*peer) ||
+                        control->help_text().empty()) break;
                     place_tooltip(*peer);
                     tooltip_shown = true; invalidate(Invalidation::paint); return 0;
                 }
@@ -4433,6 +4529,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         case WM_MOUSEWHEEL: {
+            hide_tooltip();
             POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
             ScreenToClient(window, &point);
             for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
@@ -4516,6 +4613,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_DPICHANGED: {
             cancel_input();
             dpi = HIWORD(wparam);
+            window_icon.refresh(window, dpi, wake);
             apply_theme();
             const auto& suggested = *reinterpret_cast<RECT*>(lparam);
             SetWindowPos(hwnd, nullptr, suggested.left, suggested.top,
@@ -4685,6 +4783,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_CLOSE: destroy(); return 0;
         case WM_DESTROY:
+            window_icon.close(window);
             for (auto& task : samples) task->cancel();
             ready = false;
             drawing.discard();
@@ -4714,6 +4813,15 @@ void Window::set_title(std::wstring title) {
     impl_->options.title = std::move(title);
 }
 const std::wstring& Window::title() const { return impl_->options.title; }
+void Window::set_icon_source(std::wstring path) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icon on its UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    impl_->window_icon.set_source(std::move(path), impl_->window, impl_->dpi, impl_->wake);
+}
+void Window::on_icon_error(std::function<void(const std::wstring&)> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icon callback on its UI thread");
+    impl_->window_icon.on_error = std::move(callback);
+}
 const std::shared_ptr<TitleBar>& Window::titlebar() const { return impl_->titlebar; }
 void Window::set_content(std::shared_ptr<Stack> content) {
     if (impl_->used) throw std::logic_error("Set window content before Application::run");

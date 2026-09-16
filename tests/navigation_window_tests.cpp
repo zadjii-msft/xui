@@ -8,6 +8,7 @@
 #include "suggestion_capture.hpp"
 #include "owned_window_capture.hpp"
 #include <UIAutomation.h>
+#include <commctrl.h>
 #include <wrl/client.h>
 #include <atomic>
 #include <thread>
@@ -27,6 +28,12 @@ HWND child(HWND root, const wchar_t* name) {
     }, reinterpret_cast<LPARAM>(&state)); require(state.result != nullptr, "Owned native control exists"); return state.result;
 }
 void flush(HWND hwnd) { SendMessageW(hwnd, WM_APP + 12, 0, 0); InvalidateRect(hwnd, nullptr, FALSE); UpdateWindow(hwnd); }
+LRESULT CALLBACK synthetic_hover(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) {
+    // Injected pointer messages do not move the real cursor. Ignore its unrelated automatic leave notifications.
+    if (message == WM_MOUSELEAVE && !reinterpret_cast<std::atomic<bool>*>(data)->load()) return 0;
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, synthetic_hover, id);
+    return DefSubclassProc(hwnd, message, wparam, lparam);
+}
 void verify_caption(HWND hwnd, const TitleBar& caption, ThemeMode theme, UINT dpi) {
     const auto close = child(hwnd, L"Close window");
     require(!(GetWindowLongPtrW(close, GWL_STYLE) & WS_TABSTOP), "Caption buttons stay out of client tab order");
@@ -575,6 +582,19 @@ void navigation_view_case(ThemeMode theme, UINT dpi) {
     int selected{}, activated{};
     nav->on_select([&](ItemKey key) { ++selected; heading->set_text(nav->find(key)->label); });
     nav->on_activate([&](ItemKey) { ++activated; });
+    nav->set_hover_delay(1000);
+    std::chrono::steady_clock::time_point hover_started;
+    std::atomic<int> hover_requests{};
+    nav->on_hover_changed([&](std::optional<ItemKey>) { hover_started = std::chrono::steady_clock::now(); });
+    nav->on_hover_requested([&](ItemKey key) {
+        require(std::chrono::steady_clock::now() - hover_started >= std::chrono::milliseconds(1000),
+            "Metadata cannot start before one second over the same row");
+        nav->set_hover_help(key, L"Folder details\nC:\\Folder\\Nested\n\nCreated: today\nSubfolders: 2\nFiles: 4\nSize: 120 bytes");
+        ++hover_requests;
+    });
+    LPARAM first_hover{}, second_hover{};
+    HWND hover_editor{};
+    std::atomic<bool> allow_hover_leave{};
     std::atomic<bool> done{};
     std::string driver_error;
     window.on_key([&](const KeyEvent& key) {
@@ -645,6 +665,16 @@ void navigation_view_case(ThemeMode theme, UINT dpi) {
         suggestion_capture::bitmap(hwnd, nullptr, std::filesystem::path(L"navigation-captures") /
             (L"expanded-" + std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp"));
         require(Drawing::live_targets() == 1, "Navigation uses the shared root render target");
+        const auto hover_point = [&](ItemKey key) {
+            const auto row = nav->items()->item_bounds(*nav->items()->source()->find(key));
+            return MAKELPARAM(static_cast<int>(80 * dpi / 96), static_cast<int>((row.y + row.height / 2) * dpi / 96));
+        };
+        first_hover = hover_point({11, 1}); second_hover = hover_point({20, 1});
+        if (theme == ThemeMode::dark && dpi == 96)
+            require(SetWindowSubclass(list, synthetic_hover, 77, reinterpret_cast<DWORD_PTR>(&allow_hover_leave)) != FALSE,
+                "Isolate synthetic hover from the real pointer without moving it");
+        require(window.focus(*editor), "Native editor receives focus before passive hover");
+        hover_editor = GetFocus();
         done = true; return true;
     });
     std::jthread driver([&] {
@@ -655,6 +685,45 @@ void navigation_view_case(ThemeMode theme, UINT dpi) {
             Sleep(100); PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
             eventually([&] { return done.load() || !IsWindow(hwnd); }, "Native navigation phase finishes");
             require(done.load(), "Native navigation assertions pass");
+            if (theme == ThemeMode::dark && dpi == 96) {
+                const auto list = child(hwnd, L"Navigation fixture items");
+                const auto shown = [&] { return SendMessageW(hwnd, WM_APP + 60, 25, 0) != 0; };
+                SendMessageW(list, WM_MOUSEMOVE, 0, first_hover);
+                Sleep(600);
+                require(!shown() && hover_requests == 0, "Short hover neither shows help nor requests metadata");
+                SendMessageW(list, WM_MOUSEMOVE, 0, second_hover);
+                Sleep(500);
+                require(!shown() && hover_requests == 0, "Moving between rows restarts the full hover delay");
+                eventually([&] { return shown(); }, "Delayed navigation card appears");
+                require(hover_requests == 1, "Only the stable row requests metadata");
+                const auto editor_focused = [&] {
+                    GUITHREADINFO state{sizeof(state)};
+                    return GetGUIThreadInfo(GetWindowThreadProcessId(hwnd, nullptr), &state) && state.hwndFocus == hover_editor;
+                };
+                require(editor_focused(), "Passive navigation cards do not move native keyboard focus");
+                require(SendMessageW(hwnd, WM_APP + 60, 24, 0) == 0, "Hover cards do not create modal popup input scopes");
+                SendMessageW(list, WM_MOUSEMOVE, 0, second_hover);
+                require(shown() && hover_requests == 1, "Movement within the same row keeps the current card");
+                SendMessageW(list, WM_MOUSEMOVE, 0, first_hover);
+                require(!shown(), "Moving to a new row immediately hides the previous card");
+                eventually([&] { return shown(); }, "New row receives its own delayed card");
+                require(hover_requests == 2, "Each stable hover requests metadata once");
+                require(editor_focused(), "Changing hover rows preserves native keyboard focus");
+                PostMessageW(hover_editor, WM_KEYDOWN, VK_F24, 0);
+                eventually([&] { return !shown(); }, "Native editor key input dismisses the passive hover card");
+                SendMessageW(hover_editor, WM_CHAR, L'z', 0);
+                wchar_t typed[16]{};
+                GetWindowTextW(hover_editor, typed, 16);
+                require(editor_focused() && std::wstring_view(typed) == L"z", "Native typing remains available after passive hover");
+                SendMessageW(list, WM_MOUSEMOVE, 0, second_hover);
+                eventually([&] { return shown(); }, "A fresh pointer hover can show help after keyboard dismissal");
+                require(hover_requests == 3, "Keyboard dismissal cancels the prior hover identity");
+                allow_hover_leave = true;
+                SendMessageW(list, WM_MOUSELEAVE, 0, 0);
+                require(!shown(), "Pointer exit immediately closes the navigation card");
+                Sleep(1100);
+                require(!shown() && hover_requests == 3, "Pointer exit cancels pending tooltip requests");
+            }
             Sleep(100);
             const auto paints = SendMessageW(hwnd, WM_APP + 60, 0, 0); Sleep(150);
             require(SendMessageW(hwnd, WM_APP + 60, 0, 0) == paints, "Navigation has no idle repaint loop");
