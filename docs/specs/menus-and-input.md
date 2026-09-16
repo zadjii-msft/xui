@@ -57,6 +57,12 @@ The backend creates no Direct2D targets.
 Native MSAA menu metadata preserves command names and checked state. UIA retains native `Menu`, `MenuItem`, focus, and Invoke behavior.
 The current model is flat. Submenus, menu bars, dropdown buttons, and Windows Shell extension menus are not part of this change.
 
+`NavigationView.OnContextMenu` in C# binds the main, header, and footer lists.
+Its item factory receives the targeted row ID.
+`NavigationList::prepare_context_menu` updates row focus without navigation or selection events.
+The C ABI supplies the row ID in the menu's `XUI_REQUEST` event.
+Navigation menus reuse collection source checks, Shell discovery, and cancellation.
+
 PNG copies permit image review without changes to the BMP capture tests.
 The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
 If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.
@@ -71,6 +77,13 @@ Invalid strings, wrong-thread calls, and native title failures throw exceptions.
 The native label remains available for EDIT naming. The default caption and search presentations remain unchanged.
 The C# explorer also uses icon and caption controls through the bindings.
 See the [binding reference](bindings.md) for the available language surface.
+
+`KeyEvent::text_input` identifies text-producing keys outside native editors.
+The .NET equivalent is `UiKeyEvent.IsTextInput`.
+The C ABI reports this flag in bit zero of `xui_key_event.reserved`.
+An application can focus a native text input and return false from its key handler.
+XUI then routes the original key to that editor before Windows translates it.
+This preserves keyboard layouts, dead keys, and IME input without conversion from virtual keys to text.
 
 ## Tabs, split panes, and activation
 
@@ -126,6 +139,46 @@ Native children and custom pixels stay inside their content host.
 The horizontal resize cursor applies only to an enabled, expanded divider or its active drag.
 Pane controls keep their own cursors, including the native text editor's I-beam.
 Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
+
+### Tab icons
+
+`TabItem` accepts an optional `icon` and `image_path` after its identity and title.
+Existing two-field construction produces text-only tabs.
+Icons do not change tab identities, accessible names, selection events, or close and new-tab targets.
+Each icon fits in a 16-DIP square before the title. Narrow tabs clip their content without covering the close button.
+
+```cpp
+tabs->set_tabs({
+    {1, L"Documents", xui::ButtonIcon::folder, L"C:\\Users\\Public\\Documents"},
+    {2, L"Preview"}
+}, 1);
+```
+
+Visible tabs use the shared asynchronous image service.
+Folder fallback icons select the Shell decoder, including folders whose names have image extensions.
+Other image paths use the same decoder selection as collection visuals.
+Pending or failed images keep the vector fallback. Image failures emit the existing thumbnail diagnostic.
+Disabled and high-contrast tabs use theme-colored fallback icons instead of image pixels.
+
+Selection, title changes, and reordering retain requests for the same identity, path, and decoder.
+A path change, tab removal, hidden strip, window closure, or DPI change cancels obsolete requests.
+Tabs share the existing limits of 24 image slots per control and 48 per window.
+No Shell lookup runs on the UI thread.
+
+The C ABI adds `xui_tab_items_visual` with optional parallel `xui_item_visual` records.
+The `xui_choice` record and `xui_choices` behavior remain unchanged.
+C# adds `TabEntry` and `TabStrip.SetTabItems`, while `SetTabs(ReadOnlySpan<Choice>)` remains available.
+The Rust FFI exposes the new C function. Its typed `TabStrip::set_tabs` method remains text-only.
+
+```csharp
+tabs.SetTabItems([
+    new(1, "Documents", ButtonIcon.Folder, @"C:\Users\Public\Documents"),
+    new(2, "Preview")
+], selected: 1);
+```
+
+The C# FileExplorer supplies each tab's current folder path and a folder fallback icon.
+Both titlebar panes use this shared API.
 
 ### Tab colors
 

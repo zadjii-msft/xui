@@ -14,6 +14,7 @@
 
 namespace xui {
 struct ImagePixels;
+class RowImages;
 
 struct Palette {
     D2D1_COLOR_F background, text, secondary, selection, selection_text, border;
@@ -101,7 +102,7 @@ public:
         const PartStyleValues* style = nullptr, const ButtonStyleValues* local = nullptr,
         const PartStyleValues* icon_style = nullptr);
     void tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
-        bool focus_visible, std::optional<Point> pointer = {});
+        bool focus_visible, std::optional<Point> pointer = {}, const RowImages* images = nullptr);
     void heading(std::wstring_view value, Rect bounds, D2D1_COLOR_F color);
     void text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool small_text = false);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout(std::wstring_view value, TextStyle style, Size& measured,

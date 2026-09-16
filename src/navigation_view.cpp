@@ -51,7 +51,7 @@ NavigationList::NavigationList(std::wstring name, NavigationView& owner) :
     on_activate([this](ItemKey key) { if (owner_) owner_->activate_item(key); });
 }
 void NavigationList::replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected) {
-    hovered_item_.reset();
+    hover_item({});
     set_help_text(L"");
     auto focus = selection_.focused();
     const auto previous = source_;
@@ -85,6 +85,14 @@ bool NavigationList::remove_selection(ItemKey key) {
     if (!owner_ || !enabled() || !owner_->enabled() || !source_ || !source_->find(key)) return false;
     if (owner_->selected() == key) owner_->clear_selection();
     return true;
+}
+bool NavigationList::prepare_context_menu(std::optional<Point> position) {
+    hover_item({});
+    if (!owner_ || !enabled() || !owner_->enabled() || !source_) return false;
+    const auto row = position ? hit_test(*position) :
+        (selection_.focused() ? source_->find(*selection_.focused()) : std::nullopt);
+    if (!row || !source_->selectable(*row) || !source_->item(*row).enabled) return false;
+    return select(source_->key(*row), SelectionGesture::focus_only);
 }
 bool NavigationList::select(ItemKey key, SelectionGesture gesture) {
     const auto row = source_ ? source_->find(key) : std::nullopt;
@@ -154,11 +162,40 @@ std::vector<CollectionRow> NavigationList::visible_content() const {
     return rows;
 }
 void NavigationList::hover_item(std::optional<ItemKey> key) {
+    if (key && (!source_ || !source_->find(*key))) key.reset();
     if (hovered_item_ == key) return;
     hovered_item_ = key;
+    ++hover_revision_;
+    hover_requested_ = false;
     const auto row = key && source_ ? source_->find(*key) : std::nullopt;
     set_help_text(row ? source_->item(*row).primary : L"");
     invalidate(Invalidation::paint);
+    auto callback = owner_ ? owner_->hover_changed_ : nullptr;
+    if (callback) callback(key);
+}
+std::optional<Rect> NavigationList::hover_anchor() const {
+    const auto row = hovered_item_ && source_ ? source_->find(*hovered_item_) : std::nullopt;
+    if (!row || !owner_ || !owner_->enabled() || !owner_->visible() || !enabled() || !visible()) return {};
+    const auto item = item_bounds(*row), view = content_viewport(), origin = bounds();
+    const float top = std::max(item.y, view.y), bottom = std::min(item.y + item.height, view.y + view.height);
+    if (bottom <= top || view.width <= 0) return {};
+    return Rect{origin.x + item.x, origin.y + top, std::min(item.width, view.width), bottom - top};
+}
+void NavigationList::request_hover_help() {
+    if (hover_requested_ || !hover_anchor()) return;
+    hover_requested_ = true;
+    auto callback = owner_ ? owner_->hover_requested_ : nullptr;
+    if (callback) callback(*hovered_item_);
+}
+bool NavigationView::set_hover_help(ItemKey key, std::wstring text) {
+    for (const auto& list : {header_, main_, footer_}) if (list->hovered_item() == key) {
+        list->set_help_text(std::move(text));
+        return true;
+    }
+    return false;
+}
+void NavigationView::set_hover_delay(unsigned milliseconds) {
+    for (const auto& list : {header_, main_, footer_}) list->set_tooltip_delay(milliseconds);
 }
 bool NavigationList::disclosure_hit(Point point) const {
     const auto row = hit_test(point);

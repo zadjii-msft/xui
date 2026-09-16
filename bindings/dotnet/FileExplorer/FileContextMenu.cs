@@ -14,11 +14,13 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
     private ExplorerViewMode mode;
 
     public Command[] GetCommands()
+        => GetCommands(pane.SelectedEntries);
+
+    internal Command[] GetCommands(FileEntry[] entries)
     {
         pane.Activate();
         tab = pane.Model.Active.Id;
         mode = pane.Model.Active.ViewMode;
-        var entries = pane.SelectedEntries;
         target = entries.Length == 1 ? entries[0] : null;
         paths = entries.Select(entry => entry.FullPath).ToArray();
         destination = target is { IsDirectory: true } ? target.FullPath : pane.TransferDirectory;

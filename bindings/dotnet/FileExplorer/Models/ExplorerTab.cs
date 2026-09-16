@@ -162,6 +162,7 @@ public sealed class ExplorerTab
         Entries = entries;
         if (!sameDirectory)
         {
+            Filter = "";
             SelectedPath = null;
             ScrollOffset = 0;
         }

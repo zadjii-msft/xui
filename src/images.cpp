@@ -478,22 +478,37 @@ std::shared_ptr<const ImagePixels> RowImages::pixels(ItemKey key) const {
     const auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return slot->key == key; });
     return found == slots_.end() ? nullptr : (*found)->pixels;
 }
-bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
-    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
-    bool retain_on_source_change) {
-    if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
-    if (rows.size() > maximum_rows) throw std::length_error("Too many visible row visuals");
+static void validate_row_visuals(const std::vector<RowVisual>& rows) {
+    if (rows.size() > RowImages::maximum_rows) throw std::length_error("Too many visible row visuals");
     for (const auto& row : rows) {
         if (row.visual.icon < ButtonIcon::none || row.visual.icon > ButtonIcon::drive ||
             row.visual.image_path.size() > 32767 || row.visual.image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid row visual icon or image path");
     }
-    const auto pixels = std::clamp(static_cast<UINT>(std::lround(24.0 * dpi / 96.0)), 1u, ImageLimits::output_dimension);
+}
+bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
+    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
+    bool retain_on_source_change) {
+    if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
+    validate_row_visuals(rows);
     bool changed{};
-    if ((!retain_on_source_change && source_.lock() != source) || pixels_ != pixels) {
-        changed = !slots_.empty(); clear(); pixels_ = pixels;
+    if (!retain_on_source_change && source_.lock() != source) {
+        changed = !slots_.empty(); clear();
     }
     source_ = source;
+    return sync_visuals(std::move(rows), dpi, wake, retained, remaining) || changed;
+}
+bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
+    std::vector<std::uint64_t>& retained, std::size_t& remaining, float image_dips) {
+    if (rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
+    validate_row_visuals(rows);
+    if (!std::isfinite(image_dips) || image_dips <= 0 || image_dips > ImageLimits::output_dimension)
+        throw std::invalid_argument("Invalid visual image size");
+    const auto pixels = std::clamp(static_cast<UINT>(std::lround(image_dips * dpi / 96.0)), 1u, ImageLimits::output_dimension);
+    bool changed{};
+    if (pixels_ != pixels) {
+        changed = !slots_.empty(); slots_.clear(); pixels_ = pixels;
+    }
     rows_ = std::move(rows);
     std::vector<const RowVisual*> wanted;
     const auto limit = std::min(maximum_images, remaining);
@@ -507,7 +522,7 @@ bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<
     const auto matches = [&](const Slot& slot, const RowVisual& row) {
         return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row);
     };
-    // Navigation snapshots opt into visual identity; other source refreshes still reload changed files.
+    // Navigation and tabs retain visual identity; ordinary source refreshes reload changed files.
     const auto removed = std::erase_if(slots_, [&](const auto& slot) {
         return std::none_of(wanted.begin(), wanted.end(), [&](const auto* row) { return matches(*slot, *row); });
     });

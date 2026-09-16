@@ -295,10 +295,18 @@ internal static partial int ControlSetStyleValues(ulong @control, uint @part, St
 internal static partial int ControlGetStyleValues(ulong @control, uint @part, uint @effective, StyleProperty* @properties, uint @capacity, uint* @count);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items_visual")]
 internal static partial int NavigationItemsVisual(ulong @target, NavigationEntry* @items, ItemVisual* @visuals, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_navigation_hover_help")]
+internal static partial int NavigationHoverHelp(ulong @target, ulong @id, Text @text, uint* @applied);
+[LibraryImport("xui", EntryPoint = "xui_navigation_hover_delay")]
+internal static partial int NavigationHoverDelay(ulong @target, uint @milliseconds);
 [LibraryImport("xui", EntryPoint = "xui_navigation_items")]
 internal static partial int NavigationItems(ulong @target, NavigationEntry* @items, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_window_title")]
 internal static partial int WindowTitle(ulong @window, Text @title);
+[LibraryImport("xui", EntryPoint = "xui_window_set_icon_source")]
+internal static partial int WindowSetIconSource(ulong @window, Text @path);
+[LibraryImport("xui", EntryPoint = "xui_window_on_icon_error")]
+internal static partial int WindowOnIconError(ulong @window, delegate* unmanaged[Cdecl]<nint, byte*, uint, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_window_key_handler")]
 internal static partial int WindowKeyHandler(ulong @window, delegate* unmanaged[Cdecl]<nint, KeyEvent*, uint*, int> @callback, nint @context);
 [LibraryImport("xui", EntryPoint = "xui_window_navigation_handler")]
@@ -333,6 +341,8 @@ internal static partial int FeatureGet(ulong @target, uint @property, FeatureVal
 internal static partial int FeatureAction(ulong @target, uint @action, ulong @first, ulong @second);
 [LibraryImport("xui", EntryPoint = "xui_choices")]
 internal static partial int Choices(ulong @target, Choice* @items, uint @count, ulong @selected, uint @has_selection);
+[LibraryImport("xui", EntryPoint = "xui_tab_items_visual")]
+internal static partial int TabItemsVisual(ulong @target, Choice* @items, ItemVisual* @visuals, uint @count, ulong @selected, uint @has_selection);
 [LibraryImport("xui", EntryPoint = "xui_feature_child")]
 internal static partial int FeatureChild(ulong @target, uint @index, ulong* @result);
 [LibraryImport("xui", EntryPoint = "xui_breadcrumb_segment_button")]

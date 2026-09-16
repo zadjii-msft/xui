@@ -7,7 +7,11 @@ namespace Xui;
 public readonly record struct NavigationEntry(ulong Id, string Label, ulong Parent = 0,
     string Keywords = "", bool Selectable = true, bool Expanded = true, bool Enabled = true,
     ButtonIcon Icon = ButtonIcon.None, string ImagePath = "");
-public readonly record struct UiKeyEvent(uint VirtualKey, KeyModifiers Modifiers, ulong TargetId);
+public readonly record struct UiKeyEvent(uint VirtualKey, KeyModifiers Modifiers, ulong TargetId)
+{
+    /// <summary>A text-producing key outside a native editor. Focus an editor and return false to route the original key there.</summary>
+    public bool IsTextInput { get; init; }
+}
 public enum NavigationDirection : uint { Back, Forward }
 public readonly record struct NavigationPoint(float X, float Y);
 /// <summary>Back/Forward input with a window-local pointer position or source control center, when available.</summary>
@@ -126,7 +130,11 @@ public sealed unsafe partial class Window
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
             ++window.callbacks;
-            try { *handled = window.keyHandler?.Invoke(new(e->VirtualKey, (KeyModifiers)e->Modifiers, e->Target)) == true ? 1u : 0u; }
+            try
+            {
+                *handled = window.keyHandler?.Invoke(new(e->VirtualKey, (KeyModifiers)e->Modifiers, e->Target)
+                    { IsTextInput = (e->Reserved & 1) != 0 }) == true ? 1u : 0u;
+            }
             finally { --window.callbacks; }
             return 0;
         }

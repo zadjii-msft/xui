@@ -53,6 +53,8 @@ public:
     bool sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
         const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
         bool retain_on_source_change = false);
+    bool sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
+        std::vector<std::uint64_t>& retained, std::size_t& remaining, float image_dips = 24);
     void clear();
     ItemVisual visual(ItemKey key) const;
     std::shared_ptr<const ImagePixels> pixels(ItemKey key) const;

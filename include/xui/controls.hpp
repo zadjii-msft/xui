@@ -393,6 +393,8 @@ private:
 struct TabItem {
     std::uint64_t id{};
     std::wstring title;
+    ButtonIcon icon{ButtonIcon::none};
+    std::wstring image_path;
     bool operator==(const TabItem&) const = default;
 };
 
