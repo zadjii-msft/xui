@@ -6,6 +6,8 @@ const json = async (path) => JSON.parse(await readFile(new URL(path, import.meta
 const manifest = await json("../package.json");
 const config = await json("../language-configuration.json");
 const snippets = await json("../snippets/xui.json");
+const grammar = await json("../syntaxes/xui.tmLanguage.json");
+const catalog = await json("./fixtures/style-catalog.json");
 
 function expand(body) {
   const defaults = new Map();
@@ -65,7 +67,8 @@ test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
     ["component", "namespace", "state", "resources", "style", "when", "stylebasedon", "styledbutton",
-      "togglestyle", "styledtoggle", "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+      "togglestyle", "styledtoggle", "controlstyle", "part", "typographystyle", "styledcontent",
+      "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
 });
 
 test("styling snippets use named declarations and dual-theme colors", () => {
@@ -86,4 +89,36 @@ test("Toggle snippets use the validated indicator and mark schema", () => {
   assert.ok(style.includes("part mark { foreground: 0xFFFFFF; }"));
   assert.ok(style.includes("when disabled { foreground: 0x888888; }"));
   assert.equal(expand(snippets["Styled Toggle"].body), 'Toggle("Active", style: CompactToggle);');
+});
+
+test("catalog grammar vocabularies contain exactly the exported Element tokens and aliases", () => {
+  const words = (values) => [...new Set(values)].sort();
+  const expected = {
+    "style-targets": words([...catalog.schemas.map((schema) => schema.target), ...Object.keys(catalog.aliases)]),
+    "style-parts": words(catalog.schemas.map((schema) => schema.part).filter((part) => part !== "root")),
+    "style-property-names": words(catalog.schemas.flatMap((schema) => schema.properties)),
+    "style-states": words(catalog.schemas.flatMap((schema) => schema.states))
+  };
+  assert.match(catalog.sourceCommit, /^[a-f0-9]{40}$/);
+  for (const [rule, values] of Object.entries(expected))
+    assert.equal(grammar.repository[rule].match, `\\b(?:${values.join("|")})\\b`, rule);
+  assert.deepEqual(catalog.aliases, { Text: "Label", VStack: "Stack", HStack: "Stack" });
+  assert.ok(!catalog.schemas.some((schema) => schema.target === "Tooltip"));
+  const tile = catalog.schemas.find((schema) => schema.target === "ItemsView" && schema.part === "tile");
+  assert.ok(tile.properties.includes("width"));
+  assert.ok(!tile.stateProperties.includes("width"));
+});
+
+test("generic style snippets use supported properties and existing element composition", () => {
+  assert.ok(expand(snippets["Control style"].body).startsWith("style Heading for Label {"));
+  assert.ok(expand(snippets["Style part"].body).startsWith("part label {"));
+  assert.equal(expand(snippets["Styled content"].body), "Content(ExistingElement, style: Heading);");
+  const typography = expand(snippets["Typography style"].body);
+  assert.ok(typography.startsWith("style Heading for Label {"));
+  const label = catalog.schemas.find((schema) => schema.target === "Label" && schema.part === "root");
+  for (const [, property] of typography.matchAll(/^\s+(\w+):/gm))
+    assert.ok(label.properties.includes(property), property);
+  assert.ok(typography.includes('fontFamily: "Segoe UI";'));
+  assert.ok(typography.includes("fontStyle: normal;"));
+  assert.ok(typography.includes("wrapping: true;"));
 });

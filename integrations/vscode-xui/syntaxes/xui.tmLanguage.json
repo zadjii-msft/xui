@@ -99,28 +99,7 @@
           "end": "(?=\\bbasedOn\\b|[{}])",
           "patterns": [
             { "include": "#comments" },
-            {
-              "begin": "\\bToggle\\b",
-              "beginCaptures": { "0": { "name": "support.class.node.xui" } },
-              "end": "(?=\\})",
-              "patterns": [
-                { "include": "#comments" },
-                { "include": "#style-base" },
-                {
-                  "begin": "\\{",
-                  "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
-                  "end": "(?=\\})",
-                  "patterns": [
-                    { "include": "#comments" },
-                    { "include": "#style-part" },
-                    { "include": "#style-rule" },
-                    { "include": "#style-properties" },
-                    { "include": "#unrecognized-style-block" }
-                  ]
-                }
-              ]
-            },
-            { "match": "\\bButton\\b", "name": "support.class.node.xui" },
+            { "include": "#style-targets" },
             { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.xui" }
           ]
         },
@@ -132,6 +111,7 @@
           "end": "(?=\\})",
           "patterns": [
             { "include": "#comments" },
+            { "include": "#style-part" },
             { "include": "#style-rule" },
             { "include": "#style-properties" },
             { "include": "#unrecognized-style-block" }
@@ -156,49 +136,34 @@
       "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
       "patterns": [
         { "include": "#comments" },
-        { "match": "\\b(?:label|indicator|mark)\\b", "name": "constant.language.style-part.xui" },
+        { "include": "#style-parts" },
         {
           "begin": "\\{",
           "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
           "end": "(?=\\})",
           "patterns": [
             { "include": "#comments" },
-            { "include": "#part-style-rule" },
-            { "include": "#part-style-properties" },
+            { "include": "#style-rule" },
+            { "include": "#style-properties" },
             { "include": "#unrecognized-style-block" }
           ]
         }
       ]
     },
-    "part-style-rule": {
-      "name": "meta.style-rule.xui",
-      "begin": "\\bwhen\\b",
-      "beginCaptures": { "0": { "name": "keyword.control.when.xui" } },
-      "end": "\\}",
-      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
-      "patterns": [
-        { "include": "#comments" },
-        { "include": "#style-states" },
-        {
-          "begin": "\\{",
-          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
-          "end": "(?=\\})",
-          "patterns": [
-            { "include": "#comments" },
-            { "include": "#part-style-properties" },
-            { "include": "#unrecognized-style-block" }
-          ]
-        }
-      ]
+    "style-targets": {
+      "match": "\\b(?:AdaptiveLayout|Breadcrumb|Button|ChoiceList|ColorPicker|ComboBox|CommandBar|CommandMenu|ContentView|DataGrid|DateTimePicker|Expander|FileList|Grid|HStack|HistoryChart|Image|InlineStatus|ItemsView|Label|MapView|MediaPlayback|MultilineText|NavigationList|NavigationPane|NavigationView|NumericInput|PageView|PasswordInput|Popup|Progress|RadioGroup|RangeInput|RichText|ScrollView|SplitButton|SplitView|Stack|TabStrip|Text|TextInput|TitleBar|Toggle|TreeView|VStack|VectorCanvas|WebContent|Wrap)\\b",
+      "name": "support.class.node.xui"
     },
-    "part-style-properties": {
-      "patterns": [
-        { "match": "\\b(?:background|foreground|borderBrush|cornerRadius|borderThickness|size)\\b", "name": "support.type.property-name.xui" },
-        { "include": "#style-value" }
-      ]
+    "style-parts": {
+      "match": "\\b(?:action|alternatingRow|arrow|badge|caption|captionButton|captionClose|cell|channelLabel|checkerboardDark|checkerboardLight|clearAction|closeAction|content|coordinate|disclosure|divider|empty|error|field|fill|filterIcon|firstPane|focusMarker|gridLine|grip|groupHeader|header|heading|icon|indicator|item|label|mark|message|pending|placeholder|plot|preview|primaryText|reorderMarker|row|scrollbar|scrollbarThumb|scrollbarTrack|secondPane|secondaryText|selectedMarker|selection|separator|shortcut|sortIcon|status|stripe|swatch|tab|text|thumb|tile|title|track)\\b",
+      "name": "constant.language.style-part.xui"
+    },
+    "style-property-names": {
+      "match": "\\b(?:background|borderBrush|borderThickness|columnGap|cornerRadius|fontFamily|fontSize|fontStyle|fontWeight|foreground|headerHeight|height|horizontalAlignment|indentation|maximumLines|padding|rowGap|rowHeight|size|spacing|thickness|verticalAlignment|width|wrapping)\\b",
+      "name": "support.type.property-name.xui"
     },
     "style-states": {
-      "match": "\\b(?:focused|checked|hovered|pressed|disabled)\\b",
+      "match": "\\b(?:active|checked|compact|descending|determinate|disabled|dismissed|dragging|empty|error|expanded|filterPending|filtered|focused|hovered|idle|inactive|indeterminate|information|invalid|loading|maximized|maximum|minimum|mixed|open|overflowed|paused|playing|pressed|readOnly|ready|revealed|scrollable|selected|selectedDescendant|sorted|stopped|success|suspended|unknown|warning)\\b",
       "name": "constant.language.style-state.xui"
     },
     "unrecognized-style-block": {
@@ -234,9 +199,33 @@
     },
     "style-properties": {
       "patterns": [
-        { "match": "\\b(?:background|foreground|borderBrush|cornerRadius|borderThickness|padding)\\b", "name": "support.type.property-name.xui" },
+        { "include": "#style-enum-property" },
+        { "include": "#style-property-names" },
         { "include": "#style-value" }
       ]
+    },
+    "style-enum-property": {
+      "begin": "\\b(fontStyle|horizontalAlignment|verticalAlignment)\\b",
+      "beginCaptures": { "1": { "name": "support.type.property-name.xui" } },
+      "end": ";|(?=\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+      "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "begin": ":",
+          "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
+          "end": "(?=;|\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-enum-values" },
+            { "include": "#expression" }
+          ]
+        }
+      ]
+    },
+    "style-enum-values": {
+      "match": "\\b(?:normal|italic|oblique|start|center|end|stretch)\\b",
+      "name": "constant.language.style-value.xui"
     },
     "style-value": {
       "begin": ":",
@@ -381,6 +370,19 @@
       "endCaptures": { "0": { "name": "punctuation.section.arguments.end.xui" } },
       "contentName": "meta.embedded.expression.csharp",
       "patterns": [
+        {
+          "begin": "\\b(fontStyle|horizontalAlignment|verticalAlignment)(\\s*)(:)(?!:)",
+          "beginCaptures": {
+            "1": { "name": "variable.parameter.named.xui" },
+            "3": { "name": "punctuation.separator.key-value.xui" }
+          },
+          "end": "(?=[,);}])",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#style-enum-values" },
+            { "include": "#expression" }
+          ]
+        },
         {
           "name": "meta.style-reference.xui",
           "begin": "\\b(style)(\\s*)(:)(?!:)",

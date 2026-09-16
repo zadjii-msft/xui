@@ -23,6 +23,27 @@ Default-path performance, bounded storage, native input, and accessibility remai
 
 ## Consumer integration
 
+### Final VSIX catalog integration
+
+The extension update uses the verified compiler and native catalog from commit `9bc9c4f90034b9acef48bf53e7e0907b6a672b3c`.
+It covers 45 Element-applicable style targets and 221 part schemas.
+The native catalog also contains Tooltip and its two Window-only parts.
+The extension retains the existing application constructors and adds typography, part, and existing-content snippets.
+Its vocabulary is lexical, not a replacement for compiler checks of target, part, state, property, or value combinations.
+
+The parent integrated the extension-only increment from `60219a6b9760516aea6d234ca931798b1dcd5a83`.
+All 37 tokenizer and configuration tests passed.
+The rebuilt VSIX passed the strict eight-file content check.
+The package excludes tests, scripts, cached grammars, and dependencies.
+Catalog regeneration from the verified source commit produced no source changes.
+The package is `integrations\vscode-xui\dist\xui-0.1.0.vsix`.
+Its SHA-256 is `F1656AF3E7C7A4FD3809E3B3C3B33D40B1071446D0F8BA17BE8178250F7ED35E`.
+The package was not installed or published.
+
+After the native expansion commit, the parent also reran the existing performance-invariant suite and all 11 real MSBuild assertions.
+Both passed without benchmark mode or a new frame-time claim.
+The earlier Minesweeper variability and manual-input coverage limits below remain explicit.
+
 ### Retained facade binding follow-up
 
 `xui_feature_child` now exposes the retained dialog, command surface, location picker, view picker, and navigation pane children.

@@ -53,7 +53,7 @@
   "Style state": {
     "prefix": "when",
     "body": ["when ${1:hovered} {", "\tbackground: resource(${2:DangerHover});", "\t$0", "}"],
-    "description": "Button style state override"
+    "description": "Style state override on a part that supports background"
   },
   "Derived Button style": {
     "prefix": "stylebasedon",
@@ -94,6 +94,42 @@
     "prefix": "styledtoggle",
     "body": "Toggle(\"${1:Active}\", style: ${2:CompactToggle});",
     "description": "Toggle with a declared named style"
+  },
+  "Control style": {
+    "prefix": "controlstyle",
+    "body": [
+      "style ${1:Heading} for ${2:Label} {",
+      "\tforeground: ${3:0x202020};",
+      "\t$0",
+      "}"
+    ],
+    "description": "Named style for a supported catalog target"
+  },
+  "Style part": {
+    "prefix": "part",
+    "body": ["part ${1:label} {", "\tforeground: ${2:0x202020};", "\t$0", "}"],
+    "description": "Direct style part with a supported foreground property"
+  },
+  "Typography style": {
+    "prefix": "typographystyle",
+    "body": [
+      "style ${1:Heading} for Label {",
+      "\tfontFamily: \"Segoe UI\";",
+      "\tfontSize: 20;",
+      "\tfontWeight: 600;",
+      "\tfontStyle: normal;",
+      "\thorizontalAlignment: start;",
+      "\twrapping: true;",
+      "\tmaximumLines: 2;",
+      "\t$0",
+      "}"
+    ],
+    "description": "Label typography style, applicable with Text or Content"
+  },
+  "Styled content": {
+    "prefix": "styledcontent",
+    "body": "Content(${1:ExistingElement}, style: ${2:Heading});",
+    "description": "Apply a named generic style to an existing element of the matching target"
   },
   "View": {
     "prefix": "view",

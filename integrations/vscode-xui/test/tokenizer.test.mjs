@@ -75,6 +75,7 @@ function closed(document) {
 
 const counter = await readFile(new URL("./fixtures/counter.xui", import.meta.url), "utf8");
 const nested = await readFile(new URL("./fixtures/nested.xui", import.meta.url), "utf8");
+const catalog = JSON.parse(await readFile(new URL("./fixtures/style-catalog.json", import.meta.url), "utf8"));
 
 test("named style declarations retain XUI scopes and return to view and C# contexts", async () => {
   const source = await readFile(new URL("../../../bindings/dotnet/GeneratorTests/Fixtures/Styling.xui", import.meta.url), "utf8");
@@ -336,13 +337,143 @@ test("unknown and nested parts stay unrecognized and do not consume subsequent s
   }
   view { Button("After invalid parts"); }
 }`);
-  for (const needle of ["part indicator", "part nestedPart", "part nestedRulePart", "part rootRulePart"])
+  for (const needle of ["part nestedPart", "part nestedRulePart", "part rootRulePart"])
     assert.ok(!scopesAt(doc, needle).includes("keyword.declaration.part.xui"), needle);
   assert.ok(!scopesAt(doc, "unknownPart").includes("constant.language.style-part.xui"));
   has(doc, "foreground: 1", "support.type.property-name.xui");
   has(doc, "size: 18", "support.type.property-name.xui");
   has(doc, "foreground: 4", "support.type.property-name.xui");
   has(doc, 'Button("After invalid parts"', "support.class.node.xui");
+  closed(doc);
+});
+
+function styleValue(property) {
+  if (property === "fontFamily") return '"Segoe UI"';
+  if (property === "fontStyle") return "normal";
+  if (property.endsWith("Alignment")) return "start";
+  if (property === "wrapping") return "true";
+  return "1";
+}
+
+test("every exported Element target, part, property and state receives its catalog scope", () => {
+  assert.equal(new Set(catalog.schemas.map((schema) => schema.target)).size, 45);
+  assert.equal(catalog.schemas.length, 221);
+  for (const schema of catalog.schemas) {
+    const properties = schema.properties.map((property) => `${property}: ${styleValue(property)};`).join("\n");
+    const rules = schema.states.map((state) => `when ${state} {
+      ${schema.stateProperties.map((property) => `${property}: ${styleValue(property)};`).join("\n")}
+    }`).join("\n");
+    const body = schema.part === "root" ? properties + rules : `part ${schema.part} { ${properties} ${rules} }`;
+    const doc = tokenize(`component Catalog { style CatalogStyle for ${schema.target} {
+      ${body}
+    } view { Content(Existing, style: CatalogStyle); } }`);
+    has(doc, `for ${schema.target}`, "support.class.node.xui", "for ".length);
+    if (schema.part !== "root") has(doc, `part ${schema.part}`, "constant.language.style-part.xui", "part ".length);
+    for (const property of schema.properties) has(doc, `${property}:`, "support.type.property-name.xui");
+    for (const state of schema.states) has(doc, `when ${state}`, "constant.language.style-state.xui", "when ".length);
+    has(doc, "Content(Existing", "support.class.node.xui");
+    has(doc, "style: CatalogStyle", "variable.other.style.xui", "style: ".length);
+    closed(doc);
+  }
+});
+
+test("style target aliases do not expand the application constructor vocabulary", () => {
+  for (const target of [...new Set(catalog.schemas.map((schema) => schema.target)), ...Object.keys(catalog.aliases)]) {
+    const doc = tokenize(`component Targets { style Defined for ${target} {}
+      view { ${target}("Lexical probe"); } }`);
+    has(doc, `for ${target}`, "support.class.node.xui", "for ".length);
+    const nodes = ["VStack", "HStack", "Text", "Button", "Toggle", "TextInput", "Grid", "DataGrid",
+      "NavigationView", "ItemsView", "ScrollView", "Popup", "SplitView", "Content"];
+    has(doc, `${target}("`, nodes.includes(target) ? "support.class.node.xui" : "entity.name.tag.xui");
+    closed(doc);
+  }
+  for (const target of ["Tooltip", "ContentDialog", "CommandSurface", "LocationPicker", "ViewPicker", "UnknownControl"]) {
+    const doc = tokenize(`component Unsupported { style Defined for ${target} {} view { Text("After"); } }`);
+    assert.ok(!scopesAt(doc, `for ${target}`, "for ".length).includes("support.class.node.xui"), target);
+    has(doc, 'Text("After"', "support.class.node.xui");
+    closed(doc);
+  }
+});
+
+test("typography values, local enum arguments and structural tuples retain their intended scopes", () => {
+  const doc = tokenize(String.raw`component Typography {
+    style Heading for Text {
+      fontFamily: "Segoe \u0055I";
+      fontSize: 24.5f;
+      fontWeight: 650;
+      fontStyle: italic;
+      horizontalAlignment: center;
+      verticalAlignment: start;
+      wrapping: false;
+      maximumLines: 2;
+      part heading { fontFamily: @"Segoe UI"; fontStyle: oblique; }
+    }
+    style Panel for VStack { padding: (1, 2, 3, 4); spacing: 8; horizontalAlignment: stretch; }
+    style IconButton for Button { part icon { size: 18; } part arrow { size: 12; } }
+    view {
+      VStack(style: Panel, padding: 0, spacing: 0, size: (100, 200)) {
+        Text("Title", style: Heading, fontStyle: normal, horizontalAlignment: end);
+        Content(Existing, style: Heading, fontFamily: "Segoe UI", verticalAlignment: start);
+      }
+    }
+  }`);
+  for (const value of ["italic", "center", "start", "oblique", "stretch", "normal", "end"])
+    has(doc, value, "constant.language.style-value.xui");
+  for (const value of ["24.5f", "650", "maximumLines: 2"])
+    has(doc, value, value.startsWith("maximum") ? "support.type.property-name.xui" : "constant.numeric");
+  has(doc, String.raw`Segoe \u0055I`, "string");
+  has(doc, "false", "constant.language");
+  has(doc, "size: (100", "variable.parameter.named.xui");
+  has(doc, "(100, 200)", "punctuation.parenthesis.open.cs");
+  for (const part of ["icon", "arrow", "heading"])
+    has(doc, `part ${part}`, "constant.language.style-part.xui", "part ".length);
+  closed(doc);
+});
+
+test("style enum values never replace ordinary embedded C# identifiers, calls, strings or comments", () => {
+  const doc = tokenize(String.raw`component EnumNames {
+    state string Name = "normal italic center";
+    state object Alignment = center(end);
+    style Font for Label {
+      fontFamily: "part root { when selected { fontStyle: italic; } }";
+      fontStyle: /* normal } */ italic;
+      horizontalAlignment: "stretch }";
+      verticalAlignment:
+      fontSize: 18;
+    }
+    code csharp { void Run() { var normal = center(end); /* oblique */ } }
+    view { Text(normal, id: "italic"); }
+  }`);
+  has(doc, "center(end)", "entity.name.function");
+  has(doc, "normal = ", "entity.name.variable.local.cs");
+  has(doc, "part root {", "string");
+  has(doc, "/* normal } */", "comment.block");
+  has(doc, "stretch }", "string");
+  has(doc, "fontSize: 18", "support.type.property-name.xui");
+  has(doc, 'Text(normal', "support.class.node.xui");
+  assert.ok(!scopesAt(doc, "Text(normal", "Text(".length).includes("constant.language.style-value.xui"));
+  closed(doc);
+});
+
+test("unsupported root parts and future vocabulary remain generic during editing", () => {
+  const doc = tokenize(`component Unknowns {
+    style Editing for Button {
+      part root { foreground: 1; }
+      part futurePart { futureProperty: 1; }
+      when futureState { foreground: 1; }
+      part icon { size: 18; }
+    }
+    view { Button("After"); }
+  }`);
+  for (const [needle, scope] of [
+    ["part root", "constant.language.style-part.xui"], ["part futurePart", "constant.language.style-part.xui"],
+    ["futureProperty", "support.type.property-name.xui"], ["when futureState", "constant.language.style-state.xui"]
+  ]) {
+    const offset = needle.startsWith("part ") ? 5 : needle.startsWith("when ") ? 5 : 0;
+    assert.ok(!scopesAt(doc, needle, offset).includes(scope));
+  }
+  has(doc, "part icon", "constant.language.style-part.xui", 5);
+  has(doc, 'Button("After"', "support.class.node.xui");
   closed(doc);
 });
 
