@@ -23,6 +23,15 @@ Default-path performance, bounded storage, native input, and accessibility remai
 
 ## Consumer integration
 
+### Minesweeper alignment
+
+The legacy Button path in `src\application.cpp` uses a DirectWrite layout with centered paragraph alignment.
+Its content rectangle must not add another vertical centering offset.
+The generic Button path already centers text through its format.
+Minesweeper uses uniform covered-cell borders and a shared coordinate style for centered row and column labels.
+The native alignment regression compares actual glyph positions in 36-DIP cells against a centered Label.
+It covers covered and cleared cells, enabled and disabled states, both themes, and both visual styles.
+
 ### Explorer header icons
 
 `bindings\dotnet\FileExplorer\ExplorerStyles.cs` shares one Button style across the title-bar navigation button, both New tab buttons, and address-toolbar icons.

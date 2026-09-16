@@ -3304,7 +3304,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 else {
                     const auto text_size = control.measured_text();
                     content.x += std::max(0.0f, (content.width - text_size.width) / 2);
-                    content.y += std::max(0.0f, (content.height - text_size.height) / 2);
                     canvas.text_layout(peer.text_layout.Get(), content, ink);
                 }
                 canvas.pop_clip();

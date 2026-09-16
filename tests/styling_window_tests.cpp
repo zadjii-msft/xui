@@ -720,6 +720,101 @@ struct StartFixture {
     ~StartFixture() { if (timer) KillTimer(nullptr, timer); active = nullptr; }
 };
 #ifndef XUI_STYLING_BASELINE
+void button_alignment_contracts() {
+    if (Palette::system(ThemeMode::light).high_contrast) {
+        std::cout << "SKIP authored-color Button alignment pixels under system high contrast\n";
+        return;
+    }
+    Window window({window_title, {360, 180}, ThemeMode::light});
+    auto root = std::make_shared<Stack>(Axis::horizontal);
+    auto label = std::make_shared<Label>(L"8");
+    PartStyleValues text;
+    text.foreground = ThemeColor{0x00ff00};
+    text.horizontal_alignment = StyleAlignment::center;
+    text.vertical_alignment = StyleAlignment::center;
+    label->set_control_style_values(StylePart::root, text);
+    label->set_auto_size(false);
+    label->set_preferred_size({36, 36});
+    label->set_maximum_size({36, 36});
+    root->add(label);
+    std::array<std::shared_ptr<Button>, 2> buttons;
+    for (std::size_t i = 0; i < buttons.size(); ++i) {
+        auto button = std::make_shared<Button>(L"8");
+        button->set_auto_size(false);
+        button->set_preferred_size({36, 36});
+        button->set_maximum_size({36, 36});
+        ButtonStyleValues values;
+        values.background = ThemeColor{0x242424};
+        values.foreground = text.foreground;
+        values.border_brush = ThemeColor{0xa0a0a0};
+        values.border_thickness = i == 0 ? Insets{1, 1, 1, 1} : Insets{};
+        values.padding = i == 0 ? Insets{} : Insets{2, 2, 2, 2};
+        values.corner_radius = 0.0f;
+        button->set_style(ButtonStyle::create(values));
+        buttons[i] = button;
+        root->add(button);
+    }
+    window.set_content(root);
+    StartFixture start(window, [&](HWND host) {
+        for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+            window.set_visual_style(visual);
+            for (const auto mode : {ThemeMode::light, ThemeMode::dark}) {
+                window.set_theme(mode);
+                for (const bool enabled : {true, false}) {
+                    for (const auto& button : buttons) button->set_enabled(enabled);
+                    flush(host);
+                    std::vector<RECT> areas;
+                    for (const auto peer : children(host)) if (native_text(peer) == L"8") {
+                        RECT bounds{};
+                        require(GetWindowRect(peer, &bounds) != FALSE, "Read alignment peer bounds");
+                        MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&bounds), 2);
+                        areas.push_back(bounds);
+                    }
+                    require(areas.size() == 3, "Alignment fixture retains one label and two buttons");
+                    std::sort(areas.begin(), areas.end(), [](const RECT& a, const RECT& b) { return a.left < b.left; });
+                    const auto image = owned_window_capture::capture(host);
+                    std::array<double, 2> reference{};
+                    for (std::size_t i = 0; i < areas.size(); ++i) {
+                        const auto area = areas[i];
+                        require(area.left >= 0 && area.top >= 0 && area.right <= image.width && area.bottom <= image.height,
+                            "Alignment peer lies inside the captured client");
+                        const auto extent = MulDiv(36, GetDpiForWindow(host), 96);
+                        require(area.right - area.left == extent && area.bottom - area.top == extent,
+                            "Alignment fixture uses actual 36-DIP square cells");
+                        RECT ink{area.right, area.bottom, area.left, area.top};
+                        unsigned count{};
+                        for (auto y = area.top; y < area.bottom; ++y) for (auto x = area.left; x < area.right; ++x) {
+                            const auto pixel = image.data[static_cast<std::size_t>(y) * image.width + x] & 0xffffff;
+                            if (((pixel >> 8) & 255) < 160 || (pixel & 255) > 80 || (pixel >> 16) > 80) continue;
+                            ink.left = std::min(ink.left, x); ink.right = std::max(ink.right, x);
+                            ink.top = std::min(ink.top, y); ink.bottom = std::max(ink.bottom, y);
+                            ++count;
+                        }
+                        require(count > 5, "Every alignment peer paints visible number glyphs");
+                        const std::array<double, 2> offset{
+                            (ink.left + ink.right + 1 - area.left - area.right) / 2.0,
+                            (ink.top + ink.bottom + 1 - area.top - area.bottom) / 2.0};
+                        if (i == 0) reference = offset;
+                        else {
+                            const auto tolerance = GetDpiForWindow(host) / 96.0;
+                            if (std::abs(offset[0] - reference[0]) > tolerance ||
+                                std::abs(offset[1] - reference[1]) > tolerance) {
+                                std::cerr << "Button alignment offset: " << offset[0] << ',' << offset[1]
+                                    << "; centered label: " << reference[0] << ',' << reference[1] << '\n';
+                                throw std::runtime_error("Covered and cleared button glyphs align with centered coordinate text");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    const auto result = Application::run(window);
+    if (start.error) std::rethrow_exception(start.error);
+    require(start.ran && result == 0 && window.error().empty(), "Native button alignment completes");
+    std::cout << "PASS native Button and coordinate text alignment in both themes and visual styles\n";
+}
+
 void toggle_native_contracts() {
     Window window({window_title, {420, 280}, ThemeMode::light});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -1027,7 +1122,7 @@ void native_contracts(bool measure, int repetition) {
 
 int main(int argc, char** argv) {
     try {
-        bool measure{}, lower{}, toggle_only{};
+        bool measure{}, lower{}, toggle_only{}, alignment_only{};
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument{argv[i]};
             if (argument == "--benchmark" && !measure) measure = true;
@@ -1035,12 +1130,17 @@ int main(int argc, char** argv) {
             else if (argument == "--styled-first" && !benchmark_styled_first) benchmark_styled_first = true;
             else if (argument == "--lower-level" && !lower) lower = true;
             else if (argument == "--toggle-only" && !toggle_only) toggle_only = true;
-            else throw std::runtime_error("Usage: xui_styling_window_tests [--toggle-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
+            else if (argument == "--alignment-only" && !alignment_only) alignment_only = true;
+            else throw std::runtime_error("Usage: xui_styling_window_tests [--toggle-only] [--alignment-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
         }
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Initialize styling fixture COM");
         struct Com { ~Com() { CoUninitialize(); } } com;
 #ifndef XUI_STYLING_BASELINE
+        if (alignment_only) {
+            button_alignment_contracts();
+            return 0;
+        }
         if (toggle_only) {
             toggle_pixel_contracts();
             toggle_native_contracts();
@@ -1049,6 +1149,7 @@ int main(int argc, char** argv) {
         pixel_contracts();
         toggle_pixel_contracts();
         if (lower) { lower_level_benchmarks(); return 0; }
+        button_alignment_contracts();
         toggle_native_contracts();
 #else
         require(!lower && !measure, "Pristine fixture only measures unchanged Window/editor/theme lifetime");

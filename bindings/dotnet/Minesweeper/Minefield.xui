@@ -4,6 +4,11 @@ component Minefield {
     state GameState Game = GameState.New();
     state bool Flagging = false;
 
+    style Coordinate for Text {
+        horizontalAlignment: center;
+        verticalAlignment: center;
+    }
+
     view {
         VStack(spacing: 8, padding: 12) {
             Text("MINESWEEPER", id: "heading");
@@ -17,18 +22,18 @@ component Minefield {
             VStack(spacing: 4) {
                 HStack(spacing: 4) {
                     Text(" ", size: (24, 24));
-                    Text("1", size: (36, 24));
-                    Text("2", size: (36, 24));
-                    Text("3", size: (36, 24));
-                    Text("4", size: (36, 24));
-                    Text("5", size: (36, 24));
-                    Text("6", size: (36, 24));
-                    Text("7", size: (36, 24));
-                    Text("8", size: (36, 24));
-                    Text("9", size: (36, 24));
+                    Text("1", size: (36, 24), style: Coordinate, ref: Column1);
+                    Text("2", size: (36, 24), style: Coordinate, ref: Column2);
+                    Text("3", size: (36, 24), style: Coordinate, ref: Column3);
+                    Text("4", size: (36, 24), style: Coordinate, ref: Column4);
+                    Text("5", size: (36, 24), style: Coordinate, ref: Column5);
+                    Text("6", size: (36, 24), style: Coordinate, ref: Column6);
+                    Text("7", size: (36, 24), style: Coordinate, ref: Column7);
+                    Text("8", size: (36, 24), style: Coordinate, ref: Column8);
+                    Text("9", size: (36, 24), style: Coordinate, ref: Column9);
                 }
                 HStack(spacing: 4) {
-                    Text("1", size: (24, 36));
+                    Text("1", size: (24, 36), style: Coordinate, ref: Row1);
                     Button(Game.CellText(0), enabled: Game.CanAct(0, Flagging), size: (36, 36), help: Game.CellDescription(0), ref: Square00, click: Cell00, id: "cell-1-1");
                     Button(Game.CellText(1), enabled: Game.CanAct(1, Flagging), size: (36, 36), help: Game.CellDescription(1), ref: Square01, click: Cell01, id: "cell-1-2");
                     Button(Game.CellText(2), enabled: Game.CanAct(2, Flagging), size: (36, 36), help: Game.CellDescription(2), ref: Square02, click: Cell02, id: "cell-1-3");
@@ -40,7 +45,7 @@ component Minefield {
                     Button(Game.CellText(8), enabled: Game.CanAct(8, Flagging), size: (36, 36), help: Game.CellDescription(8), ref: Square08, click: Cell08, id: "cell-1-9");
                 }
                 HStack(spacing: 4) {
-                    Text("2", size: (24, 36));
+                    Text("2", size: (24, 36), style: Coordinate, ref: Row2);
                     Button(Game.CellText(9), enabled: Game.CanAct(9, Flagging), size: (36, 36), help: Game.CellDescription(9), ref: Square10, click: Cell10, id: "cell-2-1");
                     Button(Game.CellText(10), enabled: Game.CanAct(10, Flagging), size: (36, 36), help: Game.CellDescription(10), ref: Square11, click: Cell11, id: "cell-2-2");
                     Button(Game.CellText(11), enabled: Game.CanAct(11, Flagging), size: (36, 36), help: Game.CellDescription(11), ref: Square12, click: Cell12, id: "cell-2-3");
@@ -52,7 +57,7 @@ component Minefield {
                     Button(Game.CellText(17), enabled: Game.CanAct(17, Flagging), size: (36, 36), help: Game.CellDescription(17), ref: Square18, click: Cell18, id: "cell-2-9");
                 }
                 HStack(spacing: 4) {
-                    Text("3", size: (24, 36));
+                    Text("3", size: (24, 36), style: Coordinate, ref: Row3);
                     Button(Game.CellText(18), enabled: Game.CanAct(18, Flagging), size: (36, 36), help: Game.CellDescription(18), ref: Square20, click: Cell20, id: "cell-3-1");
                     Button(Game.CellText(19), enabled: Game.CanAct(19, Flagging), size: (36, 36), help: Game.CellDescription(19), ref: Square21, click: Cell21, id: "cell-3-2");
                     Button(Game.CellText(20), enabled: Game.CanAct(20, Flagging), size: (36, 36), help: Game.CellDescription(20), ref: Square22, click: Cell22, id: "cell-3-3");
@@ -64,7 +69,7 @@ component Minefield {
                     Button(Game.CellText(26), enabled: Game.CanAct(26, Flagging), size: (36, 36), help: Game.CellDescription(26), ref: Square28, click: Cell28, id: "cell-3-9");
                 }
                 HStack(spacing: 4) {
-                    Text("4", size: (24, 36));
+                    Text("4", size: (24, 36), style: Coordinate, ref: Row4);
                     Button(Game.CellText(27), enabled: Game.CanAct(27, Flagging), size: (36, 36), help: Game.CellDescription(27), ref: Square30, click: Cell30, id: "cell-4-1");
                     Button(Game.CellText(28), enabled: Game.CanAct(28, Flagging), size: (36, 36), help: Game.CellDescription(28), ref: Square31, click: Cell31, id: "cell-4-2");
                     Button(Game.CellText(29), enabled: Game.CanAct(29, Flagging), size: (36, 36), help: Game.CellDescription(29), ref: Square32, click: Cell32, id: "cell-4-3");
@@ -76,7 +81,7 @@ component Minefield {
                     Button(Game.CellText(35), enabled: Game.CanAct(35, Flagging), size: (36, 36), help: Game.CellDescription(35), ref: Square38, click: Cell38, id: "cell-4-9");
                 }
                 HStack(spacing: 4) {
-                    Text("5", size: (24, 36));
+                    Text("5", size: (24, 36), style: Coordinate, ref: Row5);
                     Button(Game.CellText(36), enabled: Game.CanAct(36, Flagging), size: (36, 36), help: Game.CellDescription(36), ref: Square40, click: Cell40, id: "cell-5-1");
                     Button(Game.CellText(37), enabled: Game.CanAct(37, Flagging), size: (36, 36), help: Game.CellDescription(37), ref: Square41, click: Cell41, id: "cell-5-2");
                     Button(Game.CellText(38), enabled: Game.CanAct(38, Flagging), size: (36, 36), help: Game.CellDescription(38), ref: Square42, click: Cell42, id: "cell-5-3");
@@ -88,7 +93,7 @@ component Minefield {
                     Button(Game.CellText(44), enabled: Game.CanAct(44, Flagging), size: (36, 36), help: Game.CellDescription(44), ref: Square48, click: Cell48, id: "cell-5-9");
                 }
                 HStack(spacing: 4) {
-                    Text("6", size: (24, 36));
+                    Text("6", size: (24, 36), style: Coordinate, ref: Row6);
                     Button(Game.CellText(45), enabled: Game.CanAct(45, Flagging), size: (36, 36), help: Game.CellDescription(45), ref: Square50, click: Cell50, id: "cell-6-1");
                     Button(Game.CellText(46), enabled: Game.CanAct(46, Flagging), size: (36, 36), help: Game.CellDescription(46), ref: Square51, click: Cell51, id: "cell-6-2");
                     Button(Game.CellText(47), enabled: Game.CanAct(47, Flagging), size: (36, 36), help: Game.CellDescription(47), ref: Square52, click: Cell52, id: "cell-6-3");
@@ -100,7 +105,7 @@ component Minefield {
                     Button(Game.CellText(53), enabled: Game.CanAct(53, Flagging), size: (36, 36), help: Game.CellDescription(53), ref: Square58, click: Cell58, id: "cell-6-9");
                 }
                 HStack(spacing: 4) {
-                    Text("7", size: (24, 36));
+                    Text("7", size: (24, 36), style: Coordinate, ref: Row7);
                     Button(Game.CellText(54), enabled: Game.CanAct(54, Flagging), size: (36, 36), help: Game.CellDescription(54), ref: Square60, click: Cell60, id: "cell-7-1");
                     Button(Game.CellText(55), enabled: Game.CanAct(55, Flagging), size: (36, 36), help: Game.CellDescription(55), ref: Square61, click: Cell61, id: "cell-7-2");
                     Button(Game.CellText(56), enabled: Game.CanAct(56, Flagging), size: (36, 36), help: Game.CellDescription(56), ref: Square62, click: Cell62, id: "cell-7-3");
@@ -112,7 +117,7 @@ component Minefield {
                     Button(Game.CellText(62), enabled: Game.CanAct(62, Flagging), size: (36, 36), help: Game.CellDescription(62), ref: Square68, click: Cell68, id: "cell-7-9");
                 }
                 HStack(spacing: 4) {
-                    Text("8", size: (24, 36));
+                    Text("8", size: (24, 36), style: Coordinate, ref: Row8);
                     Button(Game.CellText(63), enabled: Game.CanAct(63, Flagging), size: (36, 36), help: Game.CellDescription(63), ref: Square70, click: Cell70, id: "cell-8-1");
                     Button(Game.CellText(64), enabled: Game.CanAct(64, Flagging), size: (36, 36), help: Game.CellDescription(64), ref: Square71, click: Cell71, id: "cell-8-2");
                     Button(Game.CellText(65), enabled: Game.CanAct(65, Flagging), size: (36, 36), help: Game.CellDescription(65), ref: Square72, click: Cell72, id: "cell-8-3");
@@ -124,7 +129,7 @@ component Minefield {
                     Button(Game.CellText(71), enabled: Game.CanAct(71, Flagging), size: (36, 36), help: Game.CellDescription(71), ref: Square78, click: Cell78, id: "cell-8-9");
                 }
                 HStack(spacing: 4) {
-                    Text("9", size: (24, 36));
+                    Text("9", size: (24, 36), style: Coordinate, ref: Row9);
                     Button(Game.CellText(72), enabled: Game.CanAct(72, Flagging), size: (36, 36), help: Game.CellDescription(72), ref: Square80, click: Cell80, id: "cell-9-1");
                     Button(Game.CellText(73), enabled: Game.CanAct(73, Flagging), size: (36, 36), help: Game.CellDescription(73), ref: Square81, click: Cell81, id: "cell-9-2");
                     Button(Game.CellText(74), enabled: Game.CanAct(74, Flagging), size: (36, 36), help: Game.CellDescription(74), ref: Square82, click: Cell82, id: "cell-9-3");
