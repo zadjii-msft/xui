@@ -91,6 +91,38 @@ target_link_options(my_app PRIVATE /MANIFEST:NO)
 
 The [application reference](docs/specs/application.md) describes thread ownership, callbacks, layout, and error handling.
 
+### C ABI application setup
+
+The [C guide](docs/specs/languages/c.md) contains a complete `main.c`.
+Link it to the `xui` DLL target, not the C++ `xui_windows` target.
+This CMake example assumes the XUI checkout is a subdirectory beside `main.c`:
+
+```cmake
+cmake_minimum_required(VERSION 3.24)
+project(MyCApp LANGUAGES C CXX RC)
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_subdirectory(xui)
+add_executable(my_c_app main.c xui/demo/xui.rc)
+target_link_libraries(my_c_app PRIVATE xui)
+target_compile_options(my_c_app PRIVATE /utf-8 /W4)
+target_link_options(my_c_app PRIVATE /MANIFEST:NO)
+add_custom_command(TARGET my_c_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:xui>" "$<TARGET_FILE_DIR:my_c_app>"
+    VERBATIM)
+```
+
+CMake uses the C compiler for `main.c` and the C++ compiler for the native XUI implementation.
+The target supplies the include directory and import library.
+The resource embeds the common-controls v6 and per-monitor-DPI manifest.
+The post-build command places the matching DLL beside the console executable.
+For a separately built DLL, supply its `xui.lib`, the `include` directory, and the same manifest instead.
+Keep the C executable and native library on the same architecture.
+
 ## C# and declarative samples
 
 After the native build, add its DLL directory to this shell's search path:
@@ -416,6 +448,66 @@ Use the [extension README](integrations/vscode-xui/README.md) for packaging, ins
 The package supplies syntax support, not a language server or visual designer.
 
 ## Documentation and changes
+
+### GitBook documentation
+
+The [XUI handbook](docs/specs/README.md) is the GitBook entry point.
+`.gitbook.yaml` uses the repository root as its content root.
+It selects `docs/specs/README.md` and `docs/specs/SUMMARY.md` as the first page and navigation file.
+The wider content root keeps links to contributor procedures and sample sources within the repository.
+The summary selects the public pages; maintainer notes are not sidebar chapters.
+
+To host the book, connect this repository and the desired branch through GitBook Git Sync.
+Keep the configuration and Markdown in Git.
+No publishing credentials, account, or hosted site are included in this repository.
+The configuration follows GitBook's [content configuration reference](https://gitbook.com/docs/docs-as-code/git-sync/content-configuration).
+Do not install the obsolete `gitbook-cli` package to process these Git Sync files.
+
+When adding a public page, link it from its section index and `docs/specs/SUMMARY.md`.
+Each page can appear only once in the summary.
+Use relative Markdown links for repository pages.
+Keep control coverage tied to current public headers and binding factories, not the names of style-target enum members.
+Some enum members describe unsupported facade targets; a style schema does not imply a markup constructor.
+
+Run the dependency-free documentation check from the repository root:
+
+```powershell
+python tests\check-docs.py
+```
+
+It checks navigation uniqueness, local links and heading anchors, section coverage, and control-catalog names against current source.
+It does not publish the site or verify external URLs.
+Compile the tutorial sample separately after changing its examples.
+
+### GitBook tutorial sample
+
+The [tutorials](docs/specs/tutorials/README.md) include a complete task-card application.
+After the native build, use the same `$build` and `$rid` values from the earlier procedures:
+
+```powershell
+$env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
+dotnet run --project docs\specs\tutorials\sample\TaskCard.csproj -r $rid
+```
+
+For development reload:
+
+```powershell
+dotnet watch --project docs\specs\tutorials\sample\TaskCard.csproj --non-interactive "-p:RuntimeIdentifier=$rid"
+```
+
+For a compile-only check, no native DLL is needed:
+
+```powershell
+dotnet build docs\specs\tutorials\sample\TaskCard.csproj -c Release -r $rid
+dotnet build docs\specs\tutorials\sample\TaskCard.csproj -c Debug -r $rid
+```
+
+For NativeAOT, use the same project path in the [publish procedure](#nativeaot-and-deployment).
+Copy `xui.dll` into this project's publish directory rather than the DeclarativeSample directory.
+The sample stores task state only in memory.
+Do not describe Apply as persistent storage or reload replacement as state preservation.
+
+### Document scope
 
 Keep each document focused on its reader:
 

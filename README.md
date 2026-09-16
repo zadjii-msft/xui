@@ -78,4 +78,6 @@ Shared [control styles](docs/specs/control-styling.md) customize colors, typogra
 
 ## Documentation
 
-[Build and contribute](CONTRIBUTING.md) · [API guides and specs](docs/specs/README.md) · [Maintainer notes](docs/llm/README.md)
+[XUI handbook](docs/specs/README.md) · [Tutorials](docs/specs/tutorials/README.md) · [All controls](docs/specs/controls/README.md) · [Language guides](docs/specs/languages/README.md)
+
+[Build and contribute](CONTRIBUTING.md) · [Maintainer notes](docs/llm/README.md)

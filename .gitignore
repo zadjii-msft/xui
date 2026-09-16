@@ -6,3 +6,5 @@
 /bindings/dotnet/**/bin/
 /bindings/dotnet/**/obj/
 /bindings/rust/target/
+/docs/specs/tutorials/sample/bin/
+/docs/specs/tutorials/sample/obj/

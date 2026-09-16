@@ -1,0 +1,248 @@
+# Collections
+
+[Control catalog](README.md) · [Collection contract](../collections.md) · [Binding coverage](../bindings.md)
+
+Examples use the [C++ fragment context](README.md#use-the-examples).
+Add `xui\collections.hpp` and `xui\data_grid.hpp`.
+Class definitions belong at file scope.
+
+## Choose a collection
+
+| Requirement | Control |
+| --- | --- |
+| File records with existing snapshot/filter support | FileList |
+| Generic list, tiles, groups, or inline actions | ItemsView |
+| Lazy hierarchical data | TreeView |
+| Virtual rows with multiple logical columns | DataGrid |
+| Fixed recent numeric history | HistoryChart |
+| A small set of retained cards | [Wrap](layout.md#wrap) |
+
+Virtualization limits visible content work.
+It does not make a mutable source safe or provide automatic storage paging.
+Sources must preserve stable identity and remain immutable.
+Identity lookup must not enumerate all rows.
+
+## FileList
+
+Use `FileList` for immutable `FileItem` records with stable IDs.
+The synchronous convenience setters suit small sources.
+
+```cpp
+auto files = std::make_shared<xui::FileList>(L"Workspace files");
+files->set_items(std::make_shared<const std::vector<xui::FileItem>>(
+    std::vector<xui::FileItem>{
+        {1, L"Notes.txt", L"C:\\Data\\Notes.txt", false},
+        {2, L"Archive", L"C:\\Data\\Archive", true}
+    }));
+files->set_empty_text(L"No matching files", L"Try another filter.");
+auto selected = std::make_shared<xui::Label>(L"No file opened");
+files->on_activate([selected](const xui::FileItem& item, xui::FileActivation) {
+    selected->set_text(item.path);
+});
+root->add(files, 1);
+root->add(selected);
+```
+
+`select` uses the visible row index.
+`focused_id` and model selection remain separate.
+`on_selection_change` and `on_view_change` observe the updated model.
+Activation does not open a path unless the application implements that action.
+
+For expensive enumeration or filtering, use `Window::create_view_task`.
+The [complete worker example](../collections.md#virtual-lists-and-asynchronous-delivery) shows loader, delivery, and cancellation.
+Retain the task handle while it is necessary.
+Honor its cancellation check during source work.
+A null source result means cancellation, not an empty successful list.
+
+`set_thumbnails(true)` requests visible previews through the shared image workers.
+`on_thumbnail_error` reports failed visible requests.
+Shell icons and vector fallbacks remain available.
+The [image contract](../images.md) defines limits and lifetime.
+
+The style target is `file_list`.
+Row, text, selection, icon, and scrollbar parts do not create per-row controls.
+Styles do not recolor decoded thumbnails or Shell icon pixels.
+
+## ItemsView
+
+Use `ItemsView` for generic immutable sources.
+This example source generates rows without a retained array of row strings.
+
+```cpp
+class ExampleItems final : public xui::ItemsSource {
+public:
+    std::size_t size() const override { return 1000; }
+    xui::ItemKey key(std::size_t index) const override {
+        return {index + 1, 1};
+    }
+    std::optional<std::size_t> find(xui::ItemKey value) const override {
+        if (value.version != 1 || value.id == 0 || value.id > size())
+            return {};
+        return static_cast<std::size_t>(value.id - 1);
+    }
+    xui::ItemContent item(std::size_t index) const override {
+        return {L"Item " + std::to_wstring(index + 1), L"Example row"};
+    }
+};
+```
+
+The next fragment requires the file-scope `ExampleItems` definition:
+
+```cpp
+auto items = std::make_shared<xui::ItemsView>(L"Results");
+items->set_items(std::make_shared<const ExampleItems>());
+items->set_presentation(xui::ItemsPresentation::tiles);
+items->set_item_size({180, 56});
+items->set_select_all_scope(xui::SelectAllScope::filtered);
+auto status = std::make_shared<xui::Label>(L"No item activated");
+items->on_activate([status](xui::ItemKey key) {
+    status->set_text(L"Activated " + std::to_wstring(key.id));
+});
+root->add(items, 1);
+root->add(status);
+```
+
+`list`, `tiles`, and `grouped` share the same selection model.
+Groups come from `ItemsSource::groups` and use ordered, nonoverlapping ranges.
+Group IDs must not collide with item IDs.
+`on_action` handles the separate inline action.
+`on_selection` reports membership changes.
+
+`CollectionSelection` separates membership, focus, and anchor.
+Select-all uses a compact term instead of one entry per selected row.
+Full-source selection needs an explicit full index and stable identity namespace.
+The [selection contract](../collections.md#virtual-collections-and-adaptive-layout) defines the term and UIA enumeration limits.
+
+The style target is `items_view`.
+Rows, tiles, group headers, inline actions, and progress remain virtual parts.
+Tile width supports base/local values only.
+Root row metrics remain uniform.
+Per-item colors do not imply a per-item style object.
+
+## TreeView
+
+Use `TreeView` for cached roots and lazily supplied children.
+`TreeSource::roots` returns an immutable ItemsSource.
+`has_children` must use cached, nonblocking data.
+
+This fragment requires `std::shared_ptr<const xui::TreeSource> tree_source` from the application:
+
+```cpp
+auto tree = std::make_shared<xui::TreeView>(L"Folder hierarchy");
+tree->set_tree(tree_source);
+auto status = std::make_shared<xui::Label>(L"No node activated");
+tree->on_activate([status](xui::ItemKey key) {
+    status->set_text(L"Node " + std::to_wstring(key.id));
+});
+root->add(tree, 1);
+root->add(status);
+```
+
+For lazy children:
+
+1. Register `on_request` before users expand a branch.
+2. Start application-owned work with the supplied `TreeRequest`.
+3. Honor `request.cancellation` during that work.
+4. Deliver `complete(request, children, error)` on the UI thread.
+5. Use a weak tree reference in completion callbacks.
+
+The [provider recipe](../collections.md#virtual-collections-and-adaptive-layout) shows the callback shape.
+`complete` returns false for obsolete, canceled, duplicate, or foreign requests.
+Collapse retains cached children and hidden selection.
+Right retries a failed branch.
+Source callbacks must not perform filesystem or network I/O.
+
+The style target is `tree_view`.
+Disclosure, indentation, pending text, and error text extend the virtual collection parts.
+Loading and error styles do not change request lifetime.
+UIA resolves stable nodes, not a retained native peer per node.
+
+## DataGrid
+
+Use `DataGrid` for virtual tabular data.
+Use layout Grid for retained form cells.
+
+This file-scope source supplies one logical column:
+
+```cpp
+class ExampleGrid final : public xui::GridSource {
+public:
+    std::size_t size() const override { return 1000; }
+    xui::RowKey key(std::size_t index) const override {
+        return {index + 1, 1};
+    }
+    std::optional<std::size_t> find(xui::RowKey value) const override {
+        if (value.version != 1 || value.id == 0 || value.id > size())
+            return {};
+        return static_cast<std::size_t>(value.id - 1);
+    }
+    std::wstring text(std::size_t row, std::size_t) const override {
+        return L"Record " + std::to_wstring(row + 1);
+    }
+};
+```
+
+The next fragment requires the file-scope `ExampleGrid` definition:
+
+```cpp
+auto grid = std::make_shared<xui::DataGrid>(L"Records");
+grid->set_columns({{L"Name", 240}});
+grid->set_source(std::make_shared<const ExampleGrid>());
+grid->select({1, 1});
+root->add(grid, 1);
+```
+
+The application supplies actual sorted and filtered snapshots.
+`on_sort` requests sorting. A sort indicator alone does not reorder the source.
+`on_filter` supplies a cancelable `GridFilterRequest`.
+`complete_filter` accepts current results on the UI thread.
+
+Source-column identities and display ordinals are distinct.
+`GridSource::text`, sort callbacks, and filters use source identities.
+Width and reorder operations use display ordinals.
+`set_source` preserves column order and widths.
+`set_columns` resets them.
+The [grid contract](../collections.md#grid-and-chart-contracts) defines every mapping.
+
+Selection shares `CollectionSelection`.
+UIA Grid, Table, selection, and scroll operations resolve stable keys.
+Headers support keyboard sort, resize, and reorder without pointer-only actions.
+Cancellation does not commit a pending column move.
+
+The style target is `data_grid`.
+Root row and header metrics remain uniform.
+Cell and header text parts own fonts.
+Styles do not replace sources, sort records, or allocate a visual tree per cell.
+
+## HistoryChart
+
+Use `HistoryChart` for a bounded recent metric.
+It retains 60 samples.
+
+```cpp
+auto history = std::make_shared<xui::HistoryChart>(L"CPU usage percent");
+history->set_scale(100);
+history->append(25);
+history->append(std::nullopt);
+history->append(40);
+root->add(history);
+```
+
+`std::nullopt` records a gap, not an invented zero.
+`at(index)` reads retained history.
+`Window::create_sample_task` can deliver immutable measurements without a UI sampling loop.
+The [application contract](../application.md) defines worker and payload lifetime.
+
+The accessible name must identify the metric and units.
+The chart exposes read-only metric text, not an editable range.
+The style target is `history_chart`.
+Title, caption, grid lines, and plot line styles do not rewrite sample values.
+
+## Language notes
+
+C# and Rust use `ImmutableSource` for bounded source callbacks.
+`Find` or `find` must provide identity lookup without enumeration.
+Callbacks must stay nonblocking and must not mutate their source window.
+Tree completion tokens belong to one control.
+C# request objects require disposal. Rust requests cancel on drop.
+The [binding contract](../bindings.md#ownership-and-data-limits) defines the exact limits and error behavior.

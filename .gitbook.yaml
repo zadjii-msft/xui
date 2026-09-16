@@ -1,0 +1,4 @@
+root: ./
+structure:
+  readme: docs/specs/README.md
+  summary: docs/specs/SUMMARY.md
