@@ -32,7 +32,9 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
       - name: Check release guards
         shell: pwsh
-        run: .\tests\release-workflow.ps1
+        run: |
+          .\tests\release-workflow.ps1
+          .\tests\release-packaging-unit.ps1
 
   build:
     needs: version
@@ -57,7 +59,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
           rustup default stable
           if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed.' }
-      - name: Build native libraries and all samples
+      - name: Build native libraries and release samples
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
@@ -138,6 +140,15 @@ jobs:
         run: |
           .\tests\packages.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
           .\tests\release-samples.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets
+      - name: Check NativeAOT explorer state and models
+        shell: pwsh
+        env:
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          . .\scripts\Release.Common.ps1
+          $rid = if ($env:RELEASE_ARCH -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
+          Invoke-Checked { dotnet publish .\bindings\dotnet\FileExplorer.Tests -c Release -r $rid -p:PublishAot=true -o build\explorer-aot-tests --nologo }
+          Invoke-Checked { & .\build\explorer-aot-tests\FileExplorer.Tests.exe }
 
   draft:
     needs: [version, verify]

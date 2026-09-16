@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Xui\Xui.csproj" />

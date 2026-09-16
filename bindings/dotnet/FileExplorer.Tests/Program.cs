@@ -443,6 +443,12 @@ internal static class Program
         Equal(ExplorerState.RecentLimit, state.Recents.Count);
         Equal(Path.Combine(fixture, "39"), state.Recents[0]);
         store.Save(state);
+        using (var saved = JsonDocument.Parse(File.ReadAllBytes(path)))
+        {
+            Equal(2, saved.RootElement.EnumerateObject().Count());
+            Equal(unicode, saved.RootElement.GetProperty("Bookmarks")[0].GetString());
+            Equal(ExplorerState.RecentLimit, saved.RootElement.GetProperty("Recents").GetArrayLength());
+        }
         var loaded = new AppStateStore(path).Load();
         Sequence(state.Bookmarks, loaded.Bookmarks);
         Sequence(state.Recents, loaded.Recents);
@@ -474,8 +480,8 @@ internal static class Program
                  {
                      "{broken", "null", "[]", "{\"Bookmarks\":null}", "{\"Recents\":[null]}",
                      "{\"Bookmarks\":[\"\"]}", "{\"Recents\":[1]}",
-                     JsonSerializer.Serialize(new ExplorerState { Recents = Enumerable.Repeat("path", 33).ToList() }),
-                     JsonSerializer.Serialize(new ExplorerState { Bookmarks = [new string('x', 32768)] })
+                     JsonSerializer.Serialize(new ExplorerState { Recents = Enumerable.Repeat("path", 33).ToList() }, ExplorerStateJsonContext.Default.ExplorerState),
+                     JsonSerializer.Serialize(new ExplorerState { Bookmarks = [new string('x', 32768)] }, ExplorerStateJsonContext.Default.ExplorerState)
                  })
         {
             File.WriteAllText(path, json);

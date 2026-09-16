@@ -18,11 +18,14 @@ foreach ($rid in 'win-x64', 'win-arm64') {
 }
 & "$PSScriptRoot\Pack-NuGet.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
 & "$PSScriptRoot\Pack-Cargo.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
-Copy-Item "$PSScriptRoot\..\packaging\SAMPLES.md" "$stage\samples\README.md"
-Copy-Item "$PSScriptRoot\..\LICENSE" "$stage\samples\LICENSE"
-$zip = Join-Path $output "Xui.Samples.$Version.zip"
-if (Test-Path $zip) { throw "Release asset already exists: $zip" }
-[IO.Compression.ZipFile]::CreateFromDirectory("$stage\samples", $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+foreach ($rid in 'win-x64', 'win-arm64') {
+    $sampleRoot = Join-Path $stage "samples\$rid"
+    Copy-Item "$PSScriptRoot\..\packaging\SAMPLES.md" "$sampleRoot\README.md"
+    Copy-Item "$PSScriptRoot\..\LICENSE" "$sampleRoot\LICENSE"
+    $zip = Join-Path $output "Xui.Samples.$Version.$rid.zip"
+    if (Test-Path $zip) { throw "Release asset already exists: $zip" }
+    [IO.Compression.ZipFile]::CreateFromDirectory($sampleRoot, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+}
 $assets = Get-XuiReleaseAssetNames $Version
 foreach ($asset in $assets) {
     if (!(Test-Path (Join-Path $output $asset))) { throw "Missing release asset: $asset" }
