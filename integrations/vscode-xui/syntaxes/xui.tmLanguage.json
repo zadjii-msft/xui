@@ -99,19 +99,32 @@
           "end": "(?=\\bbasedOn\\b|[{}])",
           "patterns": [
             { "include": "#comments" },
+            {
+              "begin": "\\bToggle\\b",
+              "beginCaptures": { "0": { "name": "support.class.node.xui" } },
+              "end": "(?=\\})",
+              "patterns": [
+                { "include": "#comments" },
+                { "include": "#style-base" },
+                {
+                  "begin": "\\{",
+                  "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+                  "end": "(?=\\})",
+                  "patterns": [
+                    { "include": "#comments" },
+                    { "include": "#style-part" },
+                    { "include": "#style-rule" },
+                    { "include": "#style-properties" },
+                    { "include": "#unrecognized-style-block" }
+                  ]
+                }
+              ]
+            },
             { "match": "\\bButton\\b", "name": "support.class.node.xui" },
             { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.xui" }
           ]
         },
-        {
-          "begin": "\\bbasedOn\\b",
-          "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
-          "end": "(?=[{}])",
-          "patterns": [
-            { "include": "#comments" },
-            { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.style.xui" }
-          ]
-        },
+        { "include": "#style-base" },
         { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "entity.name.type.style.xui" },
         {
           "begin": "\\{",
@@ -120,9 +133,82 @@
           "patterns": [
             { "include": "#comments" },
             { "include": "#style-rule" },
-            { "include": "#style-properties" }
+            { "include": "#style-properties" },
+            { "include": "#unrecognized-style-block" }
           ]
         }
+      ]
+    },
+    "style-base": {
+      "begin": "\\bbasedOn\\b",
+      "beginCaptures": { "0": { "name": "keyword.other.style.xui" } },
+      "end": "(?=[{}])",
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "@?[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.style.xui" }
+      ]
+    },
+    "style-part": {
+      "name": "meta.style-part.xui",
+      "begin": "\\bpart\\b",
+      "beginCaptures": { "0": { "name": "keyword.declaration.part.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "match": "\\b(?:label|indicator|mark)\\b", "name": "constant.language.style-part.xui" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#part-style-rule" },
+            { "include": "#part-style-properties" },
+            { "include": "#unrecognized-style-block" }
+          ]
+        }
+      ]
+    },
+    "part-style-rule": {
+      "name": "meta.style-rule.xui",
+      "begin": "\\bwhen\\b",
+      "beginCaptures": { "0": { "name": "keyword.control.when.xui" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#style-states" },
+        {
+          "begin": "\\{",
+          "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
+          "end": "(?=\\})",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#part-style-properties" },
+            { "include": "#unrecognized-style-block" }
+          ]
+        }
+      ]
+    },
+    "part-style-properties": {
+      "patterns": [
+        { "match": "\\b(?:background|foreground|borderBrush|cornerRadius|borderThickness|size)\\b", "name": "support.type.property-name.xui" },
+        { "include": "#style-value" }
+      ]
+    },
+    "style-states": {
+      "match": "\\b(?:focused|checked|hovered|pressed|disabled)\\b",
+      "name": "constant.language.style-state.xui"
+    },
+    "unrecognized-style-block": {
+      "name": "meta.unrecognized-block.xui",
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#unrecognized-style-block" },
+        { "include": "#style-value" }
       ]
     },
     "style-rule": {
@@ -133,14 +219,15 @@
       "endCaptures": { "0": { "name": "punctuation.section.block.end.xui" } },
       "patterns": [
         { "include": "#comments" },
-        { "match": "\\b(?:focused|checked|hovered|pressed|disabled)\\b", "name": "constant.language.style-state.xui" },
+        { "include": "#style-states" },
         {
           "begin": "\\{",
           "beginCaptures": { "0": { "name": "punctuation.section.block.begin.xui" } },
           "end": "(?=\\})",
           "patterns": [
             { "include": "#comments" },
-            { "include": "#style-properties" }
+            { "include": "#style-properties" },
+            { "include": "#unrecognized-style-block" }
           ]
         }
       ]
@@ -154,7 +241,7 @@
     "style-value": {
       "begin": ":",
       "beginCaptures": { "0": { "name": "punctuation.separator.key-value.xui" } },
-      "end": ";|(?=\\})|^(?=\\s*(?:when\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
+      "end": ";|(?=\\})|^(?=\\s*(?:(?:when|part)\\b|@?[A-Za-z_][A-Za-z0-9_]*\\s*:))",
       "endCaptures": { "0": { "name": "punctuation.terminator.statement.xui" } },
       "patterns": [
         { "include": "#comments" },

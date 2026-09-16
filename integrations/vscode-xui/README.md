@@ -50,7 +50,7 @@ component Counter {
 
 The namespace is optional. The compiler accepts one component per file.
 The grammar can highlight multiple components, but this does not imply compiler support.
-The grammar recognizes `namespace`, `component`, `param`, `state`, `view`, `code`, `csharp`, `resources`, `style`, `basedOn`, and `when`.
+The grammar recognizes `namespace`, `component`, `param`, `state`, `view`, `code`, `csharp`, `resources`, `style`, `basedOn`, `part`, and `when`.
 It recognizes the native node names in the [language guide](https://github.com/zadjii-msft/xui/blob/main/docs/specs/xui-language.md).
 Other node names receive a generic node scope. This highlighting does not imply compiler support for custom components.
 
@@ -97,6 +97,47 @@ Color literals retain their C# numeric scopes, including hexadecimal, binary, de
 The [style grammar](https://github.com/zadjii-msft/xui/blob/main/docs/specs/xui-language.md#declare-button-styles-and-resources) defines the compiler limits.
 Highlighting does not check resource names, cycles, property types, or numeric bounds.
 
+### Toggle styles
+
+Named styles currently support `Button` and `Toggle`.
+Other style targets are not implemented by this language contract.
+A Toggle style can declare named parts:
+
+```xui
+style CompactToggle for Toggle {
+  foreground: theme(light: 0x202020, dark: 0xEEEEEE);
+  part indicator {
+    background: theme(light: 0xEEEEEE, dark: 0x202020);
+    cornerRadius: 3;
+    size: 18;
+    when checked { background: 0x2468AD; }
+  }
+  part mark { foreground: 0xFFFFFF; }
+  when disabled { foreground: 0x888888; }
+}
+```
+
+`Toggle("Active", style: CompactToggle);` applies this style.
+Use the following property sets:
+
+| Toggle part | Properties |
+|---|---|
+| Implicit root | `background`, `foreground`, `borderBrush`, `borderThickness`, `cornerRadius`, `padding` |
+| `label` | `foreground` |
+| `indicator` | `background`, `borderBrush`, `borderThickness`, `cornerRadius`, `size` |
+| `mark` | `foreground` |
+
+`size` specifies the indicator's outer square in DIPs.
+A label without its own foreground inherits the effective root foreground.
+Root and part-local `when` rules accept `focused`, `checked`, `hovered`, `pressed`, and `disabled`.
+Part declarations belong directly in a Toggle style, not inside another part or a `when` rule.
+Button styles do not accept parts or `size`.
+Base styles must target the same control.
+
+The grammar highlights property names but does not validate each target and part combination.
+The compiler reports unsupported combinations, duplicate parts or Toggle state rules, and other semantic errors.
+See the [Toggle contract](https://github.com/zadjii-msft/xui/blob/main/docs/specs/control-styling.md#toggle-pilot).
+
 ## Editor support
 
 The extension supplies comment commands, bracket matching, automatic closing pairs,
@@ -104,11 +145,12 @@ indentation rules, and indentation-based folding.
 Folding markers support `// region` and `// endregion`, plus C# `#region` and `#endregion`.
 The indentation rules use line patterns, not a parser. Braces inside multiline strings can affect indentation.
 Incomplete strings or blocks can affect highlighting until their closing delimiter appears.
-Style values recover at a closing brace or a new property line after a missing semicolon.
+Style values recover at a closing brace or a new property, part, or state-rule line after a missing semicolon.
 This recovery aids editing. It does not make incomplete syntax valid.
 
 Snippet prefixes are `component`, `namespace`, `state`, `view`, `code`, `vstack`,
 `hstack`, `text`, `button`, `toggle`, `textinput`, `resources`, `style`, `when`, `stylebasedon`, and `styledbutton`.
+Use `togglestyle` for a Toggle style and `styledtoggle` to apply a declared Toggle style.
 The component snippet supplies a counter with a named method handler.
 Control snippets use placeholders for state and named method handlers.
 They do not declare that state or those methods.
@@ -130,6 +172,7 @@ The upstream revision and attribution are in `test\fixtures\NOTICE.md`.
 The tests cover embedded scopes, nested delimiters, interpolation, comments, snippets,
 and recovery into XUI after C# blocks.
 Style tests cover references, theme colors, numeric literals, incomplete declarations, and recovery after missing delimiters.
+They also cover Toggle parts, part-local states, and recovery after unsupported nesting.
 Some tokenizer fixtures exceed the compiler subset to exercise lexical recovery.
 The VSIX contains only the manifest, grammar, language configuration, snippets, README, license, and VSIX metadata.
 

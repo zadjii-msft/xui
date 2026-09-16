@@ -70,6 +70,31 @@
     "body": "Button(\"${1:Delete}\", style: ${2:DangerButton});",
     "description": "Button with a declared named style"
   },
+  "Toggle style": {
+    "prefix": "togglestyle",
+    "body": [
+      "style ${1:CompactToggle} for Toggle {",
+      "\tforeground: theme(light: 0x202020, dark: 0xEEEEEE);",
+      "\tpart indicator {",
+      "\t\tbackground: theme(light: 0xEEEEEE, dark: 0x202020);",
+      "\t\tborderBrush: 0x777777;",
+      "\t\tborderThickness: 1;",
+      "\t\tcornerRadius: 3;",
+      "\t\tsize: 18;",
+      "\t\twhen checked { background: 0x2468AD; }",
+      "\t}",
+      "\tpart mark { foreground: 0xFFFFFF; }",
+      "\twhen disabled { foreground: 0x888888; }",
+      "\t$0",
+      "}"
+    ],
+    "description": "Toggle style with an indicator, check mark, and state overrides"
+  },
+  "Styled Toggle": {
+    "prefix": "styledtoggle",
+    "body": "Toggle(\"${1:Active}\", style: ${2:CompactToggle});",
+    "description": "Toggle with a declared named style"
+  },
   "View": {
     "prefix": "view",
     "body": ["view {", "\t$0", "}"],

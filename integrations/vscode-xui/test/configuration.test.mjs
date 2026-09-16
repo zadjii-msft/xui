@@ -38,7 +38,7 @@ test("language configuration supplies brackets, comments, closing pairs, indenta
   const decrease = new RegExp(config.indentationRules.decreaseIndentPattern);
   for (const line of ["component Counter {", "  VStack() { // children", "Text(", "  var values = [",
     "  resources {", "  style Compact for Button basedOn Base {", "    when hovered {",
-    "    Color: theme("]) {
+    "    Color: theme(", "  style CompactToggle for Toggle {", "    part indicator {"]) {
     assert.ok(increase.test(line), line);
   }
   for (const line of ["// {", "  // (", 'Text("{");', 'state string Brace = "{";']) {
@@ -65,7 +65,7 @@ test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
     ["component", "namespace", "state", "resources", "style", "when", "stylebasedon", "styledbutton",
-      "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+      "togglestyle", "styledtoggle", "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
 });
 
 test("styling snippets use named declarations and dual-theme colors", () => {
@@ -75,4 +75,15 @@ test("styling snippets use named declarations and dual-theme colors", () => {
   assert.ok(expand(snippets["Style state"].body).startsWith("when hovered {"));
   assert.ok(expand(snippets["Derived Button style"].body).startsWith("style CompactDanger for Button basedOn DangerButton {"));
   assert.equal(expand(snippets["Styled Button"].body), 'Button("Delete", style: DangerButton);');
+});
+
+test("Toggle snippets use the validated indicator and mark schema", () => {
+  const style = expand(snippets["Toggle style"].body);
+  assert.ok(style.startsWith("style CompactToggle for Toggle {"));
+  assert.ok(style.includes("part indicator {"));
+  assert.ok(style.includes("size: 18;"));
+  assert.ok(style.includes("when checked { background: 0x2468AD; }"));
+  assert.ok(style.includes("part mark { foreground: 0xFFFFFF; }"));
+  assert.ok(style.includes("when disabled { foreground: 0x888888; }"));
+  assert.equal(expand(snippets["Styled Toggle"].body), 'Toggle("Active", style: CompactToggle);');
 });

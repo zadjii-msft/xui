@@ -232,7 +232,8 @@ component After { view { Text("After"); } }`);
 test("unfinished style documents keep stable incremental stacks without declaring unsupported tokens", () => {
   for (const tail of ["style ", "style Draft for ", "style Draft for Button basedOn ",
     "style Draft for Button { when ", "style Draft for Button { when hovered { background: theme(light:",
-    "resources { Color: resource(/*", 'resources { Color: theme(light: "']) {
+    "resources { Color: resource(/*", 'resources { Color: theme(light: "',
+    "style Draft for Toggle { part ", "style Draft for Toggle { part indicator { when "]) {
     const doc = tokenize(`component Draft {\n${tail}`);
     assert.ok(doc.stack.depth > 1);
     assert.deepEqual(doc.tokens, tokenize(`component Draft {\r\n${tail}`).tokens);
@@ -248,6 +249,122 @@ test("unfinished style documents keep stable incremental stacks without declarin
   assert.ok(!scopesAt(doc, "unknownProperty").includes("support.type.property-name.xui"));
   assert.ok(!scopesAt(doc, "unknownState").includes("constant.language.style-state.xui"));
   has(doc, 'Button("Known"', "support.class.node.xui");
+  closed(doc);
+});
+
+test("validated Toggle pilot shape scopes parts and part-local states without changing Button syntax", () => {
+  const doc = tokenize(`component TogglePilot {
+  resources { Off: 0; On: 1; Caption: 2; }
+  style CompactToggle for /* target */ Toggle basedOn BaseToggle {
+    foreground: resource(Caption);
+    part /* indicator */
+      indicator {
+      background: resource(Off);
+      borderBrush: 0;
+      borderThickness: 1;
+      cornerRadius: 3;
+      size: 18;
+      when /* state */ checked { background: resource(On); }
+    }
+    part label { foreground: resource(Caption); }
+    part mark { foreground: 0xFFFFFF; when disabled { foreground: 0; } }
+    when disabled { foreground: 0; }
+  }
+  style BaseToggle for Toggle { padding: 2; }
+  style BaseButton for Button { when hovered { padding: 3; } }
+  view { Toggle("State"); }
+}`);
+  has(doc, "/* target */ Toggle", "support.class.node.xui", "/* target */ ".length);
+  has(doc, "BaseToggle {", "variable.other.style.xui");
+  has(doc, "part /*", "keyword.declaration.part.xui");
+  for (const part of ["indicator {", "label {", "mark {"])
+    has(doc, part, "constant.language.style-part.xui");
+  has(doc, "size: 18", "support.type.property-name.xui");
+  has(doc, "/* state */ checked", "constant.language.style-state.xui", "/* state */ ".length);
+  has(doc, "when hovered", "keyword.control.when.xui");
+  has(doc, 'Toggle("State"', "support.class.node.xui");
+  closed(doc);
+});
+
+test("Toggle root and part rules share the supported state vocabulary", () => {
+  const states = ["focused", "checked", "hovered", "pressed", "disabled"];
+  const rules = states.map((state) => `when ${state} { foreground: 0; }`).join("\n");
+  const doc = tokenize(`component States {
+    style StateToggle for Toggle {
+      ${rules}
+      part label { ${rules} }
+      part mark { ${rules} }
+    }
+    view { Toggle("Active", style: StateToggle, foreground: resource(Caption)); }
+  }`);
+  for (const state of states) {
+    for (let occurrence = 0; occurrence < 3; occurrence++)
+      has(doc, `when ${state}`, "constant.language.style-state.xui", "when ".length, occurrence);
+  }
+  has(doc, "style: StateToggle", "variable.other.style.xui", "style: ".length);
+  has(doc, "resource(Caption)", "support.function.color.xui");
+  closed(doc);
+});
+
+test("Toggle style snippet retains part scopes and returns to the view", async () => {
+  const snippets = JSON.parse(await readFile(new URL("../snippets/xui.json", import.meta.url), "utf8"));
+  const style = snippets["Toggle style"].body.join("\n").replace(/\$\{\d+:([^}]+)\}|\$0/g, (_, value) => value ?? "");
+  const doc = tokenize(`component Snippet {\n${style}\nview { Toggle("Active", style: CompactToggle); }\n}`);
+  has(doc, "CompactToggle for", "entity.name.type.style.xui");
+  has(doc, "part indicator", "constant.language.style-part.xui", "part ".length);
+  has(doc, "part mark", "constant.language.style-part.xui", "part ".length);
+  has(doc, "when checked", "constant.language.style-state.xui", "when ".length);
+  has(doc, 'Toggle("Active"', "support.class.node.xui");
+  closed(doc);
+});
+
+test("unknown and nested parts stay unrecognized and do not consume subsequent style declarations", () => {
+  const doc = tokenize(`component InvalidParts {
+  style InvalidButton for Button {
+    part indicator { background: 0; }
+    foreground: 1;
+  }
+  style InvalidToggle for Toggle {
+    part unknownPart { foreground: 1; }
+    part indicator {
+      part nestedPart { foreground: 1; }
+      when checked { part nestedRulePart { foreground: 2; } }
+      size: 18;
+    }
+    when disabled { part rootRulePart { foreground: 3; } }
+    foreground: 4;
+  }
+  view { Button("After invalid parts"); }
+}`);
+  for (const needle of ["part indicator", "part nestedPart", "part nestedRulePart", "part rootRulePart"])
+    assert.ok(!scopesAt(doc, needle).includes("keyword.declaration.part.xui"), needle);
+  assert.ok(!scopesAt(doc, "unknownPart").includes("constant.language.style-part.xui"));
+  has(doc, "foreground: 1", "support.type.property-name.xui");
+  has(doc, "size: 18", "support.type.property-name.xui");
+  has(doc, "foreground: 4", "support.type.property-name.xui");
+  has(doc, 'Button("After invalid parts"', "support.class.node.xui");
+  closed(doc);
+});
+
+test("incomplete part values recover at the next part without leaking style state into C#", () => {
+  const doc = tokenize(`component PartEditing {
+    style Editing for Toggle {
+      foreground: 1
+      part indicator {
+        when checked { background: }
+        size: 18
+      }
+      part mark { foreground: 2; }
+    }
+    code csharp { void Run() { var part = "indicator"; var checkedState = 1; } }
+    view { Toggle("After"); }
+  }`);
+  has(doc, "part indicator", "keyword.declaration.part.xui");
+  has(doc, "part mark", "keyword.declaration.part.xui");
+  has(doc, "size: 18", "support.type.property-name.xui");
+  has(doc, "part = ", "entity.name.variable.local.cs");
+  has(doc, "indicator\"", "string");
+  has(doc, 'Toggle("After"', "support.class.node.xui");
   closed(doc);
 });
 
