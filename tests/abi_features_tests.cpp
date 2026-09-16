@@ -44,6 +44,73 @@ xui_status XUI_CALL visual_query(void* context, uint64_t, uint64_t, uint32_t* ic
 }
 xui_status XUI_CALL event(void* c,const xui_event* e) { *static_cast<xui_event*>(c)=*e; return 0; }
 xui_status XUI_CALL count_event(void* c, const xui_event*) { ++*static_cast<unsigned*>(c); return XUI_OK; }
+xui_status XUI_CALL miller_event(void* context, const xui_miller_event* e) {
+    *static_cast<xui_miller_event*>(context) = *e; return XUI_OK;
+}
+void miller_contracts() {
+    static_assert(XUI_MILLER_COLUMNS == 46 && XUI_RETAINED_ELEMENT == 47);
+    static_assert(sizeof(xui_miller_column) == 48);
+    static_assert(sizeof(xui_miller_event) == 32);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Miller contracts"), 600, 400};
+    xui_handle window{}, other{}; ok(xui_window_create(&options, &window)); ok(xui_window_create(&options, &other));
+    const auto columns = create(window, XUI_MILLER_COLUMNS);
+    xui_handle reserved{}, invalid_slot{};
+    ok(xui_feature_child(columns, 31, &reserved));
+    expect(xui_feature_child(columns, 32, &invalid_slot) == XUI_INVALID_ARGUMENT);
+    Source data;
+    xui_source_options source_options{sizeof(source_options), XUI_FEATURE_VERSION, data.count, &data, query, retain, release};
+    xui_handle source{}, foreign{};
+    ok(xui_source_create(window, &source_options, &source));
+    ok(xui_source_create(other, &source_options, &foreign));
+    uint32_t count{}, active{}; double width{};
+    ok(xui_miller_state(columns, &count, &active, &width)); expect(count == 0);
+    expect(xui_miller_active(columns, 0) == XUI_INVALID_ARGUMENT);
+    xui_miller_column path[]{ {sizeof(xui_miller_column), 1, text("Root"), source, 1, 7},
+        {sizeof(xui_miller_column), 0, text("Child"), source} };
+    ok(xui_miller_set_columns(columns, path, 2));
+    ok(xui_miller_active(columns, 1));
+    ok(xui_miller_width(columns, 320));
+    ok(xui_miller_state(columns, &count, &active, &width)); expect(count == 2 && active == 1 && width == 320);
+    double offset{}, maximum{};
+    ok(xui_miller_scroll_state(columns, &offset, &maximum)); expect(offset == 0 && maximum == 0);
+    ok(xui_miller_scroll(columns, 0));
+    expect(xui_miller_scroll_state(columns, nullptr, &maximum) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll_state(columns, &offset, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll(columns, -1) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll(columns, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll(columns, NAN) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll(columns, INFINITY) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_scroll(window, 0) == XUI_WRONG_KIND);
+    expect(xui_miller_set_columns(columns, nullptr, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_set_columns(columns, path, 33) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_width(columns, NAN) == XUI_INVALID_ARGUMENT);
+    expect(xui_miller_width(columns, 119) == XUI_INVALID_ARGUMENT);
+    auto bad = path[0]; bad.source = foreign;
+    expect(xui_miller_set_columns(columns, &bad, 1) == XUI_INVALID_ARGUMENT);
+    bad = path[0]; bad.selected_version = 8;
+    expect(xui_miller_set_columns(columns, &bad, 1) == XUI_INVALID_ARGUMENT);
+    ok(xui_miller_state(columns, &count, &active, &width)); expect(count == 2 && active == 1);
+    xui_handle first{}, again{}; ok(xui_feature_child(columns, 0, &first)); ok(xui_feature_child(columns, 0, &again));
+    expect(first == again);
+    xui_event child_event{};
+    ok(xui_subscribe(first, event, &child_event));
+    xui_miller_event selected{};
+    ok(xui_miller_subscribe(columns, miller_event, &selected));
+    ok(xui_feature_action(first, XUI_A_SELECT, 42, 7));
+    expect(selected.kind == XUI_SELECTION && selected.column == 0 && selected.id == 42 && selected.version == 7);
+    expect(child_event.kind == XUI_SELECTION);
+    expect(data.items < 100 && data.queries < 200);
+    std::thread worker([&] {
+        expect(xui_miller_active(columns, 0) == XUI_WRONG_THREAD);
+        expect(xui_miller_scroll(columns, 0) == XUI_WRONG_THREAD);
+        expect(xui_miller_scroll_state(columns, &offset, &maximum) == XUI_WRONG_THREAD);
+    }); worker.join();
+    ok(xui_source_release(source)); ok(xui_source_release(foreign));
+    ok(xui_miller_set_columns(columns, nullptr, 0));
+    xui_handle retained{}; ok(xui_feature_child(columns, 31, &retained)); expect(retained == reserved);
+    ok(xui_window_destroy(window)); ok(xui_window_destroy(other));
+    expect(data.refs == 1);
+}
 xui_status XUI_CALL posted(void* c, uint32_t execute) {
     auto& counts = *static_cast<std::pair<unsigned, unsigned>*>(c);
     if (execute) ++counts.first; else ++counts.second;
@@ -654,6 +721,21 @@ void explorer_contracts() {
     ok(xui_feature_child(window, 0, &tabs)); ok(xui_feature_child(window, 1, &leading));
     ok(xui_feature_child(window, 2, &second)); ok(xui_feature_child(window, 0, &again));
     expect(tabs == again && tabs != second);
+    uint32_t new_button = 9;
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 0);
+    ok(xui_tab_set_new_button(tabs, 1));
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 1);
+    expect(xui_tab_set_new_button(tabs, 2) == XUI_INVALID_ARGUMENT);
+    ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 1);
+    expect(xui_tab_get_new_button(tabs, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_tab_set_new_button(leading, 1) == XUI_WRONG_KIND);
+    std::thread tab_worker([&] {
+        uint32_t worker_visible{};
+        expect(xui_tab_set_new_button(tabs, 0) == XUI_WRONG_THREAD);
+        expect(xui_tab_get_new_button(tabs, &worker_visible) == XUI_WRONG_THREAD);
+    });
+    tab_worker.join();
+    ok(xui_tab_set_new_button(tabs, 0));
     static_assert(sizeof(xui_tab_colors) == 40);
     xui_tab_colors tab_colors{sizeof(xui_tab_colors), XUI_TAB_COLORS_VERSION, 127,
         0x123456, 0, 0xffffff, 0x234567, 0xeeeeee, 0x345678, 0x456789};
@@ -778,6 +860,7 @@ int main() {
     retained_facade_style_contracts();
     control_style_contracts();
     tooltip_style_contracts();
+    miller_contracts();
     explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);
@@ -866,10 +949,12 @@ int main() {
     }
     xui_event menu_event{};
     ok(xui_context_menu_bind(handles[XUI_DATA_GRID], event, &menu_event));
-    expect(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event) == XUI_WRONG_KIND);
+    ok(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event));
+    expect(xui_context_menu_bind(handles[XUI_PROGRESS], event, &menu_event) == XUI_WRONG_KIND);
     expect(xui_context_menu_items(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);
     expect(xui_context_menu_shell_paths(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);
-    expect(xui_context_menu_shell_paths(handles[XUI_ITEMS_VIEW], nullptr, 0) == XUI_WRONG_KIND);
+    expect(xui_context_menu_shell_paths(handles[XUI_ITEMS_VIEW], nullptr, 0) == XUI_BUSY);
+    ok(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], nullptr, nullptr));
     ok(xui_context_menu_bind(handles[XUI_DATA_GRID], nullptr, nullptr));
     auto map=handles[XUI_MAP_VIEW];xui_handle token{},newer{};
     ok(xui_map_request(map,&token));ok(xui_map_request(map,&newer));

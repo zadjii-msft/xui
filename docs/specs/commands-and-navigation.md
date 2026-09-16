@@ -17,6 +17,7 @@ The palette uses native EDIT for committed text and IME.
 
 The palette opens with focus in its search field and shows an inline search prompt.
 The title, close button, rounded frame, soft shadow, and keyboard footer distinguish the popup from the page.
+In Classic and WinUI, the palette background is opaque and matches the command list, including the padding inside the frame.
 The search field fills the available width. Its icon and padding also accept clicks to focus the editor.
 Pointer hover highlights enabled command rows without changing search focus or keyboard selection.
 A click runs a command, opens a submenu, or invokes its separate pin action.

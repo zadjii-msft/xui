@@ -14,6 +14,7 @@ internal static class Program
         {
             await FileSystemTests(fixture);
             TabTests(fixture);
+            ColumnTests(fixture);
             PaneTests(fixture);
             StateTests(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
@@ -67,12 +68,18 @@ internal static class Program
         Equal(root, FileSystemService.ResolvePath("", root));
         Equal(root, FileSystemService.ResolvePath(root + Path.DirectorySeparatorChar, fixture));
         Equal(@"\\server\share\folder", FileSystemService.ResolvePath(@"\\server\share\folder", root));
+        Equal(@"D:\", FileSystemService.ResolvePath("D:", root));
+        Equal(@"d:\", FileSystemService.ResolvePath(" \"d:\" ", root));
+        Equal(@"D:\", FileSystemService.ResolvePath("D:", @"D:\some\other\folder"));
         var variable = "XUI_EXPLORER_TEST_" + Guid.NewGuid().ToString("N");
         Environment.SetEnvironmentVariable(variable, root);
         try
         {
             Equal(directory, FileSystemService.ResolvePath($"%{variable}%\\Alpha folder", fixture));
-            Equal(2, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\"", fixture, None)).Entries.Count);
+            Equal(directory, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\"", fixture, None)).Entries.Single().FullPath);
+            Equal(2, (await service.SuggestAsync($"\"%{variable}%\\Alpha folder\\\"", fixture, None)).Entries.Count);
+            Equal(root, (await service.SuggestAsync($"%{variable}%", fixture, None)).Entries.Single().FullPath);
+            Equal(6, (await service.SuggestAsync($"%{variable}%\\", fixture, None)).Entries.Count);
         }
         finally
         {
@@ -88,12 +95,13 @@ internal static class Program
         Sequence(Directory.GetFileSystemEntries(cwd).Select(Path.GetFileName).Order(),
             cwdSuggestions.Entries.Select(entry => entry.Name).Order());
         var exact = await service.SuggestAsync("Alpha folder", root, None);
-        Equal(directory, exact.Directory);
-        Equal(2, exact.Entries.Count);
+        Equal(root, exact.Directory);
+        Equal(directory, exact.Entries.Single().FullPath);
         var partial = await service.SuggestAsync("aLpHa", root, None);
         Sequence(new[] { "Alpha folder", "alpha small.txt", "My alpha" }, partial.Entries.Select(entry => entry.Name));
         Equal(6, partial.Snapshot.Entries.Count);
-        foreach (string query in new[] { "", "aLpHa", "lPhA", "alpha small.txt", "nothing-matches", "資", root + "\\" })
+        foreach (string query in new[] { "", "aLpHa", "lPhA", "Alpha folder", directory, $" \"{directory}\" ",
+            "'Alpha folder'", "alpha small.txt", "nothing-matches", "資", root + "\\", root + "/" })
         {
             var cached = FileSystemService.SuggestFromSnapshot(read, query, root)
                 ?? throw new Exception("A same-directory query unexpectedly required I/O.");
@@ -102,7 +110,19 @@ internal static class Program
             Sequence(scanned.Entries.Select(entry => entry.FullPath), cached.Entries.Select(entry => entry.FullPath));
             True(ReferenceEquals(read, cached.Snapshot));
         }
-        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, directory, root));
+        Equal(directory, FileSystemService.SuggestFromSnapshot(read, directory, root)!.Entries.Single().FullPath);
+        var children = await service.ReadDirectoryAsync(directory, root, None);
+        foreach (string query in new[] { directory + "\\", directory + "/", "Alpha folder\\", "\"Alpha folder/\"", "'Alpha folder\\'" })
+        {
+            var scanned = await service.SuggestAsync(query, root, None);
+            var cached = FileSystemService.SuggestFromSnapshot(children, query, root)!;
+            Equal(directory, scanned.Directory);
+            Sequence(children.Entries.Select(entry => entry.FullPath), scanned.Entries.Select(entry => entry.FullPath));
+            Sequence(scanned.Entries.Select(entry => entry.FullPath), cached.Entries.Select(entry => entry.FullPath));
+        }
+        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(children, directory, root));
+        Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, root, root));
+        Equal(root, (await service.SuggestAsync(root, root, None)).Entries.Single().FullPath);
         Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, directory + "\\", root));
         Equal<NavigationSuggestions?>(null, FileSystemService.SuggestFromSnapshot(read, @"absent\child", root));
         Sequence(read.Entries.Select(entry => entry.Name),
@@ -110,6 +130,16 @@ internal static class Program
         var memoryOnly = new DirectorySnapshot(Path.Combine(root, "not-on-disk"),
             [new(Path.Combine(root, "not-on-disk", "cached.txt"), "cached.txt", false, 1, DateTime.UnixEpoch)]);
         Equal("cached.txt", FileSystemService.SuggestFromSnapshot(memoryOnly, "cache", memoryOnly.Path)!.Entries.Single().Name);
+        var share = new DirectorySnapshot(@"\\server\share",
+            [new(@"\\server\share\child", "child", true, 0, DateTime.UnixEpoch)]);
+        Equal(0, FileSystemService.SuggestFromSnapshot(share, share.Path, root)!.Entries.Count);
+        Equal("child", FileSystemService.SuggestFromSnapshot(share, share.Path + "\\", root)!.Entries.Single().Name);
+        var drive = new DirectorySnapshot(Path.GetPathRoot(root)!, []);
+        True(FileSystemService.SuggestFromSnapshot(drive, drive.Path, root) is not null);
+        var driveContents = new DirectorySnapshot(@"D:\",
+            [new(@"D:\$RECYCLE.BIN", "$RECYCLE.BIN", true, 0, DateTime.UnixEpoch)]);
+        Equal(0, FileSystemService.SuggestFromSnapshot(driveContents, "D:", root)!.Entries.Count);
+        Equal(1, FileSystemService.SuggestFromSnapshot(driveContents, @"D:\", root)!.Entries.Count);
         Throws<ArgumentException>(() => FileSystemService.SuggestFromSnapshot(read, "\0", root));
         var contains = await service.SuggestAsync("lPhA", root, None);
         Equal(3, contains.Entries.Count);
@@ -120,6 +150,8 @@ internal static class Program
         Equal(1, (await service.SuggestAsync("資", root, None)).Entries.Count);
         await ThrowsAsync<DirectoryNotFoundException>(() => service.ReadDirectoryAsync("absent", root, None));
         await ThrowsAsync<DirectoryNotFoundException>(() => service.SuggestAsync(@"absent\also-absent", root, None));
+        await ThrowsAsync<DirectoryNotFoundException>(() => service.SuggestAsync("absent\\", root, None));
+        await ThrowsAsync<IOException>(() => service.SuggestAsync(small.FullPath + "\\", root, None));
         await ThrowsAsync<IOException>(() => service.ReadDirectoryAsync(small.FullPath, root, None));
         await ThrowsAsync<ArgumentException>(() => service.ReadDirectoryAsync("\0", root, None));
 
@@ -172,6 +204,102 @@ internal static class Program
         Sequence(new[] { "folder", "z.bin", "b.txt" },
             FileSystemService.FilterAndSort(dates, "", 0, true).Select(entry => entry.Name));
         Throws<ArgumentOutOfRangeException>(() => FileSystemService.FilterAndSort(entries, "", 4, false));
+    }
+
+    private static void ColumnTests(string fixture)
+    {
+        var root = Path.Combine(fixture, "columns");
+        FileEntry Folder(string parent, string name) => new(Path.Combine(parent, name), name, true, 0, DateTime.UnixEpoch);
+        FileEntry FileRow(string parent, string name) => new(Path.Combine(parent, name), name, false, 1, DateTime.UnixEpoch);
+        var alpha = Folder(root, "alpha");
+        var beta = Folder(root, "beta");
+        var leaf = FileRow(root, "leaf.txt");
+        var child = Folder(alpha.FullPath, "child");
+        var tab = new ExplorerTab(1, root);
+        True(!tab.HasSnapshot);
+        tab.Commit(new(root, [alpha, beta, leaf]));
+        True(tab.HasSnapshot);
+        Equal(ExplorerViewMode.Details, tab.ViewMode);
+        Equal(0, tab.Columns.Count);
+        tab.Filter = "leaf";
+        tab.SelectedPath = leaf.FullPath;
+        tab.ScrollOffset = 80;
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        Equal(root, tab.Columns.Single().Snapshot.Path);
+        Equal(leaf.FullPath, tab.Columns[0].SelectedPath);
+        Equal(80d, tab.Columns[0].ScrollOffset);
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        var ancestor = tab.Columns[0];
+        tab.CommitColumn(0, new(alpha.FullPath, [child]));
+        Equal(2, tab.Columns.Count);
+        True(ReferenceEquals(ancestor, tab.Columns[0]));
+        Equal(alpha.FullPath, tab.Path);
+        Equal(alpha.FullPath, tab.Columns[0].SelectedPath);
+        Equal("leaf", tab.Filter);
+        tab.CommitColumn(1, new(child.FullPath, []));
+        Equal(3, tab.Columns.Count);
+        var committed = tab.Entries;
+        Throws<InvalidOperationException>(() => tab.CommitColumn(0, new(child.FullPath, [])));
+        Throws<ArgumentException>(() => tab.CommitColumn(1, new("", [])));
+        Equal(child.FullPath, tab.Path);
+        True(ReferenceEquals(committed, tab.Entries));
+        Equal(3, tab.Columns.Count);
+        tab.CommitColumn(0, new(beta.FullPath, []));
+        Equal(2, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Path);
+        True(ReferenceEquals(ancestor, tab.Columns[0]));
+        Equal(beta.FullPath, tab.Columns[0].SelectedPath);
+        tab.SelectColumnLeaf(0, leaf.FullPath);
+        Equal(root, tab.Path);
+        Equal(1, tab.Columns.Count);
+        Equal(leaf.FullPath, tab.SelectedPath);
+        Throws<InvalidOperationException>(() => tab.SelectColumnLeaf(0, alpha.FullPath));
+        Equal(leaf.FullPath, tab.SelectedPath);
+        True(tab.TryGetHistory(-1, out var history));
+        Equal(beta.FullPath, history);
+        tab.CommitHistory(new(beta.FullPath, []), -1);
+        Equal(1, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Columns[0].Snapshot.Path);
+        tab.SetViewMode(ExplorerViewMode.Details);
+        Equal(0, tab.Columns.Count);
+        Equal(beta.FullPath, tab.Path);
+        Equal("leaf", tab.Filter);
+        tab.SetViewMode(ExplorerViewMode.Columns);
+        tab.Commit(new(root, [alpha]));
+        Equal(root, tab.Columns.Single().Snapshot.Path);
+        tab.CommitColumn(0, new(alpha.FullPath, [child]));
+        tab.Commit(new(alpha.FullPath, []));
+        Equal(1, tab.Columns.Count);
+        Equal(0, tab.Columns[0].Snapshot.Entries.Count);
+
+        var bounded = new ExplorerTab(2, root);
+        bounded.Commit(new(root, [Folder(root, "next")]));
+        bounded.SetViewMode(ExplorerViewMode.Columns);
+        for (int i = 1; i < ExplorerTab.ColumnLimit; i++)
+        {
+            string next = Path.Combine(bounded.Path, "next");
+            bounded.CommitColumn(i - 1, new(next, [Folder(next, "next")]));
+        }
+        Equal(ExplorerTab.ColumnLimit, bounded.Columns.Count);
+        string last = bounded.Path;
+        Throws<InvalidOperationException>(() => bounded.CommitColumn(ExplorerTab.ColumnLimit - 1,
+            new(Path.Combine(last, "next"), [])));
+        Equal(last, bounded.Path);
+        Equal(ExplorerTab.ColumnLimit, bounded.Columns.Count);
+
+        var pane = new ExplorerPane(root);
+        var first = pane.Active;
+        first.Commit(new(root, [alpha]));
+        first.SetViewMode(ExplorerViewMode.Columns);
+        first.CommitColumn(0, new(alpha.FullPath, []));
+        var second = pane.AddTab(root);
+        Equal(ExplorerViewMode.Details, second.ViewMode);
+        pane.SelectTab(first.Id);
+        Equal(ExplorerViewMode.Columns, pane.Active.ViewMode);
+        Equal(2, pane.Active.Columns.Count);
+        Equal(alpha.FullPath, pane.Active.Path);
+        pane.CloseTab(first.Id);
+        True(ReferenceEquals(second, pane.Active));
     }
 
     private static void TabTests(string fixture)

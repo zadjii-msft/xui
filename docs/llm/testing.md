@@ -11,7 +11,7 @@ The explorer adds these regressions:
 | --- | --- |
 | `xui_explorer_tests` | History commits, failed navigation, tab selection and closure, cancellation, bounded state, UNC roots, long Unicode scans, activation, and injected file associations |
 | `xui_explorer_smoke` | The real explorer, address input, history, keyboard shortcuts, context commands, independent panes, tab providers, divider input, clipping, and resource bounds |
-| `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, empty rows, custom colors, content activation, close targets, focus, and overflow |
+| `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, titlebar gap borders, empty rows, custom colors, content activation, close targets, New tab placement and UIA invocation, focus, and overflow |
 | `xui_suggestion_tests` | Folder prefixes, real and synthetic enumeration limits, deterministic cancellation, native EDIT behavior, popup input, themes, and closure during a blocked request |
 | `xui_split_window_tests` | Eight window cycles with tabs, two lists, native fields, capture cancellation, simulated DPI, target recreation, and final resource disposal |
 
@@ -21,6 +21,27 @@ The file-association test records the exact selected path through an injected di
 The smoke test uses scoped UIA focus-property events, selection events, and structure events.
 Its optional `--global-focus-events` argument also subscribes to desktop-wide focus events.
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
+
+The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Navigation checks cover exact-directory Enter, trailing-slash child results, cached completion, Tab, parent queries, and query history.
+Drive-root checks cover bare and slash-terminated drive queries without automatic child activation.
+The native New tab buttons create tabs in their respective panes and restore file focus.
+The model checks compare cached and scanned suggestions for relative, quoted, expanded, and slash-terminated paths.
+Footer checks cover upward view selection, both choices, Escape, focus restoration, and independent pane feedback.
+Feedback timing checks cover the three-second lifetime, replacement cancellation, singular counts, and persistent errors.
+Native Miller capture checks cover row hover and pixel-aligned vertical separators across themes and DPI values.
+Command snapshot checks require eager availability evaluation, stable row content, and no action execution during source callbacks.
+The smoke opens and filters Copy/Cut commands with selected entries in both Details and Columns views.
+These checks cover the native callback guard that rejects selection queries from an immutable source callback.
+The checks include multi-selection menus, folder-row copy, empty-area move, nested folder content, and refresh in both panes.
+File rows and panes with obsolete rows must reject drops.
+Native text fields must retain their text clipboard shortcuts.
+The smoke does not replace the interactive desktop clipboard.
+These controller checks do not establish interoperability with every external application or Shell extension.
+`xui_file_transfer_tests` covers grid drag gestures, clipboard serialization, the OLE drop protocol, and Shell file operations.
+`xui_file_clipboard_tests` runs clipboard round trips in a job-bounded child with a private window station and desktop.
+The shared `tests\private_desktop.hpp` helper also isolates the existing native editing tests.
+The parent process requires the interactive clipboard sequence to remain unchanged.
 
 Run the explorer checks:
 
@@ -59,6 +80,21 @@ Image assertions use owned pixel bytes and controlled bitmap estimates, not proc
 `xui_core_tests` covers layout, lifecycle, filtering, selection, navigation, and viewport calculations.
 It uses explicit assertions that remain active in Release builds.
 It also covers scrollbar geometry and text contrast for both built-in palettes.
+
+`xui_navigation_window_tests` captures command palettes in Classic and WinUI at 96/144/192 DPI, with dark, light, and high-contrast themes.
+Pixel assertions compare the list background with the padding on all four sides and the gap below the search field.
+The same captures cover row hover colors and the shadow outside the frame.
+
+`xui_generic_popup_window_tests` runs the same executable with `--generic-popup`.
+It covers the FileExplorer layout: a generic Popup with 12-DIP padding, a native TextInput, an eight-DIP gap, and an ItemsView.
+The captures cover Classic and WinUI, both popup backgrounds, dark/light/high-contrast themes, and 96/144/192 DPI.
+A magenta vector fills the area behind the popup, so transparent padding cannot pass through a matching window background.
+Pixel assertions cover all four padding edges, the search gap, unselected rows, rounded corners, the outer shadow, and dismissal.
+The test uses owned-window capture and does not capture the desktop.
+
+One WinRT apartment spans the capture matrix.
+The fixture clears cached capture factories before this apartment closes.
+This prevents stale factory references between separate `Application::run` calls.
 
 `xui_control_tests` covers control state, disabled actions, pointer capture, cancellation, focus traversal, invalidation, Unicode limits, and retained controls.
 It also covers injected text metrics, cached measurement, fixed and automatic sizes, size limits, unbounded flex measurement, scroll reveal, and content ownership.

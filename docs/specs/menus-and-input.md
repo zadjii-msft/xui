@@ -90,6 +90,22 @@ Classic and WinUI tabs have rounded top corners and an open selected bottom edge
 Inactive tabs share a continuous strip instead of separate button outlines. The close button highlights under the pointer.
 The row inherits its parent background, including unused space after the last tab.
 Empty rows draw no baseline. A populated row's baseline stops at the selected tab, which opens into its content.
+The custom title bar extends this baseline across navigation, split-divider, and caption gaps.
+Each populated tab strip keeps its own open selected edge and pane alignment.
+Gap borders use the adjacent strip's border color. High contrast uses the system border color.
+
+`TabStrip::set_new_tab_button_visible(true)` adds an optional **New tab** icon button.
+The default is `false`. The button follows the rightmost visible tab, not the end of the available strip.
+Overflow reserves up to 32 DIPs for the button. Tiny strips clip the button instead of overlapping tabs.
+An empty strip keeps the button at its left edge.
+`on_new_tab` receives the action without automatic tab creation or selection.
+The button retains native pointer capture, cancellation, keyboard focus, Enter, Space, and UIA Button/Invoke behavior.
+Disabled strips reject the action. The button does not start a title-bar drag.
+
+The C ABI provides `xui_tab_set_new_button` and `xui_tab_get_new_button` in `xui_layout.h`.
+Visibility accepts only zero or one. Activation emits `XUI_ACTION` with ID zero.
+C# provides `NewTabButtonVisible`, `SetNewTabButtonVisible(bool)`, and the existing `EventKind.Action` event.
+Rust provides `set_new_tab_button_visible` and `new_tab_button_visible`.
 
 The tab strip exposes UIA `Tab`, `TabItem`, `SelectionPattern`, and `SelectionItemPattern`.
 It publishes structure, selection, and focus changes. A removed tab provider rejects later actions.

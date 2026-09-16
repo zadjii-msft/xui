@@ -34,6 +34,7 @@ struct ControlSnapshot {
     std::wstring automation_id;
     bool enabled{}, focused{}, checked{};
     double scroll_offset{}, scroll_extent{}, viewport_height{};
+    bool horizontal_scroll{};
     std::vector<TabItem> tabs;
     std::vector<float> tab_edges;
     std::optional<std::uint64_t> selected_tab;

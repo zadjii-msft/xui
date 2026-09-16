@@ -6,6 +6,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <UIAutomation.h>
+#include <atomic>
+#include <thread>
 
 namespace {
 using namespace xui;
@@ -74,6 +77,52 @@ void require_open_bottom(const owned_window_capture::Pixels& pixels, HWND host, 
             }
         }
 }
+void new_tab_accessibility(HWND host, HWND strip, std::atomic<int>& created) {
+    std::exception_ptr failure;
+    std::atomic<bool> done{};
+    std::thread driver([&] {
+        const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        try {
+            winrt::check_hresult(initialized);
+            using Microsoft::WRL::ComPtr;
+            ComPtr<IUIAutomation> automation;
+            winrt::check_hresult(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation)));
+            ComPtr<IUIAutomationElement> root;
+            winrt::check_hresult(automation->ElementFromHandle(strip, &root));
+            VARIANT value{}; value.vt = VT_BSTR; value.bstrVal = SysAllocString(L"New tab");
+            ComPtr<IUIAutomationCondition> name, type, condition;
+            const auto named = automation->CreatePropertyCondition(UIA_NamePropertyId, value, &name);
+            VariantClear(&value); winrt::check_hresult(named);
+            value.vt = VT_I4; value.lVal = UIA_ButtonControlTypeId;
+            winrt::check_hresult(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, value, &type));
+            winrt::check_hresult(automation->CreateAndCondition(name.Get(), type.Get(), &condition));
+            ComPtr<IUIAutomationElement> button;
+            winrt::check_hresult(root->FindFirst(TreeScope_Descendants, condition.Get(), &button));
+            require(button != nullptr, "Tab strip UIA descendants include the native New tab Button");
+            RECT bounds{}; winrt::check_hresult(button->get_CurrentBoundingRectangle(&bounds));
+            require(bounds.right > bounds.left && bounds.bottom > bounds.top, "New tab exposes a visible UIA rectangle");
+            ComPtr<IUIAutomationInvokePattern> invoke;
+            winrt::check_hresult(button->GetCurrentPatternAs(UIA_InvokePatternId, IID_PPV_ARGS(&invoke)));
+            const auto before = created.load();
+            winrt::check_hresult(invoke->Invoke());
+            require(created == before + 1, "UIA Invoke dispatches exactly one new-tab action");
+            winrt::check_hresult(button->SetFocus());
+            BOOL focused{}; winrt::check_hresult(button->get_CurrentHasKeyboardFocus(&focused));
+            require(focused, "UIA focus reaches the new-tab button without selecting a tab");
+        } catch (...) { failure = std::current_exception(); }
+        if (SUCCEEDED(initialized)) CoUninitialize();
+        done = true; PostMessageW(host, WM_NULL, 0, 0);
+    });
+    while (!done) {
+        MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message); DispatchMessageW(&message);
+        }
+    }
+    driver.join();
+    if (failure) std::rethrow_exception(failure);
+}
 void run(const std::filesystem::path& captures) {
     Window window({title, {960, 400}, ThemeMode::dark, {}, true});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -87,6 +136,11 @@ void run(const std::filesystem::path& captures) {
     auto editor = std::make_shared<TextInput>(L"Tab content");
     editor->set_caption_visible(false);
     root->add(editor);
+    auto pane_row = std::make_shared<Stack>(Axis::horizontal);
+    auto sidebar = std::make_shared<Label>(L"Navigation"); sidebar->set_fixed_size({120, 80});
+    auto first_pane = std::make_shared<Label>(L"First pane"), second_pane = std::make_shared<Label>(L"Second pane");
+    auto split = std::make_shared<SplitView>(first_pane, second_pane);
+    pane_row->add(sidebar); pane_row->add(split, 1); root->add(pane_row, 1);
     window.set_content(root);
     auto tabs = window.titlebar()->tabs();
     window.titlebar()->set_title_visible(false);
@@ -94,6 +148,8 @@ void run(const std::filesystem::path& captures) {
     int closed{}; std::uint64_t closed_id{};
     tabs->on_close([&](auto id) { ++closed; closed_id = id; });
     int activated{}, tab_focus{};
+    std::atomic<int> created{};
+    tabs->on_new_tab([&] { ++created; });
     tabs->on_focus([&] { ++tab_focus; });
     tabs->on_activate([&](auto) {
         ++activated;
@@ -276,6 +332,71 @@ void run(const std::filesystem::path& captures) {
             flush(hwnd);
             require(tabs->selected() == 16 && tabs->tabs().size() == 16, "Style changes preserve tab state");
             require(tabs->colors() == persistent, "Theme and style changes preserve authored colors");
+            tabs->set_colors({});
+            auto second_tabs = window.titlebar()->secondary_tabs();
+            second_tabs->set_visible(true);
+            window.titlebar()->leading()->set_visible(true);
+            window.titlebar()->set_tab_panes(first_pane, second_pane);
+            tabs->set_tabs({{101, L"First folder"}, {102, L"Other folder"}}, 101);
+            second_tabs->set_tabs({{201, L"Second folder"}, {202, L"Other folder"}}, 202);
+            tabs->set_new_tab_button_visible(true);
+            second_tabs->set_new_tab_button_visible(true);
+            for (auto style : {VisualStyle::classic, VisualStyle::winui})
+                for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+                    for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
+                        window.set_visual_style(style); window.set_theme(theme);
+                        RECT rectangle{}; GetWindowRect(hwnd, &rectangle);
+                        rectangle.right = rectangle.left + MulDiv(960, dpi, 96);
+                        rectangle.bottom = rectangle.top + MulDiv(440, dpi, 96);
+                        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rectangle));
+                        flush(hwnd);
+                        const auto palette = Palette::system(theme, style);
+                        const auto first_band = paint_bounds(hwnd, tab_peer, dpi);
+                        const auto second_peer = peer(hwnd, L"Secondary title bar tabs");
+                        const auto second_band = paint_bounds(hwnd, second_peer, dpi);
+                        const auto pixels = owned_window_capture::capture(hwnd);
+                        const float bottom = first_band.y + first_band.height;
+                        for (float x : {12.0f, 22.0f, first_band.x - 4,
+                            (first_band.x + first_band.width + second_band.x) / 2,
+                            second_band.x + second_band.width + 4, window.titlebar()->bounds().width - 2})
+                            require(pixel(pixels, {x, bottom - .5f}, dpi) == rgb(palette.border),
+                                "The titlebar baseline spans navigation, split and caption gaps");
+                        require_open_bottom(pixels, hwnd, tab_peer, tabs->tab_bounds(0), dpi, rgb(palette.background));
+                        require_open_bottom(pixels, hwnd, second_peer, second_tabs->tab_bounds(1), dpi, rgb(palette.background));
+                        require(tabs->bounds().x == first_pane->bounds().x && second_tabs->bounds().x == second_pane->bounds().x,
+                            "The baseline preserves independent pane alignment");
+                        const auto add = tabs->new_tab_button_bounds(), last = tabs->tab_bounds(1);
+                        require(add.x == last.x + last.width && add.x + add.width <= tabs->bounds().width,
+                            "New tab appears directly after the last visible tab");
+                        require(window.titlebar()->hit_test({tabs->bounds().x + add.x + add.width / 2,
+                            tabs->bounds().y + add.y + add.height / 2}) == CaptionHit::client,
+                            "The new-tab action is not a window-drag region");
+                    }
+            const auto new_button = peer(tab_peer, L"New tab");
+            const auto before_created = created.load();
+            SendMessageW(new_button, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(8, 8));
+            require(GetCapture() == new_button && created == before_created, "New tab uses standard press capture without premature activation");
+            SendMessageW(new_button, WM_CANCELMODE, 0, 0);
+            SendMessageW(new_button, WM_LBUTTONUP, 0, MAKELPARAM(8, 8));
+            require(created == before_created && GetCapture() != new_button, "Cancelled new-tab clicks do not dispatch");
+            SendMessageW(new_button, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(8, 8));
+            SendMessageW(new_button, WM_LBUTTONUP, 0, MAKELPARAM(8, 8));
+            require(created == before_created + 1 && tabs->selected() == 101, "Pointer release dispatches a new tab without changing selection");
+            tabs->set_enabled(false); flush(hwnd);
+            SendMessageW(new_button, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(8, 8));
+            SendMessageW(new_button, WM_LBUTTONUP, 0, MAKELPARAM(8, 8));
+            require(created == before_created + 1, "Disabled strips disable the new-tab action");
+            tabs->set_enabled(true); flush(hwnd);
+            new_tab_accessibility(hwnd, tab_peer, created);
+            require(tabs->selected() == 101, "UIA button focus and invocation preserve selected identity");
+            const auto before_keys = created.load();
+            for (auto key : {VK_RETURN, VK_SPACE}) {
+                SendMessageW(new_button, WM_KEYDOWN, key, 0);
+                SendMessageW(new_button, WM_KEYUP, key, 0);
+            }
+            require(created == before_keys + 2, "Enter and Space each invoke the focused native new-tab button once");
+            tabs->set_new_tab_button_visible(false); flush(hwnd);
+            require(!IsWindowVisible(new_button), "Opt-out hides the retained native action");
             complete = true;
         } catch (...) { failure = std::current_exception(); }
         window.close();

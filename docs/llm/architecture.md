@@ -32,6 +32,37 @@ General runtime tree replacement, control removal, and application-defined contr
 Multiline input uses the native document controls described in [the document reference](../specs/documents.md).
 Tab data can change without these tree operations.
 
+`include\xui\miller_columns.hpp` and `src\miller_columns.cpp` supply the retained Miller columns composition.
+Applications supply a path of immutable sibling sources, not filesystem callbacks.
+Column lists reuse virtual collection drawing, input, image resources, and accessibility.
+The native child tree stays fixed while the source path changes.
+`MillerColumnList` stores a local hover point and resolves the current visible row without changing collection selection.
+The host clears hover during capture and cancellation. Source replacement also clears hover.
+`MillerColumns::separator_bounds` describes the reserved space between columns.
+The host rounds separator edges and child widths to shared pixel boundaries.
+This keeps fractional scrolling and DPI changes from covering a row or scrollbar.
+`src\c_api_features.inc` preserves the composition callbacks when bindings subscribe to borrowed column lists.
+`bindings\dotnet\Xui\MillerColumns.cs` supplies typed path records, events, and borrowed child access.
+The FileExplorer controller owns asynchronous directory scans and rejects obsolete results.
+`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, and layout.
+`tests\collections_window_tests.cpp --miller-only` covers native focus, context selection, horizontal reveal, and window closure.
+The binding tests cover borrowed peers, source ownership, and callback errors.
+FileExplorer `--smoke` covers view changes, folder selection, tabs, Find, and cancellation.
+
+`TabStrip` retains one optional native Button beside its tab data.
+The hidden button keeps a fixed child identity for live visibility changes.
+`tab_viewport_width` reserves button space. `new_tab_button_bounds` places the button after the final visible tab.
+The button uses the existing input and UIA providers rather than a tab identity or a second virtual action protocol.
+`src\c_api_layout.inc` exposes its visibility. `src\c_api_features.inc` forwards its callback as `XUI_ACTION` with ID zero.
+`bindings\dotnet\Xui\TabActions.cs` supplies the managed property and fluent setter.
+
+The title-bar painter fills baseline gaps outside the populated tab-strip peers.
+It uses pixel-rounded peer bounds and never paints beneath a selected tab.
+The tab-strip painter remains responsible for its own baseline, colors, and open selected edge.
+`tests\tab_window_tests.cpp` covers gap pixels, themes, DPI, button capture, cancellation, keyboard input, and UIA invocation.
+`tests\collections_window_tests.cpp --miller-only` also covers hover transitions and separator pixels after fractional scrolling.
+These tests need a Windows desktop. Static checks do not establish a passing native test result.
+
 ## Performance design
 
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.

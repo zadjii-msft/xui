@@ -1,5 +1,6 @@
 #pragma once
 #include "xui/data_grid.hpp"
+#include "xui/miller_columns.hpp"
 #include "xui/navigation.hpp"
 #include <algorithm>
 #include <array>
@@ -101,7 +102,21 @@ inline constexpr std::array entries{
     Entry{L"web-content", L"Media", L"Optional web content", L"Opt-in WebView2 displays owned HTML. The default build does not load a browser.",
         L"auto web = std::make_shared<WebContent>();\nweb->set_profile_root(owned_directory);\nweb->set_html(L\"<h1>Owned HTML</h1>\");\nweb->focus_content();"},
     Entry{L"navigation-view", L"Navigation", L"Navigation view", L"Nested navigation shares selection across searchable items and pinned shortcuts.",
-        L"auto nav = std::make_shared<NavigationView>(L\"Workspace\");\nnav->set_items(records);\nnav->on_select(show_page);\nnav->set_filter(L\"reports\");\nnav->set_expanded(false);"}
+        L"auto nav = std::make_shared<NavigationView>(L\"Workspace\");\nnav->set_items(records);\nnav->on_select(show_page);\nnav->set_filter(L\"reports\");\nnav->set_expanded(false);"},
+    Entry{L"miller-columns", L"Collections", L"Miller columns", L"Browse a synthetic folder hierarchy with immutable sources, horizontal scrolling, and independent vertical scrolling.",
+        L"auto view = std::make_shared<xui::MillerColumns>(L\"Project library\");\n"
+        L"view->set_column_width(200);\n"
+        L"view->set_columns({{L\"Projects\", immutable_roots, {}}});\n"
+        L"view->on_selection([view = view.get(), children_for](std::size_t column, xui::ItemKey key) {\n"
+        L"    auto next = view->columns();\n"
+        L"    next.resize(column + 1);\n"
+        L"    next[column].selected = key;\n"
+        L"    if (auto children = children_for(key))\n"
+        L"        next.push_back({L\"Children\", children, {}});\n"
+        L"    view->set_columns(std::move(next));\n"
+        L"});\n"
+        L"view->on_activate(show_activation);\n"
+        L"// Sources expose folder arrows through hierarchy().expandable."}
 };
 inline std::wstring fold(std::wstring text) {
     std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
@@ -181,5 +196,67 @@ public:
     bool has_children(xui::ItemKey key) const override { return key.id <= 4; }
 private:
     std::shared_ptr<const xui::ItemsSource> roots_{std::make_shared<FixtureItems>(4, 1, 1, false)};
+};
+class FixtureMillerItems final : public xui::ItemsSource {
+public:
+    static constexpr std::size_t levels = 8;
+    explicit FixtureMillerItems(std::size_t depth = 0, xui::ItemKey parent = {1, 1}) :
+        depth_(depth), parent_(parent) {}
+    std::size_t size() const override { return 28; }
+    xui::ItemKey key(std::size_t index) const override { return {parent_.id * 32 + index + 1, 1}; }
+    std::optional<std::size_t> find(xui::ItemKey value) const override {
+        const auto first = key(0).id;
+        if (value.version != 1 || value.id < first || value.id - first >= size()) return {};
+        return static_cast<std::size_t>(value.id - first);
+    }
+    xui::ItemContent item(std::size_t index) const override {
+        static constexpr std::array<std::array<const wchar_t*, 3>, levels> names{{
+            {L"Atlas", L"Beacon", L"Cedar"},
+            {L"Design", L"Engineering", L"Research"},
+            {L"Milestones", L"Prototypes", L"Reports"},
+            {L"2026", L"2025", L"2024"},
+            {L"Quarter 1", L"Quarter 2", L"Quarter 3"},
+            {L"Planning", L"Delivery", L"Review"},
+            {L"Drafts", L"Approved", L"Archive"},
+            {L"Summary", L"Decisions", L"Release notes"}
+        }};
+        const auto name = index < 3 ? std::wstring(names[depth_][index]) :
+            L"Reference note " + std::to_wstring(index - 2);
+        const bool branch = hierarchy(index).expandable;
+        return {name, branch ? L"Synthetic folder" : L"Synthetic document",
+            branch ? xui::ButtonIcon::folder : xui::ButtonIcon::library};
+    }
+    xui::ItemHierarchy hierarchy(std::size_t index) const override {
+        xui::ItemHierarchy result;
+        result.expandable = depth_ + 1 < levels && index < 3;
+        return result;
+    }
+    std::shared_ptr<const FixtureMillerItems> children(xui::ItemKey value) const {
+        const auto row = find(value);
+        if (!row || !hierarchy(*row).expandable) return {};
+        return std::make_shared<const FixtureMillerItems>(depth_ + 1, value);
+    }
+private:
+    const std::size_t depth_;
+    const xui::ItemKey parent_;
+};
+class FixtureMillerPath {
+public:
+    const std::vector<xui::MillerColumn>& columns() const { return columns_; }
+    bool select(std::size_t column, xui::ItemKey key) {
+        if (column >= columns_.size()) return false;
+        const auto source = std::static_pointer_cast<const FixtureMillerItems>(columns_[column].source);
+        const auto row = source->find(key);
+        if (!row) return false;
+        auto next = columns_;
+        next.resize(column + 1);
+        next[column].selected = key;
+        if (auto children = source->children(key))
+            next.push_back({source->item(*row).primary, std::move(children), {}});
+        columns_ = std::move(next);
+        return true;
+    }
+private:
+    std::vector<xui::MillerColumn> columns_{{L"Projects", std::make_shared<const FixtureMillerItems>(), {}}};
 };
 }

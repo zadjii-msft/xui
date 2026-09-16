@@ -421,6 +421,20 @@ void tabs() {
     require(tabs.selected() == 4 && tabs.tab_bounds(3).width > 0, "Keyboard selection reveals styled tabs");
     tabs.request_close(4);
     require(closed == 4, "Styled close action retains tab identity");
+    tabs.set_new_tab_button_visible(true);
+    tabs.arrange(tabs.bounds());
+    const auto button = tabs.new_tab_button_bounds();
+    const auto content = tabs.content_bounds();
+    require(button.x >= content.x && button.x + button.width <= content.x + content.width &&
+        button.y >= content.y && button.y + button.height <= content.y + content.height,
+        "New-tab action respects authored tab-strip insets");
+    require(!tabs.hit_test(Point{button.x + button.width / 2, button.y + button.height / 2}) &&
+        tabs.tab_bounds(3).x + tabs.tab_bounds(3).width <= button.x,
+        "Styled tabs reserve the new-tab action without overlapping hit targets");
+    unsigned added{};
+    tabs.on_new_tab([&] { ++added; });
+    tabs.request_new_tab();
+    require(added == 1 && tabs.selected() == 4, "New-tab action retains its command beside styled tabs");
     const auto id = tabs.id();
     tabs.set_visual_style(VisualStyle::winui);
     tabs.set_control_style(nullptr);

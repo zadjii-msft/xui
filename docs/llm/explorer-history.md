@@ -5,6 +5,35 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Managed file transfers, 2026-09-15
+
+The managed explorer now connects file clipboard commands and pane drops through `FileTransfers.cs`.
+`FileContextMenu.cs` retains all selected paths when a menu opens.
+`FilePaneView.cs` supplies visible selection membership and rejects obsolete rows during transfers.
+The native implementation uses `src\file_transfer.cpp` and `src\c_api_file_transfer.inc`.
+The public interfaces are in `include\xui\file_transfer.hpp`, `include\xui\xui_file_transfer.h`, and the managed `FileTransfers.cs` binding.
+
+The local Release build used `build\file-transfer` with the x64 toolchain.
+The managed explorer built for `win-x64` against that DLL.
+Its complete `--smoke` passed, including real folder copy, file move, pane refresh, and native text shortcut handling.
+The model program passed 200 assertions.
+The native transfer, control, collection, and ABI tests passed.
+The transfer program covered clipboard serialization, the OLE drop protocol, grid gestures, and Shell operations.
+
+The clipboard round-trip fixture uses a private window station and desktop.
+The isolated clipboard suite passed three consecutive runs without a change to the interactive clipboard sequence.
+The native integration suite also passed, including native text editing.
+An earlier clipboard-snapshot fixture skipped unsupported storage. The isolated fixture replaced that approach.
+The explorer smoke does not replace the desktop clipboard.
+Manual coverage still includes external application interoperability, Shell conflict choices, physical drag feedback, and cross-volume transfers.
+An ARM64 app cannot load the x64 test DLL. The application and native DLL must use the same architecture.
+
+The merge with the Columns-view changes retains separate native drag and horizontal-scroll handlers.
+Clipboard commands use the active column selection and folder. File drag-and-drop remains a Details-view operation.
+The combined explorer smoke passed, including ancestor-column targets, empty-column selection, and native Find clipboard keys.
+The merged model suite passed 246 assertions.
+The transfer, isolated clipboard, Miller model, Miller window, and feature ABI suites also passed.
+
 ## Shell alpha correction (2026-09-15)
 
 The C# explorer uses the shared Shell decoder in `src/images.cpp`, not a thumbnail-size setting in its project file.

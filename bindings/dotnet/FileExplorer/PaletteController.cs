@@ -54,6 +54,7 @@ internal sealed class PaletteController
     public TextSelection QuerySelection => editor.Selection;
     public ElementBounds Bounds => popup.GetBounds();
     public float StatusHeight => statusHost.GetBounds().Height;
+    internal int SelectedIndex => selected;
     public void EditQuery(string text) => SetQuery(text, remember: false);
 
     public void ShowNavigation(FilePaneView target)
@@ -72,7 +73,7 @@ internal sealed class PaletteController
         editor.SetName("Go to folder").SetPlaceholder("Type a folder path");
         history.Clear();
         historyIndex = -1;
-        SetQuery(target.Model.Active.Path, remember: true);
+        SetQuery(WithTrailingSeparator(target.Model.Active.Path), remember: true);
         Show(target.Address);
     }
 
@@ -105,6 +106,9 @@ internal sealed class PaletteController
         if (!identities.TryGetValue(path, out ulong id)) identities.Add(path, id = nextId++);
         return id;
     }
+
+    private static string WithTrailingSeparator(string path) =>
+        Path.EndsInDirectorySeparator(path) ? path : path + Path.DirectorySeparatorChar;
 
     private void SetQuery(string text, bool remember)
     {
@@ -206,7 +210,9 @@ internal sealed class PaletteController
 
     private void SelectFirst()
     {
-        selected = navigationMode ? (entries.Count == 0 ? -1 : 0) : commands.ToList().FindIndex(c => c.Enabled);
+        selected = navigationMode
+            ? (entries.Count == 0 || Path.GetDirectoryName(FileSystemService.ResolvePath(editor.Text, pane!.Model.Active.Path)) is null ? -1 : 0)
+            : commands.ToList().FindIndex(c => c.Enabled);
         SelectCurrent();
     }
 
@@ -219,7 +225,7 @@ internal sealed class PaletteController
     {
         int count = ResultCount;
         if (pending || count == 0) return;
-        int candidate = selected;
+        int candidate = selected < 0 && delta < 0 ? 0 : selected;
         for (int i = 0; i < count; i++)
         {
             candidate = (candidate + delta + count) % count;
@@ -236,7 +242,7 @@ internal sealed class PaletteController
     {
         if (!navigationMode || pending || selected < 0) return;
         var entry = entries[selected];
-        SetQuery(entry.IsDirectory ? Path.TrimEndingDirectorySeparator(entry.FullPath) + Path.DirectorySeparatorChar : entry.FullPath, remember: true);
+        SetQuery(entry.IsDirectory ? WithTrailingSeparator(entry.FullPath) : entry.FullPath, remember: true);
         FocusQueryEnd();
     }
 
@@ -283,7 +289,8 @@ internal sealed class PaletteController
         try
         {
             string current = FileSystemService.ResolvePath(editor.Text, pane.Model.Active.Path);
-            if (Directory.GetParent(current) is { } parent) SetQuery(parent.FullName, remember: true);
+            if (Directory.GetParent(current) is { } parent)
+                SetQuery(WithTrailingSeparator(parent.FullName), remember: true);
         }
         catch (Exception error) when (UiWork.IsExpected(error)) { ShowStatus(error.Message); }
         FocusQueryEnd();

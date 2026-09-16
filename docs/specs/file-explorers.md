@@ -20,6 +20,7 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 `FilePaneLayout.xui` defines each pane, including its toolbar, file grid, Find row, and status.
 `SidebarLayout.xui` defines the navigation control.
 `PaletteLayout.xui` defines the folder and command palette.
+`ViewMenuLayout.xui` defines the footer's view-choice flyout.
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state updates the Find row height and control visibility.
 
@@ -29,8 +30,10 @@ After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#
 
 The title bar contains a navigation button, independent tab strips for each pane, and Windows caption controls.
 Each tab row follows its pane, including splitter and window-size changes.
+Each pane has a New tab icon immediately after its last visible tab, not in the address toolbar.
 Both styles use attached tabs with rounded top corners and an open selected bottom edge.
-The row inherits its parent background. Empty rows draw no baseline.
+The row inherits its parent background.
+The title-bar border continues across the navigation area, pane divider, and caption area, except below selected tabs.
 Clicking a tab selects it and moves focus into its file pane, including clicks on the current tab.
 Arrow keys select tabs while focus stays on the strip. Enter or Space moves focus into the selected pane.
 The tab focus rectangle appears only during keyboard navigation.
@@ -47,6 +50,8 @@ The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
 
 Each pane has its own tabs, navigation history, details view, and Find bar.
+Each tab also has an optional Columns view.
+Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -73,6 +78,39 @@ The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
 Canceled or obsolete requests cannot replace the current view.
 
+### Columns view
+
+The footer contains the item count and a **Choose view** icon.
+The icon opens a flyout above the footer with **Details** and **Columns** choices.
+The flyout identifies the current view. Escape closes it without a view change.
+The command palette also contains **Use Columns view** and **Use Details view**.
+Each tab retains its own view choice.
+
+Columns view starts at the committed folder.
+A single selection of a folder loads its children in the next column.
+Ancestor columns remain visible. A sibling selection replaces the columns to its right.
+A file selection does not open the file.
+Enter or a double-click opens the selected file through its Windows association.
+
+Each column scrolls vertically on its own.
+Rows highlight under the pointer without changing selection or keyboard focus.
+Vertical separators distinguish adjacent columns.
+Left and Right move focus between existing columns.
+The horizontal navigation buttons reveal earlier or later columns.
+Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
+When the path exceeds the pane width, a bottom scrollbar supports thumb dragging and track paging.
+The control supports at most 32 columns in one path.
+The application reports an error at the limit instead of discarding ancestors.
+
+A successful directory scan commits the address, history, and current folder.
+A failed scan preserves the committed folder and displays an error.
+Find filters the rightmost folder. Its navigation keys retain native text-input focus.
+Context menus use the selected row in the column under the pointer.
+Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Mode and tab changes detach obsolete native sources and cancel pending work.
+
+### Keyboard and palettes
+
 | Input | Action |
 | --- | --- |
 | Navigation button | Expand or collapse the navigation pane |
@@ -97,18 +135,76 @@ Canceled or obsolete requests cannot replace the current view.
 | Escape with Find open | Clear the filter and close the Find bar |
 | Ctrl+D | Add or remove the current folder bookmark |
 | Ctrl+F6 | Switch between dark and light themes |
+| Ctrl+C / Ctrl+Insert with file-view focus | Copy the selected files and folders |
+| Ctrl+X with file-view focus | Cut the selected files and folders for a later move |
+| Ctrl+V / Shift+Insert with file-view focus | Paste files into the current folder |
+| Ctrl+Shift+C with file-view focus | Copy quoted full paths, one per line |
+
+### File transfers
+
+Copy, Cut, Paste, and Copy paths are also available in the context menu and command palette.
+In Details, these commands use all selected visible rows, not only the focused row.
+Ctrl+A selects the visible Details rows. Ctrl-click changes individual selections. Shift-click selects a range.
+In Columns, clipboard commands use the selected item in the active column.
+File shortcuts apply only while Details or a column has focus.
+Find, navigation filters, and palette fields retain their native text clipboard behavior.
+
+File copy uses the Windows file clipboard format, not a list of text paths.
+Other Windows applications can paste these files.
+The demo also accepts file clipboard content from Windows Explorer and other applications that supply local file paths.
+Copy paths replaces the clipboard with text instead of file content.
+Successful clipboard commands show temporary feedback to the left of the item count in the originating pane.
+The feedback clears after three seconds. A new message restarts that pane's timeout.
+Successful transfer feedback uses the same footer area.
+Errors and incomplete-transfer warnings remain visible in the application notification area.
+Keyboard Paste targets the current Details folder or the active column folder.
+The context menu for a single folder also offers Paste into this folder.
+
+File drag-and-drop uses Details view. Columns retains its folder-selection and horizontal-scroll gestures.
+A drag starts only after pointer movement crosses the Windows drag threshold.
+The drag uses the selected files and folders.
+A drop on a folder row targets that folder. A drop on empty file-grid space targets the pane folder.
+File rows and column headers do not accept drops.
+Drag-and-drop also works with other applications that accept or supply Windows file paths.
+Ctrl requests a copy. Shift requests a move. The pointer indicates the accepted operation.
+Transfers between demo panes can move files.
+For conventional external drag targets, exported drags retain the originals and report a copy.
+Escape cancels a drag before the drop.
+
+Windows Shell performs file and folder transfers, including transfers between drives.
+Its dialogs handle conflicts, progress, and cancellation.
+The demo refreshes visible panes after a transfer attempt.
+Cut does not delete files before Paste.
+A canceled or failed transfer can leave some items transferred. The notification does not claim that the whole transfer succeeded.
+The demo does not delete source files based only on a drag result.
+
+File commands do not use obsolete rows during folder scans, tab changes, or filter updates.
+The transfer destination and source paths are fixed when the operation starts.
+The demo blocks another file transfer while the current transfer is active.
+Virtual attachments without local paths, link creation, and right-button drag menus are not supported.
+App commands accept large selections. Shell context-menu integration remains limited to 256 paths.
+Larger selections show the app commands without Shell extension commands.
 
 Both palettes appear at the center of the window, independent of the active pane.
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
 The palette frame and results share one background color.
 Command shortcuts use separate keycaps on the right, beside each command title.
+Command rows capture their labels, shortcuts, and enabled state when the palette opens or its query changes.
+Row callbacks read that snapshot without querying native controls.
+The controller checks current availability again before it executes a command.
 Status messages appear only for pending requests, empty results, and errors.
 Keyboard history, completion, acceptance, and dismissal remain available.
-The navigation palette initially shows the children of the current folder.
+The navigation palette initially adds a trailing slash to the current folder and shows its children.
 Typed paths support relative paths, quoted paths, environment variables, and UNC paths.
-A partial final component filters the parent folder by name.
+Without a trailing slash, the final component filters the parent folder by name, even for an exact directory match.
+Enter on an exact directory match opens that directory, not its first child.
+A trailing `\` or `/` lists the directory's children.
+Bare drive letters such as `D:` resolve to the drive root, not the drive's last working directory.
+Drive-root queries do not select a child automatically, including queries such as `D:\`.
+Enter opens the root. Down selects a child for subsequent navigation.
+The same rule applies after quote removal and environment-variable expansion.
 Prefix matches appear before other substring matches.
-Tab completion leaves the caret at the end of the completed path.
+Tab completion adds a trailing slash to a directory and leaves the caret at the end of the completed path.
 Within a loaded folder, the palette filters its snapshot immediately without a delay or an empty intermediate view.
 For a different folder, the existing rows remain visible but cannot activate until the new scan finishes.
 With no selected result, Enter attempts to open the typed folder.
@@ -127,9 +223,10 @@ Navigation errors preserve the committed folder and its rows.
 `PaletteController` handles the two palettes.
 `NavigationSidebar` builds the navigation entries.
 `FileContextMenu` supplies commands for the selected file or folder.
+`FileTransfers` connects clipboard commands and pane drops to the Windows transfer APIs.
 These classes use explicit model updates rather than a separate MVVM package.
 
-This first version does not provide file copy, move, rename, delete, drag-and-drop, or recursive search.
+The demo does not provide dedicated rename, delete, or recursive-search commands.
 It does not claim full File Pilot parity.
 The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
 The details view still exposes all entries from the folder scan.

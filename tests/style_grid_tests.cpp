@@ -72,6 +72,28 @@ std::shared_ptr<const ControlStyle> grid_style() {
          {StylePart::filter_icon, style_states::filter_pending, foreground(0xabcdef)},
          {StylePart::reorder_marker, style_states::dragging, foreground(0x987654)}});
 }
+void styled_transfer_geometry() {
+    DataGrid grid;
+    const auto source = std::make_shared<Source>(5);
+    grid.set_columns({{L"Name", 160}});
+    grid.set_source(source);
+    grid.set_control_style(grid_style());
+    grid.arrange({30, 40, 250, 230});
+    const auto view = grid.geometry().viewport();
+    const Point row{view.x + 5, view.y + 5};
+    std::optional<RowKey> key;
+    require(grid.file_drop_hit(row, key) && key == source->key(0),
+        "File-drop lookup uses the styled row viewport in local coordinates");
+    require(!grid.file_drop_hit({view.x - 1, row.y}, key) &&
+        !grid.file_drop_hit({row.x, view.y - 1}, key) &&
+        !grid.file_drop_hit({view.x + view.width, row.y}, key),
+        "Authored padding, headers, and scrollbars reject file drops");
+    grid.select(source->key(0), false);
+    grid.select(source->key(1), SelectionGesture::toggle, false);
+    grid.prepare_context_menu(row);
+    require(grid.selection().contains(source->key(0)) && grid.selection().contains(source->key(1)),
+        "A context menu on a styled selected row preserves multiple selection");
+}
 void states_and_geometry() {
     DataGrid grid;
     grid.set_columns({{L"Same", 120, false, true, true}, {L"Same", 160, false, true}});
@@ -376,7 +398,7 @@ int main(int argc, char** argv) {
 #ifndef _WIN32
         if (desktop) throw std::invalid_argument("--desktop requires Windows");
 #endif
-        states_and_geometry(); bounded_styles_and_gaps(); uniform_metric_policy(); owner_inheritance_and_item_states(); paragraph_alignment_policy();
+        styled_transfer_geometry(); states_and_geometry(); bounded_styles_and_gaps(); uniform_metric_policy(); owner_inheritance_and_item_states(); paragraph_alignment_policy();
 #ifdef _WIN32
         if (desktop) desktop_pixels_and_provider();
 #endif

@@ -56,6 +56,14 @@ Popups stay inside the intersection of the client area and monitor work area. Th
 They share the root Direct2D target. Open content creates normal child input/UIA peers, including native EDIT/caption peers where needed.
 Dismissed peers are released after input dispatch. Retaining the public Popup does not retain its closed native peers.
 Native text is composed before `EndDraw`; popup clipping also masks underlying native fields.
+
+Popup padding has an opaque background in both Classic and WinUI.
+`Popup::set_window_background(true)` selects the window background instead of the default surface color.
+WinUI popups retain rounded corners and shadows outside this background.
+High-contrast popups use system colors without shadows.
+Content controls retain their own background rules.
+For example, Classic `ItemsView` uses the window background, while WinUI `ItemsView` uses the popup background unless an inner Stack selects a surface.
+
 Tooltips use one pending one-shot timer and no extra HWND or target. Hidden tooltips have no timer.
 Indeterminate progress is deliberately static. This batch has no progress ring or progress animation.
 Capacity meters show used/total text without implying an active task.

@@ -714,6 +714,48 @@ void TextInput::set_maximum_length(std::size_t value) {
     invalidate(Invalidation::paint);
 }
 
+TabStrip::TabStrip(std::wstring name) : Control(ControlRole::tab_strip, std::move(name), {320, 38}),
+    new_button_(std::make_shared<Button>(L"New tab")) {
+    new_button_->set_icon(ButtonIcon::add);
+    new_button_->set_visible(false);
+    new_button_->on_click([this] { request_new_tab(); });
+    children_.push_back(new_button_);
+    adopt(new_button_);
+}
+TabStrip::~TabStrip() { new_button_->on_click({}); }
+void TabStrip::set_new_tab_button_visible(bool visible) {
+    if (new_button_visible_ == visible) return;
+    new_button_visible_ = visible;
+    new_button_->set_visible(visible);
+    reveal_selected();
+    arrange_new_button();
+    invalidate(Invalidation::layout);
+}
+void TabStrip::request_new_tab() {
+    if (!enabled() || !visible() || !new_button_visible_) return;
+    auto callback = new_tab_;
+    if (callback) callback();
+}
+float TabStrip::tab_viewport_width() const {
+    return std::max(0.0f, content_bounds().width - (new_button_visible_ ? 32.0f : 0.0f));
+}
+Rect TabStrip::new_tab_button_bounds() const {
+    if (!new_button_visible_) return {};
+    const auto content = content_bounds();
+    float right = content.x;
+    for (std::size_t i = first_; i < tabs_.size(); ++i) {
+        const auto tab = tab_bounds(i);
+        if (tab.width <= 0) break;
+        right = tab.x + tab.width;
+    }
+    return {right, content.y + std::min(3.0f, content.height),
+        std::min(32.0f, std::max(0.0f, content.x + content.width - right)), std::max(0.0f, content.height - 6)};
+}
+void TabStrip::arrange_new_button() {
+    auto button = new_tab_button_bounds();
+    button.x += bounds().x; button.y += bounds().y;
+    new_button_->arrange(button);
+}
 void TabStrip::set_colors(TabColors colors) {
     for (const auto value : {colors.row_background, colors.selected_background, colors.selected_text,
         colors.inactive_background, colors.inactive_text, colors.hover_background, colors.border})
@@ -735,14 +777,16 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
     tabs_ = std::move(tabs);
     selected_ = selected;
     reveal_selected();
-    invalidate(Invalidation::paint);
+    arrange_new_button();
+    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
 }
 bool TabStrip::select(std::uint64_t id) {
     if (!enabled() || std::none_of(tabs_.begin(), tabs_.end(), [&](const auto& tab) { return tab.id == id; })) return false;
     if (selected_ == id) return true;
     selected_ = id;
     reveal_selected();
-    invalidate(Invalidation::paint);
+    arrange_new_button();
+    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
     if (select_) { auto callback = select_; callback(id); }
     return true;
 }
@@ -767,14 +811,17 @@ void TabStrip::request_close(std::uint64_t id) {
 Rect TabStrip::tab_bounds(std::size_t index) const {
     if (index >= tabs_.size() || index < first_) return {};
     const auto content = content_bounds();
+    const auto viewport = tab_viewport_width();
     const auto* tab = effective_control_style_values(StylePart::tab);
     const auto width = std::min(tab && tab->width ? *tab->width : 180.0f,
-        content.width / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
+        viewport / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
     const float x = content.x + (index - first_) * width;
-    return {x, content.y, std::max(0.0f, std::min(width, content.x + content.width - x)), content.height};
+    return {x, content.y, std::max(0.0f, std::min(width, content.x + viewport - x)), content.height};
 }
 Rect TabStrip::content_bounds() const {
-    Rect content{0, 0, bounds().width, bounds().height};
+    return content_bounds({0, 0, bounds().width, bounds().height});
+}
+Rect TabStrip::content_bounds(Rect content) const {
     const auto* root = effective_control_style_values(StylePart::root);
     return root ? inset_rect(inset_rect(content, root->border_thickness.value_or(Insets{})),
         root->padding.value_or(Insets{})) : content;
@@ -807,12 +854,12 @@ void TabStrip::reveal_selected() {
     for (std::size_t i = 0; i < tabs_.size(); ++i) if (tabs_[i].id == selected_) {
         if (i < first_) first_ = i;
         const auto* tab = effective_control_style_values(StylePart::tab);
-        const float minimum = std::min({120.0f, tab && tab->width ? *tab->width : 180.0f, content_bounds().width});
+        const float minimum = std::min({120.0f, tab && tab->width ? *tab->width : 180.0f, tab_viewport_width()});
         while (first_ < i && tab_bounds(i).width < minimum) ++first_;
         break;
     }
 }
-void TabStrip::arrange(Rect rect) { Element::arrange(rect); reveal_selected(); }
+void TabStrip::arrange(Rect rect) { Element::arrange(rect); reveal_selected(); arrange_new_button(); }
 ContentView::ContentView(std::shared_ptr<Element> content, std::wstring name)
     : Control(ControlRole::content_view, std::move(name), {320, 240}), content_(std::move(content)) { adopt(content_); }
 Size ContentView::measure(Size available) {

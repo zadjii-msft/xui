@@ -19,6 +19,10 @@ typedef struct xui_tab_colors {
 } xui_tab_colors;
 XUI_API xui_status XUI_CALL xui_tab_set_colors(xui_handle tabs, const xui_tab_colors* colors) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_tab_get_colors(xui_handle tabs, xui_tab_colors* colors) XUI_NOEXCEPT;
+/* Opt-in native "New tab" button. Activation emits XUI_ACTION with id zero.
+   visible is 0 or 1. The default is 0. */
+XUI_API xui_status XUI_CALL xui_tab_set_new_button(xui_handle tabs, uint32_t visible) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_tab_get_new_button(xui_handle tabs, uint32_t* visible) XUI_NOEXCEPT;
 typedef enum xui_visual_style {
     XUI_STYLE_CLASSIC = 0,
     XUI_STYLE_WINUI = 1

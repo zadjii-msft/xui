@@ -7,6 +7,7 @@
 #include "platform.hpp"
 #include "list_peer.hpp"
 #include "context_menu.hpp"
+#include "file_transfer.hpp"
 #include "async.hpp"
 #include "images.hpp"
 #include "workspace_accessibility.hpp"
@@ -70,6 +71,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         float drag_y{}, drag_offset{};
         int wheel_remainder{};
         int grid_drag{};
+        Microsoft::WRL::ComPtr<IDropTarget> file_target;
         std::size_t grid_drop{};
         std::size_t grid_column{};
         bool collection_drag{}, collection_scroll{}, collection_additive{};
@@ -82,6 +84,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         AdaptiveLayout* adaptive{};
         Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
         ~Peer() {
+            if (file_target && window) RevokeDragDrop(window);
+            file_target.Reset();
+            if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
             runtime.reset();
             if (list) window = nullptr;
             if (window && IsWindow(window)) DestroyWindow(window);
@@ -183,6 +188,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& peer : peers) {
             peer->control->set_text_measurer({});
             if (auto label = std::dynamic_pointer_cast<Label>(peer->control)) label->set_wrapped_text_measurer({});
+            if (auto* columns = dynamic_cast<MillerColumns*>(peer->control.get())) columns->on_focus_column({});
         }
         for (const auto& peer : peers)
             if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer->control)) combo->choices()->on_accept({});
@@ -263,7 +269,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
-            message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU)) return 0;
+            message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
         const bool caption = hwnd == peer.caption;
         auto* provider = caption ? peer.caption_provider : peer.provider;
         if ((message == WM_PRINTCLIENT || message == WM_PRINT) && peer.native_occluded && !peer.host.composing_native) {
@@ -362,7 +368,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
-            message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU)) return 0;
+            message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
         if (peer.document && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
             try {
                 peer.control->set_focused(message == WM_SETFOCUS);
@@ -566,6 +572,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             });
+        if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
+            const std::weak_ptr<Impl> weak = shared_from_this();
+            const std::weak_ptr<DataGrid> weak_grid = grid;
+            peer->file_target = files::drop_target(peer->window, grid, [weak, weak_grid] {
+                auto host = weak.lock(); auto control = weak_grid.lock();
+                const auto* target = host && control ? host->find_peer(control.get()) : nullptr;
+                return target && !host->closing && host->ready && host->enabled(*target) &&
+                    host->visible(*target) && host->in_top_popup(*target);
+            }, [weak](std::function<void()> callback) {
+                if (auto host = weak.lock()) {
+                    InputScope scope(*host);
+                    try { callback(); } catch (...) { host->fail(); }
+                }
+            });
+        }
         win32_require(SetWindowSubclass(peer->window, navigation_procedure, 3,
             reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach browser navigation input");
         if (peer->caption)
@@ -635,6 +656,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         for (const auto& child : added->control->retained_children())
             collect(child, surface || (options.visual_style == VisualStyle::winui && role == ControlRole::expander), added, adaptive);
+        if (auto* columns = dynamic_cast<MillerColumns*>(added->control.get())) {
+            const std::weak_ptr<Impl> host = weak_from_this();
+            columns->on_focus_column([host](const std::shared_ptr<VirtualCollection>& list) {
+                if (const auto owner = host.lock()) {
+                    InputScope input(*owner);
+                    owner->update();
+                    if (auto* target = owner->find_peer(list.get())) owner->focus(*target, false);
+                }
+            });
+        }
         collect_clear_button(*added);
     }
     bool can_clear(const Peer& peer) const {
@@ -1177,6 +1208,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     bounds.height = std::max(0.0f, static_cast<float>(
                         std::lround((bounds.y + bounds.height) * scale) - std::lround(bounds.y * scale)) / scale);
                 }
+                if (peer->parent && dynamic_cast<MillerColumns*>(peer->parent->control.get())) {
+                    const float scale = dpi / 96.0f;
+                    bounds.width = std::max(0.0f, static_cast<float>(
+                        std::lround((bounds.x + bounds.width) * scale) - std::lround(bounds.x * scale)) / scale);
+                }
                 if (peer->document) {
                     if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
                         bounds.height = std::max(0.0f, bounds.height - password->reveal_extent());
@@ -1577,6 +1613,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     void reveal(Peer& peer) {
+        if (auto* list = dynamic_cast<MillerColumnList*>(peer.control.get());
+            list && list->owner() && list->column_index() < list->owner()->columns().size()) {
+            list->owner()->set_active_column(list->column_index());
+            update();
+        }
         for (auto* ancestor = peer.parent; ancestor; ancestor = ancestor->parent) {
             if (auto scroll = dynamic_cast<ScrollView*>(ancestor->control.get())) {
                 scroll->reveal(peer.control->bounds());
@@ -1860,6 +1901,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto* popup_style = entry.popup->effective_control_style_values(StylePart::root);
                     if (popup_style) drawing.styled_surface(bounds, palette, *popup_style, popup_background, palette.border, radius, {1, 1, 1, 1});
                     else if (!entry.commands && palette.style == VisualStyle::classic) drawing.fill(bounds, popup_background);
+                    else if (entry.commands || palette.style == VisualStyle::winui)
+                        drawing.rounded(frame, entry.commands ? palette.surface : popup_background, radius);
                     paint_content_surface(entry.popup);
                     if (entry.dialog && palette.style == VisualStyle::winui) {
                         const auto footer = entry.dialog->footer_bounds();
@@ -2348,7 +2391,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const bool commands = control.role() == ControlRole::command_menu;
             const auto* items = dynamic_cast<ItemsView*>(collection);
             const bool trailing_shortcuts = items && items->trailing_shortcut_badges();
-            const auto hovered = control.hovered() && peer.command_pointer && enabled(peer) ?
+            const auto* miller = dynamic_cast<MillerColumnList*>(collection);
+            const auto hovered = !enabled(peer) || GetCapture() ? std::optional<std::size_t>{} :
+                miller ? miller->hovered_row() : control.hovered() && peer.command_pointer ?
                 collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
             const auto hovered_key = hovered ?
                 std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
@@ -2977,6 +3022,47 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 Drawing::style_foreground(caption, palette, palette.secondary), caption, TextStyle::caption);
             return;
         }
+        if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
+            for (std::size_t i = 0; i < columns->columns().size(); ++i) {
+                auto separator = columns->separator_bounds(i);
+                if (separator.width > 0 && separator.height > 0) {
+                    const float scale = dpi / 96.0f;
+                    const float right = std::round((separator.x + separator.width) * scale) / scale;
+                    separator.x = std::round(separator.x * scale) / scale;
+                    separator.width = std::max(0.0f, right - separator.x);
+                    canvas.fill(separator, palette.border);
+                }
+            }
+            const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
+            if (track.width > 0) {
+                canvas.fill(track, palette.surface);
+                canvas.line(track.x, track.y, track.x + track.width, track.y, palette.border);
+                if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
+                else canvas.rounded(thumb, palette.secondary, 3);
+            }
+            return;
+        }
+        if (auto* bar = dynamic_cast<TitleBar*>(&control)) {
+            std::vector<Peer*> strips;
+            for (const auto& strip : {bar->tabs(), bar->secondary_tabs()})
+                if (auto* target = find_peer(strip.get()); target && visible(*target) && !strip->tabs().empty())
+                    strips.push_back(target);
+            std::sort(strips.begin(), strips.end(), [](const auto* a, const auto* b) {
+                return a->paint_bounds.x < b->paint_bounds.x;
+            });
+            float left{};
+            auto border = palette.border;
+            for (const auto* strip : strips) {
+                const auto color = static_cast<const TabStrip&>(*strip->control).colors().border;
+                border = color && !palette.high_contrast ? D2D1::ColorF(*color) : palette.border;
+                const float right = std::clamp(strip->paint_bounds.x - bounds.x, left, bounds.width);
+                if (right > left) canvas.fill({left, std::max(0.0f, bounds.height - 1), right - left, 1}, border);
+                left = std::clamp(strip->paint_bounds.x + strip->paint_bounds.width - bounds.x, right, bounds.width);
+            }
+            if (!strips.empty() && left < bounds.width)
+                canvas.fill({left, std::max(0.0f, bounds.height - 1), bounds.width - left, 1}, border);
+            return;
+        }
         if (control.role() == ControlRole::content_view) return;
         if (control.role() == ControlRole::split_view) {
             const auto& split = static_cast<SplitView&>(control);
@@ -3337,6 +3423,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return range.slider_geometry().pointer_fraction(
             {GET_X_LPARAM(point) * 96.0f / dpi, GET_Y_LPARAM(point) * 96.0f / dpi}, range.orientation());
     }
+    bool miller_wheel(Peer& peer, double delta) {
+        for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
+            if (auto* columns = dynamic_cast<MillerColumns*>(ancestor->control.get())) {
+                if (enabled(peer) && visible(peer)) columns->scroll_horizontal(delta);
+                return true;
+            }
+        return false;
+    }
     LRESULT control_message(Peer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         auto& control = *peer.control;
         const auto gesture = [] {
@@ -3393,6 +3487,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_NEXTDLGCTL:
             return SendMessageW(window, message, wparam, lparam);
         case WM_MOUSEWHEEL:
+            if ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) &&
+                miller_wheel(peer, -GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
             if (auto* map = dynamic_cast<MapView*>(&control)) {
                 if (!enabled(peer)) return 0;
                 POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
@@ -3417,12 +3513,31 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (scroll_wheel(peer, wparam)) return 0;
             break;
         case WM_MOUSEHWHEEL:
+            if (miller_wheel(peer, GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 grid->set_offset(grid->offset(), grid->horizontal_offset() + GET_WHEEL_DELTA_WPARAM(wparam) * 0.8);
                 return 0;
             }
             break;
         case WM_CONTEXTMENU:
+            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
+                if (!enabled(peer)) return 0;
+                std::optional<Point> position;
+                if (lparam != -1) {
+                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
+                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
+                }
+                if (auto* list = dynamic_cast<MillerColumnList*>(collection)) {
+                    if (!list->prepare_context_menu(position)) return 0;
+                } else if (position) {
+                    if (const auto row = collection->hit_test(*position)) {
+                        const auto source = collection->source();
+                        const auto item_key = source->key(*row);
+                        if (!collection->select(item_key) || collection->source() != source) return 0;
+                    } else collection->set_selection({});
+                }
+                if (!ready || closing || !focus(peer, false)) return 0;
+            }
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 grid->hover_pointer({});
                 SetFocus(hwnd);
@@ -3456,6 +3571,42 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (peer.grid_drag == 6) {
+                auto grid = std::static_pointer_cast<DataGrid>(peer.control);
+                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
+                if (!(wparam & MK_LBUTTON) || !enabled(peer) || !visible(peer)) {
+                    peer.grid_drag = 0; grid->end_file_press(false);
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    return 0;
+                }
+                const Size threshold{GetSystemMetricsForDpi(SM_CXDRAG, dpi) * 96.0f / dpi,
+                    GetSystemMetricsForDpi(SM_CYDRAG, dpi) * 96.0f / dpi};
+                if (!grid->file_drag_threshold(point, threshold)) return 0;
+                // Clear our gesture before releasing capture and entering OLE's nested message loop.
+                peer.grid_drag = 0; grid->end_file_press(false);
+                if (GetCapture() == hwnd) ReleaseCapture();
+                auto paths = grid->file_drag_paths();
+                if (!paths.empty() && !closing && IsWindow(hwnd)) {
+                    auto host = shared_from_this();
+                    const auto effect = files::drag(hwnd, paths, [host, grid, hwnd] {
+                        auto* current = host->find_peer(grid.get());
+                        return host->closing || !host->ready || !current || current->window != hwnd ||
+                            !host->enabled(*current) || !host->visible(*current);
+                    });
+                    if (!closing && IsWindow(hwnd)) grid->file_drag_completed(effect);
+                }
+                return 0;
+            }
+            if (auto* columns = dynamic_cast<MillerColumns*>(&control); columns && peer.dragging) {
+                const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
+                const float distance = track.width - thumb.width;
+                if (distance > 0 && enabled(peer) && visible(peer)) {
+                    const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
+                    columns->set_horizontal_offset(std::clamp(peer.drag_offset +
+                        (x - peer.drag_y) * columns->maximum_horizontal() / distance, 0.0, columns->maximum_horizontal()));
+                }
+                return 0;
+            }
             if (dynamic_cast<TabStrip*>(&control)) {
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
                 if (!peer.tab_pointer || peer.tab_pointer->x != point.x || peer.tab_pointer->y != point.y) {
@@ -3471,6 +3622,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const bool hovering = enabled(peer) && !peer.grid_drag && !GetCapture() &&
                     !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
                 grid->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
+                    GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
+            }
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) {
+                const bool hovering = enabled(peer) && !GetCapture() &&
+                    !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
+                list->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
                     GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
             }
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
@@ -3559,15 +3716,31 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_MOUSELEAVE:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) grid->hover_pointer({});
             if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
             if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
             peer.tracking = false; peer.command_pointer.reset(); peer.tab_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
             hide_tooltip();
             if (focus_edit_at(hwnd, lparam)) return 0;
+            if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
+                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
+                const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
+                if (track.width > 0 && point.x >= 0 && point.x < track.width && point.y >= track.y &&
+                    point.y < track.y + track.height) {
+                    if (point.x >= thumb.x && point.x < thumb.x + thumb.width) {
+                        peer.dragging = true; peer.drag_y = point.x;
+                        peer.drag_offset = static_cast<float>(columns->horizontal_offset());
+                        SetCapture(hwnd);
+                        invalidate(Invalidation::paint);
+                    } else columns->scroll_horizontal((point.x < thumb.x ? -1 : 1) * columns->bounds().width * 0.9);
+                }
+                return 0;
+            }
             if (auto* vector = dynamic_cast<VectorCanvas*>(&control)) {
                 SetFocus(hwnd);
                 const Point p{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
@@ -3665,9 +3838,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto column = grid->column_at(x);
                     if (column && grid->columns()[*column].checkable && grid->header_part_at(x) == GridHeaderPart::check)
                         grid->toggle_check(grid->source()->key(*row));
-                    else grid->select(grid->source()->key(*row), (wparam & MK_SHIFT) ?
-                        ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
-                        (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace, false);
+                    else {
+                        const auto selection_gesture = (wparam & MK_SHIFT) ?
+                            ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
+                            (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace;
+                        if (grid->file_drag_enabled()) {
+                            if (grid->begin_file_press({x, y}, selection_gesture)) {
+                                peer.grid_drag = 6; SetCapture(hwnd);
+                            }
+                        } else grid->select(grid->source()->key(*row), selection_gesture, false);
+                    }
                 }
                 else grid->clear_selection();
                 return 0;
@@ -3726,6 +3906,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_LBUTTONUP:
+            if (peer.grid_drag == 6) {
+                peer.grid_drag = 0;
+                static_cast<DataGrid&>(control).end_file_press(enabled(peer) && inside());
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
             if (std::exchange(peer.suppress_popup_click, false)) return 0;
             if (auto* choices = dynamic_cast<RadioGroup*>(&control); choices && peer.pressed_choice) {
                 const auto pressed = std::exchange(peer.pressed_choice, std::nullopt);
@@ -3792,6 +3978,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_CANCELMODE:
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
@@ -3804,6 +3991,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_CAPTURECHANGED:
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
+            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             peer.pressed_choice.reset();
             peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
@@ -4036,6 +4224,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 update();
                 return S_OK;
             }
+            if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
+                if (lparam >= 1000 && lparam <= 11000)
+                    columns->set_horizontal_offset(columns->maximum_horizontal() * (lparam - 1000) / 10000.0);
+                else if (lparam >= 2 && lparam <= 5)
+                    columns->scroll_horizontal((lparam % 2 ? 1 : -1) * (lparam < 4 ? 96 : columns->bounds().width * 0.9));
+                else return E_INVALIDARG;
+                update();
+                return S_OK;
+            }
             if (control.role() == ControlRole::scroll_view) {
                 auto& scroll = static_cast<ScrollView&>(control);
                 if (lparam >= 1000 && lparam <= 11000) scroll.set_offset(scroll.maximum_offset() * (lparam - 1000) / 10000.0f);
@@ -4108,6 +4305,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (selected != (action.kind == GridAction::add)) {
                         if (auto* nav_list = dynamic_cast<NavigationList*>(collection); nav_list && action.kind == GridAction::remove) {
                             if (!nav_list->remove_selection(*action.key)) return UIA_E_INVALIDOPERATION;
+                        } else if (auto* miller_list = dynamic_cast<MillerColumnList*>(collection);
+                            miller_list && action.kind == GridAction::remove) {
+                            if (!miller_list->remove_selection(*action.key)) return UIA_E_INVALIDOPERATION;
                         } else collection->select(*action.key, SelectionGesture::toggle);
                     }
                 } else if (action.kind == GridAction::reveal) collection->reveal(*action.key);
@@ -4155,6 +4355,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             update(); return S_OK;
         }
         case WM_NCDESTROY:
+            if (peer.file_target) { RevokeDragDrop(hwnd); peer.file_target.Reset(); }
             peer.runtime.reset();
             control.cancel();
             control.set_focused(false);
@@ -4674,19 +4875,42 @@ std::shared_ptr<ViewTask> Window::create_view_task(ViewWorker::Loader loader, st
 void Window::copy_text(const std::wstring& text) {
     if (!impl_->ready || impl_->closing || !impl_->window)
         throw std::logic_error("Clipboard text requires an open Window");
-    const auto bytes = (text.size() + 1) * sizeof(wchar_t);
-    auto storage = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    win32_require(storage != nullptr, "Allocate clipboard text");
-    auto destination = GlobalLock(storage);
-    if (!destination) { GlobalFree(storage); win32_require(false, "Lock clipboard text"); }
-    memcpy(destination, text.c_str(), bytes);
-    GlobalUnlock(storage);
-    if (!OpenClipboard(impl_->window)) { GlobalFree(storage); win32_require(false, "Open clipboard"); }
-    const bool copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, storage);
-    const bool closed = CloseClipboard() != 0;
-    if (!copied) GlobalFree(storage);
-    win32_require(copied, "Copy clipboard text");
-    win32_require(closed, "Close clipboard");
+    set_clipboard_text(text);
+}
+void Window::set_clipboard_text(const std::wstring& text) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use clipboard text on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    files::set_text(text);
+}
+void Window::set_file_clipboard(const std::vector<std::wstring>& paths, FileTransferEffect effect) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use file clipboard on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    files::set_clipboard(paths, effect);
+}
+std::optional<FileClipboardContent> Window::get_file_clipboard() {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Use file clipboard on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::get_clipboard();
+}
+bool Window::transfer_files(const std::vector<std::wstring>& paths, const std::wstring& destination, FileTransferEffect effect) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Transfer files on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::transfer(impl->window, paths, destination, effect, [impl] { return impl->closing || impl->failed; });
+}
+std::optional<bool> Window::paste_files(const std::wstring& destination) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("Paste files on the open Window's UI thread");
+    Impl::InputScope scope(*impl);
+    return files::paste(impl->window, destination, [impl] { return impl->closing || impl->failed; });
 }
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch

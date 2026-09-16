@@ -270,6 +270,11 @@ impl ReadOnlyImmutableSource for Million {
 fn all_features_and_bounded_sources() -> Result<()> {
     let w = Window::with_titlebar("Feature tests", 600., 600.)?;
     let tabs = w.tab_strip("Colored tabs")?;
+    assert!(!tabs.new_tab_button_visible()?);
+    tabs.set_new_tab_button_visible(true)?;
+    assert!(tabs.new_tab_button_visible()?);
+    tabs.set_new_tab_button_visible(false)?;
+    assert!(!tabs.new_tab_button_visible()?);
     let colors = TabColors {
         row_background: Some(0x123456),
         selected_background: Some(0),

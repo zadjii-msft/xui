@@ -31,13 +31,24 @@ Previous and Next expand the pane and use visible example rows.
 ## Example pages
 
 The `--page` argument selects a page directly.
-Page IDs include `combo`, `popup`, `items`, `tree`, `adaptive`, `grid-extensions`, `commands`, `breadcrumb`, and `navigation`.
+Page IDs include `combo`, `popup`, `items`, `tree`, `miller-columns`, `adaptive`, `grid-extensions`, `commands`, `breadcrumb`, and `navigation`.
 Other IDs include `navigation-view`, `shell`, `titlebar`, `dialog`, `status`, `multiline`, `password`, `rich-text`, `date-time`, `color`, and `images`.
 
 The grid calculates synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.
 Pages create their examples on first use.
 The gallery has no application-specific window procedure or drawing code.
+
+The `miller-columns` page uses the public `MillerColumns` control and immutable sources for a synthetic project library.
+Each column contains 28 siblings, with folder branches across eight levels.
+Folder selection replaces later columns. Document selection removes later columns.
+Activation reports the item without an external action.
+The page performs no filesystem or network work.
+
+Select Show deep path to display eight columns.
+Use the horizontal scrollbar or horizontal wheel to inspect the path.
+Scroll vertically within a column to inspect its siblings.
+Select Reset path to return to the project list.
 
 For the native menu example, right-click the menu target or press Shift+F10.
 The `--image` argument fills the image path field.

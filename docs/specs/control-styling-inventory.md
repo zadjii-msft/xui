@@ -73,6 +73,7 @@ Local values remain distinct from style values.
 | --- | --- | --- | --- |
 | `FileList` | Root and row surfaces, primary and secondary text, generic icon tint, focus marker, scrollbar | selected, item focused, item hovered, item disabled where supplied | Shell icons and thumbnail pixels retain their content colors. |
 | `ItemsView`, list, tiles, and grouped | Root, row or tile, primary and secondary text, icon, inline action, inline progress, group header, scrollbar | selected, item focused, item hovered, item disabled, checked, group expanded | `tile.width` is base/local-only. Root row metrics remain uniform and use actual owner state. |
+| `MillerColumns` | Retained column lists use the `ItemsView` schema | Actual column-list and item states | The composite root has no style schema. Column navigation and activation remain model-owned. |
 | `TreeView` | Collection parts, disclosure indicator, indentation, pending and error text | expanded, loading, error, selected | Collapse, asynchronous cancellation, and stable item keys remain unchanged. |
 | `DataGrid` | Root, header, row, alternating row, cell text, grid line, sort/filter icons, check indicator, scrollbar, reorder marker | selected, hovered, focused, sorted, descending, filtered, checked, mixed, filter pending, dragging | Outer row/header metrics belong to the root and remain uniform. Fonts belong only to cell/header text. |
 | `HistoryChart` | Surface, title, caption, grid lines, plot line, line thickness | empty | Fonts belong to title/caption, not root. Missing samples remain gaps. Styling does not rewrite series values. |
@@ -81,7 +82,7 @@ Local values remain distinct from style values.
 | `Breadcrumb` | Root frame, segment Buttons and text, separators, overflow Button | Root: overflowed, disabled. Segment Buttons use their own interaction states. | Native and binding accessors use segment keys with versions. There is no automatic root/current selector. |
 | `NavigationPane` | Root frame and retained group Expander, item collection, progress, status text | loading, error, empty | Child styles target their actual controls. Style application does not cancel or replace a query. |
 | `LocationPicker`, `ViewPicker` | Actual Popup root and explicit editor, navigation, toolbar, choices, and size-control accessors | Root: open, disabled. Child: loading/error/empty on NavigationPane; selected on choice items. | Root styles target Popup. Child styles target their real controls; facade-specific targets reject. |
-| `TabStrip` | Root frame, tab surface, label, close action, separators and selection marker | selected, tab hovered, close hovered | The current tab model has no icon, add action, or drag state. Authored tab data and action identities remain unchanged. |
+| `TabStrip` | Root frame, tab surface, label, close action, separators and selection marker | selected, tab hovered, close hovered | The new-tab Button respects root insets but has no dedicated style part. Tab icons and drag states remain unsupported. Action identities remain unchanged. |
 
 ## Commands, windows, and hosted content
 
