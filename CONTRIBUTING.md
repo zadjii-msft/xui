@@ -449,6 +449,109 @@ The package supplies syntax support, not a language server or visual designer.
 
 ## Documentation and changes
 
+### Retype preview and GitHub Pages
+
+The handbook uses [Retype](https://retype.com/guides/getting-started/) for local preview and static HTML.
+The Markdown also remains compatible with GitBook.
+The documentation tools require Node.js 22 and Python 3.10 or later.
+They do not require the native XUI build.
+
+From the repository root, install the pinned documentation dependency:
+
+```powershell
+npm ci
+```
+
+On Windows ARM64, use this command instead:
+
+```powershell
+npm ci --cpu=x64
+```
+
+Retype 4.6.0 has no native Windows ARM64 package.
+The helper runs its x64 executable through Windows 11 emulation.
+Other platforms use the matching Retype package.
+
+Start the local preview:
+
+```powershell
+npm run docs:dev
+```
+
+The server listens only on `127.0.0.1:5000` and opens the browser.
+The helper watches the source pages and updates the generated input.
+Retype refreshes the site after each change.
+Edit the original Markdown, not the generated files under `build`.
+Press Ctrl+C to stop the preview.
+
+To select another port without opening a browser, run:
+
+```powershell
+npm run docs:dev -- --port 5001 --no-open
+```
+
+Run the source checks and create the static site:
+
+```powershell
+npm run docs:check
+npm run docs:build
+```
+
+The build writes `build\retype-site`.
+It checks rendered page coverage, sidebar order, local links, anchors, assets, and the `/xui/` URL prefix.
+It also compares every rendered code block with its Markdown source.
+Unexpected output files stop the build before artifact upload.
+It does not publish the output.
+The build uses Retype's public [GitHub Pages community key](https://retype.com/community/).
+This key permits Pro features on the default `github.io` domain.
+It is a public license key, not a repository credential.
+An explicit `RETYPE_KEY` environment variable takes precedence.
+A custom domain requires a separate license review.
+
+#### Content and navigation
+
+`docs/specs/SUMMARY.md` remains the single page list and ordering source.
+`tools/docs_site.py` creates Retype input under `build\retype-input`.
+It converts summary sections into folders and adds navigation metadata to generated copies.
+The book contents page remains accessible but does not appear in the sidebar.
+`retype.yml` defines the site URL, output, and branding.
+
+Only pages in the summary, plus the contents page itself, enter the site.
+The helper does not copy maintainer notes, application sources, native binaries, or sample build output.
+Links to other repository files point to GitHub at the source checkout's exact commit.
+These source links still require repository access while the repository is private.
+Fenced examples remain unchanged.
+Template processing is disabled so C++ initializer braces remain literal text.
+The adapter tests are in `tests/test_docs_site.py`.
+Page frontmatter requires an explicit adapter update rather than a silent metadata override.
+
+#### Enable public deployment
+
+**The repository is private. GitHub Pages publication makes the selected handbook pages and their code examples public.**
+The workflow does not publish until an administrator explicitly enables deployment.
+A private repository also requires a GitHub plan that supports Pages.
+
+After approval for public publication:
+
+1. Merge the documentation branch into `main`.
+2. Open the repository's **Settings > Pages**.
+3. Select **GitHub Actions** as the build and deployment source.
+4. Review the `github-pages` environment and restrict deployment to `main`.
+5. Create the Actions repository variable `XUI_PAGES_PUBLIC` with the value `true`.
+6. Run the **Documentation** workflow on `main`.
+
+The site URL is `https://zadjii-msft.github.io/xui/`.
+Later pushes to `main` build and deploy the site automatically.
+Pull requests build the site but never deploy it.
+The workflow uploads only `build\retype-site`, not the repository.
+The build job has read-only repository access.
+Only the deployment job receives Pages and identity-token permissions.
+The workflow uses commit-pinned actions and a locked Retype version.
+
+To stop future deployments, remove the `XUI_PAGES_PUBLIC` variable.
+This action does not remove an already published site.
+To remove the public site, unpublish it in **Settings > Pages**.
+
 ### GitBook documentation
 
 The [XUI handbook](docs/specs/README.md) is the GitBook entry point.
@@ -459,7 +562,7 @@ The summary selects the public pages; maintainer notes are not sidebar chapters.
 
 To host the book, connect this repository and the desired branch through GitBook Git Sync.
 Keep the configuration and Markdown in Git.
-No publishing credentials, account, or hosted site are included in this repository.
+GitBook hosting is separate from the Retype workflow.
 The configuration follows GitBook's [content configuration reference](https://gitbook.com/docs/docs-as-code/git-sync/content-configuration).
 Do not install the obsolete `gitbook-cli` package to process these Git Sync files.
 

@@ -1,0 +1,13 @@
+{
+  "name": "xui-handbook",
+  "private": true,
+  "scripts": {
+    "docs:prepare": "python tools/docs_site.py prepare",
+    "docs:dev": "python tools/docs_site.py start",
+    "docs:build": "python tools/docs_site.py build",
+    "docs:check": "python tests/check-docs.py && python -m unittest discover -s tests -p test_docs_site.py"
+  },
+  "devDependencies": {
+    "retypeapp": "4.6.0"
+  }
+}

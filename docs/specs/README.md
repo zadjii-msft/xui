@@ -17,8 +17,10 @@ APIs are still evolving.
 - [Book contents](SUMMARY.md): Browse the complete GitBook navigation.
 
 The handbook and the references below use the same Markdown source.
-The repository includes GitBook Git Sync configuration; no hosted site is required to read these pages.
-See [documentation maintenance](../../CONTRIBUTING.md#gitbook-documentation) for configuration and verification.
+Retype supplies a local preview and static output for GitHub Pages.
+See [preview and deployment](../../CONTRIBUTING.md#retype-preview-and-github-pages) for commands and the publication approval requirement.
+The repository also retains [GitBook Git Sync configuration](../../CONTRIBUTING.md#gitbook-documentation).
+No hosted site is required to read these pages.
 
 ## Start here
 

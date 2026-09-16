@@ -8,3 +8,7 @@
 /bindings/rust/target/
 /docs/specs/tutorials/sample/bin/
 /docs/specs/tutorials/sample/obj/
+/node_modules/
+/tools/__pycache__/
+/tests/__pycache__/
+/retype.manifest
