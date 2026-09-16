@@ -12,7 +12,7 @@ Extract the complete archive before you run an executable.
 Keep each application beside its supplied DLLs and managed files.
 
 The native directory contains the explorer, two galleries, thumbnails, Task Manager, and three binding samples.
-Each .NET sample has its own directory: `Sample`, `DeclarativeSample`, `FileExplorer`, and `Minesweeper`.
+Each .NET sample has its own directory: `Sample`, `DeclarativeSample`, `FileExplorer`, `Minesweeper`, and the tutorial's `TaskCard`.
 The Rust directory contains `xui-sample.exe`.
 
 The .NET applications include their runtime. They do not require a separate .NET installation.

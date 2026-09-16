@@ -101,7 +101,7 @@ Void delegate assignments can require a lambda, such as `Action apply = () => ra
 
 This extension supersedes earlier statements that the new controls have C++ APIs only.
 The original nine control kinds remain available.
-The extension adds typed constructors to both C# and Rust.
+The extension adds typed constructors to both C# and Rust, including `NavigationView` and `MillerColumns`.
 These include compositions and the earlier workspace controls.
 The bindings use the existing native controls, layout, drawing, input, and accessibility.
 They contain no second renderer or retained row array.
@@ -116,7 +116,7 @@ They contain no second renderer or retained row array.
 | Layout and workspace | `Grid`, `Wrap`, `AdaptiveLayout`, `TabStrip`, `SplitView`, `PageView` | Tracks, cells, wrapping, breakpoints, retained panes, tabs, active pages |
 | Data and history | `DataGrid`, `HistoryChart` | Immutable source, logical columns, resize, reorder, filter state, sort state, check selection, samples |
 | Commands | `CommandBar`, `CommandSurface` | Nested command records, separate pin actions, shortcuts, hints, overflow, explicit popup display |
-| Navigation | `Breadcrumb`, `NavigationPane`, `LocationPicker`, `ViewPicker` | Path segments, immutable sources, typed borrowed children, presentation and size controls |
+| Navigation | `NavigationView`, `Breadcrumb`, `NavigationPane`, `LocationPicker`, `ViewPicker` | Path segments, immutable sources, typed borrowed children, presentation and size controls |
 | Documents | `MultilineText`, `RichText`, `PasswordInput` | Native editing, authored runs, selection, editing commands, read-only mode, scoped password access |
 | Forms | `DateTimePicker`, `ColorPicker`, `InlineStatus`, `ContentDialog` | Local Gregorian fields, RGBA values, status dismissal, arbitrary dialog content, validation message, result events |
 | Scenes and maps | `VectorCanvas`, `MapView` | Immutable shapes, transforms, clips, stable IDs, offline markers, view state, cancelable overlay tokens |
@@ -253,7 +253,7 @@ window.Run();
 ```
 
 The complete examples are [C#](../../bindings/dotnet/Sample/FeatureDemo.cs), [Rust](../../bindings/rust/sample/src/features.rs), and [C++](../../bindings/native/features.cpp).
-The ABI constructor test covers all 35 added kinds.
+The ABI constructor tests cover the feature kinds.
 Both language test suites exercise typed properties, source limits, callback failures, and disposal.
 The tests preserve the existing native focus and accessibility assertions.
 

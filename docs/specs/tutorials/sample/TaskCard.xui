@@ -1,0 +1,102 @@
+namespace Tutorial;
+
+component TaskCard {
+    param string Heading;
+    param global::Xui.Progress Completion;
+
+    state string TaskName = "";
+    state bool Complete = false;
+    state int ApplyCount = 0;
+    state string Status = "Enter a task, then apply.";
+
+    resources {
+        Accent: theme(light: 0x1456B8, dark: 0x78B7FF);
+        TextColor: theme(light: 0x202020, dark: 0xEEEEEE);
+    }
+
+    style HeadingText for Label {
+        foreground: resource(TextColor);
+        fontSize: 24;
+        fontWeight: 600;
+        wrapping: true;
+        maximumLines: 2;
+    }
+
+    style ApplyAction for Button {
+        foreground: theme(light: 0xFFFFFF, dark: 0x102030);
+        background: resource(Accent);
+        padding: (16, 8, 16, 8);
+        cornerRadius: 4;
+        when hovered {
+            background: theme(light: 0x104490, dark: 0xA8D2FF);
+        }
+    }
+
+    style CompletionToggle for Toggle {
+        foreground: resource(TextColor);
+        part indicator {
+            borderBrush: resource(Accent);
+            borderThickness: 1;
+            size: 20;
+            when checked { background: resource(Accent); }
+        }
+        part mark {
+            foreground: theme(light: 0xFFFFFF, dark: 0x102030);
+        }
+    }
+
+    style CompletionProgress for Progress {
+        part fill { background: resource(Accent); }
+    }
+
+    view {
+        VStack(spacing: 12, padding: 20) {
+            Text(Heading, id: "heading", style: HeadingText);
+            TextInput("Task name", text: TaskName, change: SetTaskName,
+                placeholder: "For example, review the design",
+                id: "task-name", ref: EntryField);
+            Grid("Completion row",
+                rows: [new(global::Xui.TrackSizing.Automatic)],
+                columns: [new(global::Xui.TrackSizing.Automatic),
+                          new(global::Xui.TrackSizing.Star, 1)]) {
+                Toggle("Complete", checked: Complete, change: SetComplete,
+                    id: "complete", style: CompletionToggle);
+                Content(Completion, column: 1, style: CompletionProgress);
+            }
+            HStack(spacing: 8) {
+                Button("Apply", click: Apply, id: "apply", style: ApplyAction);
+                Button("Reset", click: Reset, id: "reset");
+            }
+            Text(Status, id: "status");
+            Text($"Applied {ApplyCount} time(s)", id: "apply-count");
+        }
+    }
+
+    code csharp {
+        void SetTaskName(string value) => TaskName = value;
+
+        void SetComplete(bool value)
+        {
+            Complete = value;
+            Completion.Value = value ? 100 : 0;
+        }
+
+        void Apply()
+        {
+            if (global::System.String.IsNullOrWhiteSpace(TaskName))
+            {
+                Status = "Enter a task name before applying.";
+                return;
+            }
+            ApplyCount++;
+            Status = Complete ? $"Completed: {TaskName}" : $"To do: {TaskName}";
+        }
+
+        void Reset()
+        {
+            TaskName = "";
+            SetComplete(false);
+            Status = "Enter a task, then apply.";
+        }
+    }
+}

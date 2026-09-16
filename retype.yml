@@ -1,0 +1,14 @@
+input: build/retype-input
+output: build/retype-site
+url: zadjii-msft.github.io/xui/
+branding:
+  title: XUI
+  label: Handbook
+links:
+  - text: Source
+    link: https://github.com/zadjii-msft/xui
+    icon: mark-github
+editor:
+  enabled: false
+templating:
+  enabled: false

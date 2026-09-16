@@ -5,7 +5,9 @@ param(
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $rid = if ($Architecture -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 $native = "$repo\build\$Architecture\Release\xui.dll"
-foreach ($project in Get-XuiSamples) {
+$samples = @(Get-XuiSamples)
+if ('TaskCard' -notin $samples.BaseName) { throw 'The tutorial sample is missing from the release inventory.' }
+foreach ($project in $samples) {
     foreach ($configuration in 'Debug', 'Release') {
         Invoke-Checked { dotnet build $project.FullName -c $configuration -r $rid --nologo -v:q }
         Assert-SameFile $native "$($project.DirectoryName)\bin\$configuration\net10.0\$rid\xui.dll"

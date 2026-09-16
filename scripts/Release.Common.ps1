@@ -17,7 +17,11 @@ function Invoke-Checked([scriptblock]$Command) {
 }
 
 function Get-XuiSamples {
-    Get-ChildItem (Join-Path $PSScriptRoot '..\bindings\dotnet') -Filter '*.csproj' -Recurse |
+    $roots = @(
+        (Join-Path $PSScriptRoot '..\bindings\dotnet'),
+        (Join-Path $PSScriptRoot '..\docs\specs\tutorials\sample')
+    )
+    Get-ChildItem -Path $roots -Filter '*.csproj' -Recurse |
         Where-Object {
             [xml]$project = Get-Content -LiteralPath $_.FullName -Raw
             $null -ne $project.SelectSingleNode('/Project/PropertyGroup/IsXuiSample[text()="true"]')
