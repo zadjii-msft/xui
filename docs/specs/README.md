@@ -1,8 +1,26 @@
-# Guides and specifications
+# XUI handbook
 
 These documents describe XUI for application authors.
 The root [README](../../README.md) introduces the framework.
 [CONTRIBUTING](../../CONTRIBUTING.md) contains build and test instructions.
+
+## Learn XUI
+
+XUI is a Windows desktop framework with retained controls, native text editing, and explicit ownership.
+It supports C++ and a C ABI, with C# and Rust wrappers.
+The `.xui` language generates C#; it is not XAML or a cross-language runtime.
+APIs are still evolving.
+
+- [Tutorials](tutorials/README.md): Build a task card, add native input, compose controls, apply styles, and prepare a release.
+- [All controls](controls/README.md): Choose a control and find its usage, language availability, and contract.
+- [Language guides](languages/README.md): Start with C++, C, C#, Rust, or declarative `.xui` with C#.
+- [Book contents](SUMMARY.md): Browse the complete GitBook navigation.
+
+The handbook and the references below use the same Markdown source.
+Retype supplies a local preview and static output for GitHub Pages.
+See [preview and deployment](../../CONTRIBUTING.md#retype-preview-and-github-pages) for commands and the publication approval requirement.
+The repository also retains [GitBook Git Sync configuration](../../CONTRIBUTING.md#gitbook-documentation).
+No hosted site is required to read these pages.
 
 ## Start here
 
