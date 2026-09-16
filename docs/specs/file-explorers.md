@@ -46,6 +46,8 @@ The title bar does not repeat the window title.
 The navigation pane contains Recents, Bookmarks, Storage drives, Places, and the path tree for the active folder.
 It has no title header.
 Its filter searches item names and paths.
+The shared `ExplorerStyles.NavigationItems` style gives navigation lists compact rows, smaller text, and smaller icons.
+It uses 28-DIP rows, 12-DIP text, 16-DIP icons, and no extra row padding.
 The folder tree shows the ancestors and immediate child folders of the active location.
 Selecting a folder updates the tree.
 Unchanged navigation rows retain their loaded icons and pending image requests across folder changes.
@@ -63,6 +65,23 @@ Left, Right, Home, and End retain their text-editing behavior.
 Mouse Back and Forward use the history of the pane under the pointer, including its native Find field and title tabs.
 Outside either pane, these buttons use the active pane. An open palette blocks mouse history navigation.
 Each tab retains its folder, filter, sort order, selection, and scroll position.
+Right-clicking a tab opens its context menu without selecting it.
+The menu contains tab shifting, duplication, path copying, and closing commands.
+Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
+Unavailable directions and duplication at the tab limit appear disabled.
+Tab changes invalidate an open menu instead of changing its target.
+
+**Duplicate tab** inserts a copy after its source and selects it.
+Copies retain independent history, filter, Find state, sorting, selection, scrolling, and Columns state.
+**Duplicate in new pane** opens the other pane with a copy.
+An existing pane receives an additional tab without replacement of its current tabs.
+**Duplicate tab to new window** starts another explorer at the target folder.
+**Copy path** copies the quoted folder path.
+
+Closing the last tab or all tabs closes that pane.
+Closing the left pane preserves the other pane's tabs in the remaining workspace.
+Closing the last pane closes the window.
+
 Column headers support sorting and width adjustment.
 File and folder rows highlight under the pointer without changing the selection.
 File rows, navigation folders, and navigation-palette results show asynchronous Windows thumbnails or Shell icons.
@@ -130,6 +149,10 @@ Mode and tab changes detach obsolete native sources and cancel pending work.
 | Escape in the palette | Close the palette without navigation |
 | Ctrl+Shift+P | Open the searchable command palette |
 | Ctrl+T / Ctrl+W | Add a tab / close the active tab |
+| Ctrl+F4 | Close the active tab |
+| Ctrl+Shift+PageUp / Ctrl+Shift+PageDown | Shift the active tab left / right |
+| Ctrl+N | Open the active tab's folder in another explorer window |
+| Ctrl+Shift+W | Close all tabs in the active pane |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Ctrl+\\ | Show or hide the second pane |
 | F6 | Focus the other pane |

@@ -417,6 +417,9 @@ public:
     bool activate_tab(std::uint64_t id);
     void step(int delta);
     void request_close(std::uint64_t id);
+    bool prepare_context_menu(std::optional<Point> position);
+    std::optional<std::uint64_t> context_tab() const { return context_tab_; }
+    std::uint64_t tabs_revision() const { return tabs_revision_; }
     void on_select(std::function<void(std::uint64_t)> callback) { select_ = std::move(callback); }
     // Pointer clicks and Enter/Space activate after selection, including the already-selected tab.
     void on_activate(std::function<void(std::uint64_t)> callback) { activate_ = std::move(callback); }
@@ -445,6 +448,8 @@ private:
     TabColors colors_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
+    std::optional<std::uint64_t> context_tab_;
+    std::uint64_t tabs_revision_{};
     std::function<void(std::uint64_t)> select_, close_, activate_;
     std::shared_ptr<Button> new_button_;
     std::vector<std::shared_ptr<Element>> children_;

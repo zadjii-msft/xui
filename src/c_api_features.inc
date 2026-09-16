@@ -167,16 +167,21 @@ void selection_boundary(const std::wstring& text, uint64_t index) {
 }
 std::shared_ptr<Node> menu_node(xui_handle target) {
     auto node = get(target);
-    require(node->kind == XUI_DATA_GRID || dynamic_cast<xui::VirtualCollection*>(node->element.get()),
-        XUI_WRONG_KIND, "Context menus require a grid or virtual collection.");
+    require(node->kind == XUI_DATA_GRID || node->kind == XUI_TAB_STRIP || dynamic_cast<xui::VirtualCollection*>(node->element.get()),
+        XUI_WRONG_KIND, "Context menus require a grid, tab strip, or virtual collection.");
     editable(node->owner);
     return node;
 }
 std::optional<xui::ItemKey> menu_selection(const std::shared_ptr<Node>& node) {
+    if (node->kind == XUI_TAB_STRIP) {
+        const auto id = as<xui::TabStrip>(node).context_tab();
+        return id ? std::optional<xui::ItemKey>{{*id, as<xui::TabStrip>(node).tabs_revision()}} : std::nullopt;
+    }
     return node->kind == XUI_DATA_GRID ? as<xui::DataGrid>(node).selected() :
         feature<xui::VirtualCollection>(node).selection().focused();
 }
 std::shared_ptr<const xui::CollectionIndex> menu_source(const std::shared_ptr<Node>& node) {
+    if (node->kind == XUI_TAB_STRIP) return {};
     if (node->kind == XUI_DATA_GRID) return as<xui::DataGrid>(node).source();
     return feature<xui::VirtualCollection>(node).source();
 }
@@ -204,7 +209,8 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
                 if (auto node = weak.lock(); node && !node->owner->closed && !node->owner->callback_failure) {
                     if (node->menu_revision == revision && (!source_present || !source.expired()) &&
                         control(node).visible() && menu_source(node) == source.lock() && menu_selection(node) == selected &&
-                        (!selected || (menu_source(node) && menu_source(node)->find(*selected)))) return true;
+                        (!selected || node->kind == XUI_TAB_STRIP ||
+                            (menu_source(node) && menu_source(node)->find(*selected)))) return true;
                 }
                 OutputDebugStringW(L"XUI: Context menu cancelled because its owner, source, selection, or subscription changed.\n");
                 return false;
@@ -212,7 +218,7 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
             node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = result.current;
             node->menu_presentation = xui::ShellMenuPresentation::windows;
             node->menu_requesting = true;
-            const bool success = dispatch_menu(node, XUI_REQUEST);
+            const bool success = dispatch_menu(node, XUI_REQUEST, node->kind == XUI_TAB_STRIP && selected ? selected->id : 0);
             node->menu_requesting = false; node->menu_current = {};
             if (success) {
                 result.items.swap(node->menu_items); result.shell_paths.swap(node->menu_shell_paths);
@@ -255,6 +261,7 @@ xui_status XUI_CALL xui_context_menu_shell_paths(xui_handle target, const xui_st
     return boundary([&] {
         auto node = menu_node(target);
         require(node->menu_requesting, XUI_BUSY, "Shell paths require an active context menu request.");
+        require(node->kind != XUI_TAB_STRIP, XUI_WRONG_KIND, "Shell paths require a grid or virtual collection.");
         require(count <= 256 && (paths || !count), XUI_INVALID_ARGUMENT, "Invalid Shell path span.");
         require(!count || menu_selection(node).has_value(), XUI_INVALID_ARGUMENT, "Shell paths require a selected row.");
         std::vector<std::wstring> values; values.reserve(count);

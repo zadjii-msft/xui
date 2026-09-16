@@ -354,6 +354,18 @@ void hierarchy_and_commands() {
     require((state & style_states::selected_descendant) && (state & style_states::compact),
         "Navigation uses actual selected descendant and compact model state");
     nav.items()->set_control_style_values(StylePart::badge, ink(15));
+    PartStyleValues compact; compact.row_height = 28; compact.font_size = 12; compact.indentation = 12;
+    PartStyleValues icon; icon.size = 16;
+    nav.items()->set_control_style(ControlStyle::create(StyleTarget::navigation_list,
+        {{StylePart::root, compact}, {StylePart::icon, icon}}, {}));
+    require(nav.items()->item_bounds(0).height == 28 &&
+        nav.items()->resolve_control_style_part(StylePart::primary_text, 0).font_size == 12 &&
+        nav.items()->resolve_control_style_part(StylePart::icon, 0).size == 16,
+        "Navigation styles control row geometry, text, and icon size together");
+    nav.items()->set_control_style(nullptr);
+    require(nav.items()->item_bounds(0).height == 40 &&
+        !nav.items()->resolve_control_style_part(StylePart::icon, 0).size,
+        "Clearing compact metrics restores the default navigation geometry");
 
     CommandRecord command{1, 0, L"Disabled", [] {}}; command.enabled = false; command.checked = true;
     CommandRecord submenu{2, 0, L"More"}; submenu.kind = CommandKind::submenu;
@@ -572,6 +584,37 @@ void render_contract() {
     drawing.collection_row(group, false, false, true, palette, false, {}, false, false, &view);
     require(DrawingTestAccess::pixel(drawing, 200, 20) == 0x7755aa, "Expanded group header paints its own part");
     require(drawing.end(), "End group part frame");
+
+    NavigationView navigation;
+    NavigationItem folder{{1, 1}, {}, L"Folder"};
+    folder.icon = ButtonIcon::folder;
+    navigation.set_items({folder});
+    navigation.items()->arrange({0, 0, 320, 180});
+    for (const bool shell_image : {false, true}) {
+        int previous_width = 0;
+        for (const float size : {12.0f, 20.0f}) {
+            PartStyleValues metrics; metrics.row_height = 28; metrics.font_size = 12;
+            PartStyleValues icon; icon.size = size;
+            navigation.items()->set_control_style(ControlStyle::create(StyleTarget::navigation_list,
+                {{StylePart::root, metrics}, {StylePart::icon, icon}}, {}));
+            auto icon_row = navigation.items()->visible_content().front();
+            icon_row.content.primary.clear();
+            if (shell_image) icon_row.content.image_path = L"folder-image";
+            require(drawing.begin(window, 96, palette.background), "Begin navigation icon frame");
+            drawing.collection_row(icon_row, false, false, true, palette, false, {}, false, false, navigation.items().get());
+            int left = 320, right = -1;
+            for (int y = 0; y < 28; ++y) for (int x = 0; x < 60; ++x) {
+                if (DrawingTestAccess::pixel(drawing, x, y) != DrawingTestAccess::pixel(drawing, 100, y)) {
+                    left = std::min(left, x); right = std::max(right, x);
+                }
+            }
+            const int width = right - left + 1;
+            require(width > previous_width && width <= static_cast<int>(size) + 2,
+                "Navigation icon paint follows authored size, including Shell-image fallback slots");
+            previous_width = width;
+            require(drawing.end(), "End navigation icon frame");
+        }
+    }
 #endif
 }
 }

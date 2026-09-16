@@ -14,6 +14,12 @@ internal static class ExplorerSmoke
     private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
     [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     private static extern nint FindWindowExW(nint parent, nint after, string? className, string? windowName);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool ClientToScreen(nint window, ref NativePoint point);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern uint GetDpiForWindow(nint window);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
 
     private static void CheckCommandSnapshot()
     {
@@ -65,6 +71,13 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
+                await Check(() => new[] { app.Sidebar.View.Items, app.Sidebar.View.HeaderItems,
+                    app.Sidebar.View.FooterItems }.All(items =>
+                        ReferenceEquals(items.ControlStyle, ExplorerStyles.NavigationItems)
+                        && items.GetControlStyleValues(StylePart.Root, effective: true).RowHeight == 28
+                        && items.GetControlStyleValues(StylePart.Root, effective: true).FontSize == 12
+                        && items.GetControlStyleValues(StylePart.Icon, effective: true).Size == 16),
+                    "Navigation lists share compact row, text, and icon metrics");
                 await Check(() => new[] { app.Window.TitlebarLeading, app.Left.Tabs.NewTabButton,
                     app.Right.Tabs.NewTabButton, app.Left.BackButton, app.Right.BackButton }.All(button =>
                         ReferenceEquals(button.Style, ExplorerStyles.IconButton)
@@ -405,10 +418,11 @@ internal static class ExplorerSmoke
                 await ColumnsChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
+                await TabMenuChecks(fixture);
                 await Ui(() =>
                 {
                     app.Report("Explorer smoke passed.");
-                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, filtering, sorting, columns, commands, and file transfers.");
+                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, and file transfers.");
                     app.Window.Close();
                 });
             }
@@ -663,6 +677,156 @@ internal static class ExplorerSmoke
             }
             await Ui(() => app.Left.Navigate(fixture));
             await Ready(app.Left);
+        }
+
+        async Task TabMenuChecks(string fixture)
+        {
+            var pane = app.Left;
+            ulong first = 0, second = 0;
+            await Ui(() =>
+            {
+                pane.ResetTabs(fixture);
+                first = pane.Model.Active.Id;
+                pane.NewTab(Path.Combine(fixture, "alpha"));
+                second = pane.Model.Active.Id;
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.Tabs.Focus();
+                nint strip = GetFocus();
+                ulong requested = 0;
+                int requests = 0;
+                pane.Tabs.OnContextMenu(id => { requested = id; requests++; return []; }, _ => { });
+                try
+                {
+                    var point = new NativePoint
+                    {
+                        X = (int)(12 * GetDpiForWindow(strip) / 96),
+                        Y = (int)(12 * GetDpiForWindow(strip) / 96)
+                    };
+                    if (!ClientToScreen(strip, ref point))
+                        throw new InvalidOperationException("Cannot locate the tab for its native context menu.");
+                    SendMessageW(strip, 0x007B, (nuint)strip, (point.Y << 16) | (point.X & 0xffff));
+                    if (requests != 1 || requested != first || pane.Model.Active.Id != second)
+                        throw new InvalidOperationException("Right-click must target the inactive tab without selecting it.");
+                    SendMessageW(strip, 0x007B, (nuint)strip, -1);
+                    if (requests != 2 || requested != second)
+                        throw new InvalidOperationException("Keyboard menus must target the selected tab.");
+                }
+                finally { pane.Tabs.OnContextMenu(pane.TabMenu.GetCommands, pane.TabMenu.Invoke); }
+                var commands = pane.TabMenu.GetCommands(first);
+                if (commands.Count(command => command.Kind == CommandKind.Action) != 11 ||
+                    commands.Single(command => command.Id == TabContextMenu.ShiftLeft).Enabled ||
+                    !commands.Single(command => command.Id == TabContextMenu.ShiftRight).Enabled ||
+                    commands.Single(command => command.Id == TabContextMenu.CloseLeft).Enabled)
+                    throw new InvalidOperationException("Tab menus must expose every command and disable unavailable directions.");
+                pane.TabMenu.Invoke(TabContextMenu.ShiftRight);
+                if (pane.Model.Tabs[1].Id != first || pane.Model.Active.Id != second)
+                    throw new InvalidOperationException("Reordering must preserve the active tab and stable identities.");
+                pane.TabMenu.GetCommands(first);
+                pane.TabMenu.Invoke(TabContextMenu.ShiftLeft);
+                pane.TabMenu.GetCommands(first);
+                pane.TabMenu.Invoke(TabContextMenu.NewWindow);
+                if (app.NewWindowPath != fixture)
+                    throw new InvalidOperationException("New windows must use the right-clicked tab's folder.");
+                pane.Model.Tabs[0].Filter = "original";
+                pane.TabMenu.GetCommands(first);
+                pane.TabMenu.Invoke(TabContextMenu.Duplicate);
+            });
+            await Ready(pane);
+            await Check(() => pane.Model.Tabs.Count == 3 && pane.Model.Active.Id != first
+                && pane.Model.Tabs[1] == pane.Model.Active && pane.Model.Active.Filter == "original"
+                && pane.Model.Active.Path == fixture, "Duplicate retains the target folder and filter beside its source");
+            await Ui(() =>
+            {
+                pane.TabMenu.GetCommands(first);
+                pane.TabMenu.Invoke(TabContextMenu.CloseOthers);
+            });
+            await Ready(pane);
+            await Check(() => pane.Model.Tabs.Count == 1 && pane.Model.Active.Id == first,
+                "Close others preserves only the right-clicked tab");
+            await Ui(() =>
+            {
+                pane.NewTab(fixture);
+                pane.NewTab(fixture);
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                ulong middle = pane.Model.Tabs[1].Id;
+                pane.TabMenu.GetCommands(middle);
+                pane.TabMenu.Invoke(TabContextMenu.CloseLeft);
+                pane.TabMenu.GetCommands(middle);
+                pane.TabMenu.Invoke(TabContextMenu.CloseRight);
+                if (pane.Model.Tabs.Count != 1 || pane.Model.Active.Id != middle)
+                    throw new InvalidOperationException("Directional closure must preserve the target tab.");
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.TabMenu.GetCommands(pane.Model.Active.Id);
+                pane.NewTab(fixture);
+                int count = pane.Model.Tabs.Count;
+                pane.TabMenu.Invoke(TabContextMenu.CloseAll);
+                if (pane.Model.Tabs.Count != count || app.CloseRequested ||
+                    !app.Notification.Text.Contains("no longer available", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Changed tab order must invalidate a pending menu.");
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.Focus();
+                ulong selected = pane.Model.Active.Id;
+                Shortcut(0x21, KeyModifiers.Control | KeyModifiers.Shift);
+                if (pane.Model.Tabs[0].Id != selected)
+                    throw new InvalidOperationException("Ctrl+Shift+PageUp must move the active tab.");
+                Shortcut(0x22, KeyModifiers.Control | KeyModifiers.Shift);
+                Shortcut(0x73, KeyModifiers.Control);
+                if (pane.Model.Tabs.Any(tab => tab.Id == selected))
+                    throw new InvalidOperationException("Ctrl+F4 must close the active tab.");
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                if (!app.SecondPaneVisible) app.ToggleSplit();
+                app.ClosePane(app.Right);
+                pane.SetFilter("");
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.TabMenu.GetCommands(pane.Model.Active.Id);
+                pane.TabMenu.Invoke(TabContextMenu.NewPane);
+            });
+            await Ready(app.Right);
+            await Check(() => app.SecondPaneVisible && app.Right.Model.Tabs.Count == 1
+                && app.Right.Model.Active.Path == pane.Model.Active.Path,
+                "Duplicate in a new pane starts with the requested tab");
+            await Ui(() =>
+            {
+                app.Left.TabMenu.GetCommands(app.Left.Model.Active.Id);
+                app.Left.TabMenu.Invoke(TabContextMenu.NewPane);
+            });
+            await Ready(app.Right);
+            await Check(() => app.Right.Model.Tabs.Count == 2,
+                "Duplication into an existing pane adds a tab without replacing its tabs");
+            await Ui(() =>
+            {
+                app.Right.Model.Active.Filter = "retained";
+                app.ClosePane(app.Left);
+            });
+            await Ready(app.Left);
+            await Check(() => !app.SecondPaneVisible && app.Left.Model.Tabs.Count == 2
+                && app.Left.Model.Active.Filter == "retained" && !app.CloseRequested,
+                "Closing the left pane preserves the other pane's tabs and active state");
+            await Ui(() =>
+            {
+                app.Left.TabMenu.GetCommands(app.Left.Model.Active.Id);
+                app.Left.TabMenu.Invoke(TabContextMenu.CloseAll);
+                if (!app.CloseRequested)
+                    throw new InvalidOperationException("Closing the last pane must request window closure.");
+            });
         }
 
         async Task NewTabButtonChecks(FilePaneView pane)

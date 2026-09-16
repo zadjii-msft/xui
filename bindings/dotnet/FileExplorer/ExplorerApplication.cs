@@ -79,6 +79,8 @@ internal sealed class ExplorerApplication : IDisposable
     public bool SecondPaneVisible => split.Expanded;
     internal Label Notification => notification;
     internal int FileOpenCount { get; private set; }
+    internal string? NewWindowPath { get; private set; }
+    internal bool CloseRequested { get; private set; }
 
     public void Run()
     {
@@ -141,6 +143,69 @@ internal sealed class ExplorerApplication : IDisposable
         Right.Navigate(Active.Model.Active.Path);
     }
 
+    public void DuplicateInNewPane(FilePaneView source, ExplorerTab tab)
+    {
+        source.CaptureViewport();
+        var destination = ReferenceEquals(source, Left) ? Right : Left;
+        if (destination.Model.Tabs.Count >= ExplorerPane.TabLimit)
+        {
+            Report($"A pane can contain at most {ExplorerPane.TabLimit} tabs.");
+            return;
+        }
+        if (!splitOpen)
+        {
+            splitOpen = true;
+            split.SecondVisible = true;
+            Window.TitlebarSecondaryTabs.Visible(true);
+        }
+        if (!rightInitialized && ReferenceEquals(destination, Right))
+        {
+            rightInitialized = true;
+            Right.StartWithDuplicate(tab);
+        }
+        else destination.DuplicateTab(tab);
+        if (split.Expanded) destination.Focus();
+        else Report("Widen the window to show both file panes.");
+    }
+
+    public void ClosePane(FilePaneView pane)
+    {
+        if (!splitOpen || !rightInitialized)
+        {
+            CloseRequested = true;
+            if (!smoke) Window.Close();
+            return;
+        }
+        if (ReferenceEquals(pane, Left)) Left.ReplaceTabsFrom(Right);
+        Right.ResetTabs(Left.Model.Active.Path);
+        splitOpen = false;
+        rightInitialized = false;
+        split.SecondVisible = false;
+        Window.TitlebarSecondaryTabs.Visible(false);
+        Left.Focus();
+    }
+
+    public void NewWindow(string path)
+    {
+        NewWindowPath = path;
+        if (smoke) return;
+        try
+        {
+            string executable = Environment.ProcessPath ??
+                throw new InvalidOperationException("The explorer executable path is unavailable.");
+            var start = new ProcessStartInfo(executable) { UseShellExecute = false };
+            if (string.Equals(Path.GetFileNameWithoutExtension(executable), "dotnet", StringComparison.OrdinalIgnoreCase))
+                start.ArgumentList.Add(Environment.GetCommandLineArgs()[0]);
+            start.ArgumentList.Add(path);
+            using var process = Process.Start(start) ??
+                throw new InvalidOperationException("The explorer process did not start.");
+        }
+        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
+        {
+            Report($"Cannot open another explorer window: {error.Message}");
+        }
+    }
+
     public FilePaneView? OtherPane(FilePaneView from, bool show)
     {
         if (show && !splitOpen)
@@ -200,7 +265,12 @@ internal sealed class ExplorerApplication : IDisposable
     private IReadOnlyList<ExplorerCommand> CreateCommands() =>
     [
         new("New tab", "Ctrl+T", () => Active.NewTab()),
-        new("Close tab", "Ctrl+W", () => Active.CloseTab(), () => Active.Model.Tabs.Count > 1),
+        new("Close tab", "Ctrl+W", () => Active.CloseTab()),
+        new("Duplicate tab", "", () => Active.DuplicateTab(Active.Model.Active),
+            () => Active.Model.Tabs.Count < ExplorerPane.TabLimit),
+        new("Duplicate tab to new window", "Ctrl+N", () => NewWindow(Active.Model.Active.Path)),
+        new("Duplicate in new pane", "", () => DuplicateInNewPane(Active, Active.Model.Active)),
+        new("Close all tabs", "Ctrl+Shift+W", () => ClosePane(Active)),
         new("Next tab", "Ctrl+Tab", () => Active.CycleTab(1)),
         new("Previous tab", "Ctrl+Shift+Tab", () => Active.CycleTab(-1)),
         new("Toggle split panes", "Ctrl+\\", ToggleSplit),
@@ -258,6 +328,15 @@ internal sealed class ExplorerApplication : IDisposable
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
+        if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            switch (vk)
+            {
+                case 0x21: Active.MoveTab(Active.Model.Active.Id, -1); return true;
+                case 0x22: Active.MoveTab(Active.Model.Active.Id, 1); return true;
+                case 0x57: ClosePane(Active); return true;
+            }
+        }
         if (Active.HandleFindKey(key)) return true;
         if (Active.FilesFocused)
         {
@@ -295,6 +374,8 @@ internal sealed class ExplorerApplication : IDisposable
                 case 0x46: Active.ShowFind(); return true;
                 case 0x54: Active.NewTab(); return true;
                 case 0x57: Active.CloseTab(); return true;
+                case 0x73: Active.CloseTab(); return true;
+                case 0x4e: NewWindow(Active.Model.Active.Path); return true;
                 case 0x44: Bookmark(); return true;
                 case 0x09: Active.CycleTab(1); return true;
                 case 0xdc: ToggleSplit(); return true;

@@ -222,3 +222,14 @@ The build and regression logs are `build\navigation\build.log` and `build\naviga
 The current executable is `build\shell-icons\Release\xui_demo.exe`.
 The existing `build\header` and `build\arm64` executables remain untouched.
 The compact header, native EDIT composition, and suggestion-refresh fixes remain in this build.
+
+## Tab context menus, 2026-09-16
+
+The current C# demo uses `TabContextMenu.cs` for tab commands and snapshot guards.
+`TabStrip::prepare_context_menu` records pointer or keyboard targets without selection.
+The shared ABI menu subscription passes the target ID and guards the tab revision.
+`ExplorerTab.Duplicate` copies mutable view and history state.
+`ExplorerPane` retains tab identities during reordering and assigns new identities to copies.
+Closing a pane cancels its pending work. Closing the left pane copies the surviving pane before hiding the right pane.
+`FileExplorer.Tests` covers model copies and ordering.
+`ExplorerSmoke` covers native context targeting, commands, shortcuts, stale snapshots, and pane closure.

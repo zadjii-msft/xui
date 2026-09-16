@@ -3477,8 +3477,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     IDC_SIZEWE : peer.grid_drag == 5 ? IDC_SIZEALL : IDC_ARROW;
                 SetCursor(LoadCursorW(nullptr, cursor)); return TRUE;
             }
-            if (control.role() == ControlRole::split_view && static_cast<SplitView&>(control).expanded() &&
-                LOWORD(lparam) == HTCLIENT) { SetCursor(LoadCursorW(nullptr, IDC_SIZEWE)); return TRUE; }
+            if (auto* split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->expanded() &&
+                reinterpret_cast<HWND>(wparam) == hwnd && LOWORD(lparam) == HTCLIENT) {
+                POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
+                const float x = point.x * 96.0f / dpi + split->bounds().x;
+                const float y = point.y * 96.0f / dpi + split->bounds().y;
+                const auto divider = split->divider();
+                if (peer.dragging || (x >= divider.x && x < divider.x + divider.width &&
+                    y >= divider.y && y < divider.y + divider.height)) {
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE)); return TRUE;
+                }
+            }
             break;
         case WM_COMMAND:
         case WM_NOTIFY:
@@ -3520,6 +3529,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         case WM_CONTEXTMENU:
+            if (auto* tabs = dynamic_cast<TabStrip*>(&control)) {
+                if (!enabled(peer) || !visible(peer)) return 0;
+                std::optional<Point> position;
+                if (lparam != -1) {
+                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
+                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
+                }
+                if (!tabs->prepare_context_menu(position)) return 0;
+            }
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
                 if (!enabled(peer)) return 0;
                 std::optional<Point> position;

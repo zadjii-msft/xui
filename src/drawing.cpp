@@ -272,11 +272,13 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
         }
     }
     const auto root = resolve(StylePart::root);
-    float left = row.compact ? content.x + std::max(0.0f, (content.width - 20) / 2)
+    const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
+    const auto icon_values = resolve(StylePart::icon);
+    const auto icon_size = icon_values.size.value_or(row.content.image_path.empty() ? 20.0f : 24.0f);
+    float left = row.compact ? content.x + std::max(0.0f, (content.width - (visual ? icon_values.size.value_or(20) : 20)) / 2)
                              : content.x + 10 +
                                    std::min(static_cast<float>(row.depth) * root.indentation.value_or(row.navigation ? 16.0f : 20.0f),
                                             content.width / 3);
-    const auto icon_values = resolve(StylePart::icon);
     const auto icon_ink = color(icon_values.foreground, ink);
     if (!row.navigation && row.content.checked) {
         if (command_menu || owner.role() == ControlRole::items_view || owner.role() == ControlRole::tree_view) {
@@ -296,12 +298,11 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
         chevron(owner.disclosure_bounds(row, hot), color(disclosure.foreground, ink), row.expanded);
         left += 24;
     }
-    const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
     if (visual) {
-        const auto size = row.content.image_path.empty() ? 20.0f : 24.0f;
-        item_visual({row.content.icon, row.content.image_path}, pixels, {left, content.y + (content.height - size) / 2, size, size},
+        item_visual({row.content.icon, row.content.image_path}, pixels,
+                    {left, content.y + (content.height - icon_size) / 2, icon_size, icon_size},
                     icon_ink);
-        left += size + 8;
+        left += icon_size + 8;
     }
     if (row.compact) {
         if (!visual)

@@ -461,8 +461,11 @@ typedef struct xui_command_record {
     xui_string label, hint, pin_label;
     uint32_t flags, icon; /* disabled=1, checked=2, has-check=4 */
 } xui_command_record;
-/* DataGrid and virtual collections, including borrowed Miller column lists.
+/* DataGrid, TabStrip, and virtual collections, including borrowed Miller column lists.
    Independent of the control event subscription. Request supplies items synchronously.
+   TabStrip Request carries the right-clicked tab ID, or the selected tab ID for keyboard requests.
+   Pointer requests do not select or activate tabs. Empty strip space has no tab menu.
+   Tab replacement or reordering cancels pending actions.
    Action carries the selected command ID. Menus support flat actions and separators.
    A null callback revokes the menu. Callbacks use the window UI thread. */
 XUI_API xui_status XUI_CALL xui_context_menu_bind(xui_handle target,

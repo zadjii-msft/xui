@@ -79,7 +79,7 @@ const StyleTargetSchema* collections_style_schema(StyleTarget target) {
         {StylePart::row, surface, nav_states, StylePart::root},
         {StylePart::primary_text, text, nav_states, StylePart::row, all_state_properties, StylePart::root, text_limits},
         {StylePart::secondary_text, text, nav_states, StylePart::row, all_state_properties, StylePart::root, text_limits},
-        {StylePart::icon, metric(StyleProperty::foreground), nav_states, StylePart::row},
+        {StylePart::icon, metric(StyleProperty::foreground) | metric(StyleProperty::size), nav_states, StylePart::row},
         {StylePart::selected_marker, decoration, nav_states, StylePart::row},
         {StylePart::focus_marker, decoration, nav_states, StylePart::row},
         {StylePart::scrollbar, metric(StyleProperty::width), disabled, {}},

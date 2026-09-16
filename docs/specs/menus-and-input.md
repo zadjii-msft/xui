@@ -86,6 +86,17 @@ The C ABI reports activation as `XUI_CLICK`. The .NET explorer handles `EventKin
 Arrow-key selection does not activate content or move focus out of the strip.
 The focus rectangle appears only during keyboard navigation and stays inside the selected tab.
 
+Tab context menus use the shared native menu backend.
+Pointer requests target the tab under the pointer without selection or activation.
+Keyboard requests target the selected tab. Empty strip space does not open a tab menu.
+`TabStrip::prepare_context_menu(position)` records the target in `context_tab()`.
+An absent position means a keyboard request.
+The C ABI emits that tab ID in the context-menu `XUI_REQUEST` event.
+C# exposes `TabStrip.OnContextMenu(Func<ulong, Command[]>, Action<ulong>)` and `ClearContextMenu()`.
+The action callback receives the chosen command ID.
+Tab replacement or reordering invalidates pending binding actions.
+Tab menus do not accept Shell paths.
+
 Classic and WinUI tabs have rounded top corners and an open selected bottom edge.
 Inactive tabs share a continuous strip instead of separate button outlines. The close button highlights under the pointer.
 The row inherits its parent background, including unused space after the last tab.
@@ -112,6 +123,8 @@ It publishes structure, selection, and focus changes. A removed tab provider rej
 `SplitView` exposes a divider through `RangeValuePattern`, with a ratio from 10 to 90 percent.
 The layout also enforces pane minima. A requested ratio can therefore differ from the physical split near the minimum width.
 Native children and custom pixels stay inside their content host.
+The horizontal resize cursor applies only to an enabled, expanded divider or its active drag.
+Pane controls keep their own cursors, including the native text editor's I-beam.
 Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
 
 ### Tab colors

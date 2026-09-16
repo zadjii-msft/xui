@@ -41,6 +41,22 @@ public sealed class ExplorerTab
     public bool CanBack => historyIndex > 0;
     public bool CanForward => historyIndex >= 0 && historyIndex < history.Count - 1;
 
+    internal ExplorerTab Duplicate(ulong id)
+    {
+        var copy = new ExplorerTab(id, Path)
+        {
+            Filter = Filter, FindOpen = FindOpen, SortColumn = SortColumn, SortDescending = SortDescending,
+            SelectedPath = SelectedPath, ScrollOffset = ScrollOffset, ViewMode = ViewMode,
+            ActiveColumn = ActiveColumn, Entries = Entries, historyIndex = historyIndex
+        };
+        copy.history.AddRange(history);
+        copy.columns.AddRange(columns.Select(column => new ExplorerColumn(column.Snapshot)
+        {
+            SelectedPath = column.SelectedPath, ScrollOffset = column.ScrollOffset
+        }));
+        return copy;
+    }
+
     public void SetViewMode(ExplorerViewMode mode)
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
@@ -189,6 +205,55 @@ public sealed class ExplorerPane
             return false;
         Active = tab;
         return true;
+    }
+
+    public ExplorerTab DuplicateTab(ExplorerTab source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (Tabs.Count >= TabLimit)
+            throw new InvalidOperationException($"A pane can contain at most {TabLimit} tabs.");
+        var copy = source.Duplicate(checked(++nextId));
+        int index = Tabs.IndexOf(source);
+        Tabs.Insert(index < 0 ? Tabs.Count : index + 1, copy);
+        return Active = copy;
+    }
+
+    public bool MoveTab(ulong id, int delta)
+    {
+        if (delta is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(delta));
+        int index = Tabs.FindIndex(tab => tab.Id == id);
+        int destination = index + delta;
+        if (index < 0 || destination < 0 || destination >= Tabs.Count) return false;
+        (Tabs[index], Tabs[destination]) = (Tabs[destination], Tabs[index]);
+        return true;
+    }
+
+    public void ReplaceTabs(ExplorerPane source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(this, source)) throw new ArgumentException("The source pane must be different.", nameof(source));
+        int active = source.Tabs.IndexOf(source.Active);
+        var copies = source.Tabs.Select(tab => tab.Duplicate(checked(++nextId))).ToArray();
+        Tabs.Clear();
+        Tabs.AddRange(copies);
+        Active = Tabs[active];
+    }
+
+    public void ResetTabs(string path)
+    {
+        var tab = new ExplorerTab(checked(++nextId), path);
+        Tabs.Clear();
+        Tabs.Add(tab);
+        Active = tab;
+    }
+
+    public void ResetTabs(ExplorerTab source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var tab = source.Duplicate(checked(++nextId));
+        Tabs.Clear();
+        Tabs.Add(tab);
+        Active = tab;
     }
 
     public bool CloseTab(ulong id)

@@ -115,6 +115,17 @@ void control_tests() {
     tabs.on_close([&](auto) { ++closed; });
     tabs.set_tabs({{1, L"First"}, {2, L"Second"}, {3, L"Third"}, {4, L"Fourth"}}, 1);
     const auto first = tabs.tab_bounds(0), second = tabs.tab_bounds(1);
+    require(tabs.prepare_context_menu(Point{second.x + 8, second.y + 8}) &&
+        tabs.context_tab() == 2 && tabs.selected() == 1 && selected == 0,
+        "Pointer context menus target the clicked tab without selection or activation");
+    require(tabs.prepare_context_menu({}) && tabs.context_tab() == 1,
+        "Keyboard context menus target the selected tab");
+    require(!tabs.prepare_context_menu(Point{-1, 8}) && !tabs.context_tab(),
+        "Empty space cannot retain a previous tab context target");
+    tabs.set_enabled(false);
+    require(!tabs.prepare_context_menu({}), "Disabled tabs reject context menus");
+    tabs.set_enabled(true);
+    const auto revision = tabs.tabs_revision();
     require(first.x + first.width == second.x && first.y == 0 && first.height == tabs.bounds().height,
         "Tab slots meet and extend to the content edge");
     for (float height : {24.0f, 38.0f, 41.0f, 56.0f}) {
@@ -133,6 +144,8 @@ void control_tests() {
     tabs.request_close(4);
     require(closed == 1, "Close dispatch uses stable identity");
     tabs.set_tabs({{1, L"First"}}, 1);
+    require(tabs.tabs_revision() != revision, "Replacing tabs invalidates context-menu snapshots");
+    require(!tabs.prepare_context_menu(Point{250, 8}), "The unused strip has no context menu");
     tabs.arrange({0, 0, 47, 38});
     require(tabs.close_bounds(0).width == 0, "Narrow tabs hide the close target");
     tabs.arrange({0, 0, 420, 20});

@@ -178,6 +178,12 @@ Styles do not replace HWNDs, UI Automation providers, event handlers, or native 
 Theme and style changes preserve native text, selection, and ownership.
 No native IME, undo, or input implementation changes are part of this stage.
 
+NavigationView lists accept a `NavigationList` style through their retained child accessors.
+Root `rowHeight` sets row geometry. Root `fontSize` supplies inherited text size.
+The `icon.size` property sets a square slot in DIPs for vector icons and Shell images.
+It accepts finite values from zero through 32768, including state rules.
+An unset size preserves the existing icon dimensions.
+
 ## Storage and binding boundaries
 
 Element has an optional generic attachment pointer.

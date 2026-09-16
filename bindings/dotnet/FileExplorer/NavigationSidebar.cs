@@ -14,6 +14,8 @@ internal sealed class NavigationSidebar
     {
         this.app = app;
         View = new SidebarLayout(app.Window, attach: false).Root;
+        foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })
+            items.SetControlStyle(ExplorerStyles.NavigationItems);
         View.Event += e =>
         {
             if (!updating && e.Kind is EventKind.Selection or EventKind.Click && paths.TryGetValue(e.Value, out string? path))

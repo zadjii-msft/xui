@@ -16,6 +16,7 @@ internal static class Program
             TabTests(fixture);
             ColumnTests(fixture);
             PaneTests(fixture);
+            TabCommandTests(fixture);
             StateTests(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
             return 0;
@@ -421,6 +422,78 @@ internal static class Program
         Equal(ExplorerPane.TabLimit, pane.Tabs.Select(tab => tab.Id).Distinct().Count());
         Throws<InvalidOperationException>(() => pane.AddTab(fixture));
         Equal(1, other.Tabs.Count);
+    }
+
+    private static void TabCommandTests(string fixture)
+    {
+        var pane = new ExplorerPane(fixture);
+        var first = pane.Active;
+        first.Commit(new(fixture, []));
+        first.Commit(new(Path.Combine(fixture, "next"), []));
+        first.Filter = "query";
+        first.FindOpen = true;
+        first.SortColumn = 3;
+        first.SortDescending = true;
+        first.SelectedPath = Path.Combine(first.Path, "selected.txt");
+        first.ScrollOffset = 42;
+        first.SetViewMode(ExplorerViewMode.Columns);
+        first.Columns[0].ScrollOffset = 27;
+        var second = pane.AddTab(fixture);
+        var copy = pane.DuplicateTab(first);
+        True(copy.Id != first.Id && copy.Id != second.Id);
+        Sequence(new[] { first.Id, copy.Id, second.Id }, pane.Tabs.Select(tab => tab.Id));
+        Equal(copy, pane.Active);
+        Equal(first.Path, copy.Path);
+        Equal(first.Filter, copy.Filter);
+        Equal(first.FindOpen, copy.FindOpen);
+        Equal(first.SortColumn, copy.SortColumn);
+        Equal(first.SortDescending, copy.SortDescending);
+        Equal(first.SelectedPath, copy.SelectedPath);
+        Equal(first.ScrollOffset, copy.ScrollOffset);
+        Equal(first.ViewMode, copy.ViewMode);
+        True(copy.CanBack);
+        True(copy.TryGetHistory(-1, out var previous));
+        Equal(fixture, previous);
+        True(!ReferenceEquals(first.Columns[0], copy.Columns[0]));
+        copy.Columns[0].ScrollOffset = 99;
+        Equal(27d, first.Columns[0].ScrollOffset);
+        copy.Filter = "different";
+        Equal("query", first.Filter);
+        copy.Commit(new(Path.Combine(fixture, "third"), []));
+        Equal(Path.Combine(fixture, "next"), first.Path);
+
+        True(!pane.MoveTab(first.Id, -1));
+        True(!pane.MoveTab(second.Id, 1));
+        True(!pane.MoveTab(999, 1));
+        Throws<ArgumentOutOfRangeException>(() => pane.MoveTab(first.Id, 2));
+        True(pane.MoveTab(first.Id, 1));
+        Sequence(new[] { copy.Id, first.Id, second.Id }, pane.Tabs.Select(tab => tab.Id));
+        Equal(copy, pane.Active);
+        True(pane.MoveTab(first.Id, -1));
+        True(pane.CloseTab(first.Id));
+        Equal(copy, pane.Active);
+
+        var other = new ExplorerPane(fixture);
+        var oldId = other.Active.Id;
+        other.ReplaceTabs(pane);
+        Equal(2, other.Tabs.Count);
+        True(other.Tabs.All(tab => tab.Id != oldId));
+        Equal(copy.Path, other.Active.Path);
+        True(!ReferenceEquals(copy, other.Active));
+        other.ResetTabs(first);
+        Equal(1, other.Tabs.Count);
+        Equal(first.Filter, other.Active.Filter);
+        True(other.Active.CanBack);
+        oldId = other.Active.Id;
+        other.ResetTabs(fixture);
+        Equal(1, other.Tabs.Count);
+        True(other.Active.Id != oldId && !other.Active.HasSnapshot);
+        Equal("", other.Active.Filter);
+        Throws<ArgumentException>(() => other.ReplaceTabs(other));
+
+        while (pane.Tabs.Count < ExplorerPane.TabLimit) pane.DuplicateTab(first);
+        Throws<InvalidOperationException>(() => pane.DuplicateTab(first));
+        Equal(ExplorerPane.TabLimit, pane.Tabs.Count);
     }
 
     private static void StateTests(string fixture)

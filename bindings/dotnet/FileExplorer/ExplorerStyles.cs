@@ -5,6 +5,14 @@ internal static class ExplorerStyles
     // Match the WinUI window background until styles support transparent colors.
     private static readonly ThemeColor Background = new(0xF3F3F3, 0x202020);
 
+    internal static readonly ControlStyle NavigationItems = new(StyleTarget.NavigationList,
+    [
+        new(StylePart.Root, new() { RowHeight = 28, FontSize = 12, Indentation = 12 }),
+        new(StylePart.Row, new() { Padding = new(0) }),
+        new(StylePart.GroupHeader, new() { Padding = new(0), Background = Background }),
+        new(StylePart.Icon, new() { Size = 16 })
+    ]);
+
     internal static readonly ButtonStyle IconButton = new(new()
     {
         Background = Background,

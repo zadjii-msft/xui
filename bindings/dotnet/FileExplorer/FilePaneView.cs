@@ -37,6 +37,8 @@ internal sealed class FilePaneView
         Tabs.SetAutomationId($"pane-{number}-tabs");
         Tabs.NewTabButtonVisible = true;
         Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
+        TabMenu = new(app, this);
+        Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         layout = new(window, number, path, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
@@ -128,6 +130,7 @@ internal sealed class FilePaneView
     public ExplorerPane Model { get; }
     public Grid Root { get; }
     public TabStrip Tabs { get; }
+    internal TabContextMenu TabMenu { get; }
     public Button Address { get; }
     public Button BackButton { get; }
     public DataGrid Grid { get; }
@@ -351,12 +354,56 @@ internal sealed class FilePaneView
     }
 
     public void CloseTab(ulong? id = null)
+        => CloseTabs([id ?? Model.Active.Id]);
+
+    public void CloseTabs(IEnumerable<ulong> ids)
     {
+        var closing = ids.ToHashSet();
+        if (Model.Tabs.All(tab => closing.Contains(tab.Id))) { app.ClosePane(this); return; }
         SaveViewport();
         ulong old = Model.Active.Id;
-        if (!Model.CloseTab(id ?? old)) return;
+        foreach (ulong id in closing) Model.CloseTab(id);
         if (old != Model.Active.Id) SwitchTab();
         else UpdateTabs();
+    }
+
+    public void MoveTab(ulong id, int delta)
+    {
+        if (Model.MoveTab(id, delta)) UpdateTabs();
+    }
+
+    public void DuplicateTab(ExplorerTab source)
+    {
+        SaveViewport();
+        try { Model.DuplicateTab(source); }
+        catch (InvalidOperationException failure) { app.Report(failure.Message); return; }
+        SwitchTab();
+        Focus();
+    }
+
+    internal void CaptureViewport() => SaveViewport();
+
+    internal void ReplaceTabsFrom(FilePaneView source)
+    {
+        source.SaveViewport();
+        Cancel();
+        Model.ReplaceTabs(source.Model);
+        SwitchTab();
+    }
+
+    internal void ResetTabs(string path)
+    {
+        Cancel();
+        ClearColumns();
+        Model.ResetTabs(path);
+        UpdateTabs();
+    }
+
+    internal void StartWithDuplicate(ExplorerTab source)
+    {
+        Cancel();
+        Model.ResetTabs(source);
+        SwitchTab();
     }
 
     public void CycleTab(int delta)

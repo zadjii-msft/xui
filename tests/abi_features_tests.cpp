@@ -961,6 +961,9 @@ int main() {
     xui_event menu_event{};
     ok(xui_context_menu_bind(handles[XUI_DATA_GRID], event, &menu_event));
     ok(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event));
+    ok(xui_context_menu_bind(handles[XUI_TAB_STRIP], event, &menu_event));
+    expect(xui_context_menu_items(handles[XUI_TAB_STRIP], nullptr, 0) == XUI_BUSY);
+    ok(xui_context_menu_bind(handles[XUI_TAB_STRIP], nullptr, nullptr));
     expect(xui_context_menu_bind(handles[XUI_PROGRESS], event, &menu_event) == XUI_WRONG_KIND);
     expect(xui_context_menu_items(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);
     expect(xui_context_menu_shell_paths(handles[XUI_DATA_GRID], nullptr, 0) == XUI_BUSY);

@@ -33,6 +33,16 @@ The C++ accessor and both bindings use that same control without replacement.
 The ABI regression covers handle identity, separate pane buttons, invalid indices, and Button styling.
 The explorer smoke covers the shared style and existing New tab activation.
 
+### Compact explorer navigation
+
+`ExplorerStyles.NavigationItems` supplies the demo's row, text, indentation, padding, and icon metrics.
+`NavigationSidebar` applies that shared style to the main, header, and footer lists.
+The NavigationList schema accepts `icon.size`.
+`Drawing::styled_collection_row` uses it for image and vector slots, text placement, and compact centering.
+Unset sizes retain their previous dimensions and placement.
+The generated native catalog supplies the same property mask to C#, Rust, and the declarative compiler.
+The collection style regression covers row geometry, inherited text size, style removal, and rasterized icon sizes.
+
 ### Final VSIX catalog integration
 
 The extension update uses the verified compiler and native catalog from commit `9bc9c4f90034b9acef48bf53e7e0907b6a672b3c`.

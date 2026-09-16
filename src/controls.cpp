@@ -775,6 +775,7 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
         throw std::invalid_argument("Selected tab must exist");
     if (!tabs.empty() && !selected) selected = tabs.front().id;
     tabs_ = std::move(tabs);
+    ++tabs_revision_;
     selected_ = selected;
     reveal_selected();
     arrange_new_button();
@@ -807,6 +808,14 @@ void TabStrip::request_close(std::uint64_t id) {
         auto callback = close_;
         callback(id);
     }
+}
+bool TabStrip::prepare_context_menu(std::optional<Point> position) {
+    context_tab_.reset();
+    if (!enabled() || !visible()) return false;
+    if (position) {
+        if (const auto index = hit_test(*position)) context_tab_ = tabs_[*index].id;
+    } else context_tab_ = selected_;
+    return context_tab_.has_value();
 }
 Rect TabStrip::tab_bounds(std::size_t index) const {
     if (index >= tabs_.size() || index < first_) return {};

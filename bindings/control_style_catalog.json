@@ -1635,9 +1635,9 @@
     {
       "target": 29,
       "part": 5,
-      "properties": 2,
+      "properties": 66,
       "states": 1610612853,
-      "state_properties": 2,
+      "state_properties": 66,
       "maximum_font_size": 32768.0,
       "maximum_font_family_utf16": 1024,
       "font_styles": 7,

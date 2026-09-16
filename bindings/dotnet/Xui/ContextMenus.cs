@@ -2,6 +2,26 @@ namespace Xui;
 
 public enum ShellMenuPresentation { Windows, Xui }
 
+public sealed partial class TabStrip
+{
+    /// <summary>Builds a native menu for the right-clicked tab, or the selected tab for keyboard requests.</summary>
+    public TabStrip OnContextMenu(Func<ulong, Command[]> items, Action<ulong> invoked)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(invoked);
+        Window.SetMenuSubscription(Handle, e =>
+        {
+            if (e.Kind == EventKind.Request)
+                Features.Commands(this, items(e.Value) ??
+                    throw new InvalidOperationException("Context menu items cannot be null."), contextMenu: true);
+            else if (e.Kind == EventKind.Action) invoked(e.Value);
+        });
+        return this;
+    }
+
+    public void ClearContextMenu() => Window.SetMenuSubscription(Handle, null);
+}
+
 public sealed unsafe partial class DataGrid
 {
     /// <summary>Builds a native row context menu on the UI thread after pointer selection updates.</summary>

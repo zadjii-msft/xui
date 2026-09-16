@@ -108,7 +108,12 @@ void run() {
         {{StylePart::root, style_states::disabled, disabled_layout}}));
     content->set_enabled(false);
     auto scroll = std::make_shared<ScrollView>(blank(400)); scroll->set_preferred_size({900, 80});
-    auto split = std::make_shared<SplitView>(blank(), blank()); split->set_preferred_size({900, 80});
+    auto first_pane = std::make_shared<Stack>(Axis::horizontal);
+    auto second_pane = std::make_shared<Stack>(Axis::horizontal);
+    first_pane->add(std::make_shared<Button>(L"First address"));
+    first_pane->add(std::make_shared<TextInput>(L"Pane editor"));
+    second_pane->add(std::make_shared<Button>(L"Second address"));
+    auto split = std::make_shared<SplitView>(first_pane, second_pane); split->set_preferred_size({900, 80});
     auto expander = std::make_shared<Expander>(L"Styled header", blank()); expander->set_preferred_size({900, 100});
     const std::vector<std::pair<std::shared_ptr<Element>, uint32_t>> panels{
         {grid, 0x203040}, {wrap, 0x304050}, {adaptive, 0x405060}, {pages, 0x506070},
@@ -148,12 +153,54 @@ void run() {
             check_pixel(host, image, {thumb.x + thumb.width / 2, thumb.y + thumb.height / 2}, 0xdd2211);
             check_pixel(host, image, {divider.x + 1, divider.y + 4}, 0x22dd11);
         }
-        HWND scroll_peer{}, split_peer{};
+        HWND scroll_peer{}, split_peer{}, first_address{}, second_address{}, pane_editor{};
         for (auto peer : original) {
             wchar_t name[128]{}; GetWindowTextW(peer, name, 128);
             if (std::wstring_view(name) == scroll->name()) scroll_peer = peer;
             if (std::wstring_view(name) == split->name()) split_peer = peer;
+            if (std::wstring_view(name) == L"First address") first_address = peer;
+            if (std::wstring_view(name) == L"Second address") second_address = peer;
         }
+        require(first_address && second_address, "Split panes retain address buttons");
+        require(split_peer != nullptr, "SplitView peer exists");
+        for (auto peer : peers(split_peer)) {
+            wchar_t type[64]{}; GetClassNameW(peer, type, 64);
+            if (_wcsicmp(type, L"EDIT") == 0) pane_editor = peer;
+        }
+        require(pane_editor != nullptr, "Split panes retain a native editor");
+        const auto previous_cursor = GetCursor();
+        struct RestoreCursor { HCURSOR previous; ~RestoreCursor() { SetCursor(previous); } } restore_cursor{previous_cursor};
+        const auto arrow = LoadCursorW(nullptr, IDC_ARROW), resize = LoadCursorW(nullptr, IDC_SIZEWE);
+        const auto scale = GetDpiForWindow(host) / 96.0f;
+        const auto divider_bounds = split->divider(), split_bounds = split->bounds();
+        SendMessageW(split_peer, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(
+            int((divider_bounds.x - split_bounds.x + divider_bounds.width / 2) * scale),
+            int((divider_bounds.y - split_bounds.y + divider_bounds.height / 2) * scale)));
+        require(GetCapture() == split_peer, "Styled divider starts a captured drag");
+        SetCursor(arrow);
+        SendMessageW(split_peer, WM_SETCURSOR, reinterpret_cast<WPARAM>(split_peer), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+        require(GetCursor() == resize, "Captured divider drag retains the resize cursor");
+        SendMessageW(split_peer, WM_LBUTTONUP, 0, 0);
+        require(GetCapture() != split_peer, "Divider releases capture before the pointer reaches pane controls");
+        for (const auto address : {first_address, second_address}) {
+            SetCursor(resize);
+            SendMessageW(address, WM_SETCURSOR, reinterpret_cast<WPARAM>(address), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+            require(GetCursor() == arrow, "SplitView must not override an address button's arrow cursor");
+        }
+        SetCursor(resize);
+        SendMessageW(pane_editor, WM_SETCURSOR, reinterpret_cast<WPARAM>(pane_editor), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+        require(GetCursor() == LoadCursorW(nullptr, IDC_IBEAM), "SplitView preserves the native editor's I-beam cursor");
+        split->set_enabled(false);
+        SetCursor(resize);
+        SendMessageW(split_peer, WM_SETCURSOR, reinterpret_cast<WPARAM>(split_peer), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+        require(GetCursor() == arrow, "Disabled SplitView does not claim the resize cursor");
+        split->set_enabled(true);
+        split->set_secondary_visible(false);
+        SetCursor(resize);
+        SendMessageW(split_peer, WM_SETCURSOR, reinterpret_cast<WPARAM>(split_peer), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+        require(GetCursor() == arrow, "Collapsed SplitView does not claim the resize cursor");
+        split->set_secondary_visible(true);
+        flush(host);
         require(scroll_peer != nullptr, "Scroll peer exists");
         const auto input_scale = GetDpiForWindow(host) / 96.0f;
         const auto track_bounds = scroll->scrollbar_track(), scroll_bounds = scroll->bounds();
