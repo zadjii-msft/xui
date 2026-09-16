@@ -19,12 +19,12 @@ npm run package
 ```
 
 The package command runs tokenizer tests and checks the VSIX contents.
-It creates `dist\xui-0.1.0.vsix`. It does not publish or install the extension.
+It creates `dist\xui-0.2.0.vsix`. It does not publish or install the extension.
 
 To install the local package, run:
 
 ```powershell
-code --install-extension .\dist\xui-0.1.0.vsix
+code --install-extension .\dist\xui-0.2.0.vsix
 ```
 
 Alternatively, run **Extensions: Install from VSIX...** in the VS Code Command Palette.
