@@ -1,0 +1,9 @@
+namespace PackageFixture;
+
+component Counter {
+    view {
+        VStack() {
+            Text("Package consumer");
+        }
+    }
+}

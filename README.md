@@ -78,4 +78,6 @@ Shared [control styles](docs/specs/control-styling.md) customize colors, typogra
 
 ## Documentation
 
+[Packages and deployment](docs/specs/packages.md) covers NuGet, Cargo, and runnable release samples.
+
 [Build and contribute](CONTRIBUTING.md) · [API guides and specs](docs/specs/README.md) · [Maintainer notes](docs/llm/README.md)

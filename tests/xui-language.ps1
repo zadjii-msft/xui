@@ -96,7 +96,7 @@ function Inspect-Type([string]$Name) {
 }
 
 $escapedTargets = [Security.SecurityElement]::Escape($targets)
-$escapedLibrary = [Security.SecurityElement]::Escape($library)
+$escapedNative = [Security.SecurityElement]::Escape($native)
 $escapedManifest = [Security.SecurityElement]::Escape((Join-Path $root "demo\xui.manifest"))
 @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -104,15 +104,13 @@ $escapedManifest = [Security.SecurityElement]::Escape((Join-Path $root "demo\xui
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifier>$RuntimeIdentifier</RuntimeIdentifier>
+    <XuiNativeDir>$escapedNative</XuiNativeDir>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ApplicationManifest>$escapedManifest</ApplicationManifest>
   </PropertyGroup>
   <Import Project="$escapedTargets" />
-  <ItemGroup>
-    <None Include="$escapedLibrary" Link="xui.dll" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>
 "@ | Set-Content -LiteralPath $project -Encoding utf8
 @'

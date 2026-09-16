@@ -1,0 +1,161 @@
+name: Draft release
+
+on:
+  push:
+    tags:
+      - 'release/*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: windows-2022
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Validate release tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          . .\scripts\Release.Common.ps1
+          if (!$env:RELEASE_TAG.StartsWith('release/')) { throw 'Expected release/ tag.' }
+          $version = $env:RELEASE_TAG.Substring('release/'.Length)
+          Assert-ReleaseVersion $version
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Check release guards
+        shell: pwsh
+        run: .\tests\release-workflow.ps1
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+          - arch: ARM64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Select Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed.' }
+      - name: Build native libraries and all samples
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          .\scripts\Build-Release.ps1 -Version $env:RELEASE_VERSION -Architecture $env:RELEASE_ARCH -StageDirectory build\stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-inputs-${{ matrix.arch }}
+          path: build/stage/
+          if-no-files-found: error
+
+  package:
+    needs: [version, build]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Select Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed.' }
+          rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Rust target installation failed.' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-inputs-*
+          merge-multiple: true
+          path: build/stage
+      - name: Assemble release assets
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: .\scripts\New-ReleaseAssets.ps1 -Version $env:RELEASE_VERSION -StageDirectory build\stage -OutputDirectory build\assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: build/assets/
+          if-no-files-found: error
+
+  verify:
+    needs: [version, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+          - arch: ARM64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Select Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed.' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: build/assets
+      - name: Check package consumers and sample archive
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          .\tests\packages.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
+          .\tests\release-samples.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets
+
+  draft:
+    needs: [version, verify]
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+      - name: Create draft with release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          .\scripts\New-DraftRelease.ps1 -Tag $env:RELEASE_TAG -Repository $env:GH_REPO -AssetDirectory assets

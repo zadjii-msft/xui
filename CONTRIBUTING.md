@@ -93,12 +93,20 @@ The [application reference](docs/specs/application.md) describes thread ownershi
 
 ## C# and declarative samples
 
-After the native build, add its DLL directory to this shell's search path:
+After the native build, run a sample:
 
 ```powershell
-$env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
 dotnet run --project bindings\dotnet\DeclarativeSample -r $rid
 ```
+
+Sample builds copy this checkout's `build\<architecture>\Release\xui.dll` into their output.
+Publish copies the same DLL into its output.
+The default sample architecture matches the host Windows architecture.
+`-r win-x64` or `-r win-arm64` selects another architecture.
+`XuiNativeConfiguration=Debug` selects a Debug native build.
+`XuiNativeDir` selects an explicit native output directory.
+A missing DLL stops the build with a diagnostic and native build commands.
+No XUI entry in `PATH` is necessary.
 
 For the development loop, use:
 
@@ -122,10 +130,10 @@ Direct `dotnet Sample.dll` execution does not apply the apphost's native-control
 
 ### C# file explorer
 
-The explorer copies the native DLL from `XuiNativeDir`:
+The explorer uses the same automatic DLL copy as the other samples:
 
 ```powershell
-dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$PWD\$build\Release"
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
 & ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe" "D:\Documents"
 ```
 
@@ -146,7 +154,7 @@ The command above waits until the explorer closes and preserves managed error de
 For markup changes, use restart-on-save:
 
 ```powershell
-dotnet watch --project bindings\dotnet\FileExplorer --no-hot-reload --non-interactive "-p:RuntimeIdentifier=$rid" "-p:XuiNativeDir=$PWD\$build\Release"
+dotnet watch --project bindings\dotnet\FileExplorer --no-hot-reload --non-interactive "-p:RuntimeIdentifier=$rid"
 ```
 
 The explorer disables in-place reload because its controllers own asynchronous work and native event subscriptions.
@@ -160,7 +168,6 @@ An older `xui.dll` does not provide these APIs.
 
 ```powershell
 dotnet publish bindings\dotnet\DeclarativeSample -c Release -r $rid -p:PublishAot=true
-Copy-Item "$build\Release\xui.dll" "bindings\dotnet\DeclarativeSample\bin\Release\net10.0\$rid\publish\"
 ```
 
 NativeAOT requires the matching Visual Studio native tools.
@@ -181,18 +188,63 @@ Use a Visual Studio developer shell for the target architecture.
 ```powershell
 $target = if ($arch -eq "ARM64") { "aarch64-pc-windows-msvc" } else { "x86_64-pc-windows-msvc" }
 $env:XUI_LIB_DIR = (Resolve-Path "$build\Release").Path
-$env:PATH = "$env:XUI_LIB_DIR;$env:PATH"
 Push-Location bindings\rust
 cargo build --workspace --release --target $target
+Copy-Item "$env:XUI_LIB_DIR\xui.dll" ".\target\$target\release\deps\"
 cargo test --workspace --release --target $target
 cargo clippy --workspace --all-targets --release --target $target -- -D warnings
 cargo fmt --all --check
+Copy-Item "$env:XUI_LIB_DIR\xui.dll" ".\target\$target\release\"
 & ".\target\$target\release\xui-sample.exe"
 Pop-Location
 ```
 
 `XUI_LIB_DIR` selects the directory with `xui.lib`.
 The [binding reference](docs/specs/bindings.md) describes ownership and callback errors.
+
+## Release packages
+
+The [package guide](docs/specs/packages.md) describes consumption and deployment.
+Release builds require both x64 and ARM64 C++ tools and Rust targets.
+Each GitHub runner builds its own architecture.
+The local commands can cross-compile both architectures:
+
+```powershell
+.\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture x64 -StageDirectory build\release-stage
+.\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture ARM64 -StageDirectory build\release-stage
+.\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
+.\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
+.\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
+.\tests\release-workflow.ps1
+.\tests\native-copy.ps1 -Architecture $arch
+```
+
+Use a fresh staging directory for each release build.
+The scripts preserve existing staging directories and stop instead of mixing old and new outputs.
+The scripts find CMake and Visual Studio tools automatically.
+Static package libraries disable link-time optimization to avoid compiler-version coupling from `/GL` objects.
+NuGet and Cargo versions come from the supplied version. Package scripts do not edit tracked version files.
+Compiler-only fixtures can set `XuiCopyNativeRuntime=false`.
+Application builds must not use that escape hatch.
+
+The workflow runs for tag pushes under `release/`.
+It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
+It builds both architectures, all samples, the NuGet package, and both Cargo crates.
+The sample ZIP includes self-contained .NET deployments and native dependencies.
+The workflow creates a draft release and attaches the assets and SHA-256 checksums.
+It does not publish to NuGet.org or crates.io.
+It refuses to replace assets on an already published GitHub release.
+
+To request a release, push a tag from the intended commit:
+
+```powershell
+git tag release/0.1.0
+git push origin release/0.1.0
+```
+
+Before publication, review the draft assets and generated notes.
+The repository currently has no root license declaration.
+A maintainer must select the distribution terms before public package publication.
 
 ## Tests
 

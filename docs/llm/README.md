@@ -16,7 +16,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 ## Implementation context
 
 - [Native architecture](architecture.md): Window hosting, drawing, accessibility, lists, and worker ownership.
-- [Test coverage and protocols](testing.md): Regression scope, fixture behavior, and measurement methods.
+- [Test coverage and protocols](testing.md): Regression scope, release-package checks, fixture behavior, and measurement methods.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Source ownership, fidelity gaps, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, delivery stages, and acceptance evidence.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.

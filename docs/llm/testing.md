@@ -3,6 +3,40 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Release packaging and local deployment
+
+The public contract is in [Packages and deployment](../specs/packages.md).
+`scripts\Build-Release.ps1` builds each architecture and stages its sample inventory.
+`scripts\New-ReleaseAssets.ps1` creates the packages, combined ZIP, and checksums.
+`packaging\Xui.nuspec` defines the combined NuGet layout.
+The native and managed imports have separate framework directories.
+`bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
+
+`tests\native-copy.ps1` checks each local sample in Debug and Release.
+It compares DLL hashes, checks explicit missing-runtime errors, and selects an older-timestamp replacement.
+The no-op check protects the native DLL from unnecessary writes during a managed development loop.
+`Xui.Native.targets` uses `IfDifferent` instead of timestamp-only copy behavior.
+Compiler-only fixtures explicitly disable native deployment.
+
+`tests\packages.ps1` restores the actual NuGet archive into an isolated package directory.
+Its managed fixture compiles `.xui`, loads the C ABI, and checks Debug, Release, and publish output.
+Its CMake and Visual C++ fixtures cover static C++ and shared C ABI consumption.
+The static executable runs without neighboring package files.
+The Cargo checks build extracted archives offline through a checksum-backed local registry.
+The consumer checks also build the Rust sample and run a window-free ABI probe with the DLL beside its executable.
+`FrameworkSource` selects an alternate configured feed for Microsoft runtime packages.
+The XUI package always comes from the local release assets.
+
+`tests\release-samples.ps1` extracts the sample ZIP.
+It checks the manifests, file hashes, native inventory, managed runtime files, and imported PE dependencies.
+These checks do not exercise each sample's interactive behavior.
+The existing desktop regressions remain responsible for that behavior.
+
+`tests\release-workflow.ps1` replaces `gh` with a local fixture.
+It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
+It makes no GitHub requests.
+The release workflow checks package consumers on both architectures before the draft job receives write permission.
+
 ## Tests and measurements
 
 The explorer adds these regressions:

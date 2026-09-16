@@ -16,7 +16,6 @@ Run "native-build.log" { & $cmake --build build\arm64 --config Release --paralle
 if (!$SkipNativeTests) {
     Run "native-tests.log" { & $ctest --test-dir build\arm64 -C Release --output-on-failure }
 }
-$env:PATH = "$root\build\arm64\Release;$env:PATH"
 Run "dotnet-fdd-build.log" {
     dotnet publish bindings\dotnet\Sample\Sample.csproj -c Release -r win-arm64 -p:SelfContained=false "-p:PublishDir=$root\build\phase4\dotnet\" --nologo
 }
@@ -32,6 +31,7 @@ Run "dotnet-aot-test-build.log" {
 Push-Location bindings\rust
 try {
     Run "rust-build.log" { cargo build --workspace --release }
+    Copy-Item "$root\build\arm64\Release\xui.dll" target\aarch64-pc-windows-msvc\release\deps\
     Run "rust-tests.log" { cargo test --workspace --release }
     Run "rust-clippy.log" { cargo clippy --workspace --all-targets --release -- -D warnings }
     Run "rust-format.log" { cargo fmt --all --check }
@@ -42,7 +42,7 @@ foreach ($directory in @("cpp-static","cpp-abi","rust")) {
 Copy-Item build\arm64\Release\xui_direct_sample.exe build\phase4\cpp-static\
 Copy-Item build\arm64\Release\xui_abi_sample.exe build\phase4\cpp-abi\
 Copy-Item bindings\rust\target\aarch64-pc-windows-msvc\release\xui-sample.exe build\phase4\rust\
-foreach ($directory in @("cpp-abi","dotnet","aot","rust","dotnet-tests","aot-tests")) { Copy-Item build\arm64\Release\xui.dll "build\phase4\$directory\" }
+foreach ($directory in @("cpp-abi","rust")) { Copy-Item build\arm64\Release\xui.dll "build\phase4\$directory\" }
 Run "dotnet-fdd-tests.log" { & .\build\phase4\dotnet-tests\Tests.exe }
 Run "dotnet-aot-tests.log" { & .\build\phase4\aot-tests\Tests.exe }
 $fixture = "$root\build\phase3\sample-fixtures\image-0.png"

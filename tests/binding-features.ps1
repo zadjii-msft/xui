@@ -6,7 +6,6 @@ $output = Join-Path $build "bindings-validation"
 New-Item -ItemType Directory -Force $output | Out-Null
 $cmake = "C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 $env:XUI_LIB_DIR = Join-Path $build "Release"
-$env:PATH = "$env:XUI_LIB_DIR;$env:PATH"
 function Run([string]$name, [scriptblock]$body) {
     & $body 2>&1 | Tee-Object -FilePath (Join-Path $output "$name.log")
     if ($LASTEXITCODE -ne 0) { throw "$name failed: $LASTEXITCODE" }
@@ -20,13 +19,13 @@ if (!$SkipBuild) {
             $destination = Join-Path $output "$project-$flavor"
             $aotFlag = if ($aot) {"true"} else {"false"}
             Run "$project-$flavor-build" {
-                dotnet publish "bindings\dotnet\$project\$project.csproj" -c Release -r win-arm64 --no-restore "-p:PublishAot=$aotFlag" "-p:SelfContained=$aotFlag" "-p:PublishDir=$destination\" --nologo
+                dotnet publish "bindings\dotnet\$project\$project.csproj" -c Release -r win-arm64 --no-restore "-p:PublishAot=$aotFlag" "-p:SelfContained=$aotFlag" "-p:XuiNativeDir=$env:XUI_LIB_DIR" "-p:PublishDir=$destination\" --nologo
             }
-            Copy-Item (Join-Path $env:XUI_LIB_DIR "xui.dll") $destination
         }
     }
     $rustCommand = 'call "C:\Program Files\Microsoft Visual Studio\2022\Preview\VC\Auxiliary\Build\vcvarsarm64.bat" >nul && cd /d "' + $root + '\bindings\rust" && '
     Run "rust-build" { & $env:ComSpec /c ($rustCommand + 'cargo build --workspace --release') }
+    Copy-Item (Join-Path $env:XUI_LIB_DIR "xui.dll") bindings\rust\target\aarch64-pc-windows-msvc\release\deps\
     Run "rust-tests" { & $env:ComSpec /c ($rustCommand + 'cargo test --workspace --release') }
     Run "rust-clippy" { & $env:ComSpec /c ($rustCommand + 'cargo clippy --workspace --all-targets --release -- -D warnings') }
     Run "rust-format" { & $env:ComSpec /c ($rustCommand + 'cargo fmt --all --check') }

@@ -1,31 +1,12 @@
 <Project>
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Native.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Declarative.Common.targets" />
   <PropertyGroup>
     <ApplicationManifest Condition="'$(ApplicationManifest)' == ''">$(MSBuildThisFileDirectory)..\..\demo\xui.manifest</ApplicationManifest>
-    <XuiHotReload Condition="'$(XuiHotReload)' == '' and '$(Configuration)' == 'Debug' and '$(PublishAot)' != 'true'">true</XuiHotReload>
-    <DefineConstants Condition="'$(XuiHotReload)' == 'true'">$(DefineConstants);XUI_HOT_RELOAD</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <AdditionalFiles Include="**\*.xui" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
-    <Watch Include="**\*.xui" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
     <ProjectReference Include="$(MSBuildThisFileDirectory)Xui.Generator\Xui.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="$(MSBuildThisFileDirectory)Xui\Xui.csproj" />
     <ProjectReference Condition="'$(XuiHotReload)' == 'true'" Include="$(MSBuildThisFileDirectory)Xui.Development\Xui.Development.csproj" />
   </ItemGroup>
-  <Target Name="ValidateXuiHotReload" BeforeTargets="CoreCompile">
-    <Error Condition="'$(XuiHotReload)' == 'true' and ('$(Configuration)' != 'Debug' or '$(PublishAot)' == 'true')" Text="XuiHotReload requires a managed Debug build. Disable it for Release or NativeAOT." />
-  </Target>
-  <Target Name="TrackXuiInputSet" BeforeTargets="CoreCompile">
-    <PropertyGroup>
-      <_XuiInputManifest>$(IntermediateOutputPath)$(MSBuildProjectName).xui.inputs</_XuiInputManifest>
-    </PropertyGroup>
-    <ItemGroup>
-      <_XuiSourceFiles Include="@(AdditionalFiles)" Condition="'%(Extension)' == '.xui'" />
-    </ItemGroup>
-    <MakeDir Directories="$(IntermediateOutputPath)" />
-    <WriteLinesToFile File="$(_XuiInputManifest)" Lines="XUI inputs;@(_XuiSourceFiles->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
-    <ItemGroup>
-      <CustomAdditionalCompileInputs Include="$(_XuiInputManifest)" />
-      <FileWrites Include="$(_XuiInputManifest)" />
-    </ItemGroup>
-  </Target>
 </Project>
