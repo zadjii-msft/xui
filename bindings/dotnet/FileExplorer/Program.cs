@@ -12,7 +12,8 @@ internal static class Program
             bool smoke = args.Contains("--smoke");
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
-            using var app = new ExplorerApplication(application, previews, initialPath, smoke);
+            using var windows = new ExplorerWindows(application, previews, smoke);
+            var app = windows.Create(initialPath);
             app.Run();
             return 0;
         }

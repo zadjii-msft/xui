@@ -61,6 +61,47 @@ Accepted closures execute or release their captures. Panics become callback erro
 Each window requires its own controls. Controls cannot move between binding arenas or live native hosts.
 Legacy `Window.Run` and `Window::run` remain available for standalone windows, outside an application context.
 
+### Title-bar tab dragging
+
+C# `Window.TabDragHandler` exposes the [native tab-drag protocol](menus-and-input.md#tab-dragging-between-windows).
+`TabDragEvent` contains `Kind`, `SourceStrip`, `TabId`, `Target`, `TargetStrip`, and `Index`.
+`Target` is a managed window from the same `Application`, or null.
+`TabDragKind` values are `Reorder=0`, `TearOut=1`, `Drop=2`, `Cancel=3`, `Completed=4`, `QueryDrop=5`, `Join=6`, and `Leave=7`.
+The callback returns a Boolean acceptance value.
+The binding retains the callback and reports exceptions through the window callback error path.
+The C ABI uses sized placement and drag-event structures in `xui.h`.
+Rust has low-level declarations in `xui-sys`, without a typed `xui` drag-handler wrapper.
+
+`Join` accepts a temporary transfer to the hovered destination.
+Repeated `Join` events can change the hosted tab's position in that destination.
+`Leave` precedes retargeting or cancellation. True means that the tab is back in its initiating strip with its original identity.
+`SourceStrip` and `TabId` always identify the initiator, not the temporary host.
+`Target` and `TargetStrip` identify the joined destination.
+An external `Join` follows `TearOut`, which retains the original HWND and separates the remaining models.
+Before `Application.Show(remainder)`, the handler must call `remainder.SetShowActivated(false)`.
+The C equivalent is `xui_window_show_activated(remainder, 0)`.
+This prevents remainder creation from taking activation from the native move loop.
+During a gesture, the framework inserts nonactivated same-application windows immediately below the moving HWND in the Z-order.
+
+For a joined tab, `Drop` commits the transfer already in place.
+Handlers must not transfer that tab a second time.
+`Completed` follows the native move loop and permits cleanup of retained drag state.
+Handlers keep all participating windows and control trees alive until then, including an empty initiator.
+Ignoring or rejecting `Join` preserves release-only behavior. Outline-only dragging uses the same fallback.
+The added kinds preserve the ABI version and event layout.
+
+`Window.Placement` gets or sets a `WindowPlacement`.
+Its `X`, `Y`, `Width`, and `Height` fields use physical screen pixels.
+`Maximized` preserves the maximized state separately from the restored bounds.
+Placement can be set before `Application.Show`.
+An unshown window without explicit placement rejects the getter because its screen location is unknown.
+
+Each window keeps its controls, subscriptions, dispatcher, and native editors.
+Application models can move between windows. Native controls cannot.
+The FileExplorer sample demonstrates this protocol without P/Invoke or window-procedure code.
+`SplitView.FirstVisible` can hide the primary pane while the secondary pane keeps its control identities and receives the full width.
+The C functions are `xui_split_set_first_visible` and `xui_split_get_first_visible` in `xui_layout.h`.
+
 ### Scoped content replacement
 
 C++ and C# support one replaceable root inside a stable `ContentHost`.

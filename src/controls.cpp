@@ -826,6 +826,7 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
         throw std::invalid_argument("Selected tab must exist");
     if (!tabs.empty() && !selected) selected = tabs.front().id;
     tabs_ = std::move(tabs);
+    drop_indicator_.reset();
     ++tabs_revision_;
     selected_ = selected;
     reveal_selected();
@@ -898,6 +899,21 @@ std::optional<std::size_t> TabStrip::hit_test(Point point) const {
     const auto content = content_bounds();
     return point.y >= content.y && point.y < content.y + content.height ? hit_test(point.x) : std::nullopt;
 }
+std::size_t TabStrip::insertion_index(float x) const {
+    if (!std::isfinite(x)) throw std::invalid_argument("Tab insertion position must be finite");
+    for (std::size_t i = first_; i < tabs_.size(); ++i) {
+        const auto b = tab_bounds(i);
+        if (b.width <= 0) return i;
+        if (x < b.x + b.width / 2) return i;
+    }
+    return tabs_.size();
+}
+void TabStrip::set_drop_indicator(std::optional<std::size_t> index) {
+    if (index && *index > tabs_.size()) throw std::invalid_argument("Tab insertion index is outside the strip");
+    if (drop_indicator_ == index) return;
+    drop_indicator_ = index;
+    invalidate(Invalidation::paint);
+}
 Rect TabStrip::close_bounds(std::size_t index) const {
     auto b = tab_bounds(index);
     if (const auto* tab = effective_control_style_values(StylePart::tab)) {
@@ -954,10 +970,13 @@ float SplitView::effective_divider_width() const {
     return values ? values->width.value_or(divider_width) : divider_width;
 }
 Rect SplitView::pane_area() const { return layout_style::content(*this, bounds()); }
-bool SplitView::expanded() const { return secondary_visible_ && pane_area().width >= 2 * minimum_pane_width + effective_divider_width(); }
+bool SplitView::expanded() const {
+    return secondary_visible_ && (!primary_visible_ || pane_area().width >= 2 * minimum_pane_width + effective_divider_width());
+}
 Rect SplitView::divider() const {
     if (!expanded()) return {};
     const auto b = pane_area();
+    if (!primary_visible_) return {b.x, b.y, 0, b.height};
     const auto divider_extent = effective_divider_width();
     const float width = b.width - divider_extent;
     const float left = std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width);
@@ -967,7 +986,8 @@ void SplitView::arrange(Rect rect) {
     Element::arrange(rect);
     const auto b = pane_area();
     const auto d = divider();
-    first_->arrange(layout_style::content(*this, {b.x, b.y, expanded() ? d.x - b.x : b.width, b.height}, StylePart::first_pane));
+    first_->arrange(layout_style::content(*this, {b.x, b.y, primary_visible_ ? (expanded() ? d.x - b.x : b.width) : 0,
+        primary_visible_ ? b.height : 0}, StylePart::first_pane));
     second_->arrange(layout_style::content(*this, {expanded() ? d.x + d.width : b.x + b.width, b.y,
         expanded() ? b.x + b.width - d.x - d.width : 0, expanded() ? b.height : 0}, StylePart::second_pane));
     const bool value = expanded();
@@ -987,6 +1007,12 @@ void SplitView::set_ratio(float value) {
 void SplitView::set_secondary_visible(bool value) {
     if (secondary_visible_ == value) return;
     secondary_visible_ = value;
+    invalidate(Invalidation::layout);
+}
+void SplitView::set_primary_visible(bool value) {
+    if (primary_visible_ == value) return;
+    primary_visible_ = value;
+    if (!value) set_style_dragging(false);
     invalidate(Invalidation::layout);
 }
 void TextInput::commit_text(std::wstring text) {

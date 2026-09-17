@@ -23,6 +23,10 @@ XUI_API xui_status XUI_CALL xui_tab_get_colors(xui_handle tabs, xui_tab_colors* 
    visible is 0 or 1. The default is 0. */
 XUI_API xui_status XUI_CALL xui_tab_set_new_button(xui_handle tabs, uint32_t visible) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_tab_get_new_button(xui_handle tabs, uint32_t* visible) XUI_NOEXCEPT;
+/* visible is 0 or 1. The default is 1. Hiding the first pane gives the visible
+   second pane the full area, including narrow layouts, and preserves the ratio. */
+XUI_API xui_status XUI_CALL xui_split_set_first_visible(xui_handle split, uint32_t visible) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_get_first_visible(xui_handle split, uint32_t* visible) XUI_NOEXCEPT;
 typedef enum xui_visual_style {
     XUI_STYLE_CLASSIC = 0,
     XUI_STYLE_WINUI = 1

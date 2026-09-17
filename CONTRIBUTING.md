@@ -490,6 +490,37 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Tab tear-out and merge
+
+Run the native gesture fixture and the Explorer model checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_tab_drag_window_tests xui_tab_window_tests
+& ".\$build\Release\xui_tab_drag_window_tests.exe"
+& ".\$build\Release\xui_tab_window_tests.exe" --drag-indicator
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+The native fixture uses a deterministic driver at the caption-down boundary.
+It does not synthesize pointer input or move the real cursor.
+If another window covers the target, the fixture checks occlusion rejection instead of target acceptance.
+Its output reports that condition.
+Dedicated hover cases use temporary topmost fixture windows without activation.
+They check native hide and show transitions, reversible transfer, transparent overlays, and remainder Z-order.
+The Explorer smoke checks model transfer through the managed drag handler.
+
+For physical drag coverage, press Ctrl+N in FileExplorer to create another window in the same application.
+Drag tabs within a strip, outside the window, and onto the other window.
+Before release, check that the target contains the dragged tab and the detached window is hidden.
+Without release, drag away from the target and then onto it again.
+Check that the detached window appears above the previous target.
+Check that the remainder never appears above the detached window.
+Repeat with the secondary pane, a single tab, a full target pane, and a maximized source.
+During a detached drag, press Escape.
+Check the folder history, Find text, selection, scroll position, and Columns state after each transfer.
+Repeat across monitors with different DPI values.
+The target marker must disappear after release, cancellation, or target closure.
+
 ### Toggles and progress
 
 Run the model, native animation, pixel, and gallery checks sequentially:

@@ -101,6 +101,7 @@ struct State {
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
     bool file_dialog_active{};
+    bool tab_drag_dispatching{};
     unsigned callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
@@ -1333,3 +1334,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 #include "c_api_file_transfer.inc"
 #include "c_api_content.inc"
 #include "c_api_file_dialog.inc"
+#include "c_api_window_drag.inc"

@@ -105,6 +105,40 @@ Closing commands affect the target tab, other tabs, tabs to either side, or all 
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
 
+### Tab tear-out and merge
+
+Dragging a tab within its strip changes its position.
+Dragging outside the strip separates the tab into a window.
+The dragged tab keeps the original native window so the Windows move-size loop can continue.
+Another window receives the remaining workspace.
+Before showing that remainder window, the application disables initial activation with `SetShowActivated(false)`.
+The framework places it immediately below the moving window, without taking activation from the drag.
+A single-tab workspace does not create an empty remainder window.
+
+Dragging onto another visible strip shows an insertion marker.
+With full-window dragging, an accepted hover join temporarily hosts the tab in that destination.
+Further movement within that strip can change its insertion position.
+Leaving the destination returns the tab to its original strip before another destination receives it.
+Releasing the pointer commits the hosted transfer, without transferring the tab again.
+If hover joining is unavailable or rejected, release transfers the tab to the accepted insertion position.
+Outline-only window dragging uses this release-only fallback.
+Both panes can receive tabs, subject to the pane tab limit.
+The windows must belong to the same running application.
+Ctrl+N creates another window in that application.
+Windows from separate FileExplorer processes do not merge.
+
+Transfers preserve the tab identity, folder history, Find state, filter, sorting, selection, scroll position, and Columns state.
+Obsolete asynchronous work cannot update the receiving pane.
+Each window retains its own native controls and subscriptions.
+The initiating window keeps the original drag identity even while another window temporarily hosts the tab.
+All participating windows and control trees remain alive until the move loop completes.
+An external join first separates the dragged tab from the remainder workspace while preserving the original HWND.
+Escape restores the saved workspace instead of closing the dragged tab.
+For a joined tab, restoration first returns the tab to its initiating strip.
+The [framework protocol](menus-and-input.md#tab-dragging-between-windows) defines window ownership and callback behavior.
+
+### Tab menu actions
+
 **Duplicate tab** inserts a copy after its source and selects it.
 Copies retain independent history, filter, Find state, sorting, selection, scrolling, and Columns state.
 **Duplicate in new pane** opens the other pane with a copy.

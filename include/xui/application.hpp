@@ -16,7 +16,26 @@ class TitleBar;
 class LocationPicker;
 class ContentDialog;
 class Application;
+class Window;
 enum class WindowState { created, open, closing, closed };
+
+// Outer window bounds in physical screen pixels, including negative monitor coordinates.
+struct WindowPlacement {
+    int x{}, y{}, width{}, height{};
+    bool maximized{};
+};
+enum class TabDragKind {
+    reorder = 0, tear_out = 1, drop = 2, cancel = 3, completed = 4, query_drop = 5, join = 6, leave = 7
+};
+struct TabDragEvent {
+    TabDragKind kind;
+    unsigned source_strip{};
+    std::uint64_t tab_id{};
+    Window* target{};
+    unsigned target_strip{};
+    // Insertion slot before removal, in [0, target tab count].
+    std::size_t index{};
+};
 
 struct ContentInspectionTarget {
     std::uint32_t key{};
@@ -152,6 +171,15 @@ public:
     bool post(std::function<void()> callback);
     // Return true to consume browser navigation. This does not change keyboard focus.
     void on_navigation(std::function<bool(const NavigationEvent&)> callback);
+    // Opt-in title-bar tab dragging within one Application. Return true to accept a request.
+    // Tear-out retains this HWND: move the remaining models to another window before returning.
+    // Drop targets are live same-Application windows with a handler. Never transfer native controls.
+    // Join temporarily transfers the model on hover; Leave returns it to the initiator strip.
+    // Source identity stays fixed. Retain every window and control tree until Completed.
+    void on_tab_drag(std::function<bool(const TabDragEvent&)> callback);
+    WindowPlacement placement() const;
+    // May be set before show; uses physical pixels rather than client DIPs.
+    void set_placement(WindowPlacement placement);
     std::shared_ptr<ViewTask> create_view_task(ViewWorker::Loader loader, std::function<void(ViewResult)> receive);
     std::shared_ptr<SampleTask> create_sample_task(SampleTask::Loader loader, SampleTask::Receiver receive, unsigned milliseconds = 1000);
     bool confirm(const std::wstring& title, const std::wstring& message);

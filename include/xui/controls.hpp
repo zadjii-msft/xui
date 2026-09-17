@@ -501,6 +501,9 @@ public:
     Rect content_bounds(Rect bounds) const;
     std::optional<std::size_t> hit_test(float x) const;
     std::optional<std::size_t> hit_test(Point point) const;
+    std::size_t insertion_index(float x) const;
+    void set_drop_indicator(std::optional<std::size_t> index);
+    std::optional<std::size_t> drop_indicator() const { return drop_indicator_; }
     void arrange(Rect bounds) override;
 private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::tab_strip; }
@@ -511,6 +514,7 @@ private:
     TabColors colors_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
+    std::optional<std::size_t> drop_indicator_;
     std::optional<std::uint64_t> context_tab_;
     std::uint64_t tabs_revision_{};
     std::function<void(std::uint64_t)> select_, close_, activate_;
@@ -563,6 +567,8 @@ public:
     float ratio() const { return ratio_; }
     void set_secondary_visible(bool visible);
     bool secondary_visible() const { return secondary_visible_; }
+    void set_primary_visible(bool visible);
+    bool primary_visible() const { return primary_visible_; }
     bool expanded() const;
     void on_expanded(std::function<void(bool)> callback) { expanded_callback_ = std::move(callback); }
     Rect divider() const;
@@ -577,7 +583,7 @@ protected:
 private:
     std::shared_ptr<ContentView> first_, second_;
     float ratio_{0.5f};
-    bool secondary_visible_{true};
+    bool primary_visible_{true}, secondary_visible_{true};
     bool arranged_expanded_{};
     bool style_dragging_{};
     std::function<void(bool)> expanded_callback_;

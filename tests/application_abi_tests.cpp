@@ -68,6 +68,9 @@ struct Lifetime {
         ok(xui_window_content(window, root));
         ok(xui_window_closed(window, on_closed, this));
         ok(xui_application_show(application, window));
+        xui_window_placement placement{sizeof(placement)};
+        ok(xui_window_get_placement(window, &placement));
+        require(placement.width > 0 && placement.height > 0, "Open window did not expose its placement");
         return window;
     }
     void run() {
@@ -126,12 +129,93 @@ void application_failure() {
     require(xui_application_run(app) == XUI_CALLBACK_FAILED, "Application-post failure lost its ABI status");
     ok(xui_application_destroy(app));
 }
+void window_drag_contract() {
+    xui_handle app{}, window{}, plain{}, legacy{}, root{};
+    ok(xui_application_create(&app));
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("ABI tab placement"), 400, 260};
+    ok(xui_application_window_create(app, &options, 1, &window));
+    ok(xui_application_window_create(app, &options, 0, &plain));
+    ok(xui_window_create_features(&options, 1, &legacy));
+    ok(xui_stack_create(window, 1, &root));
+    const auto handler = +[](void*, const xui_tab_drag_event*, uint32_t* accepted) -> xui_status {
+        *accepted = 0;
+        return XUI_OK;
+    };
+    require(xui_window_tab_drag_handler(plain, handler, nullptr) == XUI_INVALID_ARGUMENT,
+        "A native title bar opted into tab dragging");
+    require(xui_window_tab_drag_handler(legacy, handler, nullptr) == XUI_INVALID_ARGUMENT,
+        "A standalone window opted into tab dragging");
+    require(xui_window_tab_drag_handler(root, handler, nullptr) == XUI_WRONG_KIND,
+        "A control opted into tab dragging");
+    ok(xui_window_tab_drag_handler(window, handler, nullptr));
+    ok(xui_window_tab_drag_handler(window, nullptr, nullptr));
+    ok(xui_window_tab_drag_handler(window, handler, nullptr));
+    xui_window_placement placement{sizeof(placement), -800, -400, 640, 480, 1};
+    xui_window_placement actual{sizeof(actual)};
+    require(xui_window_get_placement(window, &actual) == XUI_NATIVE_ERROR,
+        "Fresh unshown window fabricated an initial placement");
+    require(actual.size == sizeof(actual) && actual.width == 0, "Failed placement get changed its output");
+    ok(xui_window_set_placement(window, &placement));
+    ok(xui_window_get_placement(window, &actual));
+    require(actual.x == placement.x && actual.y == placement.y && actual.width == placement.width &&
+        actual.height == placement.height && actual.maximized == 1, "Pre-show placement changed physical bounds");
+    for (const auto& limit : {
+        xui_window_placement{sizeof(placement), -1000000, -1000000, 1, 1, 0},
+        xui_window_placement{sizeof(placement), 1000000, 1000000, 65536, 65536, 1}}) {
+        ok(xui_window_set_placement(window, &limit));
+        ok(xui_window_get_placement(window, &actual));
+        require(actual.x == limit.x && actual.y == limit.y && actual.width == limit.width &&
+            actual.height == limit.height && actual.maximized == limit.maximized, "Placement boundary was not preserved");
+    }
+    ok(xui_window_set_placement(window, &placement));
+    require(xui_window_get_placement(window, nullptr) == XUI_INVALID_ARGUMENT, "Missing placement output accepted");
+    require(xui_window_set_placement(window, nullptr) == XUI_INVALID_ARGUMENT, "Missing placement accepted");
+    auto invalid = placement;
+    invalid.size = 0;
+    require(xui_window_get_placement(window, &invalid) == XUI_VERSION_MISMATCH, "Placement get ignored size");
+    require(xui_window_set_placement(window, &invalid) == XUI_VERSION_MISMATCH, "Placement set ignored size");
+    invalid = placement; invalid.maximized = 2;
+    require(xui_window_set_placement(window, &invalid) == XUI_INVALID_ARGUMENT, "Invalid maximized flag accepted");
+    invalid = placement; invalid.width = 0;
+    require(xui_window_set_placement(window, &invalid) == XUI_INVALID_ARGUMENT, "Empty placement accepted");
+    invalid = placement; invalid.height = -1;
+    require(xui_window_set_placement(window, &invalid) == XUI_INVALID_ARGUMENT, "Negative placement accepted");
+    invalid = placement; invalid.x = INT32_MAX;
+    require(xui_window_set_placement(window, &invalid) == XUI_INVALID_ARGUMENT, "Overflowing placement accepted");
+    for (const auto& limit : {
+        xui_window_placement{sizeof(placement), -1000001, 0, 640, 480, 0},
+        xui_window_placement{sizeof(placement), 1000001, 0, 640, 480, 0},
+        xui_window_placement{sizeof(placement), 0, -1000001, 640, 480, 0},
+        xui_window_placement{sizeof(placement), 0, 1000001, 640, 480, 0},
+        xui_window_placement{sizeof(placement), 0, 0, 65537, 480, 0},
+        xui_window_placement{sizeof(placement), 0, 0, 640, 65537, 0}}) {
+        require(xui_window_set_placement(window, &limit) == XUI_INVALID_ARGUMENT, "Out-of-range placement accepted");
+    }
+    ok(xui_window_get_placement(window, &actual));
+    require(actual.x == placement.x && actual.width == placement.width && actual.maximized == placement.maximized,
+        "Invalid placement changed the window");
+    std::thread worker([&] {
+        xui_window_placement value{sizeof(value)};
+        require(xui_window_get_placement(window, &value) == XUI_WRONG_THREAD, "Placement get accepted wrong thread");
+        require(xui_window_set_placement(window, &placement) == XUI_WRONG_THREAD, "Placement set accepted wrong thread");
+        require(xui_window_tab_drag_handler(window, handler, nullptr) == XUI_WRONG_THREAD,
+            "Tab handler accepted wrong thread");
+    });
+    worker.join();
+    ok(xui_window_destroy(legacy));
+    ok(xui_window_destroy(plain));
+    ok(xui_window_destroy(window));
+    require(xui_window_get_placement(window, &actual) == XUI_INVALID_HANDLE, "Stale placement window accepted");
+    require(xui_window_tab_drag_handler(window, handler, nullptr) == XUI_INVALID_HANDLE, "Stale drag window accepted");
+    ok(xui_application_destroy(app));
+}
 }
 int main(int argc, char** argv) {
     try {
         require(argc == 1 || (argc == 2 && std::strcmp(argv[1], "--post-race-only") == 0),
             "Usage: xui_application_abi_tests [--post-race-only]");
         if (argc == 1) {
+            window_drag_contract();
             Lifetime{}.run();
             Lifetime failed; failed.fail = true; failed.run();
         }
