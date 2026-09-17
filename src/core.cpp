@@ -402,6 +402,7 @@ std::vector<Size> Stack::layout_children(Size available) {
 }
 
 Size Stack::measure(Size available) {
+    if (preferred_size_explicit() && !auto_size()) return Element::measure(available);
     const auto padding = effective_layout_insets();
     const auto spacing = effective_spacing();
     available = normalized(available);

@@ -9,6 +9,11 @@ Add `xui\adaptive_layout.hpp` for Grid, Wrap, and AdaptiveLayout.
 
 Use `Stack` for a horizontal row or vertical column.
 A positive flex value gives a child a share of remaining main-axis space.
+Stacks measure their children naturally unless an explicit preferred size disables automatic sizing.
+`set_preferred_size` requests the outer size, including padding. Parent bounds and minimum and maximum sizes still apply.
+`set_auto_size(true)` restores natural measurement without clearing the stored preference or size limits.
+`set_auto_size(false)` restores an explicit preference. Without an explicit preference, the Stack keeps natural sizing.
+Flex and cross-axis stretching still control arrangement inside the parent's allocation.
 
 {% tabs %}
 {% tab title=".xui" %}

@@ -195,6 +195,8 @@ A new minimum raises a smaller maximum. A new maximum lowers a larger minimum.
 `TextInput`, `FileList`, and `ScrollView` retain their preferred viewport sizes.
 
 A Stack measures non-flex children first, in order, against the remaining main-axis space.
+An explicit Stack preferred size replaces natural measurement unless `set_auto_size(true)` overrides it.
+That preferred size includes padding and remains subject to parent bounds and size limits.
 Flex children share the remaining main-axis space. On the cross axis, children stretch up to their maximum size.
 Maximum limits do not redistribute unused flex space.
 In an unbounded main axis, flex children use their natural desired size instead of an infinite share.

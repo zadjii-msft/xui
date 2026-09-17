@@ -447,6 +447,19 @@ The Save fixtures select unique absent destinations and assert that no file was 
 Each native window fixture uses `demo\xui.rc` and `/MANIFEST:NO`. The managed fixture uses the matching apphost manifest.
 The probes use a local temporary directory to avoid unrelated Shell startup delays from remembered locations.
 
+### Stack preferred sizing
+
+Run the core and native Stack layout regressions:
+
+```powershell
+cmake --build $build --config Release --target xui_core_tests xui_stack_layout_window_tests
+ctest --test-dir $build -C Release -R "^xui_(core_tests|stack_layout_window_tests)$" --output-on-failure
+```
+
+The core fixture covers both axes, nested flex allocation, natural sizing, explicit preferences, automatic overrides, padding, and size limits.
+The native fixture uses the matching manifest and real RichEdit peers.
+It checks nonzero source geometry, retained focus and HWND identity, preference changes, and native undo and redo after layout.
+
 ### Document range editing
 
 Build and run the focused document checks:
