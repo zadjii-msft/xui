@@ -17,18 +17,16 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly DesignerWorkspace workspace;
     private readonly ComboBox templates;
     private readonly Task compiler;
-    private readonly string recoveryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Xui", "Designer", "Drafts", $"{Guid.NewGuid():N}.xui");
+    private readonly DesignerDocumentStore document;
+    private readonly DesignerRecoveryDialog recovery;
     private CancellationTokenSource? revision;
-    private string savedSource = "";
-    private string loadedPath = "";
     private long version;
     private bool live = true, light, disposed;
     private int templateIndex;
     private int smokeStage;
     private Exception? smokeError;
 
-    internal DesignerApplication(string? initialPath)
+    internal DesignerApplication(string? initialPath, string? recoveryDirectory = null)
     {
         try
         {
@@ -43,21 +41,20 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, editor, diagnostics, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, preview.View, templates);
-            using var stream = typeof(DesignerApplication).Assembly.GetManifestResourceStream("Designer.Starter.xui")
-                ?? throw new InvalidOperationException("The starter component is missing.");
-            using var reader = new StreamReader(stream);
-            editor.Text = initialPath is null ? reader.ReadToEnd() : ReadSource(initialPath);
-            savedSource = Normalize(editor.Text);
-            if (initialPath is not null)
-            {
-                loadedPath = Path.GetFullPath(initialPath);
-                view.Path.Text = loadedPath;
-                savedSource = Normalize(editor.Text);
-            }
+            document = new DesignerDocumentStore(recoveryDirectory ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Xui", "Designer", "Drafts"),
+                DesignerTemplates.Get("counter").Source);
+            if (initialPath is not null) document.Open(initialPath);
+            editor.Text = document.Source;
+            document.UpdateSource(editor.Text);
+            view.Path.Text = document.FilePath ?? "";
+            recovery = new DesignerRecoveryDialog(window, document, RecoveredDocument, ReportFileError);
+            SetFileStatus(document.FilePath is { } path ? $"Opened {path}" : "Untitled example. Choose a file path before saving.");
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
             view.Save.Click += Save;
             view.New.Click += NewDocument;
+            view.Recovery.Click += () => { document.UpdateSource(editor.Text); recovery.Show(view.Recovery); };
             view.Undo.Click += () => SourceCommand(TextCommand.Undo);
             view.Redo.Click += () => SourceCommand(TextCommand.Redo);
             view.Render.Click += () => Schedule(immediate: true);
@@ -84,7 +81,7 @@ internal sealed partial class DesignerApplication : IDisposable
         }
     }
 
-    internal void Run(bool smoke, bool builderSmoke = false)
+    internal void Run(bool smoke, bool builderSmoke = false, string? fileSmokeDirectory = null)
     {
         if (smoke)
         {
@@ -100,15 +97,19 @@ internal sealed partial class DesignerApplication : IDisposable
             });
         }
         if (builderSmoke) smokeStage = -1;
-        Task? builder = builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view)) : null;
+        Task? driver = builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view))
+            : fileSmokeDirectory is not null ? Task.Run(() => FileRecoverySmoke(fileSmokeDirectory)) : null;
         window.Post(() => { workspace.SourceChanged(); Schedule(immediate: true); });
         window.Run();
-        builder?.GetAwaiter().GetResult();
+        driver?.GetAwaiter().GetResult();
         if (smokeError is not null) throw smokeError;
     }
 
     private static string Normalize(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n');
-    private bool Dirty => Normalize(editor.Text) != savedSource;
+    private bool Dirty
+    {
+        get { document.UpdateSource(editor.Text); return document.IsDirty; }
+    }
 
     private void OnEditorEvent(UiEvent e)
     {
@@ -123,17 +124,12 @@ internal sealed partial class DesignerApplication : IDisposable
         if (smokeStage != 0) return;
         try
         {
-            if (!Dirty)
-            {
-                File.Delete(recoveryPath);
-                return;
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(recoveryPath)!);
-            WriteSource(recoveryPath, Normalize(editor.Text));
+            document.UpdateSource(editor.Text);
+            document.PersistRecovery();
         }
         catch (Exception error) when (FileError(error))
         {
-            ShowError($"Could not save recovery draft: {error.Message}");
+            ReportFileError($"Could not save recovery draft: {error.Message}");
         }
     }
 
@@ -256,33 +252,46 @@ internal sealed partial class DesignerApplication : IDisposable
 
     private void Open()
     {
-        if (Dirty) { ShowError("Save the current source before opening another file."); return; }
         try
         {
-            var path = Path.GetFullPath(view.Path.Text);
-            var source = ReadSource(path);
-            editor.Text = source;
-            loadedPath = path;
-            savedSource = Normalize(editor.Text);
-            view.Path.Text = path;
+            document.UpdateSource(editor.Text);
+            document.Open(view.Path.Text);
+            editor.Text = document.Source;
+            document.UpdateSource(editor.Text);
+            view.Path.Text = document.FilePath!;
+            SetFileStatus($"Opened {document.FilePath}");
             Schedule();
         }
-        catch (Exception error) when (FileError(error)) { ShowError($"Open failed: {error.Message}"); }
+        catch (Exception error) when (FileError(error)) { ReportFileError($"Open failed: {error.Message}"); }
     }
 
     private void NewDocument()
     {
-        if (Dirty) { ShowError("Save the current source before creating a new document."); return; }
         if (templateIndex < 0 || templateIndex >= DesignerTemplates.All.Count)
         {
-            ShowError("Select a document template first.");
+            ReportFileError("Select a document template first.");
             return;
         }
-        editor.Text = DesignerTemplates.All[templateIndex].Source;
-        loadedPath = "";
-        savedSource = "";
-        view.Path.Text = "";
-        workspace.SourceChanged();
+        try
+        {
+            document.UpdateSource(editor.Text);
+            var template = DesignerTemplates.All[templateIndex];
+            document.New(template.Source);
+            editor.Text = document.Source;
+            document.UpdateSource(editor.Text);
+            view.Path.Text = "";
+            SetFileStatus($"New {template.Name}. Choose a file path before saving.");
+            Schedule();
+        }
+        catch (Exception error) when (FileError(error)) { ReportFileError($"New document failed: {error.Message}"); }
+    }
+
+    private void RecoveredDocument()
+    {
+        editor.Text = document.Source;
+        document.UpdateSource(editor.Text);
+        view.Path.Text = document.FilePath ?? "";
+        SetFileStatus("Recovered a copy. The original recovery draft remains available.");
         PersistDraft();
         Schedule();
     }
@@ -297,62 +306,21 @@ internal sealed partial class DesignerApplication : IDisposable
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(view.Path.Text))
-                throw new ArgumentException("Enter a .xui file path before saving.");
-            var path = Path.GetFullPath(view.Path.Text);
-            RequireExtension(path);
-            var source = Normalize(editor.Text);
-            bool exists = File.Exists(path);
-            if (exists)
-            {
-                if (!StringComparer.OrdinalIgnoreCase.Equals(path, loadedPath))
-                    throw new IOException("This file already exists. Choose a new path to avoid overwriting it.");
-                if (Normalize(ReadSource(path)) != savedSource)
-                    throw new IOException("The file changed on disk. Save to a different path to keep both versions.");
-            }
-            WriteSource(path, source, overwrite: exists);
-            loadedPath = path;
-            savedSource = source;
-            view.Path.Text = path;
+            document.UpdateSource(editor.Text);
+            document.Save(view.Path.Text);
+            view.Path.Text = document.FilePath!;
             window.SetTitle("XUI Designer");
-            view.Status.Text = $"Saved {path}";
-            File.Delete(recoveryPath);
+            SetFileStatus($"Saved {document.FilePath}");
         }
-        catch (Exception error) when (FileError(error)) { ShowError($"Save failed: {error.Message}"); }
-    }
-
-    private static string ReadSource(string path)
-    {
-        RequireExtension(path);
-        using var reader = new StreamReader(path, new UTF8Encoding(true, true), detectEncodingFromByteOrderMarks: false);
-        var buffer = new char[MaximumLength + 1];
-        int count = reader.ReadBlock(buffer, 0, buffer.Length);
-        if (count > MaximumLength) throw new InvalidDataException("Source exceeds 65,536 UTF-16 code units.");
-        var source = new string(buffer, 0, count);
-        if (source.Contains('\0')) throw new InvalidDataException("Source contains a NUL character.");
-        _ = new UTF8Encoding(false, true).GetByteCount(source);
-        return source;
-    }
-
-    private static void RequireExtension(string path)
-    {
-        if (!Path.GetExtension(path).Equals(".xui", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Choose a file with the .xui extension.");
-    }
-
-    private static void WriteSource(string path, string source, bool overwrite = true)
-    {
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        catch (Exception error) when (FileError(error))
         {
-            File.WriteAllText(temporary, source, new UTF8Encoding(false, true));
-            File.Move(temporary, path, overwrite);
+            window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
+            ReportFileError($"Save failed: {error.Message}");
         }
-        finally { File.Delete(temporary); }
     }
 
     private static bool FileError(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException
-        or ArgumentException or NotSupportedException or System.Security.SecurityException;
+        or ArgumentException or NotSupportedException or InvalidOperationException or System.Security.SecurityException;
     private static string Limit(string message)
     {
         message = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(message)).Replace("\0", "\\0", StringComparison.Ordinal);
@@ -393,10 +361,10 @@ internal sealed partial class DesignerApplication : IDisposable
             Require(!Dirty && Normalize(editor.Text) == external, "Open loads a clean document.");
             File.WriteAllText(other, new string('x', MaximumLength + 1));
             Open();
-            Require(Normalize(editor.Text) == external && diagnostics.Text.Contains("65,536"), "Open rejects oversized source without losing the document.");
+            Require(Normalize(editor.Text) == external && view.FileStatus.Text.Contains("65,536"), "Open rejects oversized source without losing the document.");
             File.WriteAllBytes(other, [0xEF, 0xBB, 0xBF, 0xFF]);
             Open();
-            Require(Normalize(editor.Text) == external && diagnostics.Text.StartsWith("Open failed:"), "Open rejects invalid UTF-8.");
+            Require(Normalize(editor.Text) == external && view.FileStatus.Text.StartsWith("Open failed:"), "Open rejects invalid UTF-8.");
             File.WriteAllText(other, external, new UTF8Encoding(true));
             Open();
             Require(Normalize(editor.Text) == external, "Open accepts the UTF-8 byte-order mark.");
@@ -419,6 +387,20 @@ internal sealed partial class DesignerApplication : IDisposable
         diagnostics.Text = Limit(message);
         view.Status.Text = "Error. See diagnostics.";
         Console.Error.WriteLine(message);
+    }
+
+    private void ReportFileError(string message)
+    {
+        SetFileStatus(message);
+        Console.Error.WriteLine(message);
+    }
+
+    private void SetFileStatus(string message)
+    {
+        string safe = Limit(message);
+        int length = Math.Min(safe.Length, 512);
+        if (length > 0 && char.IsHighSurrogate(safe[length - 1])) length--;
+        view.FileStatus.Text = safe[..length] + (length < safe.Length ? "..." : "");
     }
 
     public void Dispose()

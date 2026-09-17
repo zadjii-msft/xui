@@ -288,11 +288,15 @@ The **File path** field accepts a `.xui` path.
 Open accepts UTF-8 source, with or without a byte-order mark.
 **Open** replaces an unchanged document.
 If the document has unsaved edits, save it before opening another file.
+Invalid syntax does not prevent Open or native source editing.
+**New** creates an unchanged, untitled document from the selected template.
+New, Open, and Recovery replace the native document and reset its undo history.
+Visual actions use native range edits instead.
 **Save**, or Ctrl+S, writes UTF-8 source with LF line endings.
 Save uses a temporary file in the destination directory before replacing the destination.
 
 Save rejects an existing destination unless the designer loaded that file.
-It also rejects changes detected on disk since the last open or save.
+It compares raw file hashes and rejects changes since the last open or save, including changes to encoding or the byte-order mark.
 These checks are not a lock against concurrent writes.
 A different destination path keeps both versions.
 The designer does not watch files for external edits.
@@ -302,8 +306,18 @@ Each designer instance has its own draft name.
 A successful save deletes that instance's draft.
 Restoring the last saved text also deletes the draft.
 Unsaved drafts remain after the designer closes.
-Recovery drafts require an explicit **Open** and do not load automatically.
-The diagnostics pane reports file and recovery errors.
+Each draft has a metadata file with its source hash, original file path, and saved file hash.
+
+**Recovery** opens a native picker for drafts from other designer instances.
+The picker shows a source preview before recovery.
+Recovery loads a dirty copy and keeps the original draft.
+It does not replace unsaved edits or load drafts automatically.
+The picker requires explicit approval before draft deletion.
+Damaged metadata or a changed draft reports an error instead of loading unverified file identity.
+
+The file status area reports file and recovery errors without replacing compiler diagnostics.
+A successful preview does not clear a file error.
+If a save succeeds but draft cleanup fails, the document stays clean and the file status reports the cleanup error.
 
 ## Scope and execution
 

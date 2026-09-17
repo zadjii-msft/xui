@@ -213,6 +213,7 @@ dotnet run --project bindings\dotnet\Designer.RecoveryTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
 dotnet run --project bindings\dotnet\Designer.LayoutTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.WorkspaceTests -c Release -r $rid
 cmake --build $build --config Release --target xui_content_host_window_tests
@@ -234,6 +235,8 @@ The navigation UI test covers diagnostic buttons, F8 routing, exact native selec
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 It also covers read-only expressions and recovery from invalid source without replacing the native document.
+The file smoke uses an isolated recovery directory and the complete application.
+It covers automatic drafts, the native recovery picker, disk conflicts, persistent file errors, and native edits after an invalid file opens.
 The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
 It covers pane bounds, pane order, native selection, and source preservation across theme changes.
 The workspace suite runs the same builder smoke against production controllers without the preview host.

@@ -17,7 +17,9 @@ component DesignerLayout {
                 TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
                 Button("Open", ref: Open, id: "designer-open");
                 Button("Save", ref: Save, id: "designer-save");
+                Button("Recovery", ref: Recovery, id: "designer-recovery", help: "Browse saved recovery drafts");
             }
+            Text("", ref: FileStatus, id: "designer-file-status", wrapping: true);
             HStack(spacing: 12) {
                 Button("Undo", ref: Undo, id: "designer-undo", help: "Undo a source edit (Ctrl+Z in source)");
                 Button("Redo", ref: Redo, id: "designer-redo", help: "Redo a source edit (Ctrl+Y in source)");

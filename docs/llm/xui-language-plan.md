@@ -40,16 +40,17 @@ The [snapshot contract](../specs/designer.md#applied-preview-snapshots) distingu
 `Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
 `Designer.TemplateTests` compiles every catalog entry without a native DLL.
-`DesignerDocumentStore.cs` supplies the next workspace's independent file and recovery model.
-The current shell does not yet use this model.
+`DesignerDocumentStore.cs` supplies the shell's file and recovery model.
 It compares raw file hashes before replacement and writes each destination through a temporary file.
 Recovery metadata connects a source hash to the original path and file hash.
 A partial snapshot reports an error instead of restoring stale file identity.
 `Designer.DocumentTests` covers this model without a native DLL.
-`DesignerRecoveryDialog.cs` supplies a reusable native recovery dialog for the next workspace.
+`DesignerRecoveryDialog.cs` supplies the shell's native recovery dialog.
 `DesignerRecoveryLayout.xui` defines its content.
 The dialog shows bounded source previews, requires deletion approval, and prevents recovery over dirty source.
 `Designer.RecoveryTests` exercises its native controls against isolated draft files.
+`DesignerFileSmoke.cs` runs `--file-smoke` against the complete application with an isolated recovery directory.
+The application keeps file errors in a separate status label so compiler diagnostics remain available.
 `DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
@@ -160,6 +161,16 @@ This run includes the embedded preview core `df83ca9` and the native tree correc
 The latter restores selection notifications when a collapsed ancestor replaces a descendant as the focused tree node.
 The shared smoke reproduces the prior inspector mismatch and requires the corrected behavior.
 It also covers deep tree expansion, surrogate-safe labels, native keyboard focus, one-line CR offsets, and bursts of source changes.
+
+### File and recovery integration evidence
+
+On 2026-09-17, the ARM64 Release application passed 15 `--file-smoke` assertions.
+The sequence covers automatic drafts, native undo cleanup, recovery copies, original-draft retention, disk conflicts, and Save to a new path.
+It also covers persistent file errors, preserved compiler diagnostics, and native source repairs after Open loads invalid syntax.
+The existing `--smoke` passed, and `--builder-smoke` passed 16 assertions.
+`Designer.DocumentTests` passed 49 assertions.
+`Designer.RecoveryTests` passed 17 native dialog assertions.
+`Designer.LayoutTests` passed eight native geometry and editor-state assertions.
 
 ## Goal
 
