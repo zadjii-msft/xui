@@ -145,6 +145,7 @@ The titlebar **Open** button performs that separate action. **Open folder** uses
 The titlebar contains the filename, Open glyph, and normal Windows caption controls.
 The content starts directly below it, without a second filename or Close row.
 Escape or the caption Close button closes only that preview.
+The preview does not assign initial focus to a caption button.
 Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.

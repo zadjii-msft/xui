@@ -112,7 +112,6 @@ internal sealed class PreviewSession : IDisposable
         Pending = true;
         application.Show(Window);
         IsOpen = true;
-        CloseButton.Focus();
         work.Start(token => service.LoadAsync(selected, token), request.Token, result =>
         {
             if (!IsOpen) return;

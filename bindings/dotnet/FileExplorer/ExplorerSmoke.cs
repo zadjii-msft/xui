@@ -502,6 +502,13 @@ internal static class ExplorerSmoke
                 await Check(() =>
                 {
                     var preview = app.Preview.Current!;
+                    return !preview.Window.TitlebarClose.Focused
+                        && !preview.Window.TitlebarMinimize.Focused
+                        && !preview.Window.TitlebarMaximize.Focused;
+                }, "Opening a preview must not focus a caption button or draw its focus outline");
+                await Check(() =>
+                {
+                    var preview = app.Preview.Current!;
                     var caption = preview.Window.Titlebar.GetBounds();
                     var open = preview.OpenButton.GetBounds();
                     return open.Y >= caption.Y && open.Y + open.Height <= caption.Y + caption.Height
@@ -519,6 +526,12 @@ internal static class ExplorerSmoke
                     && app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)
                     && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontFamily == "Cascadia Mono",
                     "Text preview uses borderless Cascadia Mono without a read-only notice, plus an Open icon");
+                await Ui(() =>
+                {
+                    if (!PostMessageW(GetFocus(), 0x100, 0x09, 1))
+                        throw new InvalidOperationException("Could not post Tab to the preview.");
+                });
+                await Until(() => app.Preview.OpenButton.Focused || app.Preview.Text.Focused);
                 await Ui(() =>
                 {
                     if (!PostMessageW(GetFocus(), 0x100, 0x20, (1 << 30) | 1))
@@ -564,6 +577,8 @@ internal static class ExplorerSmoke
                         initialIcon = SendMessageW(previewHost, 0x7f, 0, 0);
                         if (initialIcon == 0 || SendMessageW(previewHost, 0x7f, 1, 0) == 0)
                             throw new InvalidOperationException("Preview HWND must supply small and large native icons.");
+                        if (app.Preview.Current!.CloseButton.Focused)
+                            throw new InvalidOperationException("A loading preview must not focus its caption Close button.");
                     });
                     await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
                     if (name == "large.txt")
