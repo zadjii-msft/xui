@@ -11,6 +11,7 @@ internal sealed class PreviewSession : IDisposable
     private readonly bool smoke;
     private readonly Action opened;
     private readonly PreviewLayout layout;
+    private readonly Grid body;
     private readonly PreviewMetadataLayout metadata;
     private readonly VectorCanvas metadataIcon;
     private readonly ShellPreview windowsPreview;
@@ -27,9 +28,19 @@ internal sealed class PreviewSession : IDisposable
         this.smoke = smoke;
         this.opened = opened;
         Target = target;
-        Window = application.CreateWindow($"Preview: {target.Name}", 800, 600, visualStyle: VisualStyle.WinUI);
+        Window = application.CreateWindow($"Preview: {target.Name}", 800, 600,
+            customTitlebar: true, visualStyle: VisualStyle.WinUI);
+        Window.SetFileTypeIcon(directory: target.IsDirectory);
+        Window.TitlebarTabs.Visible(false);
+        Window.TitlebarSecondaryTabs.Visible(false);
+        OpenButton = Window.TitlebarLeading;
+        CloseButton = Window.TitlebarClose;
+        OpenButton.SetText(target.IsDirectory ? "Open folder" : "Open")
+            .SetIcon(ButtonIcon.Open).SetAutomationId("preview-open").Help("Open in the associated application");
+        OpenButton.SetStyle(ExplorerStyles.IconButton);
+        OpenButton.Click += Open;
         work = new(Window);
-        var body = Window.Grid("Preview content");
+        body = Window.Grid("Preview content");
         Text = Window.MultilineText("File contents");
         Text.SetReadOnly(true).SetMaximumLength(FilePreviewService.MaximumTextLength);
         Text.SetControlStyle(ExplorerStyles.PreviewText);
@@ -61,10 +72,6 @@ internal sealed class PreviewSession : IDisposable
         layout.WindowsPreview.Enabled = false;
         layout.WindowsPreview.Click += OpenWindowsPreview;
         windowsPreview.Changed += ProviderChanged;
-        layout.Open.SetStyle(ExplorerStyles.IconButton);
-        layout.Close.SetStyle(ExplorerStyles.IconButton);
-        layout.Close.Click += Dismiss;
-        layout.Open.Click += Open;
         Window.KeyHandler = HandleKey;
         Window.Closed += e =>
         {
@@ -85,14 +92,15 @@ internal sealed class PreviewSession : IDisposable
     internal string Message { get; private set; } = "";
     internal MultilineText Text { get; }
     internal Image Image { get; }
-    internal Button CloseButton => layout.Close;
-    internal Button OpenButton => layout.Open;
+    internal Button CloseButton { get; }
+    internal Button OpenButton { get; }
     internal Button WindowsPreviewButton => layout.WindowsPreview;
     internal bool WindowsPreviewAllowed => providerAllowed && IsOpen && !Pending
         && windowsPreview.Status.State is not (PreviewState.Loading or PreviewState.Accepted);
     internal PreviewStatus ProviderStatus => windowsPreview.Status;
     internal int ProviderAttempts { get; private set; }
     internal ElementBounds Bounds => layout.Root.GetBounds();
+    internal ElementBounds BodyBounds => body.GetBounds();
     internal VectorCanvas MetadataIcon => metadataIcon;
     internal string MetadataName => metadata.Name.Text;
     internal string MetadataKind => metadata.Kind.Text;
@@ -103,7 +111,6 @@ internal sealed class PreviewSession : IDisposable
     public void Show()
     {
         var selected = Target;
-        layout.Title.Text = selected.Name;
         metadata.Name.Text = selected.Name;
         metadata.Kind.Text = $"File Type: {(selected.IsDirectory ? "File folder" : selected.Kind)}";
         metadata.Size.Text = selected.IsDirectory ? "Size: Not calculated"
@@ -112,18 +119,19 @@ internal sealed class PreviewSession : IDisposable
         Text.SetName($"Contents of {selected.Name}").Visible(false);
         Image.SetName($"Preview of {selected.Name}").Visible(false);
         ShowMetadata(false);
-        layout.Open.Text = selected.IsDirectory ? "Open folder" : "Open";
-        layout.Open.Enabled = false;
+        OpenButton.Enabled = false;
         SetMessage("Loading preview...");
         Pending = true;
         application.Show(Window);
         IsOpen = true;
-        layout.Close.Focus();
+        CloseButton.Focus();
         work.Start(token => service.LoadAsync(selected, token), request.Token, result =>
         {
             if (!IsOpen) return;
             Pending = false;
-            layout.Open.Enabled = true;
+            OpenButton.Enabled = true;
+            if (!result.Restricted && !selected.IsDirectory)
+                Window.SetFileTypeIcon(Path.GetExtension(selected.Name));
             providerAllowed = !result.Restricted && !selected.IsDirectory;
             layout.WindowsPreview.Enabled = providerAllowed;
             basicMessage = result.Message;
@@ -143,7 +151,7 @@ internal sealed class PreviewSession : IDisposable
         {
             if (!IsOpen) return;
             Pending = false;
-            layout.Open.Enabled = true;
+            OpenButton.Enabled = true;
             SetMessage($"Cannot preview this item: {error.Message}", StatusSeverity.Error);
         });
     }
@@ -167,6 +175,7 @@ internal sealed class PreviewSession : IDisposable
             return;
         if (value.Reason == PreviewReason.Restricted)
         {
+            Window.SetFileTypeIcon(directory: Target.IsDirectory);
             providerAllowed = false;
             layout.WindowsPreview.Enabled = false;
             Text.Text = "";
@@ -218,9 +227,9 @@ internal sealed class PreviewSession : IDisposable
     public bool HandleKey(UiKeyEvent key)
     {
         if (key.VirtualKey == 0x1b) { Dismiss(); return true; }
-        // Space opens only. Do not let held-key repeats activate the focused Close button.
+        // Held Space from Explorer must not activate the initial caption focus.
         if (key.VirtualKey == 0x20 && key.Modifiers == KeyModifiers.None
-            && (key.TargetId == layout.Close.Id || key.TargetId == layout.Open.Id || key.TargetId == layout.WindowsPreview.Id)) return true;
+            && (key.TargetId == CloseButton.Id || key.TargetId == OpenButton.Id || key.TargetId == layout.WindowsPreview.Id)) return true;
         return false;
     }
 

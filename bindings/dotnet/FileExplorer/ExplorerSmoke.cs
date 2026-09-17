@@ -500,6 +500,18 @@ internal static class ExplorerSmoke
                         throw new InvalidOperationException("Could not post the preview shortcut to the owned file view.");
                 });
                 await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Check(() =>
+                {
+                    var preview = app.Preview.Current!;
+                    var caption = preview.Window.Titlebar.GetBounds();
+                    var open = preview.OpenButton.GetBounds();
+                    return open.Y >= caption.Y && open.Y + open.Height <= caption.Y + caption.Height
+                        && open.Width > 0 && preview.Window.TitlebarTitle.Text == $"Preview: {preview.Target.Name}"
+                        && !preview.Window.TitlebarTabs.Visible && !preview.Window.TitlebarSecondaryTabs.Visible
+                        && preview.CloseButton.Id == preview.Window.TitlebarClose.Id
+                        && preview.BodyBounds.Y == preview.Bounds.Y + 12
+                        && preview.WindowsPreviewButton.GetBounds().Y >= preview.BodyBounds.Y + preview.BodyBounds.Height;
+                }, "Open occupies the titlebar; content starts without a duplicate header; Windows preview stays in the footer");
                 await Check(() => app.Preview.Text.Text == "one\rtwo" && app.Preview.Text.ReadOnly
                     && app.Preview.Bounds.Width > 0 && app.Preview.Bounds.Height > 0
                     && app.Preview.Text.GetBounds().Height > 0 && app.FileOpenCount == opens
@@ -545,11 +557,16 @@ internal static class ExplorerSmoke
                 foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp",
                     "restricted.txt", "no-handler.xui-no-preview-fixture" })
                 {
+                    nint previewHost = 0, initialIcon = 0;
                     await Ui(() =>
                     {
                         app.Left.SelectPath(Path.Combine(root, name));
                         app.Left.ContextMenu.GetCommands();
                         app.Left.ContextMenu.Invoke(FileContextMenu.Preview);
+                        previewHost = GetAncestor(GetFocus(), 2);
+                        initialIcon = SendMessageW(previewHost, 0x7f, 0, 0);
+                        if (initialIcon == 0 || SendMessageW(previewHost, 0x7f, 1, 0) == 0)
+                            throw new InvalidOperationException("Preview HWND must supply small and large native icons.");
                     });
                     await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
                     if (name == "large.txt")
@@ -571,6 +588,7 @@ internal static class ExplorerSmoke
                         await Check(() => app.Preview.Current!.ProviderAttempts == 0
                             && app.Preview.Current.ProviderStatus.State == PreviewState.Idle
                             && !app.Preview.Current.WindowsPreviewAllowed
+                            && SendMessageW(previewHost, 0x7f, 0, 0) == initialIcon
                             && app.Preview.Image.Status == ImageStatus.Empty && app.Preview.Text.Text == ""
                             && app.Preview.Message.Contains("generic metadata"),
                             "Restricted input invokes neither provider, WIC nor text preview; metadata uses a retained vector icon");
@@ -674,7 +692,7 @@ internal static class ExplorerSmoke
                 await Ui(() => { app.Left.Focus(); Shortcut(0x20); });
                 await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
                 await Check(() => app.Preview.Text.Text == "one\rtwo", "Columns selection uses the same preview");
-                await Ui(app.Preview.Open);
+                await Ui(() => app.Preview.OpenButton.Invoke());
                 await Until(() => app.Preview.Current!.IsDisposed);
                 await Check(() => !app.Preview.IsOpen && app.Preview.OpenCount == 1 && app.FileOpenCount == opens,
                     "Only explicit Open invokes the associated application");
@@ -755,7 +773,12 @@ internal static class ExplorerSmoke
                     text.Text.Focus();
                     SendMessageW(GetFocus(), 0x00b1, 0, 3);
                     SendMessageW(GetFocus(), 0x301, 0, 0);
-                    if (!OpenClipboard(textHost)) throw new InvalidOperationException("Cannot inspect native preview copy.");
+                    if (text.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, text.Text.Id)) != false)
+                        throw new InvalidOperationException("A surviving preview routed an Explorer shortcut.");
+                });
+                await Until(() =>
+                {
+                    if (!OpenClipboard(textHost)) return false;
                     try
                     {
                         nint data = GetClipboardData(13), value = GlobalLock(data);
@@ -768,10 +791,9 @@ internal static class ExplorerSmoke
                         finally { if (value != 0) GlobalUnlock(data); }
                     }
                     finally { CloseClipboard(); }
-                    if (text.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, text.Text.Id)) != false)
-                        throw new InvalidOperationException("A surviving preview routed an Explorer shortcut.");
-                    folder.Open();
+                    return true;
                 });
+                await Ui(folder.Open);
                 await Until(() => folder.IsDisposed && image.Bounds.Width != previousWidth);
                 await Check(() => app.Preview.LastOpenedPath == Path.Combine(fixture, "alpha")
                     && image.Image.Status == ImageStatus.Ready && image.Image.GetBounds().Height > 0,
