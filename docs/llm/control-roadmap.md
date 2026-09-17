@@ -2,6 +2,22 @@
 
 Research date: September 12, 2026.
 
+## Current choice, badge, and menu additions
+
+The September 17, 2026 extension adds CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar.
+The [maintainer update](winui-maintainer-handoff.md#additional-choices-badges-and-menu-bars) records the scope and source map.
+The [control catalog](../specs/controls/README.md) contains their application guides.
+TeachingTip, Rating, and color, dialog, and calendar upgrades remain outside this extension.
+The original research and delivery notes retain their historical scope.
+
+## Current toggle and progress presentations
+
+The September 17, 2026 implementation adds ToggleSwitch, ToggleButton, and ProgressRing.
+Indeterminate bars and rings now use lifecycle-bound animation.
+The [foundation contract](../specs/foundation-controls.md) defines the current behavior.
+The [WinUI update](winui-maintainer-handoff.md#toggle-and-progress-update) records the implementation scope and remaining runtime checks.
+Later delivery notes preserve their historical batch scope, including earlier static-progress and binding limits.
+
 ## Scope and evidence
 
 This inventory compares File Pilot evidence with the official Windows control catalog and the current XUI C++ API.

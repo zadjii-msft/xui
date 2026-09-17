@@ -31,7 +31,9 @@ const schemas = properties.filter(({ target }) => target !== "Tooltip").map(({ t
   };
   return { target, part, properties: values, states: lookup(states), stateProperties: lookup(stateProperties) };
 });
-const aliases = { Text: "Label", VStack: "Stack", HStack: "Stack" };
+const aliases = { Text: "Label", VStack: "Stack", HStack: "Stack",
+  ToggleSwitch: "Toggle", ToggleButton: "Button", ProgressRing: "Progress",
+  CheckBox: "Toggle", HyperlinkButton: "Button", SelectorBar: "ChoiceList", InfoBadge: "InlineStatus", MenuBar: "CommandBar" };
 const catalog = { sourceCommit: commit, aliases, schemas };
 const words = (values) => [...new Set(values)].sort();
 const vocabulary = {

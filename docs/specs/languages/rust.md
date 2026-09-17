@@ -84,6 +84,17 @@ An x64 application requires an explicit x64 target and matching native binaries.
 TextInput emits change kind `2` and submit kind `3`.
 Its committed text comes from `text()`.
 Toggle change events carry the checked state as a nonzero value.
+`window.toggle_switch` and `window.toggle_button` create the dedicated toggle presentations.
+Both expose `checked()` and silent `set_checked(bool)`.
+Both report accepted changes through event kind `2`, with the checked state in `value`.
+`window.progress_ring` creates an indeterminate ring with the Progress range, value, and state methods.
+The [toggle guide](../controls/basic.md#toggleswitch) and [ring guide](../controls/choices.md#progressring) include examples.
+CheckBox uses `on_change` with a CheckState value instead of a boolean.
+HyperlinkButton uses `on_click` without automatic URI navigation.
+SelectorBar uses `set_items`, `set_selected`, and `on_change`.
+InfoBadge uses `set_dot`, `set_count`, or `set_icon`.
+MenuBar uses `set_commands`, `on_invoke`, and `on_pin`.
+These callback helpers replace the current subscription rather than adding another handler.
 The [complete Rust sample](../../../bindings/rust/sample/src/main.rs) shows these patterns with weak references.
 
 The extension adds typed feature factories and value records.

@@ -39,7 +39,9 @@ The `view` block describes the native tree.
 The `code csharp` block supplies C# methods.
 Fields belong in `state` declarations.
 
-The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, `RangeInput`, and `Progress`.
+Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, and `SplitView`.
+Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
+Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.
@@ -59,12 +61,18 @@ The `id` argument supplies the automation ID.
 `Stack`, `Grid`, and `Content` are elements, not controls, so they do not support those four arguments.
 For example, `Button("?", size: (36, 36), help: "Row 1, column 1: covered.");` declares a square cell.
 
-`Text`, `Button`, and `Toggle` use their positional string for both text and the accessible name.
+`Text`, `Button`, `Toggle`, `ToggleSwitch`, and `ToggleButton` use their positional string for both text and the accessible name.
 They do not accept a separate `name` argument because those native properties share storage.
 `TextInput` has a separate accessible name and text value.
 Its `text`, `change`, and `submit` arguments configure that input.
 It also supports `captionVisible` and `placeholder`.
-`Toggle` supports `checked` and `change`.
+`Toggle` and `ToggleSwitch` support `checked` and `change`.
+`ToggleSwitch` keeps the Toggle model and accessibility role, with a switch pill and thumb.
+`ToggleButton` supports `checked`, `change`, and `icon`.
+It selects Button toggle behavior by default.
+Its `change` handler receives the checked state as a `bool`.
+Toggle actions do not also emit a click event. The node does not accept `click`.
+Checked-state setters are silent for both toggle presentations.
 Event arguments name C# methods.
 `Button` supports `icon: global::Xui.ButtonIcon.Refresh` through the native `SetIcon` method.
 `NavigationView` supports `headerVisible`.
@@ -74,13 +82,50 @@ Its `searchId` and `searchHelp` arguments configure the native search input.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
 
+## CheckBox, links, selectors, badges, and menu bars
+
+`CheckBox` accepts `checkState`, `threeState`, and `change`.
+The state type is `global::Xui.CheckState`, with `Unchecked`, `Checked`, and `Indeterminate` values.
+The `change` method accepts one CheckState parameter.
+The default state is unchecked, and three-state input is off.
+This node does not change the binary `checked` and boolean `change` contracts of Toggle and ToggleSwitch.
+
+`HyperlinkButton` accepts `click` and `icon`.
+Its callback does not imply URI or browser navigation.
+The application owns any external action.
+
+`SelectorBar` accepts a `global::Xui.Choice[]` expression in `items` and a nullable `ulong` expression in `selected`.
+Its `change` method accepts one `ulong` parameter.
+The compiler applies items and selection as one native snapshot.
+For joint reactive replacements, use one tuple state that contains both values.
+Separate state assignments refresh immediately and can expose an invalid intermediate selection.
+The [SelectorBar example](controls/choices.md#selectorbar) shows the tuple pattern.
+
+`InfoBadge` accepts `count` as a `uint`, or `icon` as a `global::Xui.ButtonIcon`.
+The compiler rejects both arguments on one node.
+Without either argument, the badge uses its default dot presentation.
+The badge has no action event.
+
+`MenuBar` accepts a `global::Xui.Command[]` expression in `commands`.
+Its `invoke` and `pin` methods each accept one `ulong` command ID.
+Root records must have `Kind: global::Xui.CommandKind.Submenu`.
+Malformed snapshots preserve the previous commands.
+The native window manages submenu popups and keyboard input.
+
+All five nodes require a positional accessible-name string.
+They accept common layout, identity, visibility, help, reference, and style arguments.
+Style aliases map CheckBox to Toggle, HyperlinkButton to Button, SelectorBar to ChoiceList, InfoBadge to InlineStatus, and MenuBar to CommandBar.
+InfoBadge count text uses `part message`, not `part title`.
+The [control guides](controls/README.md) include complete examples.
+
 ## Range input and progress
 
 `RangeInput` is the native slider control.
 Its name is not `Slider`.
 `Progress` is a read-only native progress control.
-Both require a positional accessible-name string and accept the common control, layout, reference, and style arguments.
-Both are leaf nodes.
+`ProgressRing` uses the same range, value, and state model with a circular presentation.
+All three require a positional accessible-name string and accept the common control, layout, reference, and style arguments.
+All three are leaf nodes.
 
 ```text
 component VolumeMeter {
@@ -106,19 +151,23 @@ component VolumeMeter {
 
 | Argument | Type | Controls |
 | --- | --- | --- |
-| `range` | `global::Xui.NumericRange` | RangeInput, Progress |
-| `currentValue` | `double` | RangeInput, Progress |
+| `range` | `global::Xui.NumericRange` | RangeInput, Progress, ProgressRing |
+| `currentValue` | `double` | RangeInput, Progress, ProgressRing |
 | `orientation` | `global::Xui.Axis` | RangeInput |
 | `reversed` | `bool` | RangeInput |
 | `change` | Method with one `double` parameter | RangeInput |
-| `progressState` | `global::Xui.ProgressState` | Progress |
+| `progressState` | `global::Xui.ProgressState` | Progress, ProgressRing |
 
 The `currentValue` argument sets the numeric value.
 The language reserves `value` for the positional accessible-name operand, so `value:` remains invalid.
 Numeric values, orientation, reversal, and progress state support ordinary reactive expressions.
 The compiler checks expression and handler types through C#.
 Progress states are `Determinate`, `Indeterminate`, `Paused`, `Error`, and `Unknown`.
-Indeterminate and unknown native states are static, not an application animation loop.
+Indeterminate progress uses native, window-owned animation while attached, visible, and effectively enabled.
+Hidden or minimized windows stop that animation.
+The system client-area animation preference suppresses motion.
+Unknown states and capacity displays remain static.
+The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines timer ownership and lifecycle.
 
 The optional `range` expression runs once during component construction, before the first numeric value setter.
 It cannot depend on component state or call component methods.
@@ -131,11 +180,12 @@ An omitted range retains native bounds from 0 through 100, with small step 1 and
 An omitted numeric value retains the native initial value.
 With a supplied range, native construction can clamp that initial value to its bounds.
 The generator does not subsequently write a synthetic zero.
-The omitted orientation is horizontal, reversal is false, and progress state is determinate.
+The omitted orientation is horizontal, and reversal is false.
+Progress defaults to determinate state. ProgressRing defaults to indeterminate state.
 
 Native setters require finite increasing bounds, a finite interval span, and positive finite steps.
 Numeric values must be finite and inside the range.
-Progress checks the supplied range structure but uses only its minimum and maximum for display.
+Progress and ProgressRing check the supplied range structure but use only its minimum and maximum for display.
 Invalid values and enum values produce native errors, without generator coercion or silent recovery.
 As with other reactive bindings, a failed native setter does not roll back the authored C# state assignment.
 The next valid state update can restore the control value.
@@ -145,9 +195,11 @@ Property setters do not call this handler.
 The generated component registers the handler once, not during property refresh.
 Native drag previews and cancellation retain their existing behavior but do not call this committed-change handler.
 This language extension does not add preview or cancellation handlers.
-Progress does not accept a change handler.
+Progress and ProgressRing do not accept a change handler.
 
 Named styles use the existing `RangeInput` and `Progress` catalog targets and named parts.
+ProgressRing also uses the `Progress` target.
+ToggleSwitch and ToggleButton use the existing `Toggle` and `Button` targets.
 The [foundation reference](foundation-controls.md) describes the native range, input, and progress contracts.
 
 <a id="declare-button-styles-and-resources"></a>
@@ -307,7 +359,7 @@ Resources and styles have separate name scopes.
 The compiler rejects missing base styles and inheritance cycles.
 
 Native nodes accept a declared style name in `style: Identifier`.
-The supported nodes are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, `RangeInput`, `Progress`, and `Content`.
+The [control catalog](controls/README.md#language-and-styling-boundaries) lists all 24 supported nodes.
 The style target must match the node.
 Other supported targets use `Content(existingElement, style: NamedStyle)`, without a new constructor syntax.
 Native attachment checks the actual target of that existing element.

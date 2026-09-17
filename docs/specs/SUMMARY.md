@@ -23,9 +23,9 @@
 ## Choose a control
 
 * [All controls](controls/README.md)
-  * [Basic controls and windows](controls/basic.md)
+  * [Basic controls and toggles](controls/basic.md)
   * [Layout and containers](controls/layout.md)
-  * [Choices and values](controls/choices.md)
+  * [Choices, values, and progress](controls/choices.md)
   * [Collections and data](controls/collections.md)
   * [Commands and menus](controls/commands.md)
   * [Navigation](controls/navigation.md)

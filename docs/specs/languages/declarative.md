@@ -99,13 +99,17 @@ The [reload-host entry point](../xui-language.md#configure-a-project) shows the 
 
 ## Supported node forms
 
-There are fourteen node forms, including the existing-element bridge:
+There are twenty-four node forms, including the existing-element bridge:
 
 | Form | Purpose |
 | --- | --- |
 | `VStack`, `HStack` | Vertical or horizontal Stack |
 | `Text` | Label |
 | `Button`, `Toggle`, `TextInput` | Actions, checked state, and native text |
+| `ToggleSwitch`, `ToggleButton` | Switch preferences and button-shaped toggle actions |
+| `CheckBox`, `HyperlinkButton`, `InfoBadge` | Tri-state input, callback-only links, and noninteractive badges |
+| `SelectorBar`, `MenuBar` | Horizontal exclusive selection and command submenu headings |
+| `RangeInput`, `Progress`, `ProgressRing` | Numeric input and read-only bar/ring progress |
 | `Grid` | Tracks and cell placement |
 | `DataGrid`, `NavigationView`, `ItemsView` | Bound collection and navigation controls |
 | `ScrollView` | One retained subtree |
@@ -116,6 +120,15 @@ There are fourteen node forms, including the existing-element bridge:
 Stacks have no positional argument.
 Other native constructors require a string argument.
 `Content` instead accepts an existing Element expression.
+ToggleSwitch and ToggleButton accept `checked` and a boolean `change` handler.
+ProgressRing accepts `range`, `currentValue`, and `progressState`, like Progress.
+ProgressRing defaults to indeterminate state, while Progress defaults to determinate state.
+The [control guides](../controls/README.md) include examples for each presentation.
+CheckBox uses `checkState`, `threeState`, and a CheckState `change` handler.
+SelectorBar applies `items` and `selected` as one snapshot.
+InfoBadge accepts `count` or `icon`, not both. Neither argument means a dot.
+MenuBar uses `commands`, `invoke`, and `pin`.
+The [language contract](../xui-language.md#checkbox-links-selectors-badges-and-menu-bars) defines these types and snapshot rules.
 
 All nodes support `ref`, `size`, and `preferredSize`.
 A reference creates a typed public property.

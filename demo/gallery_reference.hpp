@@ -524,7 +524,7 @@ group.set_expanded(false)?;)"},
     Reference{L"progress",
         L"Use Progress for read-only completion or capacity. Represent unknown work with an explicit state.",
         L"Select Advance, Indeterminate, and Pause. Compare Sample task with Storage capacity and Unknown capacity.",
-        L"Indeterminate is static and creates no idle animation timer. Bindings expose ranges, values, and states but lack the C++ capacity-label API. For .xui, pass the C# progress to TaskProgress.",
+        L"Visible, enabled indeterminate indicators animate when Windows permits client-area animation. Hidden indicators stop animation. Capacity remains static; C# and Rust expose SetCapacity/set_capacity with explicit units. For .xui, pass the C# progress to TaskProgress.",
         L"docs/specs/controls/choices.md",
         LR"(component TaskProgress {
     param global::Xui.Progress Progress;
@@ -968,6 +968,150 @@ columns.SelectionChanged += item =>
     System.Console.WriteLine($"Column {item.Column}, item {item.Key.Id}");
 // Replace the complete path with SetColumns after resolving children.
 // The maximum path contains 32 columns.)",
-        L""}
+        L""},
+    Reference{L"toggle-switch",
+        L"Use ToggleSwitch for an immediate on/off preference. Use CheckBox for a choice that can have a mixed state.",
+        L"Change Send notifications with Space. Disable the switch and try it again. Compare the unavailable preference.",
+        L"Checked is binary. Programmatic setters are silent; user changes report a boolean. The switch shares Toggle styles and accessibility semantics.",
+        L"docs/specs/controls/basic.md",
+        LR"(component NotificationPreference {
+    state bool Enabled = true;
+    view { VStack() { ToggleSwitch("Send notifications", checked: Enabled, change: Changed); } }
+    code csharp { void Changed(bool value) => Enabled = value; }
+})",
+        LR"(var notifications = window.ToggleSwitch("Send notifications").SetChecked(true);
+notifications.Changed += value => System.Console.WriteLine(value);)",
+        LR"(let notifications = window.toggle_switch("Send notifications")?;
+notifications.set_checked(true)?;
+notifications.on_change(|value| { println!("{value}"); Ok(()) })?;)"},
+    Reference{L"toggle-button",
+        L"Use ToggleButton for a persistent on/off action with button presentation, such as a pinned preview.",
+        L"Toggle Pin preview with Space or Enter. Disable the action and confirm that its checked state does not change.",
+        L"ToggleButton reports checked-state changes, not Click. C# exposes Toggled and the Changed alias; .xui uses change. It shares Button styles.",
+        L"docs/specs/controls/basic.md",
+        LR"(component PinnedPreview {
+    state bool Pinned = false;
+    view { VStack() { ToggleButton("Pin preview", checked: Pinned, change: Changed); } }
+    code csharp { void Changed(bool value) => Pinned = value; }
+})",
+        LR"(var pin = window.ToggleButton("Pin preview").SetChecked(false);
+pin.Toggled += value => System.Console.WriteLine(value);)",
+        LR"(let pin = window.toggle_button("Pin preview")?;
+pin.set_checked(false)?;
+pin.on_toggle(|value| { println!("{value}"); Ok(()) })?;)"},
+    Reference{L"progress-ring",
+        L"Use ProgressRing for compact circular task progress. Its initial state is indeterminate and it has no visible caption.",
+        L"Select Advance, Indeterminate, Pause, and Error. Clear Show indicator to hide the ring and stop its animation.",
+        L"Use a separate Label for visible explanatory text. Determinate ranges are read-only. Animation respects visibility, enabled state, and the Windows animation preference.",
+        L"docs/specs/controls/choices.md",
+        LR"(component PreviewProgress {
+    view { VStack() { ProgressRing("Load preview", progressState: global::Xui.ProgressState.Indeterminate); } }
+})",
+        LR"(var ring = window.ProgressRing("Load preview");
+ring.SetState(ProgressState.Determinate).SetValue(40);)",
+        LR"(let ring = window.progress_ring("Load preview")?;
+ring.set_state(ProgressState::Determinate)?;
+ring.set_value(40.)?;)"},
+    Reference{L"checkbox",
+        L"Use CheckBox for unchecked, checked, or mixed values. Enable three-state input when users must choose all three states.",
+        L"Cycle Include attachments from its mixed state. Change the three-state option, disable the checkbox, and set mixed state explicitly.",
+        L"Programmatic mixed state is valid even when three-state input is disabled. Setters are silent. Space activates the checkbox; Enter does not. Existing Toggle remains binary.",
+        L"docs/specs/controls/basic.md",
+        LR"(component AttachmentChoice {
+    state global::Xui.CheckState Selection = global::Xui.CheckState.Indeterminate;
+    view { VStack() { CheckBox("Include attachments", threeState: true, checkState: Selection, change: Changed); } }
+    code csharp { void Changed(global::Xui.CheckState value) => Selection = value; }
+})",
+        LR"(var check = window.CheckBox("Include attachments")
+    .SetThreeState(true).SetState(CheckState.Indeterminate);
+check.Changed += value => System.Console.WriteLine(value);)",
+        LR"(let check = window.check_box("Include attachments")?;
+check.set_three_state(true)?;
+check.set_state(CheckState::Indeterminate)?;
+check.on_change(|value| { println!("{value:?}"); Ok(()) })?;)"},
+    Reference{L"hyperlink-button",
+        L"Use HyperlinkButton for an application action that needs link presentation and Hyperlink accessibility semantics.",
+        L"Activate Learn about this sample. Disable the help link and try it again. The example does not open a browser.",
+        L"Enter, Space, and UIA Invoke run the explicit callback. There is no URI property or automatic navigation. The application owns any external action.",
+        L"docs/specs/controls/basic.md",
+        LR"(component SampleHelp {
+    view { VStack() { HyperlinkButton("Learn more", click: ShowHelp); } }
+    code csharp { void ShowHelp() => System.Console.WriteLine("Help requested"); }
+})",
+        LR"(var help = window.HyperlinkButton("Learn more");
+help.Click += () => System.Console.WriteLine("Help requested");)",
+        LR"(let help = window.hyperlink_button("Learn more")?;
+help.on_click(|| { println!("Help requested"); Ok(()) })?;)"},
+    Reference{L"selector-bar",
+        L"Use SelectorBar for a compact, horizontal set of exclusive choices with stable IDs and one keyboard focus stop.",
+        L"Select All, Active, and Completed. Use the arrow keys and try the disabled Archived choice. Reset the filter.",
+        L"SetItems replaces items and selection atomically. SetSelected is silent; Select reports a user change. IDs must name enabled items. Omitted selection preserves an enabled selection or chooses the first enabled item.",
+        L"docs/specs/controls/choices.md",
+        LR"(component TaskFilter {
+    view {
+        VStack() {
+            SelectorBar("Task filter", items: new global::Xui.Choice[] {
+                new(1, "All"), new(2, "Active"), new(3, "Completed")
+            }, selected: 1UL, change: Changed);
+        }
+    }
+    code csharp { void Changed(ulong id) => System.Console.WriteLine(id); }
+})",
+        LR"(var filter = window.SelectorBar("Task filter").SetItems([
+    new(1, "All"), new(2, "Active"), new(3, "Completed")
+], 1);
+filter.Changed += id => System.Console.WriteLine(id);)",
+        LR"(let filter = window.selector_bar("Task filter")?;
+filter.set_items(&[
+    Choice { id: 1, label: "All".into(), enabled: true },
+    Choice { id: 2, label: "Active".into(), enabled: true },
+    Choice { id: 3, label: "Completed".into(), enabled: true },
+], Some(1))?;
+filter.on_change(|id| { println!("{id}"); Ok(()) })?;)"},
+    Reference{L"info-badge",
+        L"Use InfoBadge for a compact dot, notification count, or icon. It describes status without an interactive focus target.",
+        L"Add a notification, then choose Show dot or Show icon. Reset the count to return to the initial count presentation.",
+        L"Counts above 99 display as 99+ while the stored value and accessible name retain the exact count. The default presentation is a dot. There is no activation event.",
+        L"docs/specs/controls/basic.md",
+        LR"(component NotificationCount {
+    view { VStack() { InfoBadge("Unread notifications", count: 7U); } }
+})",
+        LR"(var badge = window.InfoBadge("Unread notifications").SetCount(7);
+// Later updates can select another presentation:
+badge.SetDot();
+badge.SetIcon(ButtonIcon.Bookmark);)",
+        LR"(let badge = window.info_badge("Unread notifications")?;
+badge.set_count(7)?;
+badge.set_dot()?;
+badge.set_icon(ButtonIcon::Bookmark)?;)"},
+    Reference{L"menu-bar",
+        L"Use MenuBar for persistent submenu headings backed by an immutable command snapshot. The window manages popup behavior.",
+        L"Press F10 or Alt+F. Open Recent samples, navigate between headings, and dismiss with Escape. Publish and Cut are disabled.",
+        L"Root commands must be submenu groups. Command labels can contain access-key markers. The framework owns heading activation, nested popups, and focus restoration. The sample actions do not write files or change the clipboard.",
+        L"docs/specs/controls/commands.md",
+        LR"(component DocumentMenu {
+    view {
+        VStack() {
+            MenuBar("Document menu", commands: new global::Xui.Command[] {
+                new(1, "&File", Kind: global::Xui.CommandKind.Submenu),
+                new(2, "Show summary", Parent: 1)
+            }, invoke: Execute);
+        }
+    }
+    code csharp { void Execute(ulong id) => System.Console.WriteLine(id); }
+})",
+        LR"(var menu = window.MenuBar("Document menu").SetCommands([
+    new(1, "&File", Kind: CommandKind.Submenu),
+    new(2, "Show summary", Parent: 1)
+]);
+menu.Invoked += id => System.Console.WriteLine(id);)",
+        LR"(let menu = window.menu_bar("Document menu")?;
+menu.set_commands(&[
+    Command { id: 1, parent: 0, label: "&File".into(), kind: CommandKind::Submenu,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+    Command { id: 2, parent: 1, label: "Show summary".into(), kind: CommandKind::Action,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+])?;
+menu.on_invoke(|id| { println!("{id}"); Ok(()) })?;)"}
 };
 }

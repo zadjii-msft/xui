@@ -173,6 +173,30 @@ component Counter {
 }
 
 #[test]
+fn winui_parity_controls() {
+    for control in [
+        "ToggleSwitch",
+        "ToggleButton",
+        "ProgressRing",
+        "CheckBox",
+        "HyperlinkButton",
+        "SelectorBar",
+        "InfoBadge",
+        "MenuBar",
+    ] {
+        for indent in ["", "    "] {
+            let source = format!(
+                "component Example {{\n{indent}view {{ VStack() {{\n{indent}{control}(\"Example\");\n{indent}}} }}\n}}"
+            );
+            expect(
+                &source,
+                &[(2, control, "storage.type"), (2, "Example", "string")],
+            );
+        }
+    }
+}
+
+#[test]
 fn csharp_nesting_and_same_line_return_to_xui() {
     expect(
         r#"component Demo {

@@ -16,9 +16,17 @@ public class Window
     public Label Label(string text) => Add(new Label());
     public Button Button(string text) => Add(new Button());
     public Toggle Toggle(string text) => Add(new Toggle());
+    public ToggleSwitch ToggleSwitch(string text) => Add(new ToggleSwitch());
+    public ToggleButton ToggleButton(string text) => Add(new ToggleButton());
     public TextInput TextInput(string text) => Add(new TextInput());
     public RangeInput RangeInput(string text) => Add(new RangeInput());
     public Progress Progress(string text) => Add(new Progress());
+    public ProgressRing ProgressRing(string text) => Add(new ProgressRing());
+    public CheckBox CheckBox(string text) => Add(new CheckBox());
+    public HyperlinkButton HyperlinkButton(string text) => Add(new HyperlinkButton());
+    public SelectorBar SelectorBar(string text) => Add(new SelectorBar());
+    public InfoBadge InfoBadge(string text) => Add(new InfoBadge());
+    public MenuBar MenuBar(string text) => Add(new MenuBar());
     public Grid Grid(string name) => Add(new Grid { Name = name });
     public DataGrid DataGrid(string name) => Add(new DataGrid());
     public ItemsView ItemsView(string name) => Add(new ItemsView());
@@ -85,7 +93,7 @@ public abstract class Control : Element
     public bool IsVisible = true;
 }
 public sealed class Label : Control;
-public sealed class Button : Control
+public class Button : Control
 {
     private ButtonStyle? style;
     public int StyleSets;
@@ -121,7 +129,7 @@ public sealed class ButtonStyle(ButtonStyleValues values, IReadOnlyList<ButtonSt
     public IReadOnlyList<ButtonStyleRule> Rules { get; } = rules ?? [];
     public ButtonStyle? BasedOn { get; } = basedOn;
 }
-public sealed class Toggle : Control
+public class Toggle : Control
 {
     public int StyleSets => ControlStyleSets;
     public ControlStyle? Style { get => ControlStyle; set => SetControlStyle(value); }
@@ -131,6 +139,13 @@ public sealed class Toggle : Control
     public void Invoke(bool value) { Checked = value; Changed?.Invoke(value); }
 }
 public enum StyleFontStyle : uint { Normal, Italic, Oblique }
+public sealed class ToggleSwitch : Toggle;
+public sealed class ToggleButton : Button
+{
+    public bool Checked { get; set; }
+    public event Action<bool>? Changed;
+    public void Invoke(bool value) { Checked = value; Changed?.Invoke(value); }
+}
 public enum StyleAlignment : uint { Start, Center, End, Stretch }
 public sealed record PartStyleValues
 {
@@ -257,6 +272,65 @@ public sealed class Progress : ValueControl
 {
     public ProgressState State;
     public void SetState(ProgressState value) => State = value;
+}
+public sealed class ProgressRing : ValueControl
+{
+    public ProgressState State = ProgressState.Indeterminate;
+    public void SetState(ProgressState value) => State = value;
+}
+public enum CheckState { Unchecked, Checked, Indeterminate }
+public enum InfoBadgeKind { Dot, Count, Icon }
+public sealed class CheckBox : Control
+{
+    public CheckState State;
+    public bool ThreeState;
+    public void SetState(CheckState value) => State = value;
+    public void SetThreeState(bool value) => ThreeState = value;
+    public event Action<CheckState>? Changed;
+    public void Invoke(CheckState value) { State = value; Changed?.Invoke(value); }
+}
+public sealed class HyperlinkButton : Button;
+public readonly record struct Choice(ulong Id, string Text, bool Enabled = true, ulong Version = 0);
+public sealed class SelectorBar : Control
+{
+    public Choice[] Items = [];
+    public ulong? Selected;
+    public int ItemSets;
+    public void SetItems(ReadOnlySpan<Choice> items, ulong? selected = null)
+    {
+        var snapshot = items.ToArray();
+        if (snapshot.Any(item => item.Id == 0) || snapshot.Select(item => item.Id).Distinct().Count() != snapshot.Length)
+            throw new ArgumentException("Choice IDs must be nonzero and unique.");
+        if (!selected.HasValue)
+            selected = snapshot.Any(item => item.Id == Selected && item.Enabled) ? Selected :
+                snapshot.Where(item => item.Enabled).Select(item => (ulong?)item.Id).FirstOrDefault();
+        if (selected.HasValue && !snapshot.Any(item => item.Id == selected && item.Enabled))
+            throw new ArgumentException("Selected item must exist and be enabled.");
+        Items = snapshot; Selected = selected; ItemSets++;
+    }
+    public void SetSelected(ulong selected) => SetItems(Items, selected);
+    public event Action<ulong>? Changed;
+    public void Select(ulong id) { SetSelected(id); Changed?.Invoke(id); }
+}
+public sealed class InfoBadge : Control
+{
+    public InfoBadgeKind Kind;
+    public uint Count;
+    public ButtonIcon Icon;
+    public void SetCount(uint value) { Count = value; Kind = InfoBadgeKind.Count; }
+    public void SetIcon(ButtonIcon value) { Icon = value; Kind = InfoBadgeKind.Icon; }
+}
+public enum CommandKind : uint { Action, Submenu, Separator }
+public readonly record struct Command(ulong Id, string Label, ulong Parent = 0, CommandKind Kind = CommandKind.Action,
+    bool Enabled = true, bool? Checked = null, string ShortcutHint = "", string PinLabel = "");
+public sealed class MenuBar : Control
+{
+    public Command[] Commands = [];
+    public int CommandSets;
+    public void SetCommands(ReadOnlySpan<Command> commands) { Commands = commands.ToArray(); CommandSets++; }
+    public event Action<ulong>? Invoked;
+    public event Action<ulong>? Pinned;
+    public void Invoke(ulong id, bool pin = false) { if (pin) Pinned?.Invoke(id); else Invoked?.Invoke(id); }
 }
 public abstract class ContentControl : Control
 {

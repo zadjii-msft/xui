@@ -72,6 +72,7 @@ public:
     void fill(Rect bounds, D2D1_COLOR_F color);
     void outline(Rect bounds, D2D1_COLOR_F color);
     void rounded(Rect bounds, D2D1_COLOR_F color, float radius = VisualMetrics::radius, bool stroke = false);
+    void arc(Rect bounds, float start_turn, float sweep_turns, D2D1_COLOR_F color, float thickness);
     void focus_ring(Rect bounds, const Palette& palette, float radius = 4);
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
@@ -80,6 +81,8 @@ public:
         D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness);
     void styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
         IDWriteTextLayout* label, bool focus_visible);
+    void hyperlink(const HyperlinkButton& link, Rect bounds, const Palette& palette, bool enabled, bool focus_visible);
+    void info_badge(const InfoBadge& badge, Rect bounds, const Palette& palette, bool enabled);
     void styled_button(const Button& button, Rect bounds, const Palette& palette, bool enabled, bool focus_visible,
         std::wstring_view label_override = {}, float trailing_space = 0, std::optional<bool> step_increment = {},
         const PartStyleValues* inherited_defaults = nullptr, std::optional<Symbol> glyph_override = {});

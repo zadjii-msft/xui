@@ -93,6 +93,31 @@ The gallery also composes inline and anchored quick access with `AdaptiveLayout`
 Its view picker changes the actual generic `ItemsView` presentation and row size.
 It does not change the legacy explorer `FileList` presentation.
 
+## MenuBar
+
+`xui/menu_bar.hpp` supplies MenuBar.
+`MenuBar::set_commands` accepts an immutable CommandSet.
+Root records must be submenu groups. A bar accepts at most 64 root groups.
+CommandSet limits still apply to the complete hierarchy.
+Invalid snapshots preserve the previous commands.
+
+The bar retains heading controls and uses window-managed submenu popups.
+The command records own actions and pin callbacks.
+The bar does not infer file, clipboard, or browser operations.
+Application callbacks supply those operations explicitly.
+The [MenuBar guide](controls/commands.md#menubar) includes four-language examples.
+
+F10 enters or exits the menu bar. Alt plus a heading mnemonic opens that heading.
+An ampersand marks a mnemonic in the command label. A doubled ampersand displays one literal ampersand.
+Left and Right skip disabled headings and can switch the open submenu.
+Down or Enter opens a heading submenu.
+
+Escape returns to the heading, then to the previous focus. Tab exits the menu bar.
+Outside input dismisses the menu through the normal popup rules.
+Disabling the bar or replacing its source cancels its open menu.
+UIA exposes a MenuBar root and MenuItem headings with ExpandCollapse.
+Action descendants retain the existing Invoke behavior.
+
 ## Optional Shell and caption integration
 
 `xui/shell_commands.hpp` separates discovery from invocation.
@@ -138,4 +163,3 @@ High-contrast mode uses system colors. Caption buttons retain DPI scaling, acces
 Tab navigation skips caption buttons. Alt+Space opens the native system menu for keyboard window commands.
 Native tests open and cancel the system menu, check resize corners, and maximize and restore through UIA.
 Physical monitor transitions, Snap flyout appearance, and screen-reader speech still require manual checks.
-

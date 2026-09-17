@@ -180,6 +180,7 @@ Wrapping limits do not shorten the accessible name.
 
 Use a `Button` for an action.
 Use `Toggle` for a labeled checkbox.
+Use `ToggleButton` for a button-shaped toggle action.
 Use `SplitButton` for independent primary and secondary actions.
 
 {% tabs %}
@@ -341,6 +342,165 @@ The style target is `button`, with text, icon, and dropdown presentation parts.
 The older `ButtonStyle` API remains supported.
 Use the [shared style contract](../control-styling.md) for precedence and compatibility.
 
+## ToggleButton
+
+Use `ToggleButton` for an action that retains an on/off state, such as a pinned panel.
+The native class derives from Button and selects toggle behavior by default.
+It does not change an ordinary Button into a checkbox.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component PinAction {
+    state bool Pinned = false;
+    view {
+        VStack() {
+            ToggleButton("Pin panel", checked: Pinned, change: ChangePin);
+            Text(Pinned ? "Panel pinned" : "Panel unpinned");
+        }
+    }
+    code csharp {
+        void ChangePin(bool value) => Pinned = value;
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Panel unpinned");
+var pin = window.ToggleButton("Pin panel").SetChecked(false);
+pin.Toggled += value => status.Text = value ? "Panel pinned" : "Panel unpinned";
+root.Add(pin).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Panel unpinned")?;
+let pin = window.toggle_button("Pin panel")?;
+pin.set_checked(false)?;
+let output = status.downgrade();
+pin.on_event(move |event| {
+    let Some(output) = output.upgrade() else { return Ok(()); };
+    if event.kind == 2 {
+        output.set_text(if event.value != 0 { "Panel pinned" } else { "Panel unpinned" })?;
+    }
+    Ok(())
+})?;
+root.add(&pin, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Panel unpinned");
+auto pin = std::make_shared<xui::ToggleButton>(L"Pin panel");
+pin->set_checked(false);
+pin->on_toggle([status](bool value) {
+    status->set_text(value ? L"Panel pinned" : L"Panel unpinned");
+});
+root->add(pin);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+`checked()` reads the native value. `set_checked` changes it without an action callback.
+`on_toggle` reports accepted toggle actions.
+C# uses `Checked`, `SetChecked`, and `Toggled`.
+The `.xui` `change` argument connects a method with one `bool` parameter.
+Toggle actions do not also call `on_click`.
+The `.xui` ToggleButton node has no `click` argument.
+Rust uses `checked`, `set_checked`, and change event kind `2`.
+
+The `button` style target supplies the checked appearance.
+Native Button keyboard, cancellation, enabled-state, and accessibility rules remain in effect.
+There is no separate ToggleButton style target.
+
+## HyperlinkButton
+
+Use `HyperlinkButton` for a link-shaped action.
+Its native class derives from Button.
+Activation calls an application callback. The control does not open a URI or browser.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component HelpLink {
+    state string Message = "Help is closed";
+    view {
+        VStack() {
+            HyperlinkButton("Show help", click: ShowHelp);
+            Text(Message);
+        }
+    }
+    code csharp {
+        void ShowHelp() => Message = "Help requested";
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Help is closed");
+var help = window.HyperlinkButton("Show help");
+help.Click += () => status.Text = "Help requested";
+root.Add(help).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Help is closed")?;
+let help = window.hyperlink_button("Show help")?;
+let output = status.downgrade();
+help.on_click(move || {
+    if let Some(output) = output.upgrade() {
+        output.set_text("Help requested")?;
+    }
+    Ok(())
+})?;
+root.add(&help, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Help is closed");
+auto help = std::make_shared<xui::HyperlinkButton>(L"Show help");
+help->on_click([status] { status->set_text(L"Help requested"); });
+root->add(help);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+C# uses `Click`, while Rust uses `on_click`.
+Both wrappers expose `Invoke` or `invoke` for semantic activation.
+Applications own any navigation, URI policy, and error handling.
+This control does not infer navigation from its label.
+
+It retains the Button style target and Button input cancellation rules.
+Its text is underlined, and keyboard focus remains visible.
+UIA exposes a Hyperlink control with an Invoke action.
+Enter and Space activate the link. An enabled link uses a hand cursor.
+
 ## Toggle
 
 Use `Toggle` for a boolean preference with a checkbox.
@@ -422,6 +582,256 @@ Space changes the focused checkbox on release. Enter does not change it.
 The style target is `toggle`.
 The label, indicator, and check mark are parts of one control, not independently focusable children.
 The `checked` state follows the value.
+
+## ToggleSwitch
+
+Use `ToggleSwitch` for an on/off preference with a switch pill and thumb.
+The native class derives from Toggle.
+The existing Toggle control remains a checkbox.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component PreviewSwitch {
+    state bool Preview = false;
+    view {
+        VStack() {
+            ToggleSwitch("Show preview", checked: Preview, change: ChangePreview);
+            Text(Preview ? "Preview enabled" : "Preview disabled");
+        }
+    }
+    code csharp {
+        void ChangePreview(bool value) => Preview = value;
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Preview disabled");
+var preview = window.ToggleSwitch("Show preview").SetChecked(false);
+preview.Changed += value => status.Text = value ? "Preview enabled" : "Preview disabled";
+root.Add(preview).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Preview disabled")?;
+let preview = window.toggle_switch("Show preview")?;
+preview.set_checked(false)?;
+let output = status.downgrade();
+preview.on_event(move |event| {
+    let Some(output) = output.upgrade() else { return Ok(()); };
+    if event.kind == 2 {
+        output.set_text(if event.value != 0 { "Preview enabled" } else { "Preview disabled" })?;
+    }
+    Ok(())
+})?;
+root.add(&preview, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Preview disabled");
+auto preview = std::make_shared<xui::ToggleSwitch>(L"Show preview");
+preview->set_checked(false);
+preview->on_change([status](bool value) {
+    status->set_text(value ? L"Preview enabled" : L"Preview disabled");
+});
+root->add(preview);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+The native API retains `checked()`, silent `set_checked`, and `on_change`.
+C# uses `Checked`, `SetChecked`, and `Changed`.
+Rust uses `checked`, `set_checked`, and change event kind `2`.
+The switch retains the Toggle accessibility role and keyboard behavior.
+It does not claim a separate WinUI switch accessibility contract.
+
+The style target remains `toggle`.
+Existing indicator and mark parts supply the pill and thumb presentation.
+The indicator size sets the pill height. The pill width is twice that height.
+Mark styles apply to the thumb.
+The label and switch form one input and accessibility target.
+
+## CheckBox
+
+Use `CheckBox` for an unchecked, checked, or mixed value.
+Use the existing `Toggle` or `ToggleSwitch` for a binary preference.
+CheckBox derives from Toggle, but its `on_change` callback receives a `CheckState`, not a boolean.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component MixedPreference {
+    state global::Xui.CheckState Selection = global::Xui.CheckState.Indeterminate;
+    view {
+        VStack() {
+            CheckBox("Include child items", checkState: Selection,
+                threeState: true, change: ChangeSelection);
+            Text(Selection.ToString());
+        }
+    }
+    code csharp {
+        void ChangeSelection(global::Xui.CheckState value) => Selection = value;
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Indeterminate");
+var choice = window.CheckBox("Include child items")
+    .SetThreeState(true).SetState(CheckState.Indeterminate);
+choice.Changed += value => status.Text = value.ToString();
+root.Add(choice).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Indeterminate")?;
+let choice = window.check_box("Include child items")?;
+choice.set_three_state(true)?;
+choice.set_state(CheckState::Indeterminate)?;
+let output = status.downgrade();
+choice.on_change(move |value| {
+    if let Some(output) = output.upgrade() {
+        output.set_text(&format!("{value:?}"))?;
+    }
+    Ok(())
+})?;
+root.add(&choice, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Mixed");
+auto choice = std::make_shared<xui::CheckBox>(L"Include child items");
+choice->set_three_state(true);
+choice->set_state(xui::CheckState::indeterminate);
+choice->on_change([status](xui::CheckState value) {
+    status->set_text(value == xui::CheckState::indeterminate ? L"Mixed" :
+        value == xui::CheckState::checked ? L"Checked" : L"Unchecked");
+});
+root->add(choice);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+The default state is unchecked, and three-state input is off.
+`set_state` accepts all three states without an action callback.
+`set_three_state` controls the input cycle, not the allowed property values.
+Three-state input cycles from unchecked to checked, then indeterminate, then unchecked.
+Two-state input cycles between unchecked and checked. Activation from indeterminate selects unchecked.
+
+`Toggle` and `ToggleSwitch` retain their binary state and boolean callbacks.
+CheckBox uses the existing `toggle` style target.
+The `mark` part draws a check or mixed-state dash.
+Checked and mixed states use the existing `checked` style rule.
+
+UIA exposes CheckBox Toggle state, including Indeterminate.
+Space activates the checkbox. Enter does not change its state.
+
+## InfoBadge
+
+Use `InfoBadge` for a noninteractive dot, count, or icon.
+The accessible name describes what the badge means.
+The badge does not add an action callback or keyboard focus stop.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component NotificationBadges {
+    view {
+        HStack() {
+            InfoBadge("Unread activity");
+            InfoBadge("Unread messages", count: 12u);
+            InfoBadge("New items available", icon: global::Xui.ButtonIcon.Add);
+        }
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var activity = window.InfoBadge("Unread activity");
+var unread = window.InfoBadge("Unread messages").SetCount(12);
+var available = window.InfoBadge("New items available").SetIcon(ButtonIcon.Add);
+root.Add(activity).Add(unread).Add(available);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let activity = window.info_badge("Unread activity")?;
+let unread = window.info_badge("Unread messages")?;
+unread.set_count(12)?;
+let available = window.info_badge("New items available")?;
+available.set_icon(ButtonIcon::Add)?;
+root.add(&activity, 0.0)?;
+root.add(&unread, 0.0)?;
+root.add(&available, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto activity = std::make_shared<xui::InfoBadge>(L"Unread activity");
+auto unread = std::make_shared<xui::InfoBadge>(L"Unread messages");
+unread->set_count(12);
+auto available = std::make_shared<xui::InfoBadge>(L"New items available");
+available->set_icon(xui::ButtonIcon::add);
+root->add(activity);
+root->add(unread);
+root->add(available);
+```
+
+{% endtab %}
+{% endtabs %}
+
+The default kind is `dot`.
+`set_count` and `set_icon` select their corresponding kinds. `set_dot` restores the dot.
+
+Counts use an unsigned 32-bit value.
+The visible count uses `99+` for values greater than 99. The stored count remains unchanged.
+The accessible name includes the full count, not the shortened visible text.
+
+The `.xui` node accepts either `count` or `icon`, not both.
+Without either argument, the node keeps the dot presentation.
+
+InfoBadge uses the `inline_status` style target with `root`, `message`, and `icon` parts.
+The `message` part styles the count text. There is no `title` part.
+The badge does not create InlineStatus action or dismiss Buttons.
+It exposes status live-region semantics, not an interactive input pattern.
 
 ## TextInput
 

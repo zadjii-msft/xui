@@ -64,11 +64,22 @@ test("component snippet expands to the canonical component with literal C# inter
 test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets.Button.body), 'Button("Increment", click: Increment, id: "increment");');
   assert.equal(expand(snippets.Toggle.body), 'Toggle("Enabled", checked: IsEnabled, change: OnChanged, id: "enabled");');
+  assert.equal(expand(snippets.ToggleSwitch.body), 'ToggleSwitch("Enabled", checked: IsEnabled, change: OnChanged);');
+  assert.equal(expand(snippets.ToggleButton.body), 'ToggleButton("Bold", checked: IsBold, change: OnChanged);');
+  assert.equal(expand(snippets.ProgressRing.body), 'ProgressRing("Loading", preferredSize: (32, 32));');
+  assert.ok(expand(snippets["Determinate ProgressRing"].body).includes("progressState: global::Xui.ProgressState.Determinate"));
+  assert.equal(expand(snippets.CheckBox.body), 'CheckBox("Check", checkState: global::Xui.CheckState.Unchecked, threeState: false, change: OnChanged);');
+  assert.equal(expand(snippets.HyperlinkButton.body), 'HyperlinkButton("Open", click: OnClick);');
+  assert.equal(expand(snippets.SelectorBar.body), 'SelectorBar("Pages", items: Items, selected: Selected, change: OnSelected);');
+  assert.equal(expand(snippets.InfoBadge.body), 'InfoBadge("Notifications", count: Count);');
+  assert.equal(expand(snippets.MenuBar.body), 'MenuBar("Menu", commands: Commands, invoke: OnInvoked);');
   assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
     ["component", "namespace", "state", "resources", "style", "when", "stylebasedon", "styledbutton",
       "togglestyle", "styledtoggle", "controlstyle", "part", "typographystyle", "styledcontent",
-      "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput"].sort());
+      "view", "code", "vstack", "hstack", "text", "button", "toggle", "textinput",
+      "toggleswitch", "togglebutton", "progressring", "progressringdeterminate",
+      "checkbox", "hyperlinkbutton", "selectorbar", "infobadge", "menubar"].sort());
 });
 
 test("styling snippets use named declarations and dual-theme colors", () => {
@@ -102,7 +113,9 @@ test("catalog grammar vocabularies contain exactly the exported Element tokens a
   assert.match(catalog.sourceCommit, /^[a-f0-9]{40}$/);
   for (const [rule, values] of Object.entries(expected))
     assert.equal(grammar.repository[rule].match, `\\b(?:${values.join("|")})\\b`, rule);
-  assert.deepEqual(catalog.aliases, { Text: "Label", VStack: "Stack", HStack: "Stack" });
+  assert.deepEqual(catalog.aliases, { Text: "Label", VStack: "Stack", HStack: "Stack",
+    ToggleSwitch: "Toggle", ToggleButton: "Button", ProgressRing: "Progress",
+    CheckBox: "Toggle", HyperlinkButton: "Button", SelectorBar: "ChoiceList", InfoBadge: "InlineStatus", MenuBar: "CommandBar" });
   assert.ok(!catalog.schemas.some((schema) => schema.target === "Tooltip"));
   const tile = catalog.schemas.find((schema) => schema.target === "ItemsView" && schema.part === "tile");
   assert.ok(tile.properties.includes("width"));

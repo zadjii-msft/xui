@@ -6,6 +6,71 @@ This handoff records an earlier development checkout.
 Its branch, uncommitted-state warning, and local results are historical, not the state of the current checkout.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build commands.
 
+## Additional choices, badges, and menu bars
+
+The September 17, 2026 extension adds CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar.
+The [foundation contract](../specs/foundation-controls.md) and [command contract](../specs/commands-and-navigation.md#menubar) define their public behavior.
+Existing Toggle and ToggleSwitch APIs remain binary.
+HyperlinkButton supplies a callback action, not automatic URI navigation.
+SelectorBar applies items and selected ID as one snapshot.
+InfoBadge has no input action.
+MenuBar roots use CommandSet submenu groups and window-managed popup ownership.
+
+The [binding contract](../specs/bindings.md#checkbox-links-selectors-badges-and-menu-bars) defines typed wrappers and the five new markup nodes.
+The [control catalog](../specs/controls/README.md) links four-language recipes.
+The gallery includes `checkbox`, `hyperlink-button`, `selector-bar`, `info-badge`, and `menu-bar` pages.
+These additions do not include TeachingTip, Rating, or color, dialog, and calendar upgrades.
+This scope note does not extend the runtime evidence for the earlier toggle/progress work.
+
+Source map:
+
+- `include\xui\controls.hpp` and `src\controls.cpp`: CheckBox state, HyperlinkButton, and InfoBadge.
+- `include\xui\foundation.hpp` and `src\foundation.cpp`: SelectorBar and the shared choice model.
+- `include\xui\menu_bar.hpp` and `src\menu_bar.cpp`: MenuBar headings and command snapshot ownership.
+- `bindings\dotnet\Xui\ParityControls.cs`: Typed events, selector snapshots, and menu callbacks.
+- `bindings\dotnet\Xui.Generator` and `bindings\dotnet\Designer\VisualDocument.cs`: Markup arguments and palette templates.
+
+## Toggle and progress update
+
+September 17, 2026: the current implementation adds ToggleSwitch, ToggleButton, and ProgressRing.
+The earlier handoff sections retain their original scope and evidence.
+Their absent-animation statements do not describe this update.
+
+`ToggleSwitch` derives from Toggle and retains its checkbox model and accessibility role.
+`ToggleButton` derives from Button and selects toggle behavior by default.
+`ProgressRing` derives from Progress and defaults to an indeterminate ring.
+These presentations reuse the `toggle`, `button`, and `progress` style targets.
+They do not add style catalog targets.
+
+Indeterminate bars and rings use a window-owned timer.
+Eligibility requires attachment, effective visibility, effective enabled state, and a visible, nonminimized window.
+The system client-area animation preference suppresses motion.
+Unknown and capacity displays remain static.
+Hide, detach, disable, minimization, and destruction must leave no unnecessary progress timer.
+
+The [foundation contract](../specs/foundation-controls.md) defines current behavior.
+The [gallery reference](../specs/gallery.md) lists the dedicated presentation pages.
+The [focused test procedure](../../CONTRIBUTING.md#toggles-and-progress) contains the native, ABI, and gallery commands.
+Implementation scope alone does not establish runtime, screen-reader, visual-parity, or performance results.
+The coordinating session reported these results on September 17, 2026, for the ARM64 Release worktree build:
+
+- Core, catalog tests, and gallery targets compiled.
+- `xui_gallery_catalog_tests` passed.
+- `build\ARM64\Release\xui_gallery_smoke.exe build\ARM64\Release\xui_gallery.exe --controls-only` passed.
+
+The focused gallery smoke checked actual ToggleSwitch and ToggleButton values and disabled behavior through UIA.
+It also checked read-only Progress and ProgressRing values and idle hidden pages.
+These results do not establish visual parity, screen-reader speech, full timer lifecycle coverage, or system reduced-animation behavior.
+
+Source map:
+
+- `include\xui\controls.hpp`: ToggleSwitch and ToggleButton declarations and inherited state APIs.
+- `include\xui\foundation.hpp` and `src\foundation.cpp`: ProgressRing and the shared progress state and capacity model.
+- `src\application.cpp`: `animated_progress`, `sync_progress_animation`, and `stop_progress_animation` own timer eligibility and cleanup.
+- `bindings\features.json` and `include\xui\xui_features.h`: Factory kinds and scalar property contracts.
+- `bindings\dotnet\Xui\ToggleControls.cs`: Typed toggle events and progress capacity setters.
+- `bindings\dotnet\Xui.Generator` and `bindings\dotnet\Designer\VisualDocument.cs`: Native markup nodes and palette templates.
+
 ## Current state
 
 The optional WinUI style covers the custom control catalog and has several reference-based fidelity passes.

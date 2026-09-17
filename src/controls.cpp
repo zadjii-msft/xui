@@ -592,14 +592,56 @@ void Button::set_repeat_timing(unsigned delay, unsigned interval) {
     cancel(); repeat_delay_ = delay; repeat_interval_ = interval;
 }
 void Toggle::set_checked(bool checked) {
-    if (checked_ == checked) return;
-    checked_ = checked;
+    set_check_state(checked ? CheckState::checked : CheckState::unchecked);
+}
+void Toggle::set_check_state(CheckState state) {
+    if (state < CheckState::unchecked || state > CheckState::indeterminate) throw std::invalid_argument("Invalid checkbox state");
+    if (state_ == state) return;
+    state_ = state;
     invalidate_state();
 }
 void Toggle::activate() {
-    set_checked(!checked_);
+    set_checked(!checked());
     const auto callback = change_;
-    if (callback) callback(checked_);
+    if (callback) callback(checked());
+}
+void CheckBox::activate() {
+    set_state(state() == CheckState::unchecked ? CheckState::checked :
+        state() == CheckState::checked && three_state_ ? CheckState::indeterminate : CheckState::unchecked);
+    const auto callback = change_;
+    if (callback) callback(state());
+}
+void InfoBadge::set_count(std::uint32_t value) {
+    if (kind_ == InfoBadgeKind::count && count_ == value) return;
+    kind_ = InfoBadgeKind::count; count_ = value; invalidate(Invalidation::layout);
+}
+void InfoBadge::set_icon(ButtonIcon value) {
+    if (value < ButtonIcon::none || value > ButtonIcon::open) throw std::invalid_argument("Invalid badge icon");
+    if (kind_ == InfoBadgeKind::icon && icon_ == value) return;
+    kind_ = InfoBadgeKind::icon; icon_ = value; invalidate(Invalidation::layout);
+}
+void InfoBadge::set_dot() {
+    if (kind_ == InfoBadgeKind::dot) return;
+    kind_ = InfoBadgeKind::dot; invalidate(Invalidation::layout);
+}
+std::wstring InfoBadge::display_text() const {
+    return kind_ == InfoBadgeKind::count ? count_ > 99 ? L"99+" : std::to_wstring(count_) : L"";
+}
+Size InfoBadge::measure(Size available) {
+    if (!visible()) return {};
+    if (!auto_size()) return Control::measure(available);
+    const auto* root = effective_control_style_values(StylePart::root);
+    const auto padding = root && root->padding ? *root->padding : Insets{};
+    const auto border = root && root->border_thickness ? *root->border_thickness : Insets{};
+    const auto* message = effective_control_style_values(StylePart::message);
+    const auto* icon = effective_control_style_values(StylePart::icon);
+    const float text_scale = message && message->font_size ? *message->font_size / 12.0f : 1.0f;
+    const float size = kind_ == InfoBadgeKind::dot ? 8.0f : kind_ == InfoBadgeKind::icon ?
+        std::max(20.0f, icon && icon->size ? *icon->size + 8 : 20.0f) : 20.0f * text_scale;
+    const float width = kind_ == InfoBadgeKind::count ?
+        (count_ > 99 ? 30.0f : count_ > 9 ? 24.0f : 20.0f) * text_scale : size;
+    return constrain({width + padding.left + padding.right + border.left + border.right,
+        size + padding.top + padding.bottom + border.top + border.bottom}, available);
 }
 Toggle::Layout Toggle::layout_metrics() const {
     const auto* root = effective_style_values(StylePart::root);
@@ -607,7 +649,7 @@ Toggle::Layout Toggle::layout_metrics() const {
     const bool winui = visual_style() == VisualStyle::winui;
     Layout layout;
     layout.gap = winui ? 9.0f : 12.0f;
-    layout.indicator_size = indicator && indicator->size ? *indicator->size : (winui ? 19.0f : 18.0f);
+    layout.indicator_size = indicator && indicator->size ? *indicator->size : (switch_ ? 20.0f : winui ? 19.0f : 18.0f);
     layout.padding = root && root->padding ? *root->padding : Insets{winui ? 0.0f : 12.0f, 0, 12, 0};
     layout.border = root && root->border_thickness ? *root->border_thickness : Insets{};
     layout.indicator_border = indicator && indicator->border_thickness ? *indicator->border_thickness : Insets{};
@@ -627,8 +669,9 @@ Rect Label::content_bounds(Rect bounds) const {
 Rect Toggle::indicator_bounds(Rect bounds) const {
     const auto layout = layout_metrics();
     const auto content = content_bounds(bounds);
-    return {content.x, content.y + std::max(0.0f, (content.height - layout.indicator_size) / 2),
-        layout.indicator_size, layout.indicator_size};
+    const float height = switch_ ? std::min(layout.indicator_size, content.height) : layout.indicator_size;
+    const float width = switch_ ? std::min(layout.indicator_size * 2, content.width) : layout.indicator_size;
+    return {content.x, content.y + std::max(0.0f, (content.height - height) / 2), width, height};
 }
 Rect Toggle::content_bounds(Rect bounds) const {
     const auto layout = layout_metrics();
@@ -637,27 +680,32 @@ Rect Toggle::content_bounds(Rect bounds) const {
 Rect Toggle::label_bounds(Rect bounds) const {
     auto content = content_bounds(bounds);
     const auto layout = layout_metrics();
-    const float prefix = layout.indicator_size + layout.gap;
+    const float prefix = layout.indicator_size * (switch_ ? 2 : 1) + layout.gap;
     content.x += prefix;
     content.width = std::max(0.0f, content.width - prefix);
     return content;
 }
 Rect Toggle::mark_bounds(Rect bounds) const {
-    return inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
+    auto mark = inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
+    if (!switch_) return mark;
+    const float inset = std::min(pressed() ? 2.0f : hovered() ? 2.5f : 3.0f, std::min(mark.width, mark.height) / 2);
+    mark = inset_rect(mark, {inset, inset, inset, inset});
+    const float size = std::min(mark.height, mark.width);
+    return {checked() ? mark.x + mark.width - size : mark.x, mark.y + (mark.height - size) / 2, size, size};
 }
 Size Toggle::measure(Size available) {
     if (!visible()) return {};
     const auto* root = effective_style_values(StylePart::root);
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool layout_affecting = (root && (root->padding || root->border_thickness)) || (indicator && indicator->size);
-    if (!auto_size() || !layout_affecting) return Control::measure(available);
+    if (!auto_size() || (!layout_affecting && !switch_)) return Control::measure(available);
     const auto text = measured_text();
     const auto layout = layout_metrics();
-    const float width = layout.padding.left + layout.border.left + layout.indicator_size + layout.gap + text.width +
+    const float width = layout.padding.left + layout.border.left + layout.indicator_size * (switch_ ? 2 : 1) + layout.gap + text.width +
         layout.padding.right + layout.border.right;
     const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
         layout.border.top + layout.border.bottom;
-    return constrain({width, height}, available);
+    return constrain({width, switch_ && !layout_affecting ? std::max(32.0f, height) : height}, available);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;

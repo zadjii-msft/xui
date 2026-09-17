@@ -34,10 +34,10 @@ No hosted site is required to read these pages.
 
 ## Control contracts
 
-- [Foundation controls](foundation-controls.md): Choices, ranges, numeric inputs, popups, and progress.
+- [Foundation controls](foundation-controls.md): Binary and tri-state choices, selectors, badges, ranges, numeric inputs, popups, and animated progress.
 - [Collections and asynchronous data](collections.md): Virtual lists, grids, trees, Miller columns, selection, and worker delivery.
 - [Context menus, tabs, and input](menus-and-input.md): Native menus, split panes, folder suggestions, and keyboard behavior.
-- [Commands and navigation](commands-and-navigation.md): Command surfaces, palettes, breadcrumbs, Shell commands, and title bars.
+- [Commands and navigation](commands-and-navigation.md): Menu bars, command surfaces, palettes, breadcrumbs, Shell commands, and title bars.
 - [Images and thumbnails](images.md): Decode limits, caching, cancellation, and Shell icons.
 - [Documents, dialogs, and color](documents.md): Native editors, syntax highlighting, password access, modal content, and form controls.
 - [Scenes and native hosts](scenes-and-hosts.md): Vector shapes, offline maps, media, and optional web content.

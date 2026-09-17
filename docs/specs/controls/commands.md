@@ -4,6 +4,7 @@
 
 Examples use the [shared fragment context](README.md#use-the-examples), except the complete C++ TitleBar function.
 C++ examples also need `xui\commands.hpp` and `xui\titlebar.hpp`.
+The MenuBar example also needs `xui\menu_bar.hpp`.
 C# fragments assume `using System;` and `using Xui;`.
 Rust fragments use `use xui::*;` inside the shared `example` function.
 That function returns `std::result::Result<(), Box<dyn std::error::Error>>`.
@@ -15,6 +16,7 @@ Rust callbacks use weak handles to avoid ownership cycles.
 | --- | --- |
 | One action | Button |
 | A retained command row | CommandBar |
+| Persistent headings with submenu popups | MenuBar |
 | A searchable palette or anchored menu | CommandSurface |
 | A directly composed virtual menu | CommandMenu |
 | A flat Windows context menu | `Control::on_context_menu` |
@@ -28,6 +30,118 @@ The older `Commands` class remains a nonvisual callback table.
 `CommandKind::submenu` defines nesting.
 `section` and `separator` define noninteractive records.
 Command snapshots accept at most 4,096 records and eight hierarchy levels.
+
+## MenuBar
+
+Use `MenuBar` for persistent menu headings and their submenus.
+The root command records must be submenu groups.
+The native window manages popup display and keyboard input.
+Application code supplies command actions, not a custom popup loop.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component DocumentMenuBar {
+    state string Message = "Ready";
+    view {
+        VStack() {
+            MenuBar("Document menu", commands: new global::Xui.Command[] {
+                new(1, "File", Kind: global::Xui.CommandKind.Submenu),
+                new(2, "Show summary", Parent: 1)
+            }, invoke: Execute);
+            Text(Message);
+        }
+    }
+    code csharp {
+        void Execute(ulong id) {
+            if (id == 2) Message = "Summary requested";
+        }
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Ready");
+var menu = window.MenuBar("Document menu").SetCommands([
+    new(1, "File", Kind: CommandKind.Submenu),
+    new(2, "Show summary", Parent: 1)
+]);
+menu.Invoked += id => {
+    if (id == 2) status.Text = "Summary requested";
+};
+root.Add(menu).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Ready")?;
+let menu = window.menu_bar("Document menu")?;
+menu.set_commands(&[
+    Command {
+        id: 1, parent: 0, label: "File".into(), kind: CommandKind::Submenu,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new(),
+    },
+    Command {
+        id: 2, parent: 1, label: "Show summary".into(), kind: CommandKind::Action,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new(),
+    },
+])?;
+let output = status.downgrade();
+menu.on_invoke(move |id| {
+    if id == 2 && let Some(output) = output.upgrade() {
+        output.set_text("Summary requested")?;
+    }
+    Ok(())
+})?;
+root.add(&menu, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Ready");
+auto menu = std::make_shared<xui::MenuBar>(L"Document menu");
+menu->set_commands(std::make_shared<const xui::CommandSet>(
+    std::vector<xui::CommandRecord>{
+        {.id = 1, .label = L"File", .kind = xui::CommandKind::submenu},
+        {.id = 2, .parent = 1, .label = L"Show summary",
+            .action = [status] { status->set_text(L"Summary requested"); }}
+    }));
+root->add(menu);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+Command snapshots retain stable IDs, enabled states, hierarchy, and separate pin actions.
+Malformed snapshots leave the previous commands intact.
+C# exposes `Invoked` and `Pinned`. The `.xui` arguments are `invoke` and `pin`.
+Rust exposes `on_invoke` and `on_pin`.
+Rust callback registration replaces the previous subscription.
+A single `on_event` handler can process both event kinds.
+
+`Invoke` or `invoke` requests an action by command ID.
+`Bind` or `bind` registers a keyboard shortcut. Shortcut hint text alone does not register one.
+The [command contract](../commands-and-navigation.md) defines snapshot and popup limits.
+
+MenuBar uses the `command_bar` style target.
+Its retained headings use Button styles, and submenu content uses CommandMenu styles.
+A MenuBar does not acquire CommandBar overflow behavior through a shared style target.
+
+F10 enters or exits the menu bar. Alt plus a heading mnemonic opens that heading.
+Arrows navigate the menu structure, and Down or Enter opens a heading submenu.
+Escape returns to the heading, then to the previous focus.
+Tab exits the menu bar. Outside input dismisses the menu.
 
 ## CommandMenu
 

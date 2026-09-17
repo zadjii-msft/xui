@@ -151,7 +151,7 @@
       ]
     },
     "style-targets": {
-      "match": "\\b(?:AdaptiveLayout|Breadcrumb|Button|ChoiceList|ColorPicker|ComboBox|CommandBar|CommandMenu|ContentView|DataGrid|DateTimePicker|Expander|FileList|Grid|HStack|HistoryChart|Image|InlineStatus|ItemsView|Label|MapView|MediaPlayback|MultilineText|NavigationList|NavigationPane|NavigationView|NumericInput|PageView|PasswordInput|Popup|Progress|RadioGroup|RangeInput|RichText|ScrollView|SplitButton|SplitView|Stack|TabStrip|Text|TextInput|TitleBar|Toggle|TreeView|VStack|VectorCanvas|WebContent|Wrap)\\b",
+      "match": "\\b(?:AdaptiveLayout|Breadcrumb|Button|CheckBox|ChoiceList|ColorPicker|ComboBox|CommandBar|CommandMenu|ContentView|DataGrid|DateTimePicker|Expander|FileList|Grid|HStack|HistoryChart|HyperlinkButton|Image|InfoBadge|InlineStatus|ItemsView|Label|MapView|MediaPlayback|MenuBar|MultilineText|NavigationList|NavigationPane|NavigationView|NumericInput|PageView|PasswordInput|Popup|Progress|ProgressRing|RadioGroup|RangeInput|RichText|ScrollView|SelectorBar|SplitButton|SplitView|Stack|TabStrip|Text|TextInput|TitleBar|Toggle|ToggleButton|ToggleSwitch|TreeView|VStack|VectorCanvas|WebContent|Wrap)\\b",
       "name": "support.class.node.xui"
     },
     "style-parts": {
@@ -349,7 +349,7 @@
       "patterns": [
         { "include": "#comments" },
         {
-          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Content)\\b",
+          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|ToggleSwitch|ToggleButton|ProgressRing|CheckBox|HyperlinkButton|SelectorBar|InfoBadge|MenuBar|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Content)\\b",
           "name": "support.class.node.xui"
         },
         { "include": "#keywords" },

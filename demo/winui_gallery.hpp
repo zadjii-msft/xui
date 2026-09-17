@@ -3,6 +3,7 @@
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
 #include "xui/navigation.hpp"
+#include "parity_samples.hpp"
 #include "gallery_links.hpp"
 
 namespace winui_gallery {
@@ -481,6 +482,68 @@ private:
         disabled_fields->add(disabled_toggle);
         disabled->add(disabled_fields);
         page->add(disabled);
+
+        auto indicators = card();
+        label(indicators, L"Toggles and progress", L"winui-specimens-indicators-title")->set_subtitle(true);
+        auto immediate = std::make_shared<ToggleSwitch>(L"Live preview");
+        immediate->set_automation_id(L"winui-specimens-switch");
+        immediate->set_checked(true);
+        immediate->on_change([this](bool value) { report(value ? L"Live preview on." : L"Live preview off."); });
+        indicators->add(immediate);
+        auto pin = std::make_shared<ToggleButton>(L"Pin preview");
+        pin->set_automation_id(L"winui-specimens-toggle-button");
+        pin->on_toggle([this](bool value) { report(value ? L"Preview pinned." : L"Preview unpinned."); });
+        indicators->add(pin);
+        auto progress_row = panel(Axis::horizontal);
+        auto ring = std::make_shared<ProgressRing>(L"Preview task");
+        ring->set_automation_id(L"winui-specimens-progress-ring");
+        ring->set_fixed_size({48, 48});
+        progress_row->add(ring);
+        auto progress = std::make_shared<Progress>(L"Preview progress");
+        progress->set_automation_id(L"winui-specimens-progress");
+        progress->set_state(ProgressState::indeterminate);
+        progress_row->add(progress, 1);
+        indicators->add(progress_row);
+        auto busy = std::make_shared<ToggleSwitch>(L"Indeterminate task");
+        busy->set_checked(true);
+        busy->on_change([this, ring, progress](bool value) {
+            const auto state = value ? ProgressState::indeterminate : ProgressState::determinate;
+            ring->set_state(state); ring->set_value(60);
+            progress->set_state(state); progress->set_value(60);
+            report(value ? L"Task progress unknown." : L"Task progress 60 percent.");
+        });
+        indicators->add(busy);
+        page->add(indicators);
+
+        auto parity = card();
+        label(parity, L"Choices, links, and status", L"winui-specimens-parity-title")->set_subtitle(true);
+        auto mixed = std::make_shared<CheckBox>(L"Include attachments");
+        mixed->set_automation_id(L"winui-specimens-checkbox");
+        mixed->set_three_state(true); mixed->set_state(CheckState::indeterminate);
+        mixed->on_change([this](CheckState value) {
+            report(value == CheckState::indeterminate ? L"Attachments have mixed values." :
+                value == CheckState::checked ? L"All attachments selected." : L"No attachments selected.");
+        });
+        parity->add(mixed);
+        auto link = std::make_shared<HyperlinkButton>(L"Learn about these controls");
+        link->set_automation_id(L"winui-specimens-hyperlink");
+        link->on_click([this] { report(L"Help requested. No browser was opened."); }); parity->add(link);
+        auto selector = std::make_shared<SelectorBar>(L"Sample filter");
+        selector->set_automation_id(L"winui-specimens-selector");
+        selector->set_items({{1, L"All"}, {2, L"Active"}, {3, L"Completed"}}, 1);
+        selector->on_change([this](std::uint64_t id) { report(L"Sample filter " + std::to_wstring(id)); });
+        parity->add(selector);
+        auto badge_row = panel(Axis::horizontal);
+        label(badge_row, L"Unread samples", L"winui-specimens-badge-label");
+        auto badge = std::make_shared<InfoBadge>(L"Unread samples");
+        badge->set_automation_id(L"winui-specimens-info-badge"); badge->set_count(7);
+        badge_row->add(badge);
+        parity->add(badge_row);
+        auto menu = std::make_shared<MenuBar>(L"Sample menu");
+        menu->set_automation_id(L"winui-specimens-menu-bar");
+        menu->set_commands(gallery::menu_bar_commands([this](std::wstring text) { report(std::move(text)); }));
+        parity->add(menu);
+        page->add(parity);
 
         auto scroll = std::make_shared<ScrollView>(page, L"Control specimens");
         scroll->set_automation_id(L"winui-specimens-scroll");
