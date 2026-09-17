@@ -1,0 +1,14 @@
+namespace Xui.Designer;
+
+component DesignerHierarchyLayout {
+    param global::Xui.Element Tree;
+
+    view {
+        VStack(padding: 8, spacing: 8) {
+            Text("Hierarchy", fontSize: 20, fontWeight: 600);
+            Text("Reading source...", ref: Status, id: "designer-hierarchy-status", wrapping: true);
+            Button("Select from caret", ref: FromCaret, id: "designer-select-caret", help: "Select the control at the source caret (Ctrl+Shift+L)");
+            Content(Tree, flex: 1);
+        }
+    }
+}
