@@ -3,10 +3,10 @@ using System.Threading.Channels;
 
 namespace Xui.Designer;
 
-internal sealed class DesignerApplication : IDisposable
+internal sealed partial class DesignerApplication : IDisposable
 {
     private const int MaximumLength = 65536;
-    private readonly Window window = new("XUI Designer", 780, 850);
+    private readonly Window window = new("XUI Designer", 1440, 960, visualStyle: VisualStyle.WinUI);
     private readonly CancellationTokenSource lifetime = new();
     private readonly Channel<(long Version, string Source)> edits = Channel.CreateBounded<(long, string)>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
@@ -14,6 +14,8 @@ internal sealed class DesignerApplication : IDisposable
     private readonly MultilineText diagnostics;
     private readonly DesignerLayout view;
     private readonly PreviewHost preview;
+    private readonly DesignerWorkspace workspace;
+    private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly string recoveryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Xui", "Designer", "Drafts", $"{Guid.NewGuid():N}.xui");
@@ -22,6 +24,7 @@ internal sealed class DesignerApplication : IDisposable
     private string loadedPath = "";
     private long version;
     private bool live = true, light, disposed;
+    private int templateIndex;
     private int smokeStage;
     private Exception? smokeError;
 
@@ -32,9 +35,14 @@ internal sealed class DesignerApplication : IDisposable
             editor = window.MultilineText("XUI source").SetMaximumLength(MaximumLength);
             editor.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 14 });
             diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true).SetMaximumLength(MaximumLength);
-            view = new DesignerLayout(window, editor, diagnostics);
-            preview = new PreviewHost((value, message, success) =>
+            preview = new PreviewHost(window, (value, message, success) =>
                 window.Post(() => OnPreview(value, message, success)));
+            workspace = new DesignerWorkspace(window, editor, ShowError);
+            templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
+            templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
+            templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
+            view = new DesignerLayout(window, editor, diagnostics, workspace.Hierarchy.Layout.Root,
+                workspace.Inspector.Layout.Root, preview.View, templates);
             using var stream = typeof(DesignerApplication).Assembly.GetManifestResourceStream("Designer.Starter.xui")
                 ?? throw new InvalidOperationException("The starter component is missing.");
             using var reader = new StreamReader(stream);
@@ -49,26 +57,34 @@ internal sealed class DesignerApplication : IDisposable
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
             view.Save.Click += Save;
+            view.New.Click += NewDocument;
+            view.Undo.Click += () => SourceCommand(TextCommand.Undo);
+            view.Redo.Click += () => SourceCommand(TextCommand.Redo);
             view.Render.Click += () => Schedule(immediate: true);
             view.Live.Changed += value => { live = value; Schedule(); };
-            view.Light.Changed += value => { light = value; Schedule(immediate: true); };
+            view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); Schedule(immediate: true); };
             window.KeyHandler = key =>
             {
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'S') { Save(); return true; }
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 0x0D) { Schedule(immediate: true); return true; }
-                return false;
+                if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
+                { workspace.SelectFromCaret(); return true; }
+                return workspace.HandleHierarchyKey(key);
             };
             compiler = Task.Run(CompileEdits);
         }
         catch
         {
+            lifetime.Cancel();
+            workspace?.Dispose();
+            preview?.Dispose();
             window.Dispose();
             lifetime.Dispose();
             throw;
         }
     }
 
-    internal void Run(bool smoke)
+    internal void Run(bool smoke, bool builderSmoke = false)
     {
         if (smoke)
         {
@@ -83,8 +99,11 @@ internal sealed class DesignerApplication : IDisposable
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
             });
         }
-        window.Post(() => Schedule(immediate: true));
+        if (builderSmoke) smokeStage = -1;
+        Task? builder = builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view)) : null;
+        window.Post(() => { workspace.SourceChanged(); Schedule(immediate: true); });
         window.Run();
+        builder?.GetAwaiter().GetResult();
         if (smokeError is not null) throw smokeError;
     }
 
@@ -94,6 +113,7 @@ internal sealed class DesignerApplication : IDisposable
     private void OnEditorEvent(UiEvent e)
     {
         if (e.Kind != EventKind.Change) return;
+        workspace.SourceChanged();
         PersistDraft();
         Schedule();
     }
@@ -119,13 +139,14 @@ internal sealed class DesignerApplication : IDisposable
 
     private void Schedule(bool immediate = false)
     {
+        workspace.SourceChanged();
         revision?.Cancel();
         version++;
         preview.Supersede(version);
         window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
         if (!live && !immediate)
         {
-            view.Status.Text = "Live preview paused. Select Render / reopen to compile.";
+            view.Status.Text = "Live preview paused. Select Render to compile.";
             return;
         }
         view.Status.Text = "Compiling...";
@@ -247,6 +268,29 @@ internal sealed class DesignerApplication : IDisposable
             Schedule();
         }
         catch (Exception error) when (FileError(error)) { ShowError($"Open failed: {error.Message}"); }
+    }
+
+    private void NewDocument()
+    {
+        if (Dirty) { ShowError("Save the current source before creating a new document."); return; }
+        if (templateIndex < 0 || templateIndex >= DesignerTemplates.All.Count)
+        {
+            ShowError("Select a document template first.");
+            return;
+        }
+        editor.Text = DesignerTemplates.All[templateIndex].Source;
+        loadedPath = "";
+        savedSource = "";
+        view.Path.Text = "";
+        workspace.SourceChanged();
+        PersistDraft();
+        Schedule();
+    }
+
+    private void SourceCommand(TextCommand command)
+    {
+        editor.Focus();
+        editor.Command(command);
     }
 
     private void Save()
@@ -385,6 +429,7 @@ internal sealed class DesignerApplication : IDisposable
         lifetime.Cancel();
         edits.Writer.TryComplete();
         compiler.GetAwaiter().GetResult();
+        workspace.Dispose();
         preview.Dispose();
         window.Dispose();
         lifetime.Dispose();

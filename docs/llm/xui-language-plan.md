@@ -9,6 +9,15 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 The [designer guide](../specs/designer.md) describes the standalone development tool.
 `bindings/dotnet/Designer/DesignerLayout.xui` defines its shell.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+`DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
+It parses exact native editor snapshots and applies edits with the native range-replacement API.
+It rejects stale source or revision results before the native call.
+`DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
+`DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
+`DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
+`DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
+`Designer.LayoutTests` links the production layouts for native geometry and editor-state tests without the preview compiler.
+`Designer.WorkspaceTests` runs the shared builder smoke with the production controllers and source model, without a preview host.
 `PreviewCompiler.cs` runs `XuiGenerator` and Roslyn, with semantic discovery of the generated component.
 It emits `Build(Window)` and `Root(object)` wrappers for the component and its unattached root.
 It does not execute authored code during compilation.
@@ -116,6 +125,20 @@ The foundation-window regression exceeded its native-phase deadline in this envi
 The same failure reproduced with the baseline `ae3ddea` application implementation.
 Active WebView2 content was not part of these checks.
 These results do not establish safety against arbitrary authored code or independent process isolation.
+
+### Visual workspace evidence
+
+On 2026-09-17, the combined ARM64 Release shell passed the full designer `--builder-smoke` with 16 assertions.
+The existing `--smoke` also passed, including its expected compiler, construction, and file errors.
+`Designer.WorkspaceTests` passed the same 16 assertions without authored preview execution.
+`Designer.LayoutTests` passed eight native geometry and editor-state assertions.
+`Designer.Tests` passed 83 compiler assertions.
+
+The controller increment is `be127a4`.
+This run includes the embedded preview core `df83ca9` and the native tree correction `ac2ffdc`.
+The latter restores selection notifications when a collapsed ancestor replaces a descendant as the focused tree node.
+The shared smoke reproduces the prior inspector mismatch and requires the corrected behavior.
+It also covers deep tree expansion, surrogate-safe labels, native keyboard focus, one-line CR offsets, and bursts of source changes.
 
 ## Goal
 

@@ -211,6 +211,9 @@ dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --smoke
 dotnet run --project bindings\dotnet\Designer.RecoveryTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
+dotnet run --project bindings\dotnet\Designer.LayoutTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.WorkspaceTests -c Release -r $rid
 cmake --build $build --config Release --target xui_content_host_window_tests
 & ".\$build\Release\xui_content_host_window_tests.exe"
 cmake --build $build --config Release --target xui_abi_features_tests
@@ -226,6 +229,13 @@ The recovery UI test uses isolated drafts and a real native `ContentDialog`.
 It covers draft selection, recovery copies, dirty-source protection, confirmed deletion, corrupt metadata, and file races.
 The grouping UI test uses the production hierarchy and inspector with native source editing.
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
+
+The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
+It also covers read-only expressions and recovery from invalid source without replacing the native document.
+The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
+It covers pane bounds, pane order, native selection, and source preservation across theme changes.
+The workspace suite runs the same builder smoke against production controllers without the preview host.
+It compiles source transformations but does not execute authored preview code.
 The activation test checks the separate public window contract for foreground activation and initial keyboard focus.
 `XUI_DESKTOP_TESTS=ON` also registers the activation test with CTest.
 

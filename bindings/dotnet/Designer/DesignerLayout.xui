@@ -3,25 +3,46 @@ namespace Xui.Designer;
 component DesignerLayout {
     param global::Xui.Element Editor;
     param global::Xui.Element Diagnostics;
+    param global::Xui.Element Hierarchy;
+    param global::Xui.Element Inspector;
+    param global::Xui.Element Preview;
+    param global::Xui.Element Templates;
 
     view {
-        VStack(padding: 16, spacing: 10) {
-            Text("XUI Designer", fontSize: 26, fontWeight: 600);
-            Text("Edit .xui source. The live preview opens in a separate window.");
+        VStack(padding: 12, spacing: 8) {
+            Text("XUI Designer", fontSize: 24, fontWeight: 600);
             HStack(spacing: 8) {
+                Content(Templates, preferredSize: (160, 36));
+                Button("New", ref: New, id: "designer-new", help: "Create a document from the selected template");
                 TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
                 Button("Open", ref: Open, id: "designer-open");
                 Button("Save", ref: Save, id: "designer-save");
             }
             HStack(spacing: 12) {
+                Button("Undo", ref: Undo, id: "designer-undo", help: "Undo a source edit (Ctrl+Z in source)");
+                Button("Redo", ref: Redo, id: "designer-redo", help: "Redo a source edit (Ctrl+Y in source)");
                 Toggle("Live preview", checked: true, ref: Live, id: "designer-live");
-                Button("Render / reopen", ref: Render, id: "designer-render");
-                Toggle("Light preview", ref: Light, id: "designer-light");
+                Button("Render", ref: Render, id: "designer-render", help: "Compile this source (Ctrl+Enter)");
+                Toggle("Light theme", ref: Light, id: "designer-light");
             }
-            Text("Preview runs your C# code with your account's permissions. Open only trusted files.", wrapping: true);
-            Content(Editor, flex: 1);
+            Text("Trusted source only: preview runs C# with your account's permissions.", wrapping: true);
+            Grid("Designer workspace", ref: Workspace, flex: 1,
+                columns: [new(global::Xui.TrackSizing.Fixed, 220), new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Fixed, 284)]) {
+                Content(Hierarchy);
+                SplitView("Source and live preview", ref: SourcePreview, column: 1) {
+                    VStack(spacing: 6, padding: 6) {
+                        Text("Source", fontSize: 18, fontWeight: 600);
+                        Content(Editor, flex: 1);
+                    }
+                    VStack(spacing: 6, padding: 6) {
+                        Text("Live preview", fontSize: 18, fontWeight: 600);
+                        Content(Preview, flex: 1);
+                    }
+                }
+                Content(Inspector, column: 2);
+            }
             Text("Ready", ref: Status, id: "designer-status");
-            Content(Diagnostics, preferredSize: (400, 140));
+            Content(Diagnostics, preferredSize: (400, 100));
         }
     }
 }

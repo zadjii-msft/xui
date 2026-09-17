@@ -22,6 +22,47 @@ The designer includes a catalog of self-contained examples:
 The [template sources](../../bindings/dotnet/Designer/Templates) use the same language as ordinary applications.
 The [counter source](../../bindings/dotnet/Designer/Starter.xui) supplies the initial example.
 The examples do not access the network or save application data.
+The template selector and **New** create a document from the selected example.
+New requires a saved or unchanged current document.
+The new document has no file path and needs a save destination.
+
+## Visual workspace
+
+The workspace contains a native source editor, control hierarchy, property inspector, control palette, and preview.
+The divider between source and preview changes their widths.
+The inspector scrolls independently.
+The source editor retains native selection, clipboard, undo, and IME behavior.
+
+The hierarchy uses a native TreeView with expandable controls.
+Selecting a control selects its source range and scrolls the source editor to that range.
+**Select from caret**, or Ctrl+Shift+L, selects the control that contains the source caret.
+Hierarchy identities belong to one exact source revision.
+A new source revision resets tree expansion and selects the control at the current caret.
+It does not reuse identities from an older document.
+
+The inspector shows each supported argument and its current source value.
+Literal values include quoted text, numbers, booleans, and literal tuples.
+**Apply property** compiles the candidate before it changes the source.
+Expressions, event handlers, references, and style names remain read-only in the inspector.
+The source editor accepts these expressions directly.
+Compiler errors appear without changing the document.
+
+The palette inserts a complete control at the end of the selected stack or grid.
+Grid insertion and duplication require an empty, valid row and column.
+**Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.
+Unavailable commands are disabled, with the reason beside the commands.
+In the hierarchy, Delete deletes a control, Ctrl+D duplicates it, and Alt+Up or Alt+Down moves it.
+These shortcuts do not replace native source-editor shortcuts.
+
+Each visual change creates one native undo operation.
+The **Undo** and **Redo** buttons act on the source editor.
+Only one visual change compiles at a time.
+Typing cancels that change, and the editor rejects results for an older source snapshot.
+
+Source typing does not require valid syntax.
+During parsing or after a syntax error, the previous hierarchy has an explicit read-only status.
+The editor remains available, and invalid source does not replace the last valid preview.
+Pausing live preview does not pause the source hierarchy.
 
 ## Source editing API
 
@@ -203,7 +244,7 @@ Replacement does not activate another window or take focus from the editor.
 The preview keeps its place in the designer layout.
 
 With **Live preview** off, automatic compilation pauses.
-**Render / reopen**, or Ctrl+Enter, compiles the current source even during a pause.
+**Render**, or Ctrl+Enter, compiles the current source even during a pause.
 This command also restores a preview after a managed callback error.
 **Light theme** changes the designer theme, including the preview.
 The preview does not have an independent theme.
