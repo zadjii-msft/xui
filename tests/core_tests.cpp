@@ -92,6 +92,65 @@ void layout_tests() {
     root.add(nested, 1);
     root.arrange({0, 0, 100, 100});
     close(nested->bounds().height, 100, "nested flex stack fills allocation");
+
+    for (const auto axis : {xui::Axis::horizontal, xui::Axis::vertical}) {
+        const bool horizontal = axis == xui::Axis::horizontal;
+        const auto size = [=](float main, float cross) { return horizontal ? xui::Size{main, cross} : xui::Size{cross, main}; };
+        const auto main = [=](xui::Size value) { return horizontal ? value.width : value.height; };
+        const auto extent = [=](const xui::Element& value) { return horizontal ? value.bounds().width : value.bounds().height; };
+        auto panel = std::make_shared<xui::Stack>(axis);
+        panel->set_padding({5, 5, 5, 5});
+        panel->set_spacing(4);
+        auto header = std::make_shared<xui::Element>();
+        header->set_preferred_size(size(20, 50));
+        auto body = std::make_shared<xui::Element>();
+        body->set_preferred_size(size(30, 60));
+        panel->add(header);
+        panel->add(body, 1);
+        require(!panel->auto_size() && !panel->preferred_size_explicit(), "Stack starts with implicit natural sizing");
+        close(main(panel->measure(size(800, 400))), 800, "Implicit stack preserves finite flex sizing");
+        panel->set_auto_size(false);
+        close(main(panel->measure(size(800, 400))), 800, "AutoSize false without a preference preserves natural sizing");
+        const auto infinity = std::numeric_limits<float>::infinity();
+        close(main(panel->measure(size(infinity, infinity))), 64, "Unbounded implicit flex uses natural children plus padding and spacing");
+        panel->set_preferred_size(size(140, 100));
+        close(main(panel->measure(size(800, 400))), 140, "Explicit stack preference bounds its flex child");
+        close(main(panel->measure(size(infinity, infinity))), 140, "Explicit preference also applies without parent bounds");
+        xui::Stack workspace(axis);
+        auto source = std::make_shared<xui::Stack>(axis);
+        auto source_body = std::make_shared<xui::Element>();
+        source->add(source_body, 1);
+        workspace.set_spacing(7);
+        workspace.add(source, 1);
+        workspace.add(panel);
+        const auto available = size(800, 400);
+        workspace.arrange({0, 0, available.width, available.height});
+        close(extent(*panel), 140, "Nested preferred diagnostics retains requested main axis");
+        close(extent(*body), 106, "Diagnostics flex uses preference minus header padding and spacing");
+        close(extent(*source_body), 653, "Nested source flex retains remaining workspace space");
+        panel->set_auto_size(true);
+        close(main(panel->measure(size(800, 400))), 800, "Explicit AutoSize true overrides stored preference");
+        close(main(panel->measure(size(infinity, infinity))), 64, "Auto override restores natural unbounded measurement");
+        panel->set_auto_size(false);
+        close(main(panel->measure(size(800, 400))), 140, "AutoSize false restores stored preference");
+        panel->set_auto_size(true);
+        panel->set_preferred_size(size(140, 100));
+        require(!panel->auto_size(), "Reapplying preference disables automatic sizing");
+        panel->set_minimum_size(size(160, 120));
+        close(main(panel->measure(size(800, 400))), 160, "Minimum constrains explicit preference");
+        close(main(panel->measure(size(80, 50))), 80, "Parent limit wins over minimum");
+        panel->set_minimum_size({});
+        panel->set_maximum_size(size(90, 70));
+        close(main(panel->measure(size(800, 400))), 90, "Maximum constrains explicit preference");
+        panel->set_fixed_size(size(110, 80));
+        panel->set_auto_size(true);
+        close(main(panel->measure(size(800, 400))), 110, "Auto override does not clear fixed limits");
+        close(main(panel->measure(size(40, 30))), 40, "Parent still constrains fixed stack");
+        panel->set_minimum_size({});
+        panel->set_maximum_size({infinity, infinity});
+        panel->set_preferred_size({});
+        close(main(panel->measure(size(800, 400))), 0, "Explicit zero preference is distinct from natural sizing");
+    }
 }
 
 void invalidation_tests() {

@@ -25,7 +25,7 @@ public sealed unsafe partial class Window
         get { Guard(); return iconErrorHandler; }
         set
         {
-            Guard();
+            GuardWindowCallback();
             if (value is null)
             {
                 Check(Native.WindowOnIconError(Handle, null, 0));

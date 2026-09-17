@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(XuiRuntimeIdentifier)</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <XuiHotReload>false</XuiHotReload>
+    <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="..\Xui.Native.targets" />
+  <Import Project="..\Xui.Declarative.Common.targets" />
+  <ItemGroup>
+    <Compile Include="..\Designer\DesignerDiscardDialog.cs" Link="DesignerDiscardDialog.cs" />
+    <AdditionalFiles Include="..\Designer\DesignerDiscardLayout.xui" />
+    <ProjectReference Include="..\Xui\Xui.csproj" />
+    <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
+    <Analyzer Include="..\Xui.Generator\bin\$(Configuration)\net10.0\Xui.Generator.dll" />
+  </ItemGroup>
+</Project>

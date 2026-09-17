@@ -126,6 +126,45 @@ void trees() {
     { TreeView owner; owner.set_tree(std::make_shared<Tree>()); owner.on_request([&](TreeRequest r) { late = r; }); owner.disclose({1, 1}, true); }
     require(late->cancellation.stop_requested(), "Tree destruction cancels external work");
 }
+void tree_collapse_notifications() {
+    auto tree = std::make_unique<TreeView>();
+    tree->set_tree(std::make_shared<Tree>());
+    tree->on_request([&](TreeRequest request) {
+        tree->complete(request, std::make_shared<Items>(2, 1000001));
+    });
+    tree->disclose({1, 1}, true);
+    tree->select({1000001, 1});
+    unsigned changes{};
+    tree->on_selection([&] {
+        ++changes;
+        require(tree->selection().focused() == ItemKey{1, 1} && !tree->expanded({1, 1}) &&
+            !tree->source()->find({1000001, 1}), "Collapse callback sees repaired focus and completed projection");
+    });
+    tree->disclose({1, 1}, false);
+    require(changes == 1 && tree->selection().contains({1000001, 1}),
+        "Collapse reports one focus repair without changing hidden selection");
+    tree->disclose({1, 1}, false);
+    tree->disclose({1, 1}, true);
+    tree->disclose({1, 1}, false);
+    require(changes == 1, "Collapse and expansion without a focus change emit no selection event");
+    tree->on_selection({});
+    tree->disclose({1, 1}, true);
+    tree->select({2, 1});
+    tree->on_selection([&] { ++changes; });
+    tree->disclose({1, 1}, false);
+    require(changes == 1 && tree->selection().focused() == ItemKey{2, 1}, "Unrelated focus stays silent");
+    tree->on_selection({});
+    tree->disclose({1, 1}, true);
+    tree->select({1000001, 1});
+    tree->on_selection([&] { ++changes; tree->disclose({1, 1}, true); });
+    tree->disclose({1, 1}, false);
+    require(changes == 2 && tree->expanded({1, 1}), "Callback can reexpand without obsolete collapse work afterward");
+    tree->on_selection({});
+    tree->select({1000001, 1});
+    tree->on_selection([&] { ++changes; tree.reset(); });
+    tree->disclose({1, 1}, false);
+    require(changes == 3 && !tree, "Collapse callback can delete its owner");
+}
 void grids() {
     DataGrid grid; grid.set_columns({{L"Name", 240, false, true, true}, {L"Value", 120, true, true}});
     auto all = std::make_shared<Rows>(); grid.set_source(all); grid.set_full_source(all); grid.arrange({0, 0, 500, 220});
@@ -180,6 +219,6 @@ void layouts() {
 }
 }
 int main() {
-    try { allocation_contract(); selection_contracts(); items_contracts(); trees(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n"; }
+    try { allocation_contract(); selection_contracts(); items_contracts(); trees(); tree_collapse_notifications(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

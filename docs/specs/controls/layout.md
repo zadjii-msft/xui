@@ -9,6 +9,11 @@ Add `xui\adaptive_layout.hpp` for Grid, Wrap, and AdaptiveLayout.
 
 Use `Stack` for a horizontal row or vertical column.
 A positive flex value gives a child a share of remaining main-axis space.
+Stacks measure their children naturally unless an explicit preferred size disables automatic sizing.
+`set_preferred_size` requests the outer size, including padding. Parent bounds and minimum and maximum sizes still apply.
+`set_auto_size(true)` restores natural measurement without clearing the stored preference or size limits.
+`set_auto_size(false)` restores an explicit preference. Without an explicit preference, the Stack keeps natural sizing.
+Flex and cross-axis stretching still control arrangement inside the parent's allocation.
 
 {% tabs %}
 {% tab title=".xui" %}
@@ -68,6 +73,23 @@ The style target is `stack`.
 Explicit padding and spacing override style values, including zero.
 Passive layout roots reject foreground text color.
 Child text uses the child style.
+
+## ContentHost
+
+`ContentHost` retains its layout identity while one scoped root changes inside it.
+It uses native XUI controls and input, not a separate preview window.
+Controls outside the host retain their native peers, focus, selection, and undo history.
+
+C# creates the host with `Window.CreateContentHost`.
+The `.xui` shell accepts that element through a parameter and places it with `Content(...)`.
+The [scoped content contract](../bindings.md#scoped-content-replacement) contains the C# example, C ABI declarations, and ownership rules.
+C++ uses `Window::replace_content`.
+Rust does not yet expose a typed wrapper.
+
+Live replacement runs in a deferred UI-thread action, outside native input callbacks.
+Ordinary topology changes remain restricted to initial construction.
+Disposing a committed update clears its content if that update remains current.
+This boundary does not isolate untrusted code or prevent native materialization failures.
 
 ## Grid
 

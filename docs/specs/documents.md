@@ -50,6 +50,7 @@ Native surrogate-pair input publishes one complete value, not an intermediate ha
 `TextCommand` supports undo, redo, copy, cut, paste, and select-all while a native peer is attached.
 RichEdit retains at most 16 undo actions. Windows determines their byte cost.
 Property changes replace text once per revision, not once per paint.
+`MultilineText` also supports [undo-preserving range replacement](#undo-preserving-range-replacement).
 
 `RichText::set_runs` accepts at most 4,096 runs with bold, italic, underline, and explicit HTTP/HTTPS link targets.
 A click or Ctrl+Enter requests a link callback. XUI never opens the target automatically.
@@ -92,3 +93,69 @@ Swatch replacement reuses retained buttons. Color controls create no idle timer 
 
 Native document pixels join the existing root frame before `EndDraw`.
 See [the composition evidence](../llm/rendering-history.md#document-composition-evidence) for capture methods and remaining manual coverage.
+
+## Undo-preserving range replacement
+
+`DocumentText::replace_range(range, expected_text, replacement)` applies one semantic edit to an attached plain `MultilineText`.
+The method returns a collapsed `TextSelection` immediately after the inserted text.
+The model and native selection contain this result before the change callback runs.
+Each successful call reports one change callback and creates one native undo action.
+Earlier undo actions remain available within the existing 16-action limit.
+The operation does not change the clipboard or simulate input.
+
+```cpp
+const auto snapshot = notes->text();
+const auto caret = notes->replace_range({0, 5}, snapshot, L"Updated");
+notes->command(xui::TextCommand::undo);
+notes->command(xui::TextCommand::redo);
+```
+
+`expected_text` must exactly match the complete current document, not only the replaced range.
+Its paragraphs use native CR separators.
+The half-open range uses UTF-16 offsets into that snapshot.
+Native typing anywhere in the document invalidates a stale snapshot.
+XUI compares both the model and the native text before it changes the selection.
+An unapplied text-property revision also rejects the operation, even if its text matches.
+
+Replacement text accepts LF, CRLF, and CR separators.
+XUI normalizes these separators to CR before it checks the resulting document length.
+The replacement input cannot exceed 1,048,576 UTF-16 units before normalization.
+The resulting document must fit `maximum_length()`.
+Embedded NUL, unpaired surrogates, invalid ranges, split surrogate pairs, and unchanged replacements are errors.
+An empty replacement deletes the range. An empty range inserts text.
+
+Detached, hidden, disabled, read-only, and composing editors reject range replacement.
+The native owner must also be enabled.
+These precondition errors leave text, selection, callbacks, and undo history unchanged.
+Calls use the creating UI thread and do not force pending text properties into the native editor.
+Reentrant range replacement rejects the call during a change callback.
+Document commands return false during that callback.
+
+The callback runs after the native transaction returns.
+It can close the owner or detach the document.
+A callback exception does not roll back the completed edit.
+Native execution failures report an error rather than a successful edit.
+`RichText` rejects this operation because retained authored runs do not serialize all native formatting.
+Existing text setters remain silent and retain their whole-document replacement behavior.
+
+### C and C#
+
+`xui_document_replace_range` is an additive C ABI function declared through `xui.h`.
+It accepts strict UTF-8 strings and UTF-16 range offsets.
+Each string retains the ABI limit of 1,048,576 bytes.
+The two distinct output pointers receive the resulting selection only on success.
+Invalid inputs return `XUI_INVALID_ARGUMENT`.
+Stale or unavailable editors return `XUI_BUSY`, with an explanatory last error.
+Existing handle, thread, closed-window, native-error, and callback-error statuses remain applicable.
+
+```csharp
+string snapshot = editor.Text;
+TextSelection caret = editor.ReplaceRange(new(0, 5), snapshot, "Updated");
+editor.Command(TextCommand.Undo);
+editor.Command(TextCommand.Redo);
+```
+
+`MultilineText.ReplaceRange` returns the selection or throws through the existing C# error boundary.
+Malformed strings also retain the managed string-validation errors.
+`editor.Selection` remains available for explicit selection changes.
+There is no Rust convenience wrapper for this additive function.

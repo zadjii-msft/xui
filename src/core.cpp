@@ -240,16 +240,39 @@ void Element::set_maximum_size(Size size) {
     minimum_.height = std::min(minimum_.height, maximum_.height);
     invalidate(Invalidation::layout);
 }
-void Element::adopt(const std::shared_ptr<Element>& child) {
+void Element::validate_adoption(const std::shared_ptr<Element>& child) const {
     if (!child) throw std::invalid_argument("Content must not be null");
     if (!child->invalidation_->parent.expired())
         throw std::invalid_argument("Content already has a parent");
     for (auto ancestor = invalidation_; ancestor; ancestor = ancestor->parent.lock())
         if (ancestor == child->invalidation_) throw std::invalid_argument("Content must not contain a cycle");
+}
+void Element::adopt(const std::shared_ptr<Element>& child) {
+    validate_adoption(child);
     child->invalidation_->parent = invalidation_;
 }
 
 Stack::Stack(Axis axis) : axis_(axis) {}
+
+ContentHost::ContentHost(std::shared_ptr<Element> content) : Stack(Axis::vertical) {
+    replace(std::move(content));
+}
+const std::shared_ptr<Element>& ContentHost::content() const noexcept {
+    static const std::shared_ptr<Element> empty;
+    return children_.empty() ? empty : children_.front().element;
+}
+void ContentHost::replace(std::shared_ptr<Element> content) {
+    if (this->content() == content) return;
+    if (content) validate_adoption(content);
+    children_.reserve(1);
+    if (!children_.empty()) children_.front().element->invalidation_->parent.reset();
+    children_.clear();
+    if (content) {
+        content->invalidation_->parent = invalidation_;
+        children_.push_back({std::move(content), 1});
+    }
+    invalidate(Invalidation::layout);
+}
 
 std::optional<StyleTarget> Stack::control_style_target() const { return StyleTarget::stack; }
 Insets Stack::effective_layout_insets() const {
@@ -321,6 +344,8 @@ void Stack::set_padding(Insets padding) {
 }
 
 void Stack::add(std::shared_ptr<Element> child, float flex) {
+    if (dynamic_cast<ContentHost*>(this))
+        throw std::logic_error("Change ContentHost content with Window::replace_content");
     if (!child) throw std::invalid_argument("Stack child must not be null");
     if (!child->invalidation_->parent.expired()) {
         throw std::invalid_argument("Stack child already has a parent");
@@ -377,6 +402,7 @@ std::vector<Size> Stack::layout_children(Size available) {
 }
 
 Size Stack::measure(Size available) {
+    if (preferred_size_explicit() && !auto_size()) return Element::measure(available);
     const auto padding = effective_layout_insets();
     const auto spacing = effective_spacing();
     available = normalized(available);

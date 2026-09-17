@@ -90,7 +90,10 @@ private:
 }
 NativeDocumentBridge::NativeDocumentBridge(std::shared_ptr<Control> model) : model_(std::move(model)) {}
 NativeDocumentBridge::~NativeDocumentBridge() {
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) document->bind_commands({});
+    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+        document->bind_commands({});
+        document->bind_range_replacement({});
+    }
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     if (font_) DeleteObject(font_);
 }
@@ -125,6 +128,9 @@ void NativeDocumentBridge::attach(HWND parent, int id) {
         win32_require(restricted != 0, "Restrict native rich document objects");
         SendMessageW(window_, EM_AUTOURLDETECT, FALSE, 0);
         document->bind_commands([this](TextCommand value) { return command(value); });
+        document->bind_range_replacement([this](TextSelection range, const std::wstring& expected, const std::wstring& replacement) {
+            return replace_range(range, expected, replacement);
+        });
     }
 }
 std::wstring NativeDocumentBridge::text() const {
@@ -348,6 +354,44 @@ bool NativeDocumentBridge::command(TextCommand value) {
     }
     return false;
 }
+TextSelection NativeDocumentBridge::replace_range(TextSelection range, const std::wstring& expected, const std::wstring& replacement) {
+    const auto document = std::dynamic_pointer_cast<DocumentText>(model_);
+    if (!document || !window_ || GetWindowThreadProcessId(window_, nullptr) != GetCurrentThreadId() ||
+        !IsWindowVisible(window_) || composing_ || setting_ ||
+        document->read_only() || (GetWindowLongPtrW(window_, GWL_STYLE) & ES_READONLY))
+        throw std::logic_error("Native document is unavailable for range replacement");
+    for (auto window = window_; window; window = GetParent(window))
+        if (!IsWindowEnabled(window)) throw std::logic_error("Native document or its owner is disabled");
+    // Never flush a pending property replacement here: it would erase the undo history.
+    if (revision_ != document->revision() || text() != expected)
+        throw std::logic_error("Native document range replacement is stale or has a pending text property");
+    auto result = expected;
+    result.replace(range.start, range.end - range.start, replacement);
+    TextSelection selection{range.start + replacement.size(), range.start + replacement.size()};
+    {
+        struct Setting {
+            bool& value;
+            explicit Setting(bool& value) : value(value) { value = true; }
+            ~Setting() { value = false; }
+        } setting(setting_);
+        SendMessageW(window_, EM_EXLIMITTEXT, 0, document->maximum_length());
+        maximum_ = document->maximum_length();
+        SendMessageW(window_, EM_STOPGROUPTYPING, 0, 0);
+        CHARRANGE native_range{static_cast<LONG>(range.start), static_cast<LONG>(range.end)};
+        SendMessageW(window_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&native_range));
+        SendMessageW(window_, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(replacement.c_str()));
+        SendMessageW(window_, EM_STOPGROUPTYPING, 0, 0);
+        win32_require(text() == result, "Replace native document range");
+        SendMessageW(window_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&native_range));
+        win32_require(native_range.cpMin == static_cast<LONG>(selection.start) &&
+            native_range.cpMax == static_cast<LONG>(selection.end), "Read replaced native document selection");
+        selection_revision_ = document->selection_revision();
+    }
+    // The callback can destroy the window and this bridge. Keep the model alive,
+    // publish only after RichEdit returns, and do not access bridge state afterward.
+    document->commit_text(std::move(result), selection);
+    return selection;
+}
 LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) noexcept {
     auto& self = *reinterpret_cast<NativeDocumentBridge*>(data);
     try {
@@ -381,7 +425,10 @@ LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM 
         }
         if (message == WM_NCDESTROY) {
             RemoveWindowSubclass(hwnd, subclass, id); self.window_ = nullptr;
-            if (auto document = std::dynamic_pointer_cast<DocumentText>(self.model_)) document->bind_commands({});
+            if (auto document = std::dynamic_pointer_cast<DocumentText>(self.model_)) {
+                document->bind_commands({});
+                document->bind_range_replacement({});
+            }
         }
         return DefSubclassProc(hwnd, message, wp, lp);
     } catch (...) { if (self.failure_) { auto callback = self.failure_; callback(); } return 0; }

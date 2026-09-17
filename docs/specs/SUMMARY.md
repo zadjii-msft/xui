@@ -51,6 +51,7 @@
 
 ## Samples
 
+* [XUI Designer](designer.md)
 * [Control gallery](gallery.md)
 * [File explorers](file-explorers.md)
 * [Minesweeper](../../bindings/dotnet/Minesweeper/README.md)

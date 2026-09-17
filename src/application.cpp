@@ -1,6 +1,8 @@
 #include "xui/application.hpp"
 #include "xui/native_edit.hpp"
 #include "native_document.hpp"
+#include "native_file_dialog.hpp"
+#include "content_inspection.hpp"
 #include "native_runtime_host.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
@@ -150,7 +152,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     Palette palette{};
     HBRUSH background{}, field{};
     HFONT font{};
-    bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{};
+    bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{}, replacing{};
+    ContentHost* replacement_host{};
+    std::shared_ptr<NativeFileDialog> native_file_dialog;
+    bool file_dialog_teardown_pending{};
+    struct ContentPicking {
+        std::weak_ptr<ContentHost> host;
+        inspection::Registration registration;
+        std::uint64_t generation{};
+        std::optional<std::uint32_t> pending;
+        std::optional<std::uint32_t> highlight;
+        bool enabled{}, mouse_down{}, pointer_down{};
+    };
+    std::unordered_map<std::uint64_t, ContentPicking> content_picking;
     std::uint64_t paints{}, layouts{};
     std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
     WindowIcon window_icon;
@@ -163,6 +177,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void close_posts() {
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
+        content_picking.clear();
     }
     std::function<bool(const NavigationEvent&)> navigation;
     bool has_images{};
@@ -175,6 +190,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     ~Impl() { teardown(); }
     void destroy() {
+        if (native_file_dialog) {
+            closing = true;
+            native_file_dialog->cancel();
+            close_posts();
+            return;
+        }
         if (destroying) return;
         destroying = true;
         closing = true;
@@ -190,20 +211,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (window) DestroyWindow(window);
         destroying = false;
     }
+    void detach_peer(Peer& peer) {
+        peer.control->set_text_measurer({});
+        if (auto label = std::dynamic_pointer_cast<Label>(peer.control)) label->set_wrapped_text_measurer({});
+        if (auto* columns = dynamic_cast<MillerColumns*>(peer.control.get())) columns->on_focus_column({});
+        if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer.control)) combo->choices()->on_accept({});
+        if (peer.image) peer.image->detach();
+        if (peer.row_images) peer.row_images->clear();
+        if (auto* map = dynamic_cast<MapView*>(peer.control.get())) map->cancel_request();
+        if (peer.list) peer.list->detach_thumbnails();
+        if (peer.runtime) peer.runtime->cancel_owner();
+    }
     void detach() {
         if (!attached) return;
         root->set_invalidator({});
-        for (const auto& peer : peers) {
-            peer->control->set_text_measurer({});
-            if (auto label = std::dynamic_pointer_cast<Label>(peer->control)) label->set_wrapped_text_measurer({});
-            if (auto* columns = dynamic_cast<MillerColumns*>(peer->control.get())) columns->on_focus_column({});
-        }
-        for (const auto& peer : peers)
-            if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer->control)) combo->choices()->on_accept({});
-        for (const auto& peer : peers) if (peer->image) peer->image->detach();
-        for (const auto& peer : peers) if (peer->row_images) peer->row_images->clear();
-        for (const auto& peer : peers) if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
-        for (const auto& peer : peers) if (peer->list) peer->list->detach_thumbnails();
+        for (const auto& peer : peers) detach_peer(*peer);
         if (has_images) clear_image_cache();
         attached = false;
     }
@@ -212,7 +234,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         explicit InputScope(Impl& value) : host(value) { ++host.input_depth; }
         ~InputScope() { --host.input_depth; }
     };
+#include "application_content_inspection.inc"
     void teardown() {
+        if (native_file_dialog) {
+            file_dialog_teardown_pending = true;
+            destroy();
+            return;
+        }
         for (auto& task : samples) task->cancel();
         for (auto& task : tasks) task->cancel();
         detach();
@@ -251,7 +279,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         }
         if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
-        try { return self->message(hwnd, message, wparam, lparam); }
+        try {
+            if (message == update_message) return self->message(hwnd, message, wparam, lparam);
+            InputScope scope(*self);
+            return self->message(hwnd, message, wparam, lparam);
+        }
         catch (...) { self->fail(); return 0; }
     }
     static LRESULT CALLBACK control_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
@@ -370,6 +402,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& peer = *reinterpret_cast<Peer*>(data);
         InputScope scope(peer.host);
+        try {
+            if (auto result = peer.host.inspect_pointer(hwnd, message, wparam, lparam)) return *result;
+        } catch (...) { peer.host.fail(); return 0; }
         if (message == WM_SETFOCUS && !peer.host.enabled(peer)) {
             try { peer.host.traverse(false); } catch (...) { peer.host.fail(); }
             return 0;
@@ -490,6 +525,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
                 if (pages->child_count()) collect(pages->child_at(pages->selected()), surface || stack->surface(), parent, adaptive);
+                if (replacement_host) for (std::size_t i = 0; i < pages->child_count(); ++i) {
+                    if (i == pages->selected()) continue;
+                    std::set<std::uint64_t> ids;
+                    content_ids(pages->child_at(i), ids);
+                    if (ids.contains(replacement_host->id()))
+                        collect(pages->child_at(i), surface || stack->surface(), parent, adaptive);
+                }
                 return;
             }
             auto* layout = dynamic_cast<AdaptiveLayout*>(stack.get());
@@ -957,10 +999,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial, std::shared_ptr<ContentDialog> dialog = {},
         std::shared_ptr<CommandSurface> commands = {}, std::optional<Rect> context_anchor = {}) {
+        if (has_content_picking()) throw std::invalid_argument("Close pointer picking before opening a popup");
         if (!popup) throw std::invalid_argument("Popup is required");
         if (popup->dialog_surface() && !dialog) throw std::invalid_argument("Use Window::show_dialog for dialog content");
         if (!ready || closing || !window) throw std::logic_error("Popup requires a running window");
         if (popup->is_open()) throw std::logic_error("Popup is already open");
+        if (replacing && !retains(anchor))
+            throw std::invalid_argument("Popup anchor is being retired");
         for (const auto& peer : peers) if (peer->runtime && peer->runtime->active())
             throw std::logic_error("Unload native media and web content before opening an XUI popup");
         auto* anchor_peer = find_peer(&anchor);
@@ -1008,39 +1053,120 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         });
         show_popup(combo->popup(), *combo, combo->choices().get());
     }
+    static void content_ids(const std::shared_ptr<Element>& element, std::set<std::uint64_t>& ids, bool validate = false) {
+        if (!element) {
+            if (validate) throw std::invalid_argument("Content children must not be null");
+            return;
+        }
+        if (!ids.insert(element->id()).second)
+            throw std::invalid_argument("Window content must not contain duplicates or cycles");
+        if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
+            for (std::size_t i = 0; i < stack->child_count(); ++i) content_ids(stack->child_at(i), ids, validate);
+            return;
+        }
+        auto control = std::dynamic_pointer_cast<Control>(element);
+        if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
+        if (validate) {
+            const auto* value = control.get();
+            bool supported{};
+            switch (control->role()) {
+            case ControlRole::label: supported = dynamic_cast<const Label*>(value); break;
+            case ControlRole::button: supported = dynamic_cast<const Button*>(value); break;
+            case ControlRole::toggle: supported = dynamic_cast<const Toggle*>(value); break;
+            case ControlRole::text_input: supported = dynamic_cast<const TextInput*>(value); break;
+            case ControlRole::file_list: supported = dynamic_cast<const FileList*>(value); break;
+            case ControlRole::scroll_view: supported = dynamic_cast<const ScrollView*>(value); break;
+            case ControlRole::image: supported = dynamic_cast<const Image*>(value); break;
+            case ControlRole::tab_strip: supported = dynamic_cast<const TabStrip*>(value); break;
+            case ControlRole::split_view: supported = dynamic_cast<const SplitView*>(value); break;
+            case ControlRole::content_view: supported = true; break;
+            case ControlRole::data_grid: supported = dynamic_cast<const DataGrid*>(value); break;
+            case ControlRole::history_chart: supported = dynamic_cast<const HistoryChart*>(value); break;
+            case ControlRole::popup: supported = dynamic_cast<const Popup*>(value); break;
+            case ControlRole::radio_group:
+            case ControlRole::choice_list: supported = dynamic_cast<const RadioGroup*>(value); break;
+            case ControlRole::combo_box: supported = dynamic_cast<const ComboBox*>(value); break;
+            case ControlRole::numeric_input: supported = dynamic_cast<const NumericInput*>(value); break;
+            case ControlRole::range_input: supported = dynamic_cast<const RangeInput*>(value); break;
+            case ControlRole::expander: supported = dynamic_cast<const Expander*>(value); break;
+            case ControlRole::progress: supported = dynamic_cast<const Progress*>(value); break;
+            case ControlRole::items_view:
+            case ControlRole::tree_view:
+            case ControlRole::command_menu: supported = dynamic_cast<const VirtualCollection*>(value); break;
+            case ControlRole::document_text: supported = dynamic_cast<const DocumentText*>(value); break;
+            case ControlRole::password_input: supported = dynamic_cast<const PasswordInput*>(value); break;
+            case ControlRole::date_time: supported = dynamic_cast<const DateTimePicker*>(value); break;
+            case ControlRole::inline_status: supported = dynamic_cast<const InlineStatus*>(value); break;
+            case ControlRole::color_picker: supported = dynamic_cast<const ColorPicker*>(value); break;
+            case ControlRole::vector_canvas: supported = dynamic_cast<const VectorCanvas*>(value); break;
+            case ControlRole::map_view: supported = dynamic_cast<const MapView*>(value); break;
+            case ControlRole::media_playback: supported = dynamic_cast<const MediaPlayback*>(value); break;
+            case ControlRole::web_content: supported = dynamic_cast<const WebContent*>(value); break;
+            }
+            if (!supported) throw std::invalid_argument("Control role requires its standard control type");
+        }
+        if (auto scroll = std::dynamic_pointer_cast<ScrollView>(element)) content_ids(scroll->content(), ids, validate);
+        if (auto content = std::dynamic_pointer_cast<ContentView>(element)) content_ids(content->content(), ids, validate);
+        if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
+            content_ids(split->first(), ids, validate); content_ids(split->second(), ids, validate);
+        }
+        for (const auto& child : control->retained_children()) content_ids(child, ids, validate);
+    }
+    bool retains(const Control& control) const {
+        std::set<std::uint64_t> ids;
+        content_ids(root, ids);
+        for (const auto& entry : popups) content_ids(entry.popup, ids);
+        return ids.contains(control.id());
+    }
     void prune_popups() {
         if (input_depth) return;
         std::set<std::uint64_t> live;
-        const auto visit = [&](const auto& self, const std::shared_ptr<Element>& element) -> void {
-            if (!element) return;
-            live.insert(element->id());
-            if (auto stack = std::dynamic_pointer_cast<Stack>(element))
-                for (std::size_t i = 0; i < stack->child_count(); ++i) self(self, stack->child_at(i));
-            if (auto scroll = std::dynamic_pointer_cast<ScrollView>(element)) self(self, scroll->content());
-            if (auto content = std::dynamic_pointer_cast<ContentView>(element)) self(self, content->content());
-            if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
-                self(self, split->first()); self(self, split->second());
-            }
-            if (auto control = std::dynamic_pointer_cast<Control>(element)) {
-                for (const auto& child : control->retained_children()) self(self, child);
-            }
-        };
-        visit(visit, root);
-        for (const auto& entry : popups) visit(visit, entry.popup);
+        content_ids(root, live);
+        for (const auto& entry : popups) content_ids(entry.popup, live);
         for (const auto& peer : peers)
             if (peer->clear_button && live.contains(peer->control->id())) live.insert(peer->clear_button->id());
-        // Remove leaves first; no peer can retain a pointer to a deleted parent.
-        for (std::size_t i = peers.size(); i-- > 0;) {
-            const auto owner = popup_owner(peers[i].get());
-            if (!live.contains(peers[i]->control->id()) ||
+        std::set<Peer*> retired;
+        for (const auto& peer : peers) {
+            const auto owner = popup_owner(peer.get());
+            if (!live.contains(peer->control->id()) ||
                 (owner && std::none_of(popups.begin(), popups.end(), [owner](const auto& e) { return e.popup->id() == owner; }))) {
-                peers[i]->control->set_text_measurer({});
-                if (auto label = std::dynamic_pointer_cast<Label>(peers[i]->control)) label->set_wrapped_text_measurer({});
-                if (peers[i]->image) peers[i]->image->detach();
-                if (peers[i]->list) peers[i]->list->detach_thumbnails();
-                peers.erase(peers.begin() + i);
+                retired.insert(peer.get());
             }
         }
+        if (retired.empty()) return;
+        InputScope input_scope(*this);
+        const auto retiring_window = [&](HWND hwnd) {
+            if (!hwnd) return false;
+            return std::any_of(retired.begin(), retired.end(), [hwnd](const auto* peer) {
+                return hwnd == peer->window || hwnd == peer->caption || IsChild(peer->window, hwnd);
+            });
+        };
+        if (std::any_of(retired.begin(), retired.end(), [&](const auto* peer) { return peer->control->id() == tooltip_target; }))
+            hide_tooltip();
+        if (const auto hovered = hovered_edit.lock(); hovered &&
+            std::any_of(retired.begin(), retired.end(), [&](const auto* peer) { return peer->control == hovered; }))
+            hover_edit(nullptr, nullptr);
+        if (retiring_window(last_focus)) last_focus = nullptr;
+        std::erase_if(focus_targets, retiring_window);
+        for (auto& entry : popups) if (retiring_window(entry.return_focus)) entry.return_focus = nullptr;
+        if (retiring_window(GetCapture())) ReleaseCapture();
+        if (retiring_window(GetFocus())) SetFocus(nullptr);
+        for (const auto& peer : peers) if (retired.contains(peer.get())) {
+            KillTimer(peer->window, repeat_timer);
+            peer->repeating = false;
+            if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) range->cancel_drag();
+            peer->control->cancel();
+            peer->control->pointer_move(false);
+            if (peer->edit) peer->edit->dismiss_suggestions();
+            detach_peer(*peer);
+        }
+        // Remove peers from lookups before DestroyWindow sends synchronous notifications.
+        // Keep all retired parents alive until their children have been destroyed.
+        std::vector<std::unique_ptr<Peer>> removed;
+        removed.reserve(retired.size());
+        for (auto& peer : peers) if (retired.contains(peer.get())) removed.push_back(std::move(peer));
+        std::erase_if(peers, [](const auto& peer) { return !peer; });
+        while (!removed.empty()) removed.pop_back();
     }
     void create() {
         if (used) throw std::logic_error("A Window can run only once");
@@ -1093,8 +1219,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        ShowWindow(window, SW_SHOWNORMAL);
-        if (!IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
+        ShowWindow(window, options.show_activated ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+        if (options.show_activated && !IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
     }
     void apply_theme() {
         if (!window) return;
@@ -1461,6 +1587,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             sync_native_occlusion();
             InvalidateRect(window, nullptr, FALSE);
         }
+        validate_active_inspection();
     }
     void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor, std::shared_ptr<Popup> root_popup = {},
         std::optional<Rect> context_anchor = {}) {
@@ -1511,6 +1638,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     bool translate(MSG& msg) {
         InputScope scope(*this);
+        if (auto result = inspect_pointer(msg.hwnd, msg.message, msg.wParam, msg.lParam)) return true;
         if (msg.hwnd == window || IsChild(window, msg.hwnd)) {
             const bool keyboard = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
             const bool pointer = msg.message == WM_LBUTTONDOWN || msg.message == WM_RBUTTONDOWN || msg.message == WM_POINTERDOWN;
@@ -1941,6 +2069,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                 };
                 if (composed) paint_adaptive(0);
+                if (composed) paint_content_highlights();
                 if (composed) for (const auto& entry : popups) {
                     const auto bounds = entry.popup->bounds();
                     if (entry.dialog && palette.style == VisualStyle::winui && !palette.high_contrast)
@@ -3479,6 +3608,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void cancel_input() {
         InputScope input_scope(*this);
+        for (auto& [id, state] : content_picking) {
+            state.mouse_down = state.pointer_down = false;
+            state.pending.reset();
+        }
+        if (window && std::any_of(content_picking.begin(), content_picking.end(),
+            [](const auto& item) { return item.second.highlight.has_value(); })) InvalidateRect(window, nullptr, FALSE);
         hide_tooltip();
         std::vector<Peer*> snapshot;
         for (const auto& peer : peers) snapshot.push_back(peer.get());
@@ -4495,6 +4630,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     LRESULT message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        if (auto result = inspect_pointer(hwnd, message, wparam, lparam)) return *result;
         if (titlebar && message == WM_NCCALCSIZE && wparam) {
             auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
             const auto top = params.rgrc[0].top;
@@ -4832,6 +4968,142 @@ void Window::set_content(std::shared_ptr<Stack> content) {
         root->add(impl_->titlebar); root->add(std::move(content), 1); impl_->root = std::move(root);
     } else impl_->root = std::move(content);
 }
+void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content) {
+    replace_content(host, std::move(content), {}, {});
+}
+void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content,
+    std::vector<ContentInspectionTarget> targets, std::function<void(std::uint32_t)> picked) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread)
+        throw std::logic_error("Replace content on the window UI thread");
+    if (impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("The Window is closed");
+    if (impl->input_depth || impl->replacing || impl->syncing || impl->native_file_dialog)
+        throw std::logic_error("Post content replacement outside native input callbacks");
+    std::set<std::uint64_t> existing;
+    Impl::content_ids(impl->root, existing);
+    if (!existing.contains(host.id()))
+        throw std::invalid_argument("ContentHost must belong to this window");
+    auto registration = inspection::Registration::prepare(content, std::move(targets), std::move(picked));
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must have a stable retained path in this window");
+    const auto previous_state = impl->content_picking.find(host.id());
+    if (previous_state != impl->content_picking.end() && previous_state->second.enabled) {
+        impl->validate_inspection_ancestors(*path);
+        inspection::supported(content, &host);
+    }
+    const bool same_content = host.content() == content;
+    if (content && !same_content) {
+        host.validate_adoption(content);
+        for (const auto& entry : impl->popups) Impl::content_ids(entry.popup, existing);
+        std::set<std::uint64_t> candidate;
+        Impl::content_ids(content, candidate, true);
+        for (const auto id : candidate) if (existing.contains(id))
+            throw std::invalid_argument("Replacement content already belongs to this window");
+    }
+    const auto previous = host.content();
+    std::set<std::uint64_t> retired;
+    Impl::content_ids(previous, retired);
+    impl->content_picking.try_emplace(host.id());
+    if (same_content) {
+        auto& state = impl->content_picking.at(host.id());
+        state.host = path->host;
+        state.registration = std::move(registration);
+        ++state.generation;
+        state.pending.reset();
+        state.highlight.reset();
+        if (impl->window) InvalidateRect(impl->window, nullptr, FALSE);
+        return;
+    }
+    impl->replacing = true;
+    impl->replacement_host = &host;
+    struct Reset {
+        Impl& impl;
+        ~Reset() { impl.replacing = false; impl.replacement_host = nullptr; }
+    } reset{*impl};
+    try {
+        host.replace(std::move(content));
+        for (std::size_t i = 0; i < impl->popups.size();) {
+            if (retired.contains(impl->popups[i].anchor->id())) {
+                const auto popup = impl->popups[i].popup;
+                impl->dismiss_popup(*popup, PopupDismissReason::hidden, false);
+            } else ++i;
+        }
+        impl->layout_pending = true;
+        impl->update();
+        if (impl->failed || impl->closing || (impl->used && !impl->ready))
+            throw std::runtime_error("Content replacement did not complete because the window closed");
+        auto& state = impl->content_picking.at(host.id());
+        if (state.enabled) impl->validate_inspection_native(host);
+        state.host = path->host;
+        state.registration = std::move(registration);
+        ++state.generation;
+        state.pending.reset();
+        state.highlight.reset();
+        impl->prune_inspection_hosts();
+    } catch (...) {
+        impl->fail();
+        throw;
+    }
+}
+void Window::set_content_pointer_picking(ContentHost& host, bool enabled) {
+    const auto impl = impl_;
+    impl->inspection_api_ready();
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must belong to this window");
+    if (enabled) {
+        impl->inspection_idle();
+        impl->validate_inspection_ancestors(*path);
+        inspection::supported(host.content(), &host);
+        impl->validate_inspection_region(host);
+        impl->validate_inspection_native(host);
+    }
+    auto& state = impl->content_picking[host.id()];
+    state.host = path->host;
+    state.enabled = enabled;
+    state.pending.reset();
+}
+std::optional<std::uint32_t> Window::hit_test_content(ContentHost& host, Point position) {
+    const auto impl = impl_;
+    impl->inspection_api_ready();
+    if (!std::isfinite(position.x) || !std::isfinite(position.y))
+        throw std::invalid_argument("Inspection coordinates must be finite");
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must belong to this window");
+    impl->inspection_idle();
+    impl->validate_inspection_ancestors(*path);
+    inspection::supported(host.content(), &host);
+    if (impl->layout_pending) impl->update();
+    impl->validate_inspection_region(host);
+    impl->validate_inspection_native(host);
+    const auto found = impl->content_picking.find(host.id());
+    if (found == impl->content_picking.end()) return {};
+    return impl->inspection_hit(host, position, found->second.registration).key;
+}
+ContentHighlightResult Window::highlight_content(ContentHost& host, std::optional<std::uint32_t> key) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || !impl->ready || impl->closing || !impl->window ||
+        impl->input_depth || impl->replacing || impl->syncing)
+        throw std::logic_error("Highlight content on the running UI thread outside native input");
+    if (!impl->root || !inspection::host_path(impl->root, host, impl->root->bounds(), false))
+        throw std::invalid_argument("ContentHost must belong to this window");
+    const auto found = impl->content_picking.find(host.id());
+    if (key && (found == impl->content_picking.end() ||
+        std::none_of(found->second.registration.targets.begin(), found->second.registration.targets.end(),
+            [&](const auto& target) { return target.key == *key; })))
+        throw std::invalid_argument("Highlight key is not registered in the current content");
+    if (found != impl->content_picking.end()) found->second.highlight.reset();
+    InvalidateRect(impl->window, nullptr, FALSE);
+    if (!key) return ContentHighlightResult::cleared;
+    if (impl->layout_pending) impl->update();
+    if (!impl->ready || impl->closing || !impl->window)
+        throw std::runtime_error("The window closed while preparing highlight layout");
+    auto& state = impl->content_picking.at(host.id());
+    inspection::Outline ring;
+    const auto result = impl->content_highlight_geometry(host, state, *key, ring);
+    if (result == ContentHighlightResult::applied) state.highlight = key;
+    return result;
+}
 void Window::set_theme(ThemeMode theme) {
     if (impl_->options.theme == theme) return;
     impl_->options.theme = theme;
@@ -4849,6 +5121,11 @@ void Window::set_visual_style(VisualStyle style) {
     impl_->invalidate(Invalidation::layout);
 }
 VisualStyle Window::visual_style() const { return impl_->options.visual_style; }
+void Window::set_show_activated(bool value) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set initial activation on its UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Set initial activation before Application::run");
+    impl_->options.show_activated = value;
+}
 void Window::set_tooltip_style(std::shared_ptr<const ControlStyle> style) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set tooltip styles on the window UI thread");
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
@@ -4889,6 +5166,7 @@ bool Window::focus(Control& control, bool select_all) {
     const auto impl = impl_;
     Impl::InputScope scope(*impl);
     if (!impl->ready || impl->closing || !control.focusable()) return false;
+    if (impl->replacing && !impl->retains(control)) return false;
     if (impl->layout_pending) impl->update();
     if (!impl->ready || impl->closing) return false;
     for (const auto& peer : impl->peers)
@@ -4940,6 +5218,7 @@ void Window::show_location_picker(std::shared_ptr<LocationPicker> picker, Contro
 void Window::show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths) {
     const auto impl = impl_;
     if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Show Shell commands on the window UI thread");
+    if (impl->has_content_picking()) throw std::invalid_argument("Close pointer picking before opening Shell commands");
     Impl::InputScope scope(*impl);
     auto* peer = impl->find_peer(&anchor);
     if (!peer || !impl->ready || impl->closing || !impl->enabled(*peer)) throw std::logic_error("Shell command owner is unavailable");
@@ -4952,6 +5231,7 @@ void Window::close() {
     auto impl = impl_;
     Impl::InputScope input_scope(*impl);
     impl->closing = true;
+    if (impl->native_file_dialog) impl->native_file_dialog->cancel();
     impl->close_posts();
     for (auto& task : impl->samples) task->cancel();
     for (auto& task : impl->tasks) task->cancel();
@@ -4983,6 +5263,7 @@ std::shared_ptr<SampleTask> Window::create_sample_task(SampleTask::Loader loader
     return std::shared_ptr<SampleTask>(new SampleTask(std::move(state)));
 }
 bool Window::confirm(const std::wstring& title, const std::wstring& message) {
+    if (impl_->has_content_picking()) throw std::invalid_argument("Close pointer picking before opening a modal dialog");
     if (!impl_->ready || impl_->closing) return false;
     return MessageBoxW(impl_->window, message.c_str(), title.c_str(),
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
@@ -5039,7 +5320,7 @@ std::optional<bool> Window::paste_files(const std::wstring& destination) {
 }
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch
-    // unwinds, but Window destruction still closes native windows immediately.
+    // unwinds. An active native file dialog defers HWND teardown until its modal call returns.
     const auto impl = window.impl_;
     if (running) {
         impl->error = L"Another window is already running on this UI thread.";
@@ -5064,6 +5345,7 @@ int Application::run(Window& window) {
                             if (!impl->ready || impl->closing) break;
                             post();
                         }
+                        impl->deliver_content_picks();
                         const auto tasks = impl->tasks;
                         for (const auto& task : tasks) {
                             if (!impl->ready || impl->closing) break;
@@ -5100,5 +5382,7 @@ int Application::run(Window& window) {
         return 1;
     }
 }
+
+#include "application_file_dialog.inc"
 
 }

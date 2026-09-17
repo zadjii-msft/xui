@@ -35,13 +35,16 @@ public:
     void set_selection(TextSelection value);
     std::uint64_t selection_revision() const { return selection_revision_; }
     bool command(TextCommand command);
+    TextSelection replace_range(TextSelection range, std::wstring_view expected_text, std::wstring replacement);
     void on_change(std::function<void(const std::wstring&)> callback) { change_ = std::move(callback); }
     void on_link(std::function<void(const std::wstring&)> callback) { link_ = std::move(callback); }
     // Native adapter boundaries. No clipboard or link action runs from a property setter.
-    void commit_text(std::wstring value);
+    void commit_text(std::wstring value, std::optional<TextSelection> selection = {});
     void commit_selection(TextSelection value);
     void activate_link(std::size_t position);
     void bind_commands(std::function<bool(TextCommand)> callback) { command_ = std::move(callback); }
+    using RangeReplacement = std::function<TextSelection(TextSelection, const std::wstring&, const std::wstring&)>;
+    void bind_range_replacement(RangeReplacement callback) { replace_ = std::move(callback); }
 protected:
     DocumentText(std::wstring name, bool rich);
     void assign_runs(std::vector<TextRun> value);
@@ -62,6 +65,7 @@ private:
     std::function<void(const std::wstring&)> change_;
     std::function<void(const std::wstring&)> link_;
     std::function<bool(TextCommand)> command_;
+    RangeReplacement replace_;
 };
 class MultilineText final : public DocumentText {
 public:

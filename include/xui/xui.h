@@ -125,6 +125,9 @@ XUI_API xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count,
 
 #include "xui_features.h"
 #include "xui_file_transfer.h"
+#include "xui_document_editing.h"
+#include "xui_content.h"
+#include "xui_file_dialog.h"
 
 #ifdef __cplusplus
 }

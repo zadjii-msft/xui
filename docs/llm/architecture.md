@@ -28,7 +28,13 @@ The browser composition has no native window procedure, drawing calls, backend i
 It creates no per-row controls.
 
 The control host creates an HWND for each control, including one HWND for each virtual list.
-General runtime tree replacement, control removal, and application-defined control renderers are not supported.
+General runtime tree replacement and application-defined control renderers are not supported.
+`ContentHost` supplies an explicit single-root replacement boundary.
+`Window::replace_content` preserves peers outside that host.
+It removes obsolete peers in leaf-first order and disconnects their providers.
+`src\c_api_content.inc` owns candidate handles, resource retirement, and construction guards.
+`bindings\dotnet\Xui\ContentHost.cs` owns managed subscription retirement and scoped callback error delivery.
+Ordinary control creation and topology changes remain before-run operations.
 Multiline input uses the native document controls described in [the document reference](../specs/documents.md).
 Tab data can change without these tree operations.
 

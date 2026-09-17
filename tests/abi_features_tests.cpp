@@ -897,7 +897,41 @@ void explorer_contracts() {
     expect(counts.first == 0 && counts.second == 1);
 }
 }
-int main() {
+void initial_activation_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("XUI no-activate contract"), 320, 240};
+    xui_handle window{}, root{}, input{};
+    ok(xui_window_create(&options, &window));
+    ok(xui_stack_create(window, 1, &root));
+    ok(xui_create(window, XUI_TEXT_INPUT, text("Editor"), 0, &input));
+    ok(xui_stack_add(root, input, 1));
+    ok(xui_window_content(window, root));
+    ok(xui_window_show_activated(window, 1));
+    ok(xui_window_show_activated(window, 0));
+    expect(xui_window_show_activated(window, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_show_activated(input, 0) == XUI_WRONG_KIND);
+    std::thread worker([&] { expect(xui_window_show_activated(window, 0) == XUI_WRONG_THREAD); });
+    worker.join();
+    ok(xui_window_post(window, [](void* context, uint32_t execute) -> xui_status {
+        if (!execute) return XUI_OK;
+        const auto window = *static_cast<xui_handle*>(context);
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI no-activate contract");
+        expect(hwnd && IsWindowVisible(hwnd));
+        expect(GetForegroundWindow() != hwnd);
+        expect(!IsChild(hwnd, GetFocus()));
+        expect(xui_window_show_activated(window, 1) == XUI_BUSY);
+        return xui_window_close(window);
+    }, &window));
+    ok(xui_window_run(window));
+    expect(xui_window_show_activated(window, 1) == XUI_CLOSED);
+    ok(xui_window_destroy(window));
+    expect(xui_window_show_activated(window, 1) == XUI_INVALID_HANDLE);
+}
+int main(int argc, char** argv) {
+    if (argc == 2 && std::strcmp(argv[1], "--activation") == 0) {
+        initial_activation_contracts();
+        std::cout << "Initial activation contracts: " << assertions << " assertions\n";
+        return 0;
+    }
     retained_navigation_style_bridges();
     retained_facade_style_contracts();
     control_style_contracts();

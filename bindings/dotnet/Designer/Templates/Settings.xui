@@ -1,0 +1,48 @@
+namespace Playground;
+
+component Settings {
+    state bool Notifications = true;
+    state bool Compact = false;
+    state string Workspace = "My workspace";
+    state string Status = "Changes apply to this preview only.";
+
+    style Section for Stack {
+        padding: 16;
+        spacing: 10;
+        background: theme(light: 0xF3F4F6, dark: 0x20242A);
+    }
+    style SectionTitle for Label {
+        fontSize: 18;
+        fontWeight: 600;
+    }
+
+    view {
+        VStack(padding: 24, spacing: 16) {
+            Text("Workspace settings", fontSize: 28, fontWeight: 600);
+            VStack(style: Section) {
+                Text("General", style: SectionTitle);
+                TextInput("Workspace name", text: Workspace, change: Rename);
+                Toggle("Notifications", checked: Notifications, change: SetNotifications);
+                Toggle("Compact layout", checked: Compact, change: SetCompact);
+            }
+            HStack(spacing: 8) {
+                Button("Apply", click: Apply);
+                Button("Reset", click: Reset);
+            }
+            Text(Status, wrapping: true);
+        }
+    }
+
+    code csharp {
+        void Rename(string value) => Workspace = value;
+        void SetNotifications(bool value) => Notifications = value;
+        void SetCompact(bool value) => Compact = value;
+        void Apply() => Status = $"Applied settings for {Workspace}. Compact layout: {Compact}.";
+        void Reset() {
+            Workspace = "My workspace";
+            Notifications = true;
+            Compact = false;
+            Status = "Settings reset.";
+        }
+    }
+}

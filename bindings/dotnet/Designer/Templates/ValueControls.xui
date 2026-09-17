@@ -1,0 +1,44 @@
+namespace DesignerExamples;
+
+component ValueControls {
+    state double Level = 50;
+    state string Summary = "Level: 50%";
+
+    style SliderStyle for RangeInput {
+        part track { background: 0xD0D7DE; thickness: 4; }
+        part fill { background: 0x0969DA; }
+        part thumb { size: 18; }
+    }
+    style MeterStyle for Progress {
+        part fill { background: 0x238636; }
+    }
+
+    view {
+        VStack(spacing: 12, padding: 24) {
+            Text("Value controls", fontSize: 24);
+            Text("Move the slider to update the value and progress meter.");
+            RangeInput("Level",
+                range: new global::Xui.NumericRange(0, 100, 1, 10),
+                currentValue: Level,
+                change: SetLevel,
+                style: SliderStyle,
+                preferredSize: (360, 42));
+            Progress("Current level",
+                currentValue: Level,
+                progressState: global::Xui.ProgressState.Determinate,
+                style: MeterStyle,
+                preferredSize: (360, 24));
+            Text(Summary);
+            Button("Reset to 50%", click: Reset);
+        }
+    }
+
+    code csharp {
+        void SetLevel(double value) {
+            Level = value;
+            Summary = $"Level: {value:0}%";
+        }
+
+        void Reset() { SetLevel(50); }
+    }
+}

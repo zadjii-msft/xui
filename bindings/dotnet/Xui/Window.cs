@@ -68,6 +68,7 @@ public sealed unsafe partial class Window : IDisposable
     {
         if (thread != Environment.CurrentManagedThreadId) throw new XuiException(4, "Use the creating UI thread.");
         ObjectDisposedException.ThrowIf(Handle == 0, this);
+        if (contentContext.Value is { Retired: true }) throw new ObjectDisposedException(nameof(ContentUpdate));
     }
     public void VerifyAccess() => Guard();
     internal static byte[] Utf8(string text)
@@ -143,8 +144,8 @@ public sealed unsafe partial class Window : IDisposable
     }
     public event Action<UiEvent> Key
     {
-        add { Guard(); SetSubscription(Handle, e => key?.Invoke(e)); key += value; }
-        remove { Guard(); key -= value; if (key is null) SetSubscription(Handle, null); }
+        add { GuardWindowCallback(); SetSubscription(Handle, e => key?.Invoke(e)); key += value; }
+        remove { GuardWindowCallback(); key -= value; if (key is null) SetSubscription(Handle, null); }
     }
     public void Run()
     {
@@ -162,6 +163,7 @@ public sealed unsafe partial class Window : IDisposable
         Guard();
         if (running || callbacks != 0) throw new XuiException(7, "Close the window and return from Run before Dispose.");
         Check(Native.WindowDestroy(Handle));
+        foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
         ReleaseIconCallback();
         Handle = 0;
         foreach (var s in subscriptions.Values) s.Free();
@@ -187,7 +189,7 @@ public sealed unsafe partial class Window : IDisposable
             return;
         }
         if (subscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
-        var subscription = new Subscription(this, action);
+        var subscription = new Subscription(this, action, ScopeFor(handle));
         try
         {
             Check(Native.Subscribe(handle, &Trampoline, GCHandle.ToIntPtr(subscription.Root)));
@@ -214,7 +216,7 @@ public sealed unsafe partial class Window : IDisposable
             current.Action = action;
             return;
         }
-        var subscription = new Subscription(this, action);
+        var subscription = new Subscription(this, action, ScopeFor(handle));
         try
         {
             Check(Native.ContextMenuBind(handle, &Trampoline, GCHandle.ToIntPtr(subscription.Root)));
@@ -230,10 +232,12 @@ public sealed unsafe partial class Window : IDisposable
     {
         internal readonly Window Window;
         internal Action<UiEvent> Action;
+        internal readonly ContentUpdate? Scope;
         internal GCHandle Root;
-        internal Subscription(Window window, Action<UiEvent> action)
+        internal Subscription(Window window, Action<UiEvent> action, ContentUpdate? scope)
         {
             Window = window; Action = action;
+            Scope = scope;
             Root = GCHandle.Alloc(this, GCHandleType.Weak);
         }
         internal void Free() { if (Root.IsAllocated) Root.Free(); }
@@ -246,6 +250,8 @@ public sealed unsafe partial class Window : IDisposable
         {
             s = GCHandle.FromIntPtr(context).Target as Subscription;
             if (s is null) return 8;
+            if (s.Scope is { AcceptCallbacks: false }) return 0;
+            using var content = s.Window.EnterContent(s.Scope);
             ++s.Window.callbacks;
             try { s.Action(new((EventKind)value->Kind, value->Value)); }
             finally { --s.Window.callbacks; }
@@ -253,8 +259,7 @@ public sealed unsafe partial class Window : IDisposable
         }
         catch (Exception error)
         {
-            if (s is not null) s.Window.callbackError = error;
-            return 8;
+            return s is null ? 8 : s.Window.ContentError(s.Scope, error);
         }
     }
     internal sealed class Pins : IDisposable

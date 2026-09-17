@@ -1,0 +1,50 @@
+namespace Playground;
+
+component Dashboard {
+    state int Completed = 12;
+    state int Remaining = 8;
+
+    style Card for Stack {
+        padding: 16;
+        spacing: 8;
+        background: theme(light: 0xF3F4F6, dark: 0x20242A);
+    }
+    style Metric for Label {
+        fontSize: 32;
+        fontWeight: 600;
+    }
+
+    view {
+        VStack(padding: 24, spacing: 16) {
+            Text("Project overview", fontSize: 28, fontWeight: 600);
+            Text("Grid columns share the available width.", wrapping: true);
+            Grid("Project metrics", columns: [new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Star)]) {
+                VStack(style: Card, column: 0) {
+                    Text("Completed");
+                    Text($"{Completed}", style: Metric);
+                }
+                VStack(style: Card, column: 1) {
+                    Text("Remaining");
+                    Text($"{Remaining}", style: Metric);
+                }
+            }
+            HStack(spacing: 8) {
+                Button("Complete a task", enabled: Remaining > 0, click: Complete);
+                Button("Reset", click: Reset);
+            }
+            Text($"{Completed} of {Completed + Remaining} tasks complete.", wrapping: true);
+        }
+    }
+
+    code csharp {
+        void Complete() {
+            if (Remaining == 0) return;
+            Completed++;
+            Remaining--;
+        }
+        void Reset() {
+            Completed = 12;
+            Remaining = 8;
+        }
+    }
+}

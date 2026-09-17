@@ -4,6 +4,299 @@ This plan records the initial implementation and its acceptance evidence.
 The [language guide](../specs/xui-language.md) describes the current syntax and expanded control set.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 
+## Designer source map
+
+The [designer guide](../specs/designer.md) describes the standalone development tool.
+`bindings/dotnet/Designer/DesignerLayout.xui` defines its shell.
+`DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+`DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
+It parses exact native editor snapshots and applies edits with the native range-replacement API.
+It rejects stale source or revision results before the native call.
+`DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
+`DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
+`DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
+`DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
+`Designer.LayoutTests` links the production layouts for native geometry and editor-state tests without the preview compiler.
+`Designer.WorkspaceTests` runs the shared builder smoke with the production controllers and source model, without a preview host.
+`PreviewCompiler.cs` runs `XuiGenerator` and Roslyn, with semantic discovery of the generated component.
+It emits `Build(Window)` and `Root(object)` wrappers for the component and its unattached root.
+The `XUI_DESIGNER` parse option enables source-preorder metadata in the generated component.
+The wrapper also exposes typed `NodeCount(object)` and `Node(object, int)` entry points.
+It does not execute authored code during compilation.
+
+`PreviewHost.cs` owns a stable `ContentHost` inside the designer window.
+It constructs a candidate within `ContentUpdate` before replacing the previous content.
+The host retains the generated component until scope retirement, then requests collectible assembly unloading.
+Authored tasks or static references can prevent collection.
+The host checks the source version before construction and before commit.
+Successful commit completes native materialization and layout before status delivery.
+The host reports construction and scoped managed event exceptions to the editor.
+The preview shares the editor UI thread and does not isolate authored code.
+The host binds the metadata entry points once per candidate and clears those delegates during retirement.
+`PreviewNodeSnapshot.cs` defines value-only snapshots of the current arranged node bounds, binding type, and numeric control identity.
+All snapshot reads check UI-thread access and the exact applied source version.
+The [snapshot contract](../specs/designer.md#applied-preview-snapshots) distinguishes arranged bounds from visible geometry.
+`PreviewPick.cs` defines versioned source identities for native pointer selection.
+`PreviewHost` registers temporary inspection targets through the same scoped candidate.
+Its pick handler rejects retired candidates and superseded source versions before it notifies the shell.
+Inspection observers use window context so replacement posts do not inherit the retiring preview scope.
+The [pointer-selection contract](../specs/designer.md#versioned-pointer-selection) leaves keyboard input and accessibility actions native.
+
+`Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
+`DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
+`Designer.TemplateTests` compiles every catalog entry without a native DLL.
+`DesignerDocumentStore.cs` supplies the shell's file and recovery model.
+`DesignerFileActions.cs` connects the file store to native choosers and explicit dirty-document confirmation.
+It retains the file-store conflict policy and checks source revisions after native modal calls.
+It compares raw file hashes before replacement and writes each destination through a temporary file.
+Recovery metadata connects a source hash to the original path and file hash.
+A partial snapshot reports an error instead of restoring stale file identity.
+`Designer.DocumentTests` covers this model without a native DLL.
+`DesignerRecoveryDialog.cs` supplies the shell's native recovery dialog.
+`DesignerRecoveryLayout.xui` defines its content.
+The dialog shows bounded source previews, requires deletion approval, and prevents recovery over dirty source.
+`Designer.RecoveryTests` exercises its native controls against isolated draft files.
+`DesignerDiscardDialog.cs` supplies explicit discard or cancel approval through `DesignerDiscardLayout.xui`.
+It defers approved actions until the native dialog closes, then checks the exact source and revision again.
+`Designer.DiscardTests` covers native undo preservation, concurrent requests, and stale approval.
+`DesignerFileSmoke.cs` runs `--file-smoke` against the complete application with an isolated recovery directory.
+`DesignerFileDialogProbe.cs` drives only the smoke process's native chooser through its owner and UI thread.
+`--file-close-smoke` isolates owner closure and checks native HWND teardown after `Window.Run`.
+This opt-in diagnostic currently fails. It is separate from ordinary file-workflow acceptance.
+The application keeps file errors in a separate status label so compiler diagnostics remain available.
+`DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
+It uses the reported compiler coordinates and preserves exact native paragraph offsets.
+Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
+`Designer.DiagnosticsTests` covers this model and real compiler output without a native DLL.
+`DesignerDiagnosticNavigator.cs` adds native diagnostic navigation through `DesignerDiagnosticsLayout.xui`.
+
+`DesignerSourceSearch.cs` supplies a native Find toolbar around the existing source editor.
+`DesignerSourceSearchLayout.xui` keeps the query, case toggle, match status, and source document in one declarative component.
+Every navigation reads current native text and selection rather than cached offsets.
+`Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
+
+The application now composes the Find toolbar and versioned pointer picking with its native source editor.
+`DesignerApplication.Picking.cs` keeps mode feedback separate from compiler status.
+`DesignerSelectionSmoke.cs` sends mouse messages only to preview peers on the owning UI thread.
+It checks exact source selection, hierarchy identity, stale versions, native undo, and restoration of authored actions.
+The fixture reads changed captions through retained native control state, not stale HWND window text.
+The full application passed the selection fixture on September 17, 2026, after the requested 3 AM iteration minimum.
+The combined run also passed 32 file assertions, 16 builder assertions, 26 property assertions, and the original preview-recovery smoke.
+It checks the current source revision and displayed diagnostic text before changing either native selection.
+`Designer.NavigationTests` covers its buttons, F8 routing, Unicode selections, and invalidation.
+`DesignerWorkspace.cs` connects the hierarchy and inspector to native source transactions.
+Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the same cancellation and revision checks as property edits.
+`DesignerInspectorLayout.xui` defines the wrap and unwrap controls.
+`Designer.GroupingTests` covers the native buttons, hierarchy-only shortcuts, source selection, and undo.
+
+`DesignerLiteralCodec.cs` uses Roslyn string tokens to convert between literal source and native property text.
+`DesignerInspector.cs` exposes this conversion through an opt-in text-mode toggle.
+`DesignerWorkspace.ApplyProperty` rejects no-op values before it starts a source transaction.
+`Designer.TextModeTests` covers the complete native inspector, source callbacks, undo, raw and verbatim spelling, draft conversion, and size-limit errors.
+The September 17, 2026 ARM64 Release run passed 26 text-mode and reset assertions, 16 workspace assertions, and 19 grouping assertions.
+`DesignerWorkspace.ResetProperty` permits named literal resets through `VisualDocument.RemoveArgument`.
+Positional operands and expression-backed arguments remain protected in the inspector.
+The designer's `--smoke` mode covers the native editor and preview lifecycle.
+`xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
+The normal window activation default remains unchanged.
+
+### Applied node-map evidence
+
+The node-map tranche passed 89 compiler assertions, 780 source assertions, and 1,456 embedded preview assertions on ARM64 Release.
+The desktop fixture compares parser preorder with native control text and runtime binding types.
+It covers nested Stack, Grid, and external Content nodes, plus a non-Stack replacement root.
+Its bounds check compares the snapshot with the actual label HWND in client coordinates at the current DPI.
+One hundred repeated map reads leave native handle counts and peer identities unchanged.
+The suite rejects wrong-thread reads and invalid IDs.
+It preserves the old map after construction failure and rejects maps for pending, failed, or retired revisions.
+Retained value snapshots do not prevent collection of the retired preview assembly context.
+The designer `--smoke` also passed.
+
+### Pointer inspection evidence
+
+The Stage1 inspection tranche uses the embedded core, source metadata, and owned-dialog baseline.
+`src\content_inspection.hpp` validates weak registered targets and retained ancestry.
+`src\application_content_inspection.inc` owns native hit resolution, gesture gating, and bounded deferred delivery.
+`tests\content_inspection_window_tests.cpp` covers real HWND routes, retained gaps and clips, editor state, refusal paths, and 100 replacements.
+The native inspection, ContentHost, core, and dialog-window CTest targets passed on ARM64 Release.
+
+The integrated managed preview suite passed 1,779 assertions.
+It covers target validation, 100 registered replacements, native hit identities, versioned pointer events, supersession, and scope retirement.
+It also checks collectible assembly retirement while value snapshots remain retained.
+Compiler and source suites passed 89 and 780 assertions.
+The designer smoke, managed dialog suite, and documentation checks passed.
+There is no highlight implementation in this tranche.
+
+### Non-occluding outline evidence
+
+On September 17, 2026, the ARM64 native outline fixture passed for Classic, WinUI, and clipped layouts.
+The fixture checks actual outline and clear pixels without changing production input or HWND regions.
+It covers EDIT and RichEdit occlusion refusals, exact region equality, native hit targets, styles, bounds, and editor state.
+Each visual style completes 100 highlight, clear, and replacement cycles with exact HWND, USER, and GDI baselines.
+The fixture also covers original-perimeter clipping, scrolling, resizing, target recreation, and refusal-state retirement.
+Geometry checks cover 96, 144, and 192 DPI without fabricated clipping edges.
+
+An initial physical-hit check failed because an unrelated foreground window covered the test editor.
+The fixture now selects an unobstructed monitor and identifies editors by exact fixture text.
+The strict physical EDIT-hit assertion remains unchanged.
+Other fixture corrections keep capture checks paint-only and initialize the capture apartment for the fixture lifetime.
+No production highlight change was necessary during this investigation.
+
+The integrated managed preview suite passed 2,091 assertions.
+Its checks include 100 registered outline cycles, native-editor refusal, source-version guards, bounded supersession cleanup, and assembly retirement.
+The compiler and source suites passed 89 and 780 assertions.
+Documentation checks also passed.
+
+Active-highlight physical DPI transitions, real file-dialog and tooltip/popup interaction, and external UIA clients remain outside this evidence.
+Modal checks use owner disable. UIA checks use the native action endpoint.
+The test procedure is in [CONTRIBUTING](../../CONTRIBUTING.md#non-occluding-selection-outlines).
+
+The shell connects `DesignerWorkspace.SelectionChanged` to a coalesced `Window.Post` outline request.
+This delivery occurs outside native input callbacks and reads the current source, version, and selection.
+The shell also requests an outline after successful preview replacement.
+Separate outline feedback preserves compiler diagnostics and pointer-mode feedback.
+
+The final parent run on September 17, 2026, rebuilt the ARM64 Release runtime and passed the native outline fixture in 36.06 seconds.
+The same run passed 2,091 preview assertions, 15 application selection assertions, 10 layout assertions, 16 builder assertions, and 32 file assertions.
+The original application smoke also passed its preview failure and recovery cases.
+These results do not resolve the documented programmatic owner-close failure during a native file chooser.
+
+### Visual source tools
+
+`Xui.Generator/Parser.cs` records authored node and argument ranges during the existing parse.
+`XuiSourceParser.cs` exposes an immutable projection without emission, runtime construction, or another grammar.
+It adds bounded input, nesting, Unicode, cancellation, and token-trivia diagnostics for visual tooling.
+The ordinary generator retains its existing grammar and emission path.
+
+`Designer/VisualDocument.cs` owns revision-scoped node selection and exact source replacement proposals.
+Its compilation helper runs the existing generator and emits to memory, without loading an assembly.
+It does not depend on `PreviewCompiler`, `PreviewHost`, or native editor controls.
+The UI must discard proposals after any source or revision change.
+The [public contract](../specs/designer.md#source-editing-api) defines ranges, approvals, placement rules, and editor integration.
+
+`Designer.SourceTests` links this model directly and rejects native DLL loading.
+The suite covers all templates, literal and expression boundaries, raw C# strings, comments, Unicode, line endings, and stale-source refusal.
+It also covers structural edits, fixed arity, ownership, Grid placement, and resulting assembly emission.
+The source suite passed 646 assertions on Windows on September 16, 2026.
+The same change passed 41,813 generator assertions and 78 existing designer compiler assertions.
+These results use designer baseline `ae3ddea` and the source-tools tranche.
+Commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
+
+`XuiGenerator.cs` also emits an opt-in `XUI_DESIGNER` element lookup and node count.
+The existing `Collect` traversal supplies the same preorder as the parser projection.
+Each lookup returns its existing node field after the window access check.
+`DesignerMetadataTests.cs` compiles the existing generator-test fakes as fixture resources.
+The tests compare element identity with every authored reference, including Content and non-Stack roots.
+They also cover thread access, invalid IDs, unchanged field sets, and complete member omission without the symbol.
+With these checks, the source suite passed 780 assertions on September 16, 2026.
+The generator and designer compiler suites retained their previous counts.
+A managed Designer build with `XUI_DESIGNER` also passed against the actual bindings.
+
+`VisualDocument.WrapNode` and `UnwrapNode` add revision-safe grouping and ungrouping.
+They retain subtree text without reindentation and transfer exact authored placement arguments.
+Comma removal uses Roslyn tokens between existing argument spans, not a second grammar.
+Unwrapping refuses conflicting child placement, wrapper configuration, identity loss, and discarded header comments.
+`Program.Wrapping.cs` covers these rules, raw and verbatim strings, native CR selection, root changes, and fixed-arity parents.
+The grouping tranche passed 1,402 source assertions, 41,813 generator assertions, and a managed Designer build on September 16, 2026.
+
+`Emitter.Map(Expression)` emits enhanced `#line` spans only for unchanged authored source slices.
+Generated-prefix offsets keep inline Grid constructors and Stack flex expressions accurate.
+Grid track tuples emit each authored expression under a separate mapping.
+Synthesized expressions and columns beyond the directive limit retain the original line-only mapping.
+`Program.Diagnostics.cs` checks exact UTF-16 start and end locations, line endings, nested expressions, raw strings, and long-source compatibility.
+It links the unchanged `PreviewCompiler.cs` to check actual preview diagnostic text.
+The diagnostic tranche passed 1,561 source assertions, 41,813 generator assertions, 78 designer compiler assertions, and a managed Designer build on September 16, 2026.
+
+`Designer.Preview.Tests` covers native embedded layout, scoped ownership, repeated replacement, stale versions, managed callback errors, and editor preservation.
+The designer's `--smoke` mode covers the editor, preview recovery, and file behavior.
+`xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
+The normal window activation default remains unchanged.
+
+### Embedded preview evidence
+
+On 2026-09-16, the ARM64 Release build passed the native and managed embedded preview regressions.
+The worktree started from designer baseline `ae3ddea`.
+`Designer.Tests` passed 83 compiler assertions.
+`Designer.Preview.Tests` passed 1,282 assertions.
+The latter includes 100 replacements, 20 failed candidates, resource retirement, collectible assembly unloading, scoped callback recovery, and pending-close cycles.
+The existing designer `--smoke` passed with the minimal embedded shell.
+
+`xui_content_host_window_tests` passed 200 native replacements across Classic and WinUI.
+It also covered editor state, popup retirement, inactive pages, map and runtime retirement, stale UIA providers, and fatal materialization errors.
+The core regression passed.
+Existing ABI regressions passed 347 base assertions, 263,627 feature assertions, and 19 activation assertions.
+
+The foundation-window regression exceeded its native-phase deadline in this environment.
+The same failure reproduced with the baseline `ae3ddea` application implementation.
+Active WebView2 content was not part of these checks.
+These results do not establish safety against arbitrary authored code or independent process isolation.
+
+### Visual workspace evidence
+
+On 2026-09-17, the combined ARM64 Release shell passed the full designer `--builder-smoke` with 16 assertions.
+The existing `--smoke` also passed, including its expected compiler, construction, and file errors.
+`Designer.WorkspaceTests` passed the same 16 assertions without authored preview execution.
+`Designer.LayoutTests` passed eight native geometry and editor-state assertions.
+`Designer.Tests` passed 83 compiler assertions.
+
+The controller increment is `be127a4`.
+This run includes the embedded preview core `df83ca9` and the native tree correction `ac2ffdc`.
+The latter restores selection notifications when a collapsed ancestor replaces a descendant as the focused tree node.
+The shared smoke reproduces the prior inspector mismatch and requires the corrected behavior.
+It also covers deep tree expansion, surrogate-safe labels, native keyboard focus, one-line CR offsets, and bursts of source changes.
+
+### File and recovery integration evidence
+
+On 2026-09-17, the ARM64 Release application passed 15 `--file-smoke` assertions.
+The sequence covers automatic drafts, native undo cleanup, recovery copies, original-draft retention, disk conflicts, and Save to a new path.
+It also covers persistent file errors, preserved compiler diagnostics, and native source repairs after Open loads invalid syntax.
+The existing `--smoke` passed, and `--builder-smoke` passed 16 assertions.
+`Designer.DocumentTests` passed 49 assertions.
+`Designer.RecoveryTests` passed 17 native dialog assertions.
+`Designer.LayoutTests` passed eight native geometry and editor-state assertions.
+
+### Declarative value controls
+
+The parser accepts `RangeInput` and `Progress` as native leaves.
+The emitter applies their optional `NumericRange` during construction, before reactive property refresh.
+The range has no reactive binding and its authored expression contributes to the structural reload signature.
+`currentValue` avoids the existing positional `value` key.
+`progressState` selects the native Progress state.
+RangeInput uses the existing `OnChange(Action<double>)` adapter for committed changes.
+The shared parser supplies source spans, and the existing style catalog supplies control and part schemas.
+
+`GeneratorTests/Program.ValueControls.cs` covers initialization order, default preservation, reactive values, handler registration, diagnostics, styles, and shape changes.
+`Designer.SourceTests/Program.ValueControls.cs` covers source edits and native-control hierarchy metadata.
+The existing diagnostic and element-mapping fixtures also include these controls.
+`ValueControls.Tests/Values.xui` is the actual generated native fixture.
+Its executable checks native errors and callbacks, then runs a bounded native window.
+The [language contract](../specs/xui-language.md#range-input-and-progress) defines the limits.
+The [contributor guide](../../CONTRIBUTING.md#xui-designer) contains test commands.
+On September 17, 2026, this tranche passed 41,861 generator assertions, 2,949 source assertions, and 78 designer compiler assertions.
+The generated native fixture passed 52 assertions with this worktree's ARM64 Release DLL.
+That DLL came from a local `xui` target build, not another session's output.
+The native fixture covers a mounted window and callbacks, not screenshot-based appearance checks.
+
+### Native chooser owner-close investigation
+
+The ordinary ARM64 Release file-workflow smoke passed 32 assertions on 2026-09-17.
+It covered actual native chooser results, Unicode paths, cancellation, file shortcuts, dirty-document approval, failed destination reads, and source undo and redo.
+Native chooser errors and stale save results preserved the current document.
+The original application smoke also passed.
+The focused suites passed 16 builder assertions, 11 discard assertions, nine layout assertions, 49 document assertions, and 17 recovery assertions.
+
+On 2026-09-17, the complete designer exceeded a 30-second cancellation deadline after programmatic owner closure during a native file chooser.
+The native `Close` request reached the dialog, and its COM `Close` returned success.
+The modal `Show` call did not return before the diagnostic sent its fallback Cancel command.
+The fallback ends the failed fixture and does not establish successful programmatic cancellation.
+
+The same failure occurred with a direct native API call, retired preview content, and a label-only root before `Run`.
+Minimal native, C ABI, and managed fixtures passed separately, including a managed WinExe fixture.
+These results do not identify the cause of the full-process difference.
+No native cancellation correction accompanies the file-workflow integration.
+The strict `--file-close-smoke` diagnostic remains available.
+A UI-thread stack before the fallback is the next distinct evidence step.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

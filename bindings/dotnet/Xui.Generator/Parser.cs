@@ -8,7 +8,15 @@ namespace Xui.Generator;
 internal sealed record Expression(string Text, int Offset);
 internal sealed record State(string Type, string Name, Expression Initializer, int Offset);
 internal sealed record Parameter(string Type, string Name, int Offset);
-internal sealed record Node(string Kind, int Offset, Dictionary<string, Expression> Arguments, List<Node> Children);
+internal sealed record Node(string Kind, int Offset, Dictionary<string, Expression> Arguments, List<Node> Children)
+{
+    internal SourceRange Span { get; init; }
+    internal SourceRange ArgumentsSpan { get; init; }
+    internal SourceRange? BodySpan { get; init; }
+    internal IReadOnlyList<XuiSourceArgument> AuthoredArguments { get; init; } = [];
+    internal IReadOnlyList<string> SupportedArguments { get; init; } = [];
+    internal bool HasTrailingComma { get; init; }
+}
 internal sealed record Component(string Namespace, string Name, int Offset, List<State> States, List<Parameter> Parameters, Node Root, Expression Code,
     List<ColorResource> Resources, List<StyleDefinition> Styles);
 internal sealed class ParseError(string message, int offset) : Exception(message)
@@ -16,15 +24,18 @@ internal sealed class ParseError(string message, int offset) : Exception(message
     internal int Offset { get; } = offset;
 }
 
-internal sealed partial class Parser(string text)
+internal sealed partial class Parser(string text, CancellationToken cancellation = default, int maximumDepth = int.MaxValue)
 {
     private int position;
+    private int lastTokenEnd;
     internal List<ParseError> Errors { get; } = [];
     private SyntaxToken Peek() => SyntaxFactory.ParseToken(text, position);
     private bool Is(string value) => Peek().Text == value;
     private SyntaxToken Take()
     {
+        cancellation.ThrowIfCancellationRequested();
         var token = Peek();
+        lastTokenEnd = position + token.Span.End;
         position += token.FullSpan.Length;
         return token;
     }
@@ -159,8 +170,11 @@ internal sealed partial class Parser(string text)
             throw new ParseError("Only one component is supported per .xui file.", Offset);
         return new(ns, name, start, states, parameters, root ?? throw new ParseError("A component requires a view.", start), code, resources, styles);
     }
-    private Node ParseNode()
+    private Node ParseNode(int depth = 0)
     {
+        cancellation.ThrowIfCancellationRequested();
+        if (depth >= maximumDepth)
+            throw new ParseError($"Visual tooling supports at most {maximumDepth} nested nodes.", Offset);
         int start = Offset;
         string kind = Identifier();
         string[] allowed = kind switch
@@ -172,6 +186,8 @@ internal sealed partial class Parser(string text)
             "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],
+            "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
+            "Progress" => ["value", "range", "currentValue", "progressState"],
             "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp"],
             "ItemsView" or "ScrollView" => ["value"],
             "Popup" => ["value", "placement", "windowBackground"],
@@ -189,7 +205,10 @@ internal sealed partial class Parser(string text)
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
         if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
+        var authoredArguments = new List<XuiSourceArgument>();
         Expect("(");
+        int argumentsStart = lastTokenEnd;
+        bool trailingComma = false;
         while (!Is(")"))
         {
             int argStart = Offset;
@@ -208,6 +227,7 @@ internal sealed partial class Parser(string text)
                 if (stack || arguments.Count != 0) throw new ParseError("Only the first control argument may be positional.", argStart);
                 key = "value";
             }
+            bool positional = key == "value";
             if (!allowed.Contains(key)) Errors.Add(new ParseError($"Unsupported property '{key}' on {kind}.", argStart));
             if (arguments.ContainsKey(key)) throw new ParseError($"Duplicate property '{key}'.", argStart);
             int expressionStart = position;
@@ -217,18 +237,27 @@ internal sealed partial class Parser(string text)
             if (key is "click" or "change" or "submit" or "ref" && expression is not IdentifierNameSyntax)
                 throw new ParseError("Event handlers and references must be identifiers.", expressionStart);
             arguments.Add(key, new(expression.ToString(), expressionStart + expression.SpanStart));
+            var valueRange = new SourceRange(expressionStart + expression.SpanStart, expression.Span.Length);
+            authoredArguments.Add(new(key, positional, new(argStart, valueRange.End - argStart),
+                valueRange, text.Substring(valueRange.Start, valueRange.Length), XuiSourceParser.Classify(expression)));
             position += expression.FullSpan.Length;
+            trailingComma = false;
             if (!Is(",")) break;
             Take();
+            trailingComma = true;
         }
+        int argumentsEnd = Offset;
         Expect(")");
         if (!stack && !arguments.ContainsKey("value"))
             throw new ParseError($"{kind} requires its {(kind == "Content" ? "Element" : "string")} argument.", start);
         var children = new List<Node>();
+        SourceRange? bodySpan = null;
         if (container)
         {
             Expect("{");
-            while (!Is("}")) children.Add(ParseNode());
+            int bodyStart = lastTokenEnd;
+            while (!Is("}")) children.Add(ParseNode(depth + 1));
+            bodySpan = new(bodyStart, Offset - bodyStart);
             Expect("}");
             int required = kind is "ScrollView" or "Popup" ? 1 : kind == "SplitView" ? 2 : -1;
             if (required >= 0 && children.Count != required)
@@ -238,6 +267,14 @@ internal sealed partial class Parser(string text)
         {
             Expect(";");
         }
-        return new(kind, start, arguments, children);
+        return new(kind, start, arguments, children)
+        {
+            Span = new(start, lastTokenEnd - start),
+            ArgumentsSpan = new(argumentsStart, argumentsEnd - argumentsStart),
+            BodySpan = bodySpan,
+            AuthoredArguments = authoredArguments.AsReadOnly(),
+            SupportedArguments = Array.AsReadOnly(allowed.Distinct(StringComparer.Ordinal).ToArray()),
+            HasTrailingComma = trailingComma
+        };
     }
 }
