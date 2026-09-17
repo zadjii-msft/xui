@@ -11,15 +11,26 @@
     ["MapView",37,"control"],["MediaPlayback",38,"control"],["WebContent",39,"control"],
     ["TabStrip",40,"control"],["SplitView",41,"twoControl"],["PageView",42,"panel"],
     ["DataGrid",43,"control"],["HistoryChart",44,"control"],["NavigationView",45,"control"],
-    ["MillerColumns",46,"control"]
+    ["MillerColumns",46,"control"],["ToggleSwitch",48,"control"],
+    ["ToggleButton",49,"control"],["ProgressRing",50,"control"],
+    ["CheckBox",51,"control"],["HyperlinkButton",52,"control"],
+    ["SelectorBar",53,"control"],["InfoBadge",54,"control"],["MenuBar",55,"control"]
   ],
   "members": [
-    [["RangeInput","NumericInput","Progress"],"Range",1,"range","get"],
-    [["RangeInput","NumericInput","Progress"],"Value",2,"double","get"],
+    [["RangeInput","NumericInput","Progress","ProgressRing"],"Range",1,"range","get"],
+    [["RangeInput","NumericInput","Progress","ProgressRing"],"Value",2,"double","get"],
+    [["ToggleSwitch"],"Checked",46,"bool","get"],
+    [["ToggleButton"],"Checked",10,"bool","get"],
+    [["ToggleButton"],"Icon",45,"ButtonIcon","get"],
+    [["HyperlinkButton"],"Icon",45,"ButtonIcon","get"],
+    [["CheckBox"],"State",48,"CheckState","get"],
+    [["CheckBox"],"ThreeState",49,"bool","get"],
+    [["InfoBadge"],"Count",52,"uint","get"],
+    [["InfoBadge"],"Icon",53,"ButtonIcon","get"],
     [["RangeInput"],"Orientation",3,"Axis",""],
     [["RangeInput"],"Reversed",4,"bool",""],
     [["Expander","NavigationView"],"Expanded",5,"bool","get"],
-    [["Progress"],"State",6,"ProgressState","get"],
+    [["Progress","ProgressRing"],"State",6,"ProgressState","get"],
     [["MultilineText","RichText"],"Document",12,"string",""],
     [["MultilineText","RichText"],"ReadOnly",13,"bool","get"],
     [["MultilineText","RichText","PasswordInput"],"MaximumLength",14,"ulong",""],
@@ -46,6 +57,7 @@
     [["MediaPlayback"],"Play",9],[["MediaPlayback"],"Pause",10],
     [["MediaPlayback","WebContent"],"Stop",11],[["MediaPlayback","WebContent"],"Unload",12],
     [["WebContent"],"Reload",13],[["WebContent"],"FocusContent",14],
-    [["ItemsView","TreeView","DataGrid"],"SelectAll",15]
+    [["ItemsView","TreeView","DataGrid"],"SelectAll",15],
+    [["InfoBadge"],"SetDot",18]
   ]
 }

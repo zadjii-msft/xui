@@ -210,8 +210,95 @@ internal static class FeatureTests
         Expect(failedWindow.CallbackStatus != 0);
     }
 
+    internal static void ToggleControls()
+    {
+        using var w = new Window();
+        var toggle = w.ToggleSwitch("Enabled");
+        var button = w.ToggleButton("Bold");
+        var ring = w.ProgressRing("Loading");
+        Expect(!toggle.Checked && !button.Checked && ring.State == ProgressState.Indeterminate);
+        Expect(w.Progress("Progress").State == ProgressState.Determinate);
+        int changes = 0, toggles = 0, aliases = 0;
+        Action<bool> changed = value => { Expect(!value); ++changes; };
+        Action<bool> toggled = value => { Expect(!value); ++toggles; };
+        Action<bool> alias = value => { Expect(!value); ++aliases; };
+        toggle.Changed += changed; button.Toggled += toggled; button.Changed += alias;
+        Expect(ReferenceEquals(toggle.SetChecked(true), toggle) && ReferenceEquals(button.SetChecked(true), button));
+        Expect(changes == 0 && toggles == 0);
+        toggle.Invoke(); button.Invoke();
+        Expect(!toggle.Checked && !button.Checked && changes == 1 && toggles == 1 && aliases == 1);
+        toggle.Changed -= changed; button.Toggled -= toggled; button.Changed -= alias;
+        toggle.Invoke(); button.Invoke();
+        Expect(toggle.Checked && button.Checked && changes == 1 && toggles == 1 && aliases == 1);
+        button.SetIcon(ButtonIcon.Open);
+        Expect(button.Icon == ButtonIcon.Open);
+        toggle.SetStyle(new ControlStyle(StyleTarget.Toggle, [new(StylePart.Indicator, new() { Background = new ThemeColor(0x123456) })]));
+        button.SetStyle(new ButtonStyle(new() { Background = new ThemeColor(0x234567) }));
+        Expect(button.EffectiveStyleValues.Background == new ThemeColor(0x234567));
+        ring.SetControlStyle(new ControlStyle(StyleTarget.Progress, [new(StylePart.Fill, new() { Background = new ThemeColor(0x345678) })]));
+        ring.SetRange(new(100, 200)).SetValue(150).SetState(ProgressState.Paused);
+        Expect(ring.Range.Minimum == 100 && ring.Value == 150 && ring.State == ProgressState.Paused);
+        Expect(ReferenceEquals(ring.SetCapacity(25, 80, "items"), ring));
+        Expect(ring.Range.Maximum == 80 && ring.Value == 25 && ring.State == ProgressState.Determinate);
+        Fails(() => ring.SetCapacity(81, 80));
+        Expect(ring.Value == 25);
+        Console.WriteLine($"Toggle control feature assertions: {assertions}");
+    }
+    internal static void ParityControls()
+    {
+        using var w = new Window();
+        var check = w.CheckBox("Check");
+        var link = w.HyperlinkButton("Open");
+        var selector = w.SelectorBar("Pages");
+        var badge = w.InfoBadge("Notifications");
+        var menu = w.MenuBar("Menu");
+        Expect(check.State == CheckState.Unchecked && !check.ThreeState && selector.Selected is null);
+        Expect(badge.Kind == InfoBadgeKind.Dot && badge.Count == 0 && badge.Icon == ButtonIcon.None);
+        int changes = 0, clicks = 0, selections = 0, invokes = 0, pins = 0;
+        Action<CheckState> changed = value => { Expect(value == CheckState.Checked); changes++; };
+        Action click = () => clicks++;
+        Action<ulong> selected = id => { Expect(id == 1); selections++; };
+        Action<ulong> invoked = id => { Expect(id == 2); invokes++; };
+        Action<ulong> pinned = id => { Expect(id == 2); pins++; };
+        check.Changed += changed; link.Click += click; selector.Changed += selected;
+        menu.Invoked += invoked; menu.Pinned += pinned;
+        Expect(ReferenceEquals(check.SetThreeState(true).SetState(CheckState.Indeterminate), check));
+        Expect(check.State == CheckState.Indeterminate && changes == 0);
+        Fails(() => check.SetState((CheckState)3)); Expect(check.State == CheckState.Indeterminate);
+        check.SetState(CheckState.Unchecked); check.Invoke(); link.Invoke();
+        Expect(changes == 1 && clicks == 1);
+        link.SetIcon(ButtonIcon.Open); Expect(link.Icon == ButtonIcon.Open);
+        link.SetStyle(new ButtonStyle(new() { Background = new ThemeColor(0x123456) }));
+        Expect(link.EffectiveStyleValues.Background == new ThemeColor(0x123456));
+        Choice[] items = [new(1, "First"), new(2, "Second"), new(3, "Disabled", false)];
+        selector.SetItems(items, 2); Expect(selector.Selected == 2 && selections == 0);
+        Fails(() => selector.SetItems(items, 3)); Fails(() => selector.SetSelected(99));
+        Expect(selector.Selected == 2);
+        selector.SetItems(items); Expect(selector.Selected == 2);
+        selector.Select(1); Expect(selector.Selected == 1 && selections == 1);
+        selector.SetItems([]); Expect(selector.Selected is null && selections == 1);
+        selector.SetItems(items, 2);
+        badge.SetCount(uint.MaxValue); Expect(badge.Kind == InfoBadgeKind.Count && badge.Count == uint.MaxValue);
+        badge.SetIcon(ButtonIcon.Open); Expect(badge.Kind == InfoBadgeKind.Icon && badge.Icon == ButtonIcon.Open);
+        badge.SetDot(); Expect(badge.Kind == InfoBadgeKind.Dot);
+        Command[] commands = [new(1, "File", Kind: CommandKind.Submenu), new(2, "Open", Parent: 1, PinLabel: "Pin")];
+        menu.SetCommands(commands); menu.Invoke(2); menu.Invoke(2, true);
+        Expect(invokes == 1 && pins == 1);
+        Fails(() => menu.SetCommands([new(2, "Root action")]));
+        Fails(() => menu.SetCommands([commands[0], commands[1] with { Parent = 99 }]));
+        menu.Invoke(2); Expect(invokes == 2);
+        menu.Bind(2, 'O', KeyModifiers.Control);
+        check.Changed -= changed; link.Click -= click; selector.Changed -= selected;
+        menu.Invoked -= invoked; menu.Pinned -= pinned;
+        check.Invoke(); link.Invoke(); selector.Select(1); menu.Invoke(2); menu.Invoke(2, true);
+        Expect(changes == 1 && clicks == 1 && selections == 1 && invokes == 2 && pins == 1);
+        menu.SetCommands([]); Fails(() => menu.Invoke(2));
+        Console.WriteLine($"Parity control feature assertions: {assertions}");
+    }
     internal static void Run()
     {
+        ParityControls();
+        ToggleControls();
         NavigationStyleBridges();
         MillerContracts();
         VisualTests.Run();
@@ -386,13 +473,21 @@ internal static class FeatureTests
                 Fails(() => iconButton.SetIcon((ButtonIcon)99));
                 Expect(iconButton.Icon == ButtonIcon.Back);
                 Expect((uint)ButtonIcon.Library == 18 && (uint)ButtonIcon.History == 19 &&
-                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22);
-                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open })
+                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 &&
+                    (uint)ButtonIcon.Save == 23 && (uint)ButtonIcon.SaveAs == 24 &&
+                    (uint)ButtonIcon.Undo == 25 && (uint)ButtonIcon.Redo == 26 &&
+                    (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28);
+                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
+                    ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
+                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
+                    w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
+                Fails(() => iconButton.SetIcon((ButtonIcon)29));
+                Expect(iconButton.Icon == ButtonIcon.ChevronDown);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
                 ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };

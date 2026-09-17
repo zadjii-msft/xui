@@ -4,7 +4,7 @@ $work = Join-Path $repo ("build\release-packaging-tests-" + [guid]::NewGuid().To
 $fixture = Join-Path $work 'fixture'
 New-Item -ItemType Directory -Path "$fixture\scripts", "$fixture\packaging" -Force | Out-Null
 Copy-Item "$repo\scripts\Release.Common.ps1", "$repo\scripts\New-ReleaseAssets.ps1" "$fixture\scripts"
-Copy-Item "$repo\packaging\SAMPLES.md" "$fixture\packaging"
+Copy-Item "$repo\packaging\SAMPLES.md", "$repo\packaging\DESIGNER.md" "$fixture\packaging"
 Copy-Item "$repo\LICENSE" $fixture
 Set-Content "$fixture\scripts\Pack-NuGet.ps1" @'
 param($Version, $NativeRoot, $OutputDirectory)
@@ -29,11 +29,12 @@ foreach ($rid in 'win-x64', 'win-arm64') {
     $root = "$work\stage\samples\$rid"
     New-Item -ItemType Directory "$root\native" -Force | Out-Null
     Set-Content "$root\native\sample.exe" "$rid inert fixture"
-    [ordered]@{
-        version = '1.2.3'
-        runtime = $rid
-        files = @(@{ path = 'native\sample.exe'; sha256 = (Get-FileHash "$root\native\sample.exe").Hash })
-    } | ConvertTo-Json -Depth 5 | Set-Content "$root\manifest.json"
+    Write-XuiArchiveManifest $root '1.2.3' $rid
+    $designer = "$work\stage\designer\$rid"
+    New-Item -ItemType Directory $designer -Force | Out-Null
+    Set-Content "$designer\Designer.exe" "$rid inert Designer fixture"
+    Set-Content "$designer\coreclr.dll" "$rid inert managed runtime fixture"
+    Write-XuiArchiveManifest $designer '1.2.3' $rid
 }
 $script = "$fixture\scripts\New-ReleaseAssets.ps1"
 $arguments = @{ Version = '1.2.3'; StageDirectory = "$work\stage"; OutputDirectory = "$work\assets" }
@@ -50,9 +51,21 @@ foreach ($rid in 'win-x64', 'win-arm64') {
     Assert ($manifest.runtime -ceq $rid -and $manifest.version -ceq '1.2.3') 'Wrong archive manifest.'
     $files = @(Get-ChildItem $root -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($root, $_.FullName) })
     Assert (!(Compare-Object @('LICENSE', 'README.md', 'manifest.json', 'native\sample.exe') $files)) 'Archive contains unexpected files or another architecture.'
+    $designer = "$work\extracted\designer\$rid"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$work\assets\Xui.Designer.1.2.3.$rid.zip", $designer)
+    Assert-SameFile "$repo\LICENSE" "$designer\LICENSE"
+    Assert-SameFile "$repo\packaging\DESIGNER.md" "$designer\README.md"
+    $manifest = Get-Content "$designer\manifest.json" -Raw | ConvertFrom-Json
+    Assert ($manifest.runtime -ceq $rid -and $manifest.version -ceq '1.2.3') 'Wrong Designer archive manifest.'
+    foreach ($file in $manifest.files) {
+        Assert-SameFile "$work\stage\designer\$rid\$($file.path)" "$designer\$($file.path)"
+        Assert ((Get-FileHash "$designer\$($file.path)").Hash -eq $file.sha256) 'Wrong Designer manifest hash.'
+    }
+    $files = @(Get-ChildItem $designer -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($designer, $_.FullName) })
+    Assert (!(Compare-Object @('LICENSE', 'README.md', 'manifest.json', 'Designer.exe', 'coreclr.dll') $files)) 'Designer archive contains unexpected files or another architecture.'
 }
 $checksums = @(Get-Content "$work\assets\SHA256SUMS.txt")
-Assert ($checksums.Count -eq 5) 'Expected a checksum for every asset.'
+Assert ($checksums.Count -eq 7) 'Expected a checksum for every asset.'
 foreach ($asset in Get-XuiReleaseAssetNames '1.2.3') {
     $expected = "$((Get-FileHash "$work\assets\$asset").Hash.ToLowerInvariant())  $asset"
     Assert ($checksums -ccontains $expected) "Missing or incorrect checksum: $asset"
@@ -60,14 +73,27 @@ foreach ($asset in Get-XuiReleaseAssetNames '1.2.3') {
 Expect-Failure { & $script @arguments } 'Release asset already exists'
 $arguments.OutputDirectory = "$work\invalid-assets"
 $arguments.Version = '1.2.4'
-Expect-Failure { & $script @arguments } 'Wrong sample version or architecture'
+Expect-Failure { & $script @arguments } 'Wrong Samples version or architecture'
 $arguments.Version = '1.2.3'
-$manifestPath = "$work\stage\samples\win-arm64\manifest.json"
-$original = Get-Content $manifestPath -Raw
-Set-Content $manifestPath ($original.Replace('win-arm64', 'win-x64'))
-Expect-Failure { & $script @arguments } 'Wrong sample version or architecture'
-Set-Content $manifestPath $original
-Add-Content "$work\stage\samples\win-arm64\native\sample.exe" 'corrupted'
-Expect-Failure { & $script @arguments } 'Sample hash mismatch'
+foreach ($kind in 'Samples', 'Designer') {
+    foreach ($rid in 'win-x64', 'win-arm64') {
+        $root = "$work\stage\$kind\$rid"
+        $manifestPath = "$root\manifest.json"
+        $original = Get-Content $manifestPath -Raw
+        Set-Content $manifestPath ($original.Replace($rid, 'wrong-runtime'))
+        Expect-Failure { & $script @arguments } "Wrong $kind version or architecture"
+        Set-Content $manifestPath ($original.Replace('1.2.3', '1.2.4'))
+        Expect-Failure { & $script @arguments } "Wrong $kind version or architecture"
+        Set-Content $manifestPath $original
+        $file = if ($kind -eq 'Samples') { "$root\native\sample.exe" } else { "$root\Designer.exe" }
+        $bytes = [IO.File]::ReadAllBytes($file)
+        Add-Content $file 'corrupted'
+        Expect-Failure { & $script @arguments } "$kind hash mismatch"
+        [IO.File]::WriteAllBytes($file, $bytes)
+        Remove-Item $manifestPath
+        Expect-Failure { & $script @arguments } 'does not exist'
+        Set-Content $manifestPath $original
+    }
+}
 Assert (@(Get-ChildItem "$work\invalid-assets" -File).Count -eq 0) 'Invalid inputs produced release assets.'
 Write-Output 'Per-architecture archives, licenses, checksums, and invalid-input guards passed.'

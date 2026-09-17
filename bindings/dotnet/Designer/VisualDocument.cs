@@ -7,7 +7,7 @@ using Xui.Generator;
 
 namespace Xui.Designer;
 
-public enum ControlTemplate { Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, Progress }
+public enum ControlTemplate { Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, Progress, ToggleSwitch, ToggleButton, ProgressRing, CheckBox, HyperlinkButton, SelectorBar, InfoBadge, MenuBar }
 
 public readonly record struct GridPlacement(int Row, int Column, int RowSpan = 1, int ColumnSpan = 1);
 
@@ -432,6 +432,8 @@ public sealed class VisualDocument
             ControlTemplate.Text => $"Text(\"Text\"{place});",
             ControlTemplate.Button => $"Button(\"Button\"{place});",
             ControlTemplate.Toggle => $"Toggle(\"Toggle\"{place});",
+            ControlTemplate.ToggleSwitch => $"ToggleSwitch(\"Switch\", checked: false{place});",
+            ControlTemplate.ToggleButton => $"ToggleButton(\"Toggle button\", checked: false{place});",
             ControlTemplate.TextInput => $"TextInput(\"Input\"{place});",
             ControlTemplate.VStack => $"VStack({stackPlace}) {{ }}",
             ControlTemplate.HStack => $"HStack({stackPlace}) {{ }}",
@@ -442,6 +444,12 @@ public sealed class VisualDocument
             ControlTemplate.NavigationView => $"NavigationView(\"Navigation\", headerVisible: true, preferredSize: (240, 240){place});",
             ControlTemplate.RangeInput => $"RangeInput(\"Value\", currentValue: 50, preferredSize: (320, 42){place});",
             ControlTemplate.Progress => $"Progress(\"Progress\", currentValue: 50, preferredSize: (320, 24){place});",
+            ControlTemplate.ProgressRing => $"ProgressRing(\"Loading\", preferredSize: (32, 32){place});",
+            ControlTemplate.CheckBox => $"CheckBox(\"Check box\", checkState: global::Xui.CheckState.Unchecked{place});",
+            ControlTemplate.HyperlinkButton => $"HyperlinkButton(\"Link\"{place});",
+            ControlTemplate.SelectorBar => $"SelectorBar(\"Selector\", items: new global::Xui.Choice[] {{ new(1, \"First\"), new(2, \"Second\") }}, selected: 1{place});",
+            ControlTemplate.InfoBadge => $"InfoBadge(\"Notification\"{place});",
+            ControlTemplate.MenuBar => $"MenuBar(\"Menu\", commands: new global::Xui.Command[] {{ new(1, \"File\", Kind: global::Xui.CommandKind.Submenu), new(2, \"Open\", Parent: 1) }}{place});",
             _ => null
         };
     }

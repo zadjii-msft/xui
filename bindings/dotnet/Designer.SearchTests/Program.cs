@@ -42,7 +42,7 @@ internal static class Program
         int navigations = 0, changes = 0;
         var search = new DesignerSourceSearch(window, editor, () => navigations++);
         editor.Event += value => { if (value.Kind == EventKind.Change) changes++; };
-        window.SetContent(search.Layout.Root);
+        window.SetContent(window.Stack().Add(search.View, 1));
         Exception? failure = null;
         bool completed = false;
         window.Post(() =>
@@ -50,8 +50,12 @@ internal static class Program
             try
             {
                 Require(editor.GetBounds().Height >= 300, "The composed search toolbar preserves native source space.");
-                Require(search.HandleKey(new('F', KeyModifiers.Control, 0)) && search.Layout.Query.Focused,
-                    "Ctrl+F focuses the native query field.");
+                float fullHeight = editor.GetBounds().Height;
+                Require(!search.Layout.FindOpen && !search.HandleKey(new(0x1B, KeyModifiers.None, 0)),
+                    "Find starts collapsed and does not consume Escape while closed.");
+                Require(search.HandleKey(new('F', KeyModifiers.Control, 0)) && search.Layout.FindOpen && search.Layout.Query.Focused,
+                    "Ctrl+F reveals and focuses the native query field.");
+                Require(editor.GetBounds().Height == fullHeight - 82, "Find reserves only its compact panel height.");
                 search.Layout.Query.Text = "alpha";
                 search.Refresh();
                 Require(search.Layout.Status.Text == "3 matches", "The query counts exact native source matches.");
@@ -59,6 +63,12 @@ internal static class Program
                 search.Layout.Next.Invoke();
                 Require(editor.Selection == new TextSelection(0, 5) && editor.Focused && navigations == 1,
                     "Next selects the first match, focuses source, and notifies hierarchy synchronization.");
+                Require(search.HandleKey(new(0x1B, KeyModifiers.None, 0)) && !search.Layout.FindOpen && editor.Focused,
+                    "Escape also collapses Find after match navigation focuses source.");
+                Require(editor.GetBounds().Height == fullHeight && editor.Selection == new TextSelection(0, 5),
+                    $"Closing Find restores source space without changing the match selection (height {editor.GetBounds().Height}/{fullHeight}, selection {editor.Selection}).");
+                search.HandleKey(new('F', KeyModifiers.Control, 0));
+                Require(search.Layout.Query.Text == "alpha", "Reopening Find preserves the query.");
                 search.Layout.Next.Invoke();
                 Require(editor.Selection == new TextSelection(6, 11), "Next advances beyond the selected match.");
                 search.HandleKey(new(0x72, KeyModifiers.None, 0));
@@ -92,13 +102,22 @@ internal static class Program
                 editor.Command(TextCommand.Undo);
                 Require(editor.Text == source, "Search navigation preserves the preceding native undo operation.");
                 search.HandleKey(new('F', KeyModifiers.Control, 0));
-                Require(search.HandleKey(new(0x1B, KeyModifiers.None, 0)) && editor.Focused, "Escape from the query returns to source.");
+                Require(search.HandleKey(new(0x1B, KeyModifiers.None, 0)) && !search.Layout.FindOpen && editor.Focused,
+                    "Escape from the query closes Find and returns to source.");
                 Require(!search.HandleKey(new(0x0D, KeyModifiers.None, 0)) &&
                     !search.HandleKey(new(0x72, KeyModifiers.Control, 0)), "Unregistered shortcuts and source Enter remain native.");
                 search.Layout.Query.Text = "Alpha";
                 search.HandleKey(new('F', KeyModifiers.Control, 0));
                 Require(search.HandleKey(new(0x0D, KeyModifiers.None, 0)) && editor.Focused,
                     "Enter in the query navigates to source.");
+                search.Layout.Close.Invoke();
+                Require(!search.Layout.FindOpen && editor.Focused, "The close button collapses Find and restores source focus.");
+                search.HandleKey(new(0x72, KeyModifiers.None, 0));
+                Require(search.Layout.FindOpen && editor.Focused, "F3 can reveal Find and navigate the retained query.");
+                search.Layout.MatchCase.Focus();
+                Require(search.HandleKey(new(0x1B, KeyModifiers.None, 0)) && !search.Layout.FindOpen && editor.Focused,
+                    "Escape closes Find from its case toggle.");
+                Require(editor.Text == source, "Opening, navigating, and closing Find leave source untouched.");
                 completed = true;
             }
             catch (Exception error) { failure = error; }

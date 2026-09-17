@@ -10,7 +10,10 @@ enum {
     XUI_BUTTON_ICON_MORE = 12, XUI_BUTTON_ICON_NAVIGATION = 13, XUI_BUTTON_ICON_HOME = 14,
     XUI_BUTTON_ICON_FOLDER = 15, XUI_BUTTON_ICON_SETTINGS = 16, XUI_BUTTON_ICON_SEARCH = 17,
     XUI_BUTTON_ICON_LIBRARY = 18, XUI_BUTTON_ICON_HISTORY = 19, XUI_BUTTON_ICON_BOOKMARK = 20,
-    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22
+    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
+    XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
+    XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -231,7 +234,9 @@ enum {
     XUI_WEB_CONTENT, XUI_TAB_STRIP, XUI_SPLIT_VIEW, XUI_PAGE_VIEW, XUI_DATA_GRID,
     XUI_HISTORY_CHART, XUI_NAVIGATION_VIEW, XUI_MILLER_COLUMNS,
     /* Retained Element exposure only; xui_feature_create does not create this kind. */
-    XUI_RETAINED_ELEMENT
+    XUI_RETAINED_ELEMENT,
+    XUI_TOGGLE_SWITCH = 48, XUI_TOGGLE_BUTTON, XUI_PROGRESS_RING,
+    XUI_CHECK_BOX, XUI_HYPERLINK_BUTTON, XUI_SELECTOR_BAR, XUI_INFO_BADGE, XUI_MENU_BAR
 };
 enum { XUI_PREVIEW = 7, XUI_CANCEL = 8, XUI_ACTION = 9, XUI_DISMISS = 10, XUI_REQUEST = 11, XUI_FILTER_OPEN = 12, XUI_FOCUS_ENTERED = 13 };
 enum {
@@ -246,13 +251,31 @@ enum {
     XUI_F_NAVIGATION_EXTENT, XUI_F_NAVIGATION_OPEN, XUI_F_COMPACT_NAVIGATION,
     XUI_F_SPLIT_RATIO, XUI_F_PAGE, XUI_F_VISIBLE, XUI_F_HOST_STATE,
     XUI_F_MAP_PAN, XUI_F_MEDIA_POSITION, XUI_F_SELECTION_STATE, XUI_F_FOCUSED, XUI_F_IS_OPEN,
-    XUI_F_SECOND_VISIBLE, XUI_F_BUTTON_ICON
+    XUI_F_SECOND_VISIBLE, XUI_F_BUTTON_ICON,
+    XUI_F_CHECKED, XUI_F_PROGRESS_CAPACITY,
+    XUI_F_CHECK_STATE, XUI_F_THREE_STATE, XUI_F_SELECTED,
+    XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON
 };
+/* CHECKED: first = boolean, for Toggle and ToggleSwitch.
+   PROGRESS_CAPACITY: a = used, b = total, text = unit, for Progress and ProgressRing.
+   ToggleButton uses BUTTON_CHECKED; its toggle notification is CHANGE (boolean).
+   ProgressRing starts indeterminate. Existing feature and style IDs are unchanged. */
+/* CHECK_STATE: first = unchecked (0), checked (1), indeterminate (2).
+   THREE_STATE: first = boolean. Both belong to CheckBox.
+   SELECTED: setter first = enabled choice ID (nonzero), second unused.
+   Getter first = choice ID, second = presence flag (0/1), for SelectorBar.
+   Choice snapshots preserve a surviving selection or select the first enabled item
+   when no selection is supplied. Empty snapshots have no selection.
+   BADGE_KIND is read-only: dot (0), count (1), icon (2).
+   BADGE_COUNT and BADGE_ICON select their presentation when set.
+   CheckBox emits CHANGE with CheckState; SelectorBar emits SELECTION with ID.
+   HyperlinkButton emits CLICK only; it never launches a URI.
+   MenuBar command actions use the existing CLICK/ACTION command events. */
 enum {
     XUI_A_SELECT = 1, XUI_A_CHANGE_VALUE, XUI_A_STEP, XUI_A_TEXT_COMMAND,
     XUI_A_DISMISS, XUI_A_SHOW, XUI_A_ACCEPT, XUI_A_CANCEL, XUI_A_PLAY,
     XUI_A_PAUSE, XUI_A_STOP, XUI_A_UNLOAD, XUI_A_RELOAD, XUI_A_FOCUS,
-    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP, XUI_A_GRID_NAVIGATE
+    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP, XUI_A_GRID_NAVIGATE, XUI_A_SET_DOT
 };
 /* GRID_NAVIGATE: first = previous/next/page previous/page next/first/last (0..5),
    second = control (1) | shift (2). Moves selection without moving input focus. */
@@ -265,6 +288,13 @@ typedef struct xui_item_visual {
     uint32_t size, icon;
     xui_string image_path;
 } xui_item_visual;
+/* Icon values match C++ ButtonIcon and C# ButtonIcon:
+   none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
+   minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
+   folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28.
+   This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
+   Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */
 XUI_API xui_status XUI_CALL xui_navigation_items_visual(xui_handle target,
     const xui_navigation_entry* items, const xui_item_visual* visuals, uint32_t count) XUI_NOEXCEPT;

@@ -69,6 +69,29 @@ Both galleries accept `--light`, `--high-contrast`, and `--system-titlebar`.
 The ordinary gallery also accepts `--winui` for the compact experiment.
 The complete catalog has a live Classic/WinUI switch.
 
+The gallery separates the live controls from their reference content:
+
+- `demo\gallery.cpp` composes the pages and shares the selected language across their code tabs.
+- `demo\gallery_catalog.hpp` supplies navigation metadata and C++ excerpts.
+- `demo\gallery_reference.hpp` supplies usage guidance, exercises, limits, documentation paths, and the other language excerpts.
+- `demo\gallery_urls.hpp` maps documentation paths to handbook URLs. `gallery_links.hpp` opens links.
+
+Keep the reference entries in catalog order.
+Use current public APIs in each excerpt.
+For unsupported operations, describe the binding limit instead of inventing a wrapper.
+Documentation paths must name existing pages under `docs\specs`.
+
+To check gallery content and the language tabs, run:
+
+```powershell
+cmake --build $build --config Release --target xui_gallery xui_gallery_catalog_tests xui_gallery_smoke
+ctest --test-dir $build -C Release -R "^xui_gallery_catalog_tests$" --output-on-failure
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --reference-only
+```
+
+The last command opens a desktop window.
+It checks shared language selection, native code text, copy actions, handbook URLs, and navigation links without opening a browser.
+
 ### Use XUI in a C++ application
 
 Link the executable to `xui_windows`.
@@ -224,6 +247,7 @@ dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.TextModeTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.SearchTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.IndentationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --selection-smoke
@@ -247,6 +271,7 @@ The grouping UI test uses the production hierarchy and inspector with native sou
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
+The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
@@ -353,7 +378,8 @@ The [binding reference](docs/specs/bindings.md) describes ownership and callback
 The [package guide](docs/specs/packages.md) describes consumption and deployment.
 Release builds require both x64 and ARM64 C++ tools and Rust targets.
 Each GitHub runner builds its own architecture.
-The local commands can cross-compile both architectures:
+The Designer requires a .NET SDK that matches its target architecture because it bundles the SDK's Roslyn assemblies.
+For local builds, select the matching SDK through `PATH` before each architecture command:
 
 ```powershell
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture x64 -StageDirectory build\release-stage
@@ -361,6 +387,7 @@ The local commands can cross-compile both architectures:
 .\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
+.\tests\release-designer.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-workflow.ps1
 .\tests\release-packaging-unit.ps1
 .\tests\native-copy.ps1 -Architecture $arch
@@ -376,12 +403,21 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, the release samples, the NuGet package, and both Cargo crates.
+It builds both architectures, the release samples, the Designer, the NuGet package, and both Cargo crates.
 The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
 Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
 No separate .NET installation is necessary.
 TaskCard remains available as tutorial source but does not ship in these archives.
 `IsXuiReleaseSample=false` excludes a project from releases without excluding it from local native-copy checks.
+
+The Designer assets are `Xui.Designer.<version>.win-x64.zip` and `Xui.Designer.<version>.win-arm64.zip`.
+The Designer stays outside the NativeAOT sample inventory.
+`scripts\Build-DesignerRelease.ps1` publishes self-contained, untrimmed, multi-file output with the runtime compiler and no debug symbols.
+`Build-Release.ps1` stages that output under `designer\<rid>`, separately from `samples\<rid>`.
+The Designer archives include the .NET runtime, licenses, notices, and file manifests.
+The release workflow runs the extracted `Designer.exe --smoke` on each architecture before it creates the draft.
+That check uses the bundled runtime and compiler without an SDK or XUI entry in `PATH`.
+
 The workflow creates a draft release and attaches the assets and SHA-256 checksums.
 It does not publish to NuGet.org or crates.io.
 It refuses to replace assets on an already published GitHub release.
@@ -485,6 +521,47 @@ Check the folder history, Find text, selection, scroll position, and Columns sta
 Repeat across monitors with different DPI values.
 The target marker must disappear after release, cancellation, or target closure.
 
+### Toggles and progress
+
+Run the model, native animation, pixel, and gallery checks sequentially:
+
+```powershell
+cmake --build $build --config Release --target xui xui_foundation_tests xui_foundation_window_tests xui_styling_window_tests xui_abi_features_tests xui_gallery xui_gallery_smoke
+ctest --test-dir $build -C Release -R '^xui_(foundation_tests|foundation_window_tests|switch_ring_pixels)$' --output-on-failure
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --controls-only
+& ".\$build\Release\xui_abi_features_tests.exe" --toggle-controls
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --toggle-controls
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
+```
+
+The pixel check covers switch geometry and circular progress in Classic, WinUI, and high contrast.
+The window check covers keyboard input, UIA, animation, hidden controls, disabled ancestors, detached content, and minimized windows.
+It respects the Windows animation preference without changing that preference.
+The gallery check covers the `toggle-switch`, `toggle-button`, `progress-ring`, and `progress` pages.
+With `XUI_DESKTOP_TESTS=ON`, CTest also registers this gallery check as `xui_winui_controls_gallery_smoke`.
+
+### Choices, links, badges, and menus
+
+Run the focused native and gallery checks sequentially:
+
+```powershell
+cmake --build $build --config Release --target xui xui_next_controls_tests xui_menu_bar_tests xui_next_controls_window_tests xui_menu_bar_window_tests xui_styling_window_tests xui_abi_features_tests xui_gallery xui_gallery_smoke xui_gallery_catalog_tests
+ctest --test-dir $build -C Release -R '^xui_(next_controls_tests|menu_bar_tests|next_controls_window_tests|menu_bar_window_tests|next_controls_pixels)$' --output-on-failure
+& ".\$build\Release\xui_gallery_catalog_tests.exe"
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --parity-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --parity-classic
+& ".\$build\Release\xui_abi_features_tests.exe" --parity-controls
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --parity-controls
+$env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui parity_controls -- --test-threads=1
+```
+
+The gallery checks cover CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar in WinUI and Classic styles.
+They cover mixed checkbox state, disabled input, link callbacks, exclusive selection, badge updates, and menu commands.
+The hyperlink example does not open a browser.
+The menu example does not write files or change the clipboard.
+
 ### Independent windows
 
 Run these desktop checks sequentially:
@@ -577,6 +654,19 @@ ctest --test-dir $build -C Release -R "^xui_(core_tests|stack_layout_window_test
 The core fixture covers both axes, nested flex allocation, natural sizing, explicit preferences, automatic overrides, padding, and size limits.
 The native fixture uses the matching manifest and real RichEdit peers.
 It checks nonzero source geometry, retained focus and HWND identity, preference changes, and native undo and redo after layout.
+
+### Transparent label backgrounds
+
+With `XUI_DESKTOP_TESTS=ON`, run the label background regression:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R "^xui_label_background_window_tests$" --output-on-failure
+```
+
+The fixture captures only its owned window.
+It checks transparent labels and TextInput captions in both themes and visual styles.
+It also checks explicit fills, border-only styles, style removal, caption typography, native selection, and the editor's accessible name.
 
 ### Document range editing
 
@@ -777,6 +867,93 @@ The [native-host reference](docs/specs/scenes-and-hosts.md) describes explicit l
 
 Use the [extension README](integrations/vscode-xui/README.md) for packaging, installation, and tokenizer commands.
 The package supplies syntax support, not a language server or visual designer.
+
+## Microsoft Edit LSH grammar
+
+The standalone grammar is `integrations\edit-lsh\xui.lsh`.
+The [language guide](docs/specs/xui-language.md#microsoft-edit-syntax-support) describes its highlighting limits.
+The regression suite requires Rust 1.93 or later.
+Cargo downloads the LSH compiler and runtime from a pinned Microsoft Edit commit.
+No native XUI build is required.
+
+From the XUI repository root, run:
+
+```powershell
+cargo test --locked --manifest-path integrations\edit-lsh\Cargo.toml
+```
+
+The suite checks token colors, filename detection, multiline state, UTF-8 span boundaries, repository samples, and compatibility with the built-in Edit definitions.
+The pinned revision is `826b4c097b6f14ba0a846dc56f2f0223a3aaf73a`.
+Both dependencies in `Cargo.toml` must use the same revision.
+
+To use the grammar in Edit, start with a separate [Edit source checkout](https://github.com/microsoft/edit).
+From the XUI repository root, set `$edit` to that checkout:
+
+```powershell
+$edit = "C:\src\edit"
+$sample = (Resolve-Path bindings\dotnet\DeclarativeSample\Counter.xui).Path
+Copy-Item integrations\edit-lsh\xui.lsh "$edit\crates\lsh\definitions\xui.lsh"
+```
+
+In the Edit checkout, run:
+
+```powershell
+Set-Location $edit
+cargo run -p lsh-bin -- assembly crates\lsh\definitions
+cargo run -p lsh-bin -- render --input $sample crates\lsh\definitions
+cargo build --release -p edit
+```
+
+Edit discovers the copied definition during its build.
+An installed Edit binary does not load this source file at runtime.
+The [Edit build documentation](https://github.com/microsoft/edit#building-from-source) lists platform requirements.
+
+### LSH highlighting in XUI applications
+
+The gallery, Designer, and FileExplorer use LSH when the native XUI build enables it.
+The default build has no LSH dependency and keeps plain text.
+Use the `Lsh` NuGet package, version `0.3.0`, for Windows x64 or ARM64.
+This package supplies custom-grammar compilation through its native C API.
+The samples do not need the package's managed wrapper.
+
+Restore from a local package feed.
+Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
+
+```powershell
+$feed = "C:\packages"
+dotnet restore integrations\lsh\Lsh.Package.csproj --source $feed --packages build\packages
+$lsh = (Resolve-Path build\packages\lsh\0.3.0).Path
+cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh"
+cmake --build $build --config Release --target xui xui_gallery xui_winui_gallery --parallel 4
+dotnet build bindings\dotnet\Designer -c Release -r $rid
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
+```
+
+Use the `$build` and `$rid` values from [Build the native code](#build-the-native-code).
+The default managed sample paths use `build\<architecture>\Release`.
+For another build directory, pass `-p:XuiNativeDir=<native-output-directory>` to each managed command.
+Set `XUI_LSH_PACKAGE_DIR` to an empty string to disable LSH.
+
+CMake embeds the trusted XUI, C, C++, C#, and Rust grammars at build time.
+It copies the matching `lsh_lib.dll` and `LSH-LICENSE.txt` beside the native binaries.
+Managed sample builds and publishes copy those files with `xui.dll`.
+Keep all three files together when deploying an LSH-enabled managed sample.
+For a statically linked C++ application, keep the LSH DLL and license beside the executable.
+An unknown file extension uses plain text.
+Missing DLLs, incompatible APIs, grammar errors, and highlighting failures report errors.
+No sample loads a grammar from the file being previewed.
+
+Run the focused checks with LSH enabled:
+
+```powershell
+cmake --build $build --config Release --target xui_syntax_highlighting_tests xui_document_syntax_tests xui_document_syntax_window_tests xui_document_editing_window_tests xui_document_editing_abi_tests --parallel 4
+ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Syntax.Tests -c Release -r $rid
+```
+
+The native syntax test also supports an LSH-disabled build.
+The managed syntax fixture requires LSH.
+Native window checks need an interactive Windows desktop.
 
 ## Documentation and changes
 

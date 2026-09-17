@@ -1,4 +1,5 @@
 #include "drawing.hpp"
+#include "xui/menu_bar.hpp"
 #include <dwrite_3.h>
 #include "platform.hpp"
 #include "window_host.hpp"
@@ -1225,20 +1226,36 @@ void Drawing::styled_toggle(const Toggle& toggle, Rect bounds, const Palette& pa
         toggle.pressed() ? palette.selection : palette.hover : D2D1::ColorF(0, 0.0f);
     styled_surface(bounds, palette, root ? *root : empty, root_fill,
         ink, 0, {});
-    const auto fill = toggle.checked() ? (enabled ? palette.high_contrast ? palette.selection : palette.accent : palette.disabled) : palette.field;
+    const auto fill = toggle.checked() || toggle.indeterminate() ?
+        (enabled ? palette.high_contrast ? palette.selection : palette.accent : palette.disabled) : palette.field;
     const auto border = enabled ? palette.high_contrast ? palette.text : palette.accent : palette.disabled;
-    styled_surface(indicator_box, palette, indicator ? *indicator : empty, fill, border, winui ? 4.0f : 3.0f, {1, 1, 1, 1});
-    if (toggle.checked()) {
+    styled_surface(indicator_box, palette, indicator ? *indicator : empty, fill, border,
+        toggle.switch_presentation() ? indicator_box.height / 2 : winui ? 4.0f : 3.0f, {1, 1, 1, 1});
+    if (toggle.switch_presentation()) {
+        auto thumb = !enabled ? palette.high_contrast ? palette.background : palette.surface :
+            toggle.checked() ? palette.high_contrast ? palette.selection_text : palette.background :
+            palette.high_contrast ? palette.text : palette.secondary;
+        if (!palette.high_contrast && mark && mark->foreground)
+            thumb = D2D1::ColorF(mark->foreground->resolve(palette.mode));
+        const auto box = toggle.mark_bounds(bounds);
+        push_clip(indicator_box);
+        styled_surface(box, palette, mark ? *mark : empty, thumb, border, box.height / 2, {});
+        pop_clip();
+    } else if (toggle.checked() || toggle.indeterminate()) {
         auto mark_ink = palette.high_contrast && enabled ? palette.selection_text : palette.background;
         if (!palette.high_contrast && mark && mark->foreground)
             mark_ink = D2D1::ColorF(mark->foreground->resolve(palette.mode));
         const auto b = toggle.mark_bounds(bounds);
         if (b.width > 0 && b.height > 0) {
             push_clip(indicator_box);
-            line(b.x + b.width * 2 / 9, b.y + b.height / 2,
-                b.x + b.width * 4 / 9, b.y + b.height * 13 / 18, mark_ink, 2);
-            line(b.x + b.width * 4 / 9, b.y + b.height * 13 / 18,
-                b.x + b.width * 7 / 9, b.y + b.height * 5 / 18, mark_ink, 2);
+            if (toggle.indeterminate())
+                line(b.x + b.width / 4, b.y + b.height / 2, b.x + 3 * b.width / 4, b.y + b.height / 2, mark_ink, 2);
+            else {
+                line(b.x + b.width * 2 / 9, b.y + b.height / 2,
+                    b.x + b.width * 4 / 9, b.y + b.height * 13 / 18, mark_ink, 2);
+                line(b.x + b.width * 4 / 9, b.y + b.height * 13 / 18,
+                    b.x + b.width * 7 / 9, b.y + b.height * 5 / 18, mark_ink, 2);
+            }
             pop_clip();
         }
     }
@@ -1254,6 +1271,59 @@ void Drawing::styled_toggle(const Toggle& toggle, Rect bounds, const Palette& pa
         if (winui) focus_ring(face, palette);
         else outline(face, palette.high_contrast ? palette.text : palette.accent);
     }
+}
+
+void Drawing::hyperlink(const HyperlinkButton& link, Rect bounds, const Palette& palette, bool enabled, bool focus_visible) {
+    const auto root = link.surface_style_values();
+    styled_surface(bounds, palette, root, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+    const auto label = link.content_style_values(StylePart::label);
+    const auto content = link.content_bounds(bounds);
+    auto ink = !enabled ? palette.disabled : palette.high_contrast ? palette.text : link.pressed() ? palette.secondary : palette.accent;
+    ink = style_foreground(label, palette, ink);
+    push_clip(content);
+    auto text = label;
+    if (!text.horizontal_alignment) text.horizontal_alignment = StyleAlignment::center;
+    if (!text.vertical_alignment) text.vertical_alignment = StyleAlignment::center;
+    styled_text(link.name(), content, ink, text);
+    Size size{};
+    styled_layout(link.name(), link.text_style(), text, size, content.width);
+    const float width = std::min(size.width, content.width);
+    const float x = content.x + (text.horizontal_alignment == StyleAlignment::start ? 0 :
+        text.horizontal_alignment == StyleAlignment::end ? content.width - width : (content.width - width) / 2);
+    const float height = std::min(size.height, content.height);
+    const float y = content.y + (text.vertical_alignment == StyleAlignment::start ? height :
+        text.vertical_alignment == StyleAlignment::end ? content.height : (content.height + height) / 2) - 1;
+    line(x, y, x + width, y, ink);
+    pop_clip();
+    if (focus_visible) focus_ring({bounds.x + 1, bounds.y + 1,
+        std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)}, palette);
+}
+void Drawing::info_badge(const InfoBadge& badge, Rect bounds, const Palette& palette, bool enabled) {
+    const PartStyleValues empty;
+    const auto* root = badge.effective_control_style_values(StylePart::root);
+    const auto fill = !enabled ? palette.disabled : palette.high_contrast ? palette.selection : palette.accent;
+    const auto ink = palette.high_contrast ? palette.selection_text : palette.background;
+    styled_surface(bounds, palette, root ? *root : empty, fill, palette.text, bounds.height / 2, {});
+    const auto padding = root && root->padding ? *root->padding : Insets{};
+    const auto border = root && root->border_thickness ? *root->border_thickness : Insets{};
+    const Rect content{bounds.x + padding.left + border.left, bounds.y + padding.top + border.top,
+        std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right),
+        std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom)};
+    push_clip(content);
+    if (badge.kind() == InfoBadgeKind::count) {
+        const auto* values = badge.effective_control_style_values(StylePart::message);
+        auto text = values ? *values : empty;
+        if (!text.font_size) text.font_size = 12.0f;
+        if (!text.horizontal_alignment) text.horizontal_alignment = StyleAlignment::center;
+        if (!text.vertical_alignment) text.vertical_alignment = StyleAlignment::center;
+        styled_text(badge.display_text(), content, style_foreground(text, palette, ink), text, TextStyle::caption);
+    } else if (badge.kind() == InfoBadgeKind::icon) {
+        const auto* values = badge.effective_control_style_values(StylePart::icon);
+        const float size = std::min({content.width, content.height, values && values->size ? *values->size : 12.0f});
+        button_icon({content.x + (content.width - size) / 2, content.y + (content.height - size) / 2, size, size},
+            values ? style_foreground(*values, palette, ink) : ink, badge.icon());
+    }
+    pop_clip();
 }
 
 void Drawing::styled_label(const Label& label, Rect bounds, const Palette& palette, bool enabled) {
@@ -1288,7 +1358,7 @@ void Drawing::styled_button(const Button& button, Rect bounds, const Palette& pa
     const auto* label = &label_values;
     const auto* icon = &icon_values;
     const auto* arrow = &arrow_values;
-    const bool checked = button.behavior() == ButtonBehavior::toggle && button.checked();
+    const bool checked = button.checked() && (button.behavior() == ButtonBehavior::toggle || dynamic_cast<const MenuBar::Heading*>(&button));
     const bool selected = checked || button.pressed();
     const bool winui = palette.style == VisualStyle::winui;
     const float inset = winui ? 0.5f : 2.0f;
@@ -1395,6 +1465,34 @@ void Drawing::styled_button(const Button& button, Rect bounds, const Palette& pa
 void Drawing::line(float x1, float y1, float x2, float y2, D2D1_COLOR_F value, float thickness) {
     brush_->SetColor(value);
     target_->DrawLine(D2D1::Point2F(x1, y1), D2D1::Point2F(x2, y2), brush_.Get(), thickness);
+}
+
+void Drawing::arc(Rect bounds, float start_turn, float sweep_turns, D2D1_COLOR_F value, float thickness) {
+    const float diameter = std::min(bounds.width, bounds.height);
+    thickness = std::min(thickness, diameter / 2);
+    if (diameter <= 0 || thickness <= 0 || sweep_turns <= 0) return;
+    const float radius = (diameter - thickness) / 2;
+    const auto center = D2D1::Point2F(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    brush_->SetColor(value);
+    if (sweep_turns >= 1) {
+        target_->DrawEllipse(D2D1::Ellipse(center, radius, radius), brush_.Get(), thickness);
+        return;
+    }
+    constexpr float tau = 6.28318530718f;
+    const auto point = [&](float turn) {
+        return D2D1::Point2F(center.x + radius * std::sin(turn * tau), center.y - radius * std::cos(turn * tau));
+    };
+    // Bounded tessellation avoids a new device path allocation on every animation frame.
+    const int steps = std::max(2, static_cast<int>(std::ceil(sweep_turns * 128)));
+    auto previous = point(start_turn);
+    const auto first = previous;
+    for (int i = 1; i <= steps; ++i) {
+        const auto next = point(start_turn + sweep_turns * i / steps);
+        target_->DrawLine(previous, next, brush_.Get(), thickness);
+        previous = next;
+    }
+    target_->FillEllipse(D2D1::Ellipse(first, thickness / 2, thickness / 2), brush_.Get());
+    target_->FillEllipse(D2D1::Ellipse(previous, thickness / 2, thickness / 2), brush_.Get());
 }
 
 void Drawing::icon(Rect box, D2D1_COLOR_F value, bool folder) {
@@ -1532,6 +1630,29 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         stroke(4, 3, 12, 3); stroke(12, 3, 14, 9); stroke(14, 9, 14, 13);
         stroke(14, 13, 2, 13); stroke(2, 13, 2, 9); stroke(2, 9, 4, 3);
         stroke(2, 9, 14, 9); stroke(10, 11, 12, 11);
+    } else if (icon == ButtonIcon::save || icon == ButtonIcon::save_as) {
+        stroke(2, 1, 12, 1); stroke(12, 1, 14, 3); stroke(2, 1, 2, 14);
+        stroke(5, 1, 5, 6); stroke(5, 6, 11, 6); stroke(11, 6, 11, 1);
+        stroke(5, 14, 5, 9); stroke(5, 9, 8, 9);
+        if (icon == ButtonIcon::save) {
+            stroke(14, 3, 14, 14); stroke(14, 14, 2, 14);
+            stroke(8, 9, 11, 9); stroke(11, 9, 11, 14);
+        } else {
+            // Leave space for the pencil instead of painting it over the disk.
+            stroke(14, 3, 14, 5); stroke(2, 14, 7, 14);
+            stroke(8, 15, 9, 12); stroke(9, 12, 13, 8);
+            stroke(13, 8, 15, 10); stroke(15, 10, 11, 14); stroke(11, 14, 8, 15);
+            stroke(11, 10, 13, 12);
+        }
+    } else if (icon == ButtonIcon::undo || icon == ButtonIcon::redo) {
+        const auto arrow = [&](float x1, float y1, float x2, float y2) {
+            if (icon == ButtonIcon::redo) { x1 = 16 - x1; x2 = 16 - x2; }
+            stroke(x1, y1, x2, y2);
+        };
+        constexpr float points[][2]{{2, 6}, {7, 4}, {11, 4}, {14, 7}, {14, 10}, {11, 13}, {7, 13}};
+        for (std::size_t i = 1; i < std::size(points); ++i)
+            arrow(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+        arrow(2, 2, 2, 6); arrow(2, 6, 6, 8);
     } else if (icon == ButtonIcon::open) {
         stroke(9, 2, 14, 2); stroke(14, 2, 14, 7); stroke(14, 2, 7, 9);
         stroke(6, 3, 2, 3); stroke(2, 3, 2, 14); stroke(2, 14, 13, 14); stroke(13, 14, 13, 10);
@@ -1557,6 +1678,10 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         const float tail = 16 - tip;
         const float shoulder = icon == ButtonIcon::back ? 7.0f : 9.0f;
         stroke(tip, 8, tail, 8); stroke(tip, 8, shoulder, 3); stroke(tip, 8, shoulder, 13);
+    } else if (icon == ButtonIcon::chevron_up || icon == ButtonIcon::chevron_down) {
+        const float tip = icon == ButtonIcon::chevron_up ? 5.0f : 11.0f;
+        const float tail = 16 - tip;
+        stroke(3, tail, 8, tip); stroke(8, tip, 13, tail);
     } else if (icon == ButtonIcon::add) {
         stroke(8, 3, 8, 13); stroke(3, 8, 13, 8);
     } else if (icon == ButtonIcon::up) {

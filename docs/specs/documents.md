@@ -52,6 +52,58 @@ RichEdit retains at most 16 undo actions. Windows determines their byte cost.
 Property changes replace text once per revision, not once per paint.
 `MultilineText` also supports [undo-preserving range replacement](#undo-preserving-range-replacement).
 
+### Syntax highlighting
+
+`MultilineText` supports optional LSH syntax highlighting without replacing its text.
+The [build procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) enables the `Lsh 0.3.0` native package.
+The gallery highlights its selected XUI, C#, Rust, or C++ excerpts.
+The Designer highlights `.xui` source, including embedded C#.
+FileExplorer selects a grammar by filename for supported text previews.
+Unknown extensions remain plain text.
+
+```cpp
+#include <xui/syntax_highlighting.hpp>
+if (xui::syntax_highlighting_available())
+    xui::set_syntax_language(*notes, "xui");
+```
+
+```csharp
+if (MultilineText.SyntaxHighlightingAvailable)
+    editor.SetSyntaxLanguage("xui");
+```
+
+`SetSyntaxPath("Example.cs")` selects a grammar without reading that file.
+An empty language disables syntax highlighting.
+Unknown explicit language IDs report an error.
+The availability query reports build support; it does not load or validate the runtime DLL.
+
+Syntax colors are presentation, not authored rich-text runs.
+Highlighting preserves text, native undo and redo, selection, scroll position, and the native UIA Text provider.
+It does not emit change callbacks.
+IME composition defers native formatting.
+Light and dark themes use different token colors.
+Named argument labels use the accent color instead of the default color for identifier values.
+High contrast and disabled controls use the normal accessible text colors instead.
+Plain-text clipboard and object restrictions remain unchanged.
+
+The tokenizer processes a complete bounded document on the UI thread after a source change.
+Native CR paragraphs become LF for LSH without changing UTF-16 positions.
+XUI converts LSH's UTF-8 byte ranges to UTF-16 before applying colors.
+Highlighting is lexical, not compiler validation.
+It uses trusted, compiled-in grammars; previewed files cannot supply executable grammar definitions.
+The [XUI grammar limits](xui-language.md#microsoft-edit-syntax-support) also apply here.
+
+Application authors can supply a `DocumentText::set_syntax_highlighter` callback instead of LSH.
+It returns ordered, non-overlapping `SyntaxSpan` ranges into the exact native text snapshot.
+Ranges cannot split surrogate pairs.
+Callback installation and text setters leave the previous state unchanged if tokenization fails.
+For a committed native edit, a tokenizer failure preserves the new text, clears stale spans, and reports one change before raising the error.
+`RichText` rejects this callback because authored runs use a separate formatting contract.
+The C ABI exposes `xui_document_syntax_language`, `xui_document_syntax_path`, and `xui_syntax_highlighting_available`.
+There is no Rust convenience wrapper for these additive functions.
+
+### Rich documents
+
 `RichText::set_runs` accepts at most 4,096 runs with bold, italic, underline, and explicit HTTP/HTTPS link targets.
 A click or Ctrl+Enter requests a link callback. XUI never opens the target automatically.
 Native edits retain formatting. The retained runs track surviving application-authored styles and link positions.

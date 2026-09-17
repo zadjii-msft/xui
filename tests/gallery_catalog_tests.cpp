@@ -1,4 +1,8 @@
 #include "../demo/gallery_catalog.hpp"
+#include "../demo/parity_samples.hpp"
+#include "../demo/gallery_reference.hpp"
+#include "../demo/gallery_urls.hpp"
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -11,6 +15,8 @@ int main() {
         require(catalog.match_count() == gallery::entries.size());
         std::set<std::wstring> ids;
         std::set<xui::ItemKey> keys;
+        require(gallery::references.size() == gallery::entries.size());
+        std::array<std::size_t, 3> language_examples{};
         for (const auto& item : catalog.entries()) require(keys.insert(item.key).second);
         for (std::size_t i = 0; i < gallery::entries.size(); ++i) {
             require(ids.insert(gallery::entries[i].id).second);
@@ -22,18 +28,51 @@ int main() {
             require(!catalog.find(*item->parent)->selectable);
             require(catalog.items()->source()->find(key).has_value());
             require(*gallery::entries[i].code != L'\0');
+            const auto& reference = gallery::references[i];
+            require(std::wstring_view(reference.id) == gallery::entries[i].id);
+            require(std::wstring_view(reference.usage).size() >= 30);
+            require(std::wstring_view(reference.exercise).size() >= 30);
+            require(std::wstring_view(reference.notes).size() >= 30);
+            const std::wstring_view docs = reference.docs;
+            require(docs.starts_with(L"docs/specs/") && docs.ends_with(L".md"));
+            require(docs.find(L"..") == std::wstring_view::npos);
+            require(std::filesystem::is_regular_file(std::filesystem::path(XUI_SOURCE_DIRECTORY) / docs));
+            require(gallery::documentation_url(docs).starts_with(L"https://zadjii-msft.github.io/xui/"));
+            const wchar_t* snippets[]{reference.csharp, reference.rust, reference.xui};
+            const wchar_t* languages[]{L"C#", L"Rust", L".xui"};
+            for (std::size_t language = 0; language != language_examples.size(); ++language) {
+                if (*snippets[language]) ++language_examples[language];
+                else require(std::wstring_view(reference.notes).find(languages[language]) != std::wstring_view::npos);
+            }
         }
-        require(gallery::entries.size() == 48);
+        for (auto count : language_examples) require(count > 0);
+        require(gallery::entries.size() == 56);
         require(std::wstring_view(gallery::entries[45].id) == L"web-content");
         require(std::wstring_view(gallery::entries[46].id) == L"navigation-view");
         require(std::wstring_view(gallery::entries[47].id) == L"miller-columns");
         require(std::wstring_view(gallery::entries[47].group) == L"Collections");
         require(std::wstring_view(gallery::entries[47].code).find(L"xui::MillerColumns") != std::wstring_view::npos);
         require(std::wstring_view(gallery::entries[47].code).find(L"next.resize(column + 1)") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[48].id) == L"toggle-switch");
+        require(std::wstring_view(gallery::entries[49].id) == L"toggle-button");
+        require(std::wstring_view(gallery::entries[50].id) == L"progress-ring");
+        require(std::wstring_view(gallery::entries[48].code).find(L"ToggleSwitch") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[49].code).find(L"ToggleButton") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[50].code).find(L"ProgressRing") != std::wstring_view::npos);
+        for (const auto& [index, id] : std::array<std::pair<std::size_t, const wchar_t*>, 5>{
+            {{51, L"checkbox"}, {52, L"hyperlink-button"}, {53, L"selector-bar"}, {54, L"info-badge"}, {55, L"menu-bar"}}})
+            require(std::wstring_view(gallery::entries[index].id) == id);
         for (auto id : {L"radio", L"combo", L"popup", L"tooltip", L"actions", L"number", L"range", L"disclosure", L"progress"})
             require(ids.contains(id));
         require(!gallery::entry_index({999, 1}) && !gallery::entry_index({1, 2}));
         require(gallery::entry_index(gallery::home_key) == 0 && gallery::entry_index(gallery::appearance_key) == 16);
+        std::wstring menu_output;
+        const auto menu = gallery::menu_bar_commands([&](std::wstring text) { menu_output = std::move(text); });
+        require(menu->find(1)->kind == xui::CommandKind::submenu && menu->find(1)->label == L"&File");
+        require(menu->find(13)->parent == 1 && menu->find(131)->parent == 13);
+        require(!menu->enabled(4) && !menu->enabled(21));
+        require(menu->invoke(12) && menu_output == L"Sample saved in memory.");
+        require(menu->invoke(131) && menu_output == L"Welcome sample selected.");
         int changes{};
         catalog.on_select([&](xui::ItemKey) { ++changes; });
         require(catalog.select({1, 1}) && catalog.select({1, 1}) && changes == 1);
@@ -49,10 +88,10 @@ int main() {
             if (query == L"COLLECTIONS") require(catalog.match_count() == 6);
         });
         for (const auto& [query, count] : std::array<std::pair<const wchar_t*, unsigned>, 4>{
-            {{L"COLLECTIONS", 6u}, {L"input", 11u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
+            {{L"COLLECTIONS", 6u}, {L"input", 16u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
             catalog.set_filter(query);
             require(catalog.match_count() == count && catalog.selected() == xui::ItemKey{1, 1});
-            require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 1);
+            require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 2);
         }
         for (const auto* query : {L"miller-columns", L"MILLER", L"folder", L"hierarchy", L"immutable",
                 L"horizontal scrolling", L"vertical scrolling"}) {
@@ -74,11 +113,31 @@ int main() {
         catalog.set_expanded(false);
         catalog.arrange({0, 0, 260, 600});
         require(!catalog.search()->visible() && !catalog.items()->source()->find({1, 1}));
-        require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 1);
+        require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 2);
         catalog.set_expanded(true);
         catalog.arrange({0, 0, 260, 600});
         require(catalog.search()->visible() && catalog.items()->source()->find({1, 1}).has_value());
         require(catalog.selected() == gallery::appearance_key);
+        require(!catalog.item_expanded(gallery::links_key));
+        require(catalog.set_item_expanded(gallery::links_key, true));
+        for (const auto& link : gallery::navigation_links) {
+            require(catalog.find(link.key)->parent == gallery::links_key);
+            require(catalog.footer_items()->source()->find(link.key).has_value());
+            require(!gallery::entry_index(link.key));
+            require(std::wstring_view(gallery::navigation_link(link.key)) == link.path);
+            require(std::filesystem::is_regular_file(std::filesystem::path(XUI_SOURCE_DIRECTORY) / link.path));
+        }
+        require(!gallery::navigation_link(gallery::home_key));
+        require(catalog.match_count() == gallery::entries.size());
+        require(gallery::documentation_url(L"docs/specs/README.md") == L"https://zadjii-msft.github.io/xui/");
+        require(gallery::documentation_url(L"docs/specs/controls/basic.md") ==
+            L"https://zadjii-msft.github.io/xui/choose-a-control/controls/basic/");
+        require(gallery::documentation_url(L"docs/specs/languages/declarative.md") ==
+            L"https://zadjii-msft.github.io/xui/learn/languages/declarative/");
+        require(gallery::documentation_url(L"docs/specs/menus-and-input.md") ==
+            L"https://zadjii-msft.github.io/xui/contracts/menus-and-input/");
+        require(gallery::documentation_url(L"docs/specs/winui-style.md") ==
+            L"https://zadjii-msft.github.io/xui/contracts/winui-style/");
         gallery::FixtureMillerPath miller;
         require(miller.columns().size() == 1 && miller.columns().front().title == L"Projects");
         const auto roots = miller.columns().front().source;

@@ -21,6 +21,18 @@ int main() {
         xui_feature_options feature{sizeof(feature), XUI_FEATURE_VERSION, text("Document")};
         status(xui_feature_create(window, XUI_MULTILINE_TEXT, &feature, &document), XUI_OK);
         status(xui_feature_create(window, XUI_RICH_TEXT, &feature, &rich), XUI_OK);
+        uint32_t syntax{};
+        status(xui_syntax_highlighting_available(&syntax), XUI_OK);
+        status(xui_syntax_highlighting_available(nullptr), XUI_INVALID_ARGUMENT);
+        status(xui_document_syntax_language(document, text("")), XUI_OK);
+        status(xui_document_syntax_language(rich, text("")), XUI_WRONG_KIND);
+        status(xui_document_syntax_language(0, text("xui")), XUI_INVALID_HANDLE);
+        status(xui_document_syntax_language(document, {"\xc0\x80", 2, 0}), XUI_INVALID_ARGUMENT);
+        status(xui_document_syntax_path(document, text("notes.txt")), XUI_OK);
+        if (syntax) {
+            status(xui_document_syntax_language(document, text("xui")), XUI_OK);
+            status(xui_document_syntax_language(document, text("missing")), XUI_INVALID_ARGUMENT);
+        }
         uint64_t start = 77, end = 88;
         const auto replace = [&](xui_handle target, xui_string value) {
             return xui_document_replace_range(target, 0, 0, text(""), value, &start, &end);
@@ -42,9 +54,13 @@ int main() {
         xui_status threaded{};
         std::thread worker([&] { threaded = replace(document, text("X")); }); worker.join();
         status(threaded, XUI_WRONG_THREAD);
+        std::thread syntax_worker([&] { threaded = xui_document_syntax_path(document, text("code.xui")); });
+        syntax_worker.join();
+        status(threaded, XUI_WRONG_THREAD);
         require(start == 77 && end == 88, "Rejected ABI edit leaves output offsets untouched");
         status(xui_window_close(window), XUI_OK);
         status(replace(document, text("X")), XUI_CLOSED);
+        status(xui_document_syntax_language(document, text("")), XUI_CLOSED);
         require(start == 77 && end == 88, "Closing before run rejects edits without changing output offsets");
         status(xui_window_destroy(window), XUI_OK);
         status(replace(document, text("X")), XUI_INVALID_HANDLE);

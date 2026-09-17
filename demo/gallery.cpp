@@ -1,5 +1,6 @@
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
+#include "xui/syntax_highlighting.hpp"
 #include "xui/image.hpp"
 #include "xui/suggestions.hpp"
 #include "xui/adaptive_layout.hpp"
@@ -10,6 +11,9 @@
 #include "xui/runtime_hosts.hpp"
 #include "host_fixtures.hpp"
 #include "gallery_catalog.hpp"
+#include "parity_samples.hpp"
+#include "gallery_reference.hpp"
+#include "gallery_links.hpp"
 #include "winui_gallery.hpp"
 #include <windows.h>
 #include <shellapi.h>
@@ -29,6 +33,7 @@ Panel panel(Axis axis = Axis::vertical) {
 std::shared_ptr<Label> label(Panel parent, std::wstring text, TextTone tone = TextTone::normal) {
     auto result = std::make_shared<Label>(std::move(text));
     result->set_tone(tone);
+    result->set_wrapping(true);
     parent->add(result);
     return result;
 }
@@ -38,15 +43,11 @@ std::shared_ptr<Button> button(Panel parent, std::wstring name, std::function<vo
     parent->add(result);
     return result;
 }
-void code_block(Panel parent, const gallery::Entry& entry) {
-    auto code = std::make_shared<MultilineText>(std::wstring(entry.title) + L" C++ code");
-    code->set_automation_id(L"gallery-code-" + std::wstring(entry.id));
-    code->set_text(entry.code);
-    code->set_read_only(true);
-    code->set_monospace(true);
-    const auto lines = 1 + std::count(code->text().begin(), code->text().end(), L'\r');
-    code->set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 240.0f)});
-    parent->add(code);
+void set_code(MultilineText& code, std::wstring_view text, std::string_view language) {
+    code.set_text(std::wstring(text));
+    if (syntax_highlighting_available()) set_syntax_language(code, language);
+    const auto lines = 1 + std::count(code.text().begin(), code.text().end(), L'\r');
+    code.set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 300.0f)});
 }
 class Suggestions final : public SuggestionSource {
 public:
@@ -113,17 +114,12 @@ public:
                     slot->set_padding({16, 12, 16, 16}); slot->set_surface(true);
                     auto heading = label(slot, entry.title); heading->set_heading(true);
                     heading->set_automation_id(L"gallery-page-" + std::wstring(entry.id));
-                    label(slot, entry.purpose, TextTone::secondary);
+                    introduction(slot, i);
                     auto demo = panel(); slot->add(demo);
                     auto output = label(slot, L"Events: ready", TextTone::accent);
                     output->set_automation_id(L"gallery-events-" + std::wstring(entry.id));
                     build(i, demo, output, image_path);
-                    label(slot, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-                    code_block(slot, entry);
-                    button(slot, L"Copy code", [this, i, output] {
-                        try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
-                        catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
-                    });
+                    reference(slot, i);
                 };
                 continue;
             }
@@ -135,7 +131,7 @@ public:
             auto heading = label(content, entry.title);
             heading->set_heading(true);
             heading->set_automation_id(L"gallery-page-" + std::wstring(entry.id));
-            label(content, entry.purpose, TextTone::secondary);
+            introduction(content, i);
             auto demo = panel();
             content->add(demo);
             auto output = std::make_shared<Label>(L"Events: ready");
@@ -143,12 +139,7 @@ public:
             output->set_tone(TextTone::accent);
             build(i, demo, output, image_path);
             content->add(output);
-            label(content, L"C++ API excerpt", TextTone::secondary)->set_caption(true);
-            code_block(content, entry);
-            button(content, L"Copy code", [this, i, output] {
-                try { window_.copy_text(gallery::entries[i].code); output->set_text(L"Events: code copied."); }
-                catch (...) { output->set_text(L"Events: clipboard is unavailable."); }
-            });
+            reference(content, i);
             auto scroll = std::make_shared<ScrollView>(content, std::wstring(entry.title) + L" example");
             scroll->set_automation_id(L"gallery-example-" + std::wstring(entry.id));
             pages_->add_page(scroll);
@@ -169,9 +160,11 @@ public:
         root->add(footer);
         nav_->on_select([this](ItemKey key) {
             if (const auto index = gallery::entry_index(key)) show(*index);
+            else if (gallery::navigation_link(key)) location_->set_text(L"Press Enter or double-click to open the handbook.");
         });
         nav_->on_activate([this](ItemKey key) {
             if (const auto index = gallery::entry_index(key)) { show(*index); window_.focus(*first_target()); }
+            else if (const auto path = gallery::navigation_link(key)) open_documentation(path, location_);
         });
         nav_->on_filter([this](const auto&) { filter(); });
         search_->on_submit([this] {
@@ -211,8 +204,88 @@ private:
     std::shared_ptr<Toggle> light_;
     std::array<std::shared_ptr<Control>, gallery::entries.size()> targets_;
     std::array<std::function<void()>, gallery::entries.size()> deferred_;
+    std::array<std::function<void(std::uint64_t)>, gallery::entries.size()> update_code_;
+    std::uint64_t selected_language_{4};
     std::size_t selected_{};
     std::function<bool(const KeyEvent&)> command_key_;
+    void introduction(const Panel& parent, std::size_t index) {
+        const auto& reference = gallery::references[index];
+        label(parent, reference.usage, TextTone::secondary);
+        label(parent, L"Try this example")->set_heading(true);
+        label(parent, reference.exercise);
+    }
+    void open_documentation(std::wstring_view path, const std::shared_ptr<Label>& output) {
+        output->set_text(gallery::open_documentation(path));
+    }
+    void select_language(std::uint64_t id) {
+        if (selected_language_ == id) return;
+        selected_language_ = id;
+        for (const auto& update : update_code_) if (update) update(id);
+    }
+    void reference(const Panel& parent, std::size_t index) {
+        const auto& entry = gallery::entries[index];
+        const auto& reference = gallery::references[index];
+        auto output = std::make_shared<Label>(L"");
+        output->set_automation_id(L"gallery-reference-status-" + std::wstring(entry.id));
+        output->set_wrapping(true);
+        output->set_tone(TextTone::accent);
+        label(parent, L"Usage and limits")->set_heading(true);
+        label(parent, reference.notes);
+        label(parent, L"Code example")->set_heading(true);
+        auto language = std::make_shared<TabStrip>(L"Example language");
+        language->set_automation_id(L"gallery-language-" + std::wstring(entry.id));
+        language->set_tabs({{4, L".xui"}, {2, L"C#"}, {3, L"Rust"}, {1, L"C++"}}, selected_language_);
+        parent->add(language);
+        auto context = label(parent, L"", TextTone::secondary);
+        context->set_automation_id(L"gallery-code-context-" + std::wstring(entry.id));
+        auto code = std::make_shared<MultilineText>(std::wstring(entry.title) + L" C++ code");
+        code->set_automation_id(L"gallery-code-" + std::wstring(entry.id));
+        code->set_read_only(true);
+        code->set_monospace(true);
+        set_code(*code, entry.code, "cpp");
+        parent->add(code);
+        auto actions = panel(Axis::horizontal);
+        auto copy = button(actions, L"Copy code", [this, code, output] {
+            try { window_.copy_text(code->text()); output->set_text(L"Events: code copied."); }
+            catch (const std::exception&) { output->set_text(L"Events: clipboard is unavailable."); }
+        });
+        copy->set_automation_id(L"gallery-copy-code-" + std::wstring(entry.id));
+        parent->add(actions);
+        update_code_[index] = [index, code, context, copy, language](std::uint64_t id) {
+            const auto& entry = gallery::entries[index];
+            const auto& reference = gallery::references[index];
+            const auto text = id == 2 ? reference.csharp : id == 3 ? reference.rust : id == 4 ? reference.xui : entry.code;
+            const auto name = id == 2 ? L"C#" : id == 3 ? L"Rust" : id == 4 ? L".xui" : L"C++";
+            code->set_name(std::wstring(entry.title) + L" " + name + L" code");
+            const auto syntax = id == 2 ? "csharp" : id == 3 ? "rust" : id == 4 ? "xui" : "cpp";
+            set_code(*code, text, syntax);
+            language->set_tabs(language->tabs(), id);
+            copy->set_enabled(*text != L'\0');
+            context->set_text(*text == L'\0' ? L"No example for this language. See Usage and limits." : L"");
+            context->set_visible(*text == L'\0');
+        };
+        update_code_[index](selected_language_);
+        language->on_select([this](std::uint64_t id) { select_language(id); });
+        label(parent, L"Documentation")->set_heading(true);
+        auto links = panel(Axis::horizontal);
+        auto docs = button(links, L"Control reference", [this, index, output] {
+            open_documentation(gallery::references[index].docs, output);
+        });
+        docs->set_automation_id(L"gallery-docs-" + std::wstring(entry.id));
+        docs->set_help_text(gallery::documentation_url(reference.docs));
+        auto copy_link = button(links, L"Copy documentation link", [this, index, output] {
+            try {
+                window_.copy_text(gallery::documentation_url(gallery::references[index].docs));
+                output->set_text(L"Events: documentation link copied.");
+            } catch (const std::exception&) { output->set_text(L"Events: clipboard is unavailable."); }
+        });
+        copy_link->set_automation_id(L"gallery-copy-docs-" + std::wstring(entry.id));
+        button(links, L"Gallery source", [output] {
+            output->set_text(gallery::open_url(L"https://github.com/zadjii-msft/xui/blob/main/demo/gallery.cpp"));
+        });
+        parent->add(links);
+        parent->add(output);
+    }
     Control* first_target() { return selected_ < targets_.size() && targets_[selected_] ? targets_[selected_].get() : search_.get(); }
     void cycle_theme() {
         const auto next = window_.theme() == ThemeMode::dark ? ThemeMode::light :
@@ -226,7 +299,7 @@ private:
         }
         selected_ = index;
         pages_->select(index);
-        location_->set_text(index < gallery::entries.size() ? std::wstring(gallery::entries[index].title) + L"  |  C++ public API" : L"No results");
+        location_->set_text(index < gallery::entries.size() ? std::wstring(gallery::entries[index].title) + L"  |  Developer reference" : L"No results");
     }
     std::vector<ItemKey> visible_entries() const {
         std::vector<ItemKey> keys;
@@ -259,9 +332,9 @@ private:
     void build(std::size_t index, Panel demo, std::shared_ptr<Label> output, const std::wstring& image_path) {
         switch (index) {
         case 0: {
-            label(demo, L"Make yourself at home")->set_heading(true);
+            label(demo, L"Enable an action from form state")->set_heading(true);
             auto name = std::make_shared<TextInput>(L"Your name");
-            name->set_placeholder(L"How should we greet you?");
+            name->set_placeholder(L"Enter a name to enable Save");
             demo->add(name); targets_[index] = name;
             auto save = button(demo, L"Save greeting", [] {});
             auto permission = std::make_shared<Toggle>(L"Allow greeting updates");
@@ -317,7 +390,7 @@ private:
             input->on_submit([output] { output->set_text(L"Events: Enter submitted."); });
             auto caption = std::make_shared<Toggle>(L"Show caption"); caption->set_checked(true); demo->add(caption);
             caption->on_change([input](bool checked) { input->set_caption_visible(checked); });
-            label(demo, L"Password, multiline, and rich text need separate contracts.", TextTone::secondary);
+            label(demo, L"Use PasswordInput for secrets, MultilineText for paragraphs, and RichText for formatted documents.", TextTone::secondary);
             break;
         }
         case 4: {
@@ -334,7 +407,7 @@ private:
             label(demo, L"Secondary caption", TextTone::secondary)->set_caption(true);
             label(demo, L"Accent tone", TextTone::accent);
             label(demo, L"Error tone", TextTone::error);
-            targets_[index] = button(demo, L"Change heading", [heading] { heading->set_text(L"Text updates preserve identity"); });
+            targets_[index] = button(demo, L"Change heading", [heading] { heading->set_text(L"Updated with Label::set_text"); });
             break;
         }
         case 6: {
@@ -482,7 +555,7 @@ private:
             label(demo, L"Tab: move focus. Space: toggle. Enter: invoke.");
             label(demo, L"F6 cycles themes outside grids. Ctrl+F focuses catalog search.");
             label(demo, L"Native EDIT exposes ValuePattern. TextPattern depends on Windows.");
-            label(demo, L"C ABI, C#, and Rust expose a smaller control subset.", TextTone::secondary);
+            label(demo, L"Language examples identify available binding APIs. The control reference describes native behavior.", TextTone::secondary);
             break;
         }
         case 17: {
@@ -581,18 +654,35 @@ private:
             demo->add(expander); targets_[index] = expander;
             break;
         }
-        case 25: {
-            auto progress = std::make_shared<Progress>(L"Sample task"); progress->set_value(40);
-            progress->set_automation_id(L"foundation-progress"); demo->add(progress);
+        case 25:
+        case 50: {
+            const bool circular = index == 50;
+            std::shared_ptr<Progress> progress;
+            if (circular) {
+                progress = std::make_shared<ProgressRing>(L"Load preview");
+                progress->set_fixed_size({64, 64});
+            } else {
+                progress = std::make_shared<Progress>(L"Sample task");
+            }
+            progress->set_value(40);
+            progress->set_automation_id(circular ? L"gallery-progress-ring" : L"foundation-progress");
+            demo->add(progress);
             auto row = panel(Axis::horizontal);
             targets_[index] = button(row, L"Advance", [progress, output] {
                 progress->set_state(ProgressState::determinate); progress->set_value(std::min(100.0, progress->value() + 10));
                 output->set_text(L"Events: progress advanced.");
             });
-            button(row, L"Indeterminate", [progress, output] { progress->set_state(ProgressState::indeterminate); output->set_text(L"Events: static indeterminate state."); });
-            button(row, L"Pause", [progress] { progress->set_state(ProgressState::paused); }); demo->add(row);
-            auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
-            auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
+            button(row, L"Indeterminate", [progress, output] { progress->set_state(ProgressState::indeterminate); output->set_text(L"Events: indeterminate progress."); });
+            button(row, L"Pause", [progress, output] { progress->set_state(ProgressState::paused); output->set_text(L"Events: progress paused."); });
+            button(row, L"Error", [progress, output] { progress->set_state(ProgressState::error); output->set_text(L"Events: progress error."); });
+            demo->add(row);
+            auto visibility = std::make_shared<ToggleSwitch>(L"Show indicator"); visibility->set_checked(true);
+            visibility->on_change([progress](bool value) { progress->set_visible(value); }); demo->add(visibility);
+            label(demo, L"Only visible indeterminate indicators animate. Windows animation preferences also apply.", TextTone::secondary);
+            if (!circular) {
+                auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
+                auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
+            }
             break;
         }
         case 26: {
@@ -1035,6 +1125,122 @@ private:
             });
             label(demo, L"Eight levels and 28 siblings per column use immutable in-memory sources. No filesystem or network access.",
                 TextTone::secondary);
+            break;
+        }
+        case 48: {
+            auto notifications = std::make_shared<ToggleSwitch>(L"Send notifications");
+            notifications->set_automation_id(L"gallery-toggle-switch");
+            notifications->set_checked(true);
+            notifications->on_change([output](bool value) {
+                output->set_text(value ? L"Events: notifications on." : L"Events: notifications off.");
+            });
+            demo->add(notifications); targets_[index] = notifications;
+            auto enabled = std::make_shared<Toggle>(L"Enable switch"); enabled->set_checked(true);
+            enabled->on_change([notifications](bool value) { notifications->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<ToggleSwitch>(L"Unavailable preference");
+            unavailable->set_checked(true); unavailable->set_enabled(false); demo->add(unavailable);
+            label(demo, L"Space changes the focused switch on release. Enter leaves its value unchanged.", TextTone::secondary);
+            break;
+        }
+        case 49: {
+            auto pin = std::make_shared<ToggleButton>(L"Pin preview");
+            pin->set_automation_id(L"gallery-toggle-button");
+            pin->set_checked(true);
+            pin->on_toggle([output](bool value) { output->set_text(value ? L"Events: preview pinned." : L"Events: preview unpinned."); });
+            demo->add(pin); targets_[index] = pin;
+            auto enabled = std::make_shared<Toggle>(L"Enable pin action"); enabled->set_checked(true);
+            enabled->on_change([pin](bool value) { pin->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<ToggleButton>(L"Unavailable action");
+            unavailable->set_checked(true); unavailable->set_enabled(false); demo->add(unavailable);
+            button(demo, L"Reset pin", [pin, output] {
+                pin->set_checked(true);
+                output->set_text(L"Events: pin reset without a toggle callback.");
+            });
+            break;
+        }
+        case 51: {
+            auto check = std::make_shared<CheckBox>(L"Include attachments");
+            check->set_automation_id(L"gallery-checkbox");
+            check->set_three_state(true);
+            check->set_state(CheckState::indeterminate);
+            check->on_change([output](CheckState state) {
+                output->set_text(state == CheckState::indeterminate ? L"Events: mixed attachments." :
+                    state == CheckState::checked ? L"Events: all attachments." : L"Events: no attachments.");
+            });
+            demo->add(check); targets_[index] = check;
+            auto three = std::make_shared<ToggleSwitch>(L"Cycle through three states"); three->set_checked(true);
+            three->on_change([check](bool value) { check->set_three_state(value); }); demo->add(three);
+            auto enabled = std::make_shared<Toggle>(L"Enable checkbox"); enabled->set_checked(true);
+            enabled->on_change([check](bool value) { check->set_enabled(value); }); demo->add(enabled);
+            button(demo, L"Set mixed state", [check, output] {
+                check->set_state(CheckState::indeterminate);
+                output->set_text(L"Events: mixed state set without a change callback.");
+            });
+            label(demo, L"Mixed describes a group with different values. Existing Toggle and ToggleSwitch remain binary.", TextTone::secondary);
+            break;
+        }
+        case 52: {
+            auto link = std::make_shared<HyperlinkButton>(L"Learn about this sample");
+            link->set_automation_id(L"gallery-hyperlink-button");
+            link->on_click([output] { output->set_text(L"Events: help requested. No browser was opened."); });
+            demo->add(link); targets_[index] = link;
+            auto enabled = std::make_shared<Toggle>(L"Enable help link"); enabled->set_checked(true);
+            enabled->on_change([link](bool value) { link->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<HyperlinkButton>(L"Unavailable documentation");
+            unavailable->set_enabled(false); demo->add(unavailable);
+            label(demo, L"The application handles activation. This sample performs no navigation or network request.", TextTone::secondary);
+            break;
+        }
+        case 53: {
+            auto selector = std::make_shared<SelectorBar>(L"Task filter");
+            selector->set_automation_id(L"gallery-selector-bar");
+            selector->set_items({{1, L"All"}, {2, L"Active"}, {3, L"Completed"}, {4, L"Archived", false}}, 1);
+            selector->on_change([output](std::uint64_t id) {
+                output->set_text(L"Events: task filter ID " + std::to_wstring(id));
+            });
+            demo->add(selector); targets_[index] = selector;
+            auto enabled = std::make_shared<Toggle>(L"Enable task filter"); enabled->set_checked(true);
+            enabled->on_change([selector](bool value) { selector->set_enabled(value); }); demo->add(enabled);
+            button(demo, L"Reset task filter", [selector, output] {
+                selector->set_selected(1);
+                output->set_text(L"Events: task filter reset without a change callback.");
+            });
+            label(demo, L"One Tab stop. Arrow keys change the selection and skip disabled choices.", TextTone::secondary);
+            break;
+        }
+        case 54: {
+            auto row = panel(Axis::horizontal);
+            label(row, L"Unread notifications");
+            auto badge = std::make_shared<InfoBadge>(L"Unread notifications");
+            badge->set_automation_id(L"gallery-info-badge"); badge->set_count(7);
+            row->add(badge); demo->add(row);
+            auto actions = panel(Axis::horizontal);
+            targets_[index] = button(actions, L"Add notification", [badge, output] {
+                badge->set_count(badge->count() + 1);
+                output->set_text(L"Events: notification count " + std::to_wstring(badge->count()));
+            });
+            button(actions, L"Show dot", [badge, output] { badge->set_dot(); output->set_text(L"Events: notification dot."); });
+            button(actions, L"Show icon", [badge, output] { badge->set_icon(ButtonIcon::bookmark); output->set_text(L"Events: notification icon."); });
+            demo->add(actions);
+            button(demo, L"Reset notification count", [badge, output] {
+                badge->set_count(7); output->set_text(L"Events: notification count reset.");
+            });
+            label(demo, L"The badge describes status and never receives keyboard focus.", TextTone::secondary);
+            break;
+        }
+        case 55: {
+            auto menu = std::make_shared<MenuBar>(L"Document menu");
+            menu->set_automation_id(L"gallery-menu-bar");
+            menu->set_commands(gallery::menu_bar_commands([output](std::wstring message) {
+                output->set_text(L"Events: " + message);
+            }));
+            demo->add(menu);
+            auto editor = std::make_shared<TextInput>(L"Document title"); editor->set_text(L"Untitled sample");
+            demo->add(editor); targets_[index] = editor;
+            auto enabled = std::make_shared<Toggle>(L"Enable document menu"); enabled->set_checked(true);
+            enabled->on_change([menu](bool value) { menu->set_enabled(value); }); demo->add(enabled);
+            label(demo, L"F10 enters the menu. Alt+F opens File. Arrow keys navigate; Escape returns focus.", TextTone::secondary);
+            label(demo, L"Recent samples contains a nested menu. Publish and Cut are disabled. No external actions run.", TextTone::secondary);
             break;
         }
         }

@@ -215,6 +215,9 @@ Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
+An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights supported source files, including `.xui`, C#, C++, JSON, and Python.
+Unknown extensions remain plain text.
+Highlighting does not change the preview's file-read restrictions, content limit, or cancellation scope.
 It retains the native document control because ordinary labels do not support text selection.
 The Open button uses the Open glyph and retains its accessible name.
 Each HWND has small and large file-type icons for Windows taskbar and window-switching surfaces.

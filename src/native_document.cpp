@@ -29,33 +29,71 @@ bool complete_utf16(std::wstring_view text) {
     }
     return true;
 }
-void document_defaults(HWND window, CHARFORMAT2W& format, bool all) {
-    Microsoft::WRL::ComPtr<IRichEditOle> ole;
-    win32_require(SendMessageW(window, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(ole.GetAddressOf())) != 0,
-        "Read native document formatting interface");
+struct DocumentPresentation {
+    HWND window;
     Microsoft::WRL::ComPtr<ITextDocument> document;
-    win32_require(SUCCEEDED(ole.As(&document)), "Read native document undo interface");
-    win32_require(SUCCEEDED(document->Undo(tomSuspend, nullptr)), "Preserve native document undo");
-    struct Resume { ITextDocument* value; ~Resume() { value->Undo(tomResume, nullptr); } } resume{document.Get()};
-    struct Restore {
-        HWND window;
-        CHARRANGE selection{};
-        POINT scroll{};
-        LRESULT modified{};
-        explicit Restore(HWND value) : window(value), modified(SendMessageW(value, EM_GETMODIFY, 0, 0)) {
-            SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-            SendMessageW(window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
-        }
-        ~Restore() {
+    CHARRANGE selection{};
+    POINT scroll{};
+    LRESULT modified{}, events{};
+    explicit DocumentPresentation(HWND value) : window(value) {
+        Microsoft::WRL::ComPtr<IRichEditOle> ole;
+        win32_require(SendMessageW(window, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(ole.GetAddressOf())) != 0,
+            "Read native document formatting interface");
+        win32_require(SUCCEEDED(ole.As(&document)), "Read native document undo interface");
+        win32_require(SUCCEEDED(document->Undo(tomSuspend, nullptr)), "Preserve native document undo");
+        modified = SendMessageW(window, EM_GETMODIFY, 0, 0);
+        SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+        SendMessageW(window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+        events = SendMessageW(window, EM_SETEVENTMASK, 0, 0);
+    }
+    ~DocumentPresentation() {
+        CHARRANGE current{};
+        SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&current));
+        if (current.cpMin != selection.cpMin || current.cpMax != selection.cpMax)
             SendMessageW(window, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-            SendMessageW(window, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
-            SendMessageW(window, EM_SETMODIFY, modified, 0);
-        }
-    } restore{window};
+        SendMessageW(window, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+        SendMessageW(window, EM_SETMODIFY, modified, 0);
+        document->Undo(tomResume, nullptr);
+        SendMessageW(window, EM_SETEVENTMASK, 0, events);
+    }
+};
+void document_defaults(HWND window, CHARFORMAT2W& format, bool all) {
+    DocumentPresentation presentation(window);
     win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format)) != 0,
         "Set native document text defaults");
     if (all) win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format)) != 0,
         "Set native plain document presentation");
+}
+void document_syntax(HWND window, const std::vector<SyntaxSpan>& spans, const std::array<COLORREF, 8>& colors) {
+    DocumentPresentation presentation(window);
+    CHARFORMAT2W format{sizeof(format)};
+    format.dwMask = CFM_COLOR;
+    format.crTextColor = colors[0];
+    win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format)) != 0,
+        "Reset native syntax default foreground");
+    win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format)) != 0,
+        "Reset native syntax foreground");
+    const bool read_only = (GetWindowLongPtrW(window, GWL_STYLE) & ES_READONLY) != 0;
+    for (const auto& span : spans) {
+        const auto color = colors[static_cast<std::size_t>(span.kind)];
+        if (color == colors[0]) continue;
+        if (read_only) {
+            // TOM rejects font writes on read-only peers. RichEdit's formatting
+            // message permits presentation without lifting the input restriction.
+            CHARRANGE selection{static_cast<LONG>(span.start), static_cast<LONG>(span.end)};
+            SendMessageW(window, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+            format.crTextColor = color;
+            win32_require(SendMessageW(window, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format)) != 0,
+                "Set read-only native syntax foreground");
+            continue;
+        }
+        Microsoft::WRL::ComPtr<ITextRange> range;
+        win32_require(SUCCEEDED(presentation.document->Range(static_cast<LONG>(span.start), static_cast<LONG>(span.end),
+            range.GetAddressOf())), "Read native syntax range");
+        Microsoft::WRL::ComPtr<ITextFont> font;
+        win32_require(SUCCEEDED(range->GetFont(font.GetAddressOf())), "Read native syntax font");
+        win32_require(SUCCEEDED(font->SetForeColor(static_cast<LONG>(color))), "Set native syntax foreground");
+    }
 }
 // RichEdit can otherwise deserialize OLE objects from the clipboard. This bridge
 // accepts only plain Unicode paste and application-authored run formatting.
@@ -119,7 +157,7 @@ void NativeDocumentBridge::attach(HWND parent, int id) {
     win32_require(window_ != nullptr, "Create native document control");
     win32_require(SetWindowSubclass(window_, subclass, 1, reinterpret_cast<DWORD_PTR>(this)) != FALSE, "Attach document adapter");
     if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
-        SendMessageW(window_, EM_SETTEXTMODE, document->rich() ? TM_RICHTEXT : TM_PLAINTEXT, 0);
+        win32_require(SendMessageW(window_, EM_SETTEXTMODE, TM_RICHTEXT, 0) == 0, "Set native document presentation mode");
         SendMessageW(window_, EM_SETUNDOLIMIT, 16, 0);
         SendMessageW(window_, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE | ENM_LINK);
         auto callback = new NoObjects;
@@ -174,7 +212,8 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         return value && !palette.high_contrast ? D2D1::ColorF(value->resolve(palette.mode)) : fallback;
     };
     const auto ink = IsWindowEnabled(window_) ? palette.text : palette.disabled;
-    const auto text_color = platform::native_color(text_style ? color(text_style->foreground, ink) : ink);
+    const auto text_color = platform::native_color(text_style && IsWindowEnabled(window_) ?
+        color(text_style->foreground, ink) : ink);
     const auto background = platform::native_color(root_style ? color(root_style->background, palette.field) : palette.field);
     const bool recolor = !colors_set_ || text_color_ != text_color || background_ != background;
     text_color_ = text_color; background_ = background; colors_set_ = true;
@@ -226,6 +265,7 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
             else colors_set_ = false;
         }
         if (!composing_ && revision_ != document->revision()) {
+            syntax_dirty_ = true;
             revision_ = document->revision();
             struct Source { std::wstring_view text; std::size_t offset{}; } source{document->text()};
             EDITSTREAM stream{};
@@ -265,6 +305,21 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
             selection_revision_ = document->selection_revision();
             CHARRANGE range{static_cast<LONG>(document->selection().start), static_cast<LONG>(document->selection().end)};
             SendMessageW(window_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
+        }
+        if (!document->rich()) {
+            std::array<COLORREF, 8> colors{
+                text_color_, platform::native_color(palette.secondary), platform::native_color(palette.folder),
+                platform::native_color(palette.folder), platform::native_color(palette.accent),
+                platform::native_color(palette.accent), platform::native_color(palette.file), platform::native_color(palette.accent)};
+            if (palette.high_contrast || !IsWindowEnabled(window_)) colors.fill(text_color_);
+            if (recolor) syntax_dirty_ = true;
+            if (!composing_ && (syntax_dirty_ || syntax_revision_ != document->syntax_revision() || syntax_colors_ != colors) &&
+                text() == document->text()) {
+                document_syntax(window_, document->syntax_spans(), colors);
+                syntax_revision_ = document->syntax_revision();
+                syntax_colors_ = colors;
+                syntax_dirty_ = false;
+            }
         }
     } else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
         if (recolor) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh native password colors");

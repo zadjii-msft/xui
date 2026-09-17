@@ -1,8 +1,29 @@
 # Control gallery
 
 The gallery is an interactive catalog built from XUI controls.
-Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
-Code blocks support native text selection and preserve indentation.
+Each page explains when to use the control, what to try, and which API rules affect application code.
+The live example reports events so you can connect each action to its result.
+The code tabs offer `.xui`, C#, Rust, and C++ examples.
+The gallery starts with `.xui` and remembers the selected language across pages.
+Code blocks support native text selection, preserve indentation, and use a monospace font.
+Copy code copies the selected language, not the live example's state.
+An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights the selected language.
+
+## Use the gallery as a reference
+
+1. Select a control from the catalog.
+2. Read the usage description and the steps under **Try this example**.
+3. Use the live controls and read the event output.
+4. Read **Usage and limits** for state, events, ownership, and binding differences.
+5. Select a language tab under **Code example**.
+6. Select **Control reference** for the control documentation.
+
+**Control reference** opens the corresponding page in the [XUI handbook](https://zadjii-msft.github.io/xui/).
+**Other links** in the navigation contains the handbook and each language guide.
+Select a link, then press Enter or double-click to open it.
+Link selection alone keeps the current example open.
+**Copy documentation link** copies the handbook URL.
+**Gallery source** opens the implementation of the live examples.
 
 See [CONTRIBUTING](../../CONTRIBUTING.md#gallery) for build and run commands.
 The optional [WinUI-style appearance](winui-style.md) has a compact experiment and a complete-catalog mode.
@@ -16,7 +37,7 @@ The optional [WinUI-style appearance](winui-style.md) has a compact experiment a
 5. Press Enter to focus its controls.
 
 The catalog uses `NavigationView` with category groups.
-Home and Appearance remain in the pinned header and footer.
+Home, Appearance, and Other links remain in the pinned header and footer.
 Search preserves the selected item identity.
 The page area shows a matching example or an empty state.
 
@@ -33,10 +54,26 @@ Previous and Next expand the pane and use visible example rows.
 The `--page` argument selects a page directly.
 Page IDs include `combo`, `popup`, `items`, `tree`, `miller-columns`, `adaptive`, `grid-extensions`, `commands`, `breadcrumb`, and `navigation`.
 Other IDs include `navigation-view`, `shell`, `titlebar`, `dialog`, `status`, `multiline`, `password`, `rich-text`, `date-time`, `color`, and `images`.
+Dedicated presentation pages use `toggle-switch`, `toggle-button`, and `progress-ring`.
+The `progress` and `progress-ring` pages share Advance, Indeterminate, Pause, and Error buttons.
+Their Show indicator switch controls visibility.
+These pages use the public controls, not gallery-specific drawing.
+
+The toggle pages separate switch preferences from button-shaped toggle actions.
+The progress pages demonstrate determinate, indeterminate, paused, and error states.
+Indeterminate motion respects visibility, enabled state, and the system client-area animation preference.
+The [foundation contract](foundation-controls.md) defines these controls and animation limits.
+
+The Input category also includes `checkbox`, `hyperlink-button`, and `selector-bar`.
+Appearance includes `info-badge`. Commands includes `menu-bar`.
+The checkbox example starts in the mixed state with three-state input enabled.
+The hyperlink callback reports an action without opening a browser.
+The menu bar has File, Edit, View, and disabled Publish roots, with nested Recent examples.
+Its sample commands do not change files, access the clipboard, or open a browser.
 
 The grid calculates synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.
-Pages create their examples on first use.
+The initial pages are created with the window. Later pages create their examples on first use.
 The gallery has no application-specific window procedure or drawing code.
 
 The `miller-columns` page uses the public `MillerColumns` control and immutable sources for a synthetic project library.

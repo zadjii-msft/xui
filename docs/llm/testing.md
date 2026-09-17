@@ -7,10 +7,14 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry poi
 
 The public contract is in [Packages and deployment](../specs/packages.md).
 `scripts\Build-Release.ps1` builds each architecture and stages its sample inventory.
-`scripts\New-ReleaseAssets.ps1` creates the packages, per-architecture sample ZIPs, and checksums.
+`scripts\New-ReleaseAssets.ps1` creates the packages, per-architecture sample and Designer ZIPs, and checksums.
 Release samples use `Get-XuiSamples -ReleaseOnly`. TaskCard opts out through `IsXuiReleaseSample=false`.
 Local native-copy checks retain the full sample inventory.
 The release build publishes C# samples with NativeAOT, size optimization, and no debug symbols.
+`scripts\Build-DesignerRelease.ps1` separately publishes self-contained Designer output for each architecture.
+The Designer retains managed assemblies and Roslyn for runtime compilation, without trimming, single-file output, or NativeAOT.
+Its SDK must match the target architecture because the Designer references the SDK's Roslyn assemblies.
+`packaging\DESIGNER.md` supplies the [archive instructions](../../packaging/DESIGNER.md).
 `packaging\Xui.nuspec` defines the combined NuGet layout.
 The native and managed imports have separate framework directories.
 `bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
@@ -36,13 +40,19 @@ It requires NativeAOT output without managed runtime files, managed assemblies, 
 These checks do not exercise each sample's interactive behavior.
 The existing desktop regressions remain responsible for that behavior.
 
-`tests\release-packaging-unit.ps1` runs the asset script with inert samples and substitute NuGet and Cargo packers.
+`tests\release-designer.ps1` extracts the Designer ZIP for the selected architecture.
+It checks file hashes, complete manifest coverage, licenses, runtime and compiler files, native PE architectures, and the self-contained runtime configuration.
+It runs the extracted executable with `--smoke`, a restricted `PATH`, and invalid external .NET root paths.
+The existing smoke exercises runtime compilation, preview construction, compilation errors, preview recovery, and file operations.
+The release workflow runs this check on each architecture.
+
+`tests\release-packaging-unit.ps1` runs the asset script with inert samples and Designer files, plus substitute NuGet and Cargo packers.
 It checks separate archive contents, licenses, checksums, existing-output refusal, and incorrect versions, architectures, or hashes.
 The workflow runs these checks before the release builds.
 
 `tests\release-workflow.ps1` replaces `gh` with a local fixture.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
-It also requires both architecture archives before any GitHub request.
+It also requires both sample archives and both Designer archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
 It also publishes and runs the FileExplorer model tests with NativeAOT on each architecture.
@@ -230,6 +240,12 @@ A blocked-loader test requires window closure to return before the loader can fi
 An isolated public-control server checks list names, automation IDs, independent focus, selection, and retained-provider rejection after closure.
 It requires the same manifest and desktop as the applications.
 `xui_gallery_smoke` covers UIA roles, names, identity, Invoke, Toggle, disabled action rejection, label updates, and native text.
+Its `--reference-only` mode checks every gallery page in each example language.
+It compares native document text and clipboard text against the catalog, including deferred pages.
+It checks the initial `.xui` tab and shared language selection across eager, deferred, and revisited pages.
+It also checks read-only editing, handbook URLs, and the Other links navigation group without opening a browser.
+`xui_gallery_catalog_tests` checks reference order, content coverage, and documentation paths against the source tree.
+The source map and commands are in [Contributing: Gallery](../../CONTRIBUTING.md#gallery).
 It also covers Tab, Shift+Tab, Space, Enter, pointer cancellation, theme changes, idle paint counts, and provider invalidation after shutdown.
 The native UIA text proxy can complete focus changes after a method returns.
 The browser and gallery probes require stable focus before keyboard sequences instead of accepting a transient focus notification.

@@ -17,6 +17,8 @@ internal static class Tests
             if (args is ["--file-dialogs"]) { FileDialogTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
+            if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }
+            if (args is ["--parity-controls"]) { FeatureTests.ParityControls(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }
             if (args is ["--visual-primitives"]) { Run(); return 0; }
@@ -89,7 +91,7 @@ internal static class Tests
             var image = w.Image("Image").FixedSize(100, 100).Source("");
             var open = w.Button("Open selected file").SetIcon(ButtonIcon.Open);
             Assert((uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 && open.Icon == ButtonIcon.Open);
-            Throws<XuiException>(() => open.SetIcon((ButtonIcon)23));
+            Throws<XuiException>(() => open.SetIcon((ButtonIcon)29));
             Assert(open.Icon == ButtonIcon.Open);
             Assert(ReferenceEquals(image, image.Source("")));
             Assert(ReferenceEquals(image, image.ShellSource(".", 160, 160)));

@@ -1,0 +1,5 @@
+#pragma once
+#include <string>
+namespace xui::detail {
+inline const std::string lsh_grammar = @XUI_LSH_GRAMMAR@;
+}

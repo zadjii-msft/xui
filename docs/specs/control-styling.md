@@ -12,6 +12,12 @@ An authored face uses a flat fill, a border, and one corner radius.
 Authored faces do not retain the WinUI elevation gradient.
 A style that changes only text color or padding keeps the existing face.
 
+Labels have no background fill unless the application specifies `background`.
+Font, foreground, padding, and border properties do not add a fill.
+The parent surface remains visible through the label in Classic and WinUI.
+`TextInput` captions also have transparent backgrounds.
+The editor field retains its own background.
+
 The [Minesweeper demo](../../bindings/dotnet/Minesweeper/README.md) uses shared styles for borderless cleared cells, numbered cells, flags, and game outcomes.
 Its presentation layer changes style references without changing game rules or cell identity.
 
@@ -216,6 +222,16 @@ The current generic schema also supports root/label typography and alignment.
 The inventory and exported catalog describe the complete current coverage.
 
 Toggle uses `ControlStyle`, not `ButtonStyle`.
+`ToggleSwitch` reuses the `toggle` target, parts, and checked-state rules.
+Its indicator has a switch pill and thumb instead of a checkbox mark.
+`ToggleButton` reuses the `button` target.
+`ProgressRing` reuses the `progress` target.
+These presentations add no style catalog targets.
+CheckBox also uses `toggle`, with the `mark` part for checked and mixed-state marks.
+HyperlinkButton uses `button`. SelectorBar uses `choice_list`.
+InfoBadge uses `inline_status`, with `root`, `message`, and `icon` parts.
+MenuBar uses `command_bar`, with Button styles on its retained headings.
+These aliases preserve the existing style IDs and do not add unrelated behavior from the target family.
 The generic engine stores sparse per-part state rules instead of every possible state combination.
 The state mask has 64 bits.
 The pilot accepts `focused`, `checked`, `hovered`, `pressed`, and `disabled`, in that precedence order.
@@ -309,6 +325,8 @@ Styles must not rewrite existing rich runs or clear the undo history.
 The separate `RichText` target preserves this distinction.
 
 `TextInput` exposes its existing header and clear-action parts.
+The retained renderer paints the header text without a background fill.
+The native caption window still supplies the accessible name for the editor.
 The `clear_action` part accepts only `background`, `foreground`, `borderBrush`, and `cornerRadius`.
 Padding, border thickness, size, and typography are unsupported on this part.
 The native action bounds and editor reservation remain unchanged.

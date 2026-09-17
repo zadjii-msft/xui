@@ -10,6 +10,9 @@ It uses the existing Win32, Direct2D, and native text-input backend.
 The gallery has live Classic/WinUI and theme controls for comparison.
 Standard, accent, and subtle buttons retain the same interaction behavior.
 The skin also covers radio groups, choice lists, combo boxes, numeric inputs, expanders, sliders, and progress indicators.
+`ToggleSwitch` adds a switch presentation without changing the existing Toggle checkbox.
+`ToggleButton` selects Button toggle behavior by default.
+`ProgressRing` shares the Progress model and defaults to indeterminate state.
 Grids, collections, scrollbars, split views, charts, status messages, dialogs, and tooltips use the same style.
 Native documents and password inputs have themed frames.
 Image, vector, map, and runtime-host frames retain their authored content colors.
@@ -20,6 +23,10 @@ The style switch preserves the current page, control values, and native text.
 The compact experiment remains the default for `xui_winui_gallery`.
 Its **Control specimens** page shows default-size controls without gallery-specific height overrides.
 This page includes enabled and disabled fields, buttons, choices, an expander, and a content dialog.
+Its **Toggles and progress** card includes a ToggleSwitch, ToggleButton, ProgressRing, and Progress bar.
+The **Indeterminate task** switch selects indeterminate state or a determinate value of 60%.
+The specimens also include CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar examples.
+The hyperlink and menu commands have sample callbacks, without browser, file, or clipboard effects.
 
 The WinUI presentation now changes measurement and part layout, not only paint.
 Style changes preserve control identity and values, but can change their bounds.
@@ -66,8 +73,12 @@ Buttons and selection indicators use translucent template brushes, including sep
 Dark accent text and selected marks use black. Radio dots remain geometry, not font characters.
 Navigation uses a 14-DIP semibold pane title and an unframed menu button.
 Catalog-wide paint coverage does not establish pixel or behavior parity with WinUI.
-It does not implement Mica, acrylic, animation, automatic system accent selection, or WinUI API compatibility.
-Indeterminate progress uses a static segment, not an animation timer.
+It does not implement Mica, acrylic, general control transitions, automatic system accent selection, or WinUI API compatibility.
+Indeterminate bars and rings use a window-owned animation timer while attached, visible, and effectively enabled.
+Hidden or minimized windows stop the timer.
+The system client-area animation preference suppresses motion.
+Unknown states and capacity meters remain static.
+The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines lifecycle limits.
 Date/time controls, native suggestion lists, native editor scrollbars, disabled RichEdit backgrounds, and third-party Shell menus retain platform-owned visuals.
 The C ABI exposes window style selection through `xui_window_visual_style_set` and `xui_window_visual_style_get` in `xui_layout.h`.
 The .NET binding accepts `visualStyle: VisualStyle.WinUI` in the `Window` constructor.

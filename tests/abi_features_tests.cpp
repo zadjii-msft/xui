@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <vector>
@@ -13,12 +14,25 @@
 namespace {
 unsigned assertions{};
 void expect(bool condition, const std::source_location where = std::source_location::current()) {
-    if (!condition) { std::cerr << "Feature assertion failed at line " << where.line() << '\n'; std::abort(); }
+    if (!condition) { std::cerr << "Feature assertion failed at line " << where.line() << '\n'; std::exit(EXIT_FAILURE); }
     ++assertions;
 }
-void ok(xui_status status) { if (status) { char error[1024]{}; uint32_t size{}; xui_status code{}; xui_error_copy(error,1024,&size,&code); std::cerr.write(error,size); std::cerr << '\n'; } expect(status == 0); }
+void ok(xui_status status, const std::source_location where = std::source_location::current()) {
+    if (status) {
+        char error[1024]{}; uint32_t size{}; xui_status code{};
+        xui_error_copy(error,1024,&size,&code);
+        std::cerr.write(error,size); std::cerr << '\n';
+    }
+    expect(status == 0, where);
+}
 xui_string text(const char* v) { return {v, static_cast<uint32_t>(std::strlen(v)), 0}; }
 xui_feature_value value() { xui_feature_value v{}; v.size=sizeof(v); v.version=XUI_FEATURE_VERSION; return v; }
+xui_feature_value read_value(xui_handle target, uint32_t property,
+    const std::source_location where = std::source_location::current()) {
+    auto result = value();
+    ok(xui_feature_get(target, property, &result), where);
+    return result;
+}
 xui_handle create(xui_handle w,uint32_t kind,xui_handle content=0,xui_handle second=0) {
     xui_feature_options o{sizeof(o),XUI_FEATURE_VERSION,text("Feature"),content,second};
     xui_handle h{};ok(xui_feature_create(w,kind,&o,&h));return h;
@@ -861,15 +875,26 @@ void explorer_contracts() {
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_VERSION_MISMATCH);
     visuals[1].size = sizeof(xui_item_visual);
     static_assert(XUI_BUTTON_ICON_DRIVE == 21 && XUI_BUTTON_ICON_OPEN == 22);
-    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_OPEN; ++icon) {
+    static_assert(XUI_BUTTON_ICON_SAVE == 23 && XUI_BUTTON_ICON_CHEVRON_DOWN == 28);
+    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_CHEVRON_DOWN; ++icon) {
         visuals[1].icon = icon;
         ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
+        tab_visuals[0].icon = icon;
+        ok(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1));
         auto button_icon = value(); button_icon.first = icon;
         ok(xui_feature_set(leading, XUI_F_BUTTON_ICON, &button_icon));
         button_icon = value();
         ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &button_icon)); expect(button_icon.first == icon);
     }
-    visuals[1].icon = XUI_BUTTON_ICON_OPEN + 1;
+    auto invalid_icon = value(); invalid_icon.first = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
+    invalid_icon.first = UINT64_MAX;
+    expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
+    auto retained_icon = value();
+    ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &retained_icon)); expect(retained_icon.first == XUI_BUTTON_ICON_CHEVRON_DOWN);
+    tab_visuals[0].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
+    visuals[1].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
     visuals[1].icon = 15;
     const std::string oversized(32768, 'x');
@@ -963,10 +988,165 @@ void split_first_visibility_contracts() {
     expect(xui_split_get_first_visible(split, &visible) == XUI_INVALID_HANDLE);
     expect(xui_split_set_first_visible(split, 1) == XUI_INVALID_HANDLE);
 }
+void toggle_control_contracts() {
+    static_assert(XUI_RETAINED_ELEMENT == 47 && XUI_TOGGLE_SWITCH == 48 && XUI_TOGGLE_BUTTON == 49 && XUI_PROGRESS_RING == 50);
+    static_assert(XUI_F_BUTTON_ICON == 45 && XUI_F_CHECKED == 46 && XUI_F_PROGRESS_CAPACITY == 47);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Toggle controls"), 400, 300};
+    xui_handle window{}; ok(xui_window_create(&options, &window));
+    const auto toggle = create(window, XUI_TOGGLE_SWITCH);
+    const auto button = create(window, XUI_TOGGLE_BUTTON);
+    const auto ring = create(window, XUI_PROGRESS_RING);
+    const auto progress = create(window, XUI_PROGRESS);
+    std::vector<xui_event> events;
+    auto receive = +[](void* context, const xui_event* e) -> xui_status {
+        static_cast<std::vector<xui_event>*>(context)->push_back(*e); return XUI_OK;
+    };
+    for (auto handle : {toggle, button}) {
+        const auto property = handle == toggle ? XUI_F_CHECKED : XUI_F_BUTTON_CHECKED;
+        expect(read_value(handle, property).first == 0);
+        ok(xui_subscribe(handle, receive, &events));
+        auto v = value(); v.first = 1; ok(xui_feature_set(handle, property, &v)); expect(events.empty());
+        ok(xui_invoke(handle));
+        expect(!events.empty() && events.front().kind == XUI_CHANGE && events.front().value == 0 && events.front().source == handle);
+        expect(events.size() == 1);
+        expect(read_value(handle, property).first == 0);
+        events.clear();
+        v.first = 2; expect(xui_feature_set(handle, property, &v) == XUI_INVALID_ARGUMENT);
+        expect(read_value(handle, property).first == 0);
+        ok(xui_subscribe(handle, nullptr, nullptr));
+        ok(xui_invoke(handle)); expect(events.empty());
+        expect(read_value(handle, property).first == 1);
+    }
+    expect(read_value(ring, XUI_F_PROGRESS_STATE).first == 1);
+    expect(read_value(progress, XUI_F_PROGRESS_STATE).first == 0);
+    auto v = value(); v.a = 100; v.b = 200; v.c = 1; v.d = 10;
+    ok(xui_feature_set(ring, XUI_F_RANGE, &v));
+    v = value(); v.a = 150; ok(xui_feature_set(ring, XUI_F_VALUE, &v));
+    expect(read_value(ring, XUI_F_VALUE).a == 150);
+    for (uint64_t state = 0; state <= 4; ++state) {
+        v = value(); v.first = state; ok(xui_feature_set(ring, XUI_F_PROGRESS_STATE, &v));
+        expect(read_value(ring, XUI_F_PROGRESS_STATE).first == state);
+    }
+    v = value(); v.a = 25; v.b = 80; v.text = text("items");
+    ok(xui_feature_set(ring, XUI_F_PROGRESS_CAPACITY, &v));
+    expect(read_value(ring, XUI_F_PROGRESS_STATE).first == 0);
+    const auto range = read_value(ring, XUI_F_RANGE); expect(range.a == 0 && range.b == 80);
+    expect(read_value(ring, XUI_F_VALUE).a == 25);
+    v = value(); v.a = 81; v.b = 80; expect(xui_feature_set(ring, XUI_F_PROGRESS_CAPACITY, &v) == XUI_INVALID_ARGUMENT);
+    expect(read_value(ring, XUI_F_VALUE).a == 25);
+    v = value(); expect(xui_feature_get(ring, XUI_F_CHECKED, &v) == XUI_WRONG_KIND);
+    expect(xui_invoke(ring) == XUI_WRONG_KIND);
+    for (auto handle : {toggle, button, ring}) {
+        xui_style_property property{sizeof(property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND,
+            XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x234567}};
+        ok(xui_control_set_style_values(handle, XUI_STYLE_ROOT, &property, 1));
+    }
+    xui_button_style_values legacy{}; legacy.size = sizeof(legacy); legacy.version = XUI_BUTTON_STYLE_VERSION;
+    ok(xui_button_set_style_values(button, &legacy));
+    ok(xui_button_get_style_values(button, 0, &legacy));
+    ok(xui_window_destroy(window));
+    expect(xui_invoke(toggle) == XUI_INVALID_HANDLE);
+}
+void parity_control_contracts() {
+    static_assert(XUI_CHECK_BOX == 51 && XUI_HYPERLINK_BUTTON == 52 && XUI_SELECTOR_BAR == 53 && XUI_INFO_BADGE == 54 && XUI_MENU_BAR == 55);
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Parity controls"), 400, 300};
+    xui_handle window{}; ok(xui_window_create(&options, &window));
+    const auto check = create(window, XUI_CHECK_BOX), link = create(window, XUI_HYPERLINK_BUTTON);
+    const auto selector = create(window, XUI_SELECTOR_BAR), badge = create(window, XUI_INFO_BADGE), menu = create(window, XUI_MENU_BAR);
+    std::vector<xui_event> events;
+    auto receive = +[](void* context, const xui_event* e) -> xui_status {
+        static_cast<std::vector<xui_event>*>(context)->push_back(*e); return XUI_OK;
+    };
+    expect(read_value(check, XUI_F_CHECK_STATE).first == 0 && read_value(check, XUI_F_THREE_STATE).first == 0);
+    ok(xui_subscribe(check, receive, &events));
+    auto v = value(); v.first = 1; ok(xui_feature_set(check, XUI_F_THREE_STATE, &v));
+    v.first = 2; ok(xui_feature_set(check, XUI_F_CHECK_STATE, &v)); expect(events.empty());
+    expect(read_value(check, XUI_F_CHECK_STATE).first == 2);
+    v.first = 3; expect(xui_feature_set(check, XUI_F_CHECK_STATE, &v) == XUI_INVALID_ARGUMENT);
+    expect(read_value(check, XUI_F_CHECK_STATE).first == 2);
+    v.first = 0; ok(xui_feature_set(check, XUI_F_CHECK_STATE, &v));
+    ok(xui_invoke(check)); expect(events.size() == 1 && events.back().kind == XUI_CHANGE && events.back().value == 1);
+    ok(xui_subscribe(check, nullptr, nullptr)); ok(xui_invoke(check)); expect(events.size() == 1);
+    events.clear(); ok(xui_subscribe(link, receive, &events));
+    ok(xui_invoke(link)); expect(events.size() == 1 && events.back().kind == XUI_CLICK && events.back().source == link);
+    v = value(); v.first = 2; ok(xui_feature_set(link, XUI_F_BUTTON_ICON, &v));
+    expect(read_value(link, XUI_F_BUTTON_ICON).first == 2);
+    expect(read_value(selector, XUI_F_SELECTED).second == 0);
+    xui_choice choices[]{{sizeof(xui_choice), 0, 1, 0, text("First")}, {sizeof(xui_choice), 0, 2, 0, text("Second")},
+        {sizeof(xui_choice), 1, 3, 0, text("Disabled")}};
+    ok(xui_subscribe(selector, receive, &events)); events.clear();
+    ok(xui_choices(selector, choices, 3, 0, 0));
+    auto selected = read_value(selector, XUI_F_SELECTED); expect(selected.first == 1 && selected.second == 1 && events.empty());
+    v = value(); v.first = 2; ok(xui_feature_set(selector, XUI_F_SELECTED, &v));
+    expect(read_value(selector, XUI_F_SELECTED).first == 2 && events.empty());
+    v.first = 99; expect(xui_feature_set(selector, XUI_F_SELECTED, &v) == XUI_INVALID_ARGUMENT);
+    expect(read_value(selector, XUI_F_SELECTED).first == 2);
+    expect(xui_choices(selector, choices, 3, 3, 1) == XUI_INVALID_ARGUMENT);
+    expect(read_value(selector, XUI_F_SELECTED).first == 2);
+    choices[1].id = 1; expect(xui_choices(selector, choices, 3, 0, 0) == XUI_INVALID_ARGUMENT);
+    choices[1].id = 0; expect(xui_choices(selector, choices, 3, 0, 0) == XUI_INVALID_ARGUMENT); choices[1].id = 2;
+    ok(xui_choices(selector, choices, 3, 0, 0)); expect(read_value(selector, XUI_F_SELECTED).first == 2);
+    ok(xui_feature_action(selector, XUI_A_SELECT, 1, 0));
+    expect(events.size() == 1 && events.back().kind == XUI_SELECTION && events.back().value == 1);
+    v = value(); expect(xui_feature_set(selector, XUI_F_SELECTED, &v) == XUI_INVALID_ARGUMENT);
+    ok(xui_choices(selector, nullptr, 0, 0, 0)); expect(read_value(selector, XUI_F_SELECTED).second == 0);
+    expect(read_value(badge, XUI_F_BADGE_KIND).first == 0 && read_value(badge, XUI_F_BADGE_COUNT).first == 0 &&
+        read_value(badge, XUI_F_BADGE_ICON).first == 0);
+    v = value(); v.first = UINT32_MAX; ok(xui_feature_set(badge, XUI_F_BADGE_COUNT, &v));
+    expect(read_value(badge, XUI_F_BADGE_KIND).first == 1 && read_value(badge, XUI_F_BADGE_COUNT).first == UINT32_MAX);
+    v.first = uint64_t(UINT32_MAX) + 1; expect(xui_feature_set(badge, XUI_F_BADGE_COUNT, &v) == XUI_INVALID_ARGUMENT);
+    v.first = 2; ok(xui_feature_set(badge, XUI_F_BADGE_ICON, &v));
+    expect(read_value(badge, XUI_F_BADGE_KIND).first == 2 && read_value(badge, XUI_F_BADGE_ICON).first == 2);
+    expect(xui_feature_action(badge, XUI_A_SET_DOT, 1, 0) == XUI_INVALID_ARGUMENT);
+    ok(xui_feature_action(badge, XUI_A_SET_DOT, 0, 0)); expect(read_value(badge, XUI_F_BADGE_KIND).first == 0);
+    expect(xui_invoke(badge) == XUI_WRONG_KIND);
+    xui_command_record commands[]{{sizeof(xui_command_record), 1, 1, 0, text("File"), {}, {}, 0, 0},
+        {sizeof(xui_command_record), 0, 2, 1, text("Open"), text("Ctrl+O"), text("Pin"), 0, 0}};
+    ok(xui_subscribe(menu, receive, &events)); events.clear();
+    ok(xui_commands_set(menu, commands, 2)); expect(events.empty());
+    ok(xui_command_invoke(menu, 2, 0)); expect(events.size() == 1 && events.back().kind == XUI_CLICK && events.back().value == 2);
+    ok(xui_command_invoke(menu, 2, 1)); expect(events.size() == 2 && events.back().kind == XUI_ACTION);
+    commands[0].kind = 0; expect(xui_commands_set(menu, commands, 2) == XUI_INVALID_ARGUMENT); commands[0].kind = 1;
+    commands[1].parent = 99; expect(xui_commands_set(menu, commands, 2) == XUI_INVALID_ARGUMENT); commands[1].parent = 1;
+    std::vector<xui_command_record> too_many_roots(65, commands[0]);
+    for (size_t i = 0; i < too_many_roots.size(); ++i) too_many_roots[i].id = i + 1;
+    expect(xui_commands_set(menu, too_many_roots.data(), static_cast<uint32_t>(too_many_roots.size())) == XUI_INVALID_ARGUMENT);
+    ok(xui_command_invoke(menu, 2, 0)); expect(events.size() == 3);
+    ok(xui_command_bind(menu, 2, 'O', 1));
+    ok(xui_subscribe(menu, nullptr, nullptr));
+    ok(xui_command_invoke(menu, 2, 0)); expect(events.size() == 3);
+    ok(xui_subscribe(menu, receive, &events));
+    ok(xui_command_invoke(menu, 2, 1)); expect(events.size() == 4 && events.back().kind == XUI_ACTION);
+    ok(xui_commands_set(menu, nullptr, 0)); expect(xui_command_invoke(menu, 2, 0) == XUI_INVALID_ARGUMENT);
+    for (auto handle : {check, link, selector, badge, menu}) {
+        xui_style_property property{sizeof(property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND,
+            XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x234567}};
+        ok(xui_control_set_style_values(handle, XUI_STYLE_ROOT, &property, 1));
+    }
+    v = value(); expect(xui_feature_get(link, XUI_F_CHECK_STATE, &v) == XUI_WRONG_KIND);
+    ok(xui_window_destroy(window));
+}
 int main(int argc, char** argv) {
+#ifdef _MSC_VER
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     if (argc == 2 && std::strcmp(argv[1], "--split-first-visible") == 0) {
         split_first_visibility_contracts();
         std::cout << "Split first visibility contracts: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--parity-controls") == 0) {
+        std::cout << "Parity control ABI contracts built " << __DATE__ << ' ' << __TIME__ << std::endl;
+        parity_control_contracts();
+        std::cout << "Parity control contracts: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--toggle-controls") == 0) {
+        std::cout << "Toggle control ABI contracts built " << __DATE__ << ' ' << __TIME__ << std::endl;
+        parity_control_contracts();
+        toggle_control_contracts();
+        std::cout << "Toggle control contracts: " << assertions << " assertions\n";
         return 0;
     }
     if (argc == 2 && std::strcmp(argv[1], "--activation") == 0) {
@@ -974,6 +1154,7 @@ int main(int argc, char** argv) {
         std::cout << "Initial activation contracts: " << assertions << " assertions\n";
         return 0;
     }
+    toggle_control_contracts();
     retained_navigation_style_bridges();
     split_first_visibility_contracts();
     retained_facade_style_contracts();
@@ -1095,6 +1276,18 @@ int main(int argc, char** argv) {
     expect(xui_map_complete(othermap,token,nullptr,0)==XUI_INVALID_ARGUMENT);ok(xui_request_cancel(token));
     xui_command_record commands[]{{sizeof(xui_command_record),0,1,0,text("Action"),text("Ctrl+K"),text("Pin"),0,0}};
     auto bar=handles[XUI_COMMAND_BAR];ok(xui_commands_set(bar,commands,1));xui_event action{};ok(xui_subscribe(bar,event,&action));
+    for (uint32_t icon = 14; icon <= XUI_BUTTON_ICON_CHEVRON_DOWN; ++icon) {
+        commands[0].icon = icon;
+        ok(xui_commands_set(bar, commands, 1));
+        xui_handle command_button{}; ok(xui_command_bar_button(bar, 1, &command_button));
+        auto command_icon = value();
+        ok(xui_feature_get(command_button, XUI_F_BUTTON_ICON, &command_icon));
+        expect(command_icon.first == icon);
+    }
+    commands[0].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    expect(xui_commands_set(bar, commands, 1) == XUI_INVALID_ARGUMENT);
+    commands[0].icon = 0;
+    ok(xui_commands_set(bar, commands, 1));
     ok(xui_command_invoke(bar,1,0));expect(action.kind==XUI_CLICK && action.value==1);
     ok(xui_command_invoke(bar,1,1));expect(action.kind==XUI_ACTION && action.value==1);
     ok(xui_command_bind(bar,1,'K',1));

@@ -3,9 +3,13 @@
 The designer is a XUI application for editing one `.xui` component.
 Its [layout](../../bindings/dotnet/Designer/DesignerLayout.xui) uses `.xui`.
 Its native `MultilineText` editor uses Consolas and keeps Windows selection, clipboard, undo, and IME behavior.
+An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights XUI and embedded C# as the source changes.
+Highlighting remains active when live preview is paused.
 The preview uses the existing XUI compiler and native controls, not an HTML approximation.
 
 Build and run commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
+Release downloads include separate [Designer archives](packages.md#designer-archives) for Windows x64 and ARM64.
+These archives include the .NET runtime and compiler, so no separate .NET installation is necessary.
 The [language guide](xui-language.md) describes the source syntax.
 
 ## Example documents
@@ -34,13 +38,46 @@ The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
 
-Ctrl+F focuses the native Find field above the source editor.
+Enter copies the current line's leading spaces and tabs onto the new line.
+Within the indentation, Enter copies only the whitespace before the caret.
+With no selection, Tab within the leading whitespace adds four spaces.
+Shift+Tab removes up to four leading spaces or one leading tab, without moving focus.
+Tab after source text or with a selection keeps the existing focus-navigation behavior.
+Each indentation edit creates one native undo action.
+
+The file and preview controls occupy a separate, shaded toolbar above the workspace.
+The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
+New, open, save, recovery, undo, redo, and render use compact icon buttons.
+Each icon keeps a descriptive accessible name and a tooltip.
+**Style: WinUI** / **Style: Classic** switches the Designer and preview between visual styles.
+The switch preserves control values, source undo, and preview state without recompilation.
+The visual style is independent of the **Light theme** setting.
+Routine hierarchy and property hints use tooltips instead of persistent labels.
+Read-only reasons and errors remain visible.
+
+Find starts collapsed.
+Ctrl+F opens a compact Find panel above the source editor and focuses its native field.
 F3 selects the next literal match, and Shift+F3 selects the previous match.
+These shortcuts also open the panel if it is closed.
 The **Aa** toggle selects case-sensitive matching.
 Search reads the current source each time and does not change text or undo history.
-Enter in the Find field selects a match, and Escape returns focus to source.
+Enter in the Find field selects a match.
+Escape or the close button collapses the panel and returns focus to source.
+Escape also closes the panel after a search returns focus to source.
+The panel retains its query and case choice between uses.
+
+The hierarchy, property inspector, and Output have theme-aware backgrounds and borders.
+Hierarchy rows use a compact 28-DIP height with reduced padding and indentation.
+
+Output starts collapsed to a status row at the bottom of the window.
+The borderless up-chevron beside **Output** expands the pane; the down-chevron collapses it.
+When expanded, the button and status move to the top of the pane, above its contents.
+The pane contains file feedback and compiler diagnostics.
+Compile, preview, and file errors expand Output automatically.
+The source editor keeps its document, selection, and undo history as either panel opens or closes.
 
 The hierarchy uses a native TreeView with expandable controls.
+Each row shows the control kind and its optional positional value, without source offsets.
 Selecting a control selects its source range and scrolls the source editor to that range.
 **Select from caret**, or Ctrl+Shift+L, selects the control that contains the source caret.
 Hierarchy identities belong to one exact source revision.
@@ -56,7 +93,9 @@ Unsupported preview surfaces produce an explicit error and keep the previous mod
 
 Selection from the hierarchy, Find, diagnostics, or preview also requests a preview outline.
 The outline does not cover native controls or change their input behavior.
-The preview status explains hidden, clipped, overlapping, and unsupported selections.
+The **Live preview** heading tooltip explains hidden, clipped, overlapping, and unsupported outlines.
+The **Pick controls** tooltip describes the current pointer mode.
+Failures appear in the Output status row.
 The hierarchy and inspector remain available when an outline cannot appear.
 A source revision clears the outline until the current preview is ready.
 Later layout changes can hide an outline that was initially visible.
@@ -238,7 +277,16 @@ It changes placement only in the new copy and refuses existing placement express
 
 `InsertControl` inserts a complete template at an ordered child index in a Stack or Grid.
 Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, and Progress.
+ToggleSwitch, ToggleButton, and ProgressRing also have dedicated templates.
+CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar have dedicated templates.
 RangeInput and Progress templates start at 50 within the native default range from 0 through 100.
+Both toggle templates start unchecked.
+The ProgressRing template retains the native indeterminate default and requests a 32-by-32-DIP preferred size.
+CheckBox starts unchecked with three-state input off.
+SelectorBar starts with First and Second choices and selects First.
+InfoBadge starts as a dot.
+MenuBar starts with a File submenu and an Open command.
+The HyperlinkButton and MenuBar templates have no application actions.
 These palette templates have no handlers or external dependencies.
 Wrapper templates contain the required children.
 DataGrid starts with Name and Value columns and no rows.

@@ -130,6 +130,14 @@ internal sealed class PreviewSession : IDisposable
             {
                 Text.Text = result.Text;
                 Text.Visible(true);
+                if (result.Kind == FilePreviewKind.Text && MultilineText.SyntaxHighlightingAvailable)
+                {
+                    try { Text.SetSyntaxPath(selected.Name); }
+                    catch (XuiException error)
+                    {
+                        SetMessage($"Syntax highlighting failed: {error.Message}", StatusSeverity.Error);
+                    }
+                }
             }
         }, error =>
         {
