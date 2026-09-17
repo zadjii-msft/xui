@@ -455,6 +455,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
         const bool caption = hwnd == peer.caption;
+        // Keep STATIC for EDIT's accessible name, but paint its text in the retained frame.
+        if (caption && message == WM_ERASEBKGND) return 1;
+        if (caption && message == WM_PAINT) {
+            ValidateRect(hwnd, nullptr);
+            return 0;
+        }
+        if (caption && (message == WM_PRINTCLIENT || message == WM_PRINT)) return 0;
         auto* provider = caption ? peer.caption_provider : peer.provider;
         if ((message == WM_PRINTCLIENT || message == WM_PRINT) && peer.native_occluded && !peer.host.composing_native) {
             const auto dc = reinterpret_cast<HDC>(wparam);
@@ -730,7 +737,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         } else if (role == ControlRole::text_input) {
             auto& input = static_cast<TextInput&>(*peer->control);
             // The preceding native STATIC supplies EDIT's accessible name.
-            peer->caption = CreateWindowExW(0, L"STATIC", peer->control->name().c_str(),
+            peer->caption = CreateWindowExW(WS_EX_TRANSPARENT, L"STATIC", peer->control->name().c_str(),
                 WS_CHILD | (input.caption_visible() ? WS_VISIBLE : 0) | SS_LEFT | SS_NOPREFIX, 0, 0, 1, 1, native_parent,
                 nullptr, GetModuleHandleW(nullptr), nullptr);
             win32_require(peer->caption != nullptr, "Create text input label");
@@ -2220,7 +2227,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             static_cast<LONG>(std::lround((bounds.y + bounds.height) * scale))};
                         IntersectRect(&clip, &clip, &parent_clip);
                     }
-                    if (IsWindowVisible(peer->caption)) native.push_back({peer->caption, clip});
                     if (IsWindowVisible(peer->window)) native.push_back({peer->window, clip});
                 }
                 // Present native and custom pixels together. A transparent viewport
@@ -2245,7 +2251,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         std::vector<HWND> overlay_native;
                         for (const auto& peer : peers) if (peer->adaptive == layout && popup_owner(peer.get()) == owner) {
                             paint_peer(peer);
-                            if (peer->native()) { overlay_native.push_back(peer->window); if (peer->caption) overlay_native.push_back(peer->caption); }
+                            if (peer->native()) overlay_native.push_back(peer->window);
                         }
                         drawing.present_native(overlay_native);
                         for (auto* parent = representative->parent; parent; parent = parent->parent) drawing.pop_clip();
@@ -2294,7 +2300,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     for (const auto& peer : peers) if (popup_owner(peer.get()) == entry.popup->id()) {
                         paint_peer(peer);
                         if (peer->native()) {
-                            popup_native.push_back(peer->window); if (peer->caption) popup_native.push_back(peer->caption);
+                            popup_native.push_back(peer->window);
                         }
                     }
                     drawing.present_native(popup_native);
@@ -2333,9 +2339,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 redraw = !composed || !drawing.end();
                 ++paints;
                 // Transparent custom HWNDs retain input and UIA, but not targets.
-                // WS_CLIPCHILDREN protects opaque native EDIT and caption pixels.
-                for (const auto& peer : peers)
+                // WS_CLIPCHILDREN protects opaque native EDIT pixels.
+                for (const auto& peer : peers) {
                     if (!peer->native()) ValidateRect(peer->window, nullptr);
+                    if (peer->caption) ValidateRect(peer->caption, nullptr);
+                }
             }
         } catch (...) { EndPaint(window, &paint); throw; }
         EndPaint(window, &paint);
@@ -2471,6 +2479,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         auto bounds = peer.control->bounds();
         const auto& input = static_cast<TextInput&>(*peer.control);
         if (input.caption_visible()) {
+            const auto* header = input.effective_control_style_values(StylePart::header);
+            auto typography = header ? *header : PartStyleValues{};
+            typography.horizontal_alignment = StyleAlignment::start;
+            typography.vertical_alignment = StyleAlignment::start;
+            typography.wrapping = true;
+            const auto ink = header && header->foreground && !palette.high_contrast ?
+                D2D1::ColorF(header->foreground->resolve(palette.mode)) : enabled(peer) ? palette.text : palette.disabled;
+            drawing.styled_text(input.name(), {bounds.x, bounds.y, bounds.width, std::min(input.caption_height(), bounds.height)},
+                ink, typography, palette.style == VisualStyle::winui ? TextStyle::body : TextStyle::caption);
             bounds.y += input.caption_extent();
             bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
         }
@@ -3580,9 +3597,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer.text_layout = canvas.layout(control.name(), control.text_style(), measured);
         }
         const auto* status_parent = peer.parent ? dynamic_cast<InlineStatus*>(peer.parent->control.get()) : nullptr;
-        if (!fluent || status_parent)
-            canvas.fill({0, 0, bounds.width, bounds.height}, fluent && status_parent ? status_fill(status_parent->severity()) :
-                peer.surface ? palette.surface : palette.background);
+        if (status_parent)
+            canvas.fill({0, 0, bounds.width, bounds.height}, status_fill(status_parent->severity()));
         const float inset_size = fluent ? 0.5f : 2.0f;
         const Rect box{inset_size, inset_size, std::max(0.0f, bounds.width - 2 * inset_size), std::max(0.0f, bounds.height - 2 * inset_size)};
         const auto text = enabled(peer) ? palette.text : palette.disabled;

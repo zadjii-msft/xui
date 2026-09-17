@@ -14,7 +14,7 @@ internal static class Program
             using var workspace = new DesignerWorkspace(window, editor, error => diagnostics.Text = error);
             var templates = window.ComboBox("Document template", false);
             var view = new DesignerLayout(window, editor, diagnostics, workspace.Hierarchy.Layout.Root,
-                workspace.Inspector.Layout.Root, window.Label("Workspace smoke does not execute authored previews."), templates);
+                workspace.Inspector.Layout.Root, window.Label("Workspace smoke does not execute authored previews."), templates, window);
             editor.Event += e => { if (e.Kind == EventKind.Change) workspace.SourceChanged(); };
             view.Undo.Click += () => { editor.Focus(); editor.Command(TextCommand.Undo); };
             view.Redo.Click += () => { editor.Focus(); editor.Command(TextCommand.Redo); };

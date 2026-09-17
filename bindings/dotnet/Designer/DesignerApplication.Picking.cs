@@ -11,7 +11,7 @@ internal sealed partial class DesignerApplication
             if (enabled && (preview.AppliedVersion != version || previewSource?.Source != editor.Text))
             {
                 view.Pick.Checked = pickControls;
-                ReportPicking("Render the current source before enabling Pick controls.");
+                ReportPicking("Render the current source before enabling Pick controls.", error: true);
                 return;
             }
             try
@@ -26,7 +26,7 @@ internal sealed partial class DesignerApplication
             catch (XuiException error) when (error.Status is 1 or 7)
             {
                 view.Pick.Checked = pickControls;
-                ReportPicking($"Could not change preview picking: {error.Message}");
+                ReportPicking($"Could not change preview picking: {error.Message}", error: true);
             }
         })) throw new InvalidOperationException("The window rejected the preview picking request.");
     }
@@ -39,7 +39,11 @@ internal sealed partial class DesignerApplication
         ReportPicking(workspace.Inspector.Layout.Feedback.Text);
     }
 
-    private void ReportPicking(string message) => view.PickStatus.Text = Limit(message);
+    private void ReportPicking(string message, bool error = false)
+    {
+        view.PickStatus = Limit(message);
+        if (error) ReportNavigation(message);
+    }
 
     private void RequestHighlight()
     {
@@ -65,11 +69,12 @@ internal sealed partial class DesignerApplication
                     PreviewHighlightResult.UnsupportedSurface => "This surface does not support an outline.",
                     _ => throw new InvalidOperationException("Unknown preview outline result.")
                 };
-                view.OutlineStatus.Text = $"Outline: {selected?.Kind ?? "none"}. {detail}";
+                view.OutlineStatus = $"Outline: {selected?.Kind ?? "none"}. {detail}";
             }
             catch (XuiException error) when (error.Status is 1 or 7)
             {
-                view.OutlineStatus.Text = Limit($"Outline update failed: {error.Message}");
+                view.OutlineStatus = Limit($"Outline update failed: {error.Message}");
+                ReportNavigation(view.OutlineStatus);
             }
         }))
         {

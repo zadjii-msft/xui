@@ -22,6 +22,7 @@ void pump(unsigned milliseconds) {
     do {
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT) { PostQuitMessage(static_cast<int>(message.wParam)); return; }
             TranslateMessage(&message); DispatchMessageW(&message);
         }
         Sleep(1);
@@ -92,6 +93,141 @@ struct Runner {
     }
     ~Runner() { if (timer) KillTimer(nullptr, timer); active = nullptr; }
 };
+void label_backgrounds() {
+    Window window({title, {500, 400}, ThemeMode::dark});
+    window.set_show_activated(false);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({24, 24, 24, 24});
+    auto section = std::make_shared<Stack>(Axis::vertical);
+    section->set_padding({16, 16, 16, 16});
+    section->set_spacing(10);
+    PartStyleValues section_style;
+    section_style.background = ThemeColor{0xf3f4f6, 0x20242a};
+    section->set_control_style_values(StylePart::root, section_style);
+    auto title_label = std::make_shared<Label>(L"General");
+    PartStyleValues typography;
+    typography.font_size = 18.0f;
+    typography.font_weight = 600;
+    title_label->set_control_style(ControlStyle::create(StyleTarget::label, {{StylePart::root, typography}}, {}));
+    auto plain_label = std::make_shared<Label>(L"Unstyled label");
+    auto input = std::make_shared<TextInput>(L"Workspace name");
+    input->set_text(L"My workspace");
+    auto toggle = std::make_shared<Toggle>(L"Notifications");
+    section->add(title_label);
+    section->add(plain_label);
+    section->add(input);
+    section->add(toggle);
+    root->add(section);
+    window.set_content(root);
+    Runner runner(window, [&](HWND host) {
+        flush(host);
+        const auto original = peers(host);
+        HWND caption{}, edit{};
+        for (const auto peer : original) {
+            wchar_t type[64]{};
+            GetClassNameW(peer, type, 64);
+            if (_wcsicmp(type, L"STATIC") == 0) caption = peer;
+            if (_wcsicmp(type, L"EDIT") == 0) edit = peer;
+        }
+        require(caption && edit, "TextInput retains its native caption and editor");
+        SendMessageW(edit, EM_SETSEL, 2, 5);
+        const auto assert_backgrounds = [&](uint32_t background, std::optional<uint32_t> caption_ink = {}) {
+            const auto image = owned_window_capture::capture(host);
+            for (const auto* element : {static_cast<Element*>(title_label.get()), static_cast<Element*>(plain_label.get()),
+                static_cast<Element*>(toggle.get())}) {
+                const auto b = element->bounds();
+                check_pixel(host, image, {b.x + b.width - 4, b.y + b.height / 2}, background);
+            }
+            const auto b = input->bounds();
+            check_pixel(host, image, {b.x + b.width - 4, b.y + input->caption_height() / 2}, background);
+            const float scale = GetDpiForWindow(host) / 96.0f;
+            std::size_t ink{};
+            for (int y = int(b.y * scale); y < int((b.y + input->caption_height()) * scale); ++y)
+                for (int x = int(b.x * scale); x < int((b.x + b.width / 2) * scale); ++x)
+                    ink += caption_ink ? (image.data[std::size_t(y) * image.width + x] & 0xffffff) == *caption_ink :
+                        (image.data[std::size_t(y) * image.width + x] & 0xffffff) != background;
+            require(ink > 20, "Transparent TextInput caption still paints visible text");
+        };
+        for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+            window.set_visual_style(visual);
+            for (const auto theme : {ThemeMode::light, ThemeMode::dark}) {
+                window.set_theme(theme);
+                flush(host);
+                if (!window.error().empty()) std::wcerr << L"Window failure: " << window.error() << L'\n';
+                if (!Palette::system(theme, visual).high_contrast) {
+                    const auto background = section_style.background->resolve(theme);
+                    assert_backgrounds(background);
+                    PartStyleValues face;
+                    face.background = ThemeColor{0x315579};
+                    title_label->set_control_style_values(StylePart::root, face);
+                    flush(host);
+                    auto image = owned_window_capture::capture(host);
+                    auto b = title_label->bounds();
+                    check_pixel(host, image, {b.x + b.width - 4, b.y + b.height / 2}, 0x315579);
+                    face.background.reset();
+                    face.border_brush = ThemeColor{0x557799};
+                    face.border_thickness = Insets{2, 2, 2, 2};
+                    title_label->set_control_style_values(StylePart::root, face);
+                    flush(host);
+                    assert_backgrounds(background);
+                    title_label->set_control_style_values(StylePart::root, {});
+                    title_label->set_control_style(nullptr);
+                    input->set_name(L"Renamed workspace");
+                    section_style.background = ThemeColor{0xe1eddb, 0x283a32};
+                    section->set_control_style_values(StylePart::root, section_style);
+                    flush(host);
+                    assert_backgrounds(section_style.background->resolve(theme));
+                    PartStyleValues header;
+                    header.font_size = 22.0f;
+                    header.font_weight = 600;
+                    header.foreground = ThemeColor{0x5577cc};
+                    input->set_control_style_values(StylePart::header, header);
+                    input->set_enabled(false);
+                    flush(host);
+                    assert_backgrounds(section_style.background->resolve(theme), 0x5577cc);
+                    input->set_enabled(true);
+                    input->set_control_style_values(StylePart::header, {});
+                    title_label->set_control_style(ControlStyle::create(StyleTarget::label, {{StylePart::root, typography}}, {}));
+                }
+            }
+        }
+        DWORD start{}, end{};
+        SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        require(start == 2 && end == 5 && input->text() == L"My workspace",
+            "Background changes preserve native text and selection");
+        const auto retained = peers(host);
+        require(original == retained, "Background changes retain all native window identities");
+        wchar_t caption_text[64]{};
+        GetWindowTextW(caption, caption_text, 64);
+        require(std::wstring_view(caption_text) == input->name(), "Native caption retains the editor's accessible name");
+        const auto expected_name = input->name();
+        std::atomic<bool> done{};
+        std::exception_ptr automation_failure;
+        std::thread automation([&] {
+            const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            try {
+                success(initialized);
+                Microsoft::WRL::ComPtr<IUIAutomation> client;
+                success(CoCreateInstance(CLSID_CUIAutomation8, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&client)));
+                Microsoft::WRL::ComPtr<IUIAutomationElement> element;
+                success(client->ElementFromHandle(edit, &element));
+                BSTR name{};
+                success(element->get_CurrentName(&name));
+                const bool matches = name && std::wstring_view(name, SysStringLen(name)) == expected_name;
+                SysFreeString(name);
+                require(matches, "UI Automation still reads the native editor's caption as its accessible name");
+            } catch (...) { automation_failure = std::current_exception(); }
+            if (SUCCEEDED(initialized)) CoUninitialize();
+            done = true;
+        });
+        while (!done) pump(10);
+        automation.join();
+        if (automation_failure) std::rethrow_exception(automation_failure);
+    });
+    const auto result = Application::run(window);
+    if (runner.failure) std::rethrow_exception(runner.failure);
+    require(runner.ran && result == 0 && window.error().empty(), "Label background integration completes");
+}
 void run() {
     Window window({title, {1000, 900}, ThemeMode::light});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -303,7 +439,12 @@ void run() {
     require(runner.ran && result == 0 && window.error().empty(), "Layout integration completes");
 }
 }
-int main() {
-    try { run(); std::cout << "Layout style window tests passed\n"; return 0; }
+int main(int argc, char** argv) {
+    try {
+        if (argc > 1 && std::string_view(argv[1]) == "--label-backgrounds") label_backgrounds();
+        else run();
+        std::cout << "Layout style window tests passed\n";
+        return 0;
+    }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

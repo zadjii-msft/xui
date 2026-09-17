@@ -23,6 +23,26 @@ Default-path performance, bounded storage, native input, and accessibility remai
 
 ## Consumer integration
 
+### Transparent labels and input captions
+
+`Window::Impl::paint_control` no longer fills ordinary Label, Toggle, and Button bounds with a default Classic background.
+The parent surface supplies the background beneath text and around control faces.
+Explicit control faces and InlineStatus presentation remain separate.
+`Drawing::styled_label` already leaves an absent background unset.
+
+`Window::Impl::paint_edit` paints the TextInput header in the retained frame.
+The native STATIC window remains transparent and retains its text, font, clipping provider, and position before EDIT.
+It still supplies the accessible name for EDIT but no longer contributes an opaque bitmap during native composition.
+The editor retains native input, selection, IME, and undo.
+`xui_label_background_window_tests` covers parent colors, theme changes, style clearing, visible caption text, and retained native identities.
+It also checks caption typography, disabled state, and the editor's UI Automation name.
+The [contributor guide](../../CONTRIBUTING.md#transparent-label-backgrounds) contains the focused command.
+
+On 2026-09-17, the ARM64 Release pixel regression failed against the previous renderer and passed after this change.
+The related basic style, basic raster, native field, layout, legacy style, WinUI presentation, and native integration suites also passed.
+The label regression runs in a separate process from the existing layout fixture.
+An initial combined-process run stalled between fixtures, so the registered tests use separate invocations.
+
 ### Minesweeper alignment
 
 The legacy Button path in `src\application.cpp` uses a DirectWrite layout with centered paragraph alignment.

@@ -8,11 +8,22 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 
 The [designer guide](../specs/designer.md) describes the standalone development tool.
 `bindings/dotnet/Designer/DesignerLayout.xui` defines its shell.
+Its theme-aware toolbar groups file and preview commands above the workspace.
+The style button posts `Window.SetVisualStyle` through the dispatcher without a new preview compilation.
+Layout and selection fixtures cover both styles, source undo, and retained preview state.
+The Output pane starts collapsed with a left-aligned toggle in its status row.
+On expansion, that row becomes the header above the diagnostics.
+The shell shares one theme-aware panel style across the hierarchy, inspector, and Output.
+Common toolbar commands use native icons with their original accessible names.
+The toggle posts through the supplied dispatcher before it moves focus or changes layout.
+This avoids a nested native focus event inside the button callback.
+The application expands Output for compile, preview, and file errors.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.
 `DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
+It applies 28-DIP rows, 16-DIP indentation, and reduced row padding through local style values.
 `DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
 `DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
 `DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
@@ -63,20 +74,27 @@ It defers approved actions until the native dialog closes, then checks the exact
 `DesignerFileDialogProbe.cs` drives only the smoke process's native chooser through its owner and UI thread.
 `--file-close-smoke` isolates owner closure and checks native HWND teardown after `Window.Run`.
 This opt-in diagnostic currently fails. It is separate from ordinary file-workflow acceptance.
-The application keeps file errors in a separate status label so compiler diagnostics remain available.
+The application keeps file feedback inside Output, separate from compiler diagnostics.
+File operations also update the Output status row.
 `DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
 `Designer.DiagnosticsTests` covers this model and real compiler output without a native DLL.
 `DesignerDiagnosticNavigator.cs` adds native diagnostic navigation through `DesignerDiagnosticsLayout.xui`.
 
-`DesignerSourceSearch.cs` supplies a native Find toolbar around the existing source editor.
+`DesignerSourceSearch.cs` supplies a collapsible native Find panel around the existing source editor.
 `DesignerSourceSearchLayout.xui` keeps the query, case toggle, match status, and source document in one declarative component.
+The closed panel has a zero-height Grid row and hidden controls.
+Ctrl+F opens the panel, while Escape or its close button hides it without replacing the editor.
+F3 and Shift+F3 also open the panel and navigate the retained query.
 Every navigation reads current native text and selection rather than cached offsets.
 `Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
+It also covers panel visibility, retained query state, focus restoration, and reclaimed editor space.
+`Designer.LayoutTests` covers the toolbar band, panel styles, Output header position, focus, and native editor state across panel changes.
 
 The application now composes the Find toolbar and versioned pointer picking with its native source editor.
-`DesignerApplication.Picking.cs` keeps mode feedback separate from compiler status.
+`DesignerApplication.Picking.cs` puts routine mode and outline feedback in tooltips.
+Picking and outline failures remain visible in the Output status row.
 `DesignerSelectionSmoke.cs` sends mouse messages only to preview peers on the owning UI thread.
 It checks exact source selection, hierarchy identity, stale versions, native undo, and restoration of authored actions.
 The fixture reads changed captions through retained native control state, not stale HWND window text.

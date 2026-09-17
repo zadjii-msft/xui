@@ -5,6 +5,7 @@
 #include "xui/styling.hpp"
 #include "xui/control_styling.hpp"
 #include <span>
+#include <stdexcept>
 
 namespace xui {
 
@@ -16,7 +17,8 @@ using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
 enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
-    menu, home, folder, settings, search, library, history, bookmark, drive, open };
+    menu, home, folder, settings, search, library, history, bookmark, drive, open,
+    save = 23, save_as = 24, undo = 25, redo = 26, chevron_up = 27, chevron_down = 28 };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 enum class CheckState { unchecked, checked, indeterminate };
 enum class InfoBadgeKind { dot, count, icon };
@@ -191,6 +193,8 @@ public:
     void set_repeat_timing(unsigned delay, unsigned interval);
     // Icon-only presentation retains name() for accessibility and commands.
     void set_icon(ButtonIcon value) {
+        if (value < ButtonIcon::none || value > ButtonIcon::chevron_down)
+            throw std::invalid_argument("Invalid button icon");
         if (icon_ == value) return;
         icon_ = value; invalidate(Invalidation::layout);
     }

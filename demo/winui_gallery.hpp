@@ -4,6 +4,7 @@
 #include "xui/documents.hpp"
 #include "xui/navigation.hpp"
 #include "parity_samples.hpp"
+#include "gallery_links.hpp"
 
 namespace winui_gallery {
 
@@ -45,11 +46,23 @@ public:
         heading->set_spacing(2);
         auto title = label(heading, L"WinUI experiment", L"winui-title");
         title->set_heading(true);
-        label(heading, L"Same controls. A different style.", L"winui-subtitle", TextTone::secondary)->set_caption(true);
-        label(heading, L"Full catalog: xui_gallery.exe --winui-catalog", L"winui-catalog-hint",
+        label(heading, L"Compare button appearances, native input, and collection layouts without replacing control state.",
+            L"winui-subtitle", TextTone::secondary)->set_caption(true);
+        label(heading, L"For control guidance and C++, C#, Rust, and .xui examples, run: xui_gallery.exe --winui-catalog", L"winui-catalog-hint",
             TextTone::secondary)->set_caption(true);
         header->add(heading, 1);
         root->add(header);
+        auto links = panel(Axis::horizontal);
+        button(links, L"Style documentation", L"winui-docs", [this] {
+            report(gallery::open_documentation(L"docs/specs/winui-style.md"));
+        });
+        button(links, L"Copy documentation link", L"winui-copy-docs", [this] {
+            try {
+                window_.copy_text(gallery::documentation_url(L"docs/specs/winui-style.md"));
+                report(L"Documentation link copied.");
+            } catch (const std::exception&) { report(L"Clipboard is unavailable."); }
+        });
+        root->add(links);
 
         auto appearance = panel(Axis::horizontal);
         style_ = button(appearance, L"", L"winui-style", [this] {
@@ -137,6 +150,7 @@ private:
         auto result = std::make_shared<xui::Label>(std::move(text));
         result->set_automation_id(std::move(id));
         result->set_tone(tone);
+        result->set_wrapping(true);
         parent->add(result);
         return result;
     }
@@ -204,6 +218,9 @@ private:
         using namespace xui;
         auto page = panel();
         label(page, L"Overview", L"winui-overview-title")->set_heading(true);
+        label(page, L"Button::set_appearance selects standard, accent, or subtle emphasis. "
+            L"TextInput::on_change reports edits. on_submit handles Enter. Save changes only this sample.",
+            L"winui-overview-guide", TextTone::secondary);
         auto controls = card();
         label(controls, L"Buttons and input", L"winui-controls-title", TextTone::secondary)->set_caption(true);
         auto actions = panel(Axis::horizontal);
@@ -267,6 +284,9 @@ private:
         using namespace xui;
         auto page = panel();
         label(page, L"Collection", L"winui-collection-title")->set_heading(true);
+        label(page, L"ItemsView::set_presentation switches between list and tile layouts. "
+            L"Both layouts use the same source and selection. Activation reports a note ID. It does not open a file.",
+            L"winui-collection-guide", TextTone::secondary);
         auto content = card();
         label(content, L"120 sample notes \u00b7 Scroll, select, and open", L"winui-collection-subtitle",
             TextTone::secondary)->set_caption(true);
@@ -295,7 +315,7 @@ private:
         using namespace xui;
         auto page = panel();
         label(page, L"Control specimens", L"winui-specimens-title")->set_subtitle(true);
-        label(page, L"Edit values, then switch styles. The controls keep their state.", L"winui-specimens-hint",
+        label(page, L"Edit a value. Then switch styles. Window::set_visual_style changes appearance without rebuilding controls or clearing their values.", L"winui-specimens-hint",
             TextTone::secondary)->set_caption(true);
 
         auto actions = card();

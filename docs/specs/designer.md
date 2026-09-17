@@ -34,13 +34,39 @@ The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
 
-Ctrl+F focuses the native Find field above the source editor.
+The file and preview controls occupy a separate, shaded toolbar above the workspace.
+The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
+New, open, save, recovery, undo, redo, and render use compact icon buttons.
+Each icon keeps a descriptive accessible name and a tooltip.
+**Style: WinUI** / **Style: Classic** switches the Designer and preview between visual styles.
+The switch preserves control values, source undo, and preview state without recompilation.
+The visual style is independent of the **Light theme** setting.
+Routine hierarchy and property hints use tooltips instead of persistent labels.
+Read-only reasons and errors remain visible.
+
+Find starts collapsed.
+Ctrl+F opens a compact Find panel above the source editor and focuses its native field.
 F3 selects the next literal match, and Shift+F3 selects the previous match.
+These shortcuts also open the panel if it is closed.
 The **Aa** toggle selects case-sensitive matching.
 Search reads the current source each time and does not change text or undo history.
-Enter in the Find field selects a match, and Escape returns focus to source.
+Enter in the Find field selects a match.
+Escape or the close button collapses the panel and returns focus to source.
+Escape also closes the panel after a search returns focus to source.
+The panel retains its query and case choice between uses.
+
+The hierarchy, property inspector, and Output have theme-aware backgrounds and borders.
+Hierarchy rows use a compact 28-DIP height with reduced padding and indentation.
+
+Output starts collapsed to a status row at the bottom of the window.
+The borderless up-chevron beside **Output** expands the pane; the down-chevron collapses it.
+When expanded, the button and status move to the top of the pane, above its contents.
+The pane contains file feedback and compiler diagnostics.
+Compile, preview, and file errors expand Output automatically.
+The source editor keeps its document, selection, and undo history as either panel opens or closes.
 
 The hierarchy uses a native TreeView with expandable controls.
+Each row shows the control kind and its optional positional value, without source offsets.
 Selecting a control selects its source range and scrolls the source editor to that range.
 **Select from caret**, or Ctrl+Shift+L, selects the control that contains the source caret.
 Hierarchy identities belong to one exact source revision.
@@ -56,7 +82,9 @@ Unsupported preview surfaces produce an explicit error and keep the previous mod
 
 Selection from the hierarchy, Find, diagnostics, or preview also requests a preview outline.
 The outline does not cover native controls or change their input behavior.
-The preview status explains hidden, clipped, overlapping, and unsupported selections.
+The **Live preview** heading tooltip explains hidden, clipped, overlapping, and unsupported outlines.
+The **Pick controls** tooltip describes the current pointer mode.
+Failures appear in the Output status row.
 The hierarchy and inspector remain available when an outline cannot appear.
 A source revision clears the outline until the current preview is ready.
 Later layout changes can hide an outline that was initially visible.

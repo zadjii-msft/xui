@@ -50,7 +50,7 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
-                workspace.Inspector.Layout.Root, preview.View, templates);
+                workspace.Inspector.Layout.Root, preview.View, templates, window);
             preview.Picked += OnPreviewPicked;
             view.Pick.Changed += RequestPicking;
             workspace.SelectionChanged += RequestHighlight;
@@ -169,7 +169,7 @@ internal sealed partial class DesignerApplication : IDisposable
         version++;
         diagnosticNavigator.Invalidate();
         preview.Supersede(version);
-        view.OutlineStatus.Text = "Outline cleared. Waiting for the current preview.";
+        view.OutlineStatus = "Outline cleared. Waiting for the current preview.";
         window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
         if (!live && !immediate)
         {
@@ -208,6 +208,7 @@ internal sealed partial class DesignerApplication : IDisposable
                         diagnosticNavigator.Publish(edit.Version, edit.Source);
                         if (!result.Success)
                         {
+                            view.OutputExpanded = true;
                             view.Status.Text = "Source has errors. The last valid preview is unchanged.";
                             SmokeCompileError();
                             return;
@@ -252,9 +253,9 @@ internal sealed partial class DesignerApplication : IDisposable
         RequestHighlight();
         if (smokeStage == 1)
         {
-            if (editor.GetBounds().Height < 100 || diagnostics.GetBounds().Width < 100)
+            if (editor.GetBounds().Height < 100 || view.OutputToggle.GetBounds().Width != 32 || view.OutputExpanded)
             {
-                smokeError = new InvalidOperationException("The source editor or diagnostics pane has no usable layout.");
+                smokeError = new InvalidOperationException("The initial source layout or collapsed output status row is incorrect.");
                 window.Close();
                 return;
             }
@@ -273,9 +274,9 @@ internal sealed partial class DesignerApplication : IDisposable
     private void SmokeCompileError()
     {
         if (smokeStage != 2) return;
-        if (!diagnostics.Text.Contains("XUI001", StringComparison.Ordinal))
+        if (!view.OutputExpanded || !diagnostics.Text.Contains("XUI001", StringComparison.Ordinal))
         {
-            smokeError = new InvalidOperationException("The designer did not display the XUI diagnostic.");
+            smokeError = new InvalidOperationException("The designer did not expand output for the XUI diagnostic.");
             window.Close();
             return;
         }
@@ -391,6 +392,7 @@ internal sealed partial class DesignerApplication : IDisposable
     {
         diagnostics.Text = Limit(message);
         diagnosticNavigator.Invalidate();
+        view.OutputExpanded = true;
         view.Status.Text = "Error. See diagnostics.";
         Console.Error.WriteLine(message);
     }
@@ -400,6 +402,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private void ReportFileError(string message)
     {
         SetFileStatus(message);
+        view.OutputExpanded = true;
         Console.Error.WriteLine(message);
     }
 
@@ -410,6 +413,7 @@ internal sealed partial class DesignerApplication : IDisposable
         int length = Math.Min(safe.Length, 512);
         if (length > 0 && char.IsHighSurrogate(safe[length - 1])) length--;
         view.FileStatus.Text = safe[..length] + (length < safe.Length ? "..." : "");
+        view.Status.Text = view.FileStatus.Text;
     }
 
     public void Dispose()
