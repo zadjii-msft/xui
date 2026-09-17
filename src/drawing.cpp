@@ -1520,6 +1520,9 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         stroke(4, 3, 12, 3); stroke(12, 3, 14, 9); stroke(14, 9, 14, 13);
         stroke(14, 13, 2, 13); stroke(2, 13, 2, 9); stroke(2, 9, 4, 3);
         stroke(2, 9, 14, 9); stroke(10, 11, 12, 11);
+    } else if (icon == ButtonIcon::open) {
+        stroke(9, 2, 14, 2); stroke(14, 2, 14, 7); stroke(14, 2, 7, 9);
+        stroke(6, 3, 2, 3); stroke(2, 3, 2, 14); stroke(2, 14, 13, 14); stroke(13, 14, 13, 10);
     } else if (icon == ButtonIcon::settings) {
         stroke(1, 4, 15, 4); stroke(1, 12, 15, 12);
         stroke(5, 1, 5, 7); stroke(11, 9, 11, 15);

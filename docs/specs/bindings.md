@@ -6,6 +6,61 @@ Examples in this reference use C++ unless stated otherwise.
 
 ## Feature bindings (1.1 extension)
 
+### Independent windows
+
+`Application` owns one UI-thread dispatcher for several ownerless document windows.
+`Show` returns without a nested message loop.
+`Run` continues until the last window closes and deferred cleanup completes.
+The [application contract](application.md#independent-application-windows) defines native lifetime and error behavior.
+
+```csharp
+using var app = new Xui.Application();
+var first = app.CreateWindow("First document");
+var second = app.CreateWindow("Second document");
+foreach (var window in new[] { first, second })
+{
+    window.SetContent(window.Stack().Add(window.MultilineText("Document"), 1));
+    window.Closed += _ => app.Post(window.Dispose);
+    app.Show(window);
+}
+app.Run();
+```
+
+The managed application retains its windows until disposal, including their delegates and native source owners.
+`Window.State` reports `Created`, `Open`, `Closing`, or `Closed`.
+`Closed` occurs after native destruction, outside active window dispatch.
+Its `WindowClosedEventArgs.Error` retains a native or managed callback error.
+Direct disposal during the callback is invalid. `Application.Post` schedules disposal after the callback returns.
+`Application.Run` reports retained window errors even after the failed window is disposed.
+`Shutdown` closes all windows. Application disposal requires a stopped dispatcher and no open windows.
+
+The C ABI supplies `xui_application_create`, `xui_application_window_create`, `xui_application_show`, and `xui_application_run`.
+`xui_application_shutdown`, `xui_application_post`, and `xui_application_destroy` control application lifetime.
+`xui_window_state`, `xui_window_closed`, and `xui_window_error` expose window retirement and errors.
+The closed callback uses event kind 100.
+Window handles and their control arenas remain valid until `xui_window_destroy`.
+Application destruction requires every remaining window to be closed, outside callbacks.
+Closed control arenas can outlive the application until their callers destroy the window handles.
+The optional-capability mask uses bit `0x2` for this additive API.
+
+An accepted application post receives exactly one callback: `execute=1` for execution, or `execute=0` for cancellation and release.
+A rejected post does not receive a callback. Its caller retains the context.
+An application-post callback error requests application shutdown.
+Foreign callback errors return `XUI_CALLBACK_FAILED` from `xui_application_run`.
+Cancellation callbacks release context only. They cannot use UI APIs because cancellation can occur on the posting thread.
+The ABI records application-post release errors and writes them to standard error.
+Window posts retain their existing execution-or-release contract and stop with that window.
+The application accepts cleanup posts from the final window's closed callback before it stops.
+Both post APIs permit worker-thread calls. Other lifecycle calls require the creating UI thread.
+
+Rust supplies `Application::new`, `create_window`, `show`, `run`, `shutdown`, and `post`.
+`Window::state` and `on_closed` expose the same retirement boundary.
+The Rust application retains window clones. `collect_closed` releases its closed-window roots.
+`Application::dispatcher` returns a thread-safe sender for `Send` closures without extending application lifetime.
+Accepted closures execute or release their captures. Panics become callback errors rather than crossing the C ABI.
+Each window requires its own controls. Controls cannot move between binding arenas or live native hosts.
+Legacy `Window.Run` and `Window::run` remain available for standalone windows, outside an application context.
+
 ### Scoped content replacement
 
 C++ and C# support one replaceable root inside a stable `ContentHost`.
@@ -855,6 +910,25 @@ Later headers and wrappers extend this baseline. See [current coverage](#current
 
 Image accepts a copied file path and decode bounds from 1 through 1,024 pixels per dimension.
 An empty path unloads the image. The status query returns Empty, Loading, Ready, or Error.
+`xui_image_source`, C# `Image.Source`, and Rust `Image::source` retain the WIC decoder.
+`xui_image_shell_source`, C# `Image.ShellSource`, and Rust `Image::shell_source` use the shared asynchronous Shell worker.
+The Shell first requests a thumbnail, then an icon for a file or folder without a thumbnail.
+Both paths use physical pixels for decode bounds, independent of the control size in DIPs.
+Changing the source kind cancels the previous request through the normal host update.
+See [standalone Shell images](images.md#standalone-shell-images) for caching, visibility, and resource limits.
+
+```csharp
+var preview = window.Image("Selected file").FixedSize(160, 160)
+    .ShellSource(path, 160, 160);
+var open = window.Button("Open selected file").SetIcon(ButtonIcon.Open);
+```
+
+`ButtonIcon.Open` has value 22. Existing icon values remain unchanged.
+The C constant is `XUI_BUTTON_ICON_OPEN`, for `XUI_F_BUTTON_ICON` and supported visual records.
+Rust provides `ButtonIcon::Open` and `Button::set_icon`.
+WinUI uses the Segoe Fluent glyph U+E8A7. Classic uses vector strokes.
+A button with an icon displays only the icon, but retains its accessible name.
+
 The bindings do not expose image error details, image resource limits, or image resource counters.
 Synchronous API errors still use the status and diagnostic contract below.
 

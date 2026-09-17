@@ -155,6 +155,12 @@ public sealed unsafe class Image : Control
         fixed (byte* p = bytes) Window.Check(Native.ImageSource(Handle, Window.Span(p, bytes), width, height));
         return this;
     }
+    public Image ShellSource(string path, uint width = 192, uint height = 144)
+    {
+        Window.Guard(); var bytes = Window.Utf8(path);
+        fixed (byte* p = bytes) Window.Check(Native.ImageShellSource(Handle, Window.Span(p, bytes), width, height));
+        return this;
+    }
     public Image Unload() => Source("");
     public ImageStatus Status
     {

@@ -9,6 +9,7 @@ struct ImageSize {
     bool operator==(const ImageSize&) const = default;
 };
 enum class ImageStatus { empty, loading, ready, error };
+enum class ImageKind { wic, shell };
 
 // Process-wide limits. Pixel and bitmap counters exclude codec/driver allocations.
 struct ImageLimits {
@@ -36,9 +37,11 @@ class Image final : public Control {
 public:
     explicit Image(std::wstring name = L"Image");
     void set_source(std::wstring path, ImageSize display_pixels = {});
+    void set_shell_source(std::wstring path, ImageSize display_pixels = {});
     void reload();
     void unload();
     const std::wstring& source() const { return source_; }
+    ImageKind source_kind() const { return kind_; }
     ImageSize display_pixels() const { return size_; }
     ImageStatus status() const { return status_; }
     const std::wstring& error() const { return error_; }
@@ -49,9 +52,11 @@ protected:
     StyleStateMask control_style_state_bits() const override;
 private:
     friend struct ImagePeer;
+    void set_source_kind(std::wstring path, ImageSize display_pixels, ImageKind kind);
     void publish(ImageStatus status, std::wstring error = {});
     std::wstring source_, error_;
     ImageSize size_{};
+    ImageKind kind_{ImageKind::wic};
     ImageStatus status_{};
     std::uint64_t revision_{1};
 };

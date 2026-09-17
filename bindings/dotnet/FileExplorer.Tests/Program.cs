@@ -13,6 +13,7 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            await PreviewTests(fixture);
             assertions += await FolderMetadataTests.Run(fixture);
             TabTests(fixture);
             ColumnTests(fixture);
@@ -34,6 +35,91 @@ internal static class Program
             if (!Directory.EnumerateFileSystemEntries(parent).Any())
                 Directory.Delete(parent);
         }
+    }
+
+    private static async Task PreviewTests(string fixture)
+    {
+        string root = Path.Combine(fixture, "Previews");
+        Directory.CreateDirectory(root);
+        var service = new FilePreviewService();
+        FileEntry Entry(string name, bool directory = false) =>
+            new(Path.Combine(root, name), name, directory, 123, DateTime.UtcNow);
+        async Task<FilePreview> Read(string name, byte[] bytes)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(root, name), bytes);
+            return await service.LoadAsync(Entry(name), None);
+        }
+
+        var text = await Read("notes.txt", System.Text.Encoding.UTF8.GetBytes("one\r\ntwo\nthree\rfour\tend"));
+        Equal(FilePreviewKind.Text, text.Kind);
+        Equal("one\rtwo\rthree\rfour\tend", text.Text);
+        True(!text.Truncated);
+        Equal("", text.Message);
+        True(PreviewFilePolicy.IsLocalPath(Entry("notes.txt").FullPath));
+        True(!PreviewFilePolicy.IsLocalPath(@"\\server\share\notes.txt"));
+        True(!PreviewFilePolicy.IsLocalPath(@"C:\notes.txt:secret"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=3\r\n"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\nZoneId=3\r\n"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\n zoneid=3\r\n"));
+        True(PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\n"));
+        await File.WriteAllTextAsync(Entry("notes.txt").FullPath + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
+        var restricted = await service.LoadAsync(Entry("notes.txt"), None);
+        True(restricted.Restricted && restricted.Kind == FilePreviewKind.Metadata && restricted.Message.Length > 0);
+        File.Delete(Entry("notes.txt").FullPath + ":Zone.Identifier");
+        Equal("", (await Read("empty.txt", [])).Text);
+        True((await service.LoadAsync(Entry("empty.txt"), None)).Message.Contains("Empty"));
+        Equal("hello", (await Read("README", "hello"u8.ToArray())).Text);
+        foreach (var encoding in new System.Text.Encoding[]
+        {
+            new System.Text.UTF8Encoding(true, true),
+            new System.Text.UnicodeEncoding(false, true, true),
+            new System.Text.UnicodeEncoding(true, true, true)
+        })
+        {
+            string original = "Unicode: \u8cc7\U0001f600";
+            Equal(original, (await Read("unicode.txt", [.. encoding.GetPreamble(), .. encoding.GetBytes(original)])).Text);
+        }
+        int limit = FilePreviewService.MaximumTextLength;
+        text = await Read("limit.txt", System.Text.Encoding.UTF8.GetBytes(new string('x', limit)));
+        Equal(limit, text.Text.Length);
+        True(!text.Truncated);
+        text = await Read("large.txt", System.Text.Encoding.UTF8.GetBytes(new string('x', limit + 1)));
+        Equal(limit, text.Text.Length);
+        True(text.Truncated && text.Message.Contains("truncated"));
+        text = await Read("surrogate.txt", System.Text.Encoding.UTF8.GetBytes(new string('x', limit - 1) + "\U0001f600"));
+        Equal(limit - 1, text.Text.Length);
+        True(text.Truncated);
+        text = await Read("byte-limit.txt", System.Text.Encoding.UTF8.GetBytes(
+            new string('x', FilePreviewService.MaximumEncodedBytes - 1) + "\U0001f600"));
+        Equal(limit, text.Text.Length);
+        True(text.Truncated);
+        foreach (byte[] bytes in new byte[][]
+        {
+            [0, 1, 2], [0xff], [0xc3], [0xff, 0xfe, 0x00, 0xd8],
+            [0xff, 0xfe, 0, 0, 0x41, 0, 0, 0], [0, 0, 0xfe, 0xff, 0, 0, 0, 0x41]
+        })
+        {
+            await ThrowsAsync<InvalidDataException>(() => Read("invalid.txt", bytes));
+        }
+        var image = await Read("photo.PNG", [1, 2, 3]);
+        Equal(FilePreviewKind.Image, image.Kind);
+        Equal("", image.Message);
+        var metadata = await Read("document.pdf", [0, 0xff]);
+        Equal(FilePreviewKind.Metadata, metadata.Kind);
+        Equal("", metadata.Message);
+        Equal("", metadata.Text);
+        Equal("document.pdf", metadata.Metadata?.Name);
+        Equal(123L, metadata.Metadata?.Size);
+        Directory.CreateDirectory(Path.Combine(root, "folder"));
+        var folder = await service.LoadAsync(Entry("folder", true), None);
+        Equal(FilePreviewKind.Metadata, folder.Kind);
+        True(folder.Metadata?.IsDirectory == true);
+        Equal("", folder.Message);
+        await ThrowsAsync<IOException>(() => service.LoadAsync(Entry("folder"), None));
+        await ThrowsAsync<FileNotFoundException>(() => service.LoadAsync(Entry("missing.txt"), None));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await ThrowsAsync<OperationCanceledException>(() => service.LoadAsync(Entry("notes.txt"), cancellation.Token));
     }
 
     private static async Task FileSystemTests(string fixture)

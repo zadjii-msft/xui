@@ -2,6 +2,16 @@
 #define XUI_FEATURES_H
 /* Included by xui.h. Existing ABI records and the 1.0 negotiation stay unchanged. */
 #define XUI_FEATURE_VERSION 0x00010001u
+enum {
+    XUI_BUTTON_ICON_NONE = 0, XUI_BUTTON_ICON_BACK = 1, XUI_BUTTON_ICON_FORWARD = 2,
+    XUI_BUTTON_ICON_UP = 3, XUI_BUTTON_ICON_REFRESH = 4, XUI_BUTTON_ICON_SPLIT = 5,
+    XUI_BUTTON_ICON_THEME = 6, XUI_BUTTON_ICON_ADD = 7, XUI_BUTTON_ICON_MINIMIZE = 8,
+    XUI_BUTTON_ICON_MAXIMIZE = 9, XUI_BUTTON_ICON_RESTORE = 10, XUI_BUTTON_ICON_CLOSE = 11,
+    XUI_BUTTON_ICON_MORE = 12, XUI_BUTTON_ICON_NAVIGATION = 13, XUI_BUTTON_ICON_HOME = 14,
+    XUI_BUTTON_ICON_FOLDER = 15, XUI_BUTTON_ICON_SETTINGS = 16, XUI_BUTTON_ICON_SEARCH = 17,
+    XUI_BUTTON_ICON_LIBRARY = 18, XUI_BUTTON_ICON_HISTORY = 19, XUI_BUTTON_ICON_BOOKMARK = 20,
+    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22
+};
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
    Records and rule arrays are copied before return. Existing records are unchanged. */

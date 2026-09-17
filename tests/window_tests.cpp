@@ -41,7 +41,9 @@ void text_presentation() {
         "WinUI uses installed Segoe Fluent Icons; only missing-family systems use the documented fallback");
     for (std::size_t i = 1; i < symbol_codepoints.size(); ++i)
         require(drawing.has_symbol(static_cast<Symbol>(i)), "Every WinUI symbol resolves to a nonzero native glyph");
-    for (int i = static_cast<int>(ButtonIcon::back); i <= static_cast<int>(ButtonIcon::drive); ++i)
+    require(symbol_codepoints[static_cast<std::size_t>(button_symbol(ButtonIcon::open))] == 0xe8a7,
+        "Open uses the Segoe Fluent OpenInNewWindow glyph");
+    for (int i = static_cast<int>(ButtonIcon::back); i <= static_cast<int>(ButtonIcon::open); ++i)
         require(drawing.has_symbol(button_symbol(static_cast<ButtonIcon>(i))),
             "Every nonempty button icon has an available Fluent glyph mapping");
     require(!drawing.has_symbol(Symbol::none) && !drawing.has_symbol(Symbol::count),

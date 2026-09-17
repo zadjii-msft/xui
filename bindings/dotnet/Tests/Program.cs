@@ -8,14 +8,19 @@ internal static class Tests
     {
         try
         {
+            if (args is ["--multiwindow"]) { MultiWindowTests.Run(); return 0; }
+            if (args is ["--window-icons"]) { WindowIconTests.Run(); return 0; }
             if (args is ["--document-editing"]) { DocumentEditingTests.Run(); return 0; }
             if (args is ["--file-dialogs"]) { FileDialogTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }
+            if (args is ["--visual-primitives"]) { Run(); return 0; }
             if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); StylingTests.Native(); }
             ExplorerTextTests.Run();
+            if (args is not ["--text-only"]) MultiWindowTests.Run();
+            if (args is not ["--text-only"]) WindowIconTests.Run();
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
@@ -77,7 +82,26 @@ internal static class Tests
                 Throws<XuiException>(() => popup.SetWindowBackground(true));
             }).GetAwaiter().GetResult();
             var image = w.Image("Image").FixedSize(100, 100).Source("");
+            var open = w.Button("Open selected file").SetIcon(ButtonIcon.Open);
+            Assert((uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 && open.Icon == ButtonIcon.Open);
+            Throws<XuiException>(() => open.SetIcon((ButtonIcon)23));
+            Assert(open.Icon == ButtonIcon.Open);
             Assert(ReferenceEquals(image, image.Source("")));
+            Assert(ReferenceEquals(image, image.ShellSource(".", 160, 160)));
+            Assert(image.Status == ImageStatus.Loading);
+            foreach (uint size in new[] { 0u, 1025u, uint.MaxValue })
+            {
+                Throws<XuiException>(() => image.ShellSource(".", size, 160));
+                Throws<XuiException>(() => image.ShellSource(".", 160, size));
+            }
+            Throws<ArgumentException>(() => image.ShellSource("a\0b"));
+            Throws<XuiException>(() => image.ShellSource(new string('x', 32768)));
+            Task.Run(() => Throws<XuiException>(() => image.ShellSource("."))).GetAwaiter().GetResult();
+            Assert(ReferenceEquals(image, image.Source(".", 160, 160)));
+            Assert(ReferenceEquals(image, image.ShellSource("")));
+            Assert(image.Status == ImageStatus.Empty);
+            image.ShellSource(".").Unload();
+            Assert(image.Status == ImageStatus.Empty);
             Throws<ArgumentException>(() => label.Text = "\0");
             Throws<ArgumentException>(() => label.SetText("\0"));
             Throws<System.Text.EncoderFallbackException>(() => label.Text = "\ud800");
@@ -102,6 +126,7 @@ internal static class Tests
             Throws<XuiException>(() => list.Select(99));
             w.Dispose();
             Throws<ObjectDisposedException>(() => _ = label.Text);
+            Throws<ObjectDisposedException>(() => image.ShellSource("."));
             Throws<ObjectDisposedException>(() => shortcuts.SetTrailingShortcutBadges(true));
             Throws<ObjectDisposedException>(() => popup.SetWindowBackground(true));
             Throws<ObjectDisposedException>(() => w.SetVisualStyle(VisualStyle.Classic));

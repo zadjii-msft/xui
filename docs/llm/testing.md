@@ -93,6 +93,14 @@ Its optional `--global-focus-events` argument also subscribes to desktop-wide fo
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Its preview checks cover native Space dispatch, held Space, focus restoration, text selection, and command isolation.
+They also cover Details and Columns, bounded text, image readiness and errors, metadata, deletion, replacement, and cancellation.
+`PreviewController.cs` owns the popup and request lifetime. `PreviewLayout.xui` defines its layout.
+`PreviewMetadataLayout.xui` defines the centered icon-and-details view.
+`Models\FilePreviewService.cs` owns format classification and bounded text reads.
+The model tests cover encoding, binary rejection, byte and character limits, complete surrogate pairs, metadata, and canceled requests.
+The preview smoke also reads the native document font and checks borderless styling, quiet status, and metadata icon geometry.
+These checks do not prove screen-reader speech or image quality on physical monitors.
 Navigation checks cover exact-directory Enter, trailing-slash child results, cached completion, Tab, parent queries, and query history.
 Drive-root checks cover bare and slash-terminated drive queries without automatic child activation.
 The native New tab buttons create tabs in their respective panes and restore file focus.

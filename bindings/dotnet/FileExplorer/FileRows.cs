@@ -52,7 +52,7 @@ internal sealed class FileRows : IReadOnlyImmutableSource
         };
     }
 
-    private static string FormatSize(long size) => size switch
+    internal static string FormatSize(long size) => size switch
     {
         < 1024 => $"{size:N0} B",
         < 1024 * 1024 => $"{size / 1024.0:N1} KB",

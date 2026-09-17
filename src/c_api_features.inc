@@ -320,7 +320,7 @@ xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_nav
             entry.label = decode(item.label); entry.keywords = decode(item.keywords);
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::drive));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::open));
                 entry.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 entry.image_path = decode(visuals[i].image_path);
                 require(entry.image_path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
@@ -437,9 +437,9 @@ xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callbac
 }
 uint64_t XUI_CALL xui_capabilities() noexcept {
 #if XUI_ENABLE_WEBVIEW2
-    return 1;
+    return 3;
 #else
-    return 0;
+    return 2;
 #endif
 }
 xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const xui_feature_options* o, xui_handle* out) noexcept {
@@ -549,7 +549,7 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
-        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::drive)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::open)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
         case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
         case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
@@ -1068,7 +1068,7 @@ struct ForeignSource final : xui::ItemsSource {
                 state->callback_failure = status; state->window->close();
                 throw Failure{XUI_CALLBACK_FAILED, "An immutable visual callback failed."};
             }
-            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::drive) && required <= XUI_MAX_STRING_BYTES,
+            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::open) && required <= XUI_MAX_STRING_BYTES,
                 XUI_INVALID_ARGUMENT, "Invalid visual callback output.");
         };
         query(nullptr, 0);
@@ -1424,7 +1424,8 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
         for (uint32_t i = 0; i < count; ++i) {
             const auto& v = commands[i];
             require(v.size == sizeof(v), XUI_VERSION_MISMATCH, "Command size mismatch.");
-            require(v.kind <= 2 && v.flags <= 7 && v.icon <= 13, XUI_INVALID_ARGUMENT, "Invalid command enum.");
+            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::open),
+                XUI_INVALID_ARGUMENT, "Invalid command enum.");
             xui::CommandRecord r; r.id = v.id; r.parent = v.parent; r.label = decode(v.label);
             r.enabled = !(v.flags & 1); if (v.flags & 4) r.checked = bool(v.flags & 2);
             r.icon = static_cast<xui::ButtonIcon>(v.icon); r.kind = static_cast<xui::CommandKind>(v.kind);
@@ -1521,6 +1522,7 @@ xui_status XUI_CALL xui_window_create_features(const xui_window_options* options
         xui::WindowOptions value{decode(options->title), {options->width, options->height}, static_cast<xui::ThemeMode>(options->theme)};
         value.custom_titlebar = custom_titlebar != 0; state->window = std::make_unique<xui::Window>(std::move(value));
         *out = insert(state, XUI_WINDOW);
+        lifecycle(state, *out);
     });
 }
 xui_status XUI_CALL xui_dialog_validation(xui_handle target, xui_string message) noexcept {

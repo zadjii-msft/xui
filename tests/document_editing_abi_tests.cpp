@@ -44,7 +44,8 @@ int main() {
         status(threaded, XUI_WRONG_THREAD);
         require(start == 77 && end == 88, "Rejected ABI edit leaves output offsets untouched");
         status(xui_window_close(window), XUI_OK);
-        status(replace(document, text("X")), XUI_BUSY); // Before run, no native window exists to close.
+        status(replace(document, text("X")), XUI_CLOSED);
+        require(start == 77 && end == 88, "Closing before run rejects edits without changing output offsets");
         status(xui_window_destroy(window), XUI_OK);
         status(replace(document, text("X")), XUI_INVALID_HANDLE);
         std::cout << "Document ABI errors, UTF-8 spans, thread affinity and outputs passed\n";

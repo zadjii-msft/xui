@@ -9,7 +9,10 @@ internal static class Program
         {
             string initialPath = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))
                 ?? Environment.CurrentDirectory;
-            using var app = new ExplorerApplication(initialPath, args.Contains("--smoke"));
+            bool smoke = args.Contains("--smoke");
+            using var application = new Xui.Application();
+            using var previews = new PreviewController(application, smoke);
+            using var app = new ExplorerApplication(application, previews, initialPath, smoke);
             app.Run();
             return 0;
         }

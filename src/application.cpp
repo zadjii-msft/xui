@@ -25,10 +25,12 @@
 #include "grid_accessibility.hpp"
 #include <UIAutomation.h>
 #include <commctrl.h>
+#include <shellapi.h>
 #include <windowsx.h>
 #include <cmath>
 #include <chrono>
 #include <utility>
+#include <unordered_map>
 
 namespace xui {
 namespace {
@@ -38,6 +40,38 @@ constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 thread_local bool running{};
+thread_local bool application_context{};
+std::mutex host_claim_mutex;
+std::unordered_map<std::uint64_t, const void*> host_claims;
+struct WindowIcons {
+    HICON small_icon{}, large_icon{};
+    ~WindowIcons() { if (small_icon) DestroyIcon(small_icon); if (large_icon) DestroyIcon(large_icon); }
+};
+std::unique_ptr<WindowIcons> file_type_icons(const std::wstring& extension, bool directory, UINT dpi) {
+    auto result = std::make_unique<WindowIcons>();
+    for (bool is_small : {true, false}) {
+        WindowIcons source;
+        if (directory || extension.empty()) {
+            SHSTOCKICONINFO info{sizeof(info)};
+            hr_require(SHGetStockIconInfo(directory ? SIID_FOLDER : SIID_DOCNOASSOC,
+                SHGSI_ICON | (is_small ? SHGSI_SMALLICON : SHGSI_LARGEICON), &info), "Load stock window icon");
+            source.small_icon = info.hIcon;
+        } else {
+            SHFILEINFOW info{};
+            const auto name = L"xui" + extension;
+            win32_require(SHGetFileInfoW(name.c_str(), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
+                SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | (is_small ? SHGFI_SMALLICON : SHGFI_LARGEICON)) != 0,
+                "Load file-type window icon");
+            source.small_icon = info.hIcon;
+        }
+        const int width = GetSystemMetricsForDpi(is_small ? SM_CXSMICON : SM_CXICON, dpi);
+        const int height = GetSystemMetricsForDpi(is_small ? SM_CYSMICON : SM_CYICON, dpi);
+        const auto copy = static_cast<HICON>(CopyImage(source.small_icon, IMAGE_ICON, width, height, 0));
+        win32_require(copy != nullptr, "Size window icon");
+        (is_small ? result->small_icon : result->large_icon) = copy;
+    }
+    return result;
+}
 }
 
 struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
@@ -138,7 +172,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 bounds.width + 2 * command_shadow_extent, bounds.height + 2 * command_shadow_extent};
         return bounds;
     }
-    unsigned input_depth{};
+    unsigned input_depth{}, dispatch_depth{};
     std::uint64_t tooltip_target{};
     std::uint64_t tooltip_revision{};
     std::optional<Rect> tooltip_anchor;
@@ -148,6 +182,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::unique_ptr<ControlStyleAttachment> tooltip_styling;
     HWND window{}, last_focus{};
     UINT dpi{96};
+    bool icon_configured{}, icon_directory{};
+    std::wstring icon_extension;
+    std::unique_ptr<WindowIcons> window_icons;
+    void apply_icons(std::unique_ptr<WindowIcons> value) {
+        SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(value->small_icon));
+        SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(value->large_icon));
+        window_icons = std::move(value);
+    }
     Drawing drawing;
     Palette palette{};
     HBRUSH background{}, field{};
@@ -174,6 +216,37 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::mutex post_mutex;
     std::vector<std::function<void()>> posts;
     bool posts_closed{};
+    bool application_managed{}, closed_notified{};
+    std::weak_ptr<void> application;
+    std::function<void()> closed_callback;
+    std::vector<std::shared_ptr<Element>> claimed;
+    void claim(const std::shared_ptr<Element>& element) {
+        std::lock_guard lock(host_claim_mutex);
+        const auto [it, inserted] = host_claims.emplace(element->id(), this);
+        if (it->second != this) throw std::logic_error("Content belongs to another live Window");
+        if (inserted) {
+            try { claimed.push_back(element); }
+            catch (...) { host_claims.erase(it); throw; }
+        }
+    }
+    void release_claims(const std::set<std::uint64_t>* live = nullptr) {
+        std::vector<std::shared_ptr<Element>> removed;
+        if (live) removed.reserve(claimed.size());
+        {
+            std::lock_guard lock(host_claim_mutex);
+            if (!live) {
+                for (const auto& element : claimed) host_claims.erase(element->id());
+                removed.swap(claimed);
+            } else {
+                std::erase_if(claimed, [&](const auto& element) {
+                    if (live->contains(element->id())) return false;
+                    host_claims.erase(element->id());
+                    removed.push_back(element);
+                    return true;
+                });
+            }
+        }
+    }
     void close_posts() {
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
@@ -199,8 +272,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (destroying) return;
         destroying = true;
         closing = true;
-        window_icon.close(window);
+        window_icon.set_source({}, window, dpi, wake);
+        ImageResources::clear_unused();
         close_posts();
+        for (auto& task : samples) task->cancel();
+        for (auto& task : tasks) task->cancel();
+        for (const auto& peer : peers) {
+            if (peer->runtime) peer->runtime->cancel_owner();
+            if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
+        }
         try { hide_tooltip(); }
         catch (...) { failed = true; error = L"A navigation hover cancellation callback failed."; }
         if (!popups.empty()) {
@@ -226,13 +306,25 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!attached) return;
         root->set_invalidator({});
         for (const auto& peer : peers) detach_peer(*peer);
-        if (has_images) clear_image_cache();
+        if (has_images) ImageResources::clear_unused();
         attached = false;
     }
+    // Posted work permits content replacement, but still delays window retirement.
+    struct DispatchScope {
+        Impl& host;
+        explicit DispatchScope(Impl& value) : host(value) { ++host.dispatch_depth; }
+        ~DispatchScope() {
+            if (--host.dispatch_depth == 0 && !host.input_depth && host.closing && host.application_managed)
+                SetEvent(host.wake->event);
+        }
+    };
     struct InputScope {
         Impl& host;
         explicit InputScope(Impl& value) : host(value) { ++host.input_depth; }
-        ~InputScope() { --host.input_depth; }
+        ~InputScope() {
+            if (--host.input_depth == 0 && host.closing && host.application_managed)
+                SetEvent(host.wake->event);
+        }
     };
 #include "application_content_inspection.inc"
     void teardown() {
@@ -246,11 +338,52 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         detach();
         ready = false;
         destroy();
-        if (!input_depth) peers.clear();
+        if (!input_depth && !dispatch_depth) peers.clear();
         drawing.release();
         if (background) { DeleteObject(background); background = nullptr; }
         if (field) { DeleteObject(field); field = nullptr; }
         if (font) { DeleteObject(font); font = nullptr; }
+        window_icons.reset();
+        if (!input_depth && !dispatch_depth) release_claims();
+    }
+    void complete() {
+        if (closed_notified || input_depth || dispatch_depth || native_file_dialog) return;
+        teardown();
+        closed_notified = true;
+        if (closed_callback) {
+            try { auto callback = closed_callback; callback(); }
+            catch (...) { fail(); }
+        }
+        closed_callback = {};
+    }
+    void deliver() {
+        DispatchScope scope(*this);
+        try {
+            std::vector<std::function<void()>> queued;
+            {
+                std::lock_guard lock(post_mutex);
+                const auto count = std::min<std::size_t>(posts.size(), 64);
+                queued.insert(queued.end(), std::make_move_iterator(posts.begin()), std::make_move_iterator(posts.begin() + count));
+                posts.erase(posts.begin(), posts.begin() + count);
+                if (!posts.empty()) wake->signal();
+            }
+            for (auto& callback : queued) {
+                if (!ready || closing) break;
+                callback();
+            }
+            if (ready && !closing) deliver_content_picks();
+            const auto views = tasks;
+            for (const auto& task : views) {
+                if (!ready || closing) break;
+                task->deliver();
+            }
+            if (ready && !closing) deliver_images();
+            const auto periodic = samples;
+            for (const auto& task : periodic) {
+                if (!ready || closing) break;
+                task->deliver();
+            }
+        } catch (...) { fail(); }
     }
     void fail() noexcept {
         failed = true;
@@ -280,7 +413,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
         try {
-            if (message == update_message) return self->message(hwnd, message, wparam, lparam);
+            if (message == update_message) {
+                DispatchScope scope(*self);
+                return self->message(hwnd, message, wparam, lparam);
+            }
             InputScope scope(*self);
             return self->message(hwnd, message, wparam, lparam);
         }
@@ -521,6 +657,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
+        claim(element);
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
             stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
@@ -1133,7 +1270,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 retired.insert(peer.get());
             }
         }
-        if (retired.empty()) return;
+        if (retired.empty()) {
+            release_claims(&live);
+            return;
+        }
         InputScope input_scope(*this);
         const auto retiring_window = [&](HWND hwnd) {
             if (!hwnd) return false;
@@ -1167,12 +1307,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto& peer : peers) if (retired.contains(peer.get())) removed.push_back(std::move(peer));
         std::erase_if(peers, [](const auto& peer) { return !peer; });
         while (!removed.empty()) removed.pop_back();
+        release_claims(&live);
     }
     void create() {
         if (used) throw std::logic_error("A Window can run only once");
         if (closing) throw std::logic_error("The Window is closed");
         used = true;
         if (!root) throw std::logic_error("Window content is required");
+        claim(root);
         drawing.initialize(options.visual_style);
         WNDCLASSEXW cls{sizeof(cls)};
         cls.hInstance = GetModuleHandleW(nullptr);
@@ -1200,6 +1342,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
+        if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
             std::weak_ptr<Impl> weak = shared_from_this();
             titlebar->on_caption([weak](CaptionAction action) {
@@ -1215,7 +1358,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         root->set_invalidator([this](Invalidation kind) { invalidate(kind); });
         attached = true;
         ready = true;
-        window_icon.refresh(window, dpi, wake);
+        if (!icon_configured) window_icon.refresh(window, dpi, wake);
         apply_theme();
         layout_pending = true;
         update();
@@ -4749,7 +4892,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_DPICHANGED: {
             cancel_input();
             dpi = HIWORD(wparam);
-            window_icon.refresh(window, dpi, wake);
+            if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
+            else window_icon.refresh(window, dpi, wake);
             apply_theme();
             const auto& suggested = *reinterpret_cast<RECT*>(lparam);
             SetWindowPos(hwnd, nullptr, suggested.left, suggested.top,
@@ -4919,18 +5063,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_CLOSE: destroy(); return 0;
         case WM_DESTROY:
-            window_icon.close(window);
+            closing = true;
+            close_posts();
+            window_icon.set_source({}, window, dpi, wake);
+            ImageResources::clear_unused();
             for (auto& task : samples) task->cancel();
             ready = false;
             drawing.discard();
             for (auto& task : tasks) task->cancel();
             detach();
-            PostQuitMessage(failed ? 1 : 0);
-            quit_posted = true;
+            if (!application_managed) {
+                PostQuitMessage(failed ? 1 : 0);
+                quit_posted = true;
+            }
             return 0;
         case WM_NCDESTROY:
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             window = nullptr;
+            if (application_managed) wake->signal();
             break;
         }
         return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -4949,10 +5099,27 @@ void Window::set_title(std::wstring title) {
     impl_->options.title = std::move(title);
 }
 const std::wstring& Window::title() const { return impl_->options.title; }
+void Window::set_file_type_icon(std::wstring extension, bool directory) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icons on the UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (extension.size() > 255 || (!extension.empty() && extension.front() != L'.') ||
+        extension.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
+        std::any_of(extension.begin(), extension.end(), [](wchar_t c) { return c < 32; }) ||
+        (directory && !extension.empty()))
+        throw std::invalid_argument("Use an extension beginning with a dot, or an empty stock-icon extension");
+    auto icons = impl_->window ? file_type_icons(extension, directory, impl_->dpi) : nullptr;
+    impl_->window_icon.set_source({}, impl_->window, impl_->dpi, impl_->wake);
+    if (icons) impl_->apply_icons(std::move(icons));
+    impl_->icon_extension = std::move(extension);
+    impl_->icon_directory = directory;
+    impl_->icon_configured = true;
+}
 void Window::set_icon_source(std::wstring path) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icon on its UI thread");
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
     impl_->window_icon.set_source(std::move(path), impl_->window, impl_->dpi, impl_->wake);
+    impl_->icon_configured = false;
+    impl_->window_icons.reset();
 }
 void Window::on_icon_error(std::function<void(const std::wstring&)> callback) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icon callback on its UI thread");
@@ -4984,6 +5151,14 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
     Impl::content_ids(impl->root, existing);
     if (!existing.contains(host.id()))
         throw std::invalid_argument("ContentHost must belong to this window");
+    {
+        std::lock_guard lock(host_claim_mutex);
+        for (const auto id : existing) {
+            const auto claim = host_claims.find(id);
+            if (claim != host_claims.end() && claim->second != impl.get())
+                throw std::invalid_argument("ContentHost belongs to another live Window");
+        }
+    }
     auto registration = inspection::Registration::prepare(content, std::move(targets), std::move(picked));
     const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
     if (!path) throw std::invalid_argument("ContentHost must have a stable retained path in this window");
@@ -5000,6 +5175,12 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         Impl::content_ids(content, candidate, true);
         for (const auto id : candidate) if (existing.contains(id))
             throw std::invalid_argument("Replacement content already belongs to this window");
+        std::lock_guard lock(host_claim_mutex);
+        for (const auto id : candidate) {
+            const auto claim = host_claims.find(id);
+            if (claim != host_claims.end() && claim->second != impl.get())
+                throw std::invalid_argument("Replacement content belongs to another live Window");
+        }
     }
     const auto previous = host.content();
     std::set<std::uint64_t> retired;
@@ -5229,6 +5410,7 @@ void Window::show_shell_commands(Control& anchor, const std::vector<std::wstring
 }
 void Window::close() {
     auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Close the Window on its UI thread");
     Impl::InputScope input_scope(*impl);
     impl->closing = true;
     if (impl->native_file_dialog) impl->native_file_dialog->cancel();
@@ -5239,7 +5421,18 @@ void Window::close() {
         if (peer->runtime) peer->runtime->cancel_owner();
         if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
     }
-    if (impl->window) PostMessageW(impl->window, WM_CLOSE, 0, 0);
+    if (impl->window) win32_require(PostMessageW(impl->window, WM_CLOSE, 0, 0) != FALSE, "Close native window");
+    if (impl->application_managed) impl->wake->signal();
+}
+WindowState Window::state() const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read Window state on its UI thread");
+    return impl_->closed_notified ? WindowState::closed : impl_->closing ? WindowState::closing :
+        impl_->ready ? WindowState::open : WindowState::created;
+}
+void Window::on_closed(std::function<void()> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Subscribe on the Window UI thread");
+    if (impl_->closed_notified) throw std::logic_error("The Window is closed");
+    impl_->closed_callback = std::move(callback);
 }
 void Window::on_key(std::function<bool(const KeyEvent&)> callback) { impl_->key = std::move(callback); }
 bool Window::post(std::function<void()> callback) {
@@ -5248,7 +5441,7 @@ bool Window::post(std::function<void()> callback) {
     std::lock_guard lock(impl->post_mutex);
     if (impl->posts_closed) return false;
     impl->posts.push_back(std::move(callback));
-    SetEvent(impl->wake->event);
+    impl->wake->signal();
     return true;
 }
 void Window::on_navigation(std::function<bool(const NavigationEvent&)> callback) { impl_->navigation = std::move(callback); }
@@ -5273,7 +5466,7 @@ std::shared_ptr<ViewTask> Window::create_view_task(ViewWorker::Loader loader, st
     std::erase_if(impl_->tasks, [](const auto& task) { return task->cancelled; });
     auto state = std::make_shared<ViewTask::Impl>();
     state->receive = std::move(receive);
-    state->worker = std::make_shared<ViewWorker>(std::move(loader), [wake = impl_->wake] { SetEvent(wake->event); });
+    state->worker = std::make_shared<ViewWorker>(std::move(loader), [wake = impl_->wake] { wake->signal(); });
     state->worker->start();
     impl_->tasks.push_back(state);
     return std::shared_ptr<ViewTask>(new ViewTask(std::move(state)));
@@ -5318,11 +5511,210 @@ std::optional<bool> Window::paste_files(const std::wstring& destination) {
     Impl::InputScope scope(*impl);
     return files::paste(impl->window, destination, [impl] { return impl->closing || impl->failed; });
 }
+struct Application::Impl : std::enable_shared_from_this<Application::Impl> {
+    const DWORD thread = GetCurrentThreadId();
+    platform::Runtime runtime;
+    std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
+    std::vector<std::shared_ptr<Window::Impl>> windows;
+    std::vector<std::weak_ptr<Window::Impl>> created;
+    std::mutex mutex;
+    std::vector<std::function<void()>> posts;
+    HWND dispatcher{};
+    bool used{}, pumping{}, accepting{}, stopping{}, posts_closed{}, finished{}, drained{};
+    std::wstring error;
+
+    void guard() const {
+        if (GetCurrentThreadId() != thread) throw std::logic_error("Use the application UI thread");
+    }
+    void record(const std::wstring& message) {
+        if (!error.empty()) error += L"\n";
+        error += message.empty() ? L"A window callback failed." : message;
+    }
+    static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM w, LPARAM l) noexcept {
+        auto* self = reinterpret_cast<Impl*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            self = static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        }
+        if (self && message == WM_APP + 71) { self->accept(); return 0; }
+        return DefWindowProcW(hwnd, message, w, l);
+    }
+    Impl() {
+        WNDCLASSEXW cls{sizeof(cls)};
+        cls.hInstance = GetModuleHandleW(nullptr);
+        cls.lpfnWndProc = procedure;
+        cls.lpszClassName = L"Xui.Dispatcher.1";
+        if (!RegisterClassExW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+            win32_require(false, "Register application dispatcher");
+        dispatcher = CreateWindowExW(0, cls.lpszClassName, L"", 0, 0, 0, 0, 0,
+            HWND_MESSAGE, nullptr, cls.hInstance, this);
+        win32_require(dispatcher != nullptr, "Create application dispatcher");
+        wake->connect(dispatcher);
+    }
+    void stop() {
+        stopping = true;
+        const auto snapshot = created;
+        for (const auto& weak : snapshot) if (auto window = weak.lock(); window && !window->closed_notified)
+            window->destroy();
+        wake->signal();
+    }
+    void accept() noexcept {
+        wake->accepted();
+        if (!pumping || accepting || finished) return;
+        accepting = true;
+        try {
+            auto snapshot = windows;
+            for (const auto& window : snapshot) {
+                if (window->ready && !window->closing) window->deliver();
+                if (!window->window && !window->input_depth && !window->dispatch_depth && !window->closed_notified) {
+                    window->complete();
+                    if (window->failed) record(window->options.title + L": " + window->error);
+                    std::erase(windows, window);
+                }
+            }
+            std::vector<std::function<void()>> queued;
+            {
+                std::lock_guard lock(mutex);
+                const auto count = std::min<std::size_t>(posts.size(), 64);
+                queued.insert(queued.end(), std::make_move_iterator(posts.begin()), std::make_move_iterator(posts.begin() + count));
+                posts.erase(posts.begin(), posts.begin() + count);
+                if (!posts.empty()) wake->signal();
+            }
+            for (auto& callback : queued) callback();
+            bool empty{};
+            {
+                std::lock_guard lock(mutex);
+                empty = windows.empty() && posts.empty();
+            }
+            if (empty) {
+                const auto pending = created;
+                for (const auto& weak : pending) if (auto window = weak.lock(); window && !window->closed_notified && !window->window) {
+                    window->complete();
+                    if (window->failed) record(window->options.title + L": " + window->error);
+                }
+                {
+                    std::lock_guard lock(mutex);
+                    empty = windows.empty() && posts.empty();
+                    if (empty) posts_closed = true;
+                }
+                if (empty) {
+                    stopping = true;
+                    finished = true;
+                    PostQuitMessage(error.empty() ? 0 : 1);
+                }
+            }
+        } catch (...) {
+            try {
+                try { throw; }
+                catch (const std::exception& failure) { record(exception_message(failure)); }
+                catch (...) { record(L"An application callback failed."); }
+                stop();
+            } catch (...) { PostQuitMessage(1); }
+        }
+        accepting = false;
+    }
+    ~Impl() {
+        wake->connect(nullptr);
+        if (dispatcher) DestroyWindow(dispatcher);
+    }
+};
+
+Application::Application() {
+    if (running || application_context) throw std::logic_error("An application already owns this UI thread");
+    impl_ = std::make_shared<Impl>();
+    application_context = true;
+}
+Application::~Application() {
+    if (!impl_) return;
+    impl_->guard();
+    impl_->stop();
+    for (const auto& weak : impl_->created)
+        if (auto window = weak.lock()) window->teardown();
+    if (!impl_->drained && !NativeRuntimeHost::drain_shutdown())
+        OutputDebugStringW(L"XUI: Native runtime shutdown timed out during application destruction.\n");
+    impl_.reset();
+    application_context = false;
+}
+std::shared_ptr<Window> Application::create_window(WindowOptions options) {
+    impl_->guard();
+    if (impl_->stopping) throw std::logic_error("The application is stopping");
+    auto window = std::make_shared<Window>(std::move(options));
+    window->impl_->application_managed = true;
+    window->impl_->application = impl_;
+    window->impl_->wake = impl_->wake;
+    impl_->created.push_back(window->impl_);
+    return window;
+}
+void Application::show(Window& window) {
+    impl_->guard();
+    const auto host = window.impl_;
+    if (impl_->stopping) throw std::logic_error("The application is stopping");
+    if (host->application.lock() != impl_) throw std::logic_error("Window belongs to another application");
+    if (host->used || host->closing) throw std::logic_error("A Window can show only once");
+    impl_->windows.push_back(host);
+    try { host->create(); }
+    catch (...) {
+        host->fail();
+        impl_->wake->signal();
+        throw;
+    }
+    impl_->wake->signal();
+}
+bool Application::post(std::function<void()> callback) {
+    if (!callback) throw std::invalid_argument("An application callback is required");
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->posts_closed) return false;
+    impl_->posts.push_back(std::move(callback));
+    impl_->wake->signal();
+    return true;
+}
+void Application::shutdown() { impl_->guard(); impl_->stop(); }
+const std::wstring& Application::error() const { return impl_->error; }
+int Application::run() {
+    const auto self = impl_;
+    self->guard();
+    if (self->used || running) throw std::logic_error("The application can run only once without nesting");
+    self->used = true;
+    self->pumping = true;
+    running = true;
+    struct Reset { Impl& self; ~Reset() { self.pumping = false; running = false; } } reset{*self};
+    int result{};
+    try {
+        self->wake->signal();
+        result = self->runtime.run([&](MSG& msg) {
+            const auto snapshot = self->windows;
+            for (const auto& window : snapshot) {
+                if (!window->ready || window->closing) continue;
+                if (msg.hwnd == window->window || IsChild(window->window, msg.hwnd)) {
+                    try { return window->translate(msg); }
+                    catch (...) { window->fail(); return true; }
+                }
+            }
+            return false;
+        }, self->wake->event, [&] { self->accept(); });
+    } catch (const std::exception& failure) { self->record(exception_message(failure)); result = 1; }
+    self->finished = true;
+    self->stop();
+    for (const auto& weak : self->created) if (auto window = weak.lock(); window && !window->closed_notified) {
+        window->complete();
+        if (window->failed) self->record(window->options.title + L": " + window->error);
+    }
+    self->windows.clear();
+    std::vector<std::function<void()>> removed;
+    { std::lock_guard lock(self->mutex); self->posts_closed = true; removed.swap(self->posts); }
+    self->drained = true;
+    if (!NativeRuntimeHost::drain_shutdown()) {
+        self->record(L"Owned web runtime shutdown did not complete within thirty seconds");
+        result = 1;
+    }
+    return self->error.empty() ? result : 1;
+}
+
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch
     // unwinds. An active native file dialog defers HWND teardown until its modal call returns.
     const auto impl = window.impl_;
-    if (running) {
+    if (running || application_context || impl->application_managed) {
         impl->error = L"Another window is already running on this UI thread.";
         return 1;
     }
@@ -5361,6 +5753,7 @@ int Application::run(Window& window) {
                 });
             impl->quit_posted = false;
             impl->teardown();
+            impl->complete();
             shutdown_attempted = true;
             if (!NativeRuntimeHost::drain_shutdown())
                 throw std::runtime_error("Owned web runtime shutdown did not complete within thirty seconds");

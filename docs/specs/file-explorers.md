@@ -21,6 +21,9 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 `SidebarLayout.xui` defines the navigation control.
 `PaletteLayout.xui` defines the folder and command palette.
 `ViewMenuLayout.xui` defines the footer's view-choice flyout.
+`PreviewLayout.xui` defines the content of an independent preview window.
+Its content parameters accept the image, native text, and status controls from `PreviewSession`.
+`PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state updates the Find row height and control visibility.
 
@@ -163,6 +166,71 @@ Context menus use the selected row in the column under the pointer.
 Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
 Mode and tab changes detach obsolete native sources and cancel pending work.
 
+### File preview
+
+Space opens an independent preview window for one selected item in Details or Columns view.
+The context menu contains **Preview**. The command palette contains **Preview selected item**.
+Preview does not open the file through its association.
+The titlebar **Open** button performs that separate action. **Open folder** uses the Windows Shell, without an originating pane.
+
+The titlebar contains the filename, Open glyph, and normal Windows caption controls.
+The content starts directly below it, without a second filename or Close row.
+Escape or the caption Close button closes only that preview.
+The preview does not assign initial focus to a caption button.
+Tab moves between preview controls. Enter activates a focused button.
+A held Space cannot activate the preview's Open or Close button.
+Native text selection, scrolling, and copying remain available.
+The text preview uses Cascadia Mono and has no editor border or read-only banner.
+It retains the native document control because ordinary labels do not support text selection.
+The Open button uses the Open glyph and retains its accessible name.
+Each HWND has small and large file-type icons for Windows taskbar and window-switching surfaces.
+Eligible files use their extension's association icon without access to the target file.
+Restricted and unknown-origin targets retain stock document or folder icons, without association or provider calls.
+Window closure releases the icon handles. DPI changes replace them with the corresponding sizes.
+Explorer shortcuts and mouse history navigation continue to work in the Explorer window.
+Preview windows do not route shortcuts to Explorer.
+Space in Find or another text input retains its text-input behavior.
+
+The preview supports these content types:
+
+| Content | Behavior |
+| --- | --- |
+| Text and code | Selectable, borderless text for common text, source, configuration, and extensionless files |
+| Images | PNG, JPEG, BMP, GIF, TIFF, and WebP through installed WIC codecs |
+| Folders | Large generic icon, name, file type, modification date, and an uncalculated-size field |
+| Other formats | Large generic icon, name, file type, size, and modification date |
+
+The metadata view does not scan folders recursively or report their size as zero.
+File sizes include a readable unit and the exact byte count.
+The image and metadata views omit routine informational banners.
+Truncation, empty text files, and errors retain explicit messages.
+
+Text supports UTF-8 and BOM-marked UTF-16 in either byte order.
+Invalid encoding, binary control characters, and UTF-32 produce an explicit error.
+The loader reads at most 262,145 bytes, including one byte that detects truncation.
+It decodes at most 262,144 bytes and displays at most 65,536 UTF-16 code units.
+Truncation preserves complete surrogate pairs and includes a visible message.
+Line endings use the native document format. Empty files have an explicit empty-file message.
+
+Images use a 1,024-by-1,024-pixel decode box and preserve their aspect ratio.
+The [image contract](images.md) defines file-size limits, shared memory budgets, codec support, and orientation restrictions.
+The image control displays its own loading and decode errors.
+The decode limit belongs to the shared image service. The preview does not display it as a warning.
+Basic preview does not execute documents, media, or web content.
+Restricted or unknown-origin paths show generic metadata before text or WIC decoding.
+Preview metadata uses retained vector icons, not `ShellSource`, because the pathname thumbnail API cannot retain a checked file identity.
+The preview does not load installed Windows preview handlers or require a helper executable.
+PDF and Office files use the metadata view.
+
+Each preview captures its own immutable target and creates its own controls and cancellation scope.
+Selection, navigation, tab changes, and opener closure do not change or close an existing preview.
+The target snapshot identifies a path. It does not freeze the bytes of a file that another application changes.
+Ownerless preview windows move independently and use normal Windows taskbar, Alt-Tab, and z-order behavior.
+All basic previews share the application's STA dispatcher and process.
+The application exits after the final window closes and its deferred cleanup completes.
+Preview closure cancels pending delivery and retires its native text, images, and other resources.
+One preview's teardown does not invalidate images in another window.
+
 ### Keyboard and palettes
 
 | Input | Action |
@@ -179,6 +247,8 @@ Mode and tab changes detach obsolete native sources and cancel pending work.
 | Alt+Up in the palette | Show the parent folder |
 | Escape in the palette | Close the palette without navigation |
 | Ctrl+Shift+P | Open the searchable command palette |
+| Space with one selected item and file-view focus | Open a file preview |
+| Escape in the preview | Close only that preview window |
 | Ctrl+T / Ctrl+W | Add a tab / close the active tab |
 | Ctrl+F4 | Close the active tab |
 | Ctrl+Shift+PageUp / Ctrl+Shift+PageDown | Shift the active tab left / right |

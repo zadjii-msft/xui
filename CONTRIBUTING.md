@@ -454,6 +454,28 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Independent windows
+
+Run these desktop checks sequentially:
+
+```powershell
+cmake --build $build --config Release --target xui xui_multiwindow_tests xui_application_abi_tests
+& ".\$build\Release\xui_multiwindow_tests.exe"
+& ".\$build\Release\xui_application_abi_tests.exe"
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --multiwindow
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --window-icons
+$env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui --test application -- --test-threads=1
+```
+
+The Rust integration executable embeds a common-controls v6 and per-monitor-DPI manifest.
+The ABI check covers close callbacks, batched cancellation, retained errors, and worker posts concurrent with dispatcher destruction.
+The managed check covers strong roots, deferred disposal, canceled posts, callback errors, and legacy sequential runs.
+The Explorer smoke also closes Explorer before its text, image, and folder previews.
+It checks real ownerless HWNDs, native text copying, image reuse, resize, and captured-target Open after opener disposal.
+Smoke mode records Open targets instead of starting associated applications.
+Manual coverage still includes cross-monitor DPI changes, taskbar grouping, physical IME, and screen-reader output.
+
 ### Content pointer inspection
 
 Build and run the native inspection fixture and managed preview lifecycle suite:

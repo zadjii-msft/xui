@@ -723,6 +723,8 @@ internal sealed class FilePaneView
         up.Enabled = Directory.GetParent(Model.Active.Path) is not null;
     }
 
+    internal void Report(string message) => app.Report(message);
+
     public void Cancel()
     {
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();

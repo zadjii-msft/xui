@@ -860,7 +860,8 @@ void explorer_contracts() {
     visuals[1].size = 0;
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_VERSION_MISMATCH);
     visuals[1].size = sizeof(xui_item_visual);
-    for (uint32_t icon = 19; icon <= 21; ++icon) {
+    static_assert(XUI_BUTTON_ICON_DRIVE == 21 && XUI_BUTTON_ICON_OPEN == 22);
+    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_OPEN; ++icon) {
         visuals[1].icon = icon;
         ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
         auto button_icon = value(); button_icon.first = icon;
@@ -868,7 +869,7 @@ void explorer_contracts() {
         button_icon = value();
         ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &button_icon)); expect(button_icon.first == icon);
     }
-    visuals[1].icon = 22;
+    visuals[1].icon = XUI_BUTTON_ICON_OPEN + 1;
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
     visuals[1].icon = 15;
     const std::string oversized(32768, 'x');

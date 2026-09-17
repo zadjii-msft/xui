@@ -43,7 +43,7 @@ int main() {
         for (auto name : {"xui_abi_version", "xui_error_copy", "xui_window_create", "xui_window_destroy",
             "xui_window_run", "xui_window_close", "xui_create", "xui_stack_create", "xui_stack_add",
             "xui_window_content", "xui_update", "xui_subscribe", "xui_text_copy", "xui_focus",
-            "xui_invoke", "xui_image_source", "xui_image_state", "xui_list_items", "xui_list_filter",
+            "xui_invoke", "xui_image_source", "xui_image_shell_source", "xui_image_state", "xui_list_items", "xui_list_filter",
             "xui_list_select", "xui_list_state", "xui_window_callback_error"}) expect(GetProcAddress(dll, name) != nullptr);
         auto o = options(); xui_handle invalid = 99;
         o.version++; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH); expect(invalid == 0);
@@ -105,6 +105,22 @@ int main() {
             auto image = w.control(XUI_IMAGE);
             expect(xui_image_source(image, s("x"), 0, 144) == XUI_INVALID_ARGUMENT);
             ok(xui_image_source(image, s(""), 192, 144));
+            expect(xui_image_shell_source(label, s("."), 160, 160) == XUI_WRONG_KIND);
+            expect(xui_image_shell_source(0, s("."), 160, 160) == XUI_INVALID_HANDLE);
+            for (const auto size : {0u, 1025u, UINT32_MAX}) {
+                expect(xui_image_shell_source(image, s("."), size, 160) == XUI_INVALID_ARGUMENT);
+                expect(xui_image_shell_source(image, s("."), 160, size) == XUI_INVALID_ARGUMENT);
+            }
+            for (const auto bytes : {std::string("a\0b", 3), std::string("\xc0\xaf", 2), std::string(32768, 'x')})
+                expect(xui_image_shell_source(image, {bytes.data(), static_cast<uint32_t>(bytes.size()), 0}, 160, 160) == XUI_INVALID_ARGUMENT);
+            ok(xui_image_shell_source(image, s("."), 160, 160));
+            uint32_t image_state{};
+            ok(xui_image_state(image, &image_state)); expect(image_state == 1);
+            std::thread image_worker([&] { wrong = xui_image_shell_source(image, s("."), 160, 160); });
+            image_worker.join(); expect(wrong == XUI_WRONG_THREAD);
+            ok(xui_image_source(image, s("."), 160, 160));
+            ok(xui_image_shell_source(image, s(""), 160, 160));
+            ok(xui_image_state(image, &image_state)); expect(image_state == 0);
             auto list = w.control(XUI_FILE_LIST);
             xui_file_item items[]{{sizeof(xui_file_item), 0, 0, s("zero"), {}},
                 {sizeof(xui_file_item), 0, 8, s("eight"), {}}};

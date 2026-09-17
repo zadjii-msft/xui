@@ -386,8 +386,8 @@ internal static class FeatureTests
                 Fails(() => iconButton.SetIcon((ButtonIcon)99));
                 Expect(iconButton.Icon == ButtonIcon.Back);
                 Expect((uint)ButtonIcon.Library == 18 && (uint)ButtonIcon.History == 19 &&
-                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21);
-                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive })
+                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22);
+                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);

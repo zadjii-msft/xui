@@ -84,6 +84,26 @@ typedef struct xui_file_item {
 } xui_file_item;
 /* The callback returns XUI_OK or an application failure code. It must not throw. */
 typedef xui_status (XUI_CALL *xui_callback)(void* context, const xui_event* event);
+typedef xui_status (XUI_CALL *xui_application_post_callback)(void* context, uint32_t execute);
+
+/* Application and lifecycle calls use the creating STA. Post also accepts worker calls. */
+XUI_API xui_status XUI_CALL xui_application_create(xui_handle* application) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_application_window_create(xui_handle application,
+    const xui_window_options* options, uint32_t custom_titlebar, xui_handle* window) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_application_show(xui_handle application, xui_handle window) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_application_run(xui_handle application) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_application_shutdown(xui_handle application) XUI_NOEXCEPT;
+/* Accepted posts execute once (1) or release once (0). Rejected posts retain caller ownership.
+   Release can occur on the posting thread and must not call UI APIs. */
+XUI_API xui_status XUI_CALL xui_application_post(xui_handle application,
+    xui_application_post_callback callback, void* context) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_application_destroy(xui_handle application) XUI_NOEXCEPT;
+/* State: created=0, open=1, closing=2, closed=3. Closed event kind is 100. */
+XUI_API xui_status XUI_CALL xui_window_state(xui_handle window, uint32_t* state) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_closed(xui_handle window,
+    xui_callback callback, void* context) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_window_error(xui_handle window, char* buffer,
+    uint32_t capacity, uint32_t* required) XUI_NOEXCEPT;
 
 XUI_API uint32_t XUI_CALL xui_abi_version(void) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_error_copy(char* buffer, uint32_t capacity,
@@ -94,6 +114,9 @@ XUI_API xui_status XUI_CALL xui_window_create(const xui_window_options* options,
 XUI_API xui_status XUI_CALL xui_window_destroy(xui_handle window) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_run(xui_handle window) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_close(xui_handle window) XUI_NOEXCEPT;
+/* Extension only (".txt"), not a path. Empty uses a stock file/folder icon. */
+XUI_API xui_status XUI_CALL xui_window_file_type_icon(xui_handle window,
+    xui_string extension, uint32_t directory) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_callback_error(xui_handle window,
     xui_status* callback_status) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind,
@@ -114,6 +137,8 @@ XUI_API xui_status XUI_CALL xui_text_copy(xui_handle target, char* buffer,
 XUI_API xui_status XUI_CALL xui_focus(xui_handle target, uint32_t select_all) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_invoke(xui_handle target) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_image_source(xui_handle image, xui_string path,
+    uint32_t width, uint32_t height) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_image_shell_source(xui_handle image, xui_string path,
     uint32_t width, uint32_t height) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_image_state(xui_handle image, uint32_t* state) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_list_items(xui_handle list,
