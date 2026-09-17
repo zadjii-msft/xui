@@ -106,6 +106,55 @@ public sealed class VisualDocument
         return Propose(revision, range, replacement, node.Span.Start, grid, cancellation);
     }
 
+    public VisualEditResult RemoveArgument(Guid expectedRevision, int nodeId, string argumentName,
+        CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (Target(expectedRevision, nodeId, out var node) is { } error) return Failure(error);
+        var argument = node.Arguments.FirstOrDefault(a => a.Name == argumentName);
+        if (argument is null)
+            return Failure($"'{argumentName}' is not an authored argument on this node. Select an existing named argument.");
+        if (argument.IsPositional)
+            return Failure("The positional operand is required. Edit its value in source instead of removing it.");
+        foreach (var token in SyntaxFactory.ParseTokens(Slice(argument.Span)))
+            foreach (var trivia in token.LeadingTrivia.Concat(token.TrailingTrivia))
+                if (!trivia.IsKind(SyntaxKind.WhitespaceTrivia) && !trivia.IsKind(SyntaxKind.EndOfLineTrivia))
+                    return Failure("The argument contains comments or directives. Preserve them in source before removing the argument.");
+
+        int index = 0;
+        while (node.Arguments[index] != argument) index++;
+        bool following = index + 1 < node.Arguments.Count || node.HasTrailingComma;
+        SourceRange range = argument.Span;
+        string replacement = "";
+        if (following || index > 0)
+        {
+            int start = following ? argument.Span.End : node.Arguments[index - 1].Span.End;
+            int end = following
+                ? index + 1 < node.Arguments.Count ? node.Arguments[index + 1].Span.Start : node.ArgumentsSpan.End
+                : argument.Span.Start;
+            var tokens = SyntaxFactory.ParseTokens(Source[start..end]).ToArray();
+            var commas = tokens.Where(t => t.IsKind(SyntaxKind.CommaToken)).ToArray();
+            if (commas.Length != 1 || tokens.Any(t => !t.IsKind(SyntaxKind.CommaToken) && !t.IsKind(SyntaxKind.EndOfFileToken)) ||
+                tokens.SelectMany(t => t.LeadingTrivia.Concat(t.TrailingTrivia)).Any(t => t.IsDirective))
+                return Failure("The argument separator is ambiguous. Remove this argument in source.");
+            int comma = start + commas[0].SpanStart;
+            if (following)
+            {
+                range = new(argument.Span.Start, comma + 1 - argument.Span.Start);
+                replacement = Source[argument.Span.End..comma];
+            }
+            else
+            {
+                range = new(comma, argument.Span.End - comma);
+                replacement = Source[(comma + 1)..argument.Span.Start];
+            }
+        }
+        int? grid = argumentName is "row" or "column" or "rowSpan" or "columnSpan"
+            ? parents.GetValueOrDefault(node.Id)?.Id
+            : node.Kind == "Grid" && argumentName is "rows" or "columns" ? node.Id : null;
+        return Propose(expectedRevision, range, replacement, node.Span.Start, grid, cancellation);
+    }
+
     public VisualEditResult DeleteNode(Guid revision, int nodeId, CancellationToken cancellation = default)
     {
         if (Target(revision, nodeId, out var node) is { } error) return Failure(error);
