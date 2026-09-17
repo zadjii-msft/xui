@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace Xui.Designer;
 
 internal sealed record DesignerRecovery(Guid Id, string SourcePath, string? OriginalPath, DateTimeOffset UpdatedAt,
-    bool Legacy, string? Error);
+    bool Legacy, string? Error, string Preview = "");
 
 internal sealed class DesignerDocumentStore
 {
@@ -102,17 +102,21 @@ internal sealed class DesignerDocumentStore
         {
             if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out var id) || id == RecoveryId) continue;
             string? original = null, error = null;
+            string preview = "";
             bool legacy = !File.Exists(MetadataPath(id));
             try
             {
                 var snapshot = ReadSource(path);
+                int length = Math.Min(snapshot.Source.Length, 512);
+                if (length > 0 && char.IsHighSurrogate(snapshot.Source[length - 1])) length--;
+                preview = snapshot.Source[..length];
                 original = ReadMetadata(id, snapshot.Hash)?.OriginalPath;
             }
             catch (Exception failure) when (ExpectedFileError(failure))
             {
                 error = failure.Message;
             }
-            result.Add(new(id, path, original, File.GetLastWriteTimeUtc(path), legacy, error));
+            result.Add(new(id, path, original, File.GetLastWriteTimeUtc(path), legacy, error, preview));
         }
         return result.OrderByDescending(entry => entry.UpdatedAt).ThenBy(entry => entry.Id).ToList().AsReadOnly();
     }

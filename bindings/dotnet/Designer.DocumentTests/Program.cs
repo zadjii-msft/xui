@@ -44,6 +44,7 @@ try
     var catalog = otherInstance.ListRecovery();
     Require(catalog.Count == 1 && catalog[0].Id == document.RecoveryId && catalog[0].Error is null, "Recovery is discoverable across instances.");
     Require(catalog[0].OriginalPath == first && !catalog[0].Legacy, "Recovery preserves original file identity.");
+    Require(catalog[0].Preview == edited, "The catalog includes a source preview for draft selection.");
     Require(document.ListRecovery().Count == 0, "The active document does not list its own draft.");
     File.WriteAllText(document.RecoveryPath, initial);
     Require(otherInstance.ListRecovery()[0].Error is not null, "A partial recovery update cannot attach stale file identity to new source.");
@@ -125,6 +126,10 @@ try
     }
     Require(!blocked.IsDirty && File.ReadAllText(blockedDestination) == edited, "A cleanup error preserves the successful save identity.");
     Directory.Delete(blocked.RecoveryPath);
+    var previewId = Guid.NewGuid();
+    File.WriteAllText(Path.Combine(drafts, previewId.ToString("N") + ".xui"), new string('a', 511) + "\U0001F680tail");
+    Require(document.ListRecovery().Single(entry => entry.Id == previewId).Preview == new string('a', 511),
+        "The bounded source preview never splits a Unicode scalar.");
     Require(Directory.GetFiles(root, "*.tmp", SearchOption.AllDirectories).Length == 0, "No temporary writes remain.");
     Console.WriteLine($"Designer document assertions: {assertions} passed.");
 }

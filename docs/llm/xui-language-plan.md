@@ -29,6 +29,10 @@ It compares raw file hashes before replacement and writes each destination throu
 Recovery metadata connects a source hash to the original path and file hash.
 A partial snapshot reports an error instead of restoring stale file identity.
 `Designer.DocumentTests` covers this model without a native DLL.
+`DesignerRecoveryDialog.cs` supplies a reusable native recovery dialog for the next workspace.
+`DesignerRecoveryLayout.xui` defines its content.
+The dialog shows bounded source previews, requires deletion approval, and prevents recovery over dirty source.
+`Designer.RecoveryTests` exercises its native controls against isolated draft files.
 `DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
