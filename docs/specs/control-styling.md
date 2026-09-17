@@ -12,6 +12,12 @@ An authored face uses a flat fill, a border, and one corner radius.
 Authored faces do not retain the WinUI elevation gradient.
 A style that changes only text color or padding keeps the existing face.
 
+Labels have no background fill unless the application specifies `background`.
+Font, foreground, padding, and border properties do not add a fill.
+The parent surface remains visible through the label in Classic and WinUI.
+`TextInput` captions also have transparent backgrounds.
+The editor field retains its own background.
+
 The [Minesweeper demo](../../bindings/dotnet/Minesweeper/README.md) uses shared styles for borderless cleared cells, numbered cells, flags, and game outcomes.
 Its presentation layer changes style references without changing game rules or cell identity.
 
@@ -309,6 +315,8 @@ Styles must not rewrite existing rich runs or clear the undo history.
 The separate `RichText` target preserves this distinction.
 
 `TextInput` exposes its existing header and clear-action parts.
+The retained renderer paints the header text without a background fill.
+The native caption window still supplies the accessible name for the editor.
 The `clear_action` part accepts only `background`, `foreground`, `borderBrush`, and `cornerRadius`.
 Padding, border thickness, size, and typography are unsupported on this part.
 The native action bounds and editor reservation remain unchanged.

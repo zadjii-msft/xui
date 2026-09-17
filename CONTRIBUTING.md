@@ -547,6 +547,19 @@ The core fixture covers both axes, nested flex allocation, natural sizing, expli
 The native fixture uses the matching manifest and real RichEdit peers.
 It checks nonzero source geometry, retained focus and HWND identity, preference changes, and native undo and redo after layout.
 
+### Transparent label backgrounds
+
+With `XUI_DESKTOP_TESTS=ON`, run the label background regression:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R "^xui_label_background_window_tests$" --output-on-failure
+```
+
+The fixture captures only its owned window.
+It checks transparent labels and TextInput captions in both themes and visual styles.
+It also checks explicit fills, border-only styles, style removal, caption typography, native selection, and the editor's accessible name.
+
 ### Document range editing
 
 Build and run the focused document checks:
