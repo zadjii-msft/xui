@@ -1,7 +1,9 @@
 #include "xui/syntax_highlighting.hpp"
 #include "../demo/gallery_catalog.hpp"
+#include "../demo/gallery_reference.hpp"
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 void check(bool condition, const char* message) {
@@ -46,6 +48,14 @@ int main() {
         for (const auto& entry : gallery::entries) {
             document.set_text(entry.code);
             check(!document.syntax_spans().empty(), "Gallery excerpt has no syntax colors");
+        }
+        for (const auto& reference : gallery::references) {
+            for (const auto& [language, text] : {
+                    std::pair{"xui", reference.xui}, std::pair{"csharp", reference.csharp}, std::pair{"rust", reference.rust}}) {
+                document.set_text(text);
+                set_syntax_language(document, language);
+                check(document.syntax_enabled(), "Gallery language switch disabled highlighting");
+            }
         }
         for (const auto language : {"c", "csharp", "rust", "json", "python", "markdown"}) {
             set_syntax_language(document, language);

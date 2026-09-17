@@ -258,7 +258,7 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
         if (!item.key.id || !index.emplace(item.key, i).second || item.label.empty() || item.label.size() > 1024 ||
             item.keywords.size() > 4096 || item.badge.size() > 32 ||
             item.section < NavigationSection::header || item.section > NavigationSection::footer ||
-            item.icon < ButtonIcon::none || item.icon > ButtonIcon::open)
+            item.icon < ButtonIcon::none || item.icon > ButtonIcon::chevron_down)
             throw std::invalid_argument("Invalid navigation item");
     }
     for (const auto& item : items) {

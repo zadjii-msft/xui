@@ -19,7 +19,10 @@ internal sealed class DesignerHierarchy
     internal DesignerHierarchy(Window window)
     {
         this.window = window;
-        Tree = window.TreeView("Source control hierarchy").SetAutomationId("designer-hierarchy");
+        Tree = window.TreeView("Source control hierarchy").SetAutomationId("designer-hierarchy")
+            .Help("Expand a control to see its children.");
+        Tree.SetControlStyleValues(StylePart.Root, new PartStyleValues { RowHeight = 28, Indentation = 16 });
+        Tree.SetControlStyleValues(StylePart.Row, new PartStyleValues { Padding = new Insets(4, 2, 4, 2) });
         Layout = new DesignerHierarchyLayout(window, Tree, attach: false);
         using (var source = window.ImmutableSource(new Rows([], 0, nodes))) Tree.SetSource(source);
         Tree.OnRequest(request =>
@@ -112,7 +115,7 @@ internal sealed class DesignerHierarchy
                 int end = char.IsHighSurrogate(label[46]) ? 46 : 47;
                 label = label[..end] + "...";
             }
-            return new(label is null ? node.Kind : $"{node.Kind} {label}", $"UTF-16 {node.Span.Start}..{node.Span.End}");
+            return new(label is null ? node.Kind : $"{node.Kind} {label}");
         }
         public bool HasChildren(ItemKey key) => key.Version == generation && key.Id is > 0 and <= int.MaxValue &&
             hierarchy.TryGetValue((int)key.Id - 1, out var node) && node.Children.Count > 0;

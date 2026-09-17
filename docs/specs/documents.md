@@ -56,7 +56,7 @@ Property changes replace text once per revision, not once per paint.
 
 `MultilineText` supports optional LSH syntax highlighting without replacing its text.
 The [build procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) enables the `Lsh 0.3.0` native package.
-The gallery highlights its C++ excerpts.
+The gallery highlights its selected XUI, C#, Rust, or C++ excerpts.
 The Designer highlights `.xui` source, including embedded C#.
 FileExplorer selects a grammar by filename for supported text previews.
 Unknown extensions remain plain text.

@@ -19,19 +19,27 @@ internal sealed class DesignerSourceSearch
         Layout.MatchCase.Changed += value => { matchCase = value; Refresh(); };
         Layout.Next.Click += () => Move();
         Layout.Previous.Click += () => Move(reverse: true);
+        Layout.Close.Click += Close;
     }
 
     internal bool HandleKey(UiKeyEvent key)
     {
         if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'F')
         {
+            Layout.FindOpen = true;
             Layout.Query.Focus();
             Refresh();
             return true;
         }
         if (key.VirtualKey == 0x72 && key.Modifiers is KeyModifiers.None or KeyModifiers.Shift)
         {
+            Layout.FindOpen = true;
             Move(key.Modifiers == KeyModifiers.Shift);
+            return true;
+        }
+        if (Layout.FindOpen && key.VirtualKey == 0x1B && key.Modifiers == KeyModifiers.None)
+        {
+            Close();
             return true;
         }
         if (!Layout.Query.Focused) return false;
@@ -40,19 +48,20 @@ internal sealed class DesignerSourceSearch
             Move(key.Modifiers == KeyModifiers.Shift);
             return true;
         }
-        if (key.VirtualKey == 0x1B && key.Modifiers == KeyModifiers.None)
-        {
-            editor.Focus();
-            return true;
-        }
         return false;
+    }
+
+    private void Close()
+    {
+        Layout.FindOpen = false;
+        editor.Focus();
     }
 
     internal void Refresh()
     {
         var matches = FindMatches(editor.Text, Layout.Query.Text, matchCase);
         Layout.Next.Enabled = Layout.Previous.Enabled = matches.Count > 0;
-        Layout.Status.Text = Layout.Query.Text.Length == 0 ? "Find in source (Ctrl+F)"
+        Layout.Status.Text = Layout.Query.Text.Length == 0 ? "Enter text to find."
             : matches.Count == 1 ? "1 match" : $"{matches.Count} matches";
     }
 

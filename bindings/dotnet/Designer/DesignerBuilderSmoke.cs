@@ -30,6 +30,10 @@ internal static class DesignerBuilderSmoke
                 view.Render.Invoke();
             });
             await Ready();
+            await Check(() => workspace.Hierarchy.Tree.GetControlStyleValues(StylePart.Root, effective: true).RowHeight == 28 &&
+                workspace.Hierarchy.Tree.GetControlStyleValues(StylePart.Root, effective: true).Indentation == 16 &&
+                workspace.Hierarchy.Tree.GetControlStyleValues(StylePart.Row, effective: true).Padding == new Insets(4, 2, 4, 2),
+                "Hierarchy rows use compact height, indentation, and padding.");
             await Check(() => editor.GetBounds().Width >= 150 && editor.GetBounds().Height >= 150 &&
                 workspace.Hierarchy.Tree.GetBounds().Width >= 100 && workspace.Hierarchy.Tree.GetBounds().Height >= 100 &&
                 workspace.Inspector.Value.GetBounds().Width >= 100 &&

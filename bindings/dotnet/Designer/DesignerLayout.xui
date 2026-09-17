@@ -7,52 +7,122 @@ component DesignerLayout {
     param global::Xui.Element Inspector;
     param global::Xui.Element Preview;
     param global::Xui.Element Templates;
+    param global::Xui.Window Dispatcher;
+    state bool OutputExpanded = false;
+    state bool WinUIStyle = true;
+    state string PickStatus = "Select preview controls without running their pointer actions. Keyboard and accessibility actions remain live.";
+    state string OutlineStatus = "No selected outline.";
+
+    style Toolbar for Stack {
+        padding: 12;
+        spacing: 10;
+        background: theme(light: 0xE8E8E8, dark: 0x303030);
+        borderBrush: theme(light: 0xCCCCCC, dark: 0x454545);
+        borderThickness: 1;
+        cornerRadius: 6;
+    }
+    style Panel for Stack {
+        padding: 1;
+        background: theme(light: 0xF3F3F3, dark: 0x272727);
+        borderBrush: theme(light: 0xCCCCCC, dark: 0x454545);
+        borderThickness: 1;
+        cornerRadius: 6;
+    }
+    style OutputDisclosure for Button {
+        background: theme(light: 0xF3F3F3, dark: 0x272727);
+        borderThickness: 0;
+        cornerRadius: 0;
+    }
 
     view {
         VStack(padding: 12, spacing: 8) {
-            Text("XUI Designer", fontSize: 24, fontWeight: 600);
-            HStack(spacing: 8) {
-                Content(Templates, preferredSize: (160, 36));
-                Button("New", ref: New, id: "designer-new", help: "Create a document from the selected template");
-                TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
-                Button("Open path", ref: Open, id: "designer-open", help: "Open the path entered in the File path field");
-                Button("Open...", ref: OpenPicker, id: "designer-open-picker", help: "Choose a .xui file (Ctrl+O)");
-                Button("Save", ref: Save, id: "designer-save");
-                Button("Save as...", ref: SaveAs, id: "designer-save-as", help: "Choose a new destination (Ctrl+Shift+S)");
-                Button("Recovery", ref: Recovery, id: "designer-recovery", help: "Browse saved recovery drafts");
+            VStack(ref: ToolbarHost, style: Toolbar) {
+                HStack(spacing: 8) {
+                    Content(Templates, preferredSize: (160, 36));
+                    Button("New", ref: New, id: "designer-new", icon: global::Xui.ButtonIcon.Add, size: (36, 36),
+                        help: "New from selected template (Ctrl+N)");
+                    TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
+                    Button("Open path", ref: Open, id: "designer-open", icon: global::Xui.ButtonIcon.Forward, size: (36, 36),
+                        help: "Open the path entered in the File path field");
+                    Button("Open...", ref: OpenPicker, id: "designer-open-picker", icon: global::Xui.ButtonIcon.Folder, size: (36, 36),
+                        help: "Open a .xui file (Ctrl+O)");
+                    Button("Save", ref: Save, id: "designer-save", icon: global::Xui.ButtonIcon.Save, size: (36, 36),
+                        help: "Save (Ctrl+S)");
+                    Button("Save as...", ref: SaveAs, id: "designer-save-as", icon: global::Xui.ButtonIcon.SaveAs, size: (36, 36),
+                        help: "Save as (Ctrl+Shift+S)");
+                    Button("Recovery", ref: Recovery, id: "designer-recovery", icon: global::Xui.ButtonIcon.History, size: (36, 36),
+                        help: "Browse saved recovery drafts");
+                }
+                HStack(spacing: 12) {
+                    Button("Undo", ref: Undo, id: "designer-undo", icon: global::Xui.ButtonIcon.Undo, size: (36, 36),
+                        help: "Undo a source edit (Ctrl+Z in source)");
+                    Button("Redo", ref: Redo, id: "designer-redo", icon: global::Xui.ButtonIcon.Redo, size: (36, 36),
+                        help: "Redo a source edit (Ctrl+Y in source)");
+                    Toggle("Live preview", checked: true, ref: Live, id: "designer-live",
+                        help: "Preview runs trusted C# source with your account's permissions.");
+                    Button("Render", ref: Render, id: "designer-render", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36),
+                        help: "Compile this source (Ctrl+Enter). Preview runs trusted C# with your account's permissions.");
+                    Toggle("Pick controls", ref: Pick, id: "designer-pick-controls",
+                        help: PickStatus);
+                    Toggle("Light theme", ref: Light, id: "designer-light");
+                    Button(WinUIStyle ? "Style: WinUI" : "Style: Classic", ref: StyleToggle, id: "designer-style-toggle",
+                        help: "Switch between Classic and WinUI without resetting the preview", click: ToggleStyle);
+                }
             }
-            Text("", ref: FileStatus, id: "designer-file-status", wrapping: true);
-            HStack(spacing: 12) {
-                Button("Undo", ref: Undo, id: "designer-undo", help: "Undo a source edit (Ctrl+Z in source)");
-                Button("Redo", ref: Redo, id: "designer-redo", help: "Redo a source edit (Ctrl+Y in source)");
-                Toggle("Live preview", checked: true, ref: Live, id: "designer-live");
-                Button("Render", ref: Render, id: "designer-render", help: "Compile this source (Ctrl+Enter)");
-                Toggle("Pick controls", ref: Pick, id: "designer-pick-controls",
-                    help: "Select supported preview controls without a pointer action. Keyboard and accessibility actions remain live.");
-                Toggle("Light theme", ref: Light, id: "designer-light");
-            }
-            Text("Trusted source only: preview runs C# with your account's permissions.", wrapping: true);
             Grid("Designer workspace", ref: Workspace, flex: 1,
                 columns: [new(global::Xui.TrackSizing.Fixed, 220), new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Fixed, 284)]) {
-                Content(Hierarchy);
+                VStack(ref: HierarchyPanel, style: Panel) {
+                    Content(Hierarchy, flex: 1);
+                }
                 SplitView("Source and live preview", ref: SourcePreview, column: 1) {
                     VStack(spacing: 6, padding: 6) {
                         Text("Source", fontSize: 18, fontWeight: 600);
                         Content(Editor, flex: 1);
                     }
                     VStack(spacing: 6, padding: 6) {
-                        Text("Live preview", fontSize: 18, fontWeight: 600);
-                        Text("Pointer actions are live.", ref: PickStatus, id: "designer-pick-status", wrapping: true);
-                        Text("No selected outline.", ref: OutlineStatus, id: "designer-outline-status", wrapping: true);
+                        Text("Live preview", fontSize: 18, fontWeight: 600, help: OutlineStatus);
                         Content(Preview, flex: 1);
                     }
                 }
-                Content(Inspector, column: 2);
+                VStack(ref: InspectorPanel, style: Panel, column: 2) {
+                    Content(Inspector, flex: 1);
+                }
             }
-            Text("Ready", ref: Status, id: "designer-status");
-            Grid("Diagnostics", preferredSize: (400, 140)) {
-                Content(Diagnostics);
+            VStack(ref: OutputPanel, style: Panel) {
+                HStack(spacing: 8, padding: 6, ref: OutputHeader) {
+                    Button(OutputExpanded ? "Collapse output" : "Expand output", ref: OutputToggle, id: "designer-output-toggle",
+                        icon: OutputExpanded ? global::Xui.ButtonIcon.ChevronDown : global::Xui.ButtonIcon.ChevronUp,
+                        style: OutputDisclosure, size: (32, 32),
+                        help: OutputExpanded ? "Collapse output" : "Expand output", click: ToggleOutput);
+                    Text("Output");
+                    Text("Ready", ref: Status, id: "designer-status", flex: 1);
+                }
+                ScrollView("Output", ref: Output, visible: OutputExpanded,
+                    preferredSize: (400, OutputExpanded ? 170 : 0)) {
+                    VStack(padding: 6, spacing: 6, preferredSize: (400, 170)) {
+                        Text("", ref: FileStatus, id: "designer-file-status", wrapping: true);
+                        Content(Diagnostics, flex: 1);
+                    }
+                }
             }
+        }
+    }
+
+    code csharp {
+        void ToggleStyle() {
+            if (!Dispatcher.Post(() => {
+                var style = Dispatcher.Style == global::Xui.VisualStyle.WinUI
+                    ? global::Xui.VisualStyle.Classic : global::Xui.VisualStyle.WinUI;
+                Dispatcher.SetVisualStyle(style);
+                WinUIStyle = style == global::Xui.VisualStyle.WinUI;
+            })) throw new global::System.InvalidOperationException("The window rejected the visual style request.");
+        }
+
+        void ToggleOutput() {
+            if (!Dispatcher.Post(() => {
+                OutputExpanded = !OutputExpanded;
+                OutputToggle.Focus();
+            })) throw new global::System.InvalidOperationException("The window rejected the output toggle request.");
         }
     }
 }

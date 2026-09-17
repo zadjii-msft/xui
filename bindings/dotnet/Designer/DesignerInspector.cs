@@ -114,6 +114,8 @@ internal sealed class DesignerInspector
             : argument is null ? "Not set. Enter a literal source value; Apply validates its type."
             : $"{argument.ValueKind} literal. Apply validates the complete component.";
         if (writable && textError is not null) Layout.ArgumentHelp.Text += " Text mode unavailable: " + textError;
+        Value.Help(Layout.ArgumentHelp.Text);
+        Layout.ArgumentHelp.Visible(!writable || textError is not null);
     }
 
     internal bool TryReadLiteral(out string value, out string? error)
@@ -162,5 +164,7 @@ internal sealed class DesignerInspector
         Layout.ArgumentHelp.Text = textMode
             ? "Apply encodes quotes and newlines as a C# string literal. Unchanged text preserves the original literal."
             : "String literal. Apply validates the complete component.";
+        Value.Help(Layout.ArgumentHelp.Text);
+        Layout.ArgumentHelp.Visible(false);
     }
 }

@@ -69,6 +69,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Hierarchy.Tree.Enabled = false;
         Hierarchy.Layout.FromCaret.Enabled = false;
         Hierarchy.Layout.Status.Text = Document is null ? "Reading source..." : "Stale hierarchy - read-only. Reading source...";
+        Hierarchy.Layout.Status.Visible(true);
         Inspector.Show(Hierarchy.Selection, Hierarchy.Selection is { } selected ? Hierarchy.Parent(selected) : null, false);
         Inspector.Layout.Feedback.Text = "Visual edits wait for a matching source hierarchy.";
         if (!snapshots.Writer.TryWrite((version, source))) throw new InvalidOperationException("The hierarchy queue is closed.");
@@ -127,7 +128,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Hierarchy.Tree.Enabled = true;
         Hierarchy.SetDocument(document);
         Hierarchy.Layout.FromCaret.Enabled = true;
-        Hierarchy.Layout.Status.Text = "Current source. Expand a control to see its children.";
+        Hierarchy.Layout.Status.Visible(false);
         var selected = document.FindNode(checked((int)editor.Selection.Start)) ?? document.Root;
         if (selected is not null) SelectNode(selected, revealSource: false);
         else Inspector.Show(null, null, false);
