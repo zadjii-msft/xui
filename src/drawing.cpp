@@ -209,6 +209,18 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
     }
     for (std::size_t i = 0; i < strip.tabs().size(); ++i)
         if (is_selected(i)) paint(i, true);
+    if (enabled && strip.drop_indicator()) {
+        const auto index = *strip.drop_indicator();
+        float x = content_bounds.x;
+        if (index < strip.tabs().size()) x = strip.tab_bounds(index).x;
+        else if (index) {
+            const auto last = strip.tab_bounds(index - 1);
+            x = last.x + last.width;
+        }
+        x = std::clamp(x, content_bounds.x + 1, content_bounds.x + std::max(1.0f, content_bounds.width - 2));
+        fill({x - 1, content_bounds.y + 4, 3, std::max(0.0f, content_bounds.height - 8)},
+            palette.high_contrast ? palette.text : palette.accent);
+    }
     pop_clip();
 }
 void Drawing::styled_collection_row(const VirtualCollection &owner, const CollectionRow &row, bool selected, bool focused, bool enabled,

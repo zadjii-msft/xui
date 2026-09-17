@@ -82,6 +82,8 @@ The explorer adds these regressions:
 | `xui_explorer_tests` | History commits, failed navigation, tab selection and closure, cancellation, bounded state, UNC roots, long Unicode scans, activation, and injected file associations |
 | `xui_explorer_smoke` | The real explorer, address input, history, keyboard shortcuts, context commands, independent panes, tab providers, divider input, clipping, and resource bounds |
 | `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, titlebar gap borders, empty rows, custom colors, content activation, close targets, New tab placement and UIA invocation, focus, and overflow |
+| `xui_tab_drag_window_tests` | Queued-paint capture retention, hidden/disabled cancellation, reorder, retained-HWND tear-out, target acceptance and occlusion, release-only merge, cancellation, placement, full-width secondary panes, native focus, and retirement |
+| `xui_tab_drag_indicator_tests` | Focused insertion-marker pixels through `xui_tab_window_tests --drag-indicator`, across both styles, all themes, and multiple DPI values |
 | `xui_suggestion_tests` | Folder prefixes, real and synthetic enumeration limits, deterministic cancellation, native EDIT behavior, popup input, themes, and closure during a blocked request |
 | `xui_split_window_tests` | Eight window cycles with tabs, two lists, native fields, capture cancellation, simulated DPI, target recreation, and final resource disposal |
 
@@ -92,7 +94,21 @@ The smoke test uses scoped UIA focus-property events, selection events, and stru
 Its optional `--global-focus-events` argument also subscribes to desktop-wide focus events.
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
+The drag fixtures use owned windows and are available with `BUILD_TESTING`.
+Their scripted `SC_MOVE` boundary permits deterministic native callback checks without a physical mouse press.
+The live-loop probe reports when user32 declines an operation without a held mouse button.
+Target acceptance depends on actual desktop occlusion. A covered target exercises rejection instead.
+The fixture reports that substitution instead of claiming an accepted merge.
+
+The 2026-09-17 ARM64 development run passed the focused drag, insertion-marker, placement, native ABI, managed binding, and model checks.
+An unobstructed run exercised native `QueryDrop` and accepted `Drop`.
+The full tab-pixel fixture completed its inner assertions but exceeded its 300-second duration requirement.
+That run is not a passing result for the full fixture.
+Physical pointer continuity, Escape delivery through user32, and mixed-monitor dragging still require manual coverage.
+
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Its tab-drag probes cover same-window and cross-window transfers, limits, stale targets, QueryDrop without mutation, rollback, and continued window lifetime.
+Secondary-tab tear-out also checks full-width content at normal and narrow sizes, with layout restoration after cancellation and completion.
 Its preview checks cover native Space dispatch, held Space, focus restoration, text selection, and command isolation.
 They also cover Details and Columns, bounded text, image readiness and errors, metadata, deletion, replacement, and cancellation.
 `PreviewController.cs` owns the popup and request lifetime. `PreviewLayout.xui` defines its layout.

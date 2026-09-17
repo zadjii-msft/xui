@@ -36,7 +36,7 @@ No hosted site is required to read these pages.
 
 - [Foundation controls](foundation-controls.md): Choices, ranges, numeric inputs, popups, and progress.
 - [Collections and asynchronous data](collections.md): Virtual lists, grids, trees, Miller columns, selection, and worker delivery.
-- [Context menus, tabs, and input](menus-and-input.md): Native menus, split panes, folder suggestions, and keyboard behavior.
+- [Context menus, tabs, and input](menus-and-input.md): Native menus, tab dragging between windows, split panes, folder suggestions, and keyboard behavior.
 - [Commands and navigation](commands-and-navigation.md): Command surfaces, palettes, breadcrumbs, Shell commands, and title bars.
 - [Images and thumbnails](images.md): Decode limits, caching, cancellation, and Shell icons.
 - [Documents, dialogs, and color](documents.md): Native editors, password access, modal content, and form controls.

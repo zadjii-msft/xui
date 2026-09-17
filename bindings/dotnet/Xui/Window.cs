@@ -176,6 +176,7 @@ public sealed unsafe partial class Window : IDisposable
         Check(Native.WindowDestroy(Handle));
         foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
         ReleaseIconCallback();
+        ReleaseTabDragCallback();
         Handle = 0;
         if (closedRoot.IsAllocated) closedRoot.Free();
         Closed = null;

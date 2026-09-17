@@ -61,6 +61,29 @@ Accepted closures execute or release their captures. Panics become callback erro
 Each window requires its own controls. Controls cannot move between binding arenas or live native hosts.
 Legacy `Window.Run` and `Window::run` remain available for standalone windows, outside an application context.
 
+### Title-bar tab dragging
+
+C# `Window.TabDragHandler` exposes the [native tab-drag protocol](menus-and-input.md#tab-dragging-between-windows).
+`TabDragEvent` contains `Kind`, `SourceStrip`, `TabId`, `Target`, `TargetStrip`, and `Index`.
+`Target` is a managed window from the same `Application`, or null.
+`TabDragKind` distinguishes `Reorder`, `TearOut`, `QueryDrop`, `Drop`, `Cancel`, and `Completed`.
+The callback returns a Boolean acceptance value.
+The binding retains the callback and reports exceptions through the window callback error path.
+The C ABI uses sized placement and drag-event structures in `xui.h`.
+Rust has low-level declarations in `xui-sys`, without a typed `xui` drag-handler wrapper.
+
+`Window.Placement` gets or sets a `WindowPlacement`.
+Its `X`, `Y`, `Width`, and `Height` fields use physical screen pixels.
+`Maximized` preserves the maximized state separately from the restored bounds.
+Placement can be set before `Application.Show`.
+An unshown window without explicit placement rejects the getter because its screen location is unknown.
+
+Each window keeps its controls, subscriptions, dispatcher, and native editors.
+Application models can move between windows. Native controls cannot.
+The FileExplorer sample demonstrates this protocol without P/Invoke or window-procedure code.
+`SplitView.FirstVisible` can hide the primary pane while the secondary pane keeps its control identities and receives the full width.
+The C functions are `xui_split_set_first_visible` and `xui_split_get_first_visible` in `xui_layout.h`.
+
 ### Scoped content replacement
 
 C++ and C# support one replaceable root inside a stable `ContentHost`.

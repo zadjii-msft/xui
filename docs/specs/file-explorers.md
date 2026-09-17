@@ -105,6 +105,30 @@ Closing commands affect the target tab, other tabs, tabs to either side, or all 
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
 
+### Tab tear-out and merge
+
+Dragging a tab within its strip changes its position.
+Dragging outside the strip separates the tab into a window.
+The dragged tab keeps the original native window so the Windows move-size loop can continue.
+Another window receives the remaining workspace.
+A single-tab workspace does not create an empty remainder window.
+
+Dragging onto another visible strip shows an insertion marker.
+Releasing the pointer transfers the tab to that position.
+Hovering does not transfer tab data.
+Both panes can receive tabs, subject to the pane tab limit.
+The windows must belong to the same running application.
+Ctrl+N creates another window in that application.
+Windows from separate FileExplorer processes do not merge.
+
+Transfers preserve the tab identity, folder history, Find state, filter, sorting, selection, scroll position, and Columns state.
+Obsolete asynchronous work cannot update the receiving pane.
+Each window retains its own native controls and subscriptions.
+Escape restores the saved workspace instead of closing the dragged tab.
+The [framework protocol](menus-and-input.md#tab-dragging-between-windows) defines window ownership and callback behavior.
+
+### Tab menu actions
+
 **Duplicate tab** inserts a copy after its source and selects it.
 Copies retain independent history, filter, Find state, sorting, selection, scrolling, and Columns state.
 **Duplicate in new pane** opens the other pane with a copy.

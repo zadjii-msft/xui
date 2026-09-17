@@ -69,6 +69,41 @@ The tab-strip painter remains responsible for its own baseline, colors, and open
 `tests\collections_window_tests.cpp --miller-only` also covers hover transitions and separator pixels after fractional scrolling.
 These tests need a Windows desktop. Static checks do not establish a passing native test result.
 
+## Tab drag ownership
+
+`src\application_tab_drag.inc` contains the native title-bar drag session inside `Window::Impl`.
+A tab press records a stable ID and screen position.
+The system drag threshold starts one `SC_MOVE` loop on the source HWND.
+`WM_MOVING` holds the source rectangle during reordering.
+After the tear-out callback, the same loop moves the source window beneath the dragged tab.
+The application creates the remainder window rather than transferring native peers.
+
+A thread-local `WH_KEYBOARD` hook observes Escape without consuming it.
+The hook exists only during the native move loop.
+`WM_CANCELMODE` also cancels the gesture.
+Cleanup clears target markers and the active session after callbacks or failures.
+The source implementation stays alive until native dispatch returns.
+
+Target discovery walks current top-level Z order, including foreign windows as occluders.
+It checks current visibility, enabled state, application ownership, modal state, and strip geometry.
+`query_drop` checks application acceptance without changing models.
+`drop` commits a transfer only after the native loop returns.
+This differs from WinUI hover-transfer behavior: hovering never moves a model.
+The target marker uses the same tab geometry and palette as normal drawing.
+
+The WinUI research reference is `microsoft/microsoft-ui-xaml`, commit `4eabc71e72bbf11039604cd37f475ace0ff4fc02`.
+Its `TabView.cpp` selects a new move-loop HWND before entry through `MoveSizeWindowId`.
+It does not move all remaining tabs into another HWND.
+XUI uses the existing HWND because its Win32 backend does not depend on Windows App SDK input redirection.
+
+`tests\tab_drag_window_tests.cpp` drives native messages through a deterministic `SC_MOVE` boundary.
+It covers stationary reordering, retained-HWND tear-out, target acceptance, rejected drops, cancellation, markers, and retirement.
+Occluded desktop targets exercise rejection instead of acceptance.
+The fixture also requests an actual native move and checks cleanup if user32 rejects it without a held mouse button.
+`tests\tab_window_tests.cpp --drag-indicator` checks insertion-marker pixels across styles, themes, and DPI values.
+These fixtures do not prove physical pointer continuity or mixed-monitor behavior during an actual system move loop.
+Those checks require a desktop interaction with FileExplorer.
+
 ## Performance design
 
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.

@@ -927,13 +927,55 @@ void initial_activation_contracts() {
     ok(xui_window_destroy(window));
     expect(xui_window_show_activated(window, 1) == XUI_INVALID_HANDLE);
 }
+void split_first_visibility_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Split first visibility"), 400, 300};
+    xui_handle window{}, first{}, second{};
+    ok(xui_window_create(&options, &window));
+    ok(xui_stack_create(window, 1, &first));
+    ok(xui_stack_create(window, 1, &second));
+    const auto split = create(window, XUI_SPLIT_VIEW, first, second);
+    uint32_t visible{};
+    ok(xui_split_get_first_visible(split, &visible)); expect(visible == 1);
+    auto ratio = value(); ratio.a = .4;
+    ok(xui_feature_set(split, XUI_F_SPLIT_RATIO, &ratio));
+    ok(xui_split_set_first_visible(split, 0));
+    ok(xui_split_get_first_visible(split, &visible)); expect(visible == 0);
+    expect(xui_split_set_first_visible(split, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_set_first_visible(split, UINT32_MAX) == XUI_INVALID_ARGUMENT);
+    ok(xui_split_get_first_visible(split, &visible)); expect(visible == 0);
+    expect(xui_split_get_first_visible(split, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_set_first_visible(first, 0) == XUI_WRONG_KIND);
+    expect(xui_split_get_first_visible(first, &visible) == XUI_WRONG_KIND);
+    std::thread worker([&] {
+        uint32_t result{};
+        expect(xui_split_set_first_visible(split, 1) == XUI_WRONG_THREAD);
+        expect(xui_split_get_first_visible(split, &result) == XUI_WRONG_THREAD);
+    });
+    worker.join();
+    ok(xui_split_get_first_visible(split, &visible)); expect(visible == 0);
+    ok(xui_split_set_first_visible(split, 1));
+    ok(xui_split_get_first_visible(split, &visible)); expect(visible == 1);
+    ratio = value(); ok(xui_feature_get(split, XUI_F_SPLIT_RATIO, &ratio));
+    expect(std::abs(ratio.a - .4) < .0001);
+    auto secondary = value(); ok(xui_feature_get(split, XUI_F_SECOND_VISIBLE, &secondary));
+    expect(secondary.first == 1);
+    ok(xui_window_destroy(window));
+    expect(xui_split_get_first_visible(split, &visible) == XUI_INVALID_HANDLE);
+    expect(xui_split_set_first_visible(split, 1) == XUI_INVALID_HANDLE);
+}
 int main(int argc, char** argv) {
+    if (argc == 2 && std::strcmp(argv[1], "--split-first-visible") == 0) {
+        split_first_visibility_contracts();
+        std::cout << "Split first visibility contracts: " << assertions << " assertions\n";
+        return 0;
+    }
     if (argc == 2 && std::strcmp(argv[1], "--activation") == 0) {
         initial_activation_contracts();
         std::cout << "Initial activation contracts: " << assertions << " assertions\n";
         return 0;
     }
     retained_navigation_style_bridges();
+    split_first_visibility_contracts();
     retained_facade_style_contracts();
     control_style_contracts();
     tooltip_style_contracts();

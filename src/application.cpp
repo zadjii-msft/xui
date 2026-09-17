@@ -116,6 +116,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::optional<ItemKey> collection_anchor;
         std::optional<Point> command_pointer;
         std::optional<Point> tab_pointer;
+        std::optional<std::uint64_t> pressed_tab;
+        POINT tab_press{};
         std::optional<std::size_t> hovered_choice;
         std::optional<std::uint64_t> pressed_choice;
         CollectionSelection collection_before;
@@ -218,6 +220,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool posts_closed{};
     bool application_managed{}, closed_notified{};
     std::weak_ptr<void> application;
+    Window* public_window{};
+    std::optional<WindowPlacement> initial_placement;
+    std::function<bool(const TabDragEvent&)> tab_drag_handler;
     std::function<void()> closed_callback;
     std::vector<std::shared_ptr<Element>> claimed;
     void claim(const std::shared_ptr<Element>& element) {
@@ -255,6 +260,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::function<bool(const NavigationEvent&)> navigation;
     bool has_images{};
     const DWORD owner_thread = GetCurrentThreadId();
+
+#include "application_tab_drag.inc"
 
     explicit Impl(WindowOptions value) : options(std::move(value)) {
         if (options.visual_style < VisualStyle::classic || options.visual_style > VisualStyle::winui)
@@ -1331,14 +1338,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto extent = [](float value, int fallback) {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
-        const DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+        const DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN |
+            (initial_placement && initial_placement->maximized ? WS_MAXIMIZE : 0);
         const UINT initial_dpi = GetDpiForSystem();
         RECT outer{0, 0, MulDiv(extent(options.size.width, 600), initial_dpi, 96),
             MulDiv(extent(options.size.height, 520), initial_dpi, 96)};
         win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, WS_EX_CONTROLPARENT, initial_dpi) != 0, "Size application window");
         window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class, options.title.c_str(),
-            style, CW_USEDEFAULT, CW_USEDEFAULT,
-            outer.right - outer.left, outer.bottom - outer.top, nullptr,
+            style, initial_placement ? initial_placement->x : CW_USEDEFAULT,
+            initial_placement ? initial_placement->y : CW_USEDEFAULT,
+            initial_placement ? initial_placement->width : outer.right - outer.left,
+            initial_placement ? initial_placement->height : outer.bottom - outer.top, nullptr,
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
@@ -1362,7 +1372,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        ShowWindow(window, options.show_activated ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+        if (initial_placement && initial_placement->maximized)
+            ShowWindow(window, options.show_activated ? SW_SHOW : SW_SHOWNA);
+        else ShowWindow(window, options.show_activated ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
         if (options.show_activated && !IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
     }
     void apply_theme() {
@@ -1626,12 +1638,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 win32_require(SetWindowLongPtrW(peer->window, GWL_STYLE, tab_stop ?
                     native_style | WS_TABSTOP : native_style & ~static_cast<LONG_PTR>(WS_TABSTOP)) != 0, "Update control tab stop");
             if (tab_stop && enabled(*peer) && visible(*peer) && in_top_popup(*peer) &&
-                (control.role() != ControlRole::split_view || static_cast<const SplitView&>(control).expanded()))
+                (control.role() != ControlRole::split_view || static_cast<const SplitView&>(control).divider().width > 0))
                 focus_targets.push_back(peer->window);
             if ((!enabled(*peer) || !visible(*peer)) &&
                 (GetFocus() == peer->window || focus_before_layout == peer->window)) disabled_focus = peer->window;
             const auto range = dynamic_cast<const RangeInput*>(&control);
-            if (!peer->list && !control.captured() && !peer->pressed_choice && !(range && range->dragging()) && !peer->dragging && !peer->grid_drag &&
+            if (!peer->list && !control.captured() && !peer->pressed_choice && !peer->pressed_tab &&
+                !(range && range->dragging()) && !peer->dragging && !peer->grid_drag &&
                 !peer->collection_drag && !peer->collection_scroll && GetCapture() == peer->window) ReleaseCapture();
             if (!has_images || (IsWindowEnabled(peer->window) != FALSE) != enabled(*peer))
                 EnableWindow(peer->window, enabled(*peer));
@@ -1645,6 +1658,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 peer->control->cancel();
                 peer->control->pointer_move(false);
                 peer->pressed_choice.reset();
+                peer->pressed_tab.reset();
                 peer->hovered_choice.reset();
                 peer->dragging = false;
                 if (GetCapture() == peer->window) ReleaseCapture();
@@ -2042,7 +2056,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (const auto* style = split->effective_control_style_values(StylePart::root))
                 drawing.styled_surface(split->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             const auto area = split->pane_area(), divider = split->divider();
-            if (const auto* style = split->effective_control_style_values(StylePart::first_pane))
+            if (const auto* style = split->primary_visible() ? split->effective_control_style_values(StylePart::first_pane) : nullptr)
                 drawing.styled_surface({area.x, area.y, split->expanded() ? divider.x - area.x : area.width, area.height},
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             if (split->expanded()) if (const auto* style = split->effective_control_style_values(StylePart::second_pane))
@@ -3706,7 +3720,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool focus(Peer& peer, bool activate_window) {
         if (!ready || closing || !peer.control->focusable() || !enabled(peer)) return false;
         if (!in_top_popup(peer)) return false;
-        if (const auto split = dynamic_cast<SplitView*>(peer.control.get()); split && !split->expanded()) return false;
+        if (const auto split = dynamic_cast<SplitView*>(peer.control.get()); split && split->divider().width <= 0) return false;
         if (peer.control->bounds().width <= 0 || peer.control->bounds().height <= 0) return false;
         for (auto* parent = peer.parent; parent; parent = parent->parent) {
             const auto view = viewport(*parent);
@@ -3947,6 +3961,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (peer.pressed_tab) {
+                POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                win32_require(ClientToScreen(hwnd, &point) != 0, "Locate dragged tab");
+                if (!(wparam & MK_LBUTTON) || !enabled(peer) || !visible(peer) || !tab_drag_handler) {
+                    peer.pressed_tab.reset();
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    return 0;
+                }
+                if (std::abs(point.x - peer.tab_press.x) >= GetSystemMetricsForDpi(SM_CXDRAG, dpi) ||
+                    std::abs(point.y - peer.tab_press.y) >= GetSystemMetricsForDpi(SM_CYDRAG, dpi))
+                    begin_tab_move(peer, point);
+                return 0;
+            }
             if (peer.grid_drag == 6) {
                 auto grid = std::static_pointer_cast<DataGrid>(peer.control);
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
@@ -4068,6 +4095,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (peer.dragging) {
                 if (auto split = dynamic_cast<SplitView*>(&control)) {
+                    if (split->divider().width <= 0) {
+                        peer.dragging = false;
+                        split->set_style_dragging(false);
+                        if (GetCapture() == hwnd) ReleaseCapture();
+                        return 0;
+                    }
                     const auto area = split->pane_area();
                     const float width = area.width - split->effective_divider_width();
                     if (width > 0) split->set_ratio((GET_X_LPARAM(lparam) * 96.0f / dpi - peer.drag_offset -
@@ -4242,7 +4275,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (close.width > 0 && x >= close.x && x < close.x + close.width &&
                         y >= close.y && y < close.y + close.height)
                         tabs->request_close(id);
-                    else tabs->activate_tab(id);
+                    else {
+                        tabs->activate_tab(id);
+                        if (!closing && tab_drag_handler && titlebar_strip(tabs) &&
+                            tabs->selected() == id && visible(peer) && enabled(peer)) {
+                            peer.pressed_tab = id;
+                            peer.tab_press = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                            win32_require(ClientToScreen(hwnd, &peer.tab_press) != 0, "Locate tab press");
+                            SetCapture(hwnd);
+                        }
+                    }
                 }
                 return 0;
             }
@@ -4286,6 +4328,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_LBUTTONUP:
+            if (peer.pressed_tab) {
+                peer.pressed_tab.reset();
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
             if (peer.grid_drag == 6) {
                 peer.grid_drag = 0;
                 static_cast<DataGrid&>(control).end_file_press(enabled(peer) && inside());
@@ -4369,6 +4416,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_CAPTURECHANGED:
+            peer.pressed_tab.reset();
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
             if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
@@ -4522,7 +4570,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     tabs->request_close(*tabs->selected()); return 0;
                 }
             }
-            if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer)) {
+            if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->divider().width > 0) {
                 if (wparam == VK_LEFT || wparam == VK_RIGHT) {
                     split->set_ratio(split->ratio() + (wparam == VK_LEFT ? -0.025f : 0.025f)); return 0;
                 }
@@ -4599,6 +4647,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 combo->select(id); update(); return S_OK;
             }
             if (auto split = dynamic_cast<SplitView*>(&control)) {
+                if (!split->primary_visible()) return UIA_E_ELEMENTNOTAVAILABLE;
                 if (lparam < 1000 || lparam > 11000) return E_INVALIDARG;
                 split->set_ratio(static_cast<float>(lparam - 1000) / 10000);
                 update();
@@ -4784,6 +4833,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (titlebar && message == WM_NCHITTEST) return caption_hit(hwnd, lparam);
         if (auto result = navigation_message(hwnd, message, wparam, lparam)) return *result;
         switch (message) {
+        case WM_ENTERSIZEMOVE:
+            if (tab_move) tab_move->entered = true;
+            break;
+        case WM_MOVING:
+            if (tab_move) {
+                move_tab_window(*reinterpret_cast<RECT*>(lparam));
+                return TRUE;
+            }
+            break;
         case WM_TIMER:
             if (wparam == tooltip_timer) {
                 KillTimer(hwnd, tooltip_timer);
@@ -4823,9 +4881,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         }
-        case WM_CANCELMODE: cancel_input(); return DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_CANCELMODE:
+            if (tab_move && tab_move->entered) tab_move->cancelled = true;
+            cancel_input(); return DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_CAPTURECHANGED:
+            if (tab_move && tab_move->entered && lparam && reinterpret_cast<HWND>(lparam) != hwnd) tab_move->cancelled = true;
+            break;
         case WM_ACTIVATE:
             caption_active = LOWORD(wparam) != WA_INACTIVE;
+            if (!caption_active && tab_move && tab_move->entered) tab_move->cancelled = true;
             if (titlebar) titlebar->set_active(caption_active);
             if (titlebar) invalidate(Invalidation::paint);
             if (LOWORD(wparam) == WA_INACTIVE && !IsChild(hwnd, reinterpret_cast<HWND>(lparam))) {
@@ -5087,8 +5151,42 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
 };
 
-Window::Window(WindowOptions options) : impl_(std::make_shared<Impl>(std::move(options))) {}
-Window::~Window() { impl_->teardown(); }
+Window::Window(WindowOptions options) : impl_(std::make_shared<Impl>(std::move(options))) { impl_->public_window = this; }
+Window::~Window() { impl_->public_window = nullptr; impl_->teardown(); }
+void Window::on_tab_drag(std::function<bool(const TabDragEvent&)> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Configure tab dragging on the UI thread");
+    if (impl_->closing) throw std::logic_error("The Window is closed");
+    if (callback && (!impl_->application_managed || !impl_->titlebar))
+        throw std::logic_error("Tab dragging requires an Application window with a custom title bar");
+    if (impl_->tab_move) throw std::logic_error("Do not replace the tab drag handler during a gesture");
+    impl_->tab_drag_handler = std::move(callback);
+}
+WindowPlacement Window::placement() const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read window placement on the UI thread");
+    if (impl_->closing) throw std::logic_error("The Window is closed");
+    if (impl_->tab_move && !impl_->tab_move->torn) return impl_->tab_move->placement;
+    return impl_->read_placement();
+}
+void Window::set_placement(WindowPlacement placement) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Set window placement on the UI thread");
+    if (impl->closing) throw std::logic_error("The Window is closed");
+    if (placement.width <= 0 || placement.height <= 0 || placement.width > 65536 || placement.height > 65536 ||
+        placement.x < -1000000 || placement.y < -1000000 || placement.x > 1000000 || placement.y > 1000000)
+        throw std::invalid_argument("Window placement is outside the supported screen range");
+    impl->initial_placement = placement;
+    if (!impl->window) return;
+    Impl::InputScope scope(*impl);
+    if (IsZoomed(impl->window) || IsIconic(impl->window)) ShowWindow(impl->window, SW_SHOWNOACTIVATE);
+    win32_require(SetWindowPos(impl->window, nullptr, placement.x, placement.y, placement.width, placement.height,
+        SWP_NOZORDER | SWP_NOACTIVATE) != 0, "Set window bounds");
+    if (placement.maximized) {
+        WINDOWPLACEMENT value{sizeof(value)};
+        win32_require(GetWindowPlacement(impl->window, &value) != 0, "Read window placement");
+        value.showCmd = SW_SHOWMAXIMIZED;
+        win32_require(SetWindowPlacement(impl->window, &value) != 0, "Maximize window");
+    }
+}
 void Window::set_title(std::wstring title) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window title on its UI thread");
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");

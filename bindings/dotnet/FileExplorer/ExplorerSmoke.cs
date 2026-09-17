@@ -477,9 +477,10 @@ internal static class ExplorerSmoke
                 await ColumnsChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
+                await TabDragChecks();
                 await TabMenuChecks(fixture);
                 await DetachedLifetimeChecks();
-                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, tear-out rollback, same-Application merge, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
@@ -488,6 +489,274 @@ internal static class ExplorerSmoke
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task TabDragChecks()
+            {
+                ExplorerApplication source = null!, target = null!, remainder = null!, stale = null!, survivor = null!;
+                ExplorerTab[] left = [], right = [];
+                WindowPlacement placement = default;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    if (ReferenceEquals(source, app) || !ReferenceEquals(source.Application, app.Application))
+                        throw new InvalidOperationException("New windows must join the existing Application.");
+                    source.Window.Placement = new(110, 120, 1320, 840, false);
+                });
+                await Ready(source.Left);
+                await Ui(() => source.Left.NewTab(fixture));
+                await Ready(source.Left);
+                await Ui(() => source.ToggleSplit());
+                await Until(() => source.SecondPaneVisible);
+                await Ready(source.Right);
+                await Ui(() => source.Right.NewTab(fixture));
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    left = source.Left.Model.Tabs.ToArray();
+                    right = source.Right.Model.Tabs.ToArray();
+                    placement = source.Window.Placement;
+                    if (!Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 0, left.Length)
+                        || source.Left.Model.Tabs[^1] != left[0]
+                        || !Drag(source, TabDragKind.Cancel, 0, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left)
+                        || !source.Right.Model.Tabs.SequenceEqual(right))
+                        throw new InvalidOperationException("Reorder cancellation must restore both pane orders.");
+                });
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 0, -1)
+                        || source.HasTabDrag || !source.Left.Model.Tabs.SequenceEqual(left))
+                        throw new InvalidOperationException("Invalid insertion slots must not mutate the source.");
+                    if (Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 1, 1))
+                        throw new InvalidOperationException("Reorder must stay in the source strip.");
+                    string notification = source.Notification.Text;
+                    var leftActive = source.Left.Model.Active;
+                    var rightActive = source.Right.Model.Active;
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        if (!Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, 1)
+                            || Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, -1)
+                            || Drag(source, TabDragKind.QueryDrop, 0, ulong.MaxValue, source, 1, 0)
+                            || source.HasTabDrag || source.Notification.Text != notification
+                            || source.Left.Model.Active != leftActive || source.Right.Model.Active != rightActive
+                            || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right))
+                            throw new InvalidOperationException("Drop preview must validate without changing either pane or reporting errors.");
+                    }
+                    if (!Drag(source, TabDragKind.Drop, 0, left[0].Id, source, 1, 1)
+                        || source.Right.Model.Tabs[1] != left[0] || source.HasTabDrag
+                        || !Drag(source, TabDragKind.Completed, 0, left[0].Id)
+                        || source.Right.Model.Tabs[1] != left[0])
+                        throw new InvalidOperationException("Release into another pane must transfer once and accept Completed.");
+                    if (!Drag(source, TabDragKind.Drop, 1, left[0].Id, source, 0, 0)
+                        || !Drag(source, TabDragKind.Completed, 1, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left)
+                        || !source.Right.Model.Tabs.SequenceEqual(right))
+                        throw new InvalidOperationException("Cross-pane release must preserve identities and insertion order.");
+                    source.Left.SelectTab(left[0].Id);
+                });
+                await Ready(source.Left);
+                await Ui(() =>
+                {
+                    source.Left.SetViewMode(ExplorerViewMode.Columns);
+                    source.Left.SetFilter("small");
+                });
+                await Ready(source.Left);
+                await Ui(() =>
+                {
+                    source.Left.SelectColumnPath(0, Path.Combine(fixture, "small.txt"));
+                    source.Left.CaptureViewport();
+                    source.Left.Navigate(Path.Combine(fixture, "alpha"));
+                    if (!source.Left.IsLoading
+                        || !Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, 0)
+                        || !source.Left.IsLoading || source.HasTabDrag)
+                        throw new InvalidOperationException("Drop preview must leave pending navigation and transaction state unchanged.");
+                    if (!source.Left.IsLoading || !Drag(source, TabDragKind.TearOut, 0, left[0].Id))
+                        throw new InvalidOperationException($"Tear-out must cancel pending navigation. {source.Notification.Text}");
+                    remainder = source.DragRemainder
+                        ?? throw new InvalidOperationException("Tear-out must create the remaining document.");
+                    if (source.Left.Model.Tabs.Count != 1 || source.Left.Model.Active != left[0]
+                        || source.Right.Model.Tabs.Count != 0 || source.Left.IsLoading
+                        || remainder.Window.Placement != placement || !source.HasTabDrag)
+                        throw new InvalidOperationException("Tear-out must keep the dragged tab and original remainder placement.");
+                });
+                await Ready(source.Left);
+                await Ready(remainder.Left);
+                await Ready(remainder.Right);
+                await Check(() => source.Left.Model.Active.Path == fixture && source.Left.IsColumns
+                    && source.Left.Model.Active.Filter == "small"
+                    && source.Left.SelectedEntry?.Name == "small.txt",
+                    "Transferred Columns state survives canceled obsolete navigation");
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Cancel, 0, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right)
+                        || source.HasTabDrag)
+                        throw new InvalidOperationException("Tear-out cancellation must restore the original models first.");
+                });
+                await Until(() => remainder.IsDisposed && !app.ExplorerWindows.Contains(remainder));
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    source.Right.SelectTab(right[0].Id);
+                });
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 1, right[0].Id))
+                        throw new InvalidOperationException("Right-pane tear-out was rejected.");
+                    remainder = source.DragRemainder!;
+                    if (source.Right.Model.Active != right[0] || source.Left.Model.Tabs.Count != 0
+                        || source.Window.TitlebarTabs.Visible || !source.Window.TitlebarSecondaryTabs.Visible)
+                        throw new InvalidOperationException("Right-pane tear-out must retain the secondary strip.");
+                });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Check(() => !source.Panes.FirstVisible && source.SecondPaneVisible
+                    && source.Left.Root.GetBounds().Width == 0,
+                    "Right-strip tear-out fills the split area without reserving a blank left pane");
+                await Ui(() => source.Window.Placement = placement with { Width = 640 });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Check(() => source.SecondPaneVisible && !source.Panes.FirstVisible
+                    && source.Right.Model.Active == right[0] && source.Window.TitlebarSecondaryTabs.Visible,
+                    "Right-strip tear-out stays full-width and visible in a narrow window");
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Cancel, 1, right[0].Id)
+                        || !source.Panes.FirstVisible
+                        || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right)
+                        || source.Window.Placement != placement)
+                        throw new InvalidOperationException("Right-strip cancellation must restore primary visibility, pane order, and placement.");
+                });
+                await Until(() => remainder.IsDisposed);
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 1, right[0].Id))
+                        throw new InvalidOperationException("Repeated right-pane tear-out was rejected.");
+                    remainder = source.DragRemainder!;
+                });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Completed, 1, right[0].Id)
+                        || source.Left.Model.Active != right[0] || source.HasTabDrag
+                        || source.Window.TitlebarSecondaryTabs.Visible || !source.Panes.FirstVisible)
+                        throw new InvalidOperationException("Completed right-pane tear-out must normalize the remaining workspace.");
+                });
+                await Until(() => FillsPaneArea(source, source.Left));
+                await Ready(source.Left);
+                await Ready(remainder.Left);
+                await Ready(remainder.Right);
+                await Ui(source.ToggleSplit);
+                await Until(() => source.SecondPaneVisible);
+                await Ready(source.Right);
+                await Check(() => source.Right.Model.Tabs.Count == 1
+                    && source.Right.BackButton.GetBounds().Height > 0,
+                    "A normalized tear-out window can create and display another pane");
+                await Ui(() => source.ClosePane(source.Right));
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 0, right[0].Id) || source.DragRemainder is not null
+                        || !Drag(source, TabDragKind.Cancel, 0, right[0].Id))
+                        throw new InvalidOperationException("A lone tab must not create an empty remainder.");
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    stale = app.ExplorerWindows.Last();
+                    stale.Window.Close();
+                });
+                await Until(() => stale.IsDisposed);
+                await Ui(() =>
+                {
+                    string notification = source.Notification.Text;
+                    if (Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, stale, 0, 0)
+                        || Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 1, 0)
+                        || !Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 0, 1)
+                        || source.Notification.Text != notification || source.HasTabDrag)
+                        throw new InvalidOperationException("Preview must reject closed or hidden targets without side effects.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, stale, 0, 0)
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("Closed destinations must not mutate the source.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 1, 0))
+                        throw new InvalidOperationException("A hidden destination strip must reject a drop.");
+                    for (int i = target.Left.Model.Tabs.Count; i < ExplorerPane.TabLimit; ++i)
+                        target.Left.Model.AddTab(fixture);
+                    notification = source.Notification.Text;
+                    if (Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 0, 0)
+                        || source.Notification.Text != notification || source.HasTabDrag
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("Full-pane preview must not transfer or report an error.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 0, 0)
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("A full target must leave the source unchanged.");
+                    target.Left.ResetTabs(fixture);
+                    target.Left.RenderTransferredModel();
+                    if (!Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 0, 1)
+                        || target.Left.Model.Tabs[1] != right[0] || !source.CloseRequested)
+                        throw new InvalidOperationException("Merge must transfer identity and retire an empty source.");
+                });
+                await Until(() => source.IsDisposed && !app.ExplorerWindows.Contains(source));
+                await Ready(target.Left);
+                await Check(() => target.Window.State == WindowState.Open
+                    && ReferenceEquals(target.Left.Model.Active, right[0]),
+                    "Merged windows survive opener retirement");
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    stale = app.ExplorerWindows.Last();
+                });
+                await Ready(stale.Left);
+                await Ui(() =>
+                {
+                    if (!Drag(stale, TabDragKind.Drop, 0, stale.Left.Model.Active.Id,
+                        target, 0, target.Left.Model.Tabs.Count) || !stale.CloseRequested)
+                        throw new InvalidOperationException("Merging a fresh window's last tab must discard its dormant placeholder pane.");
+                });
+                await Until(() => stale.IsDisposed);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Drag(target, TabDragKind.TearOut, 0, right[0].Id))
+                        throw new InvalidOperationException("The merged tab could not tear out again.");
+                    survivor = target.DragRemainder!;
+                    target.Window.Close();
+                });
+                await Until(() => target.IsDisposed);
+                await Ready(survivor.Left);
+                await Check(() => survivor.Window.State == WindowState.Open && survivor.Left.HasCurrentRows
+                    && !app.ExplorerWindows.Contains(target),
+                    "The remainder survives source closure during a tear-out transaction");
+                await Ui(() =>
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    remainder.Window.Close();
+                    survivor.Window.Close();
+                });
+                await Until(() => remainder.IsDisposed && survivor.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                static bool Drag(ExplorerApplication controller, TabDragKind kind, uint strip, ulong id,
+                    ExplorerApplication? destination = null, uint targetStrip = 0, int index = 0)
+                    => controller.Window.TabDragHandler?.Invoke(new(kind, strip, id,
+                        destination?.Window, targetStrip, index)) == true;
+
+                static bool FillsPaneArea(ExplorerApplication controller, FilePaneView pane)
+                {
+                    var area = controller.Panes.GetBounds();
+                    var bounds = pane.Root.GetBounds();
+                    return area.Width > 0 && bounds.X == area.X && bounds.Y == area.Y
+                        && bounds.Width == area.Width && bounds.Height == area.Height;
+                }
             }
 
             async Task PreviewChecks()
@@ -1137,6 +1406,10 @@ internal static class ExplorerSmoke
                 pane.TabMenu.Invoke(TabContextMenu.NewWindow);
                 if (app.NewWindowPath != fixture)
                     throw new InvalidOperationException("New windows must use the right-clicked tab's folder.");
+                var created = app.ExplorerWindows.Last();
+                if (ReferenceEquals(created, app) || !ReferenceEquals(created.Application, app.Application))
+                    throw new InvalidOperationException("New windows must use the existing Application.");
+                created.Window.Close();
                 pane.Model.Tabs[0].Filter = "original";
                 pane.TabMenu.GetCommands(first);
                 pane.TabMenu.Invoke(TabContextMenu.Duplicate);
