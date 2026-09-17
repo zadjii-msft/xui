@@ -69,6 +69,16 @@ pub struct FileItem {
 }
 pub type Callback = Option<unsafe extern "C" fn(*mut c_void, *const Event) -> Status>;
 unsafe extern "C" {
+    pub fn xui_application_create(application: *mut Handle) -> Status;
+    pub fn xui_application_window_create(application: Handle, options: *const Options, custom_titlebar: u32, window: *mut Handle) -> Status;
+    pub fn xui_application_show(application: Handle, window: Handle) -> Status;
+    pub fn xui_application_run(application: Handle) -> Status;
+    pub fn xui_application_shutdown(application: Handle) -> Status;
+    pub fn xui_application_destroy(application: Handle) -> Status;
+    pub fn xui_application_post(application: Handle, callback: Option<unsafe extern "C" fn(*mut c_void, u32) -> Status>, context: *mut c_void) -> Status;
+    pub fn xui_window_state(window: Handle, state: *mut u32) -> Status;
+    pub fn xui_window_closed(window: Handle, callback: Callback, context: *mut c_void) -> Status;
+    pub fn xui_window_error(window: Handle, buffer: *mut u8, capacity: u32, required: *mut u32) -> Status;
     pub fn xui_tab_set_colors(tabs: Handle, colors: *const TabColors) -> Status;
     pub fn xui_tab_get_colors(tabs: Handle, colors: *mut TabColors) -> Status;
     pub fn xui_tab_set_new_button(tabs: Handle, visible: u32) -> Status;

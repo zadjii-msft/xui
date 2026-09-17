@@ -16,6 +16,8 @@ mod styling;
 pub use styling::*;
 mod control_styling;
 pub use control_styling::*;
+mod application;
+pub use application::*;
 #[cfg(test)]
 mod feature_tests;
 

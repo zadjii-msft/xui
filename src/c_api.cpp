@@ -92,13 +92,16 @@ using ButtonStyleCache = std::unordered_map<xui_handle, CachedButtonStyle>;
 using ControlStyleCache = std::unordered_map<xui_handle, std::weak_ptr<const xui::ControlStyle>>;
 struct State {
     DWORD thread{GetCurrentThreadId()};
-    std::unique_ptr<xui::Window> window;
+    std::shared_ptr<xui::Window> window;
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
     unsigned callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
     xui_status callback_failure{};
+    xui_callback closed_callback{};
+    void* closed_context{};
+    xui_handle application{};
     std::unique_ptr<ButtonStyleCache> button_styles;
     std::unique_ptr<ControlStyleCache> control_styles;
 };
@@ -147,6 +150,46 @@ struct Node {
 std::mutex registry_mutex;
 std::unordered_map<xui_handle, std::shared_ptr<Node>> registry;
 xui_handle next_handle{1};
+struct ApplicationState {
+    DWORD thread{GetCurrentThreadId()};
+    std::unique_ptr<xui::Application> application = std::make_unique<xui::Application>();
+    bool running{};
+    unsigned callbacks{};
+};
+std::unordered_map<xui_handle, std::shared_ptr<ApplicationState>> applications;
+std::shared_ptr<ApplicationState> get_application(xui_handle handle) {
+    std::lock_guard lock(registry_mutex);
+    const auto found = applications.find(handle);
+    require(found != applications.end(), XUI_INVALID_HANDLE, "Invalid or stale application.");
+    require(found->second->thread == GetCurrentThreadId(), XUI_WRONG_THREAD, "Use the application UI thread.");
+    return found->second;
+}
+void lifecycle(const std::shared_ptr<State>& state, xui_handle handle) {
+    state->window->on_closed([weak = std::weak_ptr<State>(state), handle] {
+        const auto s = weak.lock();
+        if (!s) return;
+        s->running = false;
+        s->closed = true;
+        if (s->closed_callback) {
+            const xui_event event{sizeof(xui_event), 100, handle, 3};
+            ++s->callbacks;
+            xui_status result{};
+            try { result = s->closed_callback(s->closed_context, &event); }
+            catch (...) { result = XUI_CALLBACK_FAILED; }
+            --s->callbacks;
+            if (result && !s->callback_failure) s->callback_failure = result;
+        }
+        if (s->callback_failure) throw std::runtime_error("A foreign window callback failed.");
+    });
+}
+xui::WindowOptions window_options(const xui_window_options* options) {
+    require(options && options->size == sizeof(*options), XUI_VERSION_MISMATCH, "Window options size mismatch.");
+    require(options->version == XUI_ABI_VERSION, XUI_VERSION_MISMATCH, "XUI ABI version mismatch.");
+    require(!options->reserved && options->theme <= 2 && std::isfinite(options->width) &&
+        std::isfinite(options->height) && options->width > 0 && options->height > 0 &&
+        options->width <= 32768 && options->height <= 32768, XUI_INVALID_ARGUMENT, "Invalid window options.");
+    return {decode(options->title), {options->width, options->height}, static_cast<xui::ThemeMode>(options->theme)};
+}
 std::shared_ptr<Node> get(xui_handle handle, uint32_t kind = 0) {
     std::shared_ptr<Node> node;
     {
@@ -163,7 +206,7 @@ void same(const std::shared_ptr<Node>& a, const std::shared_ptr<Node>& b) {
     require(a->owner == b->owner, XUI_INVALID_ARGUMENT, "Handles belong to different windows.");
 }
 void editable(const std::shared_ptr<State>& state) {
-    require(!state->closed, XUI_CLOSED, "The window is closed.");
+    require(!state->closed && state->window->state() < xui::WindowState::closing, XUI_CLOSED, "The window is closed.");
     require(!state->source_callbacks, XUI_BUSY, "Immutable source callbacks cannot mutate their window.");
 }
 void topology(const std::shared_ptr<State>& state) {
@@ -204,7 +247,8 @@ xui_handle event_target(const std::shared_ptr<State>& owner, const xui::Control*
 }
 void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0) noexcept {
     auto n = weak.lock();
-    if (!n || !n->callback || n->owner->closed || n->owner->callback_failure) return;
+    if (!n || !n->callback || n->owner->closed || n->owner->callback_failure ||
+        n->owner->window->state() >= xui::WindowState::closing) return;
     auto s = n->owner;
     if (n->dispatching) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
     ++s->callbacks; ++n->dispatching;
@@ -308,9 +352,10 @@ xui_status XUI_CALL xui_window_create(const xui_window_options* options, xui_han
             std::isfinite(options->height) && options->width > 0 && options->height > 0 &&
             options->width <= 32768 && options->height <= 32768, XUI_INVALID_ARGUMENT, "Invalid window options.");
         auto state = std::make_shared<State>();
-        state->window = std::make_unique<xui::Window>(xui::WindowOptions{
+        state->window = std::make_shared<xui::Window>(xui::WindowOptions{
             decode(options->title), {options->width, options->height}, static_cast<xui::ThemeMode>(options->theme)});
         *result = insert(state, XUI_WINDOW);
+        lifecycle(state, *result);
     });
 }
 xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
@@ -348,6 +393,129 @@ xui_status XUI_CALL xui_window_callback_error(xui_handle window, xui_status* sta
     return boundary([&] {
         require(status != nullptr, XUI_INVALID_ARGUMENT, "Missing callback status.");
         *status = get(window, XUI_WINDOW)->owner->callback_failure;
+    });
+}
+xui_status XUI_CALL xui_application_create(xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result != nullptr, XUI_INVALID_ARGUMENT, "Missing application output.");
+        *result = 0;
+        auto state = std::make_shared<ApplicationState>();
+        std::lock_guard lock(registry_mutex);
+        require(next_handle != UINT64_MAX, XUI_NATIVE_ERROR, "Handle generation exhausted.");
+        const auto handle = next_handle++;
+        applications.emplace(handle, std::move(state));
+        *result = handle;
+    });
+}
+xui_status XUI_CALL xui_application_window_create(xui_handle application,
+    const xui_window_options* options, uint32_t custom_titlebar, xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result != nullptr && custom_titlebar <= 1, XUI_INVALID_ARGUMENT, "Invalid window creation arguments.");
+        *result = 0;
+        auto app = get_application(application);
+        auto native = window_options(options);
+        native.custom_titlebar = custom_titlebar != 0;
+        auto state = std::make_shared<State>();
+        state->window = app->application->create_window(std::move(native));
+        state->application = application;
+        *result = insert(state, XUI_WINDOW);
+        lifecycle(state, *result);
+    });
+}
+xui_status XUI_CALL xui_application_show(xui_handle application, xui_handle window) noexcept {
+    return boundary([&] {
+        auto app = get_application(application);
+        auto state = get(window, XUI_WINDOW)->owner;
+        topology(state);
+        require(state->application == application, XUI_INVALID_ARGUMENT, "Window belongs to another application.");
+        state->used = true;
+        state->running = true;
+        app->application->show(*state->window);
+    });
+}
+xui_status XUI_CALL xui_application_run(xui_handle application) noexcept {
+    return boundary([&] {
+        const auto state = get_application(application);
+        require(!state->running && !state->callbacks, XUI_BUSY, "An application cannot run recursively.");
+        state->running = true;
+        struct Reset { ApplicationState& state; ~Reset() { state.running = false; } } reset{*state};
+        if (state->application->run()) throw std::runtime_error(encode(state->application->error()));
+    });
+}
+xui_status XUI_CALL xui_application_shutdown(xui_handle application) noexcept {
+    return boundary([&] { get_application(application)->application->shutdown(); });
+}
+xui_status XUI_CALL xui_application_destroy(xui_handle application) noexcept {
+    return boundary([&] {
+        const auto state = get_application(application);
+        require(!state->running && !state->callbacks, XUI_BUSY, "Return from application dispatch before destroy.");
+        std::unique_ptr<xui::Application> native;
+        {
+            std::lock_guard lock(registry_mutex);
+            for (const auto& [handle, node] : registry) if (node->kind == XUI_WINDOW && node->owner->application == application)
+                require(!node->owner->running && !node->owner->callbacks &&
+                    node->owner->window->state() == xui::WindowState::closed,
+                    XUI_BUSY, "Close application windows and finish dispatch before destroy.");
+            native = std::move(state->application);
+            applications.erase(application);
+        }
+        native.reset();
+    });
+}
+xui_status XUI_CALL xui_application_post(xui_handle application,
+    xui_application_post_callback callback, void* context) noexcept {
+    return boundary([&] {
+        require(callback != nullptr, XUI_INVALID_ARGUMENT, "Missing post callback.");
+        struct Delivery {
+            xui_application_post_callback callback{};
+            void* context{};
+            std::atomic<unsigned> state{};
+            ~Delivery() { if (state == 1) { try { callback(context, 0); } catch (...) {} } }
+        };
+        auto delivery = std::make_shared<Delivery>();
+        delivery->callback = callback; delivery->context = context;
+        std::lock_guard lock(registry_mutex);
+        const auto found = applications.find(application);
+        require(found != applications.end(), XUI_INVALID_HANDLE, "Invalid or stale application.");
+        auto state = found->second;
+        require(state->application != nullptr, XUI_CLOSED, "The application is closed.");
+        const bool accepted = state->application->post([weak = std::weak_ptr<ApplicationState>(state), delivery] {
+            const auto owner = weak.lock();
+            if (!owner) return;
+            delivery->state = 2;
+            ++owner->callbacks;
+            xui_status result{};
+            try { result = delivery->callback(delivery->context, 1); }
+            catch (...) { result = XUI_CALLBACK_FAILED; }
+            --owner->callbacks;
+            if (result) throw std::runtime_error("An application callback failed.");
+        });
+        require(accepted, XUI_CLOSED, "The application is closed.");
+        unsigned pending{};
+        delivery->state.compare_exchange_strong(pending, 1);
+    });
+}
+xui_status XUI_CALL xui_window_state(xui_handle window, uint32_t* state) noexcept {
+    return boundary([&] {
+        require(state != nullptr, XUI_INVALID_ARGUMENT, "Missing state output.");
+        *state = static_cast<uint32_t>(get(window, XUI_WINDOW)->owner->window->state());
+    });
+}
+xui_status XUI_CALL xui_window_closed(xui_handle window, xui_callback callback, void* context) noexcept {
+    return boundary([&] {
+        const auto state = get(window, XUI_WINDOW)->owner;
+        require(!state->closed, XUI_CLOSED, "The window is closed.");
+        state->closed_callback = callback;
+        state->closed_context = context;
+    });
+}
+xui_status XUI_CALL xui_window_error(xui_handle window, char* buffer, uint32_t capacity, uint32_t* required) noexcept {
+    return boundary([&] {
+        require(required && (buffer || !capacity), XUI_INVALID_ARGUMENT, "Invalid error buffer.");
+        const auto message = encode(get(window, XUI_WINDOW)->owner->window->error());
+        *required = static_cast<uint32_t>(message.size());
+        require(capacity >= message.size(), XUI_BUFFER_TOO_SMALL, "Error buffer is too small.");
+        if (!message.empty()) std::memcpy(buffer, message.data(), message.size());
     });
 }
 xui_status XUI_CALL xui_stack_create(xui_handle window, uint32_t axis, xui_handle* result) noexcept {
