@@ -54,6 +54,9 @@ The dialog shows bounded source previews, requires deletion approval, and preven
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
 `Designer.DiagnosticsTests` covers this model and real compiler output without a native DLL.
+`DesignerDiagnosticNavigator.cs` adds native diagnostic navigation through `DesignerDiagnosticsLayout.xui`.
+It checks the current source revision and displayed diagnostic text before changing either native selection.
+`Designer.NavigationTests` covers its buttons, F8 routing, Unicode selections, and invalidation.
 `DesignerWorkspace.cs` connects the hierarchy and inspector to native source transactions.
 Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the same cancellation and revision checks as property edits.
 `DesignerInspectorLayout.xui` defines the wrap and unwrap controls.

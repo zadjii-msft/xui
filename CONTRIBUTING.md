@@ -211,6 +211,7 @@ dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --smoke
 dotnet run --project bindings\dotnet\Designer.RecoveryTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
 dotnet run --project bindings\dotnet\Designer.LayoutTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.WorkspaceTests -c Release -r $rid
@@ -229,6 +230,7 @@ The recovery UI test uses isolated drafts and a real native `ContentDialog`.
 It covers draft selection, recovery copies, dirty-source protection, confirmed deletion, corrupt metadata, and file races.
 The grouping UI test uses the production hierarchy and inspector with native source editing.
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
+The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 It also covers read-only expressions and recovery from invalid source without replacing the native document.

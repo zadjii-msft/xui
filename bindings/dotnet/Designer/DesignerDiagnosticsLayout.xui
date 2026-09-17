@@ -1,0 +1,17 @@
+namespace Xui.Designer;
+
+component DesignerDiagnosticsLayout {
+    param global::Xui.Element Document;
+
+    view {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Text("No current diagnostics", ref: Summary, id: "designer-diagnostic-summary", flex: 1);
+                Button("Previous", ref: Previous, id: "designer-diagnostic-previous", help: "Previous source diagnostic (Shift+F8)", enabled: false);
+                Button("Next", ref: Next, id: "designer-diagnostic-next", help: "Next source diagnostic (F8)", enabled: false);
+                Button("Go to selected", ref: Selected, id: "designer-diagnostic-selected", help: "Select the source location of the diagnostic at the diagnostics caret", enabled: false);
+            }
+            Content(Document, flex: 1);
+        }
+    }
+}
