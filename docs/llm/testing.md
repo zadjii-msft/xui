@@ -163,6 +163,12 @@ A blocked-loader test requires window closure to return before the loader can fi
 An isolated public-control server checks list names, automation IDs, independent focus, selection, and retained-provider rejection after closure.
 It requires the same manifest and desktop as the applications.
 `xui_gallery_smoke` covers UIA roles, names, identity, Invoke, Toggle, disabled action rejection, label updates, and native text.
+Its `--reference-only` mode checks every gallery page in each example language.
+It compares native document text and clipboard text against the catalog, including deferred pages.
+It checks the initial `.xui` tab and shared language selection across eager, deferred, and revisited pages.
+It also checks read-only editing, handbook URLs, and the Other links navigation group without opening a browser.
+`xui_gallery_catalog_tests` checks reference order, content coverage, and documentation paths against the source tree.
+The source map and commands are in [Contributing: Gallery](../../CONTRIBUTING.md#gallery).
 It also covers Tab, Shift+Tab, Space, Enter, pointer cancellation, theme changes, idle paint counts, and provider invalidation after shutdown.
 The native UIA text proxy can complete focus changes after a method returns.
 The browser and gallery probes require stable focus before keyboard sequences instead of accepting a transient focus notification.
