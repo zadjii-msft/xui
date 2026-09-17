@@ -40,6 +40,7 @@ internal sealed partial class DesignerApplication
             {
                 source = editor.Text;
                 buttonId = workspace.Document!.Root!.Children[1].Id;
+                sourceSearch.HandleKey(new('F', KeyModifiers.Control, 0));
                 sourceSearch.Layout.Query.Text = "Find target";
                 sourceSearch.Refresh();
                 editor.Selection = new(0, 0);
@@ -54,12 +55,12 @@ internal sealed partial class DesignerApplication
             await Until(() => pickControls);
             await Ui(() =>
             {
-                Require(view.PickStatus.Text.Contains("Keyboard and accessibility", StringComparison.Ordinal),
+                Require(view.PickStatus.Contains("Keyboard and accessibility", StringComparison.Ordinal),
                     "Pick mode reports its pointer-only contract.");
                 SelectionNative.Click("Do not execute");
             });
             await Until(() => workspace.Hierarchy.Selection?.Id == buttonId);
-            await Until(() => view.OutlineStatus.Text.StartsWith("Outline: Button.", StringComparison.Ordinal));
+            await Until(() => view.OutlineStatus.StartsWith("Outline: Button.", StringComparison.Ordinal));
             await Ui(() =>
             {
                 var button = workspace.Document!.Root!.Children[1];
@@ -75,7 +76,7 @@ internal sealed partial class DesignerApplication
                     "A mismatched preview source cannot reuse current hierarchy IDs.");
                 long staleVersion = version;
                 editor.ReplaceRange(new(0, 0), source, "// Shift\r");
-                Require(view.OutlineStatus.Text.StartsWith("Outline cleared.", StringComparison.Ordinal),
+                Require(view.OutlineStatus.StartsWith("Outline cleared.", StringComparison.Ordinal),
                     "A source revision invalidates the displayed outline feedback immediately.");
                 selection = editor.Selection;
                 OnPreviewPicked(new(staleVersion, buttonId));
@@ -105,18 +106,37 @@ internal sealed partial class DesignerApplication
             await Until(() => !pickControls);
             await Ui(() => SelectionNative.Click("Do not execute"));
             await Until(() => ButtonText() == "Activated");
+            long styledVersion = 0;
+            await Ui(() =>
+            {
+                styledVersion = version;
+                view.StyleToggle.Invoke();
+            });
+            await Until(() => window.Style == VisualStyle.Classic);
+            await Ui(() =>
+            {
+                Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Classic style preserves the applied preview and its authored state without recompilation.");
+                Require(workspace.Hierarchy.Tree.GetControlStyleValues(StylePart.Root, effective: true).RowHeight == 28 &&
+                    workspace.Hierarchy.Tree.GetControlStyleValues(StylePart.Row, effective: true).Padding == new Insets(4, 2, 4, 2),
+                    "Classic style retains the compact hierarchy rows.");
+                view.StyleToggle.Invoke();
+            });
+            await Until(() => window.Style == VisualStyle.WinUI);
+            await Ui(() => Require(version == styledVersion && ButtonText() == "Activated",
+                "Switching back to WinUI preserves the same preview state."));
             await Ui(() =>
             {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();
             });
-            await Until(() => view.PickStatus.Text.StartsWith("Render the current source", StringComparison.Ordinal));
+            await Until(() => view.PickStatus.StartsWith("Render the current source", StringComparison.Ordinal));
             await Ui(() =>
             {
                 Require(!pickControls && preview.AppliedVersion != version,
                     "A non-current preview reports a refusal without partially enabling picking.");
-                Require(view.OutlineStatus.Text.StartsWith("Outline cleared.", StringComparison.Ordinal),
+                Require(view.OutlineStatus.StartsWith("Outline cleared.", StringComparison.Ordinal),
                     "A paused source revision does not retain current-outline feedback.");
                 Require(editor.Text.Contains("SelectionFixture", StringComparison.Ordinal), "A picking refusal preserves source.");
             });
@@ -173,7 +193,7 @@ internal sealed partial class DesignerApplication
                 await Ui(() =>
                 {
                     ready = condition();
-                    string state = $"version={version}, applied={preview.AppliedVersion}, hierarchyCurrent={workspace.IsCurrent}, busy={workspace.IsBusy}, picking={pickControls}, pickStatus={view.PickStatus.Text}, " +
+                    string state = $"version={version}, applied={preview.AppliedVersion}, hierarchyCurrent={workspace.IsCurrent}, busy={workspace.IsBusy}, picking={pickControls}, pickStatus={view.PickStatus}, " +
                         $"status={view.Status.Text}, diagnostics={diagnostics.Text}";
                     lastState = state;
                 });

@@ -73,6 +73,17 @@ A closed window rejects changes. The getter retains the last title after closure
 Invalid strings, wrong-thread calls, and native title failures throw exceptions.
 `Button::set_icon` selects an icon-only presentation without changing the accessible name.
 `ButtonIcon::none` restores text. Icon buttons retain standard focus, hover, pressed, disabled, and high-contrast states.
+`ButtonIcon::save`, `save_as`, `undo`, and `redo` provide document command icons.
+C# exposes `ButtonIcon.Save`, `SaveAs`, `Undo`, and `Redo` through `Button.SetIcon`.
+Their ABI values are 22, 23, 24, and 25. Existing icon values remain unchanged.
+`ButtonIcon::chevron_up` and `chevron_down` provide disclosure icons with ABI values 26 and 27.
+C# exposes these as `ButtonIcon.ChevronUp` and `ChevronDown`.
+Classic draws two strokes; WinUI uses the existing ChevronUp and ChevronDown symbols.
+The same icons work in navigation entries, tabs, command records, and collection visuals.
+Classic draws vector shapes. WinUI uses the Save, SaveAs, Undo, and Redo symbols from [Segoe Fluent Icons](https://learn.microsoft.com/en-us/windows/apps/design/iconography/segoe-fluent-icons-font).
+The [Segoe MDL2 Assets](https://learn.microsoft.com/en-us/windows/apps/design/iconography/segoe-ui-symbol-font) fallback uses the same codepoints: E74E, E792, E7A7, and E7A6.
+Applications supply accessible button names and command handlers. An icon does not register a keyboard shortcut or change an editor's undo history.
+Values outside the defined icon range cause an argument error.
 `TextInput::set_caption_visible(false)` hides the native caption without a search icon.
 The native label remains available for EDIT naming. The default caption and search presentations remain unchanged.
 The C# explorer also uses icon and caption controls through the bindings.

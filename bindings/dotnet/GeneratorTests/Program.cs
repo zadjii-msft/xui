@@ -64,6 +64,7 @@ internal static partial class Program
         """;
     private static void Main()
     {
+        TestButtonIconContract();
         TestPortableStyleCatalog();
         TestExecution();
         TestSizeAndHelp();
@@ -899,6 +900,15 @@ internal static partial class Program
         type.GetProperty("Side")!.SetValue(component, 48f);
         Assert(cell.SizeSets == 2, "Unchanged size does not call the setter.");
         context.Unload();
+    }
+    private static void TestButtonIconContract()
+    {
+        Assert((uint)RealXui.ButtonIcon.Drive == 21, "Existing button icon ABI values remain unchanged");
+        var icons = new[] { RealXui.ButtonIcon.Save, RealXui.ButtonIcon.SaveAs, RealXui.ButtonIcon.Undo, RealXui.ButtonIcon.Redo,
+            RealXui.ButtonIcon.ChevronUp, RealXui.ButtonIcon.ChevronDown };
+        for (var i = 0; i < icons.Length; ++i)
+            Assert((uint)icons[i] == 22 + i, "Document icons append stable ABI values");
+        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 28, "The managed icon contract has no gaps or aliases");
     }
     private static void TestExecution()
     {

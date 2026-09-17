@@ -606,7 +606,7 @@ public sealed unsafe partial class Window
             try
             {
                 var item = pin.Source.Item(index, column);
-                if ((uint)item.Icon > (uint)ButtonIcon.Drive) throw new ArgumentException("Invalid item icon.");
+                if ((uint)item.Icon > (uint)ButtonIcon.ChevronDown) throw new ArgumentException("Invalid item icon.");
                 if (item.ImagePath.Length > 32767) throw new ArgumentException("Image path exceeds 32767 UTF-16 units.");
                 var bytes = Utf8(item.ImagePath);
                 *icon = (uint)item.Icon; *required = (uint)bytes.Length;

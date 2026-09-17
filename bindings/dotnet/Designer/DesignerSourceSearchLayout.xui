@@ -2,18 +2,31 @@ namespace Xui.Designer;
 
 component DesignerSourceSearchLayout {
     param global::Xui.Element Editor;
+    state bool FindOpen = false;
+
+    style FindPanel for Stack {
+        padding: 8;
+        spacing: 4;
+        background: theme(light: 0xF3F4F6, dark: 0x292929);
+    }
 
     view {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                TextInput("Find in source", ref: Query, id: "designer-find-query", captionVisible: false,
-                    placeholder: "Find (Ctrl+F)", preferredSize: (140, 32), flex: 1);
-                Toggle("Aa", ref: MatchCase, id: "designer-find-case", help: "Match case");
-                Button("Prev", ref: Previous, id: "designer-find-previous", enabled: false, help: "Previous match (Shift+F3)");
-                Button("Next", ref: Next, id: "designer-find-next", enabled: false, help: "Next match (F3)");
+        Grid("Source editor and Find", rows: [new(global::Xui.TrackSizing.Fixed, FindOpen ? 82 : 0), new(global::Xui.TrackSizing.Star)]) {
+            VStack(style: FindPanel) {
+                HStack(spacing: 4) {
+                    TextInput("Find in source", ref: Query, id: "designer-find-query", captionVisible: false,
+                        placeholder: "Find", preferredSize: (100, 32), flex: 1, visible: FindOpen);
+                    Toggle("Aa", ref: MatchCase, id: "designer-find-case", help: "Match case", visible: FindOpen);
+                    Button("Prev", ref: Previous, id: "designer-find-previous", enabled: false,
+                        help: "Previous match (Shift+F3)", visible: FindOpen);
+                    Button("Next", ref: Next, id: "designer-find-next", enabled: false,
+                        help: "Next match (F3)", visible: FindOpen);
+                    Button("Close find", ref: Close, id: "designer-find-close", icon: global::Xui.ButtonIcon.Close,
+                        size: (32, 32), help: "Close find (Escape)", visible: FindOpen);
+                }
+                Text("", ref: Status, id: "designer-find-status", visible: FindOpen);
             }
-            Text("Find in source (Ctrl+F)", ref: Status, id: "designer-find-status", wrapping: true);
-            Content(Editor, flex: 1);
+            Content(Editor, row: 1);
         }
     }
 }
