@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Designer\VisualDocument.cs" Link="VisualDocument.cs" />
+    <Compile Include="..\Designer\DesignerLiteralCodec.cs" Link="DesignerLiteralCodec.cs" />
     <Compile Include="..\Designer\PreviewCompiler.cs" Link="PreviewCompiler.cs" />
     <EmbeddedResource Include="..\GeneratorTests\Fakes.cs" LogicalName="Designer.SourceTests.Fakes.cs" />
     <EmbeddedResource Include="..\Xui\ControlStyleCatalog.g.cs" LogicalName="Designer.SourceTests.ControlStyleCatalog.cs" />

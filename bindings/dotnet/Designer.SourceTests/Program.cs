@@ -49,6 +49,7 @@ internal static partial class Program
             TestRevisions();
             TestCancellation();
             TestWrapping();
+            TestLiteralCodec();
             DesignerMetadataTests.Run(Assert);
             Console.WriteLine($"Designer source assertions: {assertions} passed.");
             return 0;
