@@ -8,6 +8,7 @@ fn independent_windows_and_worker_sender() -> Result<()> {
     for window in [&a, &b] {
         let root = window.stack(Axis::Vertical)?;
         let label = window.label("Independent native window")?;
+        window.set_file_type_icon(".txt", false)?;
         root.add(&label, 1.0)?;
         window.set_content(&root)?;
         app.show(window)?;

@@ -96,6 +96,7 @@ unsafe extern "C" {
     pub fn xui_window_destroy(window: Handle) -> Status;
     pub fn xui_window_run(window: Handle) -> Status;
     pub fn xui_window_close(window: Handle) -> Status;
+    pub fn xui_window_file_type_icon(window: Handle, extension: Text, directory: u32) -> Status;
     pub fn xui_window_callback_error(window: Handle, status: *mut Status) -> Status;
     pub fn xui_create(
         window: Handle,

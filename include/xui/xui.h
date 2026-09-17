@@ -115,6 +115,9 @@ XUI_API xui_status XUI_CALL xui_window_create(const xui_window_options* options,
 XUI_API xui_status XUI_CALL xui_window_destroy(xui_handle window) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_run(xui_handle window) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_close(xui_handle window) XUI_NOEXCEPT;
+/* Extension only (".txt"), not a path. Empty uses a stock file/folder icon. */
+XUI_API xui_status XUI_CALL xui_window_file_type_icon(xui_handle window,
+    xui_string extension, uint32_t directory) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_callback_error(xui_handle window,
     xui_status* callback_status) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind,

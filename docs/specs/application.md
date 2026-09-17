@@ -115,6 +115,22 @@ Rejected select-all requests leave native selection and focus unchanged.
 The input-state methods on `Control` are backend boundaries, not application focus commands.
 Startup errors and callback exceptions return a nonzero result. `Window::error()` supplies the error text.
 
+### Window icons
+
+`Window::set_file_type_icon(extension, directory)` sets the small and large native HWND icons.
+The C# method is `Window.SetFileTypeIcon`. Rust uses `Window::set_file_type_icon`.
+The C ABI exports `xui_window_file_type_icon`.
+An extension such as `.txt` selects its type-association icon without access to the target file.
+An empty extension selects the stock document icon. An empty extension with `directory=true` selects the stock folder icon.
+The stock path does not resolve a file association or invoke file providers.
+
+Extensions start with a dot, contain at most 255 UTF-16 units, and cannot contain control characters or path separators.
+Directory icons require an empty extension.
+The method requires the window's UI thread, before Show or while the window is open.
+Invalid arguments preserve the existing icons.
+Each window owns its icon handles, replaces their sizes on DPI changes, and releases them on closure.
+Custom title bars retain their own visual controls. The HWND icons supply Windows taskbar and window-switching surfaces.
+
 ### Independent application windows
 
 An instance of `Application` owns one STA message dispatcher.

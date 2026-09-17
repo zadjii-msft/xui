@@ -4,6 +4,8 @@ namespace Xui;
 
 internal static unsafe partial class Native
 {
+    [LibraryImport("xui", EntryPoint = "xui_window_file_type_icon")]
+    internal static partial int WindowFileTypeIcon(ulong window, Text extension, uint directory);
     [LibraryImport("xui", EntryPoint = "xui_application_create")]
     internal static partial int ApplicationCreate(out ulong application);
     [LibraryImport("xui", EntryPoint = "xui_application_window_create")]

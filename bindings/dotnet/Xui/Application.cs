@@ -109,6 +109,14 @@ public sealed unsafe class Application : IDisposable
 
 public sealed unsafe partial class Window
 {
+    /// <summary>Sets the HWND file-type icon without opening a file. Empty selects a stock file or folder icon.</summary>
+    public Window SetFileTypeIcon(string extension = "", bool directory = false)
+    {
+        Guard();
+        using var pins = new Pins();
+        Check(Native.WindowFileTypeIcon(Handle, pins.Text(extension), directory ? 1u : 0u));
+        return this;
+    }
     internal Application? Application { get; }
     private GCHandle closedRoot;
     public event Action<WindowClosedEventArgs>? Closed;

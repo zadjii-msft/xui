@@ -9,6 +9,7 @@ internal static class Tests
         try
         {
             if (args is ["--multiwindow"]) { MultiWindowTests.Run(); return 0; }
+            if (args is ["--window-icons"]) { WindowIconTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--shell-preview"]) { ShellPreviewTests.Run(); return 0; }
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
@@ -18,6 +19,7 @@ internal static class Tests
             if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); StylingTests.Native(); }
             ExplorerTextTests.Run();
             if (args is not ["--text-only"]) MultiWindowTests.Run();
+            if (args is not ["--text-only"]) WindowIconTests.Run();
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

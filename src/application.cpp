@@ -25,6 +25,7 @@
 #include "grid_accessibility.hpp"
 #include <UIAutomation.h>
 #include <commctrl.h>
+#include <shellapi.h>
 #include <windowsx.h>
 #include <cmath>
 #include <utility>
@@ -41,6 +42,35 @@ thread_local bool running{};
 thread_local bool application_context{};
 std::mutex host_claim_mutex;
 std::unordered_map<std::uint64_t, const void*> host_claims;
+struct WindowIcons {
+    HICON small_icon{}, large_icon{};
+    ~WindowIcons() { if (small_icon) DestroyIcon(small_icon); if (large_icon) DestroyIcon(large_icon); }
+};
+std::unique_ptr<WindowIcons> file_type_icons(const std::wstring& extension, bool directory, UINT dpi) {
+    auto result = std::make_unique<WindowIcons>();
+    for (bool is_small : {true, false}) {
+        WindowIcons source;
+        if (directory || extension.empty()) {
+            SHSTOCKICONINFO info{sizeof(info)};
+            hr_require(SHGetStockIconInfo(directory ? SIID_FOLDER : SIID_DOCNOASSOC,
+                SHGSI_ICON | (is_small ? SHGSI_SMALLICON : SHGSI_LARGEICON), &info), "Load stock window icon");
+            source.small_icon = info.hIcon;
+        } else {
+            SHFILEINFOW info{};
+            const auto name = L"xui" + extension;
+            win32_require(SHGetFileInfoW(name.c_str(), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
+                SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | (is_small ? SHGFI_SMALLICON : SHGFI_LARGEICON)) != 0,
+                "Load file-type window icon");
+            source.small_icon = info.hIcon;
+        }
+        const int width = GetSystemMetricsForDpi(is_small ? SM_CXSMICON : SM_CXICON, dpi);
+        const int height = GetSystemMetricsForDpi(is_small ? SM_CYSMICON : SM_CYICON, dpi);
+        const auto copy = static_cast<HICON>(CopyImage(source.small_icon, IMAGE_ICON, width, height, 0));
+        win32_require(copy != nullptr, "Size window icon");
+        (is_small ? result->small_icon : result->large_icon) = copy;
+    }
+    return result;
+}
 }
 
 struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
@@ -150,6 +180,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::unique_ptr<ControlStyleAttachment> tooltip_styling;
     HWND window{}, last_focus{};
     UINT dpi{96};
+    bool icon_configured{}, icon_directory{};
+    std::wstring icon_extension;
+    std::unique_ptr<WindowIcons> window_icons;
+    void apply_icons(std::unique_ptr<WindowIcons> value) {
+        SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(value->small_icon));
+        SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(value->large_icon));
+        window_icons = std::move(value);
+    }
     Drawing drawing;
     Palette palette{};
     HBRUSH background{}, field{};
@@ -252,6 +290,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (background) { DeleteObject(background); background = nullptr; }
         if (field) { DeleteObject(field); field = nullptr; }
         if (font) { DeleteObject(font); font = nullptr; }
+        window_icons.reset();
         if (!input_depth) release_claims();
     }
     void complete() {
@@ -1116,6 +1155,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
+        if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
             std::weak_ptr<Impl> weak = shared_from_this();
             titlebar->on_caption([weak](CaptionAction action) {
@@ -4612,6 +4652,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_DPICHANGED: {
             cancel_input();
             dpi = HIWORD(wparam);
+            if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
             apply_theme();
             const auto& suggested = *reinterpret_cast<RECT*>(lparam);
             SetWindowPos(hwnd, nullptr, suggested.left, suggested.top,
@@ -4815,6 +4856,19 @@ void Window::set_title(std::wstring title) {
     impl_->options.title = std::move(title);
 }
 const std::wstring& Window::title() const { return impl_->options.title; }
+void Window::set_file_type_icon(std::wstring extension, bool directory) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window icons on the UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (extension.size() > 255 || (!extension.empty() && extension.front() != L'.') ||
+        extension.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
+        std::any_of(extension.begin(), extension.end(), [](wchar_t c) { return c < 32; }) ||
+        (directory && !extension.empty()))
+        throw std::invalid_argument("Use an extension beginning with a dot, or an empty stock-icon extension");
+    if (impl_->window) impl_->apply_icons(file_type_icons(extension, directory, impl_->dpi));
+    impl_->icon_extension = std::move(extension);
+    impl_->icon_directory = directory;
+    impl_->icon_configured = true;
+}
 const std::shared_ptr<TitleBar>& Window::titlebar() const { return impl_->titlebar; }
 void Window::set_content(std::shared_ptr<Stack> content) {
     if (impl_->used) throw std::logic_error("Set window content before Application::run");

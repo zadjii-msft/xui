@@ -94,6 +94,8 @@ public:
     void set_content(std::shared_ptr<Stack> content);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
+    // A type association only, never a target path. Empty selects a stock document icon.
+    void set_file_type_icon(std::wstring extension = {}, bool directory = false);
     const std::wstring& title() const;
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);

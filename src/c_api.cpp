@@ -404,6 +404,14 @@ xui_status XUI_CALL xui_window_run(xui_handle window) noexcept {
 xui_status XUI_CALL xui_window_close(xui_handle window) noexcept {
     return boundary([&] { auto n = get(window, XUI_WINDOW); n->owner->window->close(); });
 }
+xui_status XUI_CALL xui_window_file_type_icon(xui_handle window, xui_string extension, uint32_t directory) noexcept {
+    return boundary([&] {
+        require(directory <= 1, XUI_INVALID_ARGUMENT, "Invalid directory flag.");
+        auto n = get(window, XUI_WINDOW);
+        editable(n->owner);
+        n->owner->window->set_file_type_icon(decode(extension), directory != 0);
+    }, true);
+}
 xui_status XUI_CALL xui_window_callback_error(xui_handle window, xui_status* status) noexcept {
     return boundary([&] {
         require(status != nullptr, XUI_INVALID_ARGUMENT, "Missing callback status.");
