@@ -12,6 +12,8 @@ internal sealed class DesignerInspector
     private bool resetting, editable, validationPending;
     private bool textMode;
     private string textExpression = "";
+    private bool dimensionMode;
+    private string dimensionExpression = "";
     private bool updatingPalette;
     private ControlTemplate[] matchingTemplates = [];
 
@@ -20,6 +22,7 @@ internal sealed class DesignerInspector
     internal string? Argument => argumentIndex >= 0 && argumentIndex < names.Length ? names[argumentIndex] : null;
     internal ControlTemplate? Template { get; private set; } = ControlTemplate.Text;
     internal bool IsTextMode => textMode;
+    internal bool IsDimensionMode => dimensionMode;
 
     internal DesignerInspector(Window window)
     {
@@ -29,6 +32,7 @@ internal sealed class DesignerInspector
         Value.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 13 });
         Layout = new DesignerInspectorLayout(window, arguments, Value, palette, attach: false);
         Layout.TextMode.Changed += ChangeTextMode;
+        Layout.DimensionMode.Changed += ChangeDimensionMode;
         Layout.PaletteFilter.Event += e => { if (e.Kind == EventKind.Change) FilterPalette(); };
         Layout.ClearPaletteFilter.Click += () =>
         {
@@ -164,6 +168,12 @@ internal sealed class DesignerInspector
         ShowArgument();
     }
 
+    internal void FocusValue()
+    {
+        if (dimensionMode) Layout.DimensionWidth.Focus();
+        else Value.Focus();
+    }
+
     private void ShowArgument()
     {
         var argument = node?.Arguments.FirstOrDefault(a => a.Name == Argument);
@@ -171,6 +181,16 @@ internal sealed class DesignerInspector
         bool writable = editable && Argument is not null && !expression;
         textMode = false;
         Layout.TextMode.Checked = false;
+        dimensionMode = false;
+        Layout.DimensionMode.Checked = false;
+        Layout.DimensionsOpen = false;
+        Layout.DimensionArgument = Argument is "size" or "preferredSize";
+        string? dimensionError = null;
+        bool supportsDimensions = Layout.DimensionArgument && argument is not null &&
+            DesignerLiteralCodec.TryDecodeDimensions(argument.Value, out _, out _, out dimensionError);
+        Layout.DimensionMode.Enabled = writable && supportsDimensions;
+        Layout.DimensionWidth.Enabled = Layout.DimensionHeight.Enabled = writable;
+        Value.Visible(true);
         string? textError = null;
         bool supportsText = argument?.ValueKind == XuiValueKind.String &&
             DesignerLiteralCodec.TryDecodeText(argument.Value, out _, out textError);
@@ -188,17 +208,70 @@ internal sealed class DesignerInspector
             : argument is null ? "Not set. Enter a literal source value; Apply validates its type."
             : $"{argument.ValueKind} literal. Apply validates the complete component.";
         if (writable && textError is not null) Layout.ArgumentHelp.Text += " Text mode unavailable: " + textError;
+        if (writable && dimensionError is not null) Layout.ArgumentHelp.Text += " Dimension mode unavailable: " + dimensionError;
         Value.Help(Layout.ArgumentHelp.Text);
-        Layout.ArgumentHelp.Visible(!writable || textError is not null);
+        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null);
     }
 
     internal bool TryReadLiteral(out string value, out string? error)
     {
         value = Value.Text;
         error = null;
+        if (dimensionMode)
+        {
+            try
+            {
+                value = DesignerLiteralCodec.EncodeDimensions(dimensionExpression, Layout.DimensionWidth.Text, Layout.DimensionHeight.Text);
+                return true;
+            }
+            catch (ArgumentException exception) { error = exception.Message; return false; }
+        }
         if (!textMode) return true;
         try { value = DesignerLiteralCodec.EncodeText(textExpression, value); return true; }
         catch (ArgumentException exception) { error = exception.Message; return false; }
+    }
+
+    private void ChangeDimensionMode(bool enabled)
+    {
+        if (enabled == dimensionMode) return;
+        if (!editable || !Layout.DimensionArgument || (!dimensionMode && Value.ReadOnly))
+        {
+            Layout.DimensionMode.Checked = dimensionMode;
+            Layout.Feedback.Text = "Dimension mode requires an editable literal size in the current source.";
+            return;
+        }
+        if (enabled)
+        {
+            string expression = Value.Text;
+            if (!DesignerLiteralCodec.TryDecodeDimensions(expression, out string width, out string height, out string? error))
+            {
+                Layout.DimensionMode.Checked = false;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            dimensionExpression = expression;
+            Layout.DimensionWidth.Text = width;
+            Layout.DimensionHeight.Text = height;
+        }
+        else
+        {
+            if (!TryReadLiteral(out string expression, out string? error))
+            {
+                Layout.DimensionMode.Checked = true;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            Value.Text = expression;
+        }
+        dimensionMode = enabled;
+        Layout.DimensionsOpen = enabled;
+        Value.ReadOnly = enabled;
+        Value.Visible(!enabled);
+        Layout.ValueLabel.Text = enabled ? "Dimensions (device-independent pixels)" : "Literal source value (include quotes for text)";
+        Layout.ArgumentHelp.Text = enabled
+            ? "Enter finite, non-negative numeric literals. Apply validates the complete component."
+            : "Size tuple. Apply validates the complete component.";
+        Layout.ArgumentHelp.Visible(false);
     }
 
     private void ChangeTextMode(bool enabled)

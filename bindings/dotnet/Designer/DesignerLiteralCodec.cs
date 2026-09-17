@@ -7,6 +7,77 @@ namespace Xui.Designer;
 
 public static class DesignerLiteralCodec
 {
+    public static bool TryDecodeDimensions(string? expression, out string width, out string height, out string? error)
+    {
+        width = height = "";
+        error = "Dimension mode requires an unnamed tuple of two finite, non-negative numeric literals without comments or directives.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || syntax is not TupleExpressionSyntax tuple || tuple.Arguments.Count != 2 ||
+            tuple.Arguments.Any(argument => argument.NameColon is not null || !IsDimension(argument.Expression)) ||
+            !HasOnlyWhitespaceTrivia(tuple)) return false;
+        width = tuple.Arguments[0].Expression.ToString();
+        height = tuple.Arguments[1].Expression.ToString();
+        error = null;
+        return true;
+    }
+
+    public static string EncodeDimensions(string originalExpression, string width, string height)
+    {
+        if (!TryDecodeDimensions(originalExpression, out string originalWidth, out string originalHeight, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        var widthSyntax = ParseDimension(width, nameof(width));
+        var heightSyntax = ParseDimension(height, nameof(height));
+        if (width.Trim() == originalWidth && height.Trim() == originalHeight) return originalExpression;
+        var tuple = (TupleExpressionSyntax)SyntaxFactory.ParseExpression(originalExpression);
+        var previousWidth = tuple.Arguments[0].Expression;
+        tuple = tuple.ReplaceNode(previousWidth, widthSyntax.WithTriviaFrom(previousWidth));
+        var previousHeight = tuple.Arguments[1].Expression;
+        tuple = tuple.ReplaceNode(previousHeight, heightSyntax.WithTriviaFrom(previousHeight));
+        string encoded = tuple.ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded dimensions exceed the source length limit.", nameof(width));
+        return encoded;
+    }
+
+    private static ExpressionSyntax ParseDimension(string text, string parameter)
+    {
+        if (text is not null && text.Length <= XuiSourceParser.MaximumSourceLength)
+        {
+            var syntax = SyntaxFactory.ParseExpression(text.Trim());
+            if (!syntax.ContainsDiagnostics && HasOnlyWhitespaceTrivia(syntax) && IsDimension(syntax)) return syntax;
+        }
+        throw new ArgumentException("Enter one finite, non-negative numeric literal that fits a single-precision dimension.", parameter);
+    }
+
+    private static bool HasOnlyWhitespaceTrivia(SyntaxNode syntax) => syntax.DescendantTrivia(descendIntoTrivia: true)
+        .All(trivia => trivia.IsKind(SyntaxKind.WhitespaceTrivia) || trivia.IsKind(SyntaxKind.EndOfLineTrivia));
+
+    private static bool IsDimension(ExpressionSyntax expression)
+    {
+        bool negative = false;
+        if (expression is PrefixUnaryExpressionSyntax unary &&
+            (unary.IsKind(SyntaxKind.UnaryMinusExpression) || unary.IsKind(SyntaxKind.UnaryPlusExpression)))
+        {
+            negative = unary.IsKind(SyntaxKind.UnaryMinusExpression);
+            expression = unary.Operand;
+        }
+        if (expression is not LiteralExpressionSyntax literal || !literal.IsKind(SyntaxKind.NumericLiteralExpression)) return false;
+        double? number = literal.Token.Value switch
+        {
+            int value => value,
+            uint value => value,
+            long value => value,
+            ulong value => value,
+            float value => value,
+            double value => value,
+            decimal value => (double)value,
+            _ => null
+        };
+        if (negative) number = -number;
+        return number is { } dimension && double.IsFinite(dimension) && dimension >= 0 && dimension <= float.MaxValue;
+    }
+
     public static bool TryDecodeText(string? expression, out string nativeText, out string? error)
     {
         nativeText = "";

@@ -50,6 +50,7 @@ internal static partial class Program
             TestCancellation();
             TestWrapping();
             TestLiteralCodec();
+            TestDimensionCodec();
             TestRemoveArgument();
             TestPaletteExpansion();
             TestValueControlSource();

@@ -145,7 +145,16 @@ Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the
 `Designer.GroupingTests` covers the native buttons, hierarchy-only shortcuts, source selection, and undo.
 
 `DesignerLiteralCodec.cs` uses Roslyn string tokens to convert between literal source and native property text.
-`DesignerInspector.cs` exposes this conversion through an opt-in text-mode toggle.
+Its dimension helpers accept unnamed pairs of finite, non-negative numeric literals within the single-precision range.
+They reject expressions, comments, directives, and named tuples instead of rewriting them.
+`EncodeDimensions` replaces only the numeric expressions and retains tuple trivia and exact no-op source.
+`Designer.SourceTests/Program.DimensionCodec.cs` covers this contract and real compiler integration.
+
+`DesignerInspector.cs` exposes string conversion through an opt-in text-mode toggle.
+Its dimension-mode toggle replaces the raw value area with two native text fields.
+`FocusValue` selects the active field rather than the hidden raw editor.
+`Designer.TextModeTests/Program.Dimensions.cs` covers drafts, validation, mode changes, native source undo, resets, and stale-source rejection.
+The application selection smoke checks actual preview bounds after size edits and undo.
 `DesignerWorkspace.ApplyProperty` rejects no-op values before it starts a source transaction.
 `Designer.TextModeTests` covers the complete native inspector, source callbacks, undo, raw and verbatim spelling, draft conversion, and size-limit errors.
 The September 17, 2026 ARM64 Release run passed 26 text-mode and reset assertions, 16 workspace assertions, and 19 grouping assertions.

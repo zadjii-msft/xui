@@ -25,7 +25,7 @@ internal sealed partial class DesignerApplication
         new(DesignerCommandId.FocusHierarchy, "Focus: Control hierarchy", () => workspace.Hierarchy.Tree.Focus(),
             CanExecute: () => workspace.IsCurrent),
         new(DesignerCommandId.FocusPalette, "Focus: Search control palette", () => workspace.Inspector.Layout.PaletteFilter.Focus()),
-        new(DesignerCommandId.FocusProperty, "Focus: Property value", () => workspace.Inspector.Value.Focus(),
+        new(DesignerCommandId.FocusProperty, "Focus: Property value", workspace.Inspector.FocusValue,
             CanExecute: () => workspace.IsCurrent && workspace.Hierarchy.Selection is not null),
         new(DesignerCommandId.Render, "Preview: Render current source", () => Schedule(immediate: true), "Ctrl+Enter"),
         new(DesignerCommandId.LivePreview, "Preview: Toggle live preview", () => view.Live.Invoke(), Checked: live),

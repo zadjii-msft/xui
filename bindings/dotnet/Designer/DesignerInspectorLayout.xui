@@ -4,6 +4,8 @@ component DesignerInspectorLayout {
     param global::Xui.Element Arguments;
     param global::Xui.Element ValueEditor;
     param global::Xui.Element Palette;
+    state bool DimensionsOpen = false;
+    state bool DimensionArgument = false;
 
     view {
         ScrollView("Properties and control palette") {
@@ -15,7 +17,19 @@ component DesignerInspectorLayout {
                 Text("Literal source value (include quotes for text)", ref: ValueLabel, wrapping: true);
                 Toggle("Edit as text", ref: TextMode, id: "designer-property-text-mode", enabled: false,
                     help: "Edit a string literal without quotes or escape sequences");
-                Content(ValueEditor, preferredSize: (240, 80));
+                Toggle("Edit dimensions", ref: DimensionMode, id: "designer-property-dimension-mode", enabled: false,
+                    preferredSize: (240, DimensionArgument ? 32 : 0), visible: DimensionArgument,
+                    help: "Edit a literal size as separate width and height fields");
+                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : 80),
+                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 0 : 80), new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 60 : 0)]) {
+                    Content(ValueEditor);
+                    HStack(spacing: 6, row: 1) {
+                        TextInput("Width", ref: DimensionWidth, id: "designer-property-width", visible: DimensionsOpen,
+                            preferredSize: (106, 60), flex: 1);
+                        TextInput("Height", ref: DimensionHeight, id: "designer-property-height", visible: DimensionsOpen,
+                            preferredSize: (106, 60), flex: 1);
+                    }
+                }
                 Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
                 HStack(spacing: 6) {
                     Button("Apply property", ref: Apply, id: "designer-apply-property");

@@ -223,6 +223,7 @@ dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
 ```
 
 This suite checks exact UTF-16 ranges, source preservation, stale revisions, container rules, and generated compilation.
+Dimension codec checks cover numeric syntax, culture independence, exact tuple preservation, input limits, and expression and comment refusals.
 It also checks opt-in element mapping with the existing managed generator fakes, without native DLL calls.
 Diagnostic checks cover exact expression columns and the actual preview compiler output.
 The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
@@ -285,6 +286,8 @@ Source replacement also exercises hierarchy updates, preview compilation, and on
 Viewport checks cover exact Compact dimensions, retained preview versions and state, native picking, and a return to Fit.
 Command checks cover shortcut routing, pointer-mode exit, native dismissal, discard protection, and focus inside the scrollable inspector.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
+It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
+The selection smoke checks exact native preview sizes after a dimension edit and its source undo.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 Palette checks cover name and description search, empty results, retained selection, filtered insertion, and source undo.

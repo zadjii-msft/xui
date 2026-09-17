@@ -13,7 +13,7 @@ internal sealed partial class DesignerApplication
                 view {
                     VStack(spacing: 8) {
                         Text("Find target");
-                        Button(Caption, click: Activate);
+                        Button(Caption, size: (180, 40), click: Activate);
                         TextInput("Preview input", text: "Preview text");
                     }
                 }
@@ -225,6 +225,37 @@ internal sealed partial class DesignerApplication
                     field.Y >= panel.Y && field.Y + field.Height <= panel.Y + panel.Height,
                     "The control-palette focus command reveals its native field inside the inspector.");
             });
+            await Ui(() =>
+            {
+                var button = workspace.Document!.Root!.Children[1];
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(button));
+                workspace.Inspector.ChooseArgument("size");
+                workspace.Inspector.Layout.DimensionMode.Invoke();
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusProperty));
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.DimensionWidth.Focused);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.IsDimensionMode,
+                    "Property navigation preserves the active dimension mode and focuses its width field.");
+                workspace.Inspector.Layout.DimensionWidth.Text = "240";
+                workspace.Inspector.Layout.DimensionHeight.Text = "52";
+                workspace.Inspector.Layout.Apply.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(preview.TryReadNode(version, buttonId, out var resized) &&
+                    resized.Bounds.Width == 240 && resized.Bounds.Height == 52,
+                    "Structured dimensions change the actual native preview control through the source compiler.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && preview.TryReadNode(version, buttonId, out var restored) &&
+                restored.Bounds.Width == 180 && restored.Bounds.Height == 40,
+                "One source undo restores the original native preview dimensions."));
             await Ui(() =>
             {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");

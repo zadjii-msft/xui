@@ -1,12 +1,12 @@
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main()
     {
-        try { Run(); return 0; }
+        try { Run(); RunDimensions(); return 0; }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 

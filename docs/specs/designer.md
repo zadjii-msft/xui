@@ -172,6 +172,19 @@ Switching between modes preserves an unapplied property value when conversion su
 Failed conversion leaves that value unchanged and shows an error.
 Expressions, interpolation, UTF-8 literals, NUL, and invalid Unicode cannot use text mode.
 
+**Edit dimensions** replaces the raw property editor with **Width** and **Height** fields for existing literal `size` and `preferredSize` tuples.
+Each field accepts one finite, non-negative numeric literal within the single-precision range.
+Values use C# syntax, including decimal points, exponents, hexadecimal numbers, and numeric suffixes.
+**Apply property** uses the same compilation, revision, and native undo checks as other property edits.
+Parent layout constraints still determine the final arranged size.
+
+Unchanged fields preserve the exact original tuple.
+Changed dimensions preserve tuple whitespace and the spelling of the other field.
+Switching back to raw mode preserves the unapplied dimension draft.
+Invalid field syntax prevents conversion and leaves the draft visible for correction.
+Commented tuples, named tuples, and expressions cannot use dimension mode.
+Selection or source changes return the inspector to raw mode, and property-focus commands target the currently active editor.
+
 **Reset** removes an authored named literal argument so the control can use its default.
 Reset compiles the candidate and creates one native undo operation.
 It does not remove positional operands, expressions, references, or comments inside the argument.
