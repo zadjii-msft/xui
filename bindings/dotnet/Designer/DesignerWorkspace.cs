@@ -240,7 +240,11 @@ internal sealed class DesignerWorkspace : IDisposable
 
     private void Insert()
     {
-        var template = Inspector.Template;
+        if (Inspector.Template is not { } template)
+        {
+            Inspector.Layout.Feedback.Text = "Choose a control from the palette before insertion.";
+            return;
+        }
         GridPlacement? placement = null;
         if (Hierarchy.Selection?.Kind == "Grid")
         {

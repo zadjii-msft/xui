@@ -141,6 +141,14 @@ Reset compiles the candidate and creates one native undo operation.
 It does not remove positional operands, expressions, references, or comments inside the argument.
 Required arguments and unsafe Grid changes produce an error without changing source.
 
+The palette filters controls by name and description.
+**Find a control** accepts case-insensitive terms such as `button`, `slider`, `table`, or `layout`.
+Multiple terms must all match the control name or description.
+The description explains the selected template before insertion.
+Filtering preserves the selected template when it remains in the results.
+An empty result disables insertion. The clear button restores the complete catalog.
+The filter remains available during source errors and pending edits, without changing source.
+
 The palette inserts a complete control at the end of the selected stack or grid.
 Grid insertion and duplication require an empty, valid row and column.
 **Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.

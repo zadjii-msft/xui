@@ -29,6 +29,12 @@ It rejects stale source or revision results before the native call.
 `DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
 It applies 28-DIP rows, 16-DIP indentation, and reduced row padding through local style values.
 `DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
+It also filters the control palette by enum name and a short template description.
+`FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.
+Filtered choices retain enum-based native keys instead of result indices.
+An empty result clears the selected template, and the workspace rejects insertion without a template.
+Filtering and description updates do not replace source or reset property input.
+The shared builder smoke covers filtered insertion, retained queries, exact native undo, and the preceding source edit.
 `DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
 `DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
 `Designer.LayoutTests` links the production layouts for native geometry and editor-state tests without the preview compiler.

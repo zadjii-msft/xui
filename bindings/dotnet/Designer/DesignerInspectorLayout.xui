@@ -41,7 +41,14 @@ component DesignerInspectorLayout {
                 Button("Unwrap one child", ref: Unwrap, id: "designer-unwrap", help: "Remove a safe one-child wrapper (Ctrl+Shift+G in hierarchy)");
                 Text("Unwrap needs one child and refuses to discard wrapper properties, identities, or comments.", wrapping: true);
                 Text("Control palette", fontSize: 18, fontWeight: 600);
+                HStack(spacing: 6) {
+                    TextInput("Find a control", ref: PaletteFilter, id: "designer-palette-filter", captionVisible: false,
+                        placeholder: "Find: button, slider, layout", preferredSize: (190, 36), flex: 1);
+                    Button("Clear control filter", ref: ClearPaletteFilter, id: "designer-palette-filter-clear",
+                        icon: global::Xui.ButtonIcon.Close, size: (32, 32), help: "Show all controls");
+                }
                 Content(Palette, preferredSize: (240, 36));
+                Text("", ref: PaletteHelp, id: "designer-palette-help", wrapping: true);
                 Text("Insert at the end of the selected stack or grid. Grid insertion and duplication use the cell below.", wrapping: true);
                 HStack(spacing: 6) {
                     TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));

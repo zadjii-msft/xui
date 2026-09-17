@@ -12,11 +12,13 @@ internal sealed class DesignerInspector
     private bool resetting, editable, validationPending;
     private bool textMode;
     private string textExpression = "";
+    private bool updatingPalette;
+    private ControlTemplate[] matchingTemplates = [];
 
     internal DesignerInspectorLayout Layout { get; }
     internal MultilineText Value { get; }
     internal string? Argument => argumentIndex >= 0 && argumentIndex < names.Length ? names[argumentIndex] : null;
-    internal ControlTemplate Template { get; private set; } = ControlTemplate.Text;
+    internal ControlTemplate? Template { get; private set; } = ControlTemplate.Text;
     internal bool IsTextMode => textMode;
 
     internal DesignerInspector(Window window)
@@ -27,14 +29,27 @@ internal sealed class DesignerInspector
         Value.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 13 });
         Layout = new DesignerInspectorLayout(window, arguments, Value, palette, attach: false);
         Layout.TextMode.Changed += ChangeTextMode;
-        palette.SetItems(Enum.GetValues<ControlTemplate>().Select(t => new Choice((ulong)t + 1, t.ToString())).ToArray(), 1);
-        palette.Event += e => { if (e.Kind == EventKind.Selection) Template = (ControlTemplate)(e.Value - 1); };
+        Layout.PaletteFilter.Event += e => { if (e.Kind == EventKind.Change) FilterPalette(); };
+        Layout.ClearPaletteFilter.Click += () =>
+        {
+            Layout.PaletteFilter.Text = "";
+            FilterPalette();
+            Layout.PaletteFilter.Focus();
+        };
+        palette.Event += e =>
+        {
+            if (updatingPalette || e.Kind != EventKind.Selection) return;
+            int index = Array.FindIndex(matchingTemplates, t => (ulong)t + 1 == e.Value);
+            Template = index < 0 ? null : matchingTemplates[index];
+            UpdatePaletteState();
+        };
         arguments.Event += e =>
         {
             if (resetting || e.Kind != EventKind.Selection) return;
             argumentIndex = checked((int)e.Value - 1);
             ShowArgument();
         };
+        FilterPalette();
         Show(null, null, false);
     }
 
@@ -66,9 +81,7 @@ internal sealed class DesignerInspector
         Layout.WrapHorizontal.Enabled = canEdit && selected is not null;
         Layout.WrapScroll.Enabled = canEdit && selected is not null;
         Layout.Unwrap.Enabled = canEdit && selected?.BodySpan is not null && selected.Children.Count == 1;
-        bool insert = canEdit && selected?.Kind is "VStack" or "HStack" or "Grid";
-        Layout.Insert.Enabled = insert;
-        palette.Enabled = insert;
+        UpdatePaletteState();
         bool grid = selected?.Kind == "Grid" || parent?.Kind == "Grid";
         Layout.Row.Enabled = canEdit && grid;
         Layout.Column.Enabled = canEdit && grid;
@@ -80,6 +93,67 @@ internal sealed class DesignerInspector
             : "Move changes sibling order. Duplicate rejects shared IDs and Content references.";
         ShowArgument();
     }
+
+    internal void FilterPalette()
+    {
+        matchingTemplates = FindTemplates(Layout.PaletteFilter.Text);
+        if (Template is not { } selected || !matchingTemplates.Contains(selected))
+            Template = matchingTemplates.Length == 0 ? null : matchingTemplates[0];
+        updatingPalette = true;
+        try
+        {
+            palette.SetItems(matchingTemplates.Select(t => new Choice((ulong)t + 1, t.ToString())).ToArray(),
+                Template is { } template ? (ulong)template + 1 : null);
+        }
+        finally { updatingPalette = false; }
+        UpdatePaletteState();
+    }
+
+    private void UpdatePaletteState()
+    {
+        Layout.Insert.Enabled = editable && (node?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
+        palette.Enabled = matchingTemplates.Length > 0;
+        string count = matchingTemplates.Length == 1 ? "1 control." : $"{matchingTemplates.Length} controls.";
+        Layout.PaletteHelp.Text = Template is { } template
+            ? $"{count} {DescribeTemplate(template)}"
+            : matchingTemplates.Length == 0 ? "No controls match. Change or clear the filter." : "Choose a control from the palette.";
+    }
+
+    internal static ControlTemplate[] FindTemplates(string query)
+    {
+        string[] terms = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return Enum.GetValues<ControlTemplate>().Where(template =>
+        {
+            string text = template + " " + DescribeTemplate(template);
+            return terms.All(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }).ToArray();
+    }
+
+    private static string DescribeTemplate(ControlTemplate template) => template switch
+    {
+        ControlTemplate.Text => "Text label for read-only content.",
+        ControlTemplate.Button => "Action button with a click handler.",
+        ControlTemplate.Toggle => "Boolean choice with a caption.",
+        ControlTemplate.TextInput => "Native single-line text field with a caption.",
+        ControlTemplate.VStack => "Layout container that arranges controls vertically.",
+        ControlTemplate.HStack => "Layout container that arranges controls horizontally.",
+        ControlTemplate.Grid => "Layout container with rows and columns.",
+        ControlTemplate.ScrollView => "Scrollable layout container with a vertical stack.",
+        ControlTemplate.SplitView => "Resizable two-pane layout with a divider.",
+        ControlTemplate.DataGrid => "Data table with two example columns.",
+        ControlTemplate.NavigationView => "Navigation sidebar with a header.",
+        ControlTemplate.RangeInput => "Slider for a numeric value.",
+        ControlTemplate.Progress => "Progress bar for a numeric value.",
+        ControlTemplate.ToggleSwitch => "On-off switch for a boolean choice.",
+        ControlTemplate.ToggleButton => "Button that retains its checked state.",
+        ControlTemplate.ProgressRing => "Circular progress indicator for loading.",
+        ControlTemplate.CheckBox => "Checkbox with an unchecked initial state.",
+        ControlTemplate.HyperlinkButton => "Link-style action button.",
+        ControlTemplate.SelectorBar => "Selection bar with two example choices.",
+        ControlTemplate.InfoBadge => "Notification badge.",
+        ControlTemplate.MenuBar => "Menu with example File and Open commands.",
+        _ => throw new ArgumentOutOfRangeException(nameof(template), template, "Unknown control template.")
+    };
 
     internal void ChooseArgument(string name)
     {

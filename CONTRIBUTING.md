@@ -280,6 +280,7 @@ Source replacement also exercises hierarchy updates, preview compilation, and on
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
+Palette checks cover name and description search, empty results, retained selection, filtered insertion, and source undo.
 It also covers read-only expressions and recovery from invalid source without replacing the native document.
 The file smoke uses an isolated recovery directory and the complete application.
 It covers automatic drafts, the native recovery picker, disk conflicts, persistent file errors, and native edits after an invalid file opens.
