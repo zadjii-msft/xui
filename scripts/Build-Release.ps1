@@ -15,7 +15,8 @@ $rid = if ($Architecture -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 $target = if ($Architecture -eq 'ARM64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $native = Join-Path $stage "native\$rid"
 $samples = Join-Path $stage "samples\$rid"
-if ((Test-Path $native) -or (Test-Path $samples)) { throw "Use a fresh staging directory: $stage" }
+$designer = Join-Path $stage "designer\$rid"
+if ((Test-Path $native) -or (Test-Path $samples) -or (Test-Path $designer)) { throw "Use a fresh staging directory: $stage" }
 $cmake = Get-XuiCMake
 Invoke-Checked { & $cmake -S $repo -B $build -G $Generator -A $Architecture -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF -DXUI_ENABLE_IPO=OFF -DXUI_ENABLE_WEBVIEW2=OFF }
 Invoke-Checked { & $cmake --build $build --config Release --parallel 4 }
@@ -47,6 +48,8 @@ foreach ($project in Get-XuiSamples -ReleaseOnly) {
     Copy-Item "$($resolved.Properties.PkgMicrosoft_DotNet_ILCompiler)\THIRD-PARTY-NOTICES.TXT" $destination
 }
 
+& "$PSScriptRoot\Build-DesignerRelease.ps1" -Version $Version -RuntimeIdentifier $rid -NativeDirectory $native -OutputDirectory $designer
+
 $vcvars = Get-XuiVcVars $Architecture
 $oldLibDir = $env:XUI_LIB_DIR
 try {
@@ -62,9 +65,5 @@ try {
     $env:XUI_LIB_DIR = $oldLibDir
 }
 
-$files = Get-ChildItem $samples -File -Recurse | ForEach-Object {
-    [ordered]@{ path = [IO.Path]::GetRelativePath($samples, $_.FullName); sha256 = (Get-FileHash $_.FullName).Hash }
-}
-[ordered]@{ version = $Version; runtime = $rid; files = @($files) } |
-    ConvertTo-Json -Depth 5 | Set-Content "$samples\manifest.json" -Encoding utf8
+Write-XuiArchiveManifest $samples $Version $rid
 Write-Output "Release inputs: $stage"

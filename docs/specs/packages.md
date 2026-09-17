@@ -8,10 +8,10 @@ The workflow does not publish packages to a package registry.
 
 XUI uses the [MIT license](../../LICENSE).
 The NuGet package and both Cargo crates declare MIT in their package metadata.
-Each package and each sample ZIP contain the root `LICENSE` file.
+Each package, sample ZIP, and Designer ZIP contain the root `LICENSE` file.
 Third-party components retain their own license terms.
 
-Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, two sample ZIPs, and SHA-256 checksums.
+Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, two sample ZIPs, two Designer ZIPs, and SHA-256 checksums.
 The NuGet download contains both native architectures, headers, static libraries, the C ABI runtime, .NET bindings, and the `.xui` compiler.
 Native C++ deployment does not include managed assemblies.
 The compiler is a build-time dependency, not part of release application output.
@@ -145,3 +145,21 @@ Each application runs from its extracted directory without an XUI entry in `PATH
 Windows system components remain prerequisites.
 Each archive includes a versioned file manifest with SHA-256 hashes.
 Release procedures are in [CONTRIBUTING](../../CONTRIBUTING.md#release-packages).
+
+## Designer archives
+
+The release supplies `Xui.Designer.<version>.win-x64.zip` and `Xui.Designer.<version>.win-arm64.zip`.
+Each archive contains `Designer.exe`, the matching XUI native runtime, the .NET runtime, and the compiler for live previews.
+No separate .NET runtime or SDK installation is necessary.
+The archive also includes the XUI and .NET licenses, third-party notices, and a versioned file manifest with SHA-256 hashes.
+
+Extract the complete archive for your Windows architecture.
+Run `Designer.exe` from the extracted directory.
+Keep all supplied files and directories beside the executable.
+Open only trusted `.xui` files.
+
+The Designer compiles and runs authored C# in its own process.
+It is not a sandbox.
+Its deployment uses managed, untrimmed, multi-file output instead of NativeAOT.
+These separate archives do not add the Designer or its runtime to the NativeAOT sample ZIPs.
+The [Designer guide](designer.md) describes its editor and preview behavior.

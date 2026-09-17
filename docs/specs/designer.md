@@ -8,6 +8,8 @@ Highlighting remains active when live preview is paused.
 The preview uses the existing XUI compiler and native controls, not an HTML approximation.
 
 Build and run commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
+Release downloads include separate [Designer archives](packages.md#designer-archives) for Windows x64 and ARM64.
+These archives include the .NET runtime and compiler, so no separate .NET installation is necessary.
 The [language guide](xui-language.md) describes the source syntax.
 
 ## Example documents

@@ -376,7 +376,8 @@ The [binding reference](docs/specs/bindings.md) describes ownership and callback
 The [package guide](docs/specs/packages.md) describes consumption and deployment.
 Release builds require both x64 and ARM64 C++ tools and Rust targets.
 Each GitHub runner builds its own architecture.
-The local commands can cross-compile both architectures:
+The Designer requires a .NET SDK that matches its target architecture because it bundles the SDK's Roslyn assemblies.
+For local builds, select the matching SDK through `PATH` before each architecture command:
 
 ```powershell
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture x64 -StageDirectory build\release-stage
@@ -384,6 +385,7 @@ The local commands can cross-compile both architectures:
 .\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
+.\tests\release-designer.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-workflow.ps1
 .\tests\release-packaging-unit.ps1
 .\tests\native-copy.ps1 -Architecture $arch
@@ -399,12 +401,21 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, the release samples, the NuGet package, and both Cargo crates.
+It builds both architectures, the release samples, the Designer, the NuGet package, and both Cargo crates.
 The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
 Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
 No separate .NET installation is necessary.
 TaskCard remains available as tutorial source but does not ship in these archives.
 `IsXuiReleaseSample=false` excludes a project from releases without excluding it from local native-copy checks.
+
+The Designer assets are `Xui.Designer.<version>.win-x64.zip` and `Xui.Designer.<version>.win-arm64.zip`.
+The Designer stays outside the NativeAOT sample inventory.
+`scripts\Build-DesignerRelease.ps1` publishes self-contained, untrimmed, multi-file output with the runtime compiler and no debug symbols.
+`Build-Release.ps1` stages that output under `designer\<rid>`, separately from `samples\<rid>`.
+The Designer archives include the .NET runtime, licenses, notices, and file manifests.
+The release workflow runs the extracted `Designer.exe --smoke` on each architecture before it creates the draft.
+That check uses the bundled runtime and compiler without an SDK or XUI entry in `PATH`.
+
 The workflow creates a draft release and attaches the assets and SHA-256 checksums.
 It does not publish to NuGet.org or crates.io.
 It refuses to replace assets on an already published GitHub release.

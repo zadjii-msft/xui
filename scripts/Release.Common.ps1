@@ -9,7 +9,8 @@ function Assert-ReleaseVersion([string]$Version) {
 
 function Get-XuiReleaseAssetNames([string]$Version) {
     @("Xui.$Version.nupkg", "xui-sys-$Version.crate", "xui-$Version.crate",
-        "Xui.Samples.$Version.win-x64.zip", "Xui.Samples.$Version.win-arm64.zip")
+        "Xui.Samples.$Version.win-x64.zip", "Xui.Samples.$Version.win-arm64.zip",
+        "Xui.Designer.$Version.win-x64.zip", "Xui.Designer.$Version.win-arm64.zip")
 }
 
 function Invoke-Checked([scriptblock]$Command) {
@@ -34,6 +35,14 @@ function Assert-SameFile([string]$Expected, [string]$Actual) {
     if ((Get-FileHash -LiteralPath $Expected).Hash -ne (Get-FileHash -LiteralPath $Actual).Hash) {
         throw "Native runtime differs from the selected build: $Actual"
     }
+}
+
+function Write-XuiArchiveManifest([string]$Directory, [string]$Version, [string]$RuntimeIdentifier) {
+    $files = Get-ChildItem $Directory -File -Recurse | ForEach-Object {
+        [ordered]@{ path = [IO.Path]::GetRelativePath($Directory, $_.FullName); sha256 = (Get-FileHash $_.FullName).Hash }
+    }
+    [ordered]@{ version = $Version; runtime = $RuntimeIdentifier; files = @($files) } |
+        ConvertTo-Json -Depth 5 | Set-Content "$Directory\manifest.json" -Encoding utf8
 }
 
 function Get-XuiCMake {
