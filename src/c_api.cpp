@@ -4,6 +4,7 @@
 #include "xui/image.hpp"
 #include "xui/navigation.hpp"
 #include "xui/documents.hpp"
+#include "xui/syntax_highlighting.hpp"
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
 #include "xui/data_grid.hpp"

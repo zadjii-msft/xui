@@ -1,5 +1,6 @@
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
+#include "xui/syntax_highlighting.hpp"
 #include "xui/image.hpp"
 #include "xui/suggestions.hpp"
 #include "xui/adaptive_layout.hpp"
@@ -44,6 +45,7 @@ void code_block(Panel parent, const gallery::Entry& entry) {
     code->set_text(entry.code);
     code->set_read_only(true);
     code->set_monospace(true);
+    if (syntax_highlighting_available()) set_syntax_language(*code, "cpp");
     const auto lines = 1 + std::count(code->text().begin(), code->text().end(), L'\r');
     code->set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 240.0f)});
     parent->add(code);

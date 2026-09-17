@@ -451,6 +451,41 @@ The Cargo manifest and lockfile pin the upstream compiler and runtime.
 The [contributor procedure](../../CONTRIBUTING.md#microsoft-edit-lsh-grammar) contains test and integration commands.
 The [public guide](../specs/xui-language.md#microsoft-edit-syntax-support) describes coverage and limits.
 
+### Native LSH integration
+
+`src/syntax_highlighting.cpp` loads the `Lsh 0.3.0` native API beside the containing XUI module.
+It compiles one shared engine from trusted embedded definitions.
+The engine handles complete CR-normalized documents and converts UTF-8 ranges to UTF-16.
+`integrations/lsh/lsh.cmake` selects the package architecture and embeds the grammar sources.
+`bindings/dotnet/Xui/SyntaxHighlighting.cs` exposes the additive C ABI without a second managed LSH dependency.
+The gallery, Designer, and FileExplorer enable the same native implementation.
+
+`integrations/edit-lsh/upstream` contains C, C++, C#, and Rust definitions from Microsoft Edit commit `826b4c097b6f14ba0a846dc56f2f0223a3aaf73a`.
+Their [MIT license](../../integrations/edit-lsh/upstream/LICENSE) is retained.
+The Rust character regex uses a negated ASCII class because the packaged compiler rejects hexadecimal regex escapes.
+The XUI grammar uses the same compatible byte-class approach.
+Multiline loops consume input explicitly to avoid the packaged engine's automatic-advance behavior after resumption.
+Token branches emit colors before continuing to avoid a self-jump assertion in newer LSH compiler builds.
+Both the package-backed native tests and the standalone Rust tests cover this compatibility boundary.
+The packaged regex compiler can select a shorter shared-prefix alternative.
+The control rule places `TextInput` before `Text`, and separate rules handle hexadecimal, binary, and decimal literals.
+Numeric classes spell out both letter cases instead of relying on case-insensitive character classes.
+Interpolation rules emit string segments before consuming an opening brace, then emit that brace as code.
+The native palette maps named argument labels to the accent color, distinct from plain identifier values.
+
+`tests/syntax_highlighting_tests.cpp` exercises custom grammars and UTF-16 conversion through the packaged engine.
+The document syntax core and native-window tests cover presentation and editing invariants.
+Read-only RichEdit peers use `EM_SETCHARFORMAT` because TOM foreground setters reject those peers.
+The read-only style remains set throughout formatting.
+
+On 2026-09-17, ARM64 Release checks passed for syntax, native editing, managed editing, Designer, and FileExplorer source previews.
+The gallery search and compact WinUI interaction checks also passed.
+The packaged engine processed all 28 repository XUI sources and every gallery excerpt.
+The full Classic gallery sweep hit focus assertions with LSH enabled and disabled.
+Its complete interaction sweep remains unverified.
+`bindings/dotnet/Syntax.Tests` covers managed binding calls, language changes, and native undo and redo.
+The [contributor procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) contains the build and test commands.
+
 ## VS Code package
 
 The extension registers the `.xui` file association.

@@ -602,6 +602,9 @@ The [XUI LSH grammar](../../integrations/edit-lsh/xui.lsh) supplies `.xui` highl
 It recognizes declarations, control names, named arguments, styles, resources, and embedded C# tokens.
 It preserves multiline comments, verbatim strings, raw strings, and nested C# blocks.
 Ordinary and verbatim interpolated strings use C# highlighting inside interpolation expressions.
+Their interpolation braces use the normal code color, while escaped braces remain part of the string.
+Named argument labels have a separate token category from identifier values.
+Hexadecimal and binary literals accept either letter case, digit separators, and integer suffixes.
 Raw interpolated strings use one string color.
 Their interpolation expressions are not parsed.
 A delimiter-length quote run inside a raw interpolation can end highlighting early.

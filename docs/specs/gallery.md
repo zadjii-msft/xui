@@ -3,6 +3,7 @@
 The gallery is an interactive catalog built from XUI controls.
 Each page includes its purpose, a C++ API excerpt, a Copy code action, and event output.
 Code blocks support native text selection and preserve indentation.
+An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) also highlights their C++ syntax.
 
 See [CONTRIBUTING](../../CONTRIBUTING.md#gallery) for build and run commands.
 The optional [WinUI-style appearance](winui-style.md) has a compact experiment and a complete-catalog mode.

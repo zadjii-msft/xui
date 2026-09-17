@@ -107,6 +107,23 @@ fn standalone_registration_and_builtin_compatibility() {
 }
 
 #[test]
+fn bundled_grammars_compile_together() {
+    init();
+    let arena = scratch_arena(None);
+    let mut generator = Generator::new(&arena);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    generator.read_file(&root.join("xui.lsh")).unwrap();
+    generator.read_directory(&root.join("upstream")).unwrap();
+    generator
+        .read_file(&lsh::compiler::builtin_definitions_path().join("utility.lsh"))
+        .unwrap();
+    let assembly = generator.assemble().unwrap();
+    for name in ["xui", "c", "cpp", "csharp", "rust"] {
+        assert!(assembly.entrypoints.iter().any(|entry| entry.name == name));
+    }
+}
+
+#[test]
 fn declarations_styles_and_current_controls() {
     expect(
         r#"namespace Demo;
@@ -313,6 +330,56 @@ fn contextual_keywords_in_resource_names_and_namespaces() {
             (2, "view", "variable"),
             (3, "view", "keyword.other"),
             (3, "Text", "storage.type"),
+        ],
+    );
+}
+
+#[test]
+fn designer_token_colors() {
+    expect(
+        concat!(
+            "$\"Hello there, {Name}!\"\n",
+            "$\"Result: {Format(Name, 0xFF)}!\"\n",
+            "$@\"Hello {Name}, {{literal}}\"\n",
+            "TextInput(\"Your name\", text: Name, change: Rename);\n",
+            "Button(\"Go\"); HStack(spacing: 8) { Text(\"Hi\"); }\n",
+            "theme(light: 0x005FB8, dark: 0x60CDFF);\n",
+            "theme(light: 0xFFFFFF, dark: 0x001A26);\n",
+            "theme(light: 0x004E99, dark: 0x98E0FF);\n",
+            "0xff 0XAbCd 0xFFu 0B10_01UL 1.25e+2 .5F\n"
+        ),
+        &[
+            (0, "Hello there, ", "string"),
+            (0, "{Name}", "other"),
+            (0, "!\"", "string"),
+            (1, "{", "other"),
+            (1, "Format", "method"),
+            (1, "Name", "other"),
+            (1, "0xFF", "constant.numeric"),
+            (1, "}", "other"),
+            (1, "!\"", "string"),
+            (2, "{Name}", "other"),
+            (2, "{{literal}}", "string"),
+            (3, "TextInput", "storage.type"),
+            (3, "text", "variable"),
+            (3, "Name", "other"),
+            (3, "change", "variable"),
+            (3, ": Rename", "other"),
+            (4, "Button", "storage.type"),
+            (4, "HStack", "storage.type"),
+            (4, "Text", "storage.type"),
+            (5, "0x005FB8", "constant.numeric"),
+            (5, "0x60CDFF", "constant.numeric"),
+            (6, "0xFFFFFF", "constant.numeric"),
+            (6, "0x001A26", "constant.numeric"),
+            (7, "0x004E99", "constant.numeric"),
+            (7, "0x98E0FF", "constant.numeric"),
+            (8, "0xff", "constant.numeric"),
+            (8, "0XAbCd", "constant.numeric"),
+            (8, "0xFFu", "constant.numeric"),
+            (8, "0B10_01UL", "constant.numeric"),
+            (8, "1.25e+2", "constant.numeric"),
+            (8, ".5F", "constant.numeric"),
         ],
     );
 }

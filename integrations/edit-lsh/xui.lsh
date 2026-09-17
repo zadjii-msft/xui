@@ -3,9 +3,10 @@
 pub fn xui() {
     until /$/ {
         yield other;
-        if /(@?[\w\x80-\xff]+)\s*:/ {
+        // Negated ASCII punctuation keeps UTF-8 words whole without newer LSH \x escapes.
+        if /(@?[^\s!-\/:-@\[-^`{-~]+)\s*:/ {
             yield $1 as variable;
-        } else if /[\w]*[\x80-\xff][\w\x80-\xff]*/ {
+        } else if /\w*[^\s -~][^\s!-\/:-@\[-^`{-~]*/ {
             yield other;
         } else if /code\>/ {
             yield keyword.other;
@@ -18,7 +19,7 @@ pub fn xui() {
             xui_type_name();
         } else if /(?:view|resources|part|when)\>/ {
             yield keyword.other;
-        } else if /(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|RangeInput|Progress|Content)\>/ {
+        } else if /(?:VStack|HStack|TextInput|Text|Button|Toggle|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|RangeInput|Progress|Content)\>/ {
             yield storage.type;
         } else if /\(/ {
             yield other;
@@ -38,7 +39,7 @@ fn xui_type_name() {
     loop {
         yield other;
         await input;
-        if /@?[\w\x80-\xff]+/ {
+        if /@?[^\s!-\/:-@\[-^`{-~]+/ {
             yield storage.type;
             return;
         } else {
@@ -100,9 +101,9 @@ fn xui_arguments() {
         if /\)/ {
             yield other;
             return;
-        } else if /@?[\w\x80-\xff]+::/ {
+        } else if /@?[^\s!-\/:-@\[-^`{-~]+::/ {
             yield other;
-        } else if /(@?[\w\x80-\xff]+)\s*:/ {
+        } else if /(@?[^\s!-\/:-@\[-^`{-~]+)\s*:/ {
             yield $1 as variable;
             yield other;
         } else {
@@ -137,7 +138,10 @@ fn xui_token() {
             if /\*\// {
                 yield comment;
                 break;
+            } else if /./ {
+                yield comment;
             }
+            continue;
         }
     } else if /\$*"""/ {
         xui_raw_string();
@@ -159,9 +163,9 @@ fn xui_token() {
         yield string;
     } else if /#\s*(?:define|elif|else|endif|endregion|error|if|line|nullable|pragma|region|undef|warning)\>.*/ {
         yield keyword.preprocessor;
-    } else if /@[\w\x80-\xff]+/ {
+    } else if /@[^\s!-\/:-@\[-^`{-~]+/ {
         yield other;
-    } else if /[\w]*[\x80-\xff][\w\x80-\xff]*/ {
+    } else if /\w*[^\s -~][^\s!-\/:-@\[-^`{-~]*/ {
         yield other;
     } else if /(?:break|case|catch|continue|default|do|else|finally|foreach|for|goto|if|return|switch|throw|try|while|yield)\>/ {
         yield keyword.control;
@@ -171,17 +175,17 @@ fn xui_token() {
         yield constant.language;
     } else if /(?:bool|byte|char|decimal|double|float|int|long|nint|nuint|object|sbyte|short|string|uint|ulong|ushort|void)\>/ {
         yield storage.type;
-    } else if /(?i:(?:0x[\da-f_]+|0b[01_]+|[0-9][\d_]*(?:\.[\d_]+)?|\.[0-9][\d_]*)(?:e[+-]?[\d_]+)?[dflmu]{0,2})/ {
-        if /[\w\x80-\xff]+/ {
-            yield other;
-        } else {
-            yield constant.numeric;
-        }
-    } else if /([\w\x80-\xff]+)\s*\(/ {
+    } else if /0[xX][0-9a-fA-F_]+(?:[uU][lL]|[lL][uU]|[uUlL])?/ {
+        xui_number_end();
+    } else if /0[bB][01_]+(?:[uU][lL]|[lL][uU]|[uUlL])?/ {
+        xui_number_end();
+    } else if /(?:[0-9][0-9_]*(?:\.[0-9_]+)?|\.[0-9][0-9_]*)(?:[eE][+-]?[0-9_]+)?(?:[uU][lL]|[lL][uU]|[dDfFlLmMuU])?/ {
+        xui_number_end();
+    } else if /([^\s!-\/:-@\[-^`{-~]+)\s*\(/ {
         yield $1 as method;
         yield other;
         xui_arguments();
-    } else if /[\w\x80-\xff]+/ {
+    } else if /[^\s!-\/:-@\[-^`{-~]+/ {
         yield other;
     } else if /\{/ {
         yield other;
@@ -196,6 +200,14 @@ fn xui_token() {
         yield other;
     }
     yield other;
+}
+
+fn xui_number_end() {
+    if /[^\s!-\/:-@\[-^`{-~]+/ {
+        yield other;
+    } else {
+        yield constant.numeric;
+    }
 }
 
 fn xui_string() {
@@ -213,24 +225,33 @@ fn xui_verbatim_string() {
         yield string;
         await input;
         if /""/ {
+            yield string;
         } else if /"/ {
             yield string;
             break;
+        } else if /./ {
+            yield string;
         }
+        continue;
     }
 }
 
 fn xui_interpolated_string() {
+    yield string;
     until /$/ {
         if /\\.|\{\{|\}\}/ {
-        } else if /\{/ {
             yield string;
+        } else if /\{/ {
+            yield other;
             xui_braces();
         } else if /"/ {
+            yield string;
             break;
+        } else if /./ {
+            yield string;
         }
+        continue;
     }
-    yield string;
 }
 
 fn xui_interpolated_verbatim_string() {
@@ -238,13 +259,17 @@ fn xui_interpolated_verbatim_string() {
         yield string;
         await input;
         if /""|\{\{|\}\}/ {
-        } else if /\{/ {
             yield string;
+        } else if /\{/ {
+            yield other;
             xui_braces();
         } else if /"/ {
             yield string;
             break;
+        } else if /./ {
+            yield string;
         }
+        continue;
     }
 }
 
@@ -275,6 +300,9 @@ fn xui_raw_string() {
                 yield string;
                 break;
             }
+        } else if /./ {
+            yield string;
         }
+        continue;
     }
 }

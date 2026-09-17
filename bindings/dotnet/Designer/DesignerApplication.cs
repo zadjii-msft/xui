@@ -38,6 +38,7 @@ internal sealed partial class DesignerApplication : IDisposable
         try
         {
             editor = window.MultilineText("XUI source").SetMaximumLength(MaximumLength);
+            if (MultilineText.SyntaxHighlightingAvailable) editor.SetSyntaxLanguage("xui");
             editor.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 14 });
             diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true).SetMaximumLength(MaximumLength);
             preview = new PreviewHost(window, (value, message, success) =>
