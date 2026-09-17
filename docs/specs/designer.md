@@ -18,6 +18,7 @@ The designer includes a catalog of self-contained examples:
 - **Settings panel:** Two-way state updates and theme-aware styles.
 - **Dashboard:** Grid columns, metric cards, and button actions.
 - **Split workspace:** A resizable split view with navigation and details.
+- **Value controls:** A native range input updates component state, a progress meter, and a numeric label.
 
 The [template sources](../../bindings/dotnet/Designer/Templates) use the same language as ordinary applications.
 The [counter source](../../bindings/dotnet/Designer/Starter.xui) supplies the initial example.
@@ -216,7 +217,9 @@ Grid duplication also requires an explicit `GridPlacement`.
 It changes placement only in the new copy and refuses existing placement expressions.
 
 `InsertControl` inserts a complete template at an ordered child index in a Stack or Grid.
-Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, and NavigationView.
+Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, and Progress.
+RangeInput and Progress templates start at 50 within the native default range from 0 through 100.
+These palette templates have no handlers or external dependencies.
 Wrapper templates contain the required children.
 DataGrid starts with Name and Value columns and no rows.
 NavigationView starts with its header and search field and no navigation entries.

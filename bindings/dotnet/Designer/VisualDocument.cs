@@ -7,7 +7,7 @@ using Xui.Generator;
 
 namespace Xui.Designer;
 
-public enum ControlTemplate { Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView }
+public enum ControlTemplate { Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, Progress }
 
 public readonly record struct GridPlacement(int Row, int Column, int RowSpan = 1, int ColumnSpan = 1);
 
@@ -440,6 +440,8 @@ public sealed class VisualDocument
             ControlTemplate.SplitView => $"SplitView(\"Split\"{place}) {{ VStack() {{ }} VStack() {{ }} }}",
             ControlTemplate.DataGrid => $"DataGrid(\"Data\", columns: new global::Xui.GridColumn[] {{ new(\"Name\", 160), new(\"Value\", 160) }}, preferredSize: (360, 200){place});",
             ControlTemplate.NavigationView => $"NavigationView(\"Navigation\", headerVisible: true, preferredSize: (240, 240){place});",
+            ControlTemplate.RangeInput => $"RangeInput(\"Value\", currentValue: 50, preferredSize: (320, 42){place});",
+            ControlTemplate.Progress => $"Progress(\"Progress\", currentValue: 50, preferredSize: (320, 24){place});",
             _ => null
         };
     }

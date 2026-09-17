@@ -16,6 +16,8 @@ internal static partial class Program
             Assert((int)original[i] == i, "Existing palette numeric values remain stable.");
         Assert((int)ControlTemplate.DataGrid == 9 && (int)ControlTemplate.NavigationView == 10,
             "New supported controls append after the existing palette.");
+        Assert((int)ControlTemplate.RangeInput == 11 && (int)ControlTemplate.Progress == 12,
+            "Numeric palette controls preserve all earlier enum values.");
         foreach (string source in new[]
         {
             """component Palette { view { VStack() { } } }""",
@@ -32,7 +34,7 @@ internal static partial class Program
         {
             foreach (string newline in new[] { "\r", "\r\n", "\n" })
             {
-                foreach (var template in new[] { ControlTemplate.DataGrid, ControlTemplate.NavigationView })
+                foreach (var template in new[] { ControlTemplate.DataGrid, ControlTemplate.NavigationView, ControlTemplate.RangeInput, ControlTemplate.Progress })
                 {
                     var doc = Parse(source.ReplaceLineEndings(newline));
                     bool grid = doc.Root!.Kind == "Grid";
@@ -45,8 +47,14 @@ internal static partial class Program
                         "Each added control has its required standalone accessible name.");
                     Assert(node.Arguments.All(a => a.Name is not ("ref" or "id" or "searchId" or "style" or "click" or "change" or "submit")),
                         "Placeholders require no external identities, style resources, or handlers.");
-                    Assert(node.Arguments.Single(a => a.Name == "preferredSize").Value ==
-                        (template == ControlTemplate.DataGrid ? "(360, 200)" : "(240, 240)"),
+                    string expectedSize = template switch
+                    {
+                        ControlTemplate.DataGrid => "(360, 200)",
+                        ControlTemplate.NavigationView => "(240, 240)",
+                        ControlTemplate.RangeInput => "(320, 42)",
+                        _ => "(320, 24)"
+                    };
+                    Assert(node.Arguments.Single(a => a.Name == "preferredSize").Value == expectedSize,
                         "Standalone placeholders have useful bounded preferred sizes.");
                     if (template == ControlTemplate.DataGrid)
                     {
@@ -57,9 +65,12 @@ internal static partial class Program
                             .Select(c => ((LiteralExpressionSyntax)c.ArgumentList.Arguments[0].Expression).Token.ValueText);
                         Assert(titles.SequenceEqual(["Name", "Value"]), "Data grid has meaningful authored column headers.");
                     }
-                    else
+                    else if (template == ControlTemplate.NavigationView)
                         Assert(node.Arguments.Single(a => a.Name == "headerVisible").Value == "true",
                             "Navigation placeholder keeps its built-in header visible.");
+                    else
+                        Assert(node.Arguments.Single(a => a.Name == "currentValue").Value == "50" &&
+                            node.Arguments.All(a => a.Name != "range"), "Numeric placeholders show the midpoint of the native default range.");
                     var secondResult = first.InsertControl(first.Revision, 0, 1, template, grid ? new(0, 1) : null);
                     var second = Parse(Apply(first, secondResult));
                     Assert(second.Root!.Children.Count == 2, "Repeated insertion compiles without duplicate identities.");

@@ -14,7 +14,8 @@ internal static class DesignerTemplates
         Load("form", "Contact form", "Native text inputs, a toggle, and a submit action.", "Templates.ContactForm"),
         Load("settings", "Settings panel", "Two-way state updates and theme-aware styles.", "Templates.Settings"),
         Load("dashboard", "Dashboard", "A responsive grid with cards and actions.", "Templates.Dashboard"),
-        Load("split", "Split workspace", "A resizable split view with native text input.", "Templates.SplitWorkspace")
+        Load("split", "Split workspace", "A resizable split view with native text input.", "Templates.SplitWorkspace"),
+        Load("values", "Value controls", "A native range input updates state and a progress meter.", "Templates.ValueControls")
     ]);
 
     internal static DesignerTemplate Get(string id) =>
