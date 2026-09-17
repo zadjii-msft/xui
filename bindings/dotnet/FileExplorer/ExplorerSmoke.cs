@@ -463,6 +463,9 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(root, "invalid.txt"), "binary\0text");
                 await File.WriteAllTextAsync(Path.Combine(root, "unsupported.pdf"), "not a PDF");
                 await File.WriteAllTextAsync(Path.Combine(root, "broken.bmp"), "not an image");
+                await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt"), "must not enter the text preview");
+                await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt") + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
+                await File.WriteAllTextAsync(Path.Combine(root, "no-handler.xui-no-preview-fixture"), "no handler");
                 await using (var file = File.Create(Path.Combine(root, "pixel.bmp")))
                 using (var writer = new BinaryWriter(file))
                 {
@@ -501,6 +504,7 @@ internal static class ExplorerSmoke
                     && app.Preview.Bounds.Width > 0 && app.Preview.Bounds.Height > 0
                     && app.Preview.Text.GetBounds().Height > 0 && app.FileOpenCount == opens
                     && !app.Preview.StatusVisible && app.Preview.Message == ""
+                    && app.Preview.Current!.ProviderAttempts == 0 && app.Preview.Current.ProviderStatus.State == PreviewState.Idle
                     && app.Preview.OpenButton.Icon == ButtonIcon.Open
                     && app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)
                     && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontFamily == "Cascadia Mono",
@@ -538,7 +542,8 @@ internal static class ExplorerSmoke
                     "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
                 await Ui(() => app.Left.HideFind());
 
-                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp" })
+                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp",
+                    "restricted.txt", "no-handler.xui-no-preview-fixture" })
                 {
                     await Ui(() =>
                     {
@@ -560,6 +565,26 @@ internal static class ExplorerSmoke
                         await Check(() => !app.Preview.StatusVisible && app.Preview.MetadataName == "folder"
                             && app.Preview.MetadataKind == "File Type: File folder"
                             && app.Preview.MetadataSize == "Size: Not calculated", "Folder metadata does not invent a recursive size");
+                    else if (name == "restricted.txt")
+                    {
+                        await Ui(app.Preview.Current!.OpenWindowsPreview);
+                        await Check(() => app.Preview.Current!.ProviderAttempts == 0
+                            && app.Preview.Current.ProviderStatus.State == PreviewState.Idle
+                            && !app.Preview.Current.WindowsPreviewAllowed
+                            && app.Preview.Image.Status == ImageStatus.Empty && app.Preview.Text.Text == ""
+                            && app.Preview.Message.Contains("generic metadata"),
+                            "Restricted input invokes neither provider, WIC nor text preview; metadata uses a retained vector icon");
+                    }
+                    else if (name == "no-handler.xui-no-preview-fixture")
+                    {
+                        await Check(() => app.Preview.Current!.ProviderAttempts == 0, "Basic metadata starts no broker");
+                        await Ui(app.Preview.Current!.OpenWindowsPreview);
+                        await Until(() => app.Preview.Current!.ProviderStatus.State == PreviewState.Unsupported);
+                        await Check(() => app.Preview.Current!.ProviderAttempts == 1
+                            && app.Preview.Current.ProviderStatus.Reason == PreviewReason.NoHandler
+                            && !app.Preview.StatusVisible && app.Preview.IsOpen,
+                            "Explicit Windows preview attempt retains quiet basic fallback for no handler");
+                    }
                     else
                     {
                         await Until(() => app.Preview.Image.Status == (name == "pixel.bmp" ? ImageStatus.Ready : ImageStatus.Error));
@@ -570,11 +595,10 @@ internal static class ExplorerSmoke
                     }
                     if (name is "folder" or "unsupported.pdf")
                     {
-                        await Until(() => app.Preview.MetadataIcon.Status == ImageStatus.Ready);
                         await Check(() => app.Preview.MetadataIcon.GetBounds().Width == 160
                             && app.Preview.MetadataIcon.GetBounds().Height == 160
                             && app.Preview.MetadataNameBounds.X >= app.Preview.MetadataIcon.GetBounds().X + 192,
-                            "Metadata has a large Shell icon to the left of the heading");
+                            "Metadata has a large retained generic icon to the left of the heading, without ShellSource");
                     }
                     await Ui(app.Preview.Dismiss);
                     await Until(() => app.Preview.Current!.IsDisposed);

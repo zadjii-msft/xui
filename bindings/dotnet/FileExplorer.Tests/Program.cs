@@ -54,6 +54,17 @@ internal static class Program
         Equal("one\rtwo\rthree\rfour\tend", text.Text);
         True(!text.Truncated);
         Equal("", text.Message);
+        True(PreviewFilePolicy.IsLocalPath(Entry("notes.txt").FullPath));
+        True(!PreviewFilePolicy.IsLocalPath(@"\\server\share\notes.txt"));
+        True(!PreviewFilePolicy.IsLocalPath(@"C:\notes.txt:secret"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=3\r\n"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\nZoneId=3\r\n"));
+        True(!PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\n zoneid=3\r\n"));
+        True(PreviewFilePolicy.AllowsZone("[ZoneTransfer]\r\nZoneId=0\r\n"));
+        await File.WriteAllTextAsync(Entry("notes.txt").FullPath + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
+        var restricted = await service.LoadAsync(Entry("notes.txt"), None);
+        True(restricted.Restricted && restricted.Kind == FilePreviewKind.Metadata && restricted.Message.Length > 0);
+        File.Delete(Entry("notes.txt").FullPath + ":Zone.Identifier");
         Equal("", (await Read("empty.txt", [])).Text);
         True((await service.LoadAsync(Entry("empty.txt"), None)).Message.Contains("Empty"));
         Equal("hello", (await Read("README", "hello"u8.ToArray())).Text);

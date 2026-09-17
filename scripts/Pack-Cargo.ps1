@@ -38,7 +38,7 @@ $targets = [ordered]@{
 $present = @($targets.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $native $_) -PathType Container })
 if (!$present.Count) { throw "NativeRoot must contain win-x64 or win-arm64: $native" }
 foreach ($rid in $present) {
-    foreach ($name in @('xui.dll', 'xui.lib')) {
+    foreach ($name in @('xui.dll', 'xui.lib', 'xui_preview_host.exe')) {
         $file = Join-Path $native "$rid\$name"
         if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) {
             throw "Missing or empty native asset: $file"
@@ -82,7 +82,7 @@ Copy-Item -LiteralPath "$root\bindings\rust\xui-sys\build.rs" -Destination "$sou
 foreach ($rid in $present) {
     $destination = Join-Path $source "xui-sys\native\$($targets[$rid])"
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    Copy-Item -LiteralPath "$native\$rid\xui.dll", "$native\$rid\xui.lib" -Destination $destination
+    Copy-Item -LiteralPath "$native\$rid\xui.dll", "$native\$rid\xui.lib", "$native\$rid\xui_preview_host.exe" -Destination $destination
 }
 
 # Source replacement keeps the published dependency on crates.io in the archive.

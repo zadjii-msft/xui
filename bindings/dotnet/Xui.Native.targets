@@ -7,9 +7,11 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(XuiCopyNativeRuntime)' != 'false'">
     <Content Include="$(XuiNativeDir)\xui.dll" Link="xui.dll" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" />
+    <Content Include="$(XuiNativeDir)\xui_preview_host.exe" Link="xui_preview_host.exe" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" />
   </ItemGroup>
   <Target Name="ValidateXuiNativeRuntime" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and '$(XuiCopyNativeRuntime)' != 'false'">
     <Error Condition="'$(_XuiNativeArchitecture)' == ''" Text="XUI requires RuntimeIdentifier win-x64 or win-arm64." />
+    <Error Condition="!Exists('$(XuiNativeDir)\xui_preview_host.exe')" Text="XUI preview helper not found. Build the matching-architecture xui target in XuiNativeDir." />
     <Error Condition="!Exists('$(XuiNativeDir)\xui.dll')" Text="XUI native runtime not found: $(XuiNativeDir)\xui.dll. Build this checkout with cmake -S . -B build\$(_XuiNativeArchitecture) -A $(_XuiNativeArchitecture), then cmake --build build\$(_XuiNativeArchitecture) --config $(XuiNativeConfiguration) --target xui. For another build directory, set XuiNativeDir explicitly." />
   </Target>
 </Project>

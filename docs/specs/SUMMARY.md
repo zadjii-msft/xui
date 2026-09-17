@@ -46,6 +46,7 @@
 * [Menus, tabs, and input](menus-and-input.md)
 * [Commands and navigation](commands-and-navigation.md)
 * [Images and thumbnails](images.md)
+* [Installed Windows previews](shell-preview.md)
 * [Documents, dialogs, and color](documents.md)
 * [Scenes and native hosts](scenes-and-hosts.md)
 

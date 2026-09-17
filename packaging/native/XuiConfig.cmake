@@ -26,3 +26,8 @@ if(NOT TARGET Xui::Core)
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/include")
 endif()
 set(Xui_MANIFEST "${CMAKE_CURRENT_LIST_DIR}/xui.manifest")
+set(Xui_PREVIEW_HOST "${CMAKE_CURRENT_LIST_DIR}/../../runtimes/${_xui_rid}/native/xui_preview_host.exe")
+function(xui_deploy_preview_host target)
+    add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${Xui_PREVIEW_HOST}" "$<TARGET_FILE_DIR:${target}>/xui_preview_host.exe")
+endfunction()

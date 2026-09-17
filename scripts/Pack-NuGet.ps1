@@ -12,7 +12,7 @@ $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (!$WorkDirectory) { $WorkDirectory = Join-Path $repo ("build\nuget-" + [guid]::NewGuid().ToString('N')) }
 $work = [IO.Path]::GetFullPath($WorkDirectory)
 foreach ($rid in 'win-x64', 'win-arm64') {
-    foreach ($file in 'xui.dll', 'xui.lib', 'xui_core.lib', 'xui_windows.lib') {
+    foreach ($file in 'xui.dll', 'xui_preview_host.exe', 'xui.lib', 'xui_core.lib', 'xui_windows.lib') {
         if (!(Test-Path "$native\$rid\$file")) { throw "Missing native package input: $native\$rid\$file" }
     }
 }
