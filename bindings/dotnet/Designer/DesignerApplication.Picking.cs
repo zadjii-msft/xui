@@ -40,4 +40,41 @@ internal sealed partial class DesignerApplication
     }
 
     private void ReportPicking(string message) => view.PickStatus.Text = Limit(message);
+
+    private void RequestHighlight()
+    {
+        if (disposed || highlightPosted) return;
+        highlightPosted = true;
+        if (!window.Post(() =>
+        {
+            highlightPosted = false;
+            if (disposed || !workspace.IsCurrent || preview.AppliedVersion != version ||
+                previewSource is not { } source || source.Version != version ||
+                source.Source != editor.Text || workspace.Document?.Source != source.Source) return;
+            var selected = workspace.Hierarchy.Selection;
+            try
+            {
+                var result = preview.TryHighlight(version, selected?.Id);
+                string detail = result switch
+                {
+                    PreviewHighlightResult.Applied => "Visible at the current layout.",
+                    PreviewHighlightResult.Cleared => "No selected control.",
+                    PreviewHighlightResult.StaleVersion => "The preview is not current.",
+                    PreviewHighlightResult.NotVisible => "The control is hidden or clipped.",
+                    PreviewHighlightResult.OccludedNative => "A native control overlaps the border.",
+                    PreviewHighlightResult.UnsupportedSurface => "This surface does not support an outline.",
+                    _ => throw new InvalidOperationException("Unknown preview outline result.")
+                };
+                view.OutlineStatus.Text = $"Outline: {selected?.Kind ?? "none"}. {detail}";
+            }
+            catch (XuiException error) when (error.Status is 1 or 7)
+            {
+                view.OutlineStatus.Text = Limit($"Outline update failed: {error.Message}");
+            }
+        }))
+        {
+            highlightPosted = false;
+            throw new InvalidOperationException("The window rejected the preview outline request.");
+        }
+    }
 }

@@ -54,6 +54,13 @@ Keyboard and accessibility actions remain live.
 An outdated preview cannot select controls in newer source.
 Unsupported preview surfaces produce an explicit error and keep the previous mode.
 
+Selection from the hierarchy, Find, diagnostics, or preview also requests a preview outline.
+The outline does not cover native controls or change their input behavior.
+The preview status explains hidden, clipped, overlapping, and unsupported selections.
+The hierarchy and inspector remain available when an outline cannot appear.
+A source revision clears the outline until the current preview is ready.
+Later layout changes can hide an outline that was initially visible.
+
 The inspector shows each supported argument and its current source value.
 Literal values include quoted text, numbers, booleans, and literal tuples.
 **Apply property** compiles the candidate before it changes the source.

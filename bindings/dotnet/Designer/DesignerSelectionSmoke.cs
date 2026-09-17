@@ -59,6 +59,7 @@ internal sealed partial class DesignerApplication
                 SelectionNative.Click("Do not execute");
             });
             await Until(() => workspace.Hierarchy.Selection?.Id == buttonId);
+            await Until(() => view.OutlineStatus.Text.StartsWith("Outline: Button.", StringComparison.Ordinal));
             await Ui(() =>
             {
                 var button = workspace.Document!.Root!.Children[1];
@@ -74,6 +75,8 @@ internal sealed partial class DesignerApplication
                     "A mismatched preview source cannot reuse current hierarchy IDs.");
                 long staleVersion = version;
                 editor.ReplaceRange(new(0, 0), source, "// Shift\r");
+                Require(view.OutlineStatus.Text.StartsWith("Outline cleared.", StringComparison.Ordinal),
+                    "A source revision invalidates the displayed outline feedback immediately.");
                 selection = editor.Selection;
                 OnPreviewPicked(new(staleVersion, buttonId));
                 Require(editor.Selection == selection, "An old preview version cannot select from a newer source revision.");
@@ -113,6 +116,8 @@ internal sealed partial class DesignerApplication
             {
                 Require(!pickControls && preview.AppliedVersion != version,
                     "A non-current preview reports a refusal without partially enabling picking.");
+                Require(view.OutlineStatus.Text.StartsWith("Outline cleared.", StringComparison.Ordinal),
+                    "A paused source revision does not retain current-outline feedback.");
                 Require(editor.Text.Contains("SelectionFixture", StringComparison.Ordinal), "A picking refusal preserves source.");
             });
             Console.WriteLine($"Designer source/preview selection assertions: {assertions} passed.");

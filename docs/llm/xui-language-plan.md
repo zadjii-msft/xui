@@ -151,6 +151,16 @@ Active-highlight physical DPI transitions, real file-dialog and tooltip/popup in
 Modal checks use owner disable. UIA checks use the native action endpoint.
 The test procedure is in [CONTRIBUTING](../../CONTRIBUTING.md#non-occluding-selection-outlines).
 
+The shell connects `DesignerWorkspace.SelectionChanged` to a coalesced `Window.Post` outline request.
+This delivery occurs outside native input callbacks and reads the current source, version, and selection.
+The shell also requests an outline after successful preview replacement.
+Separate outline feedback preserves compiler diagnostics and pointer-mode feedback.
+
+The final parent run on September 17, 2026, rebuilt the ARM64 Release runtime and passed the native outline fixture in 36.06 seconds.
+The same run passed 2,091 preview assertions, 15 application selection assertions, 10 layout assertions, 16 builder assertions, and 32 file assertions.
+The original application smoke also passed its preview failure and recovery cases.
+These results do not resolve the documented programmatic owner-close failure during a native file chooser.
+
 ### Visual source tools
 
 `Xui.Generator/Parser.cs` records authored node and argument ranges during the existing parse.

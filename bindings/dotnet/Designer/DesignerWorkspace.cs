@@ -28,6 +28,7 @@ internal sealed class DesignerWorkspace : IDisposable
     internal bool IsCurrent => current;
     internal bool IsBusy => busy;
     internal event Action? Changed;
+    internal event Action? SelectionChanged;
 
     internal DesignerWorkspace(Window window, MultilineText editor, Action<string> report)
     {
@@ -156,6 +157,7 @@ internal sealed class DesignerWorkspace : IDisposable
         if (selectHierarchy) Hierarchy.Select(node);
         Inspector.Show(node, Hierarchy.Parent(node), current && !busy, validating: busy);
         if (revealSource) editor.Selection = new((ulong)node.Span.Start, (ulong)node.Span.End);
+        SelectionChanged?.Invoke();
     }
 
     internal bool SelectFromPreview(string expectedSource, int nodeId)

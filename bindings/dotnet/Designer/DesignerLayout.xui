@@ -43,6 +43,7 @@ component DesignerLayout {
                     VStack(spacing: 6, padding: 6) {
                         Text("Live preview", fontSize: 18, fontWeight: 600);
                         Text("Pointer actions are live.", ref: PickStatus, id: "designer-pick-status", wrapping: true);
+                        Text("No selected outline.", ref: OutlineStatus, id: "designer-outline-status", wrapping: true);
                         Content(Preview, flex: 1);
                     }
                 }

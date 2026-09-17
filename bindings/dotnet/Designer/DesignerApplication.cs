@@ -30,6 +30,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private Exception? smokeError;
     private bool pickControls;
     private long pickRequest;
+    private bool highlightPosted;
     private (long Version, string Source)? previewSource;
 
     internal DesignerApplication(string? initialPath, string? recoveryDirectory = null)
@@ -52,6 +53,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 workspace.Inspector.Layout.Root, preview.View, templates);
             preview.Picked += OnPreviewPicked;
             view.Pick.Changed += RequestPicking;
+            workspace.SelectionChanged += RequestHighlight;
             document = new DesignerDocumentStore(recoveryDirectory ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Xui", "Designer", "Drafts"),
                 DesignerTemplates.Get("counter").Source);
@@ -167,6 +169,7 @@ internal sealed partial class DesignerApplication : IDisposable
         version++;
         diagnosticNavigator.Invalidate();
         preview.Supersede(version);
+        view.OutlineStatus.Text = "Outline cleared. Waiting for the current preview.";
         window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
         if (!live && !immediate)
         {
@@ -246,6 +249,7 @@ internal sealed partial class DesignerApplication : IDisposable
             }
             return;
         }
+        RequestHighlight();
         if (smokeStage == 1)
         {
             if (editor.GetBounds().Height < 100 || diagnostics.GetBounds().Width < 100)

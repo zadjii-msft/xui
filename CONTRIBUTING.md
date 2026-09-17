@@ -249,6 +249,7 @@ The navigation UI test covers diagnostic buttons, F8 routing, exact native selec
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
+It also covers outline feedback for the selected control and immediate invalidation after a source revision.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
