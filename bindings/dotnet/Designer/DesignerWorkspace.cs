@@ -158,6 +158,33 @@ internal sealed class DesignerWorkspace : IDisposable
         if (revealSource) editor.Selection = new((ulong)node.Span.Start, (ulong)node.Span.End);
     }
 
+    internal bool SelectFromPreview(string expectedSource, int nodeId)
+    {
+        if (!current || Document is not { } document || document.Source != expectedSource || editor.Text != expectedSource)
+        {
+            Inspector.Layout.Feedback.Text = "The preview does not match the current source hierarchy.";
+            return false;
+        }
+        var node = Find(document.Root);
+        if (node is null)
+        {
+            Inspector.Layout.Feedback.Text = "The preview control has no matching authored source node.";
+            return false;
+        }
+        SelectNode(node, revealSource: true);
+        editor.Focus();
+        Inspector.Layout.Feedback.Text = $"Selected {node.Kind} from the preview.";
+        return true;
+
+        XuiSourceNode? Find(XuiSourceNode? candidate)
+        {
+            if (candidate is null || candidate.Id == nodeId) return candidate;
+            foreach (var child in candidate.Children)
+                if (Find(child) is { } match) return match;
+            return null;
+        }
+    }
+
     internal void ApplyProperty()
     {
         string? name = Inspector.Argument;

@@ -34,12 +34,25 @@ The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
 
+Ctrl+F focuses the native Find field above the source editor.
+F3 selects the next literal match, and Shift+F3 selects the previous match.
+The **Aa** toggle selects case-sensitive matching.
+Search reads the current source each time and does not change text or undo history.
+Enter in the Find field selects a match, and Escape returns focus to source.
+
 The hierarchy uses a native TreeView with expandable controls.
 Selecting a control selects its source range and scrolls the source editor to that range.
 **Select from caret**, or Ctrl+Shift+L, selects the control that contains the source caret.
 Hierarchy identities belong to one exact source revision.
 A new source revision resets tree expansion and selects the control at the current caret.
 It does not reuse identities from an older document.
+
+**Pick controls** selects an authored control through a primary-pointer click in the current preview.
+The click selects its full source range, hierarchy node, and inspector.
+The mode consumes the pointer action instead of running its authored handler.
+Keyboard and accessibility actions remain live.
+An outdated preview cannot select controls in newer source.
+Unsupported preview surfaces produce an explicit error and keep the previous mode.
 
 The inspector shows each supported argument and its current source value.
 Literal values include quoted text, numbers, booleans, and literal tuples.
@@ -297,7 +310,7 @@ It never infers hit targets from snapshot rectangles.
 Pick delivery requires the same candidate, applied version, and requested source version.
 `Supersede` suppresses picks from an older displayed preview even when that preview remains visible after an error.
 Scope retirement discards obsolete notifications and releases callback delegates.
-The shell can use the versioned ID to select a node in its hierarchy and inspector.
+The shell checks the exact source snapshot before it uses the versioned ID for source, hierarchy, and inspector selection.
 
 The mode is **pointer picking**, not a disabled-code mode or a sandbox.
 Native keyboard input and accessibility actions retain their normal behavior.

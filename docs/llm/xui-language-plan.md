@@ -74,6 +74,14 @@ Generated-file locations, invalid coordinates, and stale source cannot produce a
 `DesignerSourceSearchLayout.xui` keeps the query, case toggle, match status, and source document in one declarative component.
 Every navigation reads current native text and selection rather than cached offsets.
 `Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
+
+The application now composes the Find toolbar and versioned pointer picking with its native source editor.
+`DesignerApplication.Picking.cs` keeps mode feedback separate from compiler status.
+`DesignerSelectionSmoke.cs` sends mouse messages only to preview peers on the owning UI thread.
+It checks exact source selection, hierarchy identity, stale versions, native undo, and restoration of authored actions.
+The fixture reads changed captions through retained native control state, not stale HWND window text.
+The full application passed the selection fixture on September 17, 2026, after the requested 3 AM iteration minimum.
+The combined run also passed 32 file assertions, 16 builder assertions, 26 property assertions, and the original preview-recovery smoke.
 It checks the current source revision and displayed diagnostic text before changing either native selection.
 `Designer.NavigationTests` covers its buttons, F8 routing, Unicode selections, and invalidation.
 `DesignerWorkspace.cs` connects the hierarchy and inspector to native source transactions.

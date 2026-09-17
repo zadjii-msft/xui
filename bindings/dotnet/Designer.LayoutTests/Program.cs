@@ -11,6 +11,7 @@ internal static class Program
         {
             using var window = new Window("Designer layout smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("Source");
+            var searchLayout = new DesignerSourceSearchLayout(window, editor, attach: false);
             var diagnostics = window.MultilineText("Diagnostics");
             var diagnosticLayout = new DesignerDiagnosticsLayout(window, diagnostics, attach: false);
             var tree = window.TreeView("Hierarchy");
@@ -21,7 +22,7 @@ internal static class Program
             var hierarchy = new DesignerHierarchyLayout(window, tree, attach: false);
             var inspector = new DesignerInspectorLayout(window, arguments, value, palette, attach: false);
             var preview = window.Label("Layout fixture preview");
-            var layout = new DesignerLayout(window, editor, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates);
+            var layout = new DesignerLayout(window, searchLayout.Root, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates);
             editor.Text = "Native editor layout fixture";
             int assertions = 0;
             Exception? failure = null;
@@ -40,6 +41,8 @@ internal static class Program
                     await Ui(() =>
                     {
                         Require(editor.GetBounds().Width >= 150, "Source editor width");
+                        Require(searchLayout.Query.GetBounds().Width >= 80 && searchLayout.Next.GetBounds().Width >= 30,
+                            "Native source search controls fit the source pane");
                         Require(tree.GetBounds().Width >= 100 && tree.GetBounds().Height >= 150, "Native tree bounds");
                         Require(value.GetBounds().Width >= 100 && value.GetBounds().Height >= 60, "Native inspector bounds");
                         Require(diagnostics.GetBounds().Height >= 60, "Diagnostics bounds");

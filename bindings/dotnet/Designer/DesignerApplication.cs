@@ -16,6 +16,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly PreviewHost preview;
     private readonly DesignerWorkspace workspace;
     private readonly DesignerDiagnosticNavigator diagnosticNavigator;
+    private readonly DesignerSourceSearch sourceSearch;
     private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
@@ -27,6 +28,9 @@ internal sealed partial class DesignerApplication : IDisposable
     private int templateIndex;
     private int smokeStage;
     private Exception? smokeError;
+    private bool pickControls;
+    private long pickRequest;
+    private (long Version, string Source)? previewSource;
 
     internal DesignerApplication(string? initialPath, string? recoveryDirectory = null)
     {
@@ -40,11 +44,14 @@ internal sealed partial class DesignerApplication : IDisposable
             workspace = new DesignerWorkspace(window, editor, ShowError);
             diagnosticNavigator = new DesignerDiagnosticNavigator(window, editor, diagnostics,
                 () => version, ReportNavigation, workspace.SelectFromCaret);
+            sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret);
             templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
-            view = new DesignerLayout(window, editor, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
+            view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, preview.View, templates);
+            preview.Picked += OnPreviewPicked;
+            view.Pick.Changed += RequestPicking;
             document = new DesignerDocumentStore(recoveryDirectory ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Xui", "Designer", "Drafts"),
                 DesignerTemplates.Get("counter").Source);
@@ -80,6 +87,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
                 { workspace.SelectFromCaret(); return true; }
                 if (diagnosticNavigator.HandleKey(key)) return true;
+                if (sourceSearch.HandleKey(key)) return true;
                 return workspace.HandleHierarchyKey(key);
             };
             compiler = Task.Run(CompileEdits);
@@ -95,7 +103,8 @@ internal sealed partial class DesignerApplication : IDisposable
         }
     }
 
-    internal void Run(bool smoke, bool builderSmoke = false, string? fileSmokeDirectory = null, bool fileCloseOnly = false)
+    internal void Run(bool smoke, bool builderSmoke = false, string? fileSmokeDirectory = null,
+        bool fileCloseOnly = false, bool selectionSmoke = false)
     {
         if (smoke)
         {
@@ -111,7 +120,9 @@ internal sealed partial class DesignerApplication : IDisposable
             });
         }
         if (builderSmoke) smokeStage = -1;
-        Task? driver = builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view))
+        if (selectionSmoke) smokeStage = -2;
+        Task? driver = selectionSmoke ? Task.Run(SelectionSmoke)
+            : builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view))
             : fileSmokeDirectory is not null ? Task.Run(() => FileRecoverySmoke(fileSmokeDirectory, fileCloseOnly)) : null;
         window.Post(() => { workspace.SourceChanged(); Schedule(immediate: true); });
         window.Run();
@@ -150,6 +161,7 @@ internal sealed partial class DesignerApplication : IDisposable
 
     private void Schedule(bool immediate = false)
     {
+        sourceSearch.Refresh();
         workspace.SourceChanged();
         revision?.Cancel();
         version++;
@@ -197,6 +209,7 @@ internal sealed partial class DesignerApplication : IDisposable
                             SmokeCompileError();
                             return;
                         }
+                        previewSource = edit;
                         preview.Publish(edit.Version, result.Assembly!, light ? Theme.Light : Theme.Dark);
                     });
                 }

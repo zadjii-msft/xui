@@ -27,6 +27,8 @@ component DesignerLayout {
                 Button("Redo", ref: Redo, id: "designer-redo", help: "Redo a source edit (Ctrl+Y in source)");
                 Toggle("Live preview", checked: true, ref: Live, id: "designer-live");
                 Button("Render", ref: Render, id: "designer-render", help: "Compile this source (Ctrl+Enter)");
+                Toggle("Pick controls", ref: Pick, id: "designer-pick-controls",
+                    help: "Select supported preview controls without a pointer action. Keyboard and accessibility actions remain live.");
                 Toggle("Light theme", ref: Light, id: "designer-light");
             }
             Text("Trusted source only: preview runs C# with your account's permissions.", wrapping: true);
@@ -40,6 +42,7 @@ component DesignerLayout {
                     }
                     VStack(spacing: 6, padding: 6) {
                         Text("Live preview", fontSize: 18, fontWeight: 600);
+                        Text("Pointer actions are live.", ref: PickStatus, id: "designer-pick-status", wrapping: true);
                         Content(Preview, flex: 1);
                     }
                 }
