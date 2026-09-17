@@ -49,6 +49,8 @@ It does not execute authored code during compilation.
 `DesignerPreviewViewport.cs` wraps that host without replacing its content or changing source.
 `DesignerPreviewViewportLayout.xui` supplies the preset selector, custom dimensions, and actual-size feedback.
 The controller samples arranged dimensions at 250-ms intervals and stops that work on disposal or window closure.
+Disposal runs on the creating UI thread and leaves the borrowed preview content attached and alive.
+The application disposes the viewport controller before the preview host and window.
 Native scrolling is vertical-only. Excessive requested widths fit the available pane and produce an explicit notice.
 `Designer.ViewportTests` covers sizing, invalid input, retained control identity and state, and a 438-DIP pane.
 The application selection smoke also covers fixed-size picking and unchanged preview versions across size changes.

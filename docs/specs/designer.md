@@ -123,10 +123,13 @@ Later layout changes can hide an outline that was initially visible.
 The preview size selector provides **Fit**, **Compact**, **Medium**, **Wide**, and **Custom**.
 Fit fills the available preview pane.
 Compact requests a 360-by-640-DIP viewport.
+Medium requests 768 by 1024 DIP. Wide requests 1280 by 800 DIP.
 The width and height fields specify custom dimensions in device-independent pixels.
+Each custom dimension accepts whole numbers from 1 through 4096, without spaces, signs, or fractions.
 **Apply** changes the viewport without compiling source or resetting authored control state.
 The dimension label shows the actual arranged size.
 Invalid custom dimensions leave the current viewport unchanged and show an error.
+The fields retain invalid text for correction.
 
 Tall viewports scroll vertically within the preview pane.
 The native scroll container does not support horizontal scrolling.
