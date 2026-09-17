@@ -47,6 +47,7 @@ internal static class Program
             TestGrid();
             TestRevisions();
             TestCancellation();
+            DesignerMetadataTests.Run(Assert);
             Console.WriteLine($"Designer source assertions: {assertions} passed.");
             return 0;
         }

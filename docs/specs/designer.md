@@ -121,6 +121,31 @@ NUL characters and unpaired surrogates produce diagnostics.
 These limits apply to visual tooling, not ordinary generator builds.
 The source API does not require an embedded preview or change the native editor undo history.
 
+### Optional generated element mapping
+
+The `XUI_DESIGNER` compilation symbol adds two internal members to each generated component:
+
+```csharp
+internal int __xuiDesignerNodeCount { get; }
+internal global::Xui.Element __xuiDesignerElement(int nodeId);
+```
+
+The count and IDs match the preorder hierarchy from `XuiSourceParser`.
+ID zero identifies the root, including Stack, Grid, and Content roots.
+The lookup returns the existing element instance without a wrapper or allocation.
+For `Content`, this instance is the authored external element.
+The lookup enforces the owning window thread and rejects IDs outside the component range.
+The caller borrows the element and does not acquire ownership.
+
+A preview adapter can call these members directly from a wrapper in the same generated assembly.
+It does not need reflection or generated field names.
+The adapter must enable `XUI_DESIGNER` in the generator driver and wrapper parse options.
+The adapter must associate the mapping with the exact source revision that produced the preview.
+The source-tools API does not enable this symbol automatically.
+
+Ordinary builds omit both members and add no designer fields or runtime work.
+The mapping does not add native event handlers, ownership changes, or preview UI.
+
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.

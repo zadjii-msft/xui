@@ -268,6 +268,18 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         if (component.Styles.Count != 0) EmitStyles();
         Line("private readonly global::Xui.Window __xuiWindow;");
         Line($"public global::Xui.{Type(component.Root)} Root => __xuiN0;");
+        Line("#if XUI_DESIGNER");
+        Line($"internal int __xuiDesignerNodeCount => {nodes.Count};");
+        Line("internal global::Xui.Element __xuiDesignerElement(int nodeId)");
+        Line("{");
+        Line("__xuiWindow.VerifyAccess();");
+        Line("return nodeId switch");
+        Line("{");
+        for (int i = 0; i < nodes.Count; i++) Line($"{i} => __xuiN{i},");
+        Line("_ => throw new global::System.ArgumentOutOfRangeException(nameof(nodeId))");
+        Line("};");
+        Line("}");
+        Line("#endif");
         foreach (var parameter in component.Parameters)
         {
             Map(parameter.Offset);

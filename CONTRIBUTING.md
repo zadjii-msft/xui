@@ -198,6 +198,7 @@ dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
 ```
 
 This suite checks exact UTF-16 ranges, source preservation, stale revisions, container rules, and generated compilation.
+It also checks opt-in element mapping with the existing managed generator fakes, without native DLL calls.
 The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
 
 After the native build, run the desktop smoke test:

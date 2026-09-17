@@ -54,6 +54,16 @@ The same change passed 41,813 generator assertions and 78 existing designer comp
 These results use designer baseline `ae3ddea` and the source-tools tranche.
 Commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
 
+`XuiGenerator.cs` also emits an opt-in `XUI_DESIGNER` element lookup and node count.
+The existing `Collect` traversal supplies the same preorder as the parser projection.
+Each lookup returns its existing node field after the window access check.
+`DesignerMetadataTests.cs` compiles the existing generator-test fakes as fixture resources.
+The tests compare element identity with every authored reference, including Content and non-Stack roots.
+They also cover thread access, invalid IDs, unchanged field sets, and complete member omission without the symbol.
+With these checks, the source suite passed 780 assertions on September 16, 2026.
+The generator and designer compiler suites retained their previous counts.
+A managed Designer build with `XUI_DESIGNER` also passed against the actual bindings.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

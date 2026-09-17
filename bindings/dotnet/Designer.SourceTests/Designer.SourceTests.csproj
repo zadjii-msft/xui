@@ -9,6 +9,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Designer\VisualDocument.cs" Link="VisualDocument.cs" />
+    <EmbeddedResource Include="..\GeneratorTests\Fakes.cs" LogicalName="Designer.SourceTests.Fakes.cs" />
+    <EmbeddedResource Include="..\Xui\ControlStyleCatalog.g.cs" LogicalName="Designer.SourceTests.ControlStyleCatalog.cs" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
     <ProjectReference Include="..\Xui\Xui.csproj" />
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" Private="true" />
