@@ -18,7 +18,9 @@
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" />
     <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.CSharp.dll" />
     <AdditionalFiles Remove="Starter.xui" />
+    <AdditionalFiles Remove="Templates\*.xui" />
     <EmbeddedResource Include="Starter.xui" />
+    <EmbeddedResource Include="Templates\*.xui" />
   </ItemGroup>
   <Target Name="ValidateDesignerPublish" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(PublishAot)' == 'true' or '$(PublishTrimmed)' == 'true' or '$(PublishSingleFile)' == 'true'"

@@ -1,0 +1,37 @@
+namespace Playground;
+
+component ContactForm {
+    state string Name = "";
+    state string Email = "";
+    state bool Updates = false;
+    state string Message = "Complete the form to see a state update.";
+
+    style Heading for Label {
+        fontSize: 28;
+        fontWeight: 600;
+    }
+    style SubmitButton for Button {
+        background: theme(light: 0x005FB8, dark: 0x60CDFF);
+        foreground: theme(light: 0xFFFFFF, dark: 0x001A26);
+        cornerRadius: 6;
+    }
+
+    view {
+        VStack(padding: 24, spacing: 12) {
+            Text("Contact details", style: Heading);
+            Text("This example keeps data in memory. It sends nothing.", wrapping: true);
+            TextInput("Name", text: Name, change: SetName, placeholder: "Your name");
+            TextInput("Email", text: Email, change: SetEmail, placeholder: "you@example.com");
+            Toggle("Receive updates", checked: Updates, change: SetUpdates);
+            Button("Save details", enabled: Name.Length > 0 && Email.Length > 0, click: Submit, style: SubmitButton);
+            Text(Message, wrapping: true);
+        }
+    }
+
+    code csharp {
+        void SetName(string value) => Name = value;
+        void SetEmail(string value) => Email = value;
+        void SetUpdates(bool value) => Updates = value;
+        void Submit() => Message = $"Saved {Name} in memory. Updates: {(Updates ? "on" : "off")}.";
+    }
+}

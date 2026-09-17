@@ -8,6 +8,21 @@ The preview uses the existing XUI compiler and native controls, not an HTML appr
 Build and run commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
 The [language guide](xui-language.md) describes the source syntax.
 
+## Example documents
+
+The designer includes a catalog of self-contained examples:
+
+- **Blank canvas:** A stack ready for controls.
+- **Interactive counter:** State, event handlers, and button styles.
+- **Contact form:** Native text fields, a toggle, and an in-memory submit action.
+- **Settings panel:** Two-way state updates and theme-aware styles.
+- **Dashboard:** Grid columns, metric cards, and button actions.
+- **Split workspace:** A resizable split view with navigation and details.
+
+The [template sources](../../bindings/dotnet/Designer/Templates) use the same language as ordinary applications.
+The [counter source](../../bindings/dotnet/Designer/Starter.xui) supplies the initial example.
+The examples do not access the network or save application data.
+
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.

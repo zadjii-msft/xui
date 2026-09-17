@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Designer\DesignerTemplates.cs" Link="DesignerTemplates.cs" />
+    <Compile Include="..\Designer\PreviewCompiler.cs" Link="PreviewCompiler.cs" />
+    <EmbeddedResource Include="..\Designer\Starter.xui" LogicalName="Designer.Starter.xui" />
+    <EmbeddedResource Include="..\Designer\Templates\*.xui" LogicalName="Designer.Templates.%(Filename)%(Extension)" />
+    <ProjectReference Include="..\Xui\Xui.csproj" />
+    <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.CSharp.dll" />
+  </ItemGroup>
+</Project>

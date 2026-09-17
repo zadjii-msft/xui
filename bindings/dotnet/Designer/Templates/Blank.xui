@@ -1,0 +1,9 @@
+namespace Playground;
+
+component Canvas {
+    view {
+        VStack(padding: 24, spacing: 12) {
+            Text("Your new interface", fontSize: 28, fontWeight: 600);
+        }
+    }
+}
