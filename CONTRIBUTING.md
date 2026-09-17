@@ -184,10 +184,12 @@ Run the compiler tests without a native DLL:
 ```powershell
 dotnet run --project bindings\dotnet\Designer.Tests -c Release
 dotnet run --project bindings\dotnet\Designer.TemplateTests -c Release
+dotnet run --project bindings\dotnet\Designer.DocumentTests -c Release
 ```
 
 The template tests compile every built-in example and reject compiler warnings.
 The template sources are under `bindings\dotnet\Designer\Templates`, with the counter example in `Starter.xui`.
+The document tests cover atomic saves, disk conflicts, UTF-8 input, and recovery snapshots without a native DLL.
 
 After the native build, run the desktop smoke test:
 

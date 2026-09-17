@@ -23,6 +23,12 @@ This thread boundary does not isolate untrusted code.
 `Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
 `Designer.TemplateTests` compiles every catalog entry without a native DLL.
+`DesignerDocumentStore.cs` supplies the next workspace's independent file and recovery model.
+The current shell does not yet use this model.
+It compares raw file hashes before replacement and writes each destination through a temporary file.
+Recovery metadata connects a source hash to the original path and file hash.
+A partial snapshot reports an error instead of restoring stale file identity.
+`Designer.DocumentTests` covers this model without a native DLL.
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.
