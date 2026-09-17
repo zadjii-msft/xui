@@ -51,6 +51,7 @@ internal static partial class Program
             TestWrapping();
             TestLiteralCodec();
             TestRemoveArgument();
+            TestPaletteExpansion();
             DesignerMetadataTests.Run(Assert);
             Console.WriteLine($"Designer source assertions: {assertions} passed.");
             return 0;
