@@ -38,6 +38,13 @@ The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
 
+Enter copies the current line's leading spaces and tabs onto the new line.
+Within the indentation, Enter copies only the whitespace before the caret.
+With no selection, Tab within the leading whitespace adds four spaces.
+Shift+Tab removes up to four leading spaces or one leading tab, without moving focus.
+Tab after source text or with a selection keeps the existing focus-navigation behavior.
+Each indentation edit creates one native undo action.
+
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
 New, open, save, recovery, undo, redo, and render use compact icon buttons.

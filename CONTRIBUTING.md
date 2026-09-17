@@ -247,6 +247,7 @@ dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.TextModeTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.SearchTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.IndentationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --selection-smoke
@@ -270,6 +271,7 @@ The grouping UI test uses the production hierarchy and inspector with native sou
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
+The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
