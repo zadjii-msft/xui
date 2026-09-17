@@ -235,9 +235,6 @@ Top-level feature options and values contain explicit size and version fields.
 Other record arrays validate their sizes.
 The wrappers check the feature major version before construction.
 `xui_capabilities()` reports build support for WebView2 without starting a runtime.
-Bit `0x4` reports the [installed-preview API](shell-preview.md), not the availability of a provider or helper.
-`ShellPreview` is a code-created control in C++, C, C#, and Rust.
-Its provider content opens in a separate broker-owned window, not inside its retained status surface.
 
 ### Ownership and data limits
 

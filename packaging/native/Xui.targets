@@ -39,6 +39,5 @@
   </Target>
   <Target Name="CopyXuiPackageRuntime" AfterTargets="Build" Condition="'$(XuiNativeLinkage)' == 'CAbi'">
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\xui.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\xui_preview_host.exe" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

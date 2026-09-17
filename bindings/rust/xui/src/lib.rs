@@ -9,8 +9,6 @@ use std::{
 };
 use xui_sys as sys;
 mod features;
-mod shell_preview;
-pub use shell_preview::*;
 mod features_generated;
 pub use features::*;
 pub use features_generated::*;

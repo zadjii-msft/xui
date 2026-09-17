@@ -2,8 +2,6 @@ using System.Security;
 
 namespace Xui.FileExplorer.Models;
 
-// This gate prevents basic decoding of restricted sources. The broker repeats its
-// stronger, checked-handle gate before any Shell association or provider operation.
 public static class PreviewFilePolicy
 {
     public static bool IsLocalPath(string path) =>

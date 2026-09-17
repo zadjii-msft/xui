@@ -14,13 +14,10 @@ internal sealed class PreviewSession : IDisposable
     private readonly Grid body;
     private readonly PreviewMetadataLayout metadata;
     private readonly VectorCanvas metadataIcon;
-    private readonly ShellPreview windowsPreview;
     private readonly InlineStatus status;
     private readonly FilePreviewService service = new();
     private readonly CancellationTokenSource request = new();
     private bool disposed;
-    private bool providerAllowed;
-    private string basicMessage = "";
 
     public PreviewSession(Application application, FileEntry target, bool smoke, Action opened)
     {
@@ -66,12 +63,7 @@ internal sealed class PreviewSession : IDisposable
         status = Window.InlineStatus("Preview status");
         status.SetAutomationId("preview-status");
         status.SetDismissible(false);
-        windowsPreview = Window.ShellPreview("Windows preview status");
-        windowsPreview.SetAutomationId("preview-provider").PreferredSize(600, 24).Visible(false);
-        layout = new(Window, body, status, windowsPreview);
-        layout.WindowsPreview.Enabled = false;
-        layout.WindowsPreview.Click += OpenWindowsPreview;
-        windowsPreview.Changed += ProviderChanged;
+        layout = new(Window, body, status);
         Window.KeyHandler = HandleKey;
         Window.Closed += e =>
         {
@@ -94,13 +86,9 @@ internal sealed class PreviewSession : IDisposable
     internal Image Image { get; }
     internal Button CloseButton { get; }
     internal Button OpenButton { get; }
-    internal Button WindowsPreviewButton => layout.WindowsPreview;
-    internal bool WindowsPreviewAllowed => providerAllowed && IsOpen && !Pending
-        && windowsPreview.Status.State is not (PreviewState.Loading or PreviewState.Accepted);
-    internal PreviewStatus ProviderStatus => windowsPreview.Status;
-    internal int ProviderAttempts { get; private set; }
     internal ElementBounds Bounds => layout.Root.GetBounds();
     internal ElementBounds BodyBounds => body.GetBounds();
+    internal ElementBounds StatusBounds => status.GetBounds();
     internal VectorCanvas MetadataIcon => metadataIcon;
     internal string MetadataName => metadata.Name.Text;
     internal string MetadataKind => metadata.Kind.Text;
@@ -132,9 +120,6 @@ internal sealed class PreviewSession : IDisposable
             OpenButton.Enabled = true;
             if (!result.Restricted && !selected.IsDirectory)
                 Window.SetFileTypeIcon(Path.GetExtension(selected.Name));
-            providerAllowed = !result.Restricted && !selected.IsDirectory;
-            layout.WindowsPreview.Enabled = providerAllowed;
-            basicMessage = result.Message;
             SetMessage(result.Message);
             if (result.Kind == FilePreviewKind.Image)
                 Image.Source(selected.FullPath, 1024, 1024).Visible(true);
@@ -154,37 +139,6 @@ internal sealed class PreviewSession : IDisposable
             OpenButton.Enabled = true;
             SetMessage($"Cannot preview this item: {error.Message}", StatusSeverity.Error);
         });
-    }
-
-    internal void OpenWindowsPreview()
-    {
-        if (!WindowsPreviewAllowed) return;
-        ProviderAttempts++;
-        SetMessage(basicMessage);
-        windowsPreview.Visible(true);
-        windowsPreview.LoadLocal(Target.FullPath);
-    }
-
-    private void ProviderChanged(PreviewStatus value)
-    {
-        if (!IsOpen) return;
-        bool active = value.State is PreviewState.Loading or PreviewState.Accepted;
-        windowsPreview.Visible(active);
-        layout.WindowsPreview.Enabled = providerAllowed && !active;
-        if (value.Reason is PreviewReason.None or PreviewReason.NoHandler or PreviewReason.Cancelled or PreviewReason.Hidden)
-            return;
-        if (value.Reason == PreviewReason.Restricted)
-        {
-            Window.SetFileTypeIcon(directory: Target.IsDirectory);
-            providerAllowed = false;
-            layout.WindowsPreview.Enabled = false;
-            Text.Text = "";
-            Text.Visible(false);
-            Image.Unload().Visible(false);
-            ShowMetadata(true);
-        }
-        SetMessage($"Windows preview unavailable: {value.Reason} ({value.Phase}, 0x{unchecked((uint)value.HResult):X8}). Basic preview remains available.",
-            value.State == PreviewState.Failed ? StatusSeverity.Error : StatusSeverity.Warning);
     }
 
     private void SetMessage(string message, StatusSeverity severity = StatusSeverity.Information)
@@ -229,7 +183,7 @@ internal sealed class PreviewSession : IDisposable
         if (key.VirtualKey == 0x1b) { Dismiss(); return true; }
         // Held Space from Explorer must not activate the initial caption focus.
         if (key.VirtualKey == 0x20 && key.Modifiers == KeyModifiers.None
-            && (key.TargetId == CloseButton.Id || key.TargetId == OpenButton.Id || key.TargetId == layout.WindowsPreview.Id)) return true;
+            && (key.TargetId == CloseButton.Id || key.TargetId == OpenButton.Id)) return true;
         return false;
     }
 
@@ -237,7 +191,6 @@ internal sealed class PreviewSession : IDisposable
     {
         if (!IsOpen) return;
         request.Cancel();
-        windowsPreview.Unload();
         Pending = false;
         work.Dispose();
         Window.Close();
@@ -246,7 +199,6 @@ internal sealed class PreviewSession : IDisposable
     public void Dispose()
     {
         if (disposed) return;
-        windowsPreview.Changed -= ProviderChanged;
         work.Dispose();
         request.Cancel();
         request.Dispose();

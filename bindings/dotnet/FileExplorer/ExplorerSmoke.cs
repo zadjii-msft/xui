@@ -465,7 +465,6 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(root, "broken.bmp"), "not an image");
                 await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt"), "must not enter the text preview");
                 await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt") + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
-                await File.WriteAllTextAsync(Path.Combine(root, "no-handler.xui-no-preview-fixture"), "no handler");
                 await using (var file = File.Create(Path.Combine(root, "pixel.bmp")))
                 using (var writer = new BinaryWriter(file))
                 {
@@ -510,13 +509,12 @@ internal static class ExplorerSmoke
                         && !preview.Window.TitlebarTabs.Visible && !preview.Window.TitlebarSecondaryTabs.Visible
                         && preview.CloseButton.Id == preview.Window.TitlebarClose.Id
                         && preview.BodyBounds.Y == preview.Bounds.Y + 12
-                        && preview.WindowsPreviewButton.GetBounds().Y >= preview.BodyBounds.Y + preview.BodyBounds.Height;
-                }, "Open occupies the titlebar; content starts without a duplicate header; Windows preview stays in the footer");
+                        && preview.BodyBounds.Height == preview.Bounds.Height - preview.StatusBounds.Height - 32;
+                }, "Open occupies the titlebar; content has only its status row beneath it, without a duplicate header or plugin footer");
                 await Check(() => app.Preview.Text.Text == "one\rtwo" && app.Preview.Text.ReadOnly
                     && app.Preview.Bounds.Width > 0 && app.Preview.Bounds.Height > 0
                     && app.Preview.Text.GetBounds().Height > 0 && app.FileOpenCount == opens
                     && !app.Preview.StatusVisible && app.Preview.Message == ""
-                    && app.Preview.Current!.ProviderAttempts == 0 && app.Preview.Current.ProviderStatus.State == PreviewState.Idle
                     && app.Preview.OpenButton.Icon == ButtonIcon.Open
                     && app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)
                     && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontFamily == "Cascadia Mono",
@@ -554,8 +552,7 @@ internal static class ExplorerSmoke
                     "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
                 await Ui(() => app.Left.HideFind());
 
-                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp",
-                    "restricted.txt", "no-handler.xui-no-preview-fixture" })
+                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp", "restricted.txt" })
                 {
                     nint previewHost = 0, initialIcon = 0;
                     await Ui(() =>
@@ -584,24 +581,10 @@ internal static class ExplorerSmoke
                             && app.Preview.MetadataSize == "Size: Not calculated", "Folder metadata does not invent a recursive size");
                     else if (name == "restricted.txt")
                     {
-                        await Ui(app.Preview.Current!.OpenWindowsPreview);
-                        await Check(() => app.Preview.Current!.ProviderAttempts == 0
-                            && app.Preview.Current.ProviderStatus.State == PreviewState.Idle
-                            && !app.Preview.Current.WindowsPreviewAllowed
-                            && SendMessageW(previewHost, 0x7f, 0, 0) == initialIcon
+                        await Check(() => SendMessageW(previewHost, 0x7f, 0, 0) == initialIcon
                             && app.Preview.Image.Status == ImageStatus.Empty && app.Preview.Text.Text == ""
                             && app.Preview.Message.Contains("generic metadata"),
-                            "Restricted input invokes neither provider, WIC nor text preview; metadata uses a retained vector icon");
-                    }
-                    else if (name == "no-handler.xui-no-preview-fixture")
-                    {
-                        await Check(() => app.Preview.Current!.ProviderAttempts == 0, "Basic metadata starts no broker");
-                        await Ui(app.Preview.Current!.OpenWindowsPreview);
-                        await Until(() => app.Preview.Current!.ProviderStatus.State == PreviewState.Unsupported);
-                        await Check(() => app.Preview.Current!.ProviderAttempts == 1
-                            && app.Preview.Current.ProviderStatus.Reason == PreviewReason.NoHandler
-                            && !app.Preview.StatusVisible && app.Preview.IsOpen,
-                            "Explicit Windows preview attempt retains quiet basic fallback for no handler");
+                            "Restricted input invokes neither WIC nor text preview; metadata and window icons remain generic");
                     }
                     else
                     {

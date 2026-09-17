@@ -62,7 +62,7 @@ foreach ($name in @('xui-sys', 'xui')) {
 $sysPath = Join-Path $extracted "xui-sys-$Version"
 $xuiPath = Join-Path $extracted "xui-$Version"
 $native = Join-Path $sysPath "native\$Target"
-foreach ($name in @('xui.dll', 'xui.lib', 'xui_preview_host.exe')) {
+foreach ($name in @('xui.dll', 'xui.lib')) {
     if (!(Test-Path -LiteralPath "$native\$name" -PathType Leaf)) {
         throw "The xui-sys archive is missing native\$Target\$name"
     }
@@ -133,7 +133,6 @@ try {
         Invoke-Cargo (@('build', '--manifest-path', "$sample\Cargo.toml") + $common)
         $binaryDirectory = Join-Path $targetDirectory "$Target\release"
         Copy-Item -LiteralPath "$native\xui.dll" -Destination "$binaryDirectory\xui.dll"
-        Copy-Item -LiteralPath "$native\xui_preview_host.exe" -Destination "$binaryDirectory\xui_preview_host.exe"
         # Working elsewhere also prevents the current directory from supplying the DLL.
         & "$binaryDirectory\xui-package-smoke.exe"
         if ($LASTEXITCODE -ne 0) { throw "Extracted-package ABI smoke failed ($LASTEXITCODE)" }

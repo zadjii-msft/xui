@@ -26,37 +26,7 @@ cmake --build $build --config Release --parallel 4
 
 The architecture selection avoids x64 emulation on ARM64 Windows.
 Use the same architecture for `xui.dll` and each application that loads it.
-Deploy `xui_preview_host.exe` beside the matching `xui.dll` or statically linked executable.
-The `xui` build includes this helper. NuGet, Cargo, and sample packages include it.
-Native CMake package consumers can call `xui_deploy_preview_host(target)`.
 Close executables from this build directory before relinking them.
-
-### Preview-handler fixtures
-
-```powershell
-cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
-cmake --build $build --config Release --target xui_preview_tests xui_preview_abi_tests
-ctest --test-dir $build -C Release -R "^xui_preview.*tests$" --output-on-failure
-dotnet run --project bindings\dotnet\Tests -c Release -p:RuntimeIdentifier=$rid -- --shell-preview
-dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
-```
-
-The native fixture registers its COM class only for the test process lifetime.
-It changes no registry entry.
-Its separately named helper is not a release asset.
-The hostile-window probe terminates only its owned test job.
-Run GUI fixtures without another focus-sensitive test suite.
-The optional commands use only locally authored RTF, text, or PDF fixtures:
-
-```powershell
-& ".\$build\Release\xui_preview_tests.exe" --installed
-& ".\$build\Release\xui_preview_tests.exe" --installed-text
-& ".\$build\Release\xui_preview_tests.exe" --installed-pdf
-```
-
-The command reports the actual installed-provider result and removes its fixture.
-An association or `Accepted` status alone does not prove visible provider content.
-See the [preview contract](docs/specs/shell-preview.md) for provider and isolation limits.
 
 If CMake is absent from `PATH`, find the Visual Studio copy:
 

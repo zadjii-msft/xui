@@ -30,7 +30,6 @@ foreach ($project in Get-XuiSamples -ReleaseOnly) {
             "-p:Version=$Version" "-p:XuiNativeDir=$native" -o $destination --nologo
     }
     Assert-SameFile "$native\xui.dll" "$destination\xui.dll"
-    Assert-SameFile "$native\xui_preview_host.exe" "$destination\xui_preview_host.exe"
     if (!(Test-Path "$destination\$($project.BaseName).exe")) {
         throw "Incomplete NativeAOT sample: $destination"
     }
@@ -59,7 +58,6 @@ try {
     New-Item -ItemType Directory -Path "$samples\rust" -Force | Out-Null
     Copy-Item "$cargoOutput\$target\release\xui-sample.exe" "$samples\rust"
     Copy-Item "$native\xui.dll" "$samples\rust"
-    Copy-Item "$native\xui_preview_host.exe" "$samples\rust"
 } finally {
     $env:XUI_LIB_DIR = $oldLibDir
 }

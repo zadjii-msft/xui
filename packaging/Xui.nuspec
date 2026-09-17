@@ -22,8 +22,6 @@
     <file src="$managedRoot$\Xui.Development\Xui.Development.dll" target="tools\net10.0" />
     <file src="$nativeRoot$\win-x64\xui.dll" target="runtimes\win-x64\native" />
     <file src="$nativeRoot$\win-arm64\xui.dll" target="runtimes\win-arm64\native" />
-    <file src="$nativeRoot$\win-x64\xui_preview_host.exe" target="runtimes\win-x64\native" />
-    <file src="$nativeRoot$\win-arm64\xui_preview_host.exe" target="runtimes\win-arm64\native" />
     <file src="$nativeRoot$\win-x64\*.lib" target="build\native\lib\x64" />
     <file src="$nativeRoot$\win-arm64\*.lib" target="build\native\lib\ARM64" />
     <file src="include\xui\**\*" target="build\native\include\xui" />

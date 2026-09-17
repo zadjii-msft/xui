@@ -10,7 +10,7 @@ namespace xui {
 
 enum class ControlRole { label, button, toggle, text_input, file_list, scroll_view, image, tab_strip, split_view, content_view, data_grid, history_chart,
     popup, radio_group, choice_list, combo_box, numeric_input, range_input, expander, progress, items_view, tree_view, command_menu,
-    document_text, password_input, date_time, inline_status, color_picker, vector_canvas, map_view, media_playback, web_content, shell_preview };
+    document_text, password_input, date_time, inline_status, color_picker, vector_canvas, map_view, media_playback, web_content };
 enum class TextStyle { body, caption, heading, subtitle, body_strong };
 using TextMeasurer = std::function<Size(std::wstring_view, TextStyle)>;
 enum class ActivationKey { space, enter };

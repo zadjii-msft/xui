@@ -388,9 +388,9 @@ xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callbac
 }
 uint64_t XUI_CALL xui_capabilities() noexcept {
 #if XUI_ENABLE_WEBVIEW2
-    return 7;
+    return 3;
 #else
-    return 6;
+    return 2;
 #endif
 }
 xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const xui_feature_options* o, xui_handle* out) noexcept {
