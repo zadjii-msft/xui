@@ -24,7 +24,9 @@ struct WindowPlacement {
     int x{}, y{}, width{}, height{};
     bool maximized{};
 };
-enum class TabDragKind { reorder, tear_out, drop, cancel, completed, query_drop };
+enum class TabDragKind {
+    reorder = 0, tear_out = 1, drop = 2, cancel = 3, completed = 4, query_drop = 5, join = 6, leave = 7
+};
 struct TabDragEvent {
     TabDragKind kind;
     unsigned source_strip{};
@@ -169,9 +171,11 @@ public:
     bool post(std::function<void()> callback);
     // Return true to consume browser navigation. This does not change keyboard focus.
     void on_navigation(std::function<bool(const NavigationEvent&)> callback);
-    // Opt-in title-bar tab dragging within one Application. Return true after applying a request.
+    // Opt-in title-bar tab dragging within one Application. Return true to accept a request.
     // Tear-out retains this HWND: move the remaining models to another window before returning.
     // Drop targets are live same-Application windows with a handler. Never transfer native controls.
+    // Join temporarily transfers the model on hover; Leave returns it to the initiator strip.
+    // Source identity stays fixed. Retain every window and control tree until Completed.
     void on_tab_drag(std::function<bool(const TabDragEvent&)> callback);
     WindowPlacement placement() const;
     // May be set before show; uses physical pixels rather than client DIPs.

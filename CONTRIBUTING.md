@@ -465,14 +465,20 @@ cmake --build $build --config Release --target xui xui_tab_drag_window_tests xui
 dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
 ```
 
-The native fixture uses a deterministic driver at the `SC_MOVE` boundary.
+The native fixture uses a deterministic driver at the caption-down boundary.
 It does not synthesize pointer input or move the real cursor.
 If another window covers the target, the fixture checks occlusion rejection instead of target acceptance.
 Its output reports that condition.
+Dedicated hover cases use temporary topmost fixture windows without activation.
+They check native hide and show transitions, reversible transfer, transparent overlays, and remainder Z-order.
 The Explorer smoke checks model transfer through the managed drag handler.
 
 For physical drag coverage, press Ctrl+N in FileExplorer to create another window in the same application.
 Drag tabs within a strip, outside the window, and onto the other window.
+Before release, check that the target contains the dragged tab and the detached window is hidden.
+Without release, drag away from the target and then onto it again.
+Check that the detached window appears above the previous target.
+Check that the remainder never appears above the detached window.
 Repeat with the secondary pane, a single tab, a full target pane, and a maximized source.
 During a detached drag, press Escape.
 Check the folder history, Find text, selection, scroll position, and Columns state after each transfer.

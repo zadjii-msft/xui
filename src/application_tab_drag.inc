@@ -1,10 +1,17 @@
+    struct TabDropTarget {
+        std::shared_ptr<Impl> host;
+        unsigned strip{};
+        std::size_t index{};
+    };
     struct TabMove {
         unsigned strip{};
         std::uint64_t id{};
         RECT original{}, band{};
         WindowPlacement placement;
+        int detached_width{}, detached_height{};
         float grab_x{}, grab_y{};
-        bool torn{}, cancelled{}, single{}, entered{};
+        bool torn{}, cancelled{}, single{}, entered{}, ending{}, adjusting{}, full_drag{}, activate{};
+        std::optional<TabDropTarget> joined;
         std::weak_ptr<TabStrip> indicator;
         std::weak_ptr<Impl> preview_target;
     };
@@ -46,9 +53,11 @@
     }
     bool current_drag_tab() const {
         if (!tab_move || !window || closing || !tab_drag_handler) return false;
-        const auto strip = drag_strip(tab_move->strip);
-        const auto peer = find_peer(strip.get());
-        return peer && visible(*peer) && enabled(*peer) &&
+        const auto* host = tab_move->joined ? tab_move->joined->host.get() : this;
+        if (!host->window || host->closing || !host->titlebar) return false;
+        const auto strip = host->drag_strip(tab_move->joined ? tab_move->joined->strip : tab_move->strip);
+        const auto peer = host->find_peer(strip.get());
+        return peer && host->visible(*peer) && host->enabled(*peer) &&
             std::any_of(strip->tabs().begin(), strip->tabs().end(), [&](const auto& tab) { return tab.id == tab_move->id; });
     }
     void clear_tab_indicator() {
@@ -57,11 +66,30 @@
             tab_move->indicator.reset();
         }
     }
-    struct TabDropTarget {
-        std::shared_ptr<Impl> host;
-        unsigned strip{};
-        std::size_t index{};
-    };
+    static bool tab_window_contains(HWND hwnd, POINT point, const RECT& rect) {
+        const auto style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (style & WS_EX_LAYERED) {
+            if (style & WS_EX_TRANSPARENT) return false;
+            BYTE alpha{};
+            DWORD flags{};
+            COLORREF color{};
+            if (GetLayeredWindowAttributes(hwnd, &color, &alpha, &flags) && (flags & LWA_ALPHA) && alpha == 0)
+                return false;
+        }
+        const auto region = CreateRectRgn(0, 0, 0, 0);
+        win32_require(region != nullptr, "Read tab target window region");
+        const auto kind = GetWindowRgn(hwnd, region);
+        const bool contains = kind == ERROR || PtInRegion(region, point.x - rect.left, point.y - rect.top);
+        DeleteObject(region);
+        return contains;
+    }
+    static bool tab_window_arranged(HWND hwnd) {
+        // This documented API has no import library on older SDKs.
+        using IsArranged = BOOL(WINAPI*)(HWND);
+        static const auto arranged = reinterpret_cast<IsArranged>(
+            GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"));
+        return IsZoomed(hwnd) || (arranged && arranged(hwnd));
+    }
     std::optional<TabDropTarget> tab_drop_target(POINT point) {
         // Walk real top-level Z order, including foreign windows, so occluded strips cannot accept a drop.
         for (HWND hwnd = GetTopWindow(nullptr); hwnd; hwnd = GetWindow(hwnd, GW_HWNDNEXT)) {
@@ -70,6 +98,7 @@
             if (!GetWindowRect(hwnd, &rect) || !PtInRect(&rect, point)) continue;
             BOOL cloaked{};
             if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) continue;
+            if (!tab_window_contains(hwnd, point, rect)) continue;
             if (GetWindowThreadProcessId(hwnd, nullptr) != owner_thread) return {};
             wchar_t name[64]{};
             if (!GetClassNameW(hwnd, name, 64) || std::wstring_view(name) != window_class) return {};
@@ -98,16 +127,18 @@
         }
         return {};
     }
-    void move_tab_window(RECT& rect) {
-        if (!current_drag_tab()) {
-            tab_move->cancelled = true;
-            win32_require(PostMessageW(window, WM_CANCELMODE, 0, 0) != 0, "Cancel obsolete tab drag");
-            return;
-        }
-        POINT point{};
-        win32_require(GetCursorPos(&point) != 0, "Read tab drag position");
-        clear_tab_indicator();
-        auto target = tab_drop_target(point);
+    bool leave_tab_join() {
+        if (!tab_move->joined) return true;
+        const auto target = *tab_move->joined;
+        if (!notify_tab_drag(TabDragKind::leave, target.host->public_window, target.strip, target.index)) return false;
+        tab_move->joined.reset();
+        if (closing) return false;
+        update();
+        if (target.host->window && !target.host->closing) target.host->update();
+        if (!current_drag_tab()) throw std::logic_error("Leave must restore the dragged tab to its source strip");
+        return true;
+    }
+    void preview_tab_target(const std::optional<TabDropTarget>& target) {
         if (target) {
             auto strip = target->host->drag_strip(target->strip);
             strip->set_drop_indicator(target->index);
@@ -119,9 +150,38 @@
             }
             target->host->update();
         } else if (!tab_move->preview_target.expired()) {
+            const auto previous = tab_move->preview_target.lock();
+            if (previous && previous->window && !previous->closing)
+                win32_require(SetWindowPos(previous->window, window, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Lower previous tab host");
             win32_require(SetWindowPos(window, HWND_TOP, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Show detached tab window");
             tab_move->preview_target.reset();
+        }
+    }
+    void move_tab_window(RECT& rect, bool live_join) {
+        if (tab_move->cancelled) return;
+        if (tab_move->joined && !current_drag_tab()) {
+            if (!leave_tab_join()) throw std::logic_error("Cannot recover the tab from its unavailable hover target");
+            tab_move->cancelled = true;
+            win32_require(PostMessageW(window, WM_CANCELMODE, 0, 0) != 0, "Cancel unavailable tab target");
+            return;
+        }
+        if (!current_drag_tab()) {
+            tab_move->cancelled = true;
+            win32_require(PostMessageW(window, WM_CANCELMODE, 0, 0) != 0, "Cancel obsolete tab drag");
+            return;
+        }
+        POINT point{};
+        win32_require(GetCursorPos(&point) != 0, "Read tab drag position");
+        clear_tab_indicator();
+        auto target = tab_drop_target(point);
+        if (tab_move->joined && (!target || target->host != tab_move->joined->host ||
+            target->strip != tab_move->joined->strip)) {
+            if (!leave_tab_join()) throw std::logic_error("Cannot leave the tab hover target");
+            rect.right = rect.left + tab_move->detached_width;
+            rect.bottom = rect.top + tab_move->detached_height;
+            target = tab_drop_target(point);
         }
         if (!tab_move->torn) {
             auto band = tab_move->band;
@@ -141,14 +201,38 @@
                 return;
             }
             // Crossing straight into the other pane can merge without creating a window.
-            if (target && target->host.get() == this) { rect = tab_move->original; return; }
+            if (target && target->host.get() == this) {
+                preview_tab_target(target);
+                rect = tab_move->original;
+                return;
+            }
             if (!notify_tab_drag(TabDragKind::tear_out) || closing) { rect = tab_move->original; return; }
             tab_move->torn = true;
             if (!current_drag_tab()) throw std::logic_error("Tear-out must retain the dragged tab in its source strip");
             update();
-            rect.right = rect.left + tab_move->placement.width;
-            rect.bottom = rect.top + tab_move->placement.height;
+            rect.right = rect.left + tab_move->detached_width;
+            rect.bottom = rect.top + tab_move->detached_height;
+            // The source no longer occludes a strip beneath the dragged tab.
+            target = tab_drop_target(point);
+            if (!target)
+                win32_require(SetWindowPos(window, HWND_TOP, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Raise detached tab above remaining content");
         }
+        if (live_join && target && target->host.get() != this &&
+            notify_tab_drag(TabDragKind::join, target->host->public_window, target->strip, target->index)) {
+            tab_move->joined = target;
+            if (!current_drag_tab()) throw std::logic_error("Join must put the dragged tab in its target strip");
+            update();
+        }
+        preview_tab_target(target);
+        if (tab_move->joined) {
+            win32_require(GetWindowRect(tab_move->joined->host->window, &rect) != 0, "Locate joined tab host");
+            ++rect.bottom;
+            return;
+        }
+        anchor_tab_window(rect, point);
+    }
+    void anchor_tab_window(RECT& rect, POINT point) {
         const auto strip = drag_strip(tab_move->strip);
         const auto peer = find_peer(strip.get());
         RECT strip_rect{}, outer{};
@@ -161,6 +245,40 @@
             static_cast<int>((bounds.x + std::min(tab_move->grab_x, std::max(0.0f, bounds.width - 8))) * dpi / 96);
         const int y = strip_rect.top - outer.top + static_cast<int>(tab_move->grab_y * dpi / 96);
         OffsetRect(&rect, point.x - x - rect.left, point.y - y - rect.top);
+    }
+    void show_detached_tab(POINT point) {
+        RECT rect{0, 0, tab_move->detached_width, tab_move->detached_height};
+        anchor_tab_window(rect, point);
+        win32_require(SetWindowPos(window, HWND_TOP, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW) != 0, "Restore detached tab window");
+    }
+    void position_tab_window(WINDOWPOS& position) {
+        if (!tab_move || !tab_move->entered || tab_move->ending || tab_move->adjusting ||
+            tab_move->cancelled || ((position.flags & SWP_NOMOVE) && (position.flags & SWP_NOSIZE))) return;
+        tab_move->adjusting = true;
+        struct Reset { bool& value; ~Reset() { value = false; } } reset{tab_move->adjusting};
+        if (tab_window_arranged(window)) {
+            if (tab_move->joined) {
+                if (!leave_tab_join()) throw std::logic_error("Cannot return the joined tab for native snap");
+                position.flags = (position.flags & ~SWP_HIDEWINDOW) | SWP_SHOWWINDOW;
+            }
+            return;
+        }
+        RECT rect{};
+        win32_require(GetWindowRect(window, &rect) != 0, "Read moving tab window");
+        const auto width = rect.right - rect.left, height = rect.bottom - rect.top;
+        if (!(position.flags & SWP_NOMOVE)) { rect.left = position.x; rect.top = position.y; }
+        rect.right = rect.left + ((position.flags & SWP_NOSIZE) ? width : position.cx);
+        rect.bottom = rect.top + ((position.flags & SWP_NOSIZE) ? height : position.cy);
+        const bool was_joined = tab_move->joined.has_value();
+        move_tab_window(rect, true);
+        position.x = rect.left; position.y = rect.top;
+        position.cx = rect.right - rect.left; position.cy = rect.bottom - rect.top;
+        position.flags &= ~(SWP_NOMOVE | SWP_NOSIZE);
+        if (tab_move->joined)
+            position.flags = (position.flags & ~SWP_SHOWWINDOW) | SWP_HIDEWINDOW;
+        else if (was_joined)
+            position.flags = (position.flags & ~SWP_HIDEWINDOW) | SWP_SHOWWINDOW;
     }
     static LRESULT CALLBACK tab_move_filter(int code, WPARAM wparam, LPARAM lparam) noexcept {
         const auto result = CallNextHookEx(nullptr, code, wparam, lparam);
@@ -182,6 +300,18 @@
         move.single = strip->tabs().size() == 1 &&
             (!drag_strip(1 - *source)->visible() || drag_strip(1 - *source)->tabs().empty());
         move.placement = read_placement();
+        move.detached_width = move.placement.width;
+        move.detached_height = move.placement.height;
+        if (tab_window_arranged(window) && !IsZoomed(window)) {
+            WINDOWPLACEMENT placement{sizeof(placement)};
+            win32_require(GetWindowPlacement(window, &placement) != 0, "Read detached window size before native unsnap");
+            move.detached_width = placement.rcNormalPosition.right - placement.rcNormalPosition.left;
+            move.detached_height = placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
+        }
+        BOOL full_drag{};
+        win32_require(SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0) != 0, "Read native window drag mode");
+        move.full_drag = full_drag != FALSE;
+        move.activate = GetForegroundWindow() == window;
         win32_require(GetWindowRect(window, &move.original) != 0 && GetWindowRect(peer.window, &move.band) != 0,
             "Start tab window drag");
         const auto bounds = strip->tab_bounds(static_cast<std::size_t>(it - strip->tabs().begin()));
@@ -206,18 +336,39 @@
         if (GetCapture() == peer.window) ReleaseCapture();
         hide_tooltip();
         // This HWND owns exactly one user32 move loop from initial reorder through tear-out.
-        SendMessageW(window, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, MAKELPARAM(point.x, point.y));
+        SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(point.x, point.y));
+        tab_move->ending = true;
         clear_tab_indicator();
         if (closing) return;
+        if (!tab_move->cancelled && tab_move->joined && tab_window_arranged(window)) {
+            if (!leave_tab_join()) throw std::logic_error("Cannot return the joined tab after native snap");
+            win32_require(SetWindowPos(window, HWND_TOP, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW) != 0, "Show natively arranged tab window");
+        }
         bool merged{};
+        std::shared_ptr<Impl> destination;
         if (tab_move->cancelled) {
+            if (!leave_tab_join()) throw std::logic_error("Cannot return the joined tab after cancellation");
             notify_tab_drag(TabDragKind::cancel);
             if (!closing) win32_require(SetWindowPos(window, HWND_TOP, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Restore cancelled tab window");
-        } else if (current_drag_tab()) {
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW) != 0, "Restore cancelled tab window");
+        } else {
             win32_require(GetCursorPos(&point) != 0, "Read released tab position");
-            if (auto target = tab_drop_target(point))
+            auto target = current_drag_tab() && !tab_window_arranged(window) ? tab_drop_target(point) : std::nullopt;
+            if (tab_move->joined && (!target || target->host != tab_move->joined->host ||
+                target->strip != tab_move->joined->strip)) {
+                if (!leave_tab_join()) throw std::logic_error("Cannot return the tab from its stale drop target");
+                show_detached_tab(point);
+                target = tab_drop_target(point);
+            }
+            if (target) {
                 merged = notify_tab_drag(TabDragKind::drop, target->host->public_window, target->strip, target->index);
+                if (merged) destination = target->host;
+            }
+            if (!merged && tab_move->joined) {
+                if (!leave_tab_join()) throw std::logic_error("Cannot return the tab after a rejected drop");
+                show_detached_tab(point);
+            }
         }
         if (!closing) {
             const auto original = tab_move->placement;
@@ -228,4 +379,7 @@
                 win32_require(SetWindowPos(window, HWND_TOP, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Finish detached tab window");
         }
+        if (destination && destination->window && !destination->closing)
+            win32_require(SetWindowPos(destination->window, HWND_TOP, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | (tab_move->activate ? 0 : SWP_NOACTIVATE)) != 0, "Finish tab merge");
     }

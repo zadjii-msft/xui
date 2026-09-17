@@ -5,8 +5,11 @@ namespace Xui;
 
 /// <summary>Normal outer window bounds in physical screen pixels, including negative monitor coordinates.</summary>
 public readonly record struct WindowPlacement(int X, int Y, int Width, int Height, bool Maximized);
-public enum TabDragKind : uint { Reorder = 0, TearOut = 1, Drop = 2, Cancel = 3, Completed = 4, QueryDrop = 5 }
-/// <summary>A source-window request. Index is the target insertion slot before removal. Strips are 0 or 1.</summary>
+public enum TabDragKind : uint
+{
+    Reorder = 0, TearOut = 1, Drop = 2, Cancel = 3, Completed = 4, QueryDrop = 5, Join = 6, Leave = 7
+}
+/// <summary>A request on the initiating window. SourceStrip and TabId stay fixed. Index is a pre-removal insertion slot. Strips are 0 or 1.</summary>
 public readonly record struct TabDragEvent(TabDragKind Kind, uint SourceStrip, ulong TabId,
     Window? Target, uint TargetStrip, int Index);
 
@@ -48,7 +51,12 @@ public sealed unsafe partial class Window
     /// TearOut must keep the dragged tab ID on the same strip and HWND. Move other models to other windows synchronously.
     /// Reorder always uses the source strip. Drop can target the other strip in the same window at release, before tear-out.
     /// QueryDrop validates the hovered target and index without mutation. Return true to show the insertion indicator for an accepted drop.
-    /// Cancel restores application state after Escape. Completed retires state after no target or a rejected drop.
+    /// Join temporarily transfers the tab on hover. Repeated Join can reorder within the same destination.
+    /// False Join keeps release-only Drop behavior. External Join follows TearOut.
+    /// Leave precedes retarget or Cancel. Return true only after the tab returns to its initiating strip.
+    /// Drop while joined commits the existing transfer. It must not transfer the tab again.
+    /// Cancel restores application state after Escape. Completed retires state after the move loop.
+    /// Keep every window and control tree alive until Completed, including an empty initiator after Join.
     /// Exceptions close the source window. Native controls cannot move between windows.
     /// Replacement and removal fail during an active gesture. The installed handler remains unchanged.
     /// </remarks>
@@ -98,7 +106,7 @@ public sealed unsafe partial class Window
             window.Guard();
             if (value == null || value->Size != sizeof(Native.TabDragEvent))
                 throw new XuiException(5, "The tab drag event size does not match.");
-            if (value->Kind > (uint)TabDragKind.QueryDrop || value->SourceStrip > 1 || value->TargetStrip > 1 ||
+            if (value->Kind > (uint)TabDragKind.Leave || value->SourceStrip > 1 || value->TargetStrip > 1 ||
                 value->TabId == 0 || value->Index > int.MaxValue)
                 throw new XuiException(1, "The tab drag event is invalid.");
             var application = window.Application ?? throw new XuiException(1, "Tab dragging requires an Application.");

@@ -73,10 +73,12 @@ These tests need a Windows desktop. Static checks do not establish a passing nat
 
 `src\application_tab_drag.inc` contains the native title-bar drag session inside `Window::Impl`.
 A tab press records a stable ID and screen position.
-The system drag threshold starts one `SC_MOVE` loop on the source HWND.
-`WM_MOVING` holds the source rectangle during reordering.
+The system drag threshold forwards `WM_NCLBUTTONDOWN` with `HTCAPTION` to native window processing.
+One move-size loop stays on the source HWND.
+`WM_WINDOWPOSCHANGING` controls full-window dragging. `WM_MOVING` controls the outline-only fallback.
 After the tear-out callback, the same loop moves the source window beneath the dragged tab.
 The application creates the remainder window rather than transferring native peers.
+Nonactivated windows created during this gesture appear directly below its HWND.
 
 A thread-local `WH_KEYBOARD` hook observes Escape without consuming it.
 The hook exists only during the native move loop.
@@ -87,18 +89,39 @@ The source implementation stays alive until native dispatch returns.
 Target discovery walks current top-level Z order, including foreign windows as occluders.
 It checks current visibility, enabled state, application ownership, modal state, and strip geometry.
 `query_drop` checks application acceptance without changing models.
-`drop` commits a transfer only after the native loop returns.
-This differs from WinUI hover-transfer behavior: hovering never moves a model.
+An accepted `join` transfers the model during hover.
+The moving HWND becomes hidden through `SWP_HIDEWINDOW` in the native position change, not a separate `ShowWindow` call.
+`leave` restores the model to that HWND before `SWP_SHOWWINDOW` reveals it.
+The previous target moves below the dragged HWND.
+`drop` commits the current transfer only after the native loop returns.
+The target is queried again at release, even when the tab is already joined.
+Outline-only dragging and handlers that reject `join` retain release-only transfer.
 The target marker uses the same tab geometry and palette as normal drawing.
+Layered pass-through overlays, alpha-zero windows, and window-region holes do not block targets.
+Opaque layered windows still block targets.
 
 The WinUI research reference is `microsoft/microsoft-ui-xaml`, commit `4eabc71e72bbf11039604cd37f475ace0ff4fc02`.
 Its `TabView.cpp` selects a new move-loop HWND before entry through `MoveSizeWindowId`.
 It does not move all remaining tabs into another HWND.
 XUI uses the existing HWND because its Win32 backend does not depend on Windows App SDK input redirection.
 
-`tests\tab_drag_window_tests.cpp` drives native messages through a deterministic `SC_MOVE` boundary.
+The supplied TabsSample reference uses joined and detached states within one native loop.
+It modifies `WINDOWPOS` to hide or show the moving HWND and lowers the previous host after departure.
+XUI uses that behavior without the sample's placement helpers or non-full-drag cloaking workaround.
+The public [`EnterMoveSizeLoop` API](https://learn.microsoft.com/en-us/windows/win32/winmsg/winuser/nf-winuser-entermovesizeloop) is not required.
+The documented [`IsWindowArranged` API](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-iswindowarranged) prevents tab positioning from overriding native snap.
+XUI resolves that query dynamically for SDK compatibility.
+
+`bindings\dotnet\FileExplorer\Models\ExplorerTabJoin.cs` retains the temporary model transfer.
+`ExplorerTabDrag.cs` coordinates that transfer, rollback snapshots, target guards, and deferred window retirement.
+Equivalent hosted insertion slots do not cancel navigation or rebuild content.
+
+`tests\tab_drag_window_tests.cpp` drives native messages through a deterministic caption-down boundary.
 It covers stationary reordering, retained-HWND tear-out, target acceptance, rejected drops, cancellation, markers, and retirement.
 Occluded desktop targets exercise rejection instead of acceptance.
+Dedicated hover fixtures use temporary topmost windows without activation.
+They exercise live join, repeated join, departure, rejoin, rollback, and rejected commit through real window-position messages.
+They also check first-show remainder Z-order, maximized remainder state, and opaque versus transparent layered overlays.
 The fixture also requests an actual native move and checks cleanup if user32 rejects it without a held mouse button.
 `tests\tab_window_tests.cpp --drag-indicator` checks insertion-marker pixels across styles, themes, and DPI values.
 These fixtures do not prove physical pointer continuity or mixed-monitor behavior during an actual system move loop.

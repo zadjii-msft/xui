@@ -96,6 +96,13 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                if (Environment.GetCommandLineArgs().Contains("--smoke-hover"))
+                {
+                    await HoverJoinChecks();
+                    await Ui(app.Window.Close);
+                    Console.WriteLine("Explorer hover smoke passed: Join, hosted reorder, Leave, repeated targets, both strips, Cancel, Drop, competing gestures, and source/target closure.");
+                    return;
+                }
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
                 await Check(() => new[] { app.Sidebar.View.Items, app.Sidebar.View.HeaderItems,
                     app.Sidebar.View.FooterItems }.All(items =>
@@ -477,10 +484,11 @@ internal static class ExplorerSmoke
                 await ColumnsChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
+                await HoverJoinChecks();
                 await TabDragChecks();
                 await TabMenuChecks(fixture);
                 await DetachedLifetimeChecks();
-                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, tear-out rollback, same-Application merge, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, reversible hover joins, tear-out rollback, same-Application merge, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
@@ -489,6 +497,212 @@ internal static class ExplorerSmoke
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task HoverJoinChecks()
+            {
+                ExplorerApplication source = null!, target = null!, remainder = null!;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    source.Left.NewTab(fixture);
+                    target.Left.NewTab(fixture);
+                    source.ToggleSplit();
+                    target.ToggleSplit();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ready(source.Right);
+                await Ready(target.Right);
+                await Until(() => source.SecondPaneVisible && target.SecondPaneVisible);
+                await Ui(() => source.Right.NewTab(fixture));
+                await Ready(source.Right);
+                for (uint sourceStrip = 0; sourceStrip < 2; ++sourceStrip)
+                for (uint targetStrip = 0; targetStrip < 2; ++targetStrip)
+                {
+                    var sourcePane = sourceStrip == 0 ? source.Left : source.Right;
+                    var targetPane = targetStrip == 0 ? target.Left : target.Right;
+                    ExplorerTab[] leftOrder = [], rightOrder = [], targetOrder = [];
+                    ExplorerTab tab = null!, targetActive = null!;
+                    await Ui(() =>
+                    {
+                        leftOrder = source.Left.Model.Tabs.ToArray();
+                        rightOrder = source.Right.Model.Tabs.ToArray();
+                        tab = sourcePane.Model.Active;
+                        targetOrder = targetPane.Model.Tabs.ToArray();
+                        targetActive = targetPane.Model.Active;
+                        if (!Send(source, TabDragKind.TearOut, sourceStrip, tab.Id))
+                            throw new InvalidOperationException($"Hover tear-out failed: {source.Notification.Text}");
+                        remainder = source.DragRemainder!;
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, 0)
+                            || source.CloseRequested || sourcePane.Model.Tabs.Count != 0
+                            || targetPane.Model.Tabs[0] != tab || source.DragRemainder != remainder
+                            || !source.HasTabDrag || !target.HasTabDrag)
+                            throw new InvalidOperationException($"Hover join must retain source/remainder and move actual tab: {source.Notification.Text}");
+                        if (sourceStrip == 1 && !source.Window.TitlebarSecondaryTabs.Visible)
+                            throw new InvalidOperationException("Hosted right-strip gestures must retain secondary strip identity.");
+                        if (!Send(source, TabDragKind.QueryDrop, sourceStrip, tab.Id, target, targetStrip, 0)
+                            || Send(target, TabDragKind.QueryDrop, targetStrip, tab.Id, remainder, 0, 0))
+                            throw new InvalidOperationException("Hosted-tab preview must use its live model and reject competing gestures.");
+                        targetPane.Navigate(Path.Combine(fixture, "alpha"));
+                        var entries = tab.Entries;
+                        for (int i = 0; i < 4; ++i)
+                        {
+                            if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, i % 2)
+                                || !targetPane.IsLoading || targetPane.Model.Active != tab
+                                || !ReferenceEquals(tab.Entries, entries) || targetPane.Model.Tabs[0] != tab)
+                                throw new InvalidOperationException("Unchanged hosted insertion slots must not cancel navigation or rebuild tab content.");
+                        }
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, targetPane.Model.Tabs.Count)
+                            || targetPane.Model.Tabs[^1] != tab
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, target, targetStrip)
+                            || sourcePane.Model.Active != tab || target.HasTabDrag
+                            || !targetPane.Model.Tabs.SequenceEqual(targetOrder) || targetPane.Model.Active != targetActive)
+                            throw new InvalidOperationException($"Join/reorder/Leave must restore target and source strip: {source.Notification.Text}");
+                        uint otherStrip = 1 - targetStrip;
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, otherStrip, 0)
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, target, otherStrip))
+                            throw new InvalidOperationException("Retargeting to the other pane of the same destination must be reversible.");
+                        // Retarget the same gesture to its remainder, then return before cancellation.
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, remainder, 0, 0)
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, remainder, 0)
+                            || !Send(source, TabDragKind.Cancel, sourceStrip, tab.Id)
+                            || !Send(source, TabDragKind.Completed, sourceStrip, tab.Id)
+                            || !source.Left.Model.Tabs.SequenceEqual(leftOrder)
+                            || !source.Right.Model.Tabs.SequenceEqual(rightOrder))
+                            throw new InvalidOperationException($"Retarget/Leave/Cancel must restore both original panes: {source.Notification.Text}");
+                    });
+                    await Until(() => remainder.IsDisposed);
+                    await Ready(source.Left);
+                    await Ready(source.Right);
+                    await Ready(targetPane);
+                }
+                ExplorerTab committed = null!;
+                await Ui(() =>
+                {
+                    committed = source.Right.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 1, committed.Id))
+                        throw new InvalidOperationException("Commit fixture tear-out failed.");
+                    remainder = source.DragRemainder!;
+                    int count = target.Right.Model.Tabs.Count;
+                    if (!Send(source, TabDragKind.Join, 1, committed.Id, target, 1, count)
+                        || !Send(source, TabDragKind.Drop, 1, committed.Id, target, 1, count)
+                        || target.Right.Model.Tabs.Count != count + 1
+                        || target.Right.Model.Tabs.Count(tab => tab == committed) != 1
+                        || target.HasTabDrag || source.CloseRequested || !source.HasTabDrag)
+                        throw new InvalidOperationException($"Hosted release must commit without duplicate transfer: {source.Notification.Text}");
+                });
+                await Check(() => source.Window.State == WindowState.Open && !source.CloseRequested
+                    && remainder.Window.State == WindowState.Open,
+                    "Hosted Drop retains every participating window until Completed");
+                await Ui(() => Send(source, TabDragKind.Completed, 1, committed.Id));
+                await Until(() => source.IsDisposed);
+                await Ready(target.Right);
+                await Ui(() =>
+                {
+                    remainder.Window.Close();
+                    target.Window.Close();
+                });
+                await Until(() => remainder.IsDisposed && target.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                // Destination closure returns the hosted model to the still-live source.
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    committed = source.Left.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Closing-host fixture could not join.");
+                    target.Window.Close();
+                });
+                await Until(() => target.IsDisposed);
+                await Ready(source.Left);
+                await Check(() => source.Left.Model.Active == committed && !source.CloseRequested,
+                    "Closing a hover target returns the tab to its retained source");
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.Leave, 0, committed.Id))
+                        throw new InvalidOperationException("Leave with a null disposed target must acknowledge source recovery.");
+                    Send(source, TabDragKind.Completed, 0, committed.Id);
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Closing-source fixture could not join.");
+                    source.Window.Close();
+                });
+                await Until(() => source.IsDisposed);
+                await Ready(target.Left);
+                await Check(() => target.Left.Model.Tabs.Contains(committed) && !target.HasTabDrag,
+                    "Closing the drag initiator preserves the live hosted model and releases the target guard");
+                await Ui(target.Window.Close);
+                await Until(() => target.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                ExplorerApplication recovery = null!;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    committed = source.Left.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Retained-model recovery fixture could not join.");
+                    target.Left.ResetTabs(fixture);
+                    if (!Send(source, TabDragKind.Leave, 0, committed.Id, target)
+                        || source.Left.Model.Active != committed || target.HasTabDrag)
+                        throw new InvalidOperationException("Leave must recover the retained model when the destination replaced its pane.");
+                    if (!Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Recovery fixture could not rejoin.");
+                    while (source.Left.Model.Tabs.Count < ExplorerPane.TabLimit)
+                        source.Left.Model.AddTab(fixture);
+                    if (Send(source, TabDragKind.Leave, 0, committed.Id, target))
+                        throw new InvalidOperationException("A full original source must not claim successful Leave.");
+                    recovery = app.ExplorerWindows.Last();
+                    if (recovery == source || recovery == target || recovery.Left.Model.Active != committed
+                        || target.Left.Model.Tabs.Contains(committed) || target.HasTabDrag)
+                        throw new InvalidOperationException("An impossible rollback must preserve the actual tab in a recovery window.");
+                });
+                await Ready(recovery.Left);
+                await Ui(() =>
+                {
+                    source.Window.Close();
+                    target.Window.Close();
+                    recovery.Window.Close();
+                });
+                await Until(() => source.IsDisposed && target.IsDisposed && recovery.IsDisposed
+                    && app.ExplorerWindows.Count == 1);
+
+                static bool Send(ExplorerApplication owner, TabDragKind kind, uint strip, ulong id,
+                    ExplorerApplication? destination = null, uint targetStrip = 0, int index = 0)
+                    => owner.Window.TabDragHandler?.Invoke(new(kind, strip, id,
+                        destination?.Window, targetStrip, index)) == true;
             }
 
             async Task TabDragChecks()
@@ -520,6 +734,7 @@ internal static class ExplorerSmoke
                     if (!Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 0, left.Length)
                         || source.Left.Model.Tabs[^1] != left[0]
                         || !Drag(source, TabDragKind.Cancel, 0, left[0].Id)
+                        || !Drag(source, TabDragKind.Completed, 0, left[0].Id)
                         || !source.Left.Model.Tabs.SequenceEqual(left)
                         || !source.Right.Model.Tabs.SequenceEqual(right))
                         throw new InvalidOperationException("Reorder cancellation must restore both pane orders.");
@@ -547,7 +762,7 @@ internal static class ExplorerSmoke
                             throw new InvalidOperationException("Drop preview must validate without changing either pane or reporting errors.");
                     }
                     if (!Drag(source, TabDragKind.Drop, 0, left[0].Id, source, 1, 1)
-                        || source.Right.Model.Tabs[1] != left[0] || source.HasTabDrag
+                        || source.Right.Model.Tabs[1] != left[0] || !source.HasTabDrag
                         || !Drag(source, TabDragKind.Completed, 0, left[0].Id)
                         || source.Right.Model.Tabs[1] != left[0])
                         throw new InvalidOperationException("Release into another pane must transfer once and accept Completed.");
@@ -594,9 +809,12 @@ internal static class ExplorerSmoke
                 {
                     if (!Drag(source, TabDragKind.Cancel, 0, left[0].Id)
                         || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right)
-                        || source.HasTabDrag)
+                        || !source.HasTabDrag || remainder.CloseRequested)
                         throw new InvalidOperationException("Tear-out cancellation must restore the original models first.");
                 });
+                await Check(() => remainder.Window.State == WindowState.Open,
+                    "Canceled remainder remains alive until Completed");
+                await Ui(() => Drag(source, TabDragKind.Completed, 0, left[0].Id));
                 await Until(() => remainder.IsDisposed && !app.ExplorerWindows.Contains(remainder));
                 await Ready(source.Left);
                 await Ready(source.Right);
@@ -631,6 +849,7 @@ internal static class ExplorerSmoke
                         || source.Window.Placement != placement)
                         throw new InvalidOperationException("Right-strip cancellation must restore primary visibility, pane order, and placement.");
                 });
+                await Ui(() => Drag(source, TabDragKind.Completed, 1, right[0].Id));
                 await Until(() => remainder.IsDisposed);
                 await Ready(source.Left);
                 await Ready(source.Right);
@@ -662,7 +881,8 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     if (!Drag(source, TabDragKind.TearOut, 0, right[0].Id) || source.DragRemainder is not null
-                        || !Drag(source, TabDragKind.Cancel, 0, right[0].Id))
+                        || !Drag(source, TabDragKind.Cancel, 0, right[0].Id)
+                        || !Drag(source, TabDragKind.Completed, 0, right[0].Id))
                         throw new InvalidOperationException("A lone tab must not create an empty remainder.");
                     app.NewWindow(fixture);
                     target = app.ExplorerWindows.Last();
@@ -701,9 +921,11 @@ internal static class ExplorerSmoke
                     target.Left.ResetTabs(fixture);
                     target.Left.RenderTransferredModel();
                     if (!Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 0, 1)
-                        || target.Left.Model.Tabs[1] != right[0] || !source.CloseRequested)
-                        throw new InvalidOperationException("Merge must transfer identity and retire an empty source.");
+                        || target.Left.Model.Tabs[1] != right[0] || source.CloseRequested)
+                        throw new InvalidOperationException("Merge must transfer identity without retiring its source before Completed.");
                 });
+                await Check(() => source.Window.State == WindowState.Open, "Release-only Drop retains its source until Completed");
+                await Ui(() => Drag(source, TabDragKind.Completed, 0, right[0].Id));
                 await Until(() => source.IsDisposed && !app.ExplorerWindows.Contains(source));
                 await Ready(target.Left);
                 await Check(() => target.Window.State == WindowState.Open
@@ -717,8 +939,10 @@ internal static class ExplorerSmoke
                 await Ready(stale.Left);
                 await Ui(() =>
                 {
-                    if (!Drag(stale, TabDragKind.Drop, 0, stale.Left.Model.Active.Id,
-                        target, 0, target.Left.Model.Tabs.Count) || !stale.CloseRequested)
+                    ulong id = stale.Left.Model.Active.Id;
+                    if (!Drag(stale, TabDragKind.Drop, 0, id,
+                        target, 0, target.Left.Model.Tabs.Count) || stale.CloseRequested
+                        || !Drag(stale, TabDragKind.Completed, 0, id) || !stale.CloseRequested)
                         throw new InvalidOperationException("Merging a fresh window's last tab must discard its dormant placeholder pane.");
                 });
                 await Until(() => stale.IsDisposed);

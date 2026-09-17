@@ -32,7 +32,7 @@ struct MoveDriver {
     int loops{};
     static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR data) {
         auto& driver = *reinterpret_cast<MoveDriver*>(data);
-        if (message == WM_SYSCOMMAND && (w & 0xfff0) == SC_MOVE) {
+        if (message == WM_NCLBUTTONDOWN && w == HTCAPTION) {
             ++driver.loops;
             try { driver.run(hwnd); }
             catch (...) { driver.failure = std::current_exception(); }
@@ -41,6 +41,30 @@ struct MoveDriver {
         return DefSubclassProc(hwnd, message, w, l);
     }
 };
+void apply_move(HWND hwnd, RECT& rect) {
+    BOOL full_drag{};
+    require(SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0) != 0, "Read desktop drag mode");
+    WINDOWPOS position{hwnd, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+        SWP_NOZORDER | SWP_NOACTIVATE};
+    if (full_drag) {
+        SendMessageW(hwnd, WM_WINDOWPOSCHANGING, 0, reinterpret_cast<LPARAM>(&position));
+        rect = {position.x, position.y, position.x + position.cx, position.y + position.cy};
+    } else {
+        require(SendMessageW(hwnd, WM_MOVING, WMSZ_LEFT, reinterpret_cast<LPARAM>(&rect)) == TRUE,
+            "Outline drag handles native WM_MOVING");
+        position.x = rect.left; position.y = rect.top;
+        position.cx = rect.right - rect.left; position.cy = rect.bottom - rect.top;
+    }
+    require(SetWindowPos(hwnd, position.hwndInsertAfter, position.x, position.y, position.cx, position.cy,
+        position.flags | SWP_NOSENDCHANGING) != 0, "Apply native move flags and rectangle");
+}
+bool above(HWND first, HWND second) {
+    for (HWND hwnd = GetTopWindow(nullptr); hwnd; hwnd = GetWindow(hwnd, GW_HWNDNEXT)) {
+        if (hwnd == first) return true;
+        if (hwnd == second) return false;
+    }
+    throw std::runtime_error("Both fixture windows must exist in native Z order");
+}
 void geometry() {
     TabStrip strip;
     strip.set_tabs({{1, L"One"}, {2, L"Two"}, {3, L"Three"}}, 1);
@@ -163,9 +187,15 @@ void native_loop() {
             if (GetGUIThreadInfo(thread, &state) && state.hwndMoveSize == hwnd && (state.flags & GUI_INMOVESIZE)) {
                 entered = true;
                 RECT rect{}; GetWindowRect(hwnd, &rect);
+                OffsetRect(&rect, 12, 12);
                 DWORD_PTR result{};
-                delivered = SendMessageTimeoutW(hwnd, WM_MOVING, WMSZ_LEFT, reinterpret_cast<LPARAM>(&rect),
-                    SMTO_ABORTIFHUNG, 3000, &result) != 0 && result == TRUE;
+                BOOL full_drag{};
+                SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0);
+                WINDOWPOS position{hwnd, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE};
+                delivered = SendMessageTimeoutW(hwnd, full_drag ? WM_WINDOWPOSCHANGING : WM_MOVING,
+                    full_drag ? 0 : WMSZ_LEFT, full_drag ? reinterpret_cast<LPARAM>(&position) : reinterpret_cast<LPARAM>(&rect),
+                    SMTO_ABORTIFHUNG, 3000, &result) != 0;
                 PostMessageW(hwnd, WM_LBUTTONUP, 0, 0);
                 for (int wait = 0; wait != 20 && !done && !stop.stop_requested(); ++wait)
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -255,6 +285,7 @@ void gesture(bool tear, bool merge, bool cancel, bool reject, UINT cancellation 
             source->titlebar()->tabs()->set_tabs({{1, L"One"}, {2, L"Two"}, {3, L"Three"}}, 1);
             ++cancelled;
         } else if (e.kind == TabDragKind::completed) ++completed;
+        else if (e.kind == TabDragKind::join || e.kind == TabDragKind::leave) return false;
         return true;
     });
     app.show(*target);
@@ -284,13 +315,12 @@ void gesture(bool tear, bool merge, bool cancel, bool reject, UINT cancellation 
         OffsetRect(&proposed, 12, 12);
         SendMessageW(hwnd, WM_CANCELMODE, 0, 0);
         SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
-        require(SendMessageW(hwnd, WM_MOVING, WMSZ_LEFT, reinterpret_cast<LPARAM>(&proposed)) == TRUE,
-            "Native WM_MOVING is handled");
+        apply_move(hwnd, proposed);
         if (!tear) require(EqualRect(&before, &proposed), "Reorder pins native window instead of moving content");
         else {
             require(torn == 1 && IsWindow(hwnd), "Tear-out keeps native move HWND alive");
-            require(SetWindowPos(hwnd, HWND_TOP, proposed.left, proposed.top, proposed.right - proposed.left,
-                proposed.bottom - proposed.top, SWP_NOACTIVATE) != 0, "Apply native proposed rectangle");
+            const auto remainder_hwnd = FindWindowW(L"Xui.Window.1", L"XUI tab drag remainder");
+            require(remainder_hwnd && above(hwnd, remainder_hwnd), "Remaining content stays below the moving HWND");
         }
         if (cancel) SendMessageW(hwnd, cancellation, 0,
             cancellation == WM_CAPTURECHANGED ? reinterpret_cast<LPARAM>(target_hwnd) : 0);
@@ -332,6 +362,185 @@ void gesture(bool tear, bool merge, bool cancel, bool reject, UINT cancellation 
     app.shutdown();
     require(app.run() == 0, "All windows retire without callback failures");
 }
+void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool disable_target = false) {
+    BOOL full_drag{};
+    require(SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0) != 0, "Read hover drag mode");
+    if (!full_drag) {
+        std::cout << "  Outline-only desktop: live hover uses the release-only fallback\n";
+        return;
+    }
+    Application app;
+    POINT point{};
+    require(GetCursorPos(&point) != 0, "Read stationary hover fixture pointer");
+    const int dpi = GetDpiForSystem();
+    auto source = app.create_window({L"XUI hover source", {700, 400}, ThemeMode::dark, {}, true});
+    auto target = app.create_window({L"XUI hover target", {700, 400}, ThemeMode::dark, {}, true});
+    for (const auto& window : {source, target}) {
+        window->set_show_activated(false);
+        auto root = std::make_shared<Stack>(Axis::vertical);
+        auto editor = std::make_shared<TextInput>(L"Stable native owner");
+        root->add(editor);
+        window->set_content(root);
+        window->titlebar()->tabs()->on_activate([weak = std::weak_ptr<Window>(window), editor](std::uint64_t) {
+            if (const auto host = weak.lock()) require(host->focus(*editor), "Tab activation focuses its native content");
+        });
+        window->titlebar()->set_title_visible(false);
+        window->set_placement({point.x - 100, point.y + 150, 800, 440});
+    }
+    source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
+    target->titlebar()->tabs()->set_tabs({{7, L"Destination"}}, 7);
+    target->on_tab_drag([](const auto&) { return false; });
+    std::shared_ptr<Window> remainder;
+    HWND source_hwnd{}, remainder_hwnd{};
+    int joins{}, leaves{}, drops{}, cancellations{}, completions{};
+    source->on_tab_drag([&](const TabDragEvent& event) {
+        require(event.source_strip == 0 && event.tab_id == 1, "Hosted tab keeps its gesture identity");
+        switch (event.kind) {
+        case TabDragKind::tear_out: {
+            remainder = app.create_window({L"XUI hover remainder", {700, 400}, ThemeMode::dark, {}, true});
+            remainder->set_show_activated(false);
+            auto placement = source->placement();
+            placement.maximized = maximized_remainder;
+            remainder->set_placement(placement);
+            auto root = std::make_shared<Stack>(Axis::vertical);
+            root->add(std::make_shared<Label>(L"Remaining model"));
+            remainder->set_content(root);
+            remainder->titlebar()->tabs()->set_tabs({{2, L"Remaining"}}, 2);
+            app.show(*remainder);
+            remainder_hwnd = FindWindowW(L"Xui.Window.1", L"XUI hover remainder");
+            require(remainder_hwnd && above(source_hwnd, remainder_hwnd),
+                "Remainder is below dragged HWND at first show, not just at drag completion");
+            require((IsZoomed(remainder_hwnd) != FALSE) == maximized_remainder, "Remainder preserves maximized state");
+            source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}}, 1);
+            return true;
+        }
+        case TabDragKind::query_drop:
+            require(event.target == target.get() && event.index <= target->titlebar()->tabs()->tabs().size(),
+                "Query resolves the visible hover destination");
+            return true;
+        case TabDragKind::join:
+            require(event.target == target.get() && IsWindow(source_hwnd), "Join retains native moving HWND");
+            source->titlebar()->tabs()->set_tabs({}, {});
+            source->titlebar()->tabs()->set_visible(false);
+            target->titlebar()->tabs()->set_tabs({{7, L"Destination"}, {1, L"Dragged"}}, 1);
+            ++joins;
+            return true;
+        case TabDragKind::leave:
+            require(event.target == target.get(), "Leave identifies previous host");
+            target->titlebar()->tabs()->set_tabs({{7, L"Destination"}}, 7);
+            source->titlebar()->tabs()->set_visible(true);
+            source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}}, 1);
+            ++leaves;
+            return true;
+        case TabDragKind::drop:
+            require(!IsWindowVisible(source_hwnd) && target->titlebar()->tabs()->tabs().size() == 2,
+                "Release commits the existing hover transfer without duplicating it");
+            ++drops;
+            return !reject_drop;
+        case TabDragKind::cancel:
+            require(source->titlebar()->tabs()->tabs().size() == 1, "Leave precedes rollback");
+            source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
+            ++cancellations;
+            return true;
+        case TabDragKind::completed:
+            ++completions;
+            return true;
+        default:
+            return false;
+        }
+    });
+    app.show(*source);
+    app.show(*target);
+    source_hwnd = FindWindowW(L"Xui.Window.1", L"XUI hover source");
+    const auto target_hwnd = FindWindowW(L"Xui.Window.1", L"XUI hover target");
+    require(source_hwnd && target_hwnd, "Find hover fixture HWNDs");
+    const auto foreground = GetForegroundWindow();
+    require(SetWindowPos(source_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Expose fixture without stealing activation");
+    MoveDriver driver;
+    driver.run = [&](HWND hwnd) {
+        const auto check_anchor = [&] {
+            RECT band{};
+            require(GetWindowRect(peer(hwnd), &band) != 0, "Locate visible dragged tab after native position change");
+            require(std::abs(point.x - band.left - MulDiv(40, dpi, 96)) <= 1 &&
+                std::abs(point.y - band.top - MulDiv(20, dpi, 96)) <= 1,
+                "Detached tab retains the original pointer grab offset within one physical pixel");
+        };
+        SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+        RECT rect{}; GetWindowRect(hwnd, &rect);
+        OffsetRect(&rect, 12, 12);
+        apply_move(hwnd, rect);
+        require(remainder && IsWindowVisible(hwnd), "First movement tears out before hover");
+        check_anchor();
+        auto move_target = [&](bool over) {
+            require(SetWindowPos(target_hwnd, HWND_TOPMOST, point.x - 100,
+                point.y + (over ? -MulDiv(24, dpi, 96) : 600), 980, 600,
+                SWP_NOACTIVATE) != 0, "Move only the fixture destination beneath the stationary pointer");
+        };
+        move_target(true);
+        const auto overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            L"STATIC", L"XUI tab occlusion fixture", WS_POPUP, point.x - 20, point.y - 20, 40, 40,
+            nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        require(overlay != nullptr, "Create layered overlay fixture");
+        struct Destroy { HWND hwnd; ~Destroy() { DestroyWindow(hwnd); } } destroy{overlay};
+        require(SetLayeredWindowAttributes(overlay, 0, 255, LWA_ALPHA) != 0, "Make overlay opaque");
+        require(SetWindowPos(overlay, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW) != 0, "Expose opaque overlay");
+        apply_move(hwnd, rect);
+        require(joins == 0 && IsWindowVisible(hwnd), "Opaque layered windows still block hover merge");
+        if (cancel) {
+            SetLastError(0);
+            const auto previous = SetWindowLongPtrW(overlay, GWL_EXSTYLE,
+                GetWindowLongPtrW(overlay, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+            require(previous != 0 || GetLastError() == 0, "Make layered overlay pass pointer input through");
+        } else if (reject_drop) {
+            const auto region = CreateRectRgn(0, 0, 5, 5);
+            require(region != nullptr, "Create overlay region outside the pointer");
+            if (!SetWindowRgn(overlay, region, TRUE)) {
+                DeleteObject(region);
+                throw std::runtime_error("Apply overlay region");
+            }
+        } else require(SetLayeredWindowAttributes(overlay, 0, 0, LWA_ALPHA) != 0, "Make overlay transparent");
+        apply_move(hwnd, rect);
+        require(joins == 1 && drops == 0 && !IsWindowVisible(hwnd) && IsWindow(hwnd),
+            "Transparent overlay does not block live merge; moving HWND hides but stays alive");
+        apply_move(hwnd, rect);
+        require(joins == 2 && drops == 0, "Hover reorder stays in the same native gesture");
+        move_target(false);
+        apply_move(hwnd, rect);
+        require(leaves == 1 && IsWindowVisible(hwnd) && above(hwnd, target_hwnd),
+            "Leaving a target restores dragged content and lowers its former host");
+        require(rect.right - rect.left == 800 && rect.bottom - rect.top == 440,
+            "Unjoin restores detached dimensions rather than keeping destination dimensions");
+        check_anchor();
+        move_target(true);
+        apply_move(hwnd, rect);
+        require(joins == 3 && !IsWindowVisible(hwnd), "A second hover join does not start a second loop");
+        if (disable_target) EnableWindow(target_hwnd, FALSE);
+        if (cancel) SendMessageW(hwnd, WM_CANCELMODE, 0, 0);
+        SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
+    };
+    require(SetWindowSubclass(source_hwnd, MoveDriver::procedure, 1, reinterpret_cast<DWORD_PTR>(&driver)) != 0,
+        "Install hover move-loop driver");
+    const auto control = peer(source_hwnd);
+    SendMessageW(control, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(MulDiv(40, dpi, 96), MulDiv(20, dpi, 96)));
+    SendMessageW(control, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(MulDiv(60, dpi, 96), MulDiv(20, dpi, 96)));
+    RemoveWindowSubclass(source_hwnd, MoveDriver::procedure, 1);
+    if (driver.failure) std::rethrow_exception(driver.failure);
+    require(source->error().empty(), "Native live join callbacks succeed");
+    require(driver.loops == 1 && completions == 1 && cancellations == (cancel ? 1 : 0),
+        "One native gesture has one completion and explicit cancellation");
+    require(drops == (cancel || disable_target ? 0 : 1) && leaves == (cancel || reject_drop || disable_target ? 2 : 1),
+        "Release commits once; cancellation and rejected commit unjoin first");
+    require(target->titlebar()->tabs()->tabs().size() == (cancel || reject_drop || disable_target ? 1 : 2),
+        "The tab exists in exactly the intended destination");
+    require(!target->titlebar()->tabs()->drop_indicator(), "Live hover feedback clears after the loop");
+    require(GetForegroundWindow() == foreground, "Background fixture does not steal foreground");
+    std::cout << "  Live hover: joins=" << joins << " leaves=" << leaves << " drops=" << drops
+        << " cancelled=" << cancellations << " maximized-remainder=" << maximized_remainder << '\n';
+    app.shutdown();
+    require(app.run() == 0, "Hover fixture retires all HWNDs");
+}
 }
 int main() {
     try {
@@ -345,8 +554,12 @@ int main() {
         gesture(true, false, true, false, WM_ACTIVATE);
         gesture(true, false, true, false, WM_CAPTURECHANGED);
         gesture(true, true, false, true);
+        hover_join(false, false, false);
+        hover_join(true, false, true);
+        hover_join(false, true, false);
+        hover_join(false, false, false, true);
         native_loop();
-        std::cout << "Tab drag geometry, native transitions, drop rejection, cancellation and retirement passed\n";
+        std::cout << "Tab drag geometry, live hover, Z-order, drop rejection, cancellation and retirement passed\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

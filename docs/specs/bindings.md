@@ -66,11 +66,29 @@ Legacy `Window.Run` and `Window::run` remain available for standalone windows, o
 C# `Window.TabDragHandler` exposes the [native tab-drag protocol](menus-and-input.md#tab-dragging-between-windows).
 `TabDragEvent` contains `Kind`, `SourceStrip`, `TabId`, `Target`, `TargetStrip`, and `Index`.
 `Target` is a managed window from the same `Application`, or null.
-`TabDragKind` distinguishes `Reorder`, `TearOut`, `QueryDrop`, `Drop`, `Cancel`, and `Completed`.
+`TabDragKind` values are `Reorder=0`, `TearOut=1`, `Drop=2`, `Cancel=3`, `Completed=4`, `QueryDrop=5`, `Join=6`, and `Leave=7`.
 The callback returns a Boolean acceptance value.
 The binding retains the callback and reports exceptions through the window callback error path.
 The C ABI uses sized placement and drag-event structures in `xui.h`.
 Rust has low-level declarations in `xui-sys`, without a typed `xui` drag-handler wrapper.
+
+`Join` accepts a temporary transfer to the hovered destination.
+Repeated `Join` events can change the hosted tab's position in that destination.
+`Leave` precedes retargeting or cancellation. True means that the tab is back in its initiating strip with its original identity.
+`SourceStrip` and `TabId` always identify the initiator, not the temporary host.
+`Target` and `TargetStrip` identify the joined destination.
+An external `Join` follows `TearOut`, which retains the original HWND and separates the remaining models.
+Before `Application.Show(remainder)`, the handler must call `remainder.SetShowActivated(false)`.
+The C equivalent is `xui_window_show_activated(remainder, 0)`.
+This prevents remainder creation from taking activation from the native move loop.
+During a gesture, the framework inserts nonactivated same-application windows immediately below the moving HWND in the Z-order.
+
+For a joined tab, `Drop` commits the transfer already in place.
+Handlers must not transfer that tab a second time.
+`Completed` follows the native move loop and permits cleanup of retained drag state.
+Handlers keep all participating windows and control trees alive until then, including an empty initiator.
+Ignoring or rejecting `Join` preserves release-only behavior. Outline-only dragging uses the same fallback.
+The added kinds preserve the ABI version and event layout.
 
 `Window.Placement` gets or sets a `WindowPlacement`.
 Its `X`, `Y`, `Width`, and `Height` fields use physical screen pixels.

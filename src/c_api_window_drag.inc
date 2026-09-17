@@ -1,3 +1,6 @@
+static_assert(static_cast<uint32_t>(xui::TabDragKind::join) == XUI_TAB_DRAG_JOIN);
+static_assert(static_cast<uint32_t>(xui::TabDragKind::leave) == XUI_TAB_DRAG_LEAVE);
+
 xui_status XUI_CALL xui_window_get_placement(xui_handle window, xui_window_placement* placement) noexcept {
     return boundary([&] {
         require(placement != nullptr, XUI_INVALID_ARGUMENT, "Missing placement output.");
@@ -58,7 +61,7 @@ xui_status XUI_CALL xui_window_tab_drag_handler(xui_handle window,
                 }
             }
             if (value.target && !target) return fail(XUI_INVALID_HANDLE);
-            if (static_cast<uint32_t>(value.kind) > XUI_TAB_DRAG_QUERY_DROP ||
+            if (static_cast<uint32_t>(value.kind) > XUI_TAB_DRAG_LEAVE ||
                 value.source_strip > 1 || value.target_strip > 1 || !value.tab_id)
                 return fail(XUI_INVALID_ARGUMENT);
             const xui_tab_drag_event event{sizeof(xui_tab_drag_event), static_cast<uint32_t>(value.kind),

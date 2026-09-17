@@ -44,6 +44,7 @@ internal static class WindowDragTests
         Require((uint)TabDragKind.Reorder == 0 && (uint)TabDragKind.TearOut == 1 && (uint)TabDragKind.Drop == 2 &&
             (uint)TabDragKind.Cancel == 3 && (uint)TabDragKind.Completed == 4 && (uint)TabDragKind.QueryDrop == 5,
             "Tab drag enum values");
+        Require((uint)TabDragKind.Join == 6 && (uint)TabDragKind.Leave == 7, "Joined drag enum values");
         Console.WriteLine("Managed window placement and tab drag ABI layouts passed");
     }
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -130,6 +131,35 @@ internal static class WindowDragTests
             }
         }
 
+        foreach (var destination in new[] { source, target })
+        {
+            value.Target = Handle(destination);
+            foreach (var kind in new[] { TabDragKind.Join, TabDragKind.Join, TabDragKind.Leave, TabDragKind.Drop })
+            {
+                value.Kind = (uint)kind;
+                ++value.Index;
+                int index = checked((int)value.Index);
+                foreach (bool allow in new[] { false, true })
+                {
+                    source.TabDragHandler = e =>
+                    {
+                        Require(e == new TabDragEvent(kind, 1, ulong.MaxValue, destination, 0, index),
+                            "Joined callbacks preserve initiator identity, destination and insertion slot");
+                        Throws<XuiException>(source.Dispose);
+                        return allow;
+                    };
+                    Require(dispatch(context, ref value, out accepted) == 0 && accepted == (allow ? 1u : 0u),
+                        "Joined callbacks preserve application acceptance and rejection");
+                }
+            }
+        }
+        source.TabDragHandler = _ => false;
+        foreach (var kind in new[] { TabDragKind.Join, TabDragKind.Leave })
+        {
+            value.Kind = (uint)kind;
+            Require(dispatch(context, ref value, out accepted) == 0 && accepted == 0,
+                "A handler that ignores joined events keeps the release-only fallback");
+        }
         value.Target = foreign;
         Require(dispatch(context, ref value, out accepted) == 8 && accepted == 0 && Error(source) is XuiException,
             "Foreign application target fails closed");
@@ -137,7 +167,7 @@ internal static class WindowDragTests
         target.Dispose();
         Require(dispatch(context, ref value, out accepted) == 8 && accepted == 0, "Disposed target fails closed");
         value.Target = 0;
-        foreach (var invalid in new[] { value with { Size = 0 }, value with { Kind = 6 }, value with { SourceStrip = 2 },
+        foreach (var invalid in new[] { value with { Size = 0 }, value with { Kind = 8 }, value with { SourceStrip = 2 },
             value with { TargetStrip = 2 }, value with { TabId = 0 }, value with { Index = (ulong)int.MaxValue + 1 } })
         {
             var record = invalid;
@@ -145,8 +175,12 @@ internal static class WindowDragTests
         }
         var original = new InvalidOperationException("Original tab drag error");
         source.TabDragHandler = _ => throw original;
-        Require(dispatch(context, ref value, out accepted) == 8 && accepted == 0 && ReferenceEquals(Error(source), original),
-            "Handler exception stays in managed code with its original identity");
+        foreach (var kind in new[] { TabDragKind.QueryDrop, TabDragKind.Join, TabDragKind.Leave })
+        {
+            value.Kind = (uint)kind;
+            Require(dispatch(context, ref value, out accepted) == 8 && accepted == 0 && ReferenceEquals(Error(source), original),
+                "Handler exception stays in managed code with its original identity");
+        }
         Task.Run(() =>
         {
             var record = value;

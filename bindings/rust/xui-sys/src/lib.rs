@@ -84,6 +84,8 @@ pub const TAB_DRAG_DROP: u32 = 2;
 pub const TAB_DRAG_CANCEL: u32 = 3;
 pub const TAB_DRAG_COMPLETED: u32 = 4;
 pub const TAB_DRAG_QUERY_DROP: u32 = 5;
+pub const TAB_DRAG_JOIN: u32 = 6;
+pub const TAB_DRAG_LEAVE: u32 = 7;
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct TabDragEvent {
@@ -175,7 +177,7 @@ mod tests {
         assert_eq!(size_of::<WindowPlacement>(), 24);
         assert_eq!(size_of::<TabDragEvent>(), 40);
         assert_eq!([TAB_DRAG_REORDER, TAB_DRAG_TEAR_OUT, TAB_DRAG_DROP, TAB_DRAG_CANCEL,
-            TAB_DRAG_COMPLETED, TAB_DRAG_QUERY_DROP], [0, 1, 2, 3, 4, 5]);
+            TAB_DRAG_COMPLETED, TAB_DRAG_QUERY_DROP, TAB_DRAG_JOIN, TAB_DRAG_LEAVE], [0, 1, 2, 3, 4, 5, 6, 7]);
         assert_eq!(std::mem::offset_of!(WindowPlacement, maximized), 20);
         assert_eq!(std::mem::offset_of!(TabDragEvent, tab_id), 16);
         assert_eq!(std::mem::offset_of!(TabDragEvent, target), 24);

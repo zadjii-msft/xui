@@ -164,6 +164,6 @@ internal static class TabDragTests
             pane.ReplaceTabs(lone);
             Check(unique.Add(pane.Active.Id));
         }
-        return assertions;
+        return assertions + HoverJoinTests.Run(path);
     }
 }

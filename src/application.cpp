@@ -1372,7 +1372,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        if (initial_placement && initial_placement->maximized)
+        if (!options.show_activated && moving_tabs && moving_tabs->window && moving_tabs != this &&
+            moving_tabs->application.lock() == application.lock())
+            win32_require(SetWindowPos(window, moving_tabs->window, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW) != 0, "Show remaining content below dragged window");
+        else if (initial_placement && initial_placement->maximized)
             ShowWindow(window, options.show_activated ? SW_SHOW : SW_SHOWNA);
         else ShowWindow(window, options.show_activated ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
         if (options.show_activated && !IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
@@ -4836,9 +4840,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_ENTERSIZEMOVE:
             if (tab_move) tab_move->entered = true;
             break;
+        case WM_EXITSIZEMOVE:
+            if (tab_move) tab_move->ending = true;
+            break;
+        case WM_WINDOWPOSCHANGING:
+            if (tab_move && tab_move->full_drag) position_tab_window(*reinterpret_cast<WINDOWPOS*>(lparam));
+            break;
         case WM_MOVING:
             if (tab_move) {
-                move_tab_window(*reinterpret_cast<RECT*>(lparam));
+                if (!tab_move->full_drag && !tab_move->ending)
+                    move_tab_window(*reinterpret_cast<RECT*>(lparam), false);
                 return TRUE;
             }
             break;
@@ -4882,14 +4893,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             break;
         }
         case WM_CANCELMODE:
-            if (tab_move && tab_move->entered) tab_move->cancelled = true;
+            if (tab_move && tab_move->entered && !tab_move->ending) tab_move->cancelled = true;
             cancel_input(); return DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_CAPTURECHANGED:
-            if (tab_move && tab_move->entered && lparam && reinterpret_cast<HWND>(lparam) != hwnd) tab_move->cancelled = true;
+            if (tab_move && tab_move->entered && !tab_move->ending && lparam && reinterpret_cast<HWND>(lparam) != hwnd)
+                tab_move->cancelled = true;
             break;
         case WM_ACTIVATE:
             caption_active = LOWORD(wparam) != WA_INACTIVE;
-            if (!caption_active && tab_move && tab_move->entered) tab_move->cancelled = true;
+            if (!caption_active && tab_move && tab_move->entered && !tab_move->ending &&
+                (!tab_move->joined || tab_move->joined->host->window != reinterpret_cast<HWND>(lparam)))
+                tab_move->cancelled = true;
             if (titlebar) titlebar->set_active(caption_active);
             if (titlebar) invalidate(Invalidation::paint);
             if (LOWORD(wparam) == WA_INACTIVE && !IsChild(hwnd, reinterpret_cast<HWND>(lparam))) {
