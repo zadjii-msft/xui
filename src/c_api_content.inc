@@ -4,7 +4,13 @@ constexpr uint32_t content_scope_kind = 105;
 struct ContentScope {
     xui_handle host{};
     bool committed{};
+    std::vector<xui::ContentInspectionTarget> inspection_targets;
 };
+template<class F> auto inspect_content(F&& body) {
+    try { return body(); }
+    catch (const std::invalid_argument& error) { throw InspectionFailure{XUI_INVALID_ARGUMENT, error.what()}; }
+    catch (const std::logic_error& error) { throw InspectionFailure{XUI_BUSY, error.what()}; }
+}
 std::shared_ptr<ContentScope> content_scope(const std::shared_ptr<Node>& node) {
     require(node->kind == content_scope_kind, XUI_WRONG_KIND, "Expected a content scope.");
     return std::static_pointer_cast<ContentScope>(node->resource);
@@ -81,7 +87,16 @@ xui_status XUI_CALL xui_content_commit(xui_handle scope, xui_handle root) noexce
         auto host = get(value->host, content_host_kind);
         auto previous = host->current_content ? get(host->current_content, content_scope_kind) : nullptr;
         state->building_content = state->content_context = 0;
-        try { state->window->replace_content(as<xui::ContentHost>(host), child->element); }
+        try {
+            if (value->inspection_targets.empty())
+                state->window->replace_content(as<xui::ContentHost>(host), child->element);
+            else inspect_content([&] {
+                state->window->replace_content(as<xui::ContentHost>(host), child->element,
+                    value->inspection_targets, [weak = std::weak_ptr<Node>(n)](uint32_t key) {
+                        dispatch(weak, XUI_SELECTION, key);
+                    });
+            });
+        }
         catch (...) {
             state->building_content = state->content_context = scope;
             throw;
@@ -135,5 +150,52 @@ xui_status XUI_CALL xui_content_handle_count(xui_handle window, uint32_t* count)
     return boundary([&] {
         require(count, XUI_INVALID_ARGUMENT, "Missing count output.");
         *count = static_cast<uint32_t>(get(window, XUI_WINDOW)->owner->handles.size());
+    });
+}
+xui_status XUI_CALL xui_content_inspection_targets(xui_handle scope,
+    const xui_content_inspection_target* targets, uint32_t count, xui_callback picked, void* context) noexcept {
+    return boundary([&] {
+        auto n = get(scope, content_scope_kind);
+        auto value = content_scope(n);
+        editable(n->owner);
+        require(!value->committed && n->owner->building_content == scope && n->owner->content_context == scope,
+            XUI_BUSY, "Register inspection targets in the active candidate.");
+        require(targets && count > 0 && count <= 65536, XUI_INVALID_ARGUMENT, "Invalid inspection target span.");
+        std::vector<xui::ContentInspectionTarget> prepared;
+        std::vector<bool> keys(count);
+        prepared.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& target = targets[i];
+            require(!target.reserved && target.key < count && !keys[target.key], XUI_INVALID_ARGUMENT,
+                "Inspection keys must be unique and dense, starting at zero.");
+            keys[target.key] = true;
+            auto element = get(target.element);
+            require(element->owner == n->owner && element->content_scope == scope && element->element,
+                XUI_INVALID_ARGUMENT, "Inspection targets must be elements from this candidate.");
+            prepared.push_back({target.key, element->element});
+        }
+        value->inspection_targets = std::move(prepared);
+        n->callback = picked;
+        n->context = picked ? context : nullptr;
+    });
+}
+xui_status XUI_CALL xui_content_pointer_picking(xui_handle host, uint32_t enabled) noexcept {
+    return boundary([&] {
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Invalid pointer-picking mode.");
+        auto n = get(host, content_host_kind);
+        editable(n->owner);
+        require(!n->owner->building_content && !n->owner->content_context, XUI_BUSY,
+            "Change pointer-picking mode outside content construction and callbacks.");
+        inspect_content([&] { n->owner->window->set_content_pointer_picking(as<xui::ContentHost>(n), enabled != 0); });
+    });
+}
+xui_status XUI_CALL xui_content_hit_test(xui_handle host, float x, float y, uint32_t* key, uint32_t* found) noexcept {
+    return boundary([&] {
+        require(key && found && std::isfinite(x) && std::isfinite(y), XUI_INVALID_ARGUMENT, "Invalid hit-test arguments.");
+        *key = *found = 0;
+        auto n = get(host, content_host_kind);
+        require(!n->owner->closed, XUI_CLOSED, "The window is closed.");
+        const auto result = inspect_content([&] { return n->owner->window->hit_test_content(as<xui::ContentHost>(n), {x, y}); });
+        if (result) { *key = *result; *found = 1; }
     });
 }

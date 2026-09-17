@@ -16,6 +16,11 @@ class TitleBar;
 class LocationPicker;
 class ContentDialog;
 
+struct ContentInspectionTarget {
+    std::uint32_t key{};
+    std::weak_ptr<Element> element;
+};
+
 struct WindowOptions {
     std::wstring title = L"XUI";
     // Initial client size in device-independent pixels.
@@ -104,6 +109,11 @@ public:
     // UI thread only, outside native input callbacks; use post from callbacks.
     // Returns after native creation and layout. Native failures close the window.
     void replace_content(ContentHost& host, std::shared_ptr<Element> content);
+    void replace_content(ContentHost& host, std::shared_ptr<Element> content,
+        std::vector<ContentInspectionTarget> targets, std::function<void(std::uint32_t)> picked);
+    void set_content_pointer_picking(ContentHost& host, bool enabled);
+    // Window-client DIPs. Returns the nearest registered authored ancestor or no hit.
+    std::optional<std::uint32_t> hit_test_content(ContentHost& host, Point position);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
     const std::wstring& title() const;

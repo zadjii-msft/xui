@@ -82,6 +82,57 @@ C++ callers retain responsibility for their own callback captures and resources.
 The C ABI adds begin, commit, release, clear, context, owner, and handle-count operations.
 The context operation attributes new resources to a scoped callback without enabling topology changes.
 
+### Content pointer picking
+
+Content candidates can register inspection identities before commit:
+
+```csharp
+update.SetInspectionTargets([
+    new ContentInspectionTarget(0, root),
+    new ContentInspectionTarget(1, label)
+]);
+update.Picked += nodeId => Console.WriteLine($"Picked node {nodeId}");
+update.Commit(root);
+host.SetPointerPickMode(true);
+```
+
+The IDs must be unique and dense, starting at zero.
+Each target must belong to the candidate and its committed root.
+Registration borrows the managed elements and stores weak native references.
+Commit replaces the metadata with the content, and retirement discards both.
+A failed registration or replacement preflight leaves the previous content and metadata unchanged.
+
+`ContentHost.TryHitTest(x, y, out nodeId)` reads registered identity from native retained geometry.
+Its coordinates are window-client device-independent pixels.
+A miss returns `false` and `nodeId = -1`.
+Invalid coordinates and unsupported surfaces produce errors, not misses.
+Hit testing accounts for retained ancestry, clipping, and visibility rather than source order or a list of rectangles.
+An internal native child maps to its nearest registered ancestor.
+
+Pointer-picking mode consumes primary pointer gestures before native activation or text selection.
+It does not disable keyboard input, accessibility actions, or arbitrary authored code.
+The mode belongs to the host, while target identities and notifications belong to the current content.
+The native host defers pick notifications until the input callback returns.
+Replacement, clear, and close discard obsolete pending picks.
+Native delivery retains at most one pending pick per host.
+
+Managed inspection observers run in window context so they can queue replacements.
+Their delegate lifetime and error policy still belong to the content scope.
+This observer rule does not change scope attribution for ordinary authored control events.
+All registration, mode changes, and hit-test operations require the owning UI thread.
+Active capture, composition, or an unavailable modal route produces `XUI_BUSY`.
+Unsupported pointer surfaces produce `XUI_INVALID_ARGUMENT`.
+Neither error silently changes the mode.
+
+The initial picker refuses runtime-backed content, native file lists and date controls, vector/map canvases, and native suggestions.
+It also refuses popup/modal routes, adaptive overlays, nested or overlapping inspection hosts, and unproven native descendants.
+These limits apply to pointer inspection, not ordinary preview compilation or rendering with the mode off.
+The picker does not change a rejected surface into an approximate rectangle target.
+
+The C ABI uses `xui_content_inspection_targets`, `xui_content_pointer_picking`, and `xui_content_hit_test`.
+Pick callbacks receive `XUI_SELECTION`, the scope handle as `source`, and the registered ID as `value`.
+These APIs do not add highlighting, overlay windows, or changes to authored styles.
+
 ### Native file dialogs
 
 The C ABI declarations are in `include\xui\xui_file_dialog.h`, included by `xui.h`.

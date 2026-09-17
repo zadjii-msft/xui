@@ -23,6 +23,13 @@ internal sealed class PreviewHost : IDisposable
     }
 
     internal Element View => host;
+    internal event Action<PreviewPick>? Picked;
+    internal void SetPointerPickMode(bool enabled)
+    {
+        window.VerifyAccess();
+        ObjectDisposedException.ThrowIf(stopping, this);
+        host.SetPointerPickMode(enabled);
+    }
     internal long? AppliedVersion { get { window.VerifyAccess(); return current?.Version; } }
 
     internal bool TryReadNodeMap(long expectedVersion, out IReadOnlyList<PreviewNodeSnapshot> nodes)
@@ -87,7 +94,7 @@ internal sealed class PreviewHost : IDisposable
         Candidate? candidate = null;
         try
         {
-            candidate = new Candidate(window, host, request, OnCallbackError);
+            candidate = new Candidate(window, host, request, OnCallbackError, OnPicked);
         }
         catch (Exception error)
         {
@@ -108,6 +115,12 @@ internal sealed class PreviewHost : IDisposable
             }
             report(request.Version, "Preview updated. Component state was reset.", true);
         }
+        catch (XuiException error) when (candidate is not null && error.Status is 1 or 7)
+        {
+            candidate.Dispose();
+            candidate = null;
+            ReportError(request.Version, "Preview replacement rejected", error);
+        }
         finally { candidate?.Dispose(); }
     }
 
@@ -117,6 +130,16 @@ internal sealed class PreviewHost : IDisposable
         current = null;
         candidate.Dispose();
         ReportError(candidate.Version, "Preview callback failed", error);
+    }
+
+    private void OnPicked(Candidate candidate, int nodeId)
+    {
+        window.VerifyAccess();
+        lock (gate)
+        {
+            if (stopping || !ReferenceEquals(current, candidate) || candidate.Version != version) return;
+            Picked?.Invoke(new(candidate.Version, nodeId));
+        }
     }
 
     private void ReportError(long value, string message, Exception error)
@@ -141,6 +164,7 @@ internal sealed class PreviewHost : IDisposable
         }
         current?.Dispose();
         current = null;
+        Picked = null;
     }
 
     private sealed class Candidate : IDisposable
@@ -154,7 +178,8 @@ internal sealed class PreviewHost : IDisposable
         internal long Version { get; }
         internal int NodeCount { get; }
 
-        internal Candidate(Window window, ContentHost host, Request request, Action<Candidate, Exception> failed)
+        internal Candidate(Window window, ContentHost host, Request request, Action<Candidate, Exception> failed,
+            Action<Candidate, int> picked)
         {
             Version = request.Version;
             update = host.BeginUpdate();
@@ -180,6 +205,11 @@ internal sealed class PreviewHost : IDisposable
                     ?? throw new MissingMethodException("The preview node entry point is missing.");
                 NodeCount = count(component);
                 if (NodeCount < 1) throw new InvalidOperationException("The preview node map must include its root.");
+                var targets = new ContentInspectionTarget[NodeCount];
+                for (int nodeId = 0; nodeId < targets.Length; nodeId++)
+                    targets[nodeId] = new(nodeId, getNode(component, nodeId));
+                update.Picked += nodeId => picked(this, nodeId);
+                update.SetInspectionTargets(targets);
                 if (update.CallbackError is { } error)
                     throw new InvalidOperationException("Candidate construction raised a callback error.", error);
             }

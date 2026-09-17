@@ -48,6 +48,8 @@ internal static class Program
             var scopeHost = window.CreateContentHost();
             PreviewHost? preview = null;
             var statuses = new List<(long Version, bool Success)>();
+            var picks = new List<PreviewPick>();
+            nint focusBeforePick = 0;
             WeakReference? oldContext = null;
             IReadOnlyList<PreviewNodeSnapshot>? oldNodes = null;
             var beforeForeground = GetForegroundWindow();
@@ -64,10 +66,10 @@ internal static class Program
                         oldContext = CurrentPreviewContext();
                         Assert(preview.View.GetBounds().Width > 100 && preview.View.GetBounds().Height > 50, "Preview has no usable native bounds.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Retained preview"), "Preview has no native label.");
-                        preview.Supersede(2);
-                        Assert(!preview.TryReadNodeMap(2, out var pendingNodes) && pendingNodes.Count == 0,
-                            "Pending source received the previous source's node IDs.");
-                        preview.Publish(2, bad.Assembly!, Theme.Dark);
+                        preview.SetPointerPickMode(true);
+                        focusBeforePick = GetFocus();
+                        ClickPreview("Mapped action");
+                        Assert(picks.Count == 0, "Pointer picking delivered inside the native input callback.");
                     }
                     else if (version == 2 && !success)
                     {
@@ -95,6 +97,35 @@ internal static class Program
                             Assert(TextCopy(node.ControlId!.Value, null, 0, out _) == 2, "A snapshot retained a retired control handle.");
                         Assert(statuses.All(x => x.Version != 3), "An obsolete source version was reported.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Recovered preview"), "Recovery has no native content.");
+                        focusBeforePick = GetFocus();
+                        ClickPreview("Recovered preview");
+                    }
+                    else throw new InvalidOperationException($"Unexpected preview status {version}: {message}");
+                }
+                catch (Exception error) { Console.Error.WriteLine(error); failure = error; window.Close(); }
+            });
+            preview.Picked += pick =>
+            {
+                try
+                {
+                    picks.Add(pick);
+                    Assert(GetFocus() == focusBeforePick && GetForegroundWindow() == beforeForeground,
+                        "Pointer picking changed native focus or activation.");
+                    if (pick.Version == 1)
+                    {
+                        Assert(picks.Count == 1 && pick.NodeId == oldNodes!.Single(n => n.ElementType == "Button").NodeId,
+                            "The first pick has the wrong source identity.");
+                        ClickPreview("Retained preview");
+                        preview.Supersede(2);
+                        Assert(!preview.TryReadNodeMap(2, out var pendingNodes) && pendingNodes.Count == 0,
+                            "Pending source received the previous source's node IDs.");
+                        preview.Publish(2, bad.Assembly!, Theme.Dark);
+                    }
+                    else
+                    {
+                        Assert(picks.Count == 2 && pick == new PreviewPick(4, 0),
+                            "A stale pick escaped, or replacement picking lost its source version.");
+                        preview.SetPointerPickMode(false);
                         preview.Dispose();
                         Assert(preview.AppliedVersion is null && !preview.TryReadNodeMap(4, out _),
                             "Disposed preview metadata remained available.");
@@ -113,10 +144,9 @@ internal static class Program
                             window.Close();
                         });
                     }
-                    else throw new InvalidOperationException($"Unexpected preview status {version}: {message}");
                 }
                 catch (Exception error) { Console.Error.WriteLine(error); failure = error; window.Close(); }
-            });
+            };
             using (preview)
             {
                 Assert(preview.AppliedVersion is null && !preview.TryReadNodeMap(0, out _),
@@ -274,7 +304,35 @@ internal static class Program
             var input = window.TextInput("Preview native input");
             input.Text = $"value {i}";
             var root = window.Stack().Add(label).Add(button).Add(input);
+            if (i == 0)
+            {
+                Throws<ArgumentOutOfRangeException>(() => candidate.SetInspectionTargets([]), "An empty registration was accepted.");
+                Throws<ArgumentOutOfRangeException>(() => candidate.SetInspectionTargets([new(-1, root)]), "A negative key was accepted.");
+                ThrowsStatus(() => candidate.SetInspectionTargets([new(0, root), new(0, label)]), 1, "Duplicate keys were accepted.");
+                ThrowsStatus(() => candidate.SetInspectionTargets([new(1, root)]), 1, "A sparse key was accepted.");
+                ThrowsStatus(() => candidate.SetInspectionTargets([new(0, editor)]), 1, "A foreign scope target was accepted.");
+                ThrowsStatus(() => host.SetPointerPickMode(true), 7, "Picking started during candidate construction.");
+                var scopeHandle = (ulong)typeof(ContentUpdate).GetField("Handle", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(candidate)!;
+                Assert(InspectionTargets(scopeHandle, null, 0, 0, 0) == 1, "The ABI accepted an empty inspection span.");
+                Assert(InspectionTargets(scopeHandle, [new() { Key = 0, Reserved = 1, Element = label.Id }], 1, 0, 0) == 1,
+                    "The ABI accepted nonzero reserved inspection fields.");
+                Assert(InspectionTargets(scopeHandle, null, 65537, 0, 0) == 1, "The ABI accepted an oversized inspection span.");
+            }
+            candidate.SetInspectionTargets([new(0, root), new(1, label), new(2, button), new(3, input)]);
             candidate.Commit(root);
+            Throws<InvalidOperationException>(() => candidate.SetInspectionTargets([new(0, root)]), "Committed metadata was mutable.");
+            var labelBounds = label.GetBounds();
+            Assert(host.TryHitTest(labelBounds.X + 1, labelBounds.Y + 1, out var key) && key == 1,
+                "ABI hit test did not return the registered native label.");
+            Assert(!host.TryHitTest(-100, -100, out key) && key == -1, "An outside point hit preview content.");
+            if (i == 0)
+            {
+                ThrowsStatus(() => host.TryHitTest(float.NaN, 0, out _), 1, "A nonfinite point was accepted.");
+                ThrowsStatus(() => Task.Run(() => host.TryHitTest(0, 0, out _)).GetAwaiter().GetResult(), 4,
+                    "Hit testing accepted a foreign UI thread.");
+                ThrowsStatus(() => Task.Run(() => host.SetPointerPickMode(true)).GetAwaiter().GetResult(), 4,
+                    "Picking mode accepted a foreign UI thread.");
+            }
             Throws<InvalidOperationException>(() => candidate.Commit(root), "A candidate committed twice.");
             Assert(host.GetBounds().Width > 100, "Content host has no layout.");
             button.Invoke();
@@ -296,6 +354,15 @@ internal static class Program
             var label = window.Label("Keep old");
             old.Commit(label);
             var count = HandleCount(window);
+            using (var invalidMap = host.BeginUpdate())
+            {
+                var root = window.Label("Uncommitted root");
+                var orphan = window.Label("Unattached inspection target");
+                invalidMap.SetInspectionTargets([new(0, root), new(1, orphan)]);
+                ThrowsStatus(() => invalidMap.Commit(root), 1, "A target outside the committed root was accepted.");
+            }
+            Assert(label.Text == "Keep old" && HandleCount(window) == count,
+                "A rejected map changed the old preview or leaked ownership.");
             for (int i = 0; i < 20; i++)
             {
                 using (var aborted = host.BeginUpdate())
@@ -391,6 +458,8 @@ internal static class Program
         button.Click += owner.Touch;
         window.Post(owner.Touch);
         var label = window.Label("Owned resources");
+        update.SetInspectionTargets([new(0, label)]);
+        update.Picked += _ => owner.Touch();
         label.SetControlStyle(new ControlStyle(StyleTarget.Label,
             [new PartStyle(StylePart.Label, new PartStyleValues { FontSize = 14 })]));
         update.Commit(label);
@@ -428,10 +497,25 @@ internal static class Program
         var text = new StringBuilder(1024); GetWindowTextW(window, text, text.Capacity); return text.ToString();
     }
     private static string[] Texts(nint window) => Children(window).Select(WindowText).ToArray();
+    private static void ClickPreview(string text)
+    {
+        var peer = Children(FindWindowW(null, Title)).Single(child => WindowText(child) == text);
+        Assert(GetWindowRect(peer, out var bounds), "The pick target has no native bounds.");
+        int x = Math.Max(1, (bounds.Right - bounds.Left) / 2), y = Math.Max(1, (bounds.Bottom - bounds.Top) / 2);
+        nint point = (y << 16) | (x & 0xffff);
+        SendMessageW(peer, 0x201, 1, point);
+        SendMessageW(peer, 0x202, 0, point);
+    }
     private static void Throws<T>(Action action, string message) where T : Exception
     {
         try { action(); }
         catch (T) { assertions++; return; }
+        throw new InvalidOperationException(message);
+    }
+    private static void ThrowsStatus(Action action, int status, string message)
+    {
+        try { action(); }
+        catch (XuiException error) { Assert(error.Status == status, $"{message} Wrong status: {error.Status}."); return; }
         throw new InvalidOperationException(message);
     }
     private static void Assert(bool condition, string message)
@@ -452,6 +536,9 @@ internal static class Program
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)] private static extern nint ReplaceSelection(nint window, uint message, nint first, string text);
     [DllImport("xui", EntryPoint = "xui_content_handle_count")] private static extern int ContentHandleCount(ulong window, out uint count);
     [DllImport("xui", EntryPoint = "xui_text_copy")] private static extern int TextCopy(ulong control, [Out] byte[]? bytes, uint capacity, out uint count);
+    [StructLayout(LayoutKind.Sequential)] private struct InspectionTarget { public uint Key, Reserved; public ulong Element; }
+    [DllImport("xui", EntryPoint = "xui_content_inspection_targets")] private static extern int InspectionTargets(
+        ulong scope, InspectionTarget[]? targets, uint count, nint callback, nint context);
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
     [DllImport("user32")] private static extern bool GetWindowRect(nint hwnd, out Rect rect);

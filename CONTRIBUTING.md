@@ -440,6 +440,22 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Content pointer inspection
+
+Build and run the native inspection fixture and managed preview lifecycle suite:
+
+```powershell
+cmake --build $build --config Release --target xui xui_content_inspection_window_tests
+ctest --test-dir $build -C Release -R '^xui_content_inspection_window_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
+```
+
+The native fixture uses real HWND routes and registered retained nodes.
+It covers clipping, editor state, explicit refusals, deferred delivery, and repeated replacement.
+The managed suite adds ABI validation, source-version checks, observer retirement, and collectible assembly checks.
+The [inspection contract](docs/specs/bindings.md#content-pointer-picking) lists unsupported surfaces.
+Physical IME, touch/pen hardware, and screen-reader speech require manual checks.
+
 ### Native file dialogs
 
 Build and run the focused dialog checks:

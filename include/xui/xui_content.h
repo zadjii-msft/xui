@@ -19,6 +19,21 @@ XUI_API xui_status XUI_CALL xui_content_context(xui_handle window, xui_handle sc
 XUI_API xui_status XUI_CALL xui_content_owner(xui_handle target, xui_handle* scope) XUI_NOEXCEPT;
 /* Diagnostics for ownership tests. Counts include all live ABI handles for this window. */
 XUI_API xui_status XUI_CALL xui_content_handle_count(xui_handle window, uint32_t* count) XUI_NOEXCEPT;
+/* Candidate-owned source identities. Keys must be unique and dense, starting at zero.
+   Registration borrows the elements. Commit checks membership in the candidate root. */
+typedef struct xui_content_inspection_target {
+    uint32_t key, reserved;
+    xui_handle element;
+} xui_content_inspection_target;
+XUI_API xui_status XUI_CALL xui_content_inspection_targets(xui_handle scope,
+    const xui_content_inspection_target* targets, uint32_t count,
+    xui_callback picked, void* context) XUI_NOEXCEPT;
+/* Pointer picking consumes primary gestures only. Keyboard and UIA remain native.
+   Busy or unsupported surfaces fail explicitly without changing the mode. */
+XUI_API xui_status XUI_CALL xui_content_pointer_picking(xui_handle host, uint32_t enabled) XUI_NOEXCEPT;
+/* Coordinates are window-client DIPs. A miss succeeds with found=0 and key=0. */
+XUI_API xui_status XUI_CALL xui_content_hit_test(xui_handle host, float x, float y,
+    uint32_t* key, uint32_t* found) XUI_NOEXCEPT;
 #ifdef __cplusplus
 }
 #endif

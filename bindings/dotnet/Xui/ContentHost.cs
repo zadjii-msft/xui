@@ -1,6 +1,10 @@
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 
 namespace Xui;
+
+/// <summary>An inspection key and a borrowed element from one content candidate.</summary>
+public readonly record struct ContentInspectionTarget(int NodeId, Element Element);
 
 /// <summary>A stable layout element whose content changes through an explicit UI-thread ownership scope.</summary>
 public sealed class ContentHost : Element
@@ -32,6 +36,22 @@ public sealed class ContentHost : Element
         Current?.Retire();
         Current = null;
     }
+
+    /// <summary>Consumes primary pointer gestures for inspection. Keyboard and UIA remain interactive.</summary>
+    public void SetPointerPickMode(bool enabled)
+    {
+        Window.Guard();
+        Window.Check(Native.ContentPointerPicking(Handle, enabled ? 1u : 0u));
+    }
+
+    /// <summary>Finds a registered node at window-client coordinates in device-independent pixels.</summary>
+    public bool TryHitTest(float x, float y, out int nodeId)
+    {
+        Window.Guard();
+        Window.Check(Native.ContentHitTest(Handle, x, y, out var key, out var found));
+        nodeId = found != 0 ? checked((int)key) : -1;
+        return found != 0;
+    }
 }
 
 /// <summary>Owns one candidate and, after commit, its active content and callback registrations.</summary>
@@ -47,6 +67,11 @@ public sealed class ContentUpdate : IDisposable
     internal bool AcceptCallbacks => !Retired && Failure is null;
     private readonly object postedGate = new();
     private readonly HashSet<Window.PostedAction> posts = [];
+    private GCHandle pickRoot;
+
+    /// <summary>Reports a registered node after a primary pointer gesture. Lifetime belongs to this scope.</summary>
+    /// <remarks>Inspection observers run in window context so they can queue a replacement.</remarks>
+    public event Action<int>? Picked;
 
     /// <summary>Opts into containment of managed event exceptions for this content.
     /// Delivery occurs outside the failed callback. Further callbacks stop until content is replaced or cleared.</summary>
@@ -57,6 +82,40 @@ public sealed class ContentUpdate : IDisposable
 
     /// <summary>Queues work owned by this content. Returns false after retirement or a managed callback error.</summary>
     public bool Post(Action action) => Host.Window.PostContent(action, this);
+
+    /// <summary>Registers dense, unique node IDs before commit. The scope does not retain managed elements.</summary>
+    public unsafe void SetInspectionTargets(IReadOnlyList<ContentInspectionTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        Host.Window.Guard();
+        ObjectDisposedException.ThrowIf(Retired, this);
+        if (Committed) throw new InvalidOperationException("Register inspection targets before committing content.");
+        if (targets.Count is < 1 or > 65536) throw new ArgumentOutOfRangeException(nameof(targets));
+        var native = new Native.ContentInspectionTarget[targets.Count];
+        for (int i = 0; i < native.Length; i++)
+        {
+            var target = targets[i];
+            ArgumentNullException.ThrowIfNull(target.Element);
+            if (target.NodeId < 0) throw new ArgumentOutOfRangeException(nameof(targets));
+            target.Element.BelongsTo(Host.Window);
+            native[i] = new() { Key = (uint)target.NodeId, Element = target.Element.Handle };
+        }
+        bool allocated = !pickRoot.IsAllocated;
+        if (allocated) pickRoot = GCHandle.Alloc(this, GCHandleType.Weak);
+        try
+        {
+            fixed (Native.ContentInspectionTarget* span = native)
+                Host.Window.Check(Native.ContentInspectionTargets(Handle, span, (uint)native.Length,
+                    &Window.ContentPickTrampoline, GCHandle.ToIntPtr(pickRoot)));
+        }
+        catch
+        {
+            if (allocated) pickRoot.Free();
+            throw;
+        }
+    }
+
+    internal void RaisePick(int nodeId) => Picked?.Invoke(nodeId);
 
     public void Commit(Element root)
     {
@@ -117,6 +176,8 @@ public sealed class ContentUpdate : IDisposable
             posts.Clear();
         }
         CallbackFailed = null;
+        Picked = null;
+        if (pickRoot.IsAllocated) pickRoot.Free();
         Failure = null;
     }
 
@@ -191,6 +252,27 @@ public sealed unsafe partial class Window
         callbackError = error;
         return 8;
     }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    internal static int ContentPickTrampoline(nint context, Native.Event* value)
+    {
+        ContentUpdate? scope = null;
+        try
+        {
+            scope = GCHandle.FromIntPtr(context).Target as ContentUpdate;
+            if (scope is null) return 8;
+            if (!scope.AcceptCallbacks) return 0;
+            var window = scope.Host.Window;
+            using var content = window.EnterContent(null);
+            ++window.callbacks;
+            try { scope.RaisePick(checked((int)value->Value)); }
+            finally { --window.callbacks; }
+            return 0;
+        }
+        catch (Exception error)
+        {
+            return scope is null ? 8 : scope.Host.Window.ContentError(scope, error);
+        }
+    }
     internal void RetireContent(ContentUpdate scope)
     {
         foreach (var item in subscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
@@ -205,8 +287,10 @@ public sealed unsafe partial class Window
     }
 }
 
-internal static partial class Native
+internal static unsafe partial class Native
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ContentInspectionTarget { internal uint Key, Reserved; internal ulong Element; }
     [LibraryImport("xui", EntryPoint = "xui_content_host_create")]
     internal static partial int ContentHostCreate(ulong window, out ulong host);
     [LibraryImport("xui", EntryPoint = "xui_content_begin")]
@@ -223,4 +307,11 @@ internal static partial class Native
     internal static partial int ContentOwner(ulong target, out ulong scope);
     [LibraryImport("xui", EntryPoint = "xui_content_handle_count")]
     internal static partial int ContentHandleCount(ulong window, out uint count);
+    [LibraryImport("xui", EntryPoint = "xui_content_inspection_targets")]
+    internal static partial int ContentInspectionTargets(ulong scope, ContentInspectionTarget* targets, uint count,
+        delegate* unmanaged[Cdecl]<nint, Event*, int> callback, nint context);
+    [LibraryImport("xui", EntryPoint = "xui_content_pointer_picking")]
+    internal static partial int ContentPointerPicking(ulong host, uint enabled);
+    [LibraryImport("xui", EntryPoint = "xui_content_hit_test")]
+    internal static partial int ContentHitTest(ulong host, float x, float y, out uint key, out uint found);
 }

@@ -52,9 +52,11 @@ void error(xui_status status, const char* message) noexcept {
     }
     last_message[used] = 0;
 }
+struct InspectionFailure { xui_status status; std::string message; };
 template<class F> xui_status boundary(F&& body, bool style_schema = false) noexcept {
     try { body(); error(XUI_OK, ""); return XUI_OK; }
     catch (const Failure& f) { error(f.status, f.message); return f.status; }
+    catch (const InspectionFailure& f) { error(f.status, f.message.c_str()); return f.status; }
     catch (const std::bad_alloc&) { error(XUI_OUT_OF_MEMORY, "Native allocation failed."); return XUI_OUT_OF_MEMORY; }
     catch (const std::invalid_argument& f) {
         const auto status = style_schema ? XUI_INVALID_ARGUMENT : XUI_NATIVE_ERROR;

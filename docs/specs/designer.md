@@ -284,6 +284,23 @@ Retained snapshots contain no element, component, delegate, or assembly-context 
 Snapshot reads do not create native peers or handles.
 These internal reads do not change the public ownership contract of generated element lookups.
 
+### Versioned pointer selection
+
+The internal preview adapter exposes `SetPointerPickMode(bool enabled)` and the `Picked` event.
+`PreviewPick` contains only `Version` and `NodeId`.
+The adapter registers the generated source identities with the [native content inspection API](bindings.md#content-pointer-picking).
+It never infers hit targets from snapshot rectangles.
+
+Pick delivery requires the same candidate, applied version, and requested source version.
+`Supersede` suppresses picks from an older displayed preview even when that preview remains visible after an error.
+Scope retirement discards obsolete notifications and releases callback delegates.
+The shell can use the versioned ID to select a node in its hierarchy and inspector.
+
+The mode is **pointer picking**, not a disabled-code mode or a sandbox.
+Native keyboard input and accessibility actions retain their normal behavior.
+Unsupported surfaces and active capture, composition, or modal routes produce explicit errors.
+This adapter does not draw a highlight or change authored styles.
+
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.

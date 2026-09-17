@@ -8,6 +8,8 @@ std::optional<std::wstring> Window::show_file_dialog(bool save, const FileDialog
     const auto impl = impl_;
     if (GetCurrentThreadId() != impl->owner_thread)
         throw std::logic_error("Show file dialogs on the window UI thread");
+    if (impl->has_content_picking())
+        throw std::invalid_argument("Close pointer picking before opening a file dialog");
     const auto snapshot = options;
     snapshot.validate();
     if (!impl->ready || impl->closing || !impl->window || !IsWindowVisible(impl->window) || !IsWindowEnabled(impl->window))

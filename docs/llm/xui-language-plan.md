@@ -36,6 +36,11 @@ The host binds the metadata entry points once per candidate and clears those del
 `PreviewNodeSnapshot.cs` defines value-only snapshots of the current arranged node bounds, binding type, and numeric control identity.
 All snapshot reads check UI-thread access and the exact applied source version.
 The [snapshot contract](../specs/designer.md#applied-preview-snapshots) distinguishes arranged bounds from visible geometry.
+`PreviewPick.cs` defines versioned source identities for native pointer selection.
+`PreviewHost` registers temporary inspection targets through the same scoped candidate.
+Its pick handler rejects retired candidates and superseded source versions before it notifies the shell.
+Inspection observers use window context so replacement posts do not inherit the retiring preview scope.
+The [pointer-selection contract](../specs/designer.md#versioned-pointer-selection) leaves keyboard input and accessibility actions native.
 
 `Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
@@ -93,6 +98,21 @@ The suite rejects wrong-thread reads and invalid IDs.
 It preserves the old map after construction failure and rejects maps for pending, failed, or retired revisions.
 Retained value snapshots do not prevent collection of the retired preview assembly context.
 The designer `--smoke` also passed.
+
+### Pointer inspection evidence
+
+The Stage1 inspection tranche uses the embedded core, source metadata, and owned-dialog baseline.
+`src\content_inspection.hpp` validates weak registered targets and retained ancestry.
+`src\application_content_inspection.inc` owns native hit resolution, gesture gating, and bounded deferred delivery.
+`tests\content_inspection_window_tests.cpp` covers real HWND routes, retained gaps and clips, editor state, refusal paths, and 100 replacements.
+The native inspection, ContentHost, core, and dialog-window CTest targets passed on ARM64 Release.
+
+The integrated managed preview suite passed 1,779 assertions.
+It covers target validation, 100 registered replacements, native hit identities, versioned pointer events, supersession, and scope retirement.
+It also checks collectible assembly retirement while value snapshots remain retained.
+Compiler and source suites passed 89 and 780 assertions.
+The designer smoke, managed dialog suite, and documentation checks passed.
+There is no highlight implementation in this tranche.
 
 ### Visual source tools
 

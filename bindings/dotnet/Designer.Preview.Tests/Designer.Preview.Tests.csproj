@@ -13,6 +13,7 @@
     <Compile Include="..\Designer\PreviewCompiler.cs" Link="PreviewCompiler.cs" />
     <Compile Include="..\Designer\PreviewHost.cs" Link="PreviewHost.cs" />
     <Compile Include="..\Designer\PreviewNodeSnapshot.cs" Link="PreviewNodeSnapshot.cs" />
+    <Compile Include="..\Designer\PreviewPick.cs" Link="PreviewPick.cs" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
     <ProjectReference Include="..\Xui\Xui.csproj" />
     <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" Private="true" />

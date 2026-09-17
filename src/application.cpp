@@ -2,6 +2,7 @@
 #include "xui/native_edit.hpp"
 #include "native_document.hpp"
 #include "native_file_dialog.hpp"
+#include "content_inspection.hpp"
 #include "native_runtime_host.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
@@ -155,6 +156,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     ContentHost* replacement_host{};
     std::shared_ptr<NativeFileDialog> native_file_dialog;
     bool file_dialog_teardown_pending{};
+    struct ContentPicking {
+        std::weak_ptr<ContentHost> host;
+        inspection::Registration registration;
+        std::uint64_t generation{};
+        std::optional<std::uint32_t> pending;
+        bool enabled{}, mouse_down{}, pointer_down{};
+    };
+    std::unordered_map<std::uint64_t, ContentPicking> content_picking;
     std::uint64_t paints{}, layouts{};
     std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
     WindowIcon window_icon;
@@ -167,6 +176,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void close_posts() {
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
+        content_picking.clear();
     }
     std::function<bool(const NavigationEvent&)> navigation;
     bool has_images{};
@@ -223,6 +233,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         explicit InputScope(Impl& value) : host(value) { ++host.input_depth; }
         ~InputScope() { --host.input_depth; }
     };
+#include "application_content_inspection.inc"
     void teardown() {
         if (native_file_dialog) {
             file_dialog_teardown_pending = true;
@@ -390,6 +401,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& peer = *reinterpret_cast<Peer*>(data);
         InputScope scope(peer.host);
+        try {
+            if (auto result = peer.host.inspect_pointer(hwnd, message, wparam, lparam)) return *result;
+        } catch (...) { peer.host.fail(); return 0; }
         if (message == WM_SETFOCUS && !peer.host.enabled(peer)) {
             try { peer.host.traverse(false); } catch (...) { peer.host.fail(); }
             return 0;
@@ -984,6 +998,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial, std::shared_ptr<ContentDialog> dialog = {},
         std::shared_ptr<CommandSurface> commands = {}, std::optional<Rect> context_anchor = {}) {
+        if (has_content_picking()) throw std::invalid_argument("Close pointer picking before opening a popup");
         if (!popup) throw std::invalid_argument("Popup is required");
         if (popup->dialog_surface() && !dialog) throw std::invalid_argument("Use Window::show_dialog for dialog content");
         if (!ready || closing || !window) throw std::logic_error("Popup requires a running window");
@@ -1571,6 +1586,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             sync_native_occlusion();
             InvalidateRect(window, nullptr, FALSE);
         }
+        validate_active_inspection();
     }
     void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor, std::shared_ptr<Popup> root_popup = {},
         std::optional<Rect> context_anchor = {}) {
@@ -1621,6 +1637,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     bool translate(MSG& msg) {
         InputScope scope(*this);
+        if (auto result = inspect_pointer(msg.hwnd, msg.message, msg.wParam, msg.lParam)) return true;
         if (msg.hwnd == window || IsChild(window, msg.hwnd)) {
             const bool keyboard = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
             const bool pointer = msg.message == WM_LBUTTONDOWN || msg.message == WM_RBUTTONDOWN || msg.message == WM_POINTERDOWN;
@@ -3589,6 +3606,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void cancel_input() {
         InputScope input_scope(*this);
+        for (auto& [id, state] : content_picking) {
+            state.mouse_down = state.pointer_down = false;
+            state.pending.reset();
+        }
         hide_tooltip();
         std::vector<Peer*> snapshot;
         for (const auto& peer : peers) snapshot.push_back(peer.get());
@@ -4605,6 +4626,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     LRESULT message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        if (auto result = inspect_pointer(hwnd, message, wparam, lparam)) return *result;
         if (titlebar && message == WM_NCCALCSIZE && wparam) {
             auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
             const auto top = params.rgrc[0].top;
@@ -4943,19 +4965,31 @@ void Window::set_content(std::shared_ptr<Stack> content) {
     } else impl_->root = std::move(content);
 }
 void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content) {
+    replace_content(host, std::move(content), {}, {});
+}
+void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content,
+    std::vector<ContentInspectionTarget> targets, std::function<void(std::uint32_t)> picked) {
     const auto impl = impl_;
     if (GetCurrentThreadId() != impl->owner_thread)
         throw std::logic_error("Replace content on the window UI thread");
     if (impl->closing || (impl->used && !impl->ready))
         throw std::logic_error("The Window is closed");
-    if (impl->input_depth || impl->replacing || impl->syncing)
+    if (impl->input_depth || impl->replacing || impl->syncing || impl->native_file_dialog)
         throw std::logic_error("Post content replacement outside native input callbacks");
     std::set<std::uint64_t> existing;
     Impl::content_ids(impl->root, existing);
     if (!existing.contains(host.id()))
         throw std::invalid_argument("ContentHost must belong to this window");
-    if (host.content() == content) return;
-    if (content) {
+    auto registration = inspection::Registration::prepare(content, std::move(targets), std::move(picked));
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must have a stable retained path in this window");
+    const auto previous_state = impl->content_picking.find(host.id());
+    if (previous_state != impl->content_picking.end() && previous_state->second.enabled) {
+        impl->validate_inspection_ancestors(*path);
+        inspection::supported(content, &host);
+    }
+    const bool same_content = host.content() == content;
+    if (content && !same_content) {
         host.validate_adoption(content);
         for (const auto& entry : impl->popups) Impl::content_ids(entry.popup, existing);
         std::set<std::uint64_t> candidate;
@@ -4966,6 +5000,15 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
     const auto previous = host.content();
     std::set<std::uint64_t> retired;
     Impl::content_ids(previous, retired);
+    impl->content_picking.try_emplace(host.id());
+    if (same_content) {
+        auto& state = impl->content_picking.at(host.id());
+        state.host = path->host;
+        state.registration = std::move(registration);
+        ++state.generation;
+        state.pending.reset();
+        return;
+    }
     impl->replacing = true;
     impl->replacement_host = &host;
     struct Reset {
@@ -4984,10 +5027,51 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         impl->update();
         if (impl->failed || impl->closing || (impl->used && !impl->ready))
             throw std::runtime_error("Content replacement did not complete because the window closed");
+        auto& state = impl->content_picking.at(host.id());
+        if (state.enabled) impl->validate_inspection_native(host);
+        state.host = path->host;
+        state.registration = std::move(registration);
+        ++state.generation;
+        state.pending.reset();
+        impl->prune_inspection_hosts();
     } catch (...) {
         impl->fail();
         throw;
     }
+}
+void Window::set_content_pointer_picking(ContentHost& host, bool enabled) {
+    const auto impl = impl_;
+    impl->inspection_api_ready();
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must belong to this window");
+    if (enabled) {
+        impl->inspection_idle();
+        impl->validate_inspection_ancestors(*path);
+        inspection::supported(host.content(), &host);
+        impl->validate_inspection_region(host);
+        impl->validate_inspection_native(host);
+    }
+    auto& state = impl->content_picking[host.id()];
+    state.host = path->host;
+    state.enabled = enabled;
+    state.pending.reset();
+}
+std::optional<std::uint32_t> Window::hit_test_content(ContentHost& host, Point position) {
+    const auto impl = impl_;
+    impl->inspection_api_ready();
+    if (!std::isfinite(position.x) || !std::isfinite(position.y))
+        throw std::invalid_argument("Inspection coordinates must be finite");
+    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) throw std::invalid_argument("ContentHost must belong to this window");
+    impl->inspection_idle();
+    impl->validate_inspection_ancestors(*path);
+    inspection::supported(host.content(), &host);
+    if (impl->layout_pending) impl->update();
+    impl->validate_inspection_region(host);
+    impl->validate_inspection_native(host);
+    const auto found = impl->content_picking.find(host.id());
+    if (found == impl->content_picking.end()) return {};
+    return impl->inspection_hit(host, position, found->second.registration).key;
 }
 void Window::set_theme(ThemeMode theme) {
     if (impl_->options.theme == theme) return;
@@ -5103,6 +5187,7 @@ void Window::show_location_picker(std::shared_ptr<LocationPicker> picker, Contro
 void Window::show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths) {
     const auto impl = impl_;
     if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Show Shell commands on the window UI thread");
+    if (impl->has_content_picking()) throw std::invalid_argument("Close pointer picking before opening Shell commands");
     Impl::InputScope scope(*impl);
     auto* peer = impl->find_peer(&anchor);
     if (!peer || !impl->ready || impl->closing || !impl->enabled(*peer)) throw std::logic_error("Shell command owner is unavailable");
@@ -5147,6 +5232,7 @@ std::shared_ptr<SampleTask> Window::create_sample_task(SampleTask::Loader loader
     return std::shared_ptr<SampleTask>(new SampleTask(std::move(state)));
 }
 bool Window::confirm(const std::wstring& title, const std::wstring& message) {
+    if (impl_->has_content_picking()) throw std::invalid_argument("Close pointer picking before opening a modal dialog");
     if (!impl_->ready || impl_->closing) return false;
     return MessageBoxW(impl_->window, message.c_str(), title.c_str(),
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
@@ -5228,6 +5314,7 @@ int Application::run(Window& window) {
                             if (!impl->ready || impl->closing) break;
                             post();
                         }
+                        impl->deliver_content_picks();
                         const auto tasks = impl->tasks;
                         for (const auto& task : tasks) {
                             if (!impl->ready || impl->closing) break;
