@@ -125,6 +125,36 @@ internal sealed partial class DesignerApplication
             await Until(() => window.Style == VisualStyle.WinUI);
             await Ui(() => Require(version == styledVersion && ButtonText() == "Activated",
                 "Switching back to WinUI preserves the same preview state."));
+            await Ui(() => viewport.SelectPreset(DesignerViewportPreset.Compact));
+            await Until(() => viewport.Preset == DesignerViewportPreset.Compact);
+            await Ui(() =>
+            {
+                viewport.RefreshDimensions();
+                var bounds = preview.View.GetBounds();
+                Require(bounds.Width == 360 && bounds.Height == 640,
+                    "Compact preview applies its exact dimensions in the complete Designer shell.");
+                Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Viewport resizing preserves the preview version and authored control state without recompilation.");
+                view.Pick.Invoke();
+            });
+            await Until(() => pickControls);
+            await Ui(() => SelectionNative.Click("Do not execute"));
+            await Until(() => workspace.Hierarchy.Selection?.Id == buttonId);
+            await Ui(() =>
+            {
+                Require(ButtonText() == "Activated" && editor.Selection.Start ==
+                    (ulong)workspace.Document!.Root!.Children[1].Span.Start,
+                    "Native pointer picking remains source-aligned inside a fixed-size viewport.");
+                viewport.SelectPreset(DesignerViewportPreset.Fit);
+            });
+            await Until(() => viewport.Preset == DesignerViewportPreset.Fit);
+            await Ui(() =>
+            {
+                Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Returning to Fit retains the same live preview and authored state.");
+                view.Pick.Invoke();
+            });
+            await Until(() => !pickControls);
             await Ui(() =>
             {
                 source = editor.Text;
@@ -241,7 +271,7 @@ internal sealed partial class DesignerApplication
         internal static void Click(string text)
         {
             var peers = Peers(text);
-            if (peers.Count != 1) throw new InvalidOperationException("Expected one preview peer on the owning UI thread.");
+            if (peers.Count != 1) throw new InvalidOperationException($"Expected one preview peer named '{text}' on the owning UI thread, found {peers.Count}.");
             nint peer = peers.Single();
             if (!GetClientRect(peer, out var bounds) || bounds.Right <= 0 || bounds.Bottom <= 0)
                 throw new InvalidOperationException("The preview peer has no usable client bounds.");

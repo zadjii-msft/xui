@@ -247,6 +247,7 @@ dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.TextModeTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.SearchTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.ViewportTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.IndentationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
@@ -272,11 +273,13 @@ It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, 
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
 It also covers Unicode word boundaries, single and bulk replacement, no-op edits, native undo and redo, and atomic length-limit errors.
+The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, retained preview state, and controls inside a narrow pane.
 The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
 Source replacement also exercises hierarchy updates, preview compilation, and one-action undo through the complete application.
+Viewport checks cover exact Compact dimensions, retained preview versions and state, native picking, and a return to Fit.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.

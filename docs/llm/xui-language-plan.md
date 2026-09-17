@@ -46,7 +46,14 @@ The wrapper also exposes typed `NodeCount(object)` and `Node(object, int)` entry
 It does not execute authored code during compilation.
 
 `PreviewHost.cs` owns a stable `ContentHost` inside the designer window.
-It constructs a candidate within `ContentUpdate` before replacing the previous content.
+`DesignerPreviewViewport.cs` wraps that host without replacing its content or changing source.
+`DesignerPreviewViewportLayout.xui` supplies the preset selector, custom dimensions, and actual-size feedback.
+The controller samples arranged dimensions at 250-ms intervals and stops that work on disposal or window closure.
+Native scrolling is vertical-only. Excessive requested widths fit the available pane and produce an explicit notice.
+`Designer.ViewportTests` covers sizing, invalid input, retained control identity and state, and a 438-DIP pane.
+The application selection smoke also covers fixed-size picking and unchanged preview versions across size changes.
+
+`PreviewHost` constructs a candidate within `ContentUpdate` before replacing the previous content.
 The host retains the generated component until scope retirement, then requests collectible assembly unloading.
 Authored tasks or static references can prevent collection.
 The host checks the source version before construction and before commit.

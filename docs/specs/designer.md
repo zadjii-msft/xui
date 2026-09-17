@@ -118,6 +118,25 @@ The hierarchy and inspector remain available when an outline cannot appear.
 A source revision clears the outline until the current preview is ready.
 Later layout changes can hide an outline that was initially visible.
 
+### Preview sizes
+
+The preview size selector provides **Fit**, **Compact**, **Medium**, **Wide**, and **Custom**.
+Fit fills the available preview pane.
+Compact requests a 360-by-640-DIP viewport.
+The width and height fields specify custom dimensions in device-independent pixels.
+**Apply** changes the viewport without compiling source or resetting authored control state.
+The dimension label shows the actual arranged size.
+Invalid custom dimensions leave the current viewport unchanged and show an error.
+
+Tall viewports scroll vertically within the preview pane.
+The native scroll container does not support horizontal scrolling.
+If the requested width exceeds the pane width, the viewport fits the pane and shows a width-limit notice.
+The source-preview divider can provide more width.
+The presets change layout constraints, not display scaling or device emulation.
+Preview picking and source outlines retain their existing version checks.
+
+### Properties and structure
+
 The inspector shows each supported argument and its current source value.
 Literal values include quoted text, numbers, booleans, and literal tuples.
 **Apply property** compiles the candidate before it changes the source.

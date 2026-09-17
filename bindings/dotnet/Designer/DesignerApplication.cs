@@ -14,6 +14,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly MultilineText diagnostics;
     private readonly DesignerLayout view;
     private readonly PreviewHost preview;
+    private readonly DesignerPreviewViewport viewport;
     private readonly DesignerWorkspace workspace;
     private readonly DesignerDiagnosticNavigator diagnosticNavigator;
     private readonly DesignerSourceSearch sourceSearch;
@@ -44,6 +45,7 @@ internal sealed partial class DesignerApplication : IDisposable
             diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true).SetMaximumLength(MaximumLength);
             preview = new PreviewHost(window, (value, message, success) =>
                 window.Post(() => OnPreview(value, message, success)));
+            viewport = new DesignerPreviewViewport(window, preview.View);
             workspace = new DesignerWorkspace(window, editor, ShowError);
             diagnosticNavigator = new DesignerDiagnosticNavigator(window, editor, diagnostics,
                 () => version, ReportNavigation, workspace.SelectFromCaret);
@@ -53,7 +55,7 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
-                workspace.Inspector.Layout.Root, preview.View, templates, window);
+                workspace.Inspector.Layout.Root, viewport.View, templates, window);
             preview.Picked += OnPreviewPicked;
             view.Pick.Changed += RequestPicking;
             workspace.SelectionChanged += RequestHighlight;
@@ -102,6 +104,7 @@ internal sealed partial class DesignerApplication : IDisposable
         {
             lifetime.Cancel();
             workspace?.Dispose();
+            viewport?.Dispose();
             preview?.Dispose();
             window.Dispose();
             lifetime.Dispose();
@@ -429,6 +432,7 @@ internal sealed partial class DesignerApplication : IDisposable
         edits.Writer.TryComplete();
         compiler.GetAwaiter().GetResult();
         workspace.Dispose();
+        viewport.Dispose();
         preview.Dispose();
         window.Dispose();
         lifetime.Dispose();
