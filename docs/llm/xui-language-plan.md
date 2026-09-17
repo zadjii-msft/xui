@@ -65,6 +65,12 @@ It checks the current source revision and displayed diagnostic text before chang
 Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the same cancellation and revision checks as property edits.
 `DesignerInspectorLayout.xui` defines the wrap and unwrap controls.
 `Designer.GroupingTests` covers the native buttons, hierarchy-only shortcuts, source selection, and undo.
+
+`DesignerLiteralCodec.cs` uses Roslyn string tokens to convert between literal source and native property text.
+`DesignerInspector.cs` exposes this conversion through an opt-in text-mode toggle.
+`DesignerWorkspace.ApplyProperty` rejects no-op values before it starts a source transaction.
+`Designer.TextModeTests` covers the complete native inspector, source callbacks, undo, raw and verbatim spelling, draft conversion, and size-limit errors.
+The September 17, 2026 ARM64 Release run passed 19 text-mode assertions, 16 workspace assertions, and 19 grouping assertions.
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.

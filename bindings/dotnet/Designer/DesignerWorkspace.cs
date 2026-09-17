@@ -160,8 +160,18 @@ internal sealed class DesignerWorkspace : IDisposable
     internal void ApplyProperty()
     {
         string? name = Inspector.Argument;
-        string value = Inspector.Value.Text;
         if (name is null) { Inspector.Layout.Feedback.Text = "Select an argument first."; return; }
+        if (!Inspector.TryReadLiteral(out string value, out string? error))
+        {
+            Inspector.Layout.Feedback.Text = error!;
+            return;
+        }
+        if (!busy && current && Document?.Source == editor.Text &&
+            Hierarchy.Selection?.Arguments.FirstOrDefault(argument => argument.Name == name)?.Value == value)
+        {
+            Inspector.Layout.Feedback.Text = "The value is unchanged. No source edit was applied.";
+            return;
+        }
         Edit((document, node, token) =>
         {
             var result = document.SetArgument(document.Revision, node.Id, name, value, cancellation: token);

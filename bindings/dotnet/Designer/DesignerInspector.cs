@@ -10,19 +10,23 @@ internal sealed class DesignerInspector
     private string[] names = [];
     private int argumentIndex;
     private bool resetting, editable, validationPending;
+    private bool textMode;
+    private string textExpression = "";
 
     internal DesignerInspectorLayout Layout { get; }
     internal MultilineText Value { get; }
     internal string? Argument => argumentIndex >= 0 && argumentIndex < names.Length ? names[argumentIndex] : null;
     internal ControlTemplate Template { get; private set; } = ControlTemplate.Text;
+    internal bool IsTextMode => textMode;
 
     internal DesignerInspector(Window window)
     {
         arguments = window.ComboBox("Selected control argument", false).SetAutomationId("designer-arguments");
         palette = window.ComboBox("Control insertion template", false).SetAutomationId("designer-control-palette");
-        Value = window.MultilineText("Argument literal source").SetMaximumLength(65536).SetAutomationId("designer-property-value");
+        Value = window.MultilineText("Argument value").SetMaximumLength(65536).SetAutomationId("designer-property-value");
         Value.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 13 });
         Layout = new DesignerInspectorLayout(window, arguments, Value, palette, attach: false);
+        Layout.TextMode.Changed += ChangeTextMode;
         palette.SetItems(Enum.GetValues<ControlTemplate>().Select(t => new Choice((ulong)t + 1, t.ToString())).ToArray(), 1);
         palette.Event += e => { if (e.Kind == EventKind.Selection) Template = (ControlTemplate)(e.Value - 1); };
         arguments.Event += e =>
@@ -91,6 +95,13 @@ internal sealed class DesignerInspector
         var argument = node?.Arguments.FirstOrDefault(a => a.Name == Argument);
         bool expression = argument?.ValueKind == XuiValueKind.Expression;
         bool writable = editable && Argument is not null && !expression;
+        textMode = false;
+        Layout.TextMode.Checked = false;
+        string? textError = null;
+        bool supportsText = argument?.ValueKind == XuiValueKind.String &&
+            DesignerLiteralCodec.TryDecodeText(argument.Value, out _, out textError);
+        Layout.TextMode.Enabled = writable && supportsText;
+        Layout.ValueLabel.Text = "Literal source value (include quotes for text)";
         Value.Text = argument?.Value ?? "";
         Value.ReadOnly = !writable;
         Layout.Apply.Enabled = writable;
@@ -101,5 +112,54 @@ internal sealed class DesignerInspector
             : Argument is null ? "This control has no editable arguments."
             : argument is null ? "Not set. Enter a literal source value; Apply validates its type."
             : $"{argument.ValueKind} literal. Apply validates the complete component.";
+        if (writable && textError is not null) Layout.ArgumentHelp.Text += " Text mode unavailable: " + textError;
+    }
+
+    internal bool TryReadLiteral(out string value, out string? error)
+    {
+        value = Value.Text;
+        error = null;
+        if (!textMode) return true;
+        try { value = DesignerLiteralCodec.EncodeText(textExpression, value); return true; }
+        catch (ArgumentException exception) { error = exception.Message; return false; }
+    }
+
+    private void ChangeTextMode(bool enabled)
+    {
+        if (enabled == textMode) return;
+        if (!editable || Value.ReadOnly)
+        {
+            Layout.TextMode.Checked = textMode;
+            Layout.Feedback.Text = "Text mode requires an editable string literal in the current source.";
+            return;
+        }
+        if (enabled)
+        {
+            string expression = Value.Text;
+            if (!DesignerLiteralCodec.TryDecodeText(expression, out string text, out string? error))
+            {
+                Layout.TextMode.Checked = false;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            textExpression = expression;
+            textMode = true;
+            Value.Text = text;
+        }
+        else
+        {
+            if (!TryReadLiteral(out string expression, out string? error))
+            {
+                Layout.TextMode.Checked = true;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            textMode = false;
+            Value.Text = expression;
+        }
+        Layout.ValueLabel.Text = textMode ? "Text value (no quotes needed)" : "Literal source value (include quotes for text)";
+        Layout.ArgumentHelp.Text = textMode
+            ? "Apply encodes quotes and newlines as a C# string literal. Unchanged text preserves the original literal."
+            : "String literal. Apply validates the complete component.";
     }
 }

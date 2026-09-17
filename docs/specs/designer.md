@@ -47,6 +47,17 @@ Expressions, event handlers, references, and style names remain read-only in the
 The source editor accepts these expressions directly.
 Compiler errors appear without changing the document.
 
+**Edit as text** decodes an existing string literal into the native property editor.
+This mode accepts ordinary, verbatim, and raw strings, without quotes or escape sequences in the editor.
+Apply encodes changed text as a quoted C# literal and converts paragraph breaks to LF in the string value.
+Unchanged text preserves the exact original literal, including its delimiters and newline escapes.
+An unchanged Apply creates no source edit or undo operation.
+
+The inspector starts in raw literal mode and returns to that mode when the selection or source changes.
+Switching between modes preserves an unapplied property value when conversion succeeds.
+Failed conversion leaves that value unchanged and shows an error.
+Expressions, interpolation, UTF-8 literals, NUL, and invalid Unicode cannot use text mode.
+
 The palette inserts a complete control at the end of the selected stack or grid.
 Grid insertion and duplication require an empty, valid row and column.
 **Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.
