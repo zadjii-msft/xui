@@ -85,6 +85,14 @@ Build the tree before `Application::run`. Set properties and use callbacks on th
 The window supports one active run on the thread. Each `Window` runs once, but separate windows can run in sequence.
 The caller must not initialize COM as MTA.
 
+Windows take activation and initial keyboard focus by default.
+Before `Run`, `Window::set_show_activated(false)` shows a window without taking either.
+`WindowOptions::show_activated` supplies the same initial choice in C++.
+The C ABI uses `xui_window_show_activated(window, 0)` from `xui_layout.h`.
+C# uses `Window.SetShowActivated(false)`.
+Later user activation remains available.
+Changes during or after `Run` fail.
+
 Callbacks must not outlive the objects that they reference.
 Reference captures in the example remain valid during the blocking `Application::run` call.
 Strong captures that refer back to their own control can create an ownership cycle.

@@ -160,6 +160,44 @@ Use `bindings\dotnet\Sample` for the handwritten C# sample.
 Run the generated executable or use `dotnet run`.
 Direct `dotnet Sample.dll` execution does not apply the apphost's native-control manifest.
 
+### XUI Designer
+
+After the native build, run the designer:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid
+```
+
+To open an existing trusted component, append its path:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- "C:\Projects\Demo\Counter.xui"
+```
+
+The designer uses the same native DLL selection as the other C# samples.
+Its runtime includes the XUI generator and the SDK Roslyn assemblies.
+It does not support NativeAOT, trimming, or single-file publishing.
+The [designer guide](docs/specs/designer.md) describes preview limits, shortcuts, file behavior, and recovery drafts.
+
+Run the compiler tests without a native DLL:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer.Tests -c Release
+```
+
+After the native build, run the desktop smoke test:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --smoke
+cmake --build $build --config Release --target xui_abi_features_tests
+& ".\$build\Release\xui_abi_features_tests.exe" --activation
+```
+
+The smoke test opens the editor and preview windows.
+It covers native layout, compiler diagnostics, preview construction errors, recovery after those errors, and file operations.
+The activation test checks that a preview window does not take foreground activation or initial keyboard focus.
+`XUI_DESKTOP_TESTS=ON` also registers the activation test with CTest.
+
 ### C# file explorer
 
 The explorer uses the same automatic DLL copy as the other samples:

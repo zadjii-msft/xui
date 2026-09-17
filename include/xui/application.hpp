@@ -24,6 +24,7 @@ struct WindowOptions {
     bool custom_titlebar{};
     // Experimental solid-surface skin. Does not change control behavior or density.
     VisualStyle visual_style = VisualStyle::classic;
+    bool show_activated = true;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -109,6 +110,7 @@ public:
     ThemeMode theme() const;
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
+    void set_show_activated(bool value);
     void set_tooltip_style(std::shared_ptr<const ControlStyle> style);
     std::shared_ptr<const ControlStyle> tooltip_style() const;
     void set_tooltip_style_values(StylePart part, PartStyleValues values);

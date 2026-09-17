@@ -9,6 +9,7 @@ It supports named control styles, named visual parts, state rules, typography, a
 The [control inventory](control-styling-inventory.md) describes the available presentation surfaces.
 It does not support arbitrary dynamic children, control templates, or custom row templates.
 The [engineering plan](../llm/xui-language-plan.md) defines the implementation and acceptance checks.
+The [XUI Designer](designer.md) provides a native editor and live preview for a self-contained component.
 
 ## Author a component
 

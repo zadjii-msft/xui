@@ -4,6 +4,27 @@ This plan records the initial implementation and its acceptance evidence.
 The [language guide](../specs/xui-language.md) describes the current syntax and expanded control set.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 
+## Designer source map
+
+The [designer guide](../specs/designer.md) describes the standalone development tool.
+`bindings/dotnet/Designer/DesignerLayout.xui` defines its shell.
+`DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+`PreviewCompiler.cs` runs `XuiGenerator` and Roslyn, with semantic discovery of the generated component.
+It emits a wrapper that attaches any supported root beneath a stack.
+It does not execute authored code during compilation.
+
+`PreviewHost.cs` owns one STA thread and sequential preview windows.
+It constructs a candidate before closing the previous window.
+The host retains the generated component until window disposal, then unloads its collectible assembly context.
+Authored tasks or static references can prevent collection.
+The host reports construction and callback exceptions to the editor.
+This thread boundary does not isolate untrusted code.
+
+`Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
+The designer's `--smoke` mode covers the native editor and preview lifecycle.
+`xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
+The normal window activation default remains unchanged.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

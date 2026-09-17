@@ -63,6 +63,14 @@ public static class ElementLayout
 
 public sealed partial class Window
 {
+    /// <summary>Before Run, choose whether showing this window takes keyboard focus. The default is true.</summary>
+    public Window SetShowActivated(bool activated)
+    {
+        Guard();
+        Check(Native.WindowShowActivated(Handle, activated ? 1u : 0u));
+        return this;
+    }
+
     public VisualStyle Style
     {
         get
@@ -102,6 +110,8 @@ public sealed partial class NavigationView
 
 internal static partial class Native
 {
+    [LibraryImport("xui", EntryPoint = "xui_window_show_activated")]
+    internal static partial int WindowShowActivated(ulong window, uint activated);
     [LibraryImport("xui", EntryPoint = "xui_window_visual_style_set")]
     internal static partial int WindowVisualStyleSet(ulong window, uint style);
     [LibraryImport("xui", EntryPoint = "xui_window_visual_style_get")]

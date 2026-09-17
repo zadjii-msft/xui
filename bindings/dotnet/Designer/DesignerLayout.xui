@@ -1,0 +1,27 @@
+namespace Xui.Designer;
+
+component DesignerLayout {
+    param global::Xui.Element Editor;
+    param global::Xui.Element Diagnostics;
+
+    view {
+        VStack(padding: 16, spacing: 10) {
+            Text("XUI Designer", fontSize: 26, fontWeight: 600);
+            Text("Edit .xui source. The live preview opens in a separate window.");
+            HStack(spacing: 8) {
+                TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
+                Button("Open", ref: Open, id: "designer-open");
+                Button("Save", ref: Save, id: "designer-save");
+            }
+            HStack(spacing: 12) {
+                Toggle("Live preview", checked: true, ref: Live, id: "designer-live");
+                Button("Render / reopen", ref: Render, id: "designer-render");
+                Toggle("Light preview", ref: Light, id: "designer-light");
+            }
+            Text("Preview runs your C# code with your account's permissions. Open only trusted files.", wrapping: true);
+            Content(Editor, flex: 1);
+            Text("Ready", ref: Status, id: "designer-status");
+            Content(Diagnostics, preferredSize: (400, 140));
+        }
+    }
+}

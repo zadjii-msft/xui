@@ -33,7 +33,7 @@ component Counter {
 
 The compiler generates C# that creates native XUI controls.
 Each click updates the label without rebuilding the tree.
-The development host supports hot reload. Release builds contain no UI parser or reload host.
+The development host supports hot reload. Generated release applications need no UI parser or reload host.
 
 The [language guide](docs/specs/xui-language.md#configure-a-project) shows the project file and window entry point.
 The [counter sample](bindings/dotnet/DeclarativeSample) contains a complete application.
@@ -66,6 +66,7 @@ The [binding reference](docs/specs/bindings.md#rust-ownership-and-use) includes 
 
 ## Explore the samples
 
+- **[XUI Designer](docs/specs/designer.md):** Edit `.xui` source in a XUI app with live native previews and compiler diagnostics.
 - **[Control gallery](docs/specs/gallery.md):** Interactive controls with API excerpts and copyable code.
 - **[File explorers](docs/specs/file-explorers.md):** C# and C++ applications with tabs, split panes, and folder navigation.
 - **[Minesweeper](bindings/dotnet/Minesweeper/README.md):** A playable game with declarative layout and C# state.

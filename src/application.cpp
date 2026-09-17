@@ -1093,8 +1093,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        ShowWindow(window, SW_SHOWNORMAL);
-        if (!IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
+        ShowWindow(window, options.show_activated ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
+        if (options.show_activated && !IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
     }
     void apply_theme() {
         if (!window) return;
@@ -4849,6 +4849,11 @@ void Window::set_visual_style(VisualStyle style) {
     impl_->invalidate(Invalidation::layout);
 }
 VisualStyle Window::visual_style() const { return impl_->options.visual_style; }
+void Window::set_show_activated(bool value) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set initial activation on its UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Set initial activation before Application::run");
+    impl_->options.show_activated = value;
+}
 void Window::set_tooltip_style(std::shared_ptr<const ControlStyle> style) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set tooltip styles on the window UI thread");
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");

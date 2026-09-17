@@ -48,6 +48,7 @@ Public headers and binding source define the available symbols.
 
 ## Samples
 
+- [XUI Designer](designer.md)
 - [Control gallery](gallery.md)
 - [C# and C++ file explorers](file-explorers.md)
 - [Minesweeper](../../bindings/dotnet/Minesweeper/README.md)

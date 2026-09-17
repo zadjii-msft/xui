@@ -1,0 +1,34 @@
+namespace Playground;
+
+component Welcome {
+    state int Count = 0;
+    state string Name = "XUI";
+
+    style Heading for Label {
+        fontSize: 28;
+        fontWeight: 600;
+    }
+    style Accent for Button {
+        background: theme(light: 0x005FB8, dark: 0x60CDFF);
+        foreground: theme(light: 0xFFFFFF, dark: 0x001A26);
+        cornerRadius: 6;
+        when hovered { background: theme(light: 0x004E99, dark: 0x98E0FF); }
+    }
+
+    view {
+        VStack(padding: 24, spacing: 12) {
+            Text($"Hello, {Name}!", style: Heading);
+            Text("Change this source to see the next preview.", wrapping: true);
+            TextInput("Your name", text: Name, change: Rename);
+            HStack(spacing: 8) {
+                Button("Increment", click: Increment, style: Accent);
+                Text($"Count: {Count}", ref: Counter);
+            }
+        }
+    }
+
+    code csharp {
+        void Increment() => Count++;
+        void Rename(string value) => Name = value;
+    }
+}

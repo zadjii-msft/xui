@@ -59,6 +59,13 @@ xui_status XUI_CALL xui_tab_get_colors(xui_handle target, xui_tab_colors* colors
     });
 }
 
+xui_status XUI_CALL xui_window_show_activated(xui_handle window, uint32_t activated) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); topology(n->owner);
+        require(activated <= 1, XUI_INVALID_ARGUMENT, "Invalid initial activation flag.");
+        n->owner->window->set_show_activated(activated != 0);
+    });
+}
 xui_status XUI_CALL xui_window_visual_style_set(xui_handle window, uint32_t style) noexcept {
     return boundary([&] {
         auto w = get(window, XUI_WINDOW); editable(w->owner);
