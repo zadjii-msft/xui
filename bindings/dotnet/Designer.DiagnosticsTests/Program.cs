@@ -78,6 +78,8 @@ try
         Require(diagnostics.Entries[index.Value].Line == 3 &&
             selection.Start == SourceText.From(source).Lines[2].Start + diagnostics.Entries[index.Value].Column - 1,
             $"Navigation honors the compiler's authored line and column. Actual: {compilation.Diagnostics}; selection={selection}.");
+        Require(selection.Start == source.IndexOf("MissingValue", StringComparison.Ordinal),
+            "The compiler's exact authored column selects the undefined expression, not line indentation.");
     }
     Console.WriteLine($"Designer diagnostics assertions: {assertions} passed.");
 }

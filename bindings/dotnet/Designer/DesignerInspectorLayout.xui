@@ -26,6 +26,14 @@ component DesignerInspectorLayout {
                     Button("Delete", ref: Delete, id: "designer-delete", help: "Delete this control (Delete in hierarchy)");
                 }
                 Text("Select a control to change its structure.", ref: StructureHelp, id: "designer-structure-help", wrapping: true);
+                Text("Wrap selected control");
+                HStack(spacing: 6) {
+                    Button("VStack", ref: WrapVertical, id: "designer-wrap-vertical", help: "Wrap in a vertical stack (Ctrl+G in hierarchy)");
+                    Button("HStack", ref: WrapHorizontal, id: "designer-wrap-horizontal", help: "Wrap in a horizontal stack");
+                    Button("Scroll", ref: WrapScroll, id: "designer-wrap-scroll", help: "Wrap in a scroll view");
+                }
+                Button("Unwrap one child", ref: Unwrap, id: "designer-unwrap", help: "Remove a safe one-child wrapper (Ctrl+Shift+G in hierarchy)");
+                Text("Unwrap needs one child and refuses to discard wrapper properties, identities, or comments.", wrapping: true);
                 Text("Control palette", fontSize: 18, fontWeight: 600);
                 Content(Palette, preferredSize: (240, 36));
                 Text("Insert at the end of the selected stack or grid. Grid insertion and duplication use the cell below.", wrapping: true);

@@ -58,6 +58,10 @@ internal sealed class DesignerInspector
         Layout.Duplicate.Enabled = canEdit && siblings;
         Layout.Up.Enabled = canEdit && movable && index > 0;
         Layout.Down.Enabled = canEdit && movable && index >= 0 && index + 1 < parent!.Children.Count;
+        Layout.WrapVertical.Enabled = canEdit && selected is not null;
+        Layout.WrapHorizontal.Enabled = canEdit && selected is not null;
+        Layout.WrapScroll.Enabled = canEdit && selected is not null;
+        Layout.Unwrap.Enabled = canEdit && selected?.BodySpan is not null && selected.Children.Count == 1;
         bool insert = canEdit && selected?.Kind is "VStack" or "HStack" or "Grid";
         Layout.Insert.Enabled = insert;
         palette.Enabled = insert;

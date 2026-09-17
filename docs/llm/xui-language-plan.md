@@ -37,6 +37,10 @@ The dialog shows bounded source previews, requires deletion approval, and preven
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
 `Designer.DiagnosticsTests` covers this model and real compiler output without a native DLL.
+`DesignerWorkspace.cs` connects the hierarchy and inspector to native source transactions.
+Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the same cancellation and revision checks as property edits.
+`DesignerInspectorLayout.xui` defines the wrap and unwrap controls.
+`Designer.GroupingTests` covers the native buttons, hierarchy-only shortcuts, source selection, and undo.
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.

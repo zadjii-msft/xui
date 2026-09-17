@@ -48,6 +48,10 @@ internal sealed class DesignerWorkspace : IDisposable
         Inspector.Layout.Up.Click += () => Move(-1);
         Inspector.Layout.Down.Click += () => Move(1);
         Inspector.Layout.Insert.Click += Insert;
+        Inspector.Layout.WrapVertical.Click += () => Wrap(ControlTemplate.VStack);
+        Inspector.Layout.WrapHorizontal.Click += () => Wrap(ControlTemplate.HStack);
+        Inspector.Layout.WrapScroll.Click += () => Wrap(ControlTemplate.ScrollView);
+        Inspector.Layout.Unwrap.Click += Unwrap;
         parser = Task.Run(ParseSnapshots);
     }
 
@@ -171,6 +175,9 @@ internal sealed class DesignerWorkspace : IDisposable
     }
 
     internal void Move(int delta) => Edit((document, node, token) => document.MoveNode(document.Revision, node.Id, delta, token));
+    internal void Wrap(ControlTemplate wrapper) =>
+        Edit((document, node, token) => document.WrapNode(document.Revision, node.Id, wrapper, token));
+    internal void Unwrap() => Edit((document, node, token) => document.UnwrapNode(document.Revision, node.Id, token));
 
     private void Insert()
     {
@@ -208,6 +215,8 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (!Hierarchy.Tree.Focused) return false;
         if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'D') { Duplicate(); return true; }
+        if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'G') { Wrap(ControlTemplate.VStack); return true; }
+        if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'G') { Unwrap(); return true; }
         if (key.Modifiers == KeyModifiers.None && key.VirtualKey == 0x2E)
         { Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token)); return true; }
         if (key.Modifiers == KeyModifiers.Alt && key.VirtualKey is 0x26 or 0x28)

@@ -209,6 +209,7 @@ After the native build, run the desktop smoke test:
 ```powershell
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --smoke
 dotnet run --project bindings\dotnet\Designer.RecoveryTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 cmake --build $build --config Release --target xui_abi_features_tests
 & ".\$build\Release\xui_abi_features_tests.exe" --activation
 ```
@@ -217,6 +218,8 @@ The smoke test opens the editor and preview windows.
 It covers native layout, compiler diagnostics, preview construction errors, recovery after those errors, and file operations.
 The recovery UI test uses isolated drafts and a real native `ContentDialog`.
 It covers draft selection, recovery copies, dirty-source protection, confirmed deletion, corrupt metadata, and file races.
+The grouping UI test uses the production hierarchy and inspector with native source editing.
+It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The activation test checks that a preview window does not take foreground activation or initial keyboard focus.
 `XUI_DESKTOP_TESTS=ON` also registers the activation test with CTest.
 
