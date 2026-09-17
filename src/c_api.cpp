@@ -5,6 +5,7 @@
 #include "xui/documents.hpp"
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
+#include "xui/shell_preview.hpp"
 #include "xui/data_grid.hpp"
 #include "xui/titlebar.hpp"
 #include "xui/styling.hpp"
@@ -285,6 +286,11 @@ void wire(const std::shared_ptr<Node>& n) {
             dispatch(weak, XUI_FOCUS_ENTERED);
         });
     switch (n->kind) {
+    case XUI_SHELL_PREVIEW:
+        as<xui::ShellPreview>(n).on_changed([weak](xui::PreviewStatus status) {
+            dispatch(weak, XUI_CHANGE, status.generation);
+        });
+        break;
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
             if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
@@ -1289,3 +1295,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
     return get_host_style_values(window, part, effective, properties, capacity, count, true);
 }
 #include "c_api_file_transfer.inc"
+#include "c_api_preview.inc"

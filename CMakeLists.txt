@@ -12,6 +12,7 @@ endif()
 
 add_library(xui_core src/core.cpp src/views.cpp src/controls.cpp src/control_styling.cpp src/styling.cpp src/data_grid.cpp src/foundation.cpp src/collections.cpp src/adaptive_layout.cpp src/commands.cpp src/navigation.cpp src/navigation_view.cpp src/miller_columns.cpp src/shell_command_session.cpp src/titlebar.cpp src/documents.cpp src/vector_canvas.cpp src/map_view.cpp src/runtime_hosts.cpp)
 target_sources(xui_core PRIVATE
+    src/shell_preview.cpp
     src/file_list.cpp
     src/style_basic_schema.cpp src/style_fields_schema.cpp src/style_choices_schema.cpp src/style_layouts_schema.cpp
     src/style_collections_schema.cpp src/style_grid_schema.cpp src/style_navigation_schema.cpp src/style_hosts_schema.cpp)
@@ -117,6 +118,8 @@ if(WIN32)
         src/native_edit.cpp
         src/native_document.cpp
         src/native_runtime_host.cpp
+        src/native_preview_host.cpp
+        src/preview_session.cpp
         src/folder_suggestions.cpp
         src/path_input.cpp
         src/suggestion_worker.cpp
@@ -154,6 +157,13 @@ if(WIN32)
     target_compile_definitions(xui_windows PUBLIC
         UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_include_directories(xui_windows PUBLIC include)
+    add_executable(xui_preview_host tools/preview_host/main.cpp src/preview_policy.cpp demo/xui.rc)
+    target_include_directories(xui_preview_host PRIVATE include)
+    target_compile_definitions(xui_preview_host PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+    target_compile_options(xui_preview_host PRIVATE /W4 /permissive- /utf-8 /EHsc)
+    target_link_libraries(xui_preview_host PRIVATE ole32 oleaut32 shell32 shlwapi urlmon user32 advapi32 uuid)
+    target_link_options(xui_preview_host PRIVATE /MANIFEST:NO)
+    add_dependencies(xui_windows xui_preview_host)
     add_library(xui SHARED src/c_api.cpp)
     target_link_libraries(xui PRIVATE xui_windows)
     target_include_directories(xui PUBLIC include)
@@ -202,11 +212,11 @@ if(WIN32)
     set(XUI_SAMPLE_TARGETS
         xui_abi_sample xui_feature_sample xui_direct_sample xui_demo
         xui_gallery xui_winui_gallery xui_images xui_task_manager)
-    install(TARGETS xui xui_core xui_windows
+    install(TARGETS xui xui_core xui_windows xui_preview_host
         RUNTIME DESTINATION . COMPONENT Native
         ARCHIVE DESTINATION . COMPONENT Native)
     install(TARGETS ${XUI_SAMPLE_TARGETS} RUNTIME DESTINATION . COMPONENT Samples)
-    install(FILES $<TARGET_FILE:xui> DESTINATION . COMPONENT Samples)
+    install(FILES $<TARGET_FILE:xui> $<TARGET_FILE:xui_preview_host> DESTINATION . COMPONENT Samples)
     if(MSVC)
         target_link_options(xui_demo PRIVATE /MANIFEST:NO)
         target_link_options(xui_gallery PRIVATE /MANIFEST:NO)
@@ -312,6 +322,17 @@ if(WIN32)
         target_link_options(xui_explorer_smoke PRIVATE /MANIFEST:NO)
         target_link_libraries(xui_explorer_smoke PRIVATE ole32 oleaut32 uiautomationcore user32 gdi32 psapi)
         add_executable(xui_abi_c_test tests/abi_c_test.c)
+        add_executable(xui_preview_fixture_host tools/preview_host/main.cpp src/preview_policy.cpp demo/xui.rc)
+        target_include_directories(xui_preview_fixture_host PRIVATE include)
+        target_compile_definitions(xui_preview_fixture_host PRIVATE XUI_PREVIEW_FIXTURES UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+        target_link_libraries(xui_preview_fixture_host PRIVATE ole32 oleaut32 shell32 shlwapi urlmon user32 advapi32 uuid)
+        target_compile_options(xui_preview_fixture_host PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_preview_fixture_host PRIVATE /MANIFEST:NO)
+        add_executable(xui_preview_tests tests/preview_tests.cpp src/preview_policy.cpp demo/xui.rc)
+        target_link_libraries(xui_preview_tests PRIVATE xui_windows urlmon)
+        target_compile_options(xui_preview_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_preview_tests PRIVATE /MANIFEST:NO)
+        add_dependencies(xui_preview_tests xui_preview_fixture_host)
         target_compile_features(xui_abi_c_test PRIVATE c_std_11)
         target_link_libraries(xui_abi_c_test PRIVATE xui)
         add_test(NAME xui_abi_c_test COMMAND xui_abi_c_test)
@@ -319,6 +340,10 @@ if(WIN32)
         target_link_libraries(xui_abi_tests PRIVATE xui)
         target_compile_options(xui_abi_tests PRIVATE /utf-8 /EHsc)
         add_test(NAME xui_abi_tests COMMAND xui_abi_tests)
+        add_executable(xui_preview_abi_tests tests/preview_abi_tests.cpp)
+        target_link_libraries(xui_preview_abi_tests PRIVATE xui)
+        target_compile_options(xui_preview_abi_tests PRIVATE /utf-8 /EHsc)
+        add_test(NAME xui_preview_abi_tests COMMAND xui_preview_abi_tests)
         add_executable(xui_abi_features_tests tests/abi_features_tests.cpp)
         target_link_libraries(xui_abi_features_tests PRIVATE xui xui_core)
         target_compile_options(xui_abi_features_tests PRIVATE /utf-8 /EHsc)
@@ -406,6 +431,11 @@ if(WIN32)
         endif()
         option(XUI_DESKTOP_TESTS "Register tests that open desktop windows" OFF)
         if(XUI_DESKTOP_TESTS)
+            add_test(NAME xui_preview_tests COMMAND xui_preview_tests)
+            add_test(NAME xui_preview_hang_tests COMMAND xui_preview_tests --failure-probe hang)
+            add_test(NAME xui_preview_crash_tests COMMAND xui_preview_tests --failure-probe server-crash)
+            set_tests_properties(xui_preview_tests xui_preview_hang_tests xui_preview_crash_tests
+                PROPERTIES TIMEOUT 40 RUN_SERIAL TRUE LABELS desktop)
             add_test(NAME xui_multiwindow_tests COMMAND xui_multiwindow_tests)
             add_test(NAME xui_application_abi_tests COMMAND xui_application_abi_tests)
             set_tests_properties(xui_multiwindow_tests xui_application_abi_tests

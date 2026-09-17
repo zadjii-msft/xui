@@ -5,7 +5,7 @@ namespace Xui.FileExplorer.Models;
 public enum FilePreviewKind { Metadata, Text, Image }
 
 public sealed record FilePreview(FilePreviewKind Kind, string Text, string Message, bool Truncated = false,
-    FileEntry? Metadata = null);
+    FileEntry? Metadata = null, bool Restricted = false);
 
 public sealed class FilePreviewService
 {
@@ -24,6 +24,9 @@ public sealed class FilePreviewService
     public Task<FilePreview> LoadAsync(FileEntry entry, CancellationToken cancellation) => Task.Run(async () =>
     {
         cancellation.ThrowIfCancellationRequested();
+        if (!PreviewFilePolicy.IsLocalPath(entry.FullPath))
+            return new FilePreview(FilePreviewKind.Metadata, "", "Preview is limited to generic metadata for non-local paths.",
+                Metadata: entry, Restricted: true);
         var attributes = File.GetAttributes(entry.FullPath);
         bool directory = (attributes & FileAttributes.Directory) != 0;
         if (directory != entry.IsDirectory)
@@ -31,6 +34,8 @@ public sealed class FilePreviewService
         cancellation.ThrowIfCancellationRequested();
         if (directory)
             return new FilePreview(FilePreviewKind.Metadata, "", "", Metadata: entry);
+        if (!PreviewFilePolicy.AllowsContent(entry.FullPath, out string restriction))
+            return new FilePreview(FilePreviewKind.Metadata, "", restriction, Metadata: entry, Restricted: true);
         string extension = Path.GetExtension(entry.Name);
         if (Images.Contains(extension))
             return new FilePreview(FilePreviewKind.Image, "", "");

@@ -3,17 +3,22 @@ namespace Xui.FileExplorer;
 component PreviewLayout {
     param global::Xui.Element Body;
     param global::Xui.Element Status;
+    param global::Xui.Element ProviderStatus;
 
     view {
         VStack(padding: 12, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("File preview", ref: Title, id: "preview-title", flex: 1);
+                    Button("Open Windows preview", ref: WindowsPreview, id: "preview-windows",
+                        size: (190, 36), help: "Open an installed handler in a separate window. This is not a network or macro sandbox.");
                     Button("Open", ref: Open, id: "preview-open", icon: global::Xui.ButtonIcon.Open,
                         size: (36, 36), help: "Open in the associated application");
                     Button("Close preview", ref: Close, id: "preview-close", icon: global::Xui.ButtonIcon.Close,
                         size: (36, 36), help: "Close preview (Escape)");
                 }
                 Content(Body, flex: 1);
+                Text("Windows previews open a separate window. Installed handlers can access files and network resources.");
+                Content(ProviderStatus);
                 Content(Status);
         }
     }

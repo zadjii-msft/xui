@@ -12,11 +12,14 @@ internal sealed class PreviewSession : IDisposable
     private readonly Action opened;
     private readonly PreviewLayout layout;
     private readonly PreviewMetadataLayout metadata;
-    private readonly Image metadataIcon;
+    private readonly VectorCanvas metadataIcon;
+    private readonly ShellPreview windowsPreview;
     private readonly InlineStatus status;
     private readonly FilePreviewService service = new();
     private readonly CancellationTokenSource request = new();
     private bool disposed;
+    private bool providerAllowed;
+    private string basicMessage = "";
 
     public PreviewSession(Application application, FileEntry target, bool smoke, Action opened)
     {
@@ -36,15 +39,28 @@ internal sealed class PreviewSession : IDisposable
         Image.SetAutomationId("preview-image").Visible(false);
         body.Add(Text);
         body.Add(Image);
-        metadataIcon = Window.Image("File icon");
-        metadataIcon.SetAutomationId("preview-file-icon").SetControlStyle(ExplorerStyles.PreviewImage).PreferredSize(160, 160);
+        metadataIcon = Window.VectorCanvas("Generic file icon");
+        metadataIcon.SetAutomationId("preview-file-icon").PreferredSize(160, 160);
+        metadataIcon.SetScene(target.IsDirectory
+            ? [new(1, [new(12, 42), new(60, 42), new(72, 55), new(148, 55), new(148, 130), new(12, 130)],
+                "Generic folder", Closed: true, Fill: new(0.84f, 0.65f, 0.24f), Stroke: new(0.35f, 0.3f, 0.16f), StrokeWidth: 2)]
+            : [new(1, [new(35, 12), new(100, 12), new(130, 42), new(130, 148), new(35, 148)],
+                "Generic file", Closed: true, Fill: new(0.7f, 0.76f, 0.82f), Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 2),
+               new(2, [new(100, 12), new(100, 42), new(130, 42)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 2),
+               new(3, [new(53, 72), new(111, 72)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 3),
+               new(4, [new(53, 92), new(111, 92)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 3)]);
         metadata = new(Window, metadataIcon, attach: false);
         body.Add(metadata.Root);
         ShowMetadata(false);
         status = Window.InlineStatus("Preview status");
         status.SetAutomationId("preview-status");
         status.SetDismissible(false);
-        layout = new(Window, body, status);
+        windowsPreview = Window.ShellPreview("Windows preview status");
+        windowsPreview.SetAutomationId("preview-provider").PreferredSize(600, 24).Visible(false);
+        layout = new(Window, body, status, windowsPreview);
+        layout.WindowsPreview.Enabled = false;
+        layout.WindowsPreview.Click += OpenWindowsPreview;
+        windowsPreview.Changed += ProviderChanged;
         layout.Open.SetStyle(ExplorerStyles.IconButton);
         layout.Close.SetStyle(ExplorerStyles.IconButton);
         layout.Close.Click += Dismiss;
@@ -71,8 +87,13 @@ internal sealed class PreviewSession : IDisposable
     internal Image Image { get; }
     internal Button CloseButton => layout.Close;
     internal Button OpenButton => layout.Open;
+    internal Button WindowsPreviewButton => layout.WindowsPreview;
+    internal bool WindowsPreviewAllowed => providerAllowed && IsOpen && !Pending
+        && windowsPreview.Status.State is not (PreviewState.Loading or PreviewState.Accepted);
+    internal PreviewStatus ProviderStatus => windowsPreview.Status;
+    internal int ProviderAttempts { get; private set; }
     internal ElementBounds Bounds => layout.Root.GetBounds();
-    internal Image MetadataIcon => metadataIcon;
+    internal VectorCanvas MetadataIcon => metadataIcon;
     internal string MetadataName => metadata.Name.Text;
     internal string MetadataKind => metadata.Kind.Text;
     internal string MetadataSize => metadata.Size.Text;
@@ -83,6 +104,11 @@ internal sealed class PreviewSession : IDisposable
     {
         var selected = Target;
         layout.Title.Text = selected.Name;
+        metadata.Name.Text = selected.Name;
+        metadata.Kind.Text = $"File Type: {(selected.IsDirectory ? "File folder" : selected.Kind)}";
+        metadata.Size.Text = selected.IsDirectory ? "Size: Not calculated"
+            : $"Size: {FileRows.FormatSize(selected.Size)} ({selected.Size:N0} bytes)";
+        metadata.Modified.Text = $"Date Modified: {selected.ModifiedUtc.ToLocalTime():g}";
         Text.SetName($"Contents of {selected.Name}").Visible(false);
         Image.SetName($"Preview of {selected.Name}").Visible(false);
         ShowMetadata(false);
@@ -98,18 +124,14 @@ internal sealed class PreviewSession : IDisposable
             if (!IsOpen) return;
             Pending = false;
             layout.Open.Enabled = true;
+            providerAllowed = !result.Restricted && !selected.IsDirectory;
+            layout.WindowsPreview.Enabled = providerAllowed;
+            basicMessage = result.Message;
             SetMessage(result.Message);
             if (result.Kind == FilePreviewKind.Image)
                 Image.Source(selected.FullPath, 1024, 1024).Visible(true);
-            else if (result.Metadata is { } file)
+            else if (result.Metadata is not null)
             {
-                metadata.Name.Text = file.Name;
-                metadata.Kind.Text = $"File Type: {(file.IsDirectory ? "File folder" : file.Kind)}";
-                metadata.Size.Text = file.IsDirectory ? "Size: Not calculated"
-                    : $"Size: {FileRows.FormatSize(file.Size)} ({file.Size:N0} bytes)";
-                metadata.Modified.Text = $"Date Modified: {file.ModifiedUtc.ToLocalTime():g}";
-                metadataIcon.SetName($"Icon for {file.Name}");
-                metadataIcon.ShellSource(file.FullPath, 256, 256);
                 ShowMetadata(true);
             }
             else
@@ -124,6 +146,36 @@ internal sealed class PreviewSession : IDisposable
             layout.Open.Enabled = true;
             SetMessage($"Cannot preview this item: {error.Message}", StatusSeverity.Error);
         });
+    }
+
+    internal void OpenWindowsPreview()
+    {
+        if (!WindowsPreviewAllowed) return;
+        ProviderAttempts++;
+        SetMessage(basicMessage);
+        windowsPreview.Visible(true);
+        windowsPreview.LoadLocal(Target.FullPath);
+    }
+
+    private void ProviderChanged(PreviewStatus value)
+    {
+        if (!IsOpen) return;
+        bool active = value.State is PreviewState.Loading or PreviewState.Accepted;
+        windowsPreview.Visible(active);
+        layout.WindowsPreview.Enabled = providerAllowed && !active;
+        if (value.Reason is PreviewReason.None or PreviewReason.NoHandler or PreviewReason.Cancelled or PreviewReason.Hidden)
+            return;
+        if (value.Reason == PreviewReason.Restricted)
+        {
+            providerAllowed = false;
+            layout.WindowsPreview.Enabled = false;
+            Text.Text = "";
+            Text.Visible(false);
+            Image.Unload().Visible(false);
+            ShowMetadata(true);
+        }
+        SetMessage($"Windows preview unavailable: {value.Reason} ({value.Phase}, 0x{unchecked((uint)value.HResult):X8}). Basic preview remains available.",
+            value.State == PreviewState.Failed ? StatusSeverity.Error : StatusSeverity.Warning);
     }
 
     private void SetMessage(string message, StatusSeverity severity = StatusSeverity.Information)
@@ -168,7 +220,7 @@ internal sealed class PreviewSession : IDisposable
         if (key.VirtualKey == 0x1b) { Dismiss(); return true; }
         // Space opens only. Do not let held-key repeats activate the focused Close button.
         if (key.VirtualKey == 0x20 && key.Modifiers == KeyModifiers.None
-            && (key.TargetId == layout.Close.Id || key.TargetId == layout.Open.Id)) return true;
+            && (key.TargetId == layout.Close.Id || key.TargetId == layout.Open.Id || key.TargetId == layout.WindowsPreview.Id)) return true;
         return false;
     }
 
@@ -176,6 +228,7 @@ internal sealed class PreviewSession : IDisposable
     {
         if (!IsOpen) return;
         request.Cancel();
+        windowsPreview.Unload();
         Pending = false;
         work.Dispose();
         Window.Close();
@@ -184,6 +237,7 @@ internal sealed class PreviewSession : IDisposable
     public void Dispose()
     {
         if (disposed) return;
+        windowsPreview.Changed -= ProviderChanged;
         work.Dispose();
         request.Cancel();
         request.Dispose();
