@@ -93,6 +93,8 @@ XUI_API xui_status XUI_CALL xui_application_window_create(xui_handle application
 XUI_API xui_status XUI_CALL xui_application_show(xui_handle application, xui_handle window) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_application_run(xui_handle application) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_application_shutdown(xui_handle application) XUI_NOEXCEPT;
+/* Accepted posts execute once (1) or release once (0). Rejected posts retain caller ownership.
+   Release can occur on the posting thread and must not call UI APIs. */
 XUI_API xui_status XUI_CALL xui_application_post(xui_handle application,
     xui_application_post_callback callback, void* context) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_application_destroy(xui_handle application) XUI_NOEXCEPT;

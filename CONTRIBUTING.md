@@ -345,14 +345,16 @@ Physical IME, mixed-monitor transitions, and screen-reader speech still require 
 Run these desktop checks sequentially:
 
 ```powershell
-cmake --build $build --config Release --target xui xui_multiwindow_tests
+cmake --build $build --config Release --target xui xui_multiwindow_tests xui_application_abi_tests
 & ".\$build\Release\xui_multiwindow_tests.exe"
+& ".\$build\Release\xui_application_abi_tests.exe"
 dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --multiwindow
 $env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
 cargo test --manifest-path bindings\rust\Cargo.toml -p xui --test application -- --test-threads=1
 ```
 
 The Rust integration executable embeds a common-controls v6 and per-monitor-DPI manifest.
+The ABI check covers close callbacks, batched cancellation, retained errors, and worker posts concurrent with dispatcher destruction.
 The managed check covers strong roots, deferred disposal, canceled posts, callback errors, and legacy sequential runs.
 The Explorer smoke also closes Explorer before its text, image, and folder previews.
 It checks real ownerless HWNDs, native text copying, image reuse, resize, and captured-target Open after opener disposal.

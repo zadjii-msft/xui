@@ -155,6 +155,7 @@ struct ApplicationState {
     std::unique_ptr<xui::Application> application = std::make_unique<xui::Application>();
     bool running{};
     unsigned callbacks{};
+    std::atomic<xui_status> callback_failure{};
 };
 std::unordered_map<xui_handle, std::shared_ptr<ApplicationState>> applications;
 std::shared_ptr<ApplicationState> get_application(xui_handle handle) {
@@ -179,7 +180,14 @@ void lifecycle(const std::shared_ptr<State>& state, xui_handle handle) {
             --s->callbacks;
             if (result && !s->callback_failure) s->callback_failure = result;
         }
-        if (s->callback_failure) throw std::runtime_error("A foreign window callback failed.");
+        if (s->callback_failure) {
+            if (s->application) {
+                std::lock_guard lock(registry_mutex);
+                if (const auto app = applications.find(s->application); app != applications.end())
+                    app->second->callback_failure = s->callback_failure;
+            }
+            throw std::runtime_error("A foreign window callback failed.");
+        }
     });
 }
 xui::WindowOptions window_options(const xui_window_options* options) {
@@ -379,6 +387,7 @@ xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
 xui_status XUI_CALL xui_window_run(xui_handle window) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); auto s = n->owner;
+        require(!s->application, XUI_INVALID_ARGUMENT, "Use the owning application's dispatcher.");
         topology(s); s->used = true; s->running = true;
         struct Reset { State& s; ~Reset() { s.running = false; s.closed = true; } } reset{*s};
         const int result = xui::Application::run(*s->window);
@@ -439,7 +448,9 @@ xui_status XUI_CALL xui_application_run(xui_handle application) noexcept {
         require(!state->running && !state->callbacks, XUI_BUSY, "An application cannot run recursively.");
         state->running = true;
         struct Reset { ApplicationState& state; ~Reset() { state.running = false; } } reset{*state};
-        if (state->application->run()) throw std::runtime_error(encode(state->application->error()));
+        const auto result = state->application->run();
+        require(!state->callback_failure, XUI_CALLBACK_FAILED, "An application or window callback failed.");
+        if (result) throw std::runtime_error(encode(state->application->error()));
     });
 }
 xui_status XUI_CALL xui_application_shutdown(xui_handle application) noexcept {
@@ -470,7 +481,17 @@ xui_status XUI_CALL xui_application_post(xui_handle application,
             xui_application_post_callback callback{};
             void* context{};
             std::atomic<unsigned> state{};
-            ~Delivery() { if (state == 1) { try { callback(context, 0); } catch (...) {} } }
+            std::weak_ptr<ApplicationState> owner;
+            ~Delivery() {
+                if (state != 1) return;
+                xui_status result{};
+                try { result = callback(context, 0); }
+                catch (...) { result = XUI_CALLBACK_FAILED; }
+                if (result) {
+                    if (const auto application = owner.lock()) application->callback_failure = result;
+                    std::fprintf(stderr, "XUI application post release failed: %d\n", result);
+                }
+            }
         };
         auto delivery = std::make_shared<Delivery>();
         delivery->callback = callback; delivery->context = context;
@@ -478,6 +499,7 @@ xui_status XUI_CALL xui_application_post(xui_handle application,
         const auto found = applications.find(application);
         require(found != applications.end(), XUI_INVALID_HANDLE, "Invalid or stale application.");
         auto state = found->second;
+        delivery->owner = state;
         require(state->application != nullptr, XUI_CLOSED, "The application is closed.");
         const bool accepted = state->application->post([weak = std::weak_ptr<ApplicationState>(state), delivery] {
             const auto owner = weak.lock();
@@ -488,7 +510,10 @@ xui_status XUI_CALL xui_application_post(xui_handle application,
             try { result = delivery->callback(delivery->context, 1); }
             catch (...) { result = XUI_CALLBACK_FAILED; }
             --owner->callbacks;
-            if (result) throw std::runtime_error("An application callback failed.");
+            if (result) {
+                owner->callback_failure = result;
+                throw std::runtime_error("An application callback failed.");
+            }
         });
         require(accepted, XUI_CLOSED, "The application is closed.");
         unsigned pending{};

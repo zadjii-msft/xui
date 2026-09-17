@@ -46,6 +46,9 @@ The optional-capability mask uses bit `0x2` for this additive API.
 An accepted application post receives exactly one callback: `execute=1` for execution, or `execute=0` for cancellation and release.
 A rejected post does not receive a callback. Its caller retains the context.
 An application-post callback error requests application shutdown.
+Foreign callback errors return `XUI_CALLBACK_FAILED` from `xui_application_run`.
+Cancellation callbacks release context only. They cannot use UI APIs because cancellation can occur on the posting thread.
+The ABI records application-post release errors and writes them to standard error.
 Window posts retain their existing execution-or-release contract and stop with that window.
 The application accepts cleanup posts from the final window's closed callback before it stops.
 Both post APIs permit worker-thread calls. Other lifecycle calls require the creating UI thread.
