@@ -19,6 +19,14 @@ Transparent child HWNDs retain input and UIA behavior. Native EDIT and caption H
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
 
+`include\xui\swap_chain_panel.hpp` defines the Windows-only `SwapChainPanel` interop control.
+`src\native_swap_chain_host.cpp` owns its DirectComposition device, target, visual, and producer reference.
+`src\application.cpp` supplies native peer lifetime, viewport clips, size/DPI notifications, and native-surface popup restrictions.
+The producer owns buffer resizing and presentation.
+The handle path imports composition surfaces for renderers such as Windows Terminal's Atlas engine.
+The [public contract](../specs/swap-chain-panel.md) separates graphics hosting from the future terminal input and accessibility adapter.
+`demo\swap_chain.cpp` and `tests\swap_chain_panel_tests.cpp` exercise native composition without a terminal dependency.
+
 `demo\browser.cpp` builds the tabs, panes, address fields, lists, status labels, shortcuts, and menus through public APIs.
 `demo\explorer_state.hpp` contains bounded history and tab state without a window dependency.
 `demo\shell_dispatch.cpp` supplies the Windows file-association dispatcher.

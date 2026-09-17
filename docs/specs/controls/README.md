@@ -279,6 +279,7 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `MapView` | [MapView](media.md#mapview) | `MapView` | `map_view` |
 | `MediaPlayback` | [MediaPlayback](media.md#mediaplayback) | `MediaPlayback` | `media_playback` |
 | `WebContent` | [WebContent](media.md#webcontent) | `WebContent` | `web_content` |
+| `SwapChainPanel` | [Swap chain panel](media.md#swap-chain-panel) | Windows C++ only | Windows C++ only |
 
 `Control`, `DocumentText`, `VirtualCollection`, and `RuntimeHost` provide shared behavior, not public standalone constructors.
 `Element` is constructible in C++, but it has no control behavior or style target.

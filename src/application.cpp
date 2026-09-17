@@ -4,6 +4,7 @@
 #include "native_file_dialog.hpp"
 #include "content_inspection.hpp"
 #include "native_runtime_host.hpp"
+#include "native_swap_chain_host.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
 #include "platform.hpp"
@@ -86,6 +87,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::weak_ptr<Control> clear_owner;
         std::unique_ptr<NativeDocumentBridge> document;
         std::unique_ptr<NativeRuntimeHost> runtime;
+        std::unique_ptr<NativeSwapChainHost> swap_chain;
         bool native() const { return edit || document; }
         std::unique_ptr<ListPeer> list;
         std::unique_ptr<ImagePeer> image;
@@ -126,6 +128,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             file_target.Reset();
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
             runtime.reset();
+            swap_chain.reset();
             if (list) window = nullptr;
             if (window && IsWindow(window)) DestroyWindow(window);
             if (caption && IsWindow(caption)) DestroyWindow(caption);
@@ -285,6 +288,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto& task : tasks) task->cancel();
         for (const auto& peer : peers) {
             if (peer->runtime) peer->runtime->cancel_owner();
+            if (peer->swap_chain) peer->swap_chain->cancel_owner();
             if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
         }
         try { hide_tooltip(); }
@@ -307,6 +311,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto* map = dynamic_cast<MapView*>(peer.control.get())) map->cancel_request();
         if (peer.list) peer.list->detach_thumbnails();
         if (peer.runtime) peer.runtime->cancel_owner();
+        if (peer.swap_chain) peer.swap_chain->cancel_owner();
     }
     void detach() {
         stop_progress_animation();
@@ -781,6 +786,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             });
+        if (auto panel = std::dynamic_pointer_cast<SwapChainPanel>(peer->control))
+            peer->swap_chain = std::make_unique<NativeSwapChainHost>(panel, peer->window, [this] {
+                return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
+                    [](const auto* layout) { return layout->overlay_active(); });
+            });
         if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
             const std::weak_ptr<Impl> weak = shared_from_this();
             const std::weak_ptr<DataGrid> weak_grid = grid;
@@ -1044,7 +1054,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     void offer_tooltip(Peer& peer) {
-        for (const auto& item : peers) if (item->runtime && item->runtime->active()) { hide_tooltip(); return; }
+        for (const auto& item : peers)
+            if ((item->runtime && item->runtime->active()) || (item->swap_chain && item->swap_chain->active())) {
+                hide_tooltip(); return;
+            }
         if (!window || !ready || !onscreen(peer) || !enabled(peer) || !in_top_popup(peer) ||
             peer.control->help_text().empty() || !IsWindowVisible(window)) {
             if (tooltip_target == peer.control->id()) hide_tooltip();
@@ -1161,8 +1174,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (popup->is_open()) throw std::logic_error("Popup is already open");
         if (replacing && !retains(anchor))
             throw std::invalid_argument("Popup anchor is being retired");
-        for (const auto& peer : peers) if (peer->runtime && peer->runtime->active())
-            throw std::logic_error("Unload native media and web content before opening an XUI popup");
+        for (const auto& peer : peers)
+            if ((peer->runtime && peer->runtime->active()) || (peer->swap_chain && peer->swap_chain->active()))
+                throw std::logic_error("Detach native media, web, and swap chain content before opening an XUI popup");
         auto* anchor_peer = find_peer(&anchor);
         if (!anchor_peer || !enabled(*anchor_peer) || !onscreen(*anchor_peer))
             throw std::invalid_argument("Popup anchor must be an enabled visible control in this window");
@@ -1257,6 +1271,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             case ControlRole::map_view: supported = dynamic_cast<const MapView*>(value); break;
             case ControlRole::media_playback: supported = dynamic_cast<const MediaPlayback*>(value); break;
             case ControlRole::web_content: supported = dynamic_cast<const WebContent*>(value); break;
+            case ControlRole::swap_chain_panel: supported = dynamic_cast<const SwapChainPanel*>(value); break;
             }
             if (!supported) throw std::invalid_argument("Control role requires its standard control type");
         }
@@ -1641,6 +1656,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (!window || closing) return;
                 if (peer->runtime->active()) hide_tooltip();
             }
+            if (peer->swap_chain) {
+                auto clip = clipped_bounds(*peer);
+                const bool shown = visible(*peer) && clip.width > 0 && clip.height > 0 &&
+                    IsWindowVisible(window) && !IsIconic(window);
+                clip.x -= peer->paint_bounds.x;
+                clip.y -= peer->paint_bounds.y;
+                peer->swap_chain->sync(shown, dpi, clip);
+                if (!window || closing) return;
+                if (peer->swap_chain->active()) hide_tooltip();
+            }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
                 static_cast<MapView&>(*peer->control).cancel_request();
             const bool tab_stop = control.focusable() && control.tab_stop() && !is_caption_button(control);
@@ -1942,8 +1967,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto popup = dynamic_cast<Popup*>(peer.control.get())) return popup->content_bounds();
         return peer.control->bounds();
     }
-    bool onscreen(const Peer& peer) const {
-        if (!visible(peer)) return false;
+    Rect clipped_bounds(const Peer& peer) const {
         auto result = peer.control->bounds();
         const auto intersect = [&](Rect clip) {
             const auto right = std::min(result.x + result.width, clip.x + clip.width);
@@ -1953,6 +1977,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         };
         intersect(root->bounds());
         for (auto* parent = peer.parent; parent; parent = parent->parent) intersect(viewport(*parent));
+        return result;
+    }
+    bool onscreen(const Peer& peer) const {
+        if (!visible(peer)) return false;
+        const auto result = clipped_bounds(peer);
         return result.width > 0 && result.height > 0;
     }
     bool visible(const Peer& peer) const {
@@ -2554,6 +2583,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto foundation_text = enabled(peer) ? palette.text : palette.disabled;
         const bool fluent = palette.style == VisualStyle::winui;
         const bool focus_visible = control.focused() && (!fluent || keyboard_focus_visible);
+        if (control.role() == ControlRole::swap_chain_panel) {
+            canvas.fill({0, 0, bounds.width, bounds.height}, palette.field);
+            return;
+        }
         if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
             const auto area = runtime->visual_bounds();
             const auto* root_values = runtime->effective_control_style_values(StylePart::root);
@@ -4840,6 +4873,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_NCDESTROY:
             if (peer.file_target) { RevokeDragDrop(hwnd); peer.file_target.Reset(); }
             peer.runtime.reset();
+            peer.swap_chain.reset();
             control.cancel();
             control.set_focused(false);
             disconnect_control(peer.accessibility, peer.provider);
@@ -4971,6 +5005,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (auto& task : samples) task->suspend(wparam == SIZE_MINIMIZED);
             if (wparam == SIZE_MINIMIZED) for (const auto& peer : peers) {
                 if (peer->runtime) peer->runtime->suspend();
+                if (peer->swap_chain) peer->swap_chain->suspend();
                 if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
             }
             if (wparam != SIZE_MINIMIZED) invalidate(Invalidation::layout);
@@ -4986,6 +5021,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (auto& task : samples) task->suspend(!wparam || IsIconic(hwnd));
             if (!wparam) for (const auto& peer : peers) {
                 if (peer->runtime) peer->runtime->suspend();
+                if (peer->swap_chain) peer->swap_chain->suspend();
                 if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
             }
             else invalidate(Invalidation::paint);
@@ -5539,6 +5575,7 @@ void Window::close() {
     for (auto& task : impl->tasks) task->cancel();
     for (const auto& peer : impl->peers) {
         if (peer->runtime) peer->runtime->cancel_owner();
+        if (peer->swap_chain) peer->swap_chain->cancel_owner();
         if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
     }
     if (impl->window) win32_require(PostMessageW(impl->window, WM_CLOSE, 0, 0) != FALSE, "Close native window");

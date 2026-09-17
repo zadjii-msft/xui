@@ -92,6 +92,32 @@ ctest --test-dir $build -C Release -R "^xui_gallery_catalog_tests$" --output-on-
 The last command opens a desktop window.
 It checks shared language selection, native code text, copy actions, handbook URLs, and navigation links without opening a browser.
 
+### Swap chain sample
+
+Build and run the DirectComposition sample:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_sample
+& ".\$build\Release\xui_swap_chain_sample.exe"
+```
+
+The sample displays a rainbow triangle that rotates around its Y axis, with perspective, beside ordinary XUI controls.
+The Pause button stops rotation. Hidden panels stop frame delivery.
+The triangle keeps its proportions after a resize or DPI change.
+`--handle` selects the composition-handle path. `--warp` selects software rendering.
+`--smoke` closes the sample after 60 presented frames.
+The [swap chain contract](docs/specs/swap-chain-panel.md) describes the renderer boundary and Windows Terminal integration limits.
+
+Build and run the native regression fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_panel_tests
+ctest --test-dir $build -C Release -R "^xui_swap_chain_panel_tests$" --output-on-failure
+```
+
+The fixture requires a Windows desktop with DirectComposition and Windows Graphics Capture.
+It inspects real compositor frames, not `WM_PRINT` output.
+
 ### Use XUI in a C++ application
 
 Link the executable to `xui_windows`.

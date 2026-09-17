@@ -103,7 +103,8 @@ public:
                     s.role == ControlRole::progress ? UIA_ProgressBarControlTypeId :
                     s.role == ControlRole::inline_status ? UIA_StatusBarControlTypeId :
                     s.role == ControlRole::color_picker || s.role == ControlRole::vector_canvas || s.role == ControlRole::map_view ||
-                    s.role == ControlRole::media_playback || s.role == ControlRole::web_content ? UIA_GroupControlTypeId :
+                    s.role == ControlRole::media_playback || s.role == ControlRole::web_content ||
+                    s.role == ControlRole::swap_chain_panel ? UIA_GroupControlTypeId :
                     s.role == ControlRole::popup ? (s.dialog_surface ? UIA_WindowControlTypeId : UIA_PaneControlTypeId) : UIA_ThumbControlTypeId;
             } else if (id == UIA_AccessKeyPropertyId && s.menu_heading) {
                 value->vt = VT_BSTR;

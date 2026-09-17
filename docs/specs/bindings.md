@@ -4,6 +4,9 @@ Build and test commands are in [CONTRIBUTING](../../CONTRIBUTING.md).
 See the [reference index](README.md) for related APIs.
 Examples in this reference use C++ unless stated otherwise.
 
+`SwapChainPanel` is currently a [Windows-only C++ graphics API](swap-chain-panel.md).
+The C ABI, C#, Rust, and declarative `.xui` do not expose its native pointers or surface handles.
+
 ## Feature bindings (1.1 extension)
 
 ### Independent windows

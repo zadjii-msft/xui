@@ -41,7 +41,7 @@
                 (!IsChild(window, hwnd) && GetAncestor(hwnd, GA_ROOTOWNER) != window)) continue;
             const auto peer = std::find_if(peers.begin(), peers.end(),
                 [hwnd](const auto& value) { return value->window == hwnd || value->caption == hwnd; });
-            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime &&
+            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime && !(*peer)->swap_chain &&
                 hwnd != (*peer)->caption) continue;
             RECT bounds{};
             win32_require(GetWindowRect(hwnd, &bounds) != 0, "Read opaque highlight surface");

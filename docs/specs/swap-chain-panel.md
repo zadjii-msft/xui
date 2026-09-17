@@ -1,0 +1,130 @@
+# Swap chain panel
+
+`SwapChainPanel` embeds an application-owned DirectX surface in XUI layout.
+It uses DirectComposition, not a bitmap copy or a child application window.
+This Windows-only C++ API is in `include\xui\swap_chain_panel.hpp`.
+The C ABI, C#, Rust, and declarative `.xui` do not expose this control.
+Build and sample commands are in [CONTRIBUTING](../../CONTRIBUTING.md#swap-chain-sample).
+
+## Attach a renderer
+
+The panel accepts two kinds of content:
+
+- `set_swap_chain(IDXGISwapChain*)` accepts a swap chain from `IDXGIFactory2::CreateSwapChainForComposition`.
+- `set_swap_chain_handle(HANDLE)` accepts a surface handle from `DCompositionCreateSurfaceHandle`.
+
+The pointer path requires `DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL`, `DXGI_SCALING_STRETCH`, and no multisampling.
+It retains a COM reference to the swap chain.
+The handle path imports the composition surface through `IDCompositionDesktopDevice::CreateSurfaceFromHandle`.
+The caller retains handle ownership and can close the handle after the call returns.
+A shared texture handle, HWND, or handle value from another process is not a composition surface handle.
+Cross-process producers must explicitly duplicate the surface handle into the application process.
+
+Either setter replaces the current content, regardless of its type.
+Null detaches the current content and releases the panel's graphics resources.
+The renderer retains ownership of its device, back buffers, rendering thread, and presentation.
+XUI never calls `ResizeBuffers`, `Present`, or a swap-chain matrix transform.
+It displays producer pixels at their native size and clips them to the panel and ancestor viewports.
+
+This fragment uses an application-owned composition swap chain:
+
+```cpp
+#include "xui/application.hpp"
+#include "xui/swap_chain_panel.hpp"
+
+void add_renderer(xui::Stack& root, IDXGISwapChain* swap_chain)
+{
+    auto panel = std::make_shared<xui::SwapChainPanel>(L"Terminal display");
+    panel->set_preferred_size({800, 480});
+    panel->set_swap_chain(swap_chain);
+    root.add(panel, 1);
+}
+```
+
+Attachment operations and callbacks require the creating UI thread.
+An `Application` instance initializes that thread for COM.
+Before `Application::run(Window&)` starts, callers that create graphics resources must initialize COM themselves.
+Content can attach before the native peer exists.
+An unattached panel retains its content until explicit detachment or destruction.
+The complete [sample](../../demo/swap_chain.cpp) creates its renderer in the first visible metrics callback.
+It displays a rainbow triangle that rotates around its Y axis, with perspective, interpolated vertex colors, and a Pause button.
+Its frame scheduler permits at most one pending UI callback and stops while the panel is hidden.
+
+## Size and visibility
+
+`metrics()` returns the current `SwapChainPanelMetrics`.
+`pixel_width` and `pixel_height` describe the full native client area, not its visible scroll intersection.
+`rasterization_scale` equals DPI divided by 96.
+`visible` reports whether the panel can display content.
+The metrics do not indicate whether a swap chain is attached or whether a frame was presented.
+
+`on_metrics_changed` receives size, DPI, and visibility changes after native layout.
+The first callback supplies the initial native metrics.
+Callbacks do not repeat when the metrics stay unchanged.
+A callback registered after attachment receives the next change, not an immediate replay.
+The caller can read `metrics()` for the current value.
+
+The renderer must use the pixel dimensions for its buffers.
+It must not multiply those dimensions by `rasterization_scale` again.
+A terminal adapter can use the scale separately for font metrics.
+Zero-sized or invisible panels require no frame.
+The renderer must release its back-buffer views before `ResizeBuffers` and handle its own device-loss errors.
+
+Callbacks can request renderer work through an application-owned queue.
+Worker threads must use `Window::post` for subsequent panel changes.
+XUI does not stop or join renderer threads.
+The application must cancel renderer work when its owner closes.
+
+Hidden pages, minimized windows, invisible controls, and fully scrolled-out panels stop displaying their surface.
+XUI retains their content and restores it when they become visible.
+An adaptive overlay also hides the surface.
+The metrics callback reports these visibility changes so the producer can pause rendering.
+
+## Native composition boundary
+
+The panel is a rectangular native surface.
+It supports scrolling and normal layout, but not retained transforms, rounded masks, or retained controls over its pixels.
+The panel has no XUI control-style schema.
+The renderer supplies its own background, colors, and high-contrast presentation.
+
+Retained popups cannot open while a swap-chain surface is active.
+Tooltips remain hidden while a surface is active.
+After the application detaches the surface, retained popups can open.
+An attachment during an open popup does not display until that popup closes.
+Native text inputs beside the panel keep their existing native editing behavior.
+
+`WM_PRINT`, root bitmap capture, and Designer pointer inspection do not include the composition content.
+A real compositor capture is necessary to inspect its pixels.
+
+## Lifetime and errors
+
+`native_window()` returns the borrowed input-peer HWND.
+It returns null before native attachment and after owner teardown.
+The application must not destroy, reparent, or retain this HWND after teardown.
+This handle does not transfer XUI window ownership to the renderer.
+
+Window closure and content replacement release attached panel content before XUI shuts down COM.
+A retained panel then reports no content, a null HWND, and empty metrics.
+Teardown does not call the metrics callback.
+`Window::on_closed` supplies the owner notification.
+Non-null attachment to a closed host throws until a new native host attaches that control.
+
+Invalid inputs throw `std::invalid_argument` or a native error.
+DirectComposition and DXGI failures throw `std::system_error` with the HRESULT value.
+An exception in a metrics callback follows the existing window callback-error contract and closes the window.
+XUI does not hide attachment failures or substitute a screenshot.
+After producer device loss, null detachment releases the old composition device before a new attachment.
+
+## Windows Terminal integration
+
+Windows Terminal's Atlas renderer creates a composition surface handle.
+`TermControl::_AttachDxgiSwapChainToXaml` passes that handle to `ISwapChainPanelNative2::SetSwapChainHandle`.
+XUI's handle setter supplies the corresponding graphics boundary without XAML.
+The upstream implementations are [AtlasEngine.r.cpp](https://github.com/microsoft/terminal/blob/9694946ae22420a30691b7610c31f5723d9a5ff8/src/renderer/atlas/AtlasEngine.r.cpp)
+and [TermControl.cpp](https://github.com/microsoft/terminal/blob/9694946ae22420a30691b7610c31f5723d9a5ff8/src/cascadia/TerminalControl/TermControl.cpp).
+
+This control does not embed Windows Terminal by itself.
+A terminal adapter still needs renderer ownership, terminal sessions, keyboard and pointer input, IME/TSF, clipboard behavior, and terminal text accessibility.
+The panel exposes a named UIA group, not a text provider.
+It is not a tab stop by default.
+The application can enable its tab stop, but that change does not implement terminal input or accessibility.
