@@ -422,6 +422,13 @@ The workflow creates a draft release and attaches the assets and SHA-256 checksu
 It does not publish to NuGet.org or crates.io.
 It refuses to replace assets on an already published GitHub release.
 
+The script uploads one asset at a time.
+It retries a failed upload up to four times, with delays of 5, 10, 20, and 40 seconds.
+Each retry replaces any partial asset with the same name.
+Successful uploads do not repeat during these retries.
+If all five attempts fail, the script stops with the asset path and exit code.
+A later run can replace the assets on the existing draft.
+
 To request a release, push a tag from the intended commit:
 
 ```powershell

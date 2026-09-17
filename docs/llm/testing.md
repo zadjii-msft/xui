@@ -52,6 +52,8 @@ The workflow runs these checks before the release builds.
 
 `tests\release-workflow.ps1` replaces `gh` with a local fixture.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
+It also checks per-asset upload retries, exponential delays, recovery on the last attempt, retry exhaustion, and a subsequent run.
+Successful uploads must not repeat during retries, and retry exhaustion must stop further uploads.
 It also requires both sample archives and both Designer archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
