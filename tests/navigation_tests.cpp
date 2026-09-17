@@ -227,6 +227,16 @@ void navigation_contracts() {
     require(caption.hit_test({10, 20}) == CaptionHit::client, "Hamburger is not a drag target");
     require(caption.hit_test({second_tabs.x + 10, 20}) == CaptionHit::client, "Secondary tabs are not drag targets");
     require(caption.hit_test({880, 20}) == CaptionHit::close, "Secondary tabs preserve caption hit testing");
+    TitleBar document_caption(L"Document without tabs");
+    document_caption.leading()->set_visible(true);
+    document_caption.tabs()->set_visible(false);
+    document_caption.secondary_tabs()->set_visible(false);
+    document_caption.arrange({0, 0, 900, 44});
+    require(document_caption.title()->bounds().x == 52 &&
+        document_caption.title()->bounds().x + document_caption.title()->bounds().width == document_caption.minimize()->bounds().x,
+        "A document title uses the space between its leading action and caption buttons");
+    require(document_caption.hit_test({500, 20}) == CaptionHit::drag,
+        "An expanded document title remains a drag target");
     auto first_pane = std::make_shared<Stack>(Axis::vertical);
     auto second_pane = std::make_shared<Stack>(Axis::vertical);
     SplitView aligned(first_pane, second_pane);

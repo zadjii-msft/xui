@@ -5,6 +5,17 @@ internal static class ExplorerStyles
     // Match the WinUI window background until styles support transparent colors.
     private static readonly ThemeColor Background = new(0xF3F3F3, 0x202020);
 
+    internal static readonly ControlStyle PreviewText = new(StyleTarget.MultilineText,
+    [
+        new(StylePart.Root, new() { Background = Background, BorderThickness = new(0), Padding = new(12), CornerRadius = 0 }),
+        new(StylePart.Text, new() { FontFamily = "Cascadia Mono", FontSize = 14 })
+    ]);
+
+    internal static readonly ControlStyle PreviewImage = new(StyleTarget.Image,
+    [
+        new(StylePart.Root, new() { Background = Background, BorderThickness = new(0), CornerRadius = 0 })
+    ]);
+
     internal static readonly ControlStyle NavigationItems = new(StyleTarget.NavigationList,
     [
         new(StylePart.Root, new() { RowHeight = 28, FontSize = 12, Indentation = 12 }),

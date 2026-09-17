@@ -437,9 +437,9 @@ xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callbac
 }
 uint64_t XUI_CALL xui_capabilities() noexcept {
 #if XUI_ENABLE_WEBVIEW2
-    return 1;
+    return 3;
 #else
-    return 0;
+    return 2;
 #endif
 }
 xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const xui_feature_options* o, xui_handle* out) noexcept {
@@ -1522,6 +1522,7 @@ xui_status XUI_CALL xui_window_create_features(const xui_window_options* options
         xui::WindowOptions value{decode(options->title), {options->width, options->height}, static_cast<xui::ThemeMode>(options->theme)};
         value.custom_titlebar = custom_titlebar != 0; state->window = std::make_unique<xui::Window>(std::move(value));
         *out = insert(state, XUI_WINDOW);
+        lifecycle(state, *out);
     });
 }
 xui_status XUI_CALL xui_dialog_validation(xui_handle target, xui_string message) noexcept {

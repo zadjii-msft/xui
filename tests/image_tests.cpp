@@ -69,7 +69,7 @@ void row_image_tests() {
         check(first.visual(source->key(0)).icon == icon && remaining == 48,
             "Document row icons retain their value without image requests");
     }
-    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(28)}) {
+    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(29)}) {
         bool rejected{};
         try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained, remaining); }
         catch (const std::invalid_argument&) { rejected = true; }
@@ -227,6 +227,93 @@ struct Gate {
         CloseHandle(entered); CloseHandle(release_gate);
     }
 };
+void shell_image_tests() {
+    Image image(L"Shell preview");
+    ImagePeer peer(image);
+    auto wake = std::make_shared<TaskWake>();
+    const ImageSize size{160, 160};
+    const auto deliver = [&] {
+        wait([&] { peer.deliver(); return image.status() == ImageStatus::ready || image.status() == ImageStatus::error; });
+    };
+    image.set_source(path(0), size);
+    peer.sync(true, wake); deliver();
+    check(peer.pixels != nullptr, "Standalone WIC image loads before a kind change");
+    auto wic = peer.pixels;
+    const auto revision = image.revision();
+    image.set_shell_source(path(0), size);
+    check(image.source() == path(0) && image.source_kind() == ImageKind::shell &&
+        image.display_pixels() == size && image.revision() > revision, "Source kind forms part of the revision with identical path and bounds");
+    peer.sync(true, wake);
+    check(peer.pixels != wic && (!peer.request || peer.request->kind == ImageKind::shell),
+        "Kind change releases the old pixels and dispatches to Shell");
+    deliver();
+    check(peer.pixels && peer.pixels != wic && peer.pixels->size.width <= 160 && peer.pixels->size.height <= 160,
+        "Shell cannot reuse WIC pixels and respects the requested physical bounds");
+    auto shell = peer.pixels;
+    const auto unchanged = image.revision();
+    image.set_shell_source(path(0), size);
+    check(image.revision() == unchanged, "An unchanged Shell source does not repeat work");
+    image.reload();
+    check(image.source_kind() == ImageKind::shell && image.revision() > unchanged, "Reload preserves the Shell source kind");
+    peer.sync(true, wake); deliver();
+    check(peer.pixels == shell, "Reload checks and shares the same Shell cache key");
+    peer.sync(false, wake);
+    check(!peer.request && !peer.pixels && image.status() == ImageStatus::empty && image.source() == path(0),
+        "Hiding a Shell image releases its request and pixels but retains its source");
+    peer.sync(true, wake); deliver();
+    check(peer.pixels == shell, "Revealing a Shell image retains its source kind");
+    image.set_source(path(0), size);
+    peer.sync(true, wake); deliver();
+    check(peer.pixels == wic && image.source_kind() == ImageKind::wic, "Switching back reuses only the WIC cache entry");
+    image.set_shell_source(directory.wstring(), size);
+    peer.sync(true, wake); deliver();
+    check(peer.pixels && image.status() == ImageStatus::ready, "Standalone Shell images support directories");
+    const auto valid_revision = image.revision();
+    for (const auto invalid : {ImageSize{0, 160}, ImageSize{160, 0}, ImageSize{1025, 160}, ImageSize{160, 1025}, ImageSize{UINT32_MAX, UINT32_MAX}}) {
+        bool rejected{};
+        try { image.set_shell_source(path(1), invalid); } catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected && image.revision() == valid_revision && image.source() == directory.wstring(),
+            "Invalid Shell dimensions preserve the current source");
+    }
+    for (const auto invalid : {std::wstring(32768, L'x'), std::wstring(L"a\0b", 3)}) {
+        bool rejected{};
+        try { image.set_shell_source(invalid, size); } catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected && image.revision() == valid_revision, "Invalid Shell paths do not mutate the current request");
+    }
+    image.set_shell_source((directory / L"missing-shell-file").wstring(), size);
+    peer.sync(true, wake); deliver();
+    check(image.status() == ImageStatus::error && !image.error().empty() && !peer.pixels, "Missing Shell files produce an explicit error");
+    peer.sync(true, wake);
+    check(!peer.request && image.status() == ImageStatus::error, "Failed Shell images do not retry each frame");
+    image.unload(); peer.sync(true, wake);
+    check(image.source().empty() && image.error().empty() && image.status() == ImageStatus::empty &&
+        !peer.request && !peer.pixels, "Unload clears the Shell source, error, and request");
+    peer.detach(); wic.reset(); shell.reset(); empty();
+
+    for (const auto kind : {ImageKind::wic, ImageKind::shell}) {
+        Gate gate(ImageDecodeStage::before_delivery, kind);
+        if (kind == ImageKind::wic) image.set_source(path(1), size);
+        else image.set_shell_source(path(1), size);
+        peer.sync(true, wake);
+        auto stale = peer.request;
+        gate.await();
+        if (kind == ImageKind::wic) image.set_shell_source(path(1), size);
+        else image.set_source(path(1), size);
+        check(!peer.deliver(), "A kind revision rejects an old completion before the host sync");
+        peer.sync(true, wake);
+        check(stale->cancelled && (!peer.request || (peer.request != stale && peer.request->kind != kind)),
+            "Switching kinds cancels the old mailbox even with the same path and size");
+        deliver();
+        const auto replacement = peer.pixels;
+        check(replacement != nullptr, "The independent worker delivers the new source kind while the old worker is blocked");
+        gate.release();
+        wait([] { auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+        peer.deliver();
+        check(peer.pixels == replacement, "A late result cannot replace the new source kind");
+        peer.detach();
+    }
+    empty();
+}
 void tab_image_tests() {
     TabStrip tabs;
     tabs.set_tabs({{1, L"Folder", ButtonIcon::folder, directory.wstring()},
@@ -544,7 +631,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
-        decode_tests(); cancellation_tests(); row_image_tests(); ordinary_row_image_refresh_test();
+        decode_tests(); cancellation_tests(); shell_image_tests(); row_image_tests(); ordinary_row_image_refresh_test();
         navigation_row_image_tests(); tab_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted

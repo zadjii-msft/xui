@@ -15,13 +15,16 @@ internal sealed class ExplorerApplication : IDisposable
     private bool splitOpen;
     private bool rightInitialized;
     private bool light;
+    private bool disposed;
     private string? iconPath;
 
-    public ExplorerApplication(string initialPath, bool smoke = false)
+    public ExplorerApplication(Application application, PreviewController preview, string initialPath, bool smoke = false)
     {
+        Application = application;
+        Preview = preview;
         this.smoke = smoke;
         initialPath = FileSystemService.ResolvePath(initialPath, Environment.CurrentDirectory);
-        Window = new("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
+        Window = application.CreateWindow("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
         Work = new(Window);
         Files = new();
         store = smoke ? new(Path.Combine(Environment.CurrentDirectory, ".file-explorer-smoke-state", "state.json")) : new();
@@ -63,11 +66,18 @@ internal sealed class ExplorerApplication : IDisposable
         Transfers.Bind(Right);
         Window.KeyHandler = HandleKey;
         Window.NavigationHandler = HandleNavigation;
+        Window.Closed += _ =>
+        {
+            Work.Dispose();
+            if (!Application.Post(Dispose))
+                throw new InvalidOperationException("The application rejected Explorer retirement.");
+        };
         Sidebar.Refresh();
         UpdateTitle();
     }
 
     public Window Window { get; }
+    public Application Application { get; }
     public UiWork Work { get; }
     public FileSystemService Files { get; }
     public ExplorerState State { get; }
@@ -75,6 +85,7 @@ internal sealed class ExplorerApplication : IDisposable
     public FilePaneView Right { get; }
     public FilePaneView Active => active ?? Left;
     public PaletteController Palettes { get; }
+    public PreviewController Preview { get; }
     public NavigationSidebar Sidebar { get; }
     public IReadOnlyList<ExplorerCommand> Commands { get; }
     public FileTransfers Transfers { get; }
@@ -83,12 +94,13 @@ internal sealed class ExplorerApplication : IDisposable
     internal int FileOpenCount { get; private set; }
     internal string? NewWindowPath { get; private set; }
     internal bool CloseRequested { get; private set; }
+    internal bool IsDisposed => disposed;
 
     public void Run()
     {
         Left.Navigate(Left.Model.Active.Path);
         Task? smokeTask = smoke ? ExplorerSmoke.Start(this) : null;
-        try { Window.Run(); }
+        try { Application.Show(Window); Application.Run(); }
         finally
         {
             Work.Dispose();
@@ -295,6 +307,8 @@ internal sealed class ExplorerApplication : IDisposable
         new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
         new("Up to parent folder", "Alt+Up", () => Active.Up()),
         new("Refresh folder", "F5", () => Active.Refresh()),
+        new("Preview selected item", "Space", () => Preview.ShowSelected(Active),
+            () => Preview.CanPreview(Active)),
         new("Copy files", "Ctrl+C", () => Transfers.Copy(Active, cut: false),
             () => Active.HasSelection && !Transfers.Busy),
         new("Cut files", "Ctrl+X", () => Transfers.Copy(Active, cut: true),
@@ -355,6 +369,10 @@ internal sealed class ExplorerApplication : IDisposable
         if (Active.HandleFindKey(key)) return true;
         if (Active.FilesFocused)
         {
+            if (modifiers == KeyModifiers.None && vk == 0x20 && Preview.CanPreview(Active))
+            {
+                Preview.ShowSelected(Active); return true;
+            }
             if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x43)
             {
                 Transfers.CopyPaths(Active); return true;
@@ -429,6 +447,7 @@ internal sealed class ExplorerApplication : IDisposable
 
     public void Dispose()
     {
+        if (disposed) return;
         Sidebar.Dispose();
         Left.Cancel();
         Right.Cancel();
@@ -436,5 +455,6 @@ internal sealed class ExplorerApplication : IDisposable
         Left.DisposeSources();
         Right.DisposeSources();
         Window.Dispose();
+        disposed = true;
     }
 }

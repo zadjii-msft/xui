@@ -907,8 +907,9 @@ internal static partial class Program
         var icons = new[] { RealXui.ButtonIcon.Save, RealXui.ButtonIcon.SaveAs, RealXui.ButtonIcon.Undo, RealXui.ButtonIcon.Redo,
             RealXui.ButtonIcon.ChevronUp, RealXui.ButtonIcon.ChevronDown };
         for (var i = 0; i < icons.Length; ++i)
-            Assert((uint)icons[i] == 22 + i, "Document icons append stable ABI values");
-        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 28, "The managed icon contract has no gaps or aliases");
+            Assert((uint)icons[i] == 23 + i, "Document icons append stable ABI values");
+        Assert((uint)RealXui.ButtonIcon.Open == 22, "The published Open icon ABI value remains unchanged");
+        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 29, "The managed icon contract has no gaps or aliases");
     }
     private static void TestExecution()
     {

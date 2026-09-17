@@ -386,11 +386,11 @@ internal static class FeatureTests
                 Fails(() => iconButton.SetIcon((ButtonIcon)99));
                 Expect(iconButton.Icon == ButtonIcon.Back);
                 Expect((uint)ButtonIcon.Library == 18 && (uint)ButtonIcon.History == 19 &&
-                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 &&
-                    (uint)ButtonIcon.Save == 22 && (uint)ButtonIcon.SaveAs == 23 &&
-                    (uint)ButtonIcon.Undo == 24 && (uint)ButtonIcon.Redo == 25 &&
-                    (uint)ButtonIcon.ChevronUp == 26 && (uint)ButtonIcon.ChevronDown == 27);
-                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive,
+                    (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 &&
+                    (uint)ButtonIcon.Save == 23 && (uint)ButtonIcon.SaveAs == 24 &&
+                    (uint)ButtonIcon.Undo == 25 && (uint)ButtonIcon.Redo == 26 &&
+                    (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28);
+                foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
                     ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
                     ButtonIcon.ChevronUp, ButtonIcon.ChevronDown })
                 {
@@ -399,7 +399,7 @@ internal static class FeatureTests
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
                     w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
-                Fails(() => iconButton.SetIcon((ButtonIcon)28));
+                Fails(() => iconButton.SetIcon((ButtonIcon)29));
                 Expect(iconButton.Icon == ButtonIcon.ChevronDown);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);

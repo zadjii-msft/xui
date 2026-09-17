@@ -34,7 +34,12 @@ public sealed unsafe partial class Window : IDisposable
 
     public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark,
         bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic)
+        : this(null, title, width, height, theme, customTitlebar, visualStyle) { }
+
+    internal Window(Application? application, string title, float width, float height, Theme theme,
+        bool customTitlebar, VisualStyle visualStyle)
     {
+        Application = application;
         if (!Enum.IsDefined(visualStyle)) throw new ArgumentOutOfRangeException(nameof(visualStyle));
         if (Native.VersionGet() != Native.Version) throw new XuiException(5, "The XUI runtime ABI version does not match.");
         var bytes = Utf8(title);
@@ -50,12 +55,15 @@ public sealed unsafe partial class Window : IDisposable
                 Theme = (uint)theme
             };
             ulong handle;
-            if (customTitlebar) Check(Native.WindowCreateFeatures(&options, 1, &handle));
+            if (application is not null)
+                Check(Native.ApplicationWindowCreate(application.Handle, in options, customTitlebar ? 1u : 0u, out handle));
+            else if (customTitlebar) Check(Native.WindowCreateFeatures(&options, 1, &handle));
             else Check(Native.WindowCreate(in options, out handle));
             Handle = handle;
         }
         try
         {
+            InitializeClosed();
             if (visualStyle != VisualStyle.Classic) SetVisualStyle(visualStyle);
         }
         catch
@@ -81,12 +89,14 @@ public sealed unsafe partial class Window : IDisposable
     }
     internal static Native.Text Span(byte* pointer, byte[] bytes) => new() { Data = pointer, Length = (uint)bytes.Length };
     internal void Check(int status)
+        => CheckStatus(status, status == 8 ? callbackError : null);
+    internal static void CheckStatus(int status, Exception? inner = null)
     {
         if (status == 0) return;
         byte* bytes = stackalloc byte[1024];
         var copy = Native.ErrorCopy(bytes, 1024, out uint count, out _);
         var message = copy == 0 ? Encoding.GetString(bytes, (int)count) : "The native call failed.";
-        throw new XuiException(status, message, status == 8 ? callbackError : null);
+        throw new XuiException(status, message, inner);
     }
     public Stack Stack(Axis axis = Axis.Vertical)
     {
@@ -150,6 +160,7 @@ public sealed unsafe partial class Window : IDisposable
     public void Run()
     {
         Guard();
+        if (Application is not null) throw new XuiException(7, "Run the owning Application, not an individual window.");
         if (running) throw new XuiException(7, "The window is already running.");
         running = true;
         try { Check(Native.Run(Handle)); }
@@ -166,6 +177,9 @@ public sealed unsafe partial class Window : IDisposable
         foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
         ReleaseIconCallback();
         Handle = 0;
+        if (closedRoot.IsAllocated) closedRoot.Free();
+        Closed = null;
+        Application?.Forget(this);
         foreach (var s in subscriptions.Values) s.Free();
         subscriptions.Clear(); key = null;
         foreach (var subscription in menuSubscriptions.Values) subscription.Free();

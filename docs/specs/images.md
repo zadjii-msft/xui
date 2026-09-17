@@ -32,7 +32,7 @@ The decoder does not enlarge small source images. The renderer centers and scale
 The default decode box is 192 by 144 pixels. The decode box is independent of the layout size and monitor DPI.
 For a different physical resolution, call `set_source` with a different box.
 
-`source`, `display_pixels`, `revision`, `status`, and `error` expose the current request state.
+`source`, `source_kind`, `display_pixels`, `revision`, `status`, and `error` expose the current request state.
 Resource statistics are thread-safe. Image control properties still belong to the UI thread.
 `ImageStatus` has `empty`, `loading`, `ready`, and `error` values.
 `ready` means that decoded pixels are available. The next frame uploads those pixels.
@@ -72,7 +72,7 @@ Repeated windows do not create retired decoder threads or an unbounded shutdown 
 | Encoded file | Nonempty, at most 32 MiB |
 | Request path | At most 32,767 UTF-16 units, with no embedded NUL |
 
-Invalid output dimensions and invalid path strings throw `std::invalid_argument` from `set_source`.
+Invalid output dimensions and invalid path strings throw `std::invalid_argument` from `set_source` and `set_shell_source`.
 File, codec, queue, pixel-budget, and bitmap errors produce an error state.
 The backend checks dimensions with 64-bit arithmetic before multiplication or allocation.
 If pinned resources fill a budget, unload other images.
@@ -103,6 +103,38 @@ The current image path does not apply EXIF orientation, ICC color management, or
 The sample enumerates PNG, JPEG, BMP, GIF, and TIFF extensions.
 Installed WIC codecs determine actual format support. Automated fixtures cover PNG and malformed BMP data.
 Real codec cancellation, physical GPU loss, mixed-monitor image quality, and screen-reader speech still need manual coverage.
+
+## Standalone Shell images
+
+`Image::set_shell_source(path, display_pixels)` requests a Shell thumbnail for a file or folder.
+If the Shell has no thumbnail, the same request uses its icon.
+The existing `set_source` method still uses WIC, without a Shell fallback.
+
+```cpp
+auto preview = std::make_shared<xui::Image>(L"Selected file");
+preview->set_preferred_size({160, 160}); // Layout size in DIPs.
+preview->set_shell_source(path, {160, 160}); // Physical pixels at 96 DPI.
+content->add(preview);
+```
+
+The output box uses physical pixels, not DIPs.
+A 160-DIP preview at 192 DPI needs a 320-by-320-pixel request.
+The renderer preserves aspect ratio inside the control.
+The default box and validation limits match `set_source`.
+
+`source()` retains the supplied path for both methods.
+`source_kind()` returns `ImageKind::wic` or `ImageKind::shell`.
+A kind change advances the revision even with the same path and dimensions.
+The next host update cancels the old request and releases its pixels.
+An obsolete completion cannot replace the new source.
+`reload` retains the kind, and `unload` clears the source.
+
+Standalone Shell images use the same lazy STA worker, cache, cancellation checks, and resource budgets as row thumbnails.
+The UI thread does not query file metadata or call Shell image interfaces.
+Clipping, visibility, closure, and error states follow the existing `Image` contract.
+A missing thumbnail is not an error when the Shell supplies an icon.
+Missing files and failed Shell extraction produce an error state.
+The Shell handler limits described in the next section also apply.
 
 ## Explorer thumbnail icons
 

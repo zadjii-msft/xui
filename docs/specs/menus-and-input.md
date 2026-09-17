@@ -75,8 +75,8 @@ Invalid strings, wrong-thread calls, and native title failures throw exceptions.
 `ButtonIcon::none` restores text. Icon buttons retain standard focus, hover, pressed, disabled, and high-contrast states.
 `ButtonIcon::save`, `save_as`, `undo`, and `redo` provide document command icons.
 C# exposes `ButtonIcon.Save`, `SaveAs`, `Undo`, and `Redo` through `Button.SetIcon`.
-Their ABI values are 22, 23, 24, and 25. Existing icon values remain unchanged.
-`ButtonIcon::chevron_up` and `chevron_down` provide disclosure icons with ABI values 26 and 27.
+Their ABI values are 23, 24, 25, and 26. Existing icon values, including Open at 22, remain unchanged.
+`ButtonIcon::chevron_up` and `chevron_down` provide disclosure icons with ABI values 27 and 28.
 C# exposes these as `ButtonIcon.ChevronUp` and `ChevronDown`.
 Classic draws two strokes; WinUI uses the existing ChevronUp and ChevronDown symbols.
 The same icons work in navigation entries, tabs, command records, and collection visuals.

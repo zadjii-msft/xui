@@ -173,6 +173,29 @@ void typography_cache(Fixture& fixture) {
     const auto restored = fixture.render([&] { drawing.text(L"Default path", {10, 10, 180, 50}, D2D1::ColorF(0xffffff)); });
     require(baseline == restored, "Authored typography does not mutate built-in unstyled formats or output");
 }
+void open_icon(Fixture& fixture) {
+    Button button(L"Open selected file");
+    button.set_icon(ButtonIcon::open);
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        button.set_name(L"Open selected file");
+        fixture.drawing.set_visual_style(style);
+        const auto palette = Palette::system(ThemeMode::light, style);
+        const auto before = fixture.render([&] {
+            fixture.drawing.styled_button(button, {10, 10, 160, 70}, palette, true, false);
+        });
+        button.set_name(L"Another accessible description");
+        const auto after = fixture.render([&] {
+            fixture.drawing.styled_button(button, {10, 10, 160, 70}, palette, true, false);
+        });
+        require(before == after && button.name() == L"Another accessible description",
+            "Open remains icon-only while retaining the accessible label");
+        const auto glyph = fixture.render([&] {
+            fixture.drawing.button_icon({20, 20, 32, 32}, D2D1::ColorF(0xffffff), ButtonIcon::open);
+        });
+        require(count(glyph, 0xffffff) > 10, "Open paints visible Fluent and Classic fallback strokes");
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
 void surfaces_and_text(Fixture& fixture) {
     auto palette = Palette::system(ThemeMode::dark);
     palette.high_contrast = false;
@@ -364,7 +387,7 @@ void clear_glyph_and_state(Fixture& fixture) {
 }
 }
 int main() {
-    try { Fixture fixture; document_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); }
+    try { Fixture fixture; document_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";
 }

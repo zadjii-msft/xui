@@ -22,6 +22,26 @@ internal static class ExplorerSmoke
     private static extern uint GetDpiForWindow(nint window);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetWindow(nint window, uint command);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool IsWindow(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint process);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool OpenClipboard(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool CloseClipboard();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetClipboardData(uint format);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern nint GlobalLock(nint memory);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern bool GlobalUnlock(nint memory);
     [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     private static extern int GetWindowTextW(nint window, System.Text.StringBuilder text, int capacity);
     [StructLayout(LayoutKind.Sequential)]
@@ -112,6 +132,7 @@ internal static class ExplorerSmoke
                     app.Left.Grid.Navigate(GridNavigation.First);
                 });
                 await CommandPaletteChecks();
+                await PreviewChecks();
                 await Ui(() =>
                 {
                     ulong identity = 0;
@@ -457,20 +478,364 @@ internal static class ExplorerSmoke
                 await Transfers(fixture);
                 await FeedbackChecks();
                 await TabMenuChecks(fixture);
-                await Ui(() =>
-                {
-                    app.Report("Explorer smoke passed.");
-                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, and file transfers.");
-                    app.Window.Close();
-                });
+                await DetachedLifetimeChecks();
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
-                if (!app.Window.Post(() => throw new InvalidOperationException("Explorer UI smoke failed.", error))) throw;
+                if (!app.Application.Post(() => throw new InvalidOperationException("Explorer UI smoke failed.", error))) throw;
             }
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task PreviewChecks()
+            {
+                string root = Path.Combine(fixture, "preview-fixtures");
+                Directory.CreateDirectory(Path.Combine(root, "folder"));
+                await File.WriteAllTextAsync(Path.Combine(root, "notes.txt"), "one\r\ntwo");
+                await File.WriteAllTextAsync(Path.Combine(root, "large.txt"), new string('x', FilePreviewService.MaximumTextLength + 10));
+                await File.WriteAllTextAsync(Path.Combine(root, "invalid.txt"), "binary\0text");
+                await File.WriteAllTextAsync(Path.Combine(root, "unsupported.pdf"), "not a PDF");
+                await File.WriteAllTextAsync(Path.Combine(root, "broken.bmp"), "not an image");
+                await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt"), "must not enter the text preview");
+                await File.WriteAllTextAsync(Path.Combine(root, "restricted.txt") + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");
+                await using (var file = File.Create(Path.Combine(root, "pixel.bmp")))
+                using (var writer = new BinaryWriter(file))
+                {
+                    writer.Write((ushort)0x4d42);
+                    writer.Write(58);
+                    writer.Write(0);
+                    writer.Write(54);
+                    writer.Write(40);
+                    writer.Write(1);
+                    writer.Write(1);
+                    writer.Write((ushort)1);
+                    writer.Write((ushort)24);
+                    writer.Write(0);
+                    writer.Write(4);
+                    for (int i = 0; i < 4; i++) writer.Write(0);
+                    writer.Write(new byte[] { 0x40, 0x80, 0xff, 0 });
+                }
+                await Ui(() => app.Left.Navigate(root));
+                await Ready(app.Left);
+                int opens = 0;
+                nint filePeer = 0;
+                await Ui(() =>
+                {
+                    opens = app.FileOpenCount;
+                    app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                    app.Left.ShowFind();
+                    if (app.Window.KeyHandler?.Invoke(new(0x20, KeyModifiers.None, app.Left.FindInput.Id)) != false)
+                        throw new InvalidOperationException("Space must remain native input in Find.");
+                    app.Left.Focus();
+                    filePeer = GetFocus();
+                    if (!PostMessageW(filePeer, 0x100, 0x20, 1))
+                        throw new InvalidOperationException("Could not post the preview shortcut to the owned file view.");
+                });
+                await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Check(() =>
+                {
+                    var preview = app.Preview.Current!;
+                    return !preview.Window.TitlebarClose.Focused
+                        && !preview.Window.TitlebarMinimize.Focused
+                        && !preview.Window.TitlebarMaximize.Focused;
+                }, "Opening a preview must not focus a caption button or draw its focus outline");
+                await Check(() =>
+                {
+                    var preview = app.Preview.Current!;
+                    var caption = preview.Window.Titlebar.GetBounds();
+                    var open = preview.OpenButton.GetBounds();
+                    return open.Y >= caption.Y && open.Y + open.Height <= caption.Y + caption.Height
+                        && open.Width > 0 && preview.Window.TitlebarTitle.Text == $"Preview: {preview.Target.Name}"
+                        && !preview.Window.TitlebarTabs.Visible && !preview.Window.TitlebarSecondaryTabs.Visible
+                        && preview.CloseButton.Id == preview.Window.TitlebarClose.Id
+                        && preview.BodyBounds.Y == preview.Bounds.Y + 12
+                        && preview.BodyBounds.Height == preview.Bounds.Height - preview.StatusBounds.Height - 32;
+                }, "Open occupies the titlebar; content has only its status row beneath it, without a duplicate header or plugin footer");
+                await Check(() => app.Preview.Text.Text == "one\rtwo" && app.Preview.Text.ReadOnly
+                    && app.Preview.Bounds.Width > 0 && app.Preview.Bounds.Height > 0
+                    && app.Preview.Text.GetBounds().Height > 0 && app.FileOpenCount == opens
+                    && !app.Preview.StatusVisible && app.Preview.Message == ""
+                    && app.Preview.OpenButton.Icon == ButtonIcon.Open
+                    && app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)
+                    && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontFamily == "Cascadia Mono",
+                    "Text preview uses borderless Cascadia Mono without a read-only notice, plus an Open icon");
+                await Ui(() =>
+                {
+                    if (!PostMessageW(GetFocus(), 0x100, 0x09, 1))
+                        throw new InvalidOperationException("Could not post Tab to the preview.");
+                });
+                await Until(() => app.Preview.OpenButton.Focused || app.Preview.Text.Focused);
+                await Ui(() =>
+                {
+                    if (!PostMessageW(GetFocus(), 0x100, 0x20, (1 << 30) | 1))
+                        throw new InvalidOperationException("Could not post a repeated Space to the preview.");
+                });
+                await Ui(() =>
+                {
+                    if (!app.Preview.IsOpen)
+                        throw new InvalidOperationException("A held Space key must not dismiss the preview.");
+                    if (app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, 0)) != false)
+                        throw new InvalidOperationException("Preview must not route Explorer shortcuts.");
+                    app.Preview.Text.Focus();
+                    nint format = Marshal.AllocHGlobal(116);
+                    try
+                    {
+                        Marshal.Copy(new byte[116], 0, format, 116);
+                        Marshal.WriteInt32(format, 116);
+                        SendMessageW(GetFocus(), 0x043a, 0, format);
+                        if (Marshal.PtrToStringUni(format + 26, 32)?.TrimEnd('\0') != "Cascadia Mono")
+                            throw new InvalidOperationException("The native preview document did not receive Cascadia Mono.");
+                    }
+                    finally { Marshal.FreeHGlobal(format); }
+                    app.Preview.Text.Selection = new(0, 3);
+                    if (app.Preview.Text.Selection != new TextSelection(0, 3)
+                        || app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x43, KeyModifiers.Control, app.Preview.Text.Id)) != false)
+                        throw new InvalidOperationException("Native preview selection and copying must remain available.");
+                    app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x1b, KeyModifiers.None, 0));
+                });
+                await Until(() => !app.Preview.IsOpen && app.Preview.Current!.IsDisposed);
+                await Check(() => app.Left.Model.Active.FindOpen && !app.Left.IsLoading,
+                    "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
+                await Ui(() => app.Left.HideFind());
+
+                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp", "restricted.txt" })
+                {
+                    nint previewHost = 0, initialIcon = 0;
+                    await Ui(() =>
+                    {
+                        app.Left.SelectPath(Path.Combine(root, name));
+                        app.Left.ContextMenu.GetCommands();
+                        app.Left.ContextMenu.Invoke(FileContextMenu.Preview);
+                        previewHost = GetAncestor(GetFocus(), 2);
+                        initialIcon = SendMessageW(previewHost, 0x7f, 0, 0);
+                        if (initialIcon == 0 || SendMessageW(previewHost, 0x7f, 1, 0) == 0)
+                            throw new InvalidOperationException("Preview HWND must supply small and large native icons.");
+                        if (app.Preview.Current!.CloseButton.Focused)
+                            throw new InvalidOperationException("A loading preview must not focus its caption Close button.");
+                    });
+                    await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                    if (name == "large.txt")
+                        await Check(() => app.Preview.Text.Text.Length == FilePreviewService.MaximumTextLength
+                            && app.Preview.Message.Contains("truncated"), "Large previews are bounded and visibly truncated");
+                    else if (name == "invalid.txt")
+                        await Check(() => app.Preview.Message.Contains("Cannot preview"), "Binary text produces an explicit error");
+                    else if (name == "unsupported.pdf")
+                        await Check(() => !app.Preview.StatusVisible && app.Preview.MetadataName == "unsupported.pdf"
+                            && app.Preview.MetadataKind == "File Type: PDF file"
+                            && app.Preview.MetadataSize.Contains("bytes"), "Unsupported files use the icon-and-details layout without a warning");
+                    else if (name == "folder")
+                        await Check(() => !app.Preview.StatusVisible && app.Preview.MetadataName == "folder"
+                            && app.Preview.MetadataKind == "File Type: File folder"
+                            && app.Preview.MetadataSize == "Size: Not calculated", "Folder metadata does not invent a recursive size");
+                    else if (name == "restricted.txt")
+                    {
+                        await Check(() => SendMessageW(previewHost, 0x7f, 0, 0) == initialIcon
+                            && app.Preview.Image.Status == ImageStatus.Empty && app.Preview.Text.Text == ""
+                            && app.Preview.Message.Contains("generic metadata"),
+                            "Restricted input invokes neither WIC nor text preview; metadata and window icons remain generic");
+                    }
+                    else
+                    {
+                        await Until(() => app.Preview.Image.Status == (name == "pixel.bmp" ? ImageStatus.Ready : ImageStatus.Error));
+                        await Check(() => app.Preview.Image.GetBounds().Width > 0 && app.Preview.Image.GetBounds().Height > 0,
+                            "Image preview occupies the visible content area");
+                        await Check(() => !app.Preview.StatusVisible && app.Preview.Message == "",
+                            "Images omit routine decode-size notices while the image control retains its errors");
+                    }
+                    if (name is "folder" or "unsupported.pdf")
+                    {
+                        await Check(() => app.Preview.MetadataIcon.GetBounds().Width == 160
+                            && app.Preview.MetadataIcon.GetBounds().Height == 160
+                            && app.Preview.MetadataNameBounds.X >= app.Preview.MetadataIcon.GetBounds().X + 192,
+                            "Metadata has a large retained generic icon to the left of the heading, without ShellSource");
+                    }
+                    await Ui(app.Preview.Dismiss);
+                    await Until(() => app.Preview.Current!.IsDisposed);
+                    await Check(() => !app.Preview.IsOpen, "Closing retires the preview window and its resources");
+                }
+                PreviewSession? earlier = null;
+                await Ui(() =>
+                {
+                    app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                    app.Commands.Single(command => command.Name == "Preview selected item").Execute();
+                    earlier = app.Preview.Current;
+                    app.Left.SelectPath(Path.Combine(root, "large.txt"));
+                    app.Preview.ShowSelected(app.Left);
+                });
+                await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Until(() => earlier is { Pending: false });
+                await Check(() => earlier!.IsOpen && earlier.Text.Text == "one\rtwo"
+                    && app.Preview.Text.Text.Length == FilePreviewService.MaximumTextLength,
+                    "Each captured target completes into its own independent preview");
+                await Ui(() =>
+                {
+                    SendMessageW(filePeer, 0x201, 1, (80 << 16) | 12);
+                    SendMessageW(filePeer, 0x202, 0, (80 << 16) | 12);
+                });
+                await Check(() => app.Preview.IsOpen && earlier!.IsOpen, "Explorer clicks do not dismiss detached previews");
+                await Ui(app.Preview.CloseAll);
+                await Until(() => app.Preview.Sessions.Count == 0);
+                await Ui(() =>
+                {
+                    app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                    app.Preview.ShowSelected(app.Left);
+                    app.Preview.Dismiss();
+                });
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Check(() => !app.Preview.IsOpen && !app.Preview.Pending, "Closing cancels pending text delivery");
+                await Ui(() =>
+                {
+                    app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                    File.Delete(Path.Combine(root, "notes.txt"));
+                    app.Preview.ShowSelected(app.Left);
+                });
+                await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Check(() => app.Preview.Message.Contains("Cannot preview"), "Deleted files produce an explicit error");
+                await File.WriteAllTextAsync(Path.Combine(root, "notes.txt"), "one\r\ntwo");
+                await Ui(() => app.Left.Navigate(root));
+                await Ready(app.Left);
+                await Check(() => app.Preview.IsOpen && !app.Preview.Pending, "Navigation leaves the captured preview open");
+                await Ui(app.Preview.Dismiss);
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Ui(() =>
+                {
+                    app.Left.Grid.Navigate(GridNavigation.First);
+                    app.Left.Grid.Navigate(GridNavigation.Next, KeyModifiers.Shift);
+                    if (app.Preview.CanPreview(app.Left)
+                        || app.Left.ContextMenu.GetCommands().Any(command => command.Id == FileContextMenu.Preview))
+                        throw new InvalidOperationException("Multi-selection must not choose an arbitrary preview target.");
+                    app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                    app.Preview.ShowSelected(app.Left);
+                    app.Left.NewTab(root);
+                });
+                await Ready(app.Left);
+                await Until(() => !app.Preview.Pending);
+                await Check(() => app.Preview.IsOpen && app.Preview.Text.Text == "one\rtwo", "Tab changes leave preview content intact");
+                await Ui(app.Preview.Dismiss);
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Ui(() => app.Left.CloseTab());
+                await Ready(app.Left);
+
+                await Ui(() => app.Left.SetViewMode(ExplorerViewMode.Columns));
+                await Ready(app.Left);
+                await Ui(() => app.Left.SelectColumnPath(0, Path.Combine(root, "notes.txt")));
+                await Ready(app.Left);
+                await Ui(() => { app.Left.Focus(); Shortcut(0x20); });
+                await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Check(() => app.Preview.Text.Text == "one\rtwo", "Columns selection uses the same preview");
+                await Ui(() => app.Preview.OpenButton.Invoke());
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Check(() => !app.Preview.IsOpen && app.Preview.OpenCount == 1 && app.FileOpenCount == opens,
+                    "Only explicit Open invokes the associated application");
+                await Ui(() =>
+                {
+                    app.Left.SetViewMode(ExplorerViewMode.Details);
+                    app.Left.Navigate(fixture);
+                });
+                await Ready(app.Left);
+                Directory.Delete(root, recursive: true);
+                await Ui(() => app.Left.Refresh());
+                await Ready(app.Left);
+                await Ui(() => { app.Left.Focus(); app.Left.Grid.Navigate(GridNavigation.First); });
+            }
+
+            async Task DetachedLifetimeChecks()
+            {
+                await File.WriteAllTextAsync(Path.Combine(fixture, "survivor.txt"), "abc");
+                string imagePath = Path.Combine(fixture, "survivor.bmp");
+                using (var writer = new BinaryWriter(File.Create(imagePath)))
+                {
+                    writer.Write((ushort)0x4d42);
+                    writer.Write(58); writer.Write(0); writer.Write(54); writer.Write(40);
+                    writer.Write(1); writer.Write(1); writer.Write((ushort)1); writer.Write((ushort)24);
+                    writer.Write(0); writer.Write(4);
+                    for (int i = 0; i < 4; ++i) writer.Write(0);
+                    writer.Write(new byte[] { 0x40, 0x80, 0xff, 0 });
+                }
+                await Ui(() => { app.Left.HideFind(); app.Left.SetViewMode(ExplorerViewMode.Details); app.Left.Navigate(fixture); });
+                await Ready(app.Left);
+                PreviewSession text = null!, image = null!, twin = null!, folder = null!;
+                nint opener = 0, textHost = 0, imageHost = 0;
+                await Ui(() =>
+                {
+                    app.Left.Focus();
+                    opener = GetAncestor(GetFocus(), 2);
+                    text = Show("survivor.txt");
+                    image = Show("survivor.bmp");
+                    twin = Show("survivor.bmp");
+                    folder = Show("alpha");
+                    text.Text.Focus();
+                    textHost = GetAncestor(GetFocus(), 2);
+                    image.CloseButton.Focus();
+                    imageHost = GetAncestor(GetFocus(), 2);
+                    uint thread = GetWindowThreadProcessId(opener, out uint process);
+                    foreach (nint host in new[] { textHost, imageHost })
+                        if (host == opener || GetWindow(host, 4) != 0 || !IsWindowVisible(host)
+                            || GetWindowThreadProcessId(host, out uint other) != thread || other != process
+                            || process != Environment.ProcessId || GetDpiForWindow(host) == 0)
+                            throw new InvalidOperationException("Preview HWNDs must be visible ownerless documents on the Explorer STA.");
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+
+                    PreviewSession Show(string name)
+                    {
+                        app.Left.SelectPath(Path.Combine(fixture, name));
+                        app.Preview.ShowSelected(app.Left);
+                        if (app.Preview.Current is not { IsOpen: true } current || current.Target.Name != name)
+                            throw new InvalidOperationException($"Could not select the {name} lifetime fixture.");
+                        return app.Preview.Current!;
+                    }
+                });
+                await Until(() => !text.Pending && !folder.Pending
+                    && image.Image.Status == ImageStatus.Ready && twin.Image.Status == ImageStatus.Ready);
+                await Ui(twin.Dismiss);
+                await Until(() => twin.IsDisposed);
+                await Check(() => image.Image.Status == ImageStatus.Ready && image.IsOpen,
+                    "Retiring one image preview does not invalidate another window's cached pixels");
+                await Ui(app.Window.Close);
+                await Until(() => app.IsDisposed);
+                await Check(() => !IsWindow(opener) && IsWindow(textHost) && IsWindow(imageHost)
+                    && text.IsOpen && image.IsOpen && folder.IsOpen, "Previews survive native opener destruction and managed disposal");
+                float previousWidth = 0;
+                await Ui(() =>
+                {
+                    previousWidth = image.Bounds.Width;
+                    if (!SetWindowPos(imageHost, 0, 70, 80, 680, 480, 0x14))
+                        throw new InvalidOperationException("The surviving image window could not move and resize.");
+                    text.Text.Focus();
+                    SendMessageW(GetFocus(), 0x00b1, 0, 3);
+                    SendMessageW(GetFocus(), 0x301, 0, 0);
+                    if (text.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, text.Text.Id)) != false)
+                        throw new InvalidOperationException("A surviving preview routed an Explorer shortcut.");
+                });
+                await Until(() =>
+                {
+                    if (!OpenClipboard(textHost)) return false;
+                    try
+                    {
+                        nint data = GetClipboardData(13), value = GlobalLock(data);
+                        try
+                        {
+                            string? copied = value == 0 ? null : Marshal.PtrToStringUni(value);
+                            if (copied != "abc")
+                                throw new InvalidOperationException($"Surviving native RichEdit copy failed: content={text.Text.Text}, selection={text.Text.Selection}, clipboard={copied}, focused={text.Text.Focused}.");
+                        }
+                        finally { if (value != 0) GlobalUnlock(data); }
+                    }
+                    finally { CloseClipboard(); }
+                    return true;
+                });
+                await Ui(folder.Open);
+                await Until(() => folder.IsDisposed && image.Bounds.Width != previousWidth);
+                await Check(() => app.Preview.LastOpenedPath == Path.Combine(fixture, "alpha")
+                    && image.Image.Status == ImageStatus.Ready && image.Image.GetBounds().Height > 0,
+                    "Open uses the captured folder without a live Explorer pane; surviving image remains visible after resize");
+                await Ui(image.Dismiss);
+                await Until(() => image.IsDisposed);
+                await Ui(text.Open);
+                // Last-window retirement and queued disposal finish before Application.Run returns.
             }
 
             async Task ColumnsChecks()
@@ -1141,7 +1506,7 @@ internal static class ExplorerSmoke
         Task Ui(Action action)
         {
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!app.Window.Post(() =>
+            if (!app.Application.Post(() =>
             {
                 try { action(); completion.SetResult(); }
                 catch (Exception error) { completion.SetException(error); }

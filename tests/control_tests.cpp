@@ -70,9 +70,10 @@ void behavior() {
 }
 void sizing_and_scroll() {
     static_assert(static_cast<int>(ButtonIcon::drive) == 21 &&
-        static_cast<int>(ButtonIcon::save) == 22 && static_cast<int>(ButtonIcon::save_as) == 23 &&
-        static_cast<int>(ButtonIcon::undo) == 24 && static_cast<int>(ButtonIcon::redo) == 25 &&
-        static_cast<int>(ButtonIcon::chevron_up) == 26 && static_cast<int>(ButtonIcon::chevron_down) == 27);
+        static_cast<int>(ButtonIcon::open) == 22 &&
+        static_cast<int>(ButtonIcon::save) == 23 && static_cast<int>(ButtonIcon::save_as) == 24 &&
+        static_cast<int>(ButtonIcon::undo) == 25 && static_cast<int>(ButtonIcon::redo) == 26 &&
+        static_cast<int>(ButtonIcon::chevron_up) == 27 && static_cast<int>(ButtonIcon::chevron_down) == 28);
     for (const auto value : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
         ButtonIcon::chevron_up, ButtonIcon::chevron_down}) {
         Button command(L"Document command");
@@ -88,7 +89,7 @@ void sizing_and_scroll() {
             "Document icon buttons retain keyboard activation");
         command.set_enabled(false);
         require(!command.invoke() && clicks == 1, "Disabled document icons cannot invoke commands");
-        for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(28)}) {
+        for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(29)}) {
             bool rejected{};
             try { command.set_icon(invalid); }
             catch (const std::invalid_argument&) { rejected = true; }

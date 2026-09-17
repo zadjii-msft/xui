@@ -16,6 +16,8 @@ mod styling;
 pub use styling::*;
 mod control_styling;
 pub use control_styling::*;
+mod application;
+pub use application::*;
 #[cfg(test)]
 mod feature_tests;
 
@@ -408,6 +410,9 @@ impl Element {
     pub fn image_source(&self, path: &str, width: u32, height: u32) -> Result<()> {
         check(unsafe { sys::xui_image_source(self.handle, text(path)?, width, height) })
     }
+    pub fn image_shell_source(&self, path: &str, width: u32, height: u32) -> Result<()> {
+        check(unsafe { sys::xui_image_shell_source(self.handle, text(path)?, width, height) })
+    }
 }
 macro_rules! control {
     ($($name:ident),*) => {$(
@@ -456,6 +461,9 @@ impl ScrollView {
     }
 }
 impl Image {
+    pub fn shell_source(&self, path: &str, width: u32, height: u32) -> Result<()> {
+        check(unsafe { sys::xui_image_shell_source(self.handle, text(path)?, width, height) })
+    }
     pub fn source(&self, path: &str, width: u32, height: u32) -> Result<()> {
         check(unsafe { sys::xui_image_source(self.handle, text(path)?, width, height) })
     }

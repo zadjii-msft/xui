@@ -1,6 +1,31 @@
 use super::*;
 use std::cell::Cell;
 #[test]
+fn shell_image_and_open_icon() -> Result<()> {
+    let window = Window::new("Shell image", 300., 300.)?;
+    let image = window.image("Preview")?;
+    image.shell_source(".", 160, 160)?;
+    assert_eq!(image.status()?, 1);
+    for dimension in [0, 1025, u32::MAX] {
+        assert!(image.shell_source(".", dimension, 160).is_err());
+        assert!(image.shell_source(".", 160, dimension).is_err());
+    }
+    assert!(image.shell_source("a\0b", 160, 160).is_err());
+    assert!(image.shell_source(&"x".repeat(32768), 160, 160).is_err());
+    image.source(".", 160, 160)?;
+    image.shell_source("", 160, 160)?;
+    assert_eq!(image.status()?, 0);
+    image.image_shell_source(".", 160, 160)?;
+    image.unload()?;
+    assert_eq!(image.status()?, 0);
+    assert_eq!(ButtonIcon::Drive as u32, 21);
+    assert_eq!(ButtonIcon::Open as u32, 22);
+    let button = window.button("Open")?;
+    button.set_icon(ButtonIcon::Open)?;
+    assert_eq!(button.feature_get(45)?.first, 22);
+    Ok(())
+}
+#[test]
 fn retained_navigation_style_bridges() -> Result<()> {
     let window = Window::with_titlebar("Navigation bridges", 500., 400.)?;
     let navigation = window.navigation_view("Navigation")?;

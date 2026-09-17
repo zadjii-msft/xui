@@ -82,11 +82,12 @@ For MSVC builds that use this resource, set `/MANIFEST:NO`, as the gallery targe
 
 The window retains its content through `std::shared_ptr`. A control has one layout parent and a stable `Element::id`.
 Build the tree before `Application::run`. Set properties and use callbacks on that same UI thread.
+The legacy `Application::run(window)` supports one active run on the thread.
+Each legacy `Window` runs once, but separate windows can run in sequence.
 `ContentHost` provides an explicit exception for a single replaceable root.
 `Window::replace_content` changes only that host and preserves surrounding native peers.
 It requires the UI thread and rejects replacement from active native input callbacks.
 The [binding contract](bindings.md#scoped-content-replacement) describes candidate scopes and managed callback ownership.
-The window supports one active run on the thread. Each `Window` runs once, but separate windows can run in sequence.
 The caller must not initialize COM as MTA.
 
 Windows take activation and initial keyboard focus by default.
@@ -125,6 +126,52 @@ Rejected select-all requests leave native selection and focus unchanged.
 `Window::copy_text` requires an open window. Calls before startup or after closure throw before they open the clipboard.
 The input-state methods on `Control` are backend boundaries, not application focus commands.
 Startup errors and callback exceptions return a nonzero result. `Window::error()` supplies the error text.
+
+### Window icons
+
+`Window::set_file_type_icon(extension, directory)` sets the small and large native HWND icons.
+The C# method is `Window.SetFileTypeIcon`. Rust uses `Window::set_file_type_icon`.
+The C ABI exports `xui_window_file_type_icon`.
+An extension such as `.txt` selects its type-association icon without access to the target file.
+An empty extension selects the stock document icon. An empty extension with `directory=true` selects the stock folder icon.
+The stock path does not resolve a file association or invoke file providers.
+
+Extensions start with a dot, contain at most 255 UTF-16 units, and cannot contain control characters or path separators.
+Directory icons require an empty extension.
+The method requires the window's UI thread, before Show or while the window is open.
+Invalid arguments preserve the existing icons.
+Each window owns its icon handles, replaces their sizes on DPI changes, and releases them on closure.
+Custom title bars retain their own visual controls. The HWND icons supply Windows taskbar and window-switching surfaces.
+
+### Independent application windows
+
+An instance of `Application` owns one STA message dispatcher.
+`create_window(options)` creates a window associated with that application.
+After the caller builds its content, `show(window)` creates a visible ownerless top-level window without a nested message loop.
+`run()` services all shown windows until the last one closes and deferred cleanup completes.
+The caller keeps each C++ `Window` alive and keeps its callback captures valid after `show` returns.
+
+Every window has its own control tree, native text peers, focus, renderer, tasks, and post queue.
+The same retained tree cannot belong to two live native hosts.
+Window states are `created`, `open`, `closing`, and `closed`.
+Closure before the first show or run also rejects later mutations.
+`on_closed` runs once after native destruction and after active window dispatch unwinds.
+`Window::post` rejects closed windows and discards pending callbacks on closure.
+`Application::post` supports deferred cleanup after a window closes.
+Both post methods accept worker-thread calls while their owner remains alive.
+
+Ownerless windows can move independently, participate in normal Shell window switching, and survive closure or minimization of another window.
+Window closure does not request application shutdown.
+`Application::shutdown()` closes all associated windows and rejects new windows.
+An application instance runs once. Nested application runs and legacy runs inside an application context are invalid.
+Lifecycle calls and destruction belong to the creating UI thread.
+The caller must not initialize that thread as MTA.
+
+A window callback failure closes that window without closing healthy windows.
+The application retains the failure and returns a nonzero run result.
+`Application::error()` supplies the retained messages.
+An application-post callback failure requests application shutdown.
+Final native-runtime cleanup occurs after all windows close and before OLE teardown, not after each window.
 
 ### Owned native file dialogs
 
@@ -311,7 +358,7 @@ The window uses per-monitor DPI, system high-contrast colors, and graphics-targe
 
 ## Known limits
 
-This milestone supports one active application window per UI thread. The browser supports a flat list and single selection.
+The legacy entry point supports one active window. An explicit application context supports multiple ownerless windows on the same UI thread.
 It does not provide a general styling system, a reactive property graph, or a custom text engine.
 Filter matching uses wide-character case conversion, not full Unicode normalization or linguistic search.
 Filtering still examines every source row. It runs on the worker, not the UI thread.

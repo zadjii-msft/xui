@@ -2,6 +2,19 @@
 #define XUI_FEATURES_H
 /* Included by xui.h. Existing ABI records and the 1.0 negotiation stay unchanged. */
 #define XUI_FEATURE_VERSION 0x00010001u
+enum {
+    XUI_BUTTON_ICON_NONE = 0, XUI_BUTTON_ICON_BACK = 1, XUI_BUTTON_ICON_FORWARD = 2,
+    XUI_BUTTON_ICON_UP = 3, XUI_BUTTON_ICON_REFRESH = 4, XUI_BUTTON_ICON_SPLIT = 5,
+    XUI_BUTTON_ICON_THEME = 6, XUI_BUTTON_ICON_ADD = 7, XUI_BUTTON_ICON_MINIMIZE = 8,
+    XUI_BUTTON_ICON_MAXIMIZE = 9, XUI_BUTTON_ICON_RESTORE = 10, XUI_BUTTON_ICON_CLOSE = 11,
+    XUI_BUTTON_ICON_MORE = 12, XUI_BUTTON_ICON_NAVIGATION = 13, XUI_BUTTON_ICON_HOME = 14,
+    XUI_BUTTON_ICON_FOLDER = 15, XUI_BUTTON_ICON_SETTINGS = 16, XUI_BUTTON_ICON_SEARCH = 17,
+    XUI_BUTTON_ICON_LIBRARY = 18, XUI_BUTTON_ICON_HISTORY = 19, XUI_BUTTON_ICON_BOOKMARK = 20,
+    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
+    XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
+    XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28
+};
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
    Records and rule arrays are copied before return. Existing records are unchanged. */
@@ -259,7 +272,7 @@ typedef struct xui_item_visual {
    none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
    minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
    folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
-   save=22, save_as=23, undo=24, redo=25, chevron_up=26, chevron_down=27.
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28.
    This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
    Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */

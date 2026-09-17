@@ -15,6 +15,8 @@ class CommandSurface;
 class TitleBar;
 class LocationPicker;
 class ContentDialog;
+class Application;
+enum class WindowState { created, open, closing, closed };
 
 struct ContentInspectionTarget {
     std::uint32_t key{};
@@ -97,7 +99,7 @@ private:
     std::shared_ptr<Impl> impl_;
 };
 
-// One UI thread, one active window. The window retains its content until destruction.
+// Controls and callbacks belong to the creating UI thread.
 // All properties and callbacks belong to the calling UI thread.
 class Window final {
 public:
@@ -118,6 +120,8 @@ public:
     ContentHighlightResult highlight_content(ContentHost& host, std::optional<std::uint32_t> key);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
+    // A type association only, never a target path. Empty selects a stock document icon.
+    void set_file_type_icon(std::wstring extension = {}, bool directory = false);
     const std::wstring& title() const;
     // Uses the shared asynchronous Shell thumbnail/icon service. Empty clears the icon.
     // Replacing the source or closing cancels delivery. Failures use the UI-thread callback.
@@ -160,6 +164,8 @@ public:
     bool transfer_files(const std::vector<std::wstring>& paths, const std::wstring& destination, FileTransferEffect effect);
     std::optional<bool> paste_files(const std::wstring& destination);
     void close();
+    WindowState state() const;
+    void on_closed(std::function<void()> callback);
     const std::wstring& error() const;
 private:
     friend class Application;
@@ -170,8 +176,21 @@ private:
 
 class Application final {
 public:
+    Application();
+    ~Application();
+    Application(const Application&) = delete;
+    Application& operator=(const Application&) = delete;
+    std::shared_ptr<Window> create_window(WindowOptions options = {});
+    void show(Window& window);
+    int run();
+    bool post(std::function<void()> callback);
+    void shutdown();
+    const std::wstring& error() const;
     // Runs once per Window. The caller must not initialize COM as MTA.
     static int run(Window& window);
+private:
+    struct Impl;
+    std::shared_ptr<Impl> impl_;
 };
 
 }

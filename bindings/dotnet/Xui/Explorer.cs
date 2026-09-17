@@ -20,8 +20,8 @@ public enum GridNavigation : uint { Previous, Next, PagePrevious, PageNext, Firs
 public enum ButtonIcon : uint
 {
     None, Back, Forward, Up, Refresh, Split, Theme, Add, Minimize, Maximize, Restore, Close, More,
-    Navigation, Home, Folder, Settings, Search, Library, History, Bookmark, Drive,
-    Save = 22, SaveAs = 23, Undo = 24, Redo = 25, ChevronUp = 26, ChevronDown = 27
+    Navigation, Home, Folder, Settings, Search, Library, History, Bookmark, Drive, Open,
+    Save = 23, SaveAs = 24, Undo = 25, Redo = 26, ChevronUp = 27, ChevronDown = 28
 }
 
 public sealed unsafe partial class NavigationView

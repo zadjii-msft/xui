@@ -349,7 +349,7 @@ class Service {
                         request->pixels = std::move(pixels);
                         request->error = std::move(error);
                         request->done = true;
-                        if (request->wake) SetEvent(request->wake->event);
+                        if (request->wake) request->wake->signal();
                     } else {
                         std::lock_guard guard(a.mutex);
                         ++a.stats.cancelled;
@@ -430,13 +430,20 @@ Rect Image::content_bounds() const {
         root && visual_style() == VisualStyle::winui ? Insets{1, 1, 1, 1} : Insets{});
 }
 void Image::set_source(std::wstring path, ImageSize size) {
+    set_source_kind(std::move(path), size, ImageKind::wic);
+}
+void Image::set_shell_source(std::wstring path, ImageSize size) {
+    set_source_kind(std::move(path), size, ImageKind::shell);
+}
+void Image::set_source_kind(std::wstring path, ImageSize size, ImageKind kind) {
     if (path.size() > 32767 || path.find(L'\0') != std::wstring::npos)
         throw std::invalid_argument("The image path is invalid or too long.");
     if (!size.width || !size.height || size.width > ImageLimits::output_dimension || size.height > ImageLimits::output_dimension)
         throw std::invalid_argument("Image display dimensions must be between 1 and 1024 pixels.");
-    if (source_ == path && size_ == size) return;
+    if (source_ == path && size_ == size && kind_ == kind) return;
     source_ = std::move(path);
     size_ = size;
+    kind_ = kind;
     reload();
 }
 void Image::reload() { ++revision_; publish(source_.empty() ? ImageStatus::empty : ImageStatus::loading); invalidate(Invalidation::paint); }
@@ -566,7 +573,7 @@ void ImagePeer::sync(bool shown, const std::shared_ptr<TaskWake>& wake) {
     visible = shown;
     if (shown && !control.source().empty()) {
         control.publish(ImageStatus::loading);
-        request = request_image(control.source(), control.display_pixels(), wake);
+        request = request_image(control.source(), control.display_pixels(), wake, control.source_kind());
         deliver();
     }
 }

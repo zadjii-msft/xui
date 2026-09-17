@@ -1543,6 +1543,9 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         for (std::size_t i = 1; i < std::size(points); ++i)
             arrow(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
         arrow(2, 2, 2, 6); arrow(2, 6, 6, 8);
+    } else if (icon == ButtonIcon::open) {
+        stroke(9, 2, 14, 2); stroke(14, 2, 14, 7); stroke(14, 2, 7, 9);
+        stroke(6, 3, 2, 3); stroke(2, 3, 2, 14); stroke(2, 14, 13, 14); stroke(13, 14, 13, 10);
     } else if (icon == ButtonIcon::settings) {
         stroke(1, 4, 15, 4); stroke(1, 12, 15, 12);
         stroke(5, 1, 5, 7); stroke(11, 9, 11, 15);

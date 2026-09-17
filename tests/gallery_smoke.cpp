@@ -14,6 +14,8 @@
 #include "uia_events.hpp"
 #include "suggestion_capture.hpp"
 #include "../demo/gallery_catalog.hpp"
+#include "../demo/gallery_reference.hpp"
+#include "../demo/gallery_urls.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -645,6 +647,115 @@ void miller_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
         return !horizontal;
     }), "Reset removes horizontal overflow without replacing the control");
 }
+std::wstring normalized_code(std::wstring text) {
+    for (std::size_t pos = 0; pos < text.size(); ++pos) {
+        if (text[pos] != L'\r') continue;
+        if (pos + 1 < text.size() && text[pos + 1] == L'\n') text.erase(pos + 1, 1);
+        text[pos] = L'\n';
+    }
+    return text;
+}
+std::wstring clipboard_text() {
+    require(eventually([] { return OpenClipboard(nullptr) != FALSE; }), "Open gallery clipboard");
+    const auto data = GetClipboardData(CF_UNICODETEXT);
+    const auto value = data ? static_cast<const wchar_t*>(GlobalLock(data)) : nullptr;
+    std::wstring text = value ? value : L"";
+    if (value) GlobalUnlock(data);
+    CloseClipboard();
+    return normalized_code(std::move(text));
+}
+void reference_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
+    for (std::size_t i = 0; i < gallery::entries.size(); ++i) {
+        const auto& entry = gallery::entries[i];
+        const auto& reference = gallery::references[i];
+        const auto suffix = std::wstring(entry.id);
+        auto item = identified(automation, root, std::to_wstring(i + 1) + L":1");
+        check(pattern<IUIAutomationSelectionItemPattern>(item.Get(), UIA_SelectionItemPatternId)->Select(),
+            "Select reference page");
+        ComPtr<IUIAutomationElement> example;
+        require(eventually([&] { example = identified(automation, root, L"gallery-example-" + suffix); return example != nullptr; }),
+            "Reference page materializes");
+        auto language = identified(automation, root, L"gallery-language-" + suffix);
+        require(language != nullptr, "Every reference page has language tabs");
+        auto scroll = pattern<IUIAutomationScrollPattern>(example.Get(), UIA_ScrollPatternId);
+        const auto selected_tab = [&](const wchar_t* title) {
+            auto tab = named(automation, language.Get(), title, UIA_TabItemControlTypeId);
+            BOOL selected{};
+            check(pattern<IUIAutomationSelectionItemPattern>(tab.Get(), UIA_SelectionItemPatternId)->get_CurrentIsSelected(&selected),
+                "Read active language tab");
+            return selected != FALSE;
+        };
+        require(selected_tab(i == 0 ? L".xui" : L"Rust"),
+            "The first page defaults to .xui; eager and deferred pages preserve the selected language");
+        require(!identified(automation, root, L"gallery-language-guide-" + suffix), "Language guides are not repeated on pages");
+        const wchar_t* names[]{L".xui", L"C#", L"C++", L"Rust"};
+        const wchar_t* snippets[]{reference.xui, reference.csharp, entry.code, reference.rust};
+        for (int selected = 0; selected != 4; ++selected) {
+            auto choice = named(automation, language.Get(), names[selected], UIA_TabItemControlTypeId);
+            require(choice != nullptr, "Language tab exists");
+            check(pattern<IUIAutomationSelectionItemPattern>(choice.Get(), UIA_SelectionItemPatternId)->Select(),
+                "Select example language");
+            require(selected_tab(names[selected]), "Selected language tab is active");
+            check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100), "Reveal code after language selection");
+            ComPtr<IUIAutomationElement> code;
+            const bool updated = eventually([&] {
+                const auto code_name = std::wstring(entry.title) + L" " + names[selected] + L" code";
+                code = named(automation, root, code_name.c_str());
+                return code != nullptr;
+            });
+            if (!updated) std::wcerr << entry.id << L": expected " << names[selected] <<
+                L" document, actual: " << (code ? name(code.Get()) : L"(not exposed)") << std::endl;
+            require(updated, "Language choice updates accessible document name");
+            auto document = pattern<IUIAutomationTextPattern>(code.Get(), UIA_TextPatternId);
+            ComPtr<IUIAutomationTextRange> range;
+            check(document->get_DocumentRange(&range), "Read selected language document");
+            BSTR text{};
+            check(range->GetText(-1, &text), "Read complete language excerpt");
+            const auto actual = normalized_code(text ? text : L"");
+            SysFreeString(text);
+            const std::wstring expected = snippets[selected];
+            require(actual == expected || actual == expected + L"\n", "Language excerpt matches its reference content");
+            VARIANT attribute{};
+            check(range->GetAttributeValue(UIA_IsReadOnlyAttributeId, &attribute), "Read code edit policy");
+            const bool readonly = attribute.vt == VT_BOOL && attribute.boolVal == VARIANT_TRUE;
+            VariantClear(&attribute);
+            require(readonly, "Language selection preserves native read-only code");
+            auto copy = identified(automation, root, L"gallery-copy-code-" + suffix);
+            require(enabled(copy.Get()) == !expected.empty(), "Copy availability matches snippet availability");
+            if (!expected.empty()) {
+                check(pattern<IUIAutomationInvokePattern>(copy.Get(), UIA_InvokePatternId)->Invoke(), "Copy selected language");
+                const auto copied = clipboard_text();
+                require(copied == expected || copied == expected + L"\n", "Copy uses the selected language");
+            }
+        }
+        auto docs = identified(automation, root, L"gallery-docs-" + suffix);
+        require(pattern<IUIAutomationInvokePattern>(docs.Get(), UIA_InvokePatternId) != nullptr,
+            "Control documentation is an accessible action");
+        auto copy_link = identified(automation, root, L"gallery-copy-docs-" + suffix);
+        check(pattern<IUIAutomationInvokePattern>(copy_link.Get(), UIA_InvokePatternId)->Invoke(), "Copy documentation URL");
+        require(clipboard_text() == gallery::documentation_url(reference.docs),
+            "Documentation URL targets the control's handbook page");
+        std::wcout << entry.id << L": language examples and documentation passed\n";
+    }
+    auto first = identified(automation, root, L"1:1");
+    check(pattern<IUIAutomationSelectionItemPattern>(first.Get(), UIA_SelectionItemPatternId)->Select(), "Revisit the first example");
+    auto language = identified(automation, root, L"gallery-language-forms");
+    auto rust = named(automation, language.Get(), L"Rust", UIA_TabItemControlTypeId);
+    BOOL selected{};
+    check(pattern<IUIAutomationSelectionItemPattern>(rust.Get(), UIA_SelectionItemPatternId)->get_CurrentIsSelected(&selected),
+        "Read language on a revisited page");
+    require(selected != FALSE, "Revisited pages retain the shared language");
+    auto links = identified(automation, root, L"20000:1");
+    check(pattern<IUIAutomationExpandCollapsePattern>(links.Get(), UIA_ExpandCollapsePatternId)->Expand(), "Expand Other links");
+    for (const auto& link : gallery::navigation_links) {
+        auto item = identified(automation, root, std::to_wstring(link.key.id) + L":1");
+        require(item && name(item.Get()) == link.title, "Each handbook guide appears under Other links");
+        // Selection must not open the browser or replace the active example.
+        check(pattern<IUIAutomationSelectionItemPattern>(item.Get(), UIA_SelectionItemPatternId)->Select(), "Select a handbook link");
+        require(identified(automation, root, L"gallery-page-forms") != nullptr, "Link selection preserves the example");
+        require(pattern<IUIAutomationInvokePattern>(item.Get(), UIA_InvokePatternId) != nullptr, "Handbook links support explicit activation");
+    }
+}
 int wmain(int argc, wchar_t** argv) {
     std::cout << std::unitbuf;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
@@ -653,8 +764,9 @@ int wmain(int argc, wchar_t** argv) {
     const bool winui_only = argc == 3 && std::wstring_view(argv[2]) == L"--winui";
     const bool winui_catalog = argc == 3 && std::wstring_view(argv[2]) == L"--winui-catalog";
     const bool miller_only = argc == 3 && std::wstring_view(argv[2]) == L"--miller-only";
-    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only) {
-        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only]\n";
+    const bool reference_only = argc == 3 && std::wstring_view(argv[2]) == L"--reference-only";
+    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only && !reference_only) {
+        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only | --reference-only]\n";
         return 1;
     }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -675,13 +787,18 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
-        if (!search_only && !miller_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+        if (!search_only && !miller_only && !reference_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
             SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (reference_only) {
+            reference_smoke(automation.Get(), root.Get());
+            std::cout << "Gallery reference language, code copy, and documentation checks passed\n";
+            return 0;
+        }
         if (miller_only) {
             miller_smoke(automation.Get(), root.Get());
             std::cout << "Miller gallery deep-path, horizontal scrolling, and reset checks passed\n";
@@ -1062,6 +1179,12 @@ int wmain(int argc, wchar_t** argv) {
             auto scroll = pattern<IUIAutomationScrollPattern>(example.Get(), UIA_ScrollPatternId);
             BOOL scrollable{};
             check(scroll->get_CurrentVerticallyScrollable(&scrollable), "Read example scrolling");
+            if (i == 0) {
+                auto language = identified(automation.Get(), root.Get(), L"gallery-language-forms");
+                auto cpp = named(automation.Get(), language.Get(), L"C++", UIA_TabItemControlTypeId);
+                check(pattern<IUIAutomationSelectionItemPattern>(cpp.Get(), UIA_SelectionItemPatternId)->Select(),
+                    "Choose C++ for the catalog excerpt sweep");
+            }
             if (scrollable) check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100), "Reveal the code block");
             const auto code_name = std::wstring(entry.title) + L" C++ code";
             ComPtr<IUIAutomationElement> code;

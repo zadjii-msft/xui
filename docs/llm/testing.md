@@ -93,6 +93,14 @@ Its optional `--global-focus-events` argument also subscribes to desktop-wide fo
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Its preview checks cover native Space dispatch, held Space, focus restoration, text selection, and command isolation.
+They also cover Details and Columns, bounded text, image readiness and errors, metadata, deletion, replacement, and cancellation.
+`PreviewController.cs` owns the popup and request lifetime. `PreviewLayout.xui` defines its layout.
+`PreviewMetadataLayout.xui` defines the centered icon-and-details view.
+`Models\FilePreviewService.cs` owns format classification and bounded text reads.
+The model tests cover encoding, binary rejection, byte and character limits, complete surrogate pairs, metadata, and canceled requests.
+The preview smoke also reads the native document font and checks borderless styling, quiet status, and metadata icon geometry.
+These checks do not prove screen-reader speech or image quality on physical monitors.
 Navigation checks cover exact-directory Enter, trailing-slash child results, cached completion, Tab, parent queries, and query history.
 Drive-root checks cover bare and slash-terminated drive queries without automatic child activation.
 The native New tab buttons create tabs in their respective panes and restore file focus.
@@ -187,6 +195,12 @@ A blocked-loader test requires window closure to return before the loader can fi
 An isolated public-control server checks list names, automation IDs, independent focus, selection, and retained-provider rejection after closure.
 It requires the same manifest and desktop as the applications.
 `xui_gallery_smoke` covers UIA roles, names, identity, Invoke, Toggle, disabled action rejection, label updates, and native text.
+Its `--reference-only` mode checks every gallery page in each example language.
+It compares native document text and clipboard text against the catalog, including deferred pages.
+It checks the initial `.xui` tab and shared language selection across eager, deferred, and revisited pages.
+It also checks read-only editing, handbook URLs, and the Other links navigation group without opening a browser.
+`xui_gallery_catalog_tests` checks reference order, content coverage, and documentation paths against the source tree.
+The source map and commands are in [Contributing: Gallery](../../CONTRIBUTING.md#gallery).
 It also covers Tab, Shift+Tab, Space, Enter, pointer cancellation, theme changes, idle paint counts, and provider invalidation after shutdown.
 The native UIA text proxy can complete focus changes after a method returns.
 The browser and gallery probes require stable focus before keyboard sequences instead of accepting a transient focus notification.
