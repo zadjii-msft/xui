@@ -115,7 +115,7 @@ public sealed unsafe partial class Window
         get { Guard(); return keyHandler; }
         set
         {
-            Guard();
+            GuardWindowCallback();
             if (!keyRoot.IsAllocated) keyRoot = GCHandle.Alloc(this, GCHandleType.Weak);
             Check(Native.WindowKeyHandler(Handle, value is null ? null : &KeyTrampoline, GCHandle.ToIntPtr(keyRoot)));
             keyHandler = value;
@@ -146,7 +146,7 @@ public sealed unsafe partial class Window
         get { Guard(); return navigationHandler; }
         set
         {
-            Guard();
+            GuardWindowCallback();
             if (!navigationRoot.IsAllocated) navigationRoot = GCHandle.Alloc(this, GCHandleType.Weak);
             Check(Native.WindowNavigationHandler(Handle, value is null ? null : &NavigationTrampoline, GCHandle.ToIntPtr(navigationRoot)));
             navigationHandler = value;
@@ -171,18 +171,28 @@ public sealed unsafe partial class Window
         }
         catch (Exception error) { if (window is not null) window.callbackError = error; return 8; }
     }
-    private sealed record PostedAction(Window Window, Action Action);
+    internal sealed class PostedAction(Window window, Action action, ContentUpdate? scope)
+    {
+        internal readonly Window Window = window;
+        internal Action? Action = action;
+        internal readonly ContentUpdate? Scope = scope;
+    }
     /// <summary>Queues an action on the UI thread. Worker threads can call this method.</summary>
     /// <returns>False after close or disposal. Close discards queued actions without running them.</returns>
     /// <remarks>Action exceptions close the window. Run then throws XuiException with the original exception.</remarks>
-    public bool Post(Action action)
+    public bool Post(Action action) => PostCore(action, contentContext.Value);
+    internal bool PostUnscoped(Action action) => PostCore(action, null);
+    private bool PostCore(Action action, ContentUpdate? scope)
     {
         ArgumentNullException.ThrowIfNull(action);
         var handle = Handle;
         if (handle == 0) return false;
-        var root = GCHandle.Alloc(new PostedAction(this, action));
+        var posted = new PostedAction(this, action, scope);
+        if (scope is not null && !scope.Track(posted)) return false;
+        var root = GCHandle.Alloc(posted);
         int status = Native.WindowPost(handle, &PostTrampoline, GCHandle.ToIntPtr(root));
         if (status == 0) return true;
+        scope?.Untrack(posted);
         root.Free();
         if (status is 2 or 11) return false;
         Check(status); return false;
@@ -196,15 +206,16 @@ public sealed unsafe partial class Window
         {
             posted = root.Target as PostedAction;
             if (posted is null) return 8;
-            if (execute != 0)
+            if (execute != 0 && posted.Scope is not { AcceptCallbacks: false } && posted.Action is { } action)
             {
+                using var content = posted.Window.EnterContent(posted.Scope);
                 ++posted.Window.callbacks;
-                try { posted.Action(); }
+                try { action(); }
                 finally { --posted.Window.callbacks; }
             }
             return 0;
         }
-        catch (Exception error) { if (posted is not null) posted.Window.callbackError = error; return 8; }
-        finally { root.Free(); }
+        catch (Exception error) { return posted is null ? 8 : posted.Window.ContentError(posted.Scope, error); }
+        finally { posted?.Scope?.Untrack(posted); root.Free(); }
     }
 }

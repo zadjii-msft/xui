@@ -3,162 +3,155 @@ using System.Runtime.Loader;
 
 namespace Xui.Designer;
 
-internal sealed class PreviewHost(Action<long, string, bool> report) : IDisposable
+internal sealed class PreviewHost : IDisposable
 {
-    private sealed record Request(long Version, byte[] Assembly, Theme Theme);
+    private sealed record Request(long Version, byte[] Assembly);
+    private readonly Window window;
+    private readonly ContentHost host;
+    private readonly Action<long, string, bool> report;
     private readonly object gate = new();
-    private readonly AutoResetEvent wake = new(false);
-    private Thread? thread;
-    private Window? active;
-    private Candidate? next;
     private Request? pending;
+    private Candidate? current;
     private long version;
-    private bool stopping;
+    private bool posted, stopping;
+
+    internal PreviewHost(Window window, Action<long, string, bool> report)
+    {
+        this.window = window;
+        this.report = report;
+        host = window.CreateContentHost();
+    }
+
+    internal Element View => host;
+    internal long? AppliedVersion => current?.Version;
 
     internal void Supersede(long value)
     {
-        lock (gate) { version = value; pending = null; }
+        lock (gate)
+        {
+            if (value < version) return;
+            version = value;
+            pending = null;
+        }
     }
 
     internal void Publish(long value, byte[] assembly, Theme theme)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The designer requires Windows.");
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (!Enum.IsDefined(theme)) throw new ArgumentOutOfRangeException(nameof(theme));
         lock (gate)
         {
             if (stopping || version != value) return;
-            pending = new(value, assembly, theme);
-            if (thread is null)
+            pending = new(value, assembly);
+            if (posted) return;
+            posted = true;
+            if (!window.Post(Refresh))
             {
-                thread = new Thread(Run) { IsBackground = true, Name = "XUI designer preview" };
-                thread.SetApartmentState(ApartmentState.STA);
-                thread.Start();
+                posted = false;
+                pending = null;
+                report(value, "Preview update rejected because the designer window is closed.", false);
             }
-            if (active is not null) active.Post(Refresh);
-            wake.Set();
-        }
-    }
-
-    private Request? Take()
-    {
-        lock (gate)
-        {
-            var request = pending;
-            pending = null;
-            return stopping || request?.Version != version ? null : request;
-        }
-    }
-
-    private Candidate? Build(Request request)
-    {
-        try { return new Candidate(request); }
-        catch (Exception error)
-        {
-            ReportError(request.Version, "Preview construction failed", error);
-            return null;
         }
     }
 
     private void Refresh()
     {
-        var request = Take();
-        if (request is null) return;
-        var candidate = Build(request);
-        if (candidate is null) return;
+        Request? request;
         lock (gate)
         {
-            if (stopping || request.Version != version) { candidate.Dispose(); return; }
-            next = candidate;
-            active?.Close();
+            posted = false;
+            request = pending;
+            pending = null;
+            if (stopping || request is null || request.Version != version) return;
         }
-    }
-
-    private void Run()
-    {
+        Candidate? candidate = null;
         try
         {
-            while (true)
-            {
-                lock (gate) { if (stopping) break; }
-                var candidate = next;
-                next = null;
-                if (candidate is null)
-                {
-                    wake.WaitOne();
-                    var request = Take();
-                    if (request is null) continue;
-                    candidate = Build(request);
-                    if (candidate is null) continue;
-                }
-                using (candidate)
-                {
-                    lock (gate)
-                    {
-                        if (stopping) break;
-                        active = candidate.Window;
-                        active.Post(() => report(candidate.Version, "Preview updated. Component state was reset.", true));
-                        if (pending is not null) active.Post(Refresh);
-                    }
-                    bool failed = false;
-                    try { candidate.Window.Run(); }
-                    catch (Exception error) { failed = true; ReportError(candidate.Version, "Preview stopped", error); }
-                    finally { lock (gate) active = null; }
-                    if (!failed) report(candidate.Version, "Preview closed. Edit the source or select Render / reopen.", false);
-                }
-            }
+            candidate = new Candidate(window, host, request, OnCallbackError);
         }
         catch (Exception error)
         {
-            ReportError(version, "Preview host failed", error);
+            ReportError(request.Version, "Preview construction failed", error);
+            return;
         }
-        finally
+        try
         {
-            next?.Dispose();
-            next = null;
+            lock (gate)
+            {
+                if (stopping || request.Version != version) return;
+                // Commit creates native peers and completes layout before it returns.
+                candidate.Commit();
+                var previous = current;
+                current = candidate;
+                candidate = null;
+                previous?.Dispose();
+            }
+            report(request.Version, "Preview updated. Component state was reset.", true);
         }
+        finally { candidate?.Dispose(); }
+    }
+
+    private void OnCallbackError(Candidate candidate, Exception error)
+    {
+        if (!ReferenceEquals(current, candidate)) return;
+        current = null;
+        candidate.Dispose();
+        ReportError(candidate.Version, "Preview callback failed", error);
     }
 
     private void ReportError(long value, string message, Exception error)
     {
         var detail = error is TargetInvocationException { InnerException: { } inner } ? inner : error;
         Console.Error.WriteLine($"{message}: {detail}");
+        lock (gate)
+        {
+            if (stopping || value != version) return;
+        }
         report(value, $"{message}: {detail.Message}", false);
     }
 
     public void Dispose()
     {
+        window.VerifyAccess();
         lock (gate)
         {
             if (stopping) return;
             stopping = true;
             pending = null;
-            active?.Post(active.Close);
-            wake.Set();
         }
-        if (thread is null || thread.Join(TimeSpan.FromSeconds(2))) wake.Dispose();
-        else Console.Error.WriteLine("Preview code did not stop within two seconds. The background preview thread will end with the designer process.");
+        current?.Dispose();
+        current = null;
     }
 
     private sealed class Candidate : IDisposable
     {
-        private readonly AssemblyLoadContext context;
+        private readonly AssemblyLoadContext context = new("XUI embedded preview", isCollectible: true);
+        private readonly ContentUpdate update;
         private object? component;
-        internal Window Window { get; }
+        private Element? root;
+        private bool disposed;
         internal long Version { get; }
 
-        internal Candidate(Request request)
+        internal Candidate(Window window, ContentHost host, Request request, Action<Candidate, Exception> failed)
         {
             Version = request.Version;
-            Window = new Window("XUI Live Preview", 560, 600, request.Theme);
-            context = new("XUI preview", isCollectible: true);
+            update = host.BeginUpdate();
+            update.CallbackFailed += error => failed(this, error);
             try
             {
-                Window.SetShowActivated(false);
                 using var stream = new MemoryStream(request.Assembly, writable: false);
                 var assembly = context.LoadFromStream(stream);
-                var build = assembly.GetType("Xui.Designer.GeneratedPreview", throwOnError: true)!
-                    .GetMethod("Build", BindingFlags.Public | BindingFlags.Static)
+                var wrapper = assembly.GetType("Xui.Designer.GeneratedPreview", throwOnError: true)!;
+                var build = wrapper.GetMethod("Build", BindingFlags.Public | BindingFlags.Static)
                     ?? throw new MissingMethodException("The preview entry point is missing.");
-                component = build.Invoke(null, [Window]);
+                var getRoot = wrapper.GetMethod("Root", BindingFlags.Public | BindingFlags.Static)
+                    ?? throw new MissingMethodException("The preview root entry point is missing.");
+                component = build.Invoke(null, [window])
+                    ?? throw new InvalidOperationException("The preview component is missing.");
+                root = getRoot.Invoke(null, [component]) as Element
+                    ?? throw new InvalidOperationException("The preview root is not an XUI element.");
+                if (update.CallbackError is { } error)
+                    throw new InvalidOperationException("Candidate construction raised a callback error.", error);
             }
             catch
             {
@@ -167,11 +160,16 @@ internal sealed class PreviewHost(Action<long, string, bool> report) : IDisposab
             }
         }
 
+        internal void Commit() => update.Commit(root ?? throw new ObjectDisposedException(nameof(Candidate)));
+
         public void Dispose()
         {
-            Window.Dispose();
+            if (disposed) return;
+            update.Dispose();
+            disposed = true;
             GC.KeepAlive(component);
             component = null;
+            root = null;
             context.Unload();
         }
     }

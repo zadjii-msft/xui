@@ -187,6 +187,18 @@ internal static class Program
         var windowType = metadata.GetTypeReference((TypeReferenceHandle)windowHandle);
         Assert(metadata.GetString(windowType.Namespace) == "Xui" && metadata.GetString(windowType.Name) == "Window",
             "Build argument must be Xui.Window.");
+        var getRoot = wrapper.GetMethods().Select(metadata.GetMethodDefinition)
+            .Single(m => metadata.GetString(m.Name) == "Root");
+        Assert((getRoot.Attributes & MethodAttributes.Public) != 0 && (getRoot.Attributes & MethodAttributes.Static) != 0,
+            "Root must be public static.");
+        var rootSignature = metadata.GetBlobReader(getRoot.Signature);
+        Assert(!rootSignature.ReadSignatureHeader().IsInstance && rootSignature.ReadCompressedInteger() == 1,
+            "Root must take one component argument.");
+        Assert(rootSignature.ReadSignatureTypeCode() == SignatureTypeCode.TypeHandle, "Root must return a named type.");
+        var rootType = metadata.GetTypeReference((TypeReferenceHandle)rootSignature.ReadTypeHandle());
+        Assert(metadata.GetString(rootType.Namespace) == "Xui" && metadata.GetString(rootType.Name) == "Element",
+            "Root must return Xui.Element.");
+        Assert(rootSignature.ReadSignatureTypeCode() == SignatureTypeCode.Object, "Root must accept the built component.");
         var component = metadata.TypeDefinitions.Select(metadata.GetTypeDefinition).Single(t =>
             metadata.GetString(t.Namespace) == "Example" && metadata.GetString(t.Name) == "Counter");
         Assert(component.GetProperties().Select(metadata.GetPropertyDefinition)

@@ -6,6 +6,82 @@ Examples in this reference use C++ unless stated otherwise.
 
 ## Feature bindings (1.1 extension)
 
+### Scoped content replacement
+
+C++ and C# support one replaceable root inside a stable `ContentHost`.
+The C declarations are in `include\xui\xui_content.h`.
+Rust does not yet expose a typed wrapper for this extension.
+The host uses ordinary retained controls and native input, not another renderer or an embedded top-level window.
+
+```csharp
+var host = window.CreateContentHost();
+window.SetContent(window.Stack().Add(host, 1));
+window.Post(() =>
+{
+    var update = host.BeginUpdate();
+    try
+    {
+        var root = window.Stack().Add(window.Label("New content"));
+        update.Commit(root);
+    }
+    catch
+    {
+        update.Dispose();
+        throw;
+    }
+});
+window.Run();
+```
+
+The host must belong to the window tree before a live replacement.
+`BeginUpdate` permits candidate construction on that window's UI thread.
+Only one candidate can exist per window.
+Construction and commit or rollback must finish within the same UI-thread action.
+Candidate construction cannot change unrelated topology or replace window-wide callback handlers.
+An unattached root from that candidate is the only valid commit target.
+Scopes cannot share control handles or resource handles.
+Ordinary tree construction remains a before-run operation.
+
+`Commit` replaces the host content and completes native layout before returning.
+It retires the previous scope, including unattached objects that scope created.
+`Dispose` rolls back an uncommitted candidate.
+After commit, `Dispose` clears that scope if it remains current.
+`ContentHost.Clear` explicitly removes current content.
+Disposal of an already retired managed scope is harmless.
+Retired native handles are invalid.
+
+Replacement must occur outside native input callbacks.
+`Window.Post` provides a deferred UI-thread action for this purpose.
+The host preserves native peers outside its content.
+This includes editor selection, undo history, and focus outside the replaced subtree.
+Replacement does not take foreground activation.
+
+`ContentUpdate.CallbackFailed` opts into scoped managed event-error reporting.
+The scope stops further managed callbacks after the first exception.
+The error handler runs later on the UI thread and must clear or replace the failed content.
+Without this handler, callback exceptions keep the fatal-window contract.
+The scoped path covers control events, collection menus, file callbacks, Miller callbacks, and managed posted actions.
+Immutable-source queries and native failures retain the fatal-window contract.
+They cannot return fabricated data as an error substitute.
+
+Posted actions inherit the managed scope through the execution context.
+`ContentUpdate.Post` explicitly queues work that belongs to an active scope.
+A retired or failed scope rejects later posts.
+Retirement releases queued action delegates before native delivery.
+Each scope accepts at most 256 pending managed posts.
+Authored tasks that suppress execution-context flow remain the application's responsibility.
+
+Model and construction errors preserve the previous content.
+A fatal native materialization error can close the window instead.
+Scope rollback does not reverse arbitrary authored side effects.
+Scopes are ownership boundaries, not sandboxes or process isolation.
+
+The C++ counterpart is `Window::replace_content(ContentHost&, std::shared_ptr<Element>)`.
+A null content argument clears the host.
+C++ callers retain responsibility for their own callback captures and resources.
+The C ABI adds begin, commit, release, clear, context, owner, and handle-count operations.
+The context operation attributes new resources to a scoped callback without enabling topology changes.
+
 ### Windows file transfers
 
 The C# library supports filesystem clipboard transfers and native OLE drag-and-drop without Windows Forms or WPF.

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(XuiRuntimeIdentifier)</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="..\Xui.Native.targets" />
+  <ItemGroup>
+    <Compile Include="..\Designer\PreviewCompiler.cs" Link="PreviewCompiler.cs" />
+    <Compile Include="..\Designer\PreviewHost.cs" Link="PreviewHost.cs" />
+    <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
+    <ProjectReference Include="..\Xui\Xui.csproj" />
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" Private="true" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.CSharp.dll" Private="true" />
+  </ItemGroup>
+</Project>

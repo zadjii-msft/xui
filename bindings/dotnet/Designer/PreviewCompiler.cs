@@ -123,10 +123,9 @@ internal static class PreviewCompiler
                     public static object Build(global::Xui.Window window)
                     {
                         var component = new {{componentName}}(window, attach: false);
-                        global::Xui.Element root = component.Root;
-                        window.SetContent(window.Stack().Add(root, 1));
                         return component;
                     }
+                    public static global::Xui.Element Root(object component) => (({{componentName}})component).Root;
                 }
             }
             """, parseOptions, "GeneratedPreview.g.cs", Encoding.UTF8, cancellation);

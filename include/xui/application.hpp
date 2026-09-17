@@ -98,6 +98,10 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
     void set_content(std::shared_ptr<Stack> content);
+    // The host must belong to this window. Null clears its content.
+    // UI thread only, outside native input callbacks; use post from callbacks.
+    // Returns after native creation and layout. Native failures close the window.
+    void replace_content(ContentHost& host, std::shared_ptr<Element> content);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
     const std::wstring& title() const;

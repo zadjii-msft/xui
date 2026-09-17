@@ -186,7 +186,7 @@ The mapping does not add native event handlers, ownership changes, or preview UI
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.
-2. Place the designer and preview windows beside each other.
+2. Find the native preview beside the source editor.
 3. Edit the source in the designer.
 4. Read compiler errors in the diagnostics pane.
 
@@ -197,17 +197,20 @@ XUI and C# diagnostics include the source line and column.
 Invalid source leaves the last valid preview unchanged.
 
 The preview supports styles, C# state, and event handlers.
-Each successful update creates a new preview window and resets component state.
+Each successful update replaces the content of the embedded preview and resets component state.
 The editor retains its text, selection, and undo history.
-The new preview does not take keyboard focus.
-Window position and size do not persist between updates.
+Replacement does not activate another window or take focus from the editor.
+The preview keeps its place in the designer layout.
 
 With **Live preview** off, automatic compilation pauses.
 **Render / reopen**, or Ctrl+Enter, compiles the current source even during a pause.
-This command also opens a preview after you close its window.
-**Light preview** selects the light theme and creates a new preview.
-Preview construction errors leave the previous window unchanged.
-An exception from a preview callback closes that preview and appears in the designer.
+This command also restores a preview after a managed callback error.
+**Light theme** changes the designer theme, including the preview.
+The preview does not have an independent theme.
+Preview construction errors leave the previous content unchanged.
+A managed event exception stops further callbacks from that preview.
+The designer then removes the failed preview and reports the exception.
+The next successful render creates new content.
 
 ## Files and recovery
 
@@ -238,7 +241,18 @@ The diagnostics pane reports file and recovery errors.
 The preview runs arbitrary C# with your account permissions inside the designer process.
 It is not a sandbox.
 Authored code can access files, start work, hang, or terminate the process.
-Closing the designer requests preview shutdown but cannot safely interrupt arbitrary C#.
+The editor and the preview share the same UI thread.
+The designer cannot interrupt arbitrary C# safely.
+Collectible assembly unloading requires authored tasks and static references to release their objects.
+
+The preview uses a scoped native ownership boundary, not process isolation.
+The scope releases its controls, handles, resources, and managed callback registrations after replacement.
+Queued scoped callbacks cannot restore retired content.
+Source versions prevent obsolete compilation results from replacing newer content.
+
+Native materialization errors and immutable-source query errors retain the normal XUI fatal-window contract.
+They can close the designer.
+The designer guarantees old-content preservation for parse, compile, and managed construction errors, not arbitrary authored side effects.
 
 The first version accepts one self-contained component with no required parameters.
 It supports stack and non-stack roots.
@@ -246,7 +260,8 @@ It does not load a project, code-behind files, additional components, or NuGet d
 The source limit is 65,536 UTF-16 code units.
 The designer rejects NUL characters and invalid Unicode.
 
-The preview has a separate window because XUI fixes native tree ownership before `Run`.
-This version has no embedded preview pane, drag-and-drop design surface, syntax highlighting, or state-preserving reload.
+The preview uses the explicit [content scope](bindings.md#scoped-content-replacement) API.
+Ordinary application topology remains fixed before `Run`.
+This version has no drag-and-drop design surface, syntax highlighting, or state-preserving reload.
 The designer requires managed, untrimmed, multi-file deployment.
 Unlike ordinary generated applications, this development tool includes Roslyn and the XUI generator at runtime.

@@ -10,15 +10,17 @@ The [designer guide](../specs/designer.md) describes the standalone development 
 `bindings/dotnet/Designer/DesignerLayout.xui` defines its shell.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
 `PreviewCompiler.cs` runs `XuiGenerator` and Roslyn, with semantic discovery of the generated component.
-It emits a wrapper that attaches any supported root beneath a stack.
+It emits `Build(Window)` and `Root(object)` wrappers for the component and its unattached root.
 It does not execute authored code during compilation.
 
-`PreviewHost.cs` owns one STA thread and sequential preview windows.
-It constructs a candidate before closing the previous window.
-The host retains the generated component until window disposal, then unloads its collectible assembly context.
+`PreviewHost.cs` owns a stable `ContentHost` inside the designer window.
+It constructs a candidate within `ContentUpdate` before replacing the previous content.
+The host retains the generated component until scope retirement, then requests collectible assembly unloading.
 Authored tasks or static references can prevent collection.
-The host reports construction and callback exceptions to the editor.
-This thread boundary does not isolate untrusted code.
+The host checks the source version before construction and before commit.
+Successful commit completes native materialization and layout before status delivery.
+The host reports construction and scoped managed event exceptions to the editor.
+The preview shares the editor UI thread and does not isolate authored code.
 
 `Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
@@ -90,6 +92,30 @@ Synthesized expressions and columns beyond the directive limit retain the origin
 `Program.Diagnostics.cs` checks exact UTF-16 start and end locations, line endings, nested expressions, raw strings, and long-source compatibility.
 It links the unchanged `PreviewCompiler.cs` to check actual preview diagnostic text.
 The diagnostic tranche passed 1,561 source assertions, 41,813 generator assertions, 78 designer compiler assertions, and a managed Designer build on September 16, 2026.
+
+`Designer.Preview.Tests` covers native embedded layout, scoped ownership, repeated replacement, stale versions, managed callback errors, and editor preservation.
+The designer's `--smoke` mode covers the editor, preview recovery, and file behavior.
+`xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
+The normal window activation default remains unchanged.
+
+### Embedded preview evidence
+
+On 2026-09-16, the ARM64 Release build passed the native and managed embedded preview regressions.
+The worktree started from designer baseline `ae3ddea`.
+`Designer.Tests` passed 83 compiler assertions.
+`Designer.Preview.Tests` passed 1,282 assertions.
+The latter includes 100 replacements, 20 failed candidates, resource retirement, collectible assembly unloading, scoped callback recovery, and pending-close cycles.
+The existing designer `--smoke` passed with the minimal embedded shell.
+
+`xui_content_host_window_tests` passed 200 native replacements across Classic and WinUI.
+It also covered editor state, popup retirement, inactive pages, map and runtime retirement, stale UIA providers, and fatal materialization errors.
+The core regression passed.
+Existing ABI regressions passed 347 base assertions, 263,627 feature assertions, and 19 activation assertions.
+
+The foundation-window regression exceeded its native-phase deadline in this environment.
+The same failure reproduced with the baseline `ae3ddea` application implementation.
+Active WebView2 content was not part of these checks.
+These results do not establish safety against arbitrary authored code or independent process isolation.
 
 ## Goal
 

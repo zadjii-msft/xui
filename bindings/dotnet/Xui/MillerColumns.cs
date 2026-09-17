@@ -127,7 +127,7 @@ public sealed unsafe partial class Window
             return;
         }
         if (millerSubscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
-        var subscription = new MillerSubscription(this, action);
+        var subscription = new MillerSubscription(this, action, ScopeFor(handle));
         try
         {
             Check(Native.MillerSubscribe(handle, &MillerTrampoline, GCHandle.ToIntPtr(subscription.Root)));
@@ -144,10 +144,12 @@ public sealed unsafe partial class Window
     {
         internal readonly Window Window;
         internal Action<EventKind, MillerItemEvent> Action;
+        internal readonly ContentUpdate? Scope;
         internal GCHandle Root;
-        internal MillerSubscription(Window window, Action<EventKind, MillerItemEvent> action)
+        internal MillerSubscription(Window window, Action<EventKind, MillerItemEvent> action, ContentUpdate? scope)
         {
             Window = window; Action = action;
+            Scope = scope;
             Root = GCHandle.Alloc(this, GCHandleType.Weak);
         }
         internal void Free() { if (Root.IsAllocated) Root.Free(); }
@@ -160,6 +162,8 @@ public sealed unsafe partial class Window
         {
             subscription = GCHandle.FromIntPtr(context).Target as MillerSubscription;
             if (subscription is null) return 8;
+            if (subscription.Scope is { AcceptCallbacks: false }) return 0;
+            using var content = subscription.Window.EnterContent(subscription.Scope);
             ++subscription.Window.callbacks;
             try { subscription.Action((EventKind)value->Kind, new(value->Column, new(value->Id, value->Version))); }
             finally { --subscription.Window.callbacks; }
@@ -167,8 +171,7 @@ public sealed unsafe partial class Window
         }
         catch (Exception error)
         {
-            if (subscription is not null) subscription.Window.callbackError = error;
-            return 8;
+            return subscription is null ? 8 : subscription.Window.ContentError(subscription.Scope, error);
         }
     }
 }

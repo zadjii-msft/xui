@@ -347,6 +347,7 @@ xui_status XUI_CALL xui_window_set_icon_source(xui_handle window, xui_string pat
 xui_status XUI_CALL xui_window_on_icon_error(xui_handle window, xui_window_icon_error_callback callback, void* context) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(!n->owner->content_context, XUI_BUSY, "Content scopes cannot replace window callbacks.");
         if (!callback) { n->owner->window->on_icon_error({}); return; }
         n->owner->window->on_icon_error([weak = std::weak_ptr<Node>(n), callback, context](const std::wstring& error) {
             const auto node = weak.lock();
@@ -365,12 +366,14 @@ xui_status XUI_CALL xui_window_on_icon_error(xui_handle window, xui_window_icon_
 xui_status XUI_CALL xui_window_key_handler(xui_handle window, xui_key_handler callback, void* context) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(!n->owner->content_context, XUI_BUSY, "Content scopes cannot replace window callbacks.");
         n->key_handler = callback; n->key_context = context; wire(n);
     });
 }
 xui_status XUI_CALL xui_window_navigation_handler(xui_handle window, xui_navigation_handler callback, void* context) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(!n->owner->content_context, XUI_BUSY, "Content scopes cannot replace window callbacks.");
         n->navigation_handler = callback; n->navigation_context = context;
         if (!callback) { n->owner->window->on_navigation({}); return; }
         n->owner->window->on_navigation([weak = std::weak_ptr<Node>(n)](const xui::NavigationEvent& e) {
@@ -454,10 +457,12 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         std::shared_ptr<Node> c, s;
         if (o->content) {
             c = get(o->content); same(n, c);
+            content_topology(c);
             require(c->element && (kind == XUI_VIEW_PICKER || !c->attached), XUI_INVALID_ARGUMENT, "Content already has a parent.");
         }
         if (o->second) {
             s = get(o->second); same(n, s);
+            content_topology(s);
             require(s != c && s->element && !s->attached, XUI_INVALID_ARGUMENT, "Invalid second child.");
         }
         std::shared_ptr<xui::Element> e;
@@ -893,6 +898,7 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         for (auto h : n->children) if (get(h)->element == e) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
         *out = insert(n->owner, kind, e);
+        get(*out)->content_scope = n->content_scope;
         const auto child = get(*out);
         child->attached = true;
         child->navigation_owned_button = n->kind == XUI_WINDOW && index >= 5;
@@ -918,6 +924,7 @@ xui_status XUI_CALL xui_breadcrumb_segment_button(xui_handle target, uint64_t id
         n->children.reserve(n->children.size() + 1);
         const auto handle = insert(n->owner, XUI_BUTTON, button);
         const auto child = get(handle);
+        child->content_scope = n->content_scope;
         child->attached = true; child->navigation_owned_button = true;
         n->children.push_back(handle); *out = handle;
     });
@@ -934,13 +941,14 @@ xui_status XUI_CALL xui_command_bar_button(xui_handle target, uint64_t id, xui_h
         n->children.reserve(n->children.size() + 1);
         const auto handle = insert(n->owner, XUI_BUTTON, button);
         const auto child = get(handle);
+        child->content_scope = n->content_scope;
         child->attached = true; child->navigation_owned_button = true;
         n->children.push_back(handle); *out = handle;
     });
 }
 xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child, uint32_t row, uint32_t column, uint32_t rows, uint32_t columns) noexcept {
     return boundary([&] {
-        auto n = get(target); auto c = get(child); same(n, c); topology(n->owner);
+        auto n = get(target); auto c = get(child); same(n, c); content_topology(n);
         require(n != c && c->element && !c->attached, XUI_INVALID_ARGUMENT, "Invalid child.");
         if (n->kind == XUI_GRID) as<xui::Grid>(n).add(c->element, row, column, rows, columns);
         else {
@@ -1118,7 +1126,9 @@ void revoke(const std::shared_ptr<Node>& n) {
 }
 xui_handle request_token(const std::shared_ptr<Node>& n, RequestValue value) {
     auto r = std::make_shared<Request>(); r->target = n; r->value = std::move(value);
-    auto h = insert(n->owner, request_kind); get(h)->resource = r; return h;
+    auto h = insert(n->owner, request_kind);
+    get(h)->content_scope = n->content_scope;
+    get(h)->resource = r; return h;
 }
 void prepare_tree(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;

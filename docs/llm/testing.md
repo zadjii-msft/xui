@@ -61,6 +61,13 @@ The fixture includes owner deletion from that callback and composition-message r
 `bindings\dotnet\Tests\DocumentEditingTests.cs` checks the managed edit path and native tree selection.
 The [document procedure](../../CONTRIBUTING.md#document-range-editing) lists the commands.
 
+`tests\content_host_window_tests.cpp` covers the native retained content boundary.
+`bindings\dotnet\Designer.Preview.Tests` covers its C ABI and managed ownership through the embedded preview.
+The managed harness measures 100 replacements, repeated rollback, live handles, source-version delivery, and managed callback recovery.
+It keeps the same native editor and checks text, selection, undo availability, focus, and foreground activation.
+These desktop checks need the matching native DLL.
+Compiler-only `Designer.Tests` retains its rule that no native XUI library loads.
+
 The explorer adds these regressions:
 
 | Program | Coverage |

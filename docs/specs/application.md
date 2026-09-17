@@ -82,6 +82,10 @@ For MSVC builds that use this resource, set `/MANIFEST:NO`, as the gallery targe
 
 The window retains its content through `std::shared_ptr`. A control has one layout parent and a stable `Element::id`.
 Build the tree before `Application::run`. Set properties and use callbacks on that same UI thread.
+`ContentHost` provides an explicit exception for a single replaceable root.
+`Window::replace_content` changes only that host and preserves surrounding native peers.
+It requires the UI thread and rejects replacement from active native input callbacks.
+The [binding contract](bindings.md#scoped-content-replacement) describes candidate scopes and managed callback ownership.
 The window supports one active run on the thread. Each `Window` runs once, but separate windows can run in sequence.
 The caller must not initialize COM as MTA.
 
