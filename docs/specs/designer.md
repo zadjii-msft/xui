@@ -216,8 +216,11 @@ Grid duplication also requires an explicit `GridPlacement`.
 It changes placement only in the new copy and refuses existing placement expressions.
 
 `InsertControl` inserts a complete template at an ordered child index in a Stack or Grid.
-Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, and SplitView.
+Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, and NavigationView.
 Wrapper templates contain the required children.
+DataGrid starts with Name and Value columns and no rows.
+NavigationView starts with its header and search field and no navigation entries.
+These two placeholders do not install data providers or event handlers.
 Grid insertion requires an explicit `GridPlacement`.
 Insertion, duplication, and placement changes reject unknown track lengths, placement expressions, out-of-bounds cells, and overlapping cells.
 Intentional overlaps remain available through source editing.

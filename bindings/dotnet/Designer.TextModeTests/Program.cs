@@ -29,11 +29,15 @@ internal static class Program
         };
         window.SetContent(window.Stack(Axis.Horizontal).Padding(10).Spacing(10)
             .Add(editor, 1).Add(workspace.Hierarchy.Layout.Root, 1).Add(workspace.Inspector.Layout.Root, 1));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!window.Post(() => started.SetResult()))
+            throw new InvalidOperationException("The text mode test window rejected its startup action.");
         Exception? failure = null;
         var driver = Task.Run(async () =>
         {
             try
             {
+                await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
                 await Ui(workspace.SourceChanged);
                 await Ready();
                 string prior = "";
