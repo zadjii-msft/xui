@@ -349,7 +349,7 @@ class Service {
                         request->pixels = std::move(pixels);
                         request->error = std::move(error);
                         request->done = true;
-                        if (request->wake) SetEvent(request->wake->event);
+                        if (request->wake) request->wake->signal();
                     } else {
                         std::lock_guard guard(a.mutex);
                         ++a.stats.cancelled;
