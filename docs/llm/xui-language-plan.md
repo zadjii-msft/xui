@@ -49,6 +49,9 @@ A partial snapshot reports an error instead of restoring stale file identity.
 `DesignerRecoveryLayout.xui` defines its content.
 The dialog shows bounded source previews, requires deletion approval, and prevents recovery over dirty source.
 `Designer.RecoveryTests` exercises its native controls against isolated draft files.
+`DesignerDiscardDialog.cs` supplies explicit discard or cancel approval through `DesignerDiscardLayout.xui`.
+It defers approved actions until the native dialog closes, then checks the exact source and revision again.
+`Designer.DiscardTests` covers native undo preservation, concurrent requests, and stale approval.
 `DesignerFileSmoke.cs` runs `--file-smoke` against the complete application with an isolated recovery directory.
 The application keeps file errors in a separate status label so compiler diagnostics remain available.
 `DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
