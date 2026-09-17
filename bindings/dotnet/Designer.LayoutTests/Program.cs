@@ -55,6 +55,10 @@ internal static class Program
                             "Common toolbar actions use compact native icon buttons");
                         Require(layout.Save.Text == "Save" && layout.Undo.Text == "Undo",
                             "Icon buttons retain descriptive accessible names");
+                        Require(layout.Commands.Text == "Commands" && layout.Commands.GetBounds().Width >= 80 &&
+                            layout.Commands.GetBounds().X + layout.Commands.GetBounds().Width <=
+                            layout.ToolbarHost.GetBounds().X + layout.ToolbarHost.GetBounds().Width,
+                            "Command discovery has a visible, named toolbar action");
                         foreach (var panel in new[] { layout.HierarchyPanel, layout.InspectorPanel, layout.OutputPanel })
                         {
                             var style = panel.GetControlStyleValues(StylePart.Root, effective: true);

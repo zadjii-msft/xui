@@ -19,6 +19,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly DesignerDiagnosticNavigator diagnosticNavigator;
     private readonly DesignerSourceSearch sourceSearch;
     private readonly DesignerSourceIndentation sourceIndentation;
+    private readonly DesignerCommandPalette commandPalette;
     private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
@@ -69,6 +70,7 @@ internal sealed partial class DesignerApplication : IDisposable
             recovery = new DesignerRecoveryDialog(window, document, RecoveredDocument, ReportFileError);
             fileActions = new DesignerFileActions(window, editor, view.Path, document, () => version,
                 ReplacedDocument, SetFileStatus, ReportFileError);
+            commandPalette = new DesignerCommandPalette(window, view.Commands, DesignerCommands, ShowError);
             SetFileStatus(document.FilePath is { } path ? $"Opened {path}" : "Untitled example. Choose a file path before saving.");
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
@@ -82,8 +84,12 @@ internal sealed partial class DesignerApplication : IDisposable
             view.Render.Click += () => Schedule(immediate: true);
             view.Live.Changed += value => { live = value; Schedule(); };
             view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); Schedule(immediate: true); };
+            view.Commands.Click += ShowCommands;
             window.KeyHandler = key =>
             {
+                if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'P')
+                { ShowCommands(); return true; }
+                if (commandPalette.IsOpen) return false;
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'S') { Save(); return true; }
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'S')
                 { fileActions.SaveAs(); return true; }
@@ -103,6 +109,7 @@ internal sealed partial class DesignerApplication : IDisposable
         catch
         {
             lifetime.Cancel();
+            commandPalette?.Dispose();
             workspace?.Dispose();
             viewport?.Dispose();
             preview?.Dispose();
@@ -431,6 +438,7 @@ internal sealed partial class DesignerApplication : IDisposable
         lifetime.Cancel();
         edits.Writer.TryComplete();
         compiler.GetAwaiter().GetResult();
+        commandPalette.Dispose();
         workspace.Dispose();
         viewport.Dispose();
         preview.Dispose();

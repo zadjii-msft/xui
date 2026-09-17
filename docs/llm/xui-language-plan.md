@@ -19,6 +19,16 @@ The toggle posts through the supplied dispatcher before it moves focus or change
 This avoids a nested native focus event inside the button callback.
 The application expands Output for compile, preview, and file errors.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+
+`DesignerApplication.Commands.cs` maps stable command IDs to existing application actions and current availability checks.
+`DesignerCommandPalette.cs` uses the native `CommandSurface` for search, keyboard navigation, dismissal, and focus restoration.
+It posts opening and execution through the window dispatcher and checks availability again before each action.
+Reopening or disposal cancels a queued command. A pending command prevents duplicate dispatch.
+
+The shell leaves pointer picking before opening the palette, then leaves popup keys to the native router.
+`Designer.CommandTests` exercises real native search input and both visual styles.
+The application selection smoke covers command shortcuts, file confirmation, and focus inside the inspector.
+
 `DesignerSourceIndentation.cs` handles Enter and leading-whitespace Tab shortcuts only in the focused source editor.
 It uses native range replacement for single-action undo and reports rejected edits through Output.
 The window's native key router excludes IME composition and modal dialogs before these shortcuts.

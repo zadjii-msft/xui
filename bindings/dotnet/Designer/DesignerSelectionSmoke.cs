@@ -152,9 +152,31 @@ internal sealed partial class DesignerApplication
             {
                 Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
                     "Returning to Fit retains the same live preview and authored state.");
-                view.Pick.Invoke();
+                view.Commands.Invoke();
             });
-            await Until(() => !pickControls);
+            await Until(() => commandPalette.IsOpen && !pickControls);
+            await Ui(() =>
+            {
+                Require(commandPalette.Surface.Editor.Focused && version == styledVersion && ButtonText() == "Activated",
+                    "The Commands button leaves pointer picking before opening the native palette without resetting preview state.");
+                commandPalette.Surface.Invoke((ulong)DesignerCommandId.Replace);
+            });
+            await Until(() => !commandPalette.IsOpen && sourceSearch.Layout.ReplaceOpen && sourceSearch.Layout.Replacement.Focused);
+            await Ui(() =>
+            {
+                Require(window.KeyHandler!(new('P', KeyModifiers.Control | KeyModifiers.Shift, editor.Id)),
+                    "Ctrl+Shift+P opens Designer command discovery.");
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                Require(!window.KeyHandler!(new('S', KeyModifiers.Control, commandPalette.Surface.Editor.Id)),
+                    "Source and file shortcuts do not intercept keys inside the command palette.");
+                SelectionNative.Key(0x1B);
+            });
+            await Until(() => !commandPalette.IsOpen);
+            await Ui(() => Require(sourceSearch.Layout.FindOpen && sourceSearch.Layout.ReplaceOpen,
+                "Escape dismisses the command palette without closing the underlying Find panel."));
             await Ui(() =>
             {
                 source = editor.Text;
@@ -178,6 +200,30 @@ internal sealed partial class DesignerApplication
                 Require(editor.Text == source && preview.AppliedVersion == version,
                     "One native undo restores the pre-replacement source and its preview.");
                 sourceSearch.Layout.Close.Invoke();
+            });
+            await Ui(view.Commands.Invoke);
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.New));
+            await Until(() => fileActions.Discard.IsPending);
+            await Ui(() =>
+            {
+                Require(!commandPalette.IsOpen && editor.Text == source,
+                    "New from the command palette keeps dirty source behind the existing discard confirmation.");
+                fileActions.Discard.View.CancelButton.Invoke();
+            });
+            await Until(() => !fileActions.Discard.IsPending);
+            await Ui(() => Require(editor.Text == source, "Canceling a command-palette file action preserves the complete source."));
+            await Ui(view.Commands.Invoke);
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusPalette));
+            await Until(() => !commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                var field = workspace.Inspector.Layout.PaletteFilter.GetBounds();
+                var panel = view.InspectorPanel.GetBounds();
+                Require(workspace.Inspector.Layout.PaletteFilter.Focused &&
+                    field.Y >= panel.Y && field.Y + field.Height <= panel.Y + panel.Height,
+                    "The control-palette focus command reveals its native field inside the inspector.");
             });
             await Ui(() =>
             {
@@ -280,6 +326,12 @@ internal sealed partial class DesignerApplication
             SendMessageW(peer, 0x202, 0, point);
         }
 
+        internal static void Key(uint key)
+        {
+            if (!PostMessageW(GetFocus(), 0x0100, key, 0))
+                throw new InvalidOperationException("The preview smoke could not post a native key.");
+        }
+
         private static HashSet<nint> Peers(string text)
         {
             var peers = new HashSet<nint>();
@@ -305,6 +357,8 @@ internal sealed partial class DesignerApplication
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(nint window, StringBuilder text, int count);
         [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out Rect bounds);
         [DllImport("user32.dll")] private static extern nint SendMessageW(nint window, uint message, nint first, nint second);
+        [DllImport("user32.dll")] private static extern nint GetFocus();
+        [DllImport("user32.dll")] private static extern bool PostMessageW(nint window, uint message, nuint first, nint second);
         [DllImport("xui", EntryPoint = "xui_text_copy")] private static extern int TextCopy(ulong control, [Out] byte[]? bytes, uint capacity, out uint count);
     }
 }

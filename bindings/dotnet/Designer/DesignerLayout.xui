@@ -67,6 +67,8 @@ component DesignerLayout {
                     Toggle("Light theme", ref: Light, id: "designer-light");
                     Button(WinUIStyle ? "Style: WinUI" : "Style: Classic", ref: StyleToggle, id: "designer-style-toggle",
                         help: "Switch between Classic and WinUI without resetting the preview", click: ToggleStyle);
+                    Button("Commands", ref: Commands, id: "designer-commands",
+                        help: "Search Designer commands (Ctrl+Shift+P)");
                 }
             }
             Grid("Designer workspace", ref: Workspace, flex: 1,

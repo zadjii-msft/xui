@@ -267,6 +267,7 @@ public sealed partial class CommandSurface
     private Button? closeButton;
     private Stack? content, results;
     private RetainedElement? menu;
+    public bool IsOpen => Features.Get(this, 43).First != 0;
     public TextInput Editor => editor ??= new(Window, Features.Child(this, 0));
     public Label Title => title ??= new(Window, Features.Child(this, 1));
     public Label Status => status ??= new(Window, Features.Child(this, 2));

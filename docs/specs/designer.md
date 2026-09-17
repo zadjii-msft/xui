@@ -55,6 +55,19 @@ The visual style is independent of the **Light theme** setting.
 Routine hierarchy and property hints use tooltips instead of persistent labels.
 Read-only reasons and errors remain visible.
 
+**Commands**, or Ctrl+Shift+P, opens a searchable native command palette.
+The palette includes file actions, source editing, focus navigation, preview sizes, preview modes, Output, theme, and visual style.
+Up and Down select a result. Enter runs the selected command after the palette closes.
+Escape and the close button dismiss the palette and restore the previous focus.
+The query remains available when the palette opens again.
+Source and file shortcuts do not intercept keys inside the palette.
+
+Opening Commands turns off **Pick controls** because native popups cannot open during pointer picking.
+The **Preview: Pick controls** command enables that mode again after the palette closes.
+Unavailable commands appear disabled. Each action checks its availability again before execution.
+File commands use the existing discard confirmation, file chooser, and disk-conflict checks.
+Command discovery does not replace source, clear undo, or rebuild the preview.
+
 Find starts collapsed.
 Ctrl+F opens a compact Find panel above the source editor and focuses its native field.
 F3 selects the next literal match, and Shift+F3 selects the previous match.
@@ -124,6 +137,7 @@ The preview size selector provides **Fit**, **Compact**, **Medium**, **Wide**, a
 Fit fills the available preview pane.
 Compact requests a 360-by-640-DIP viewport.
 Medium requests 768 by 1024 DIP. Wide requests 1280 by 800 DIP.
+
 The width and height fields specify custom dimensions in device-independent pixels.
 Each custom dimension accepts whole numbers from 1 through 4096, without spaces, signs, or fractions.
 **Apply** changes the viewport without compiling source or resetting authored control state.
