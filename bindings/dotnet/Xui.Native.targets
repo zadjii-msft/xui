@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup Condition="'$(XuiCopyNativeRuntime)' != 'false'">
     <Content Include="$(XuiNativeDir)\xui.dll" Link="xui.dll" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" />
+    <Content Include="$(XuiNativeDir)\lsh_lib.dll" Link="lsh_lib.dll" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" Condition="Exists('$(XuiNativeDir)\lsh_lib.dll')" />
+    <Content Include="$(XuiNativeDir)\LSH-LICENSE.txt" Link="LSH-LICENSE.txt" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" Condition="Exists('$(XuiNativeDir)\LSH-LICENSE.txt')" />
   </ItemGroup>
   <Target Name="ValidateXuiNativeRuntime" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' and '$(XuiCopyNativeRuntime)' != 'false'">
     <Error Condition="'$(_XuiNativeArchitecture)' == ''" Text="XUI requires RuntimeIdentifier win-x64 or win-arm64." />

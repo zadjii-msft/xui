@@ -31,6 +31,9 @@ private:
     bool document_font_set_{};
     UINT dpi_{};
     std::uint64_t revision_{}, selection_revision_{};
+    std::uint64_t syntax_revision_{};
+    std::array<COLORREF, 8> syntax_colors_{};
+    bool syntax_dirty_{true};
     bool composing_{}, setting_{}, readonly_{}, monospace_{}, colors_set_{};
     COLORREF text_color_{}, background_{};
     std::size_t maximum_{};

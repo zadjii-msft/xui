@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <stdexcept>
 
 namespace xui {
@@ -36,23 +37,60 @@ void normalize_paragraphs(std::wstring& value) {
     }
     value.resize(out);
 }
+std::vector<SyntaxSpan> highlight(const std::function<std::vector<SyntaxSpan>(std::wstring_view)>& callback,
+    std::wstring_view text, bool& active) {
+    if (!callback) return {};
+    Notification notification(active);
+    auto spans = callback(text);
+    if (spans.size() > DocumentText::document_limit) throw std::length_error("Too many document syntax spans");
+    std::size_t end{};
+    const auto boundary = [&](std::size_t i) {
+        return i == text.size() || text[i] < 0xdc00 || text[i] > 0xdfff;
+    };
+    for (const auto& span : spans) {
+        if (span.start < end || span.start >= span.end || span.end > text.size())
+            throw std::invalid_argument("Syntax spans must be ordered, nonempty, nonoverlapping and within the document");
+        if (!boundary(span.start) || !boundary(span.end))
+            throw std::invalid_argument("Syntax span splits a UTF-16 surrogate");
+        if (span.kind < SyntaxKind::other || span.kind > SyntaxKind::variable)
+            throw std::invalid_argument("Invalid document syntax kind");
+        end = span.end;
+    }
+    return spans;
+}
 }
 DocumentText::DocumentText(std::wstring name, bool rich)
     : Control(ControlRole::document_text, std::move(name), {400, 180}), rich_(rich) {}
 void DocumentText::set_text(std::wstring value) {
+    if (highlighting_) throw std::logic_error("Cannot change document text from its syntax highlighter");
     validate_text(value, maximum_);
     normalize_paragraphs(value);
     if (text_ == value && runs_.empty()) return;
+    auto spans = highlight(highlighter_, value, highlighting_);
     text_ = std::move(value); runs_.clear(); ++revision_;
+    syntax_spans_ = std::move(spans);
+    if (highlighter_) ++syntax_revision_;
     selection_ = {}; ++selection_revision_;
     invalidate_state();
 }
+void DocumentText::set_syntax_highlighter(std::function<std::vector<SyntaxSpan>(std::wstring_view)> callback) {
+    if (rich_) throw std::logic_error("Syntax highlighting supports plain documents only");
+    if (highlighting_) throw std::logic_error("Cannot replace a running document syntax highlighter");
+    if (!callback && !highlighter_) return;
+    auto spans = highlight(callback, text_, highlighting_);
+    highlighter_ = std::move(callback);
+    syntax_spans_ = std::move(spans);
+    ++syntax_revision_;
+    invalidate(Invalidation::paint);
+}
 void DocumentText::set_maximum_length(std::size_t value) {
+    if (highlighting_) throw std::logic_error("Cannot change document limits from its syntax highlighter");
     if (!value || value > document_limit || value < text_.size()) throw std::invalid_argument("Invalid document limit");
     if (maximum_ == value) return;
     maximum_ = value; invalidate(Invalidation::paint);
 }
 void DocumentText::set_read_only(bool value) {
+    if (highlighting_) throw std::logic_error("Cannot change document editability from its syntax highlighter");
     if (read_only_ == value) return;
     read_only_ = value; invalidate_state();
 }
@@ -93,12 +131,12 @@ void DocumentText::commit_selection(TextSelection value) {
 }
 bool DocumentText::command(TextCommand value) {
     if (value < TextCommand::undo || value > TextCommand::select_all) throw std::invalid_argument("Invalid document command");
-    if (!enabled() || notifying_ || !command_) return false;
+    if (!enabled() || notifying_ || highlighting_ || !command_) return false;
     auto callback = command_; return callback(value);
 }
 TextSelection DocumentText::replace_range(TextSelection range, std::wstring_view expected_text, std::wstring replacement) {
     if (rich_) throw std::logic_error("Range replacement supports plain documents only");
-    if (!visible() || !enabled() || read_only_ || notifying_ || !replace_)
+    if (!visible() || !enabled() || read_only_ || notifying_ || highlighting_ || !replace_)
         throw std::logic_error("Document is unavailable for range replacement");
     validate_text(expected_text, document_limit);
     validate_text(replacement, document_limit);
@@ -120,9 +158,14 @@ TextSelection DocumentText::replace_range(TextSelection range, std::wstring_view
     return callback(range, snapshot, replacement);
 }
 void DocumentText::commit_text(std::wstring value, std::optional<TextSelection> selection) {
+    if (highlighting_) throw std::logic_error("Cannot commit document text from its syntax highlighter");
     validate_text(value, maximum_);
     normalize_paragraphs(value);
     if (read_only_ || notifying_ || text_ == value) return;
+    std::vector<SyntaxSpan> spans;
+    std::exception_ptr syntax_error;
+    try { spans = highlight(highlighter_, value, highlighting_); }
+    catch (...) { syntax_error = std::current_exception(); }
     if (!runs_.empty()) {
         std::size_t prefix{}, suffix{};
         while (prefix < text_.size() && prefix < value.size() && text_[prefix] == value[prefix]) ++prefix;
@@ -158,10 +201,15 @@ void DocumentText::commit_text(std::wstring value, std::optional<TextSelection> 
         if (next.size() <= 4096) runs_ = std::move(next); else runs_.clear();
     }
     text_ = std::move(value);
+    // A native edit already happened. Publish it even when its tokenizer fails;
+    // stale spans must never describe the new text or suppress its change event.
+    syntax_spans_ = std::move(spans);
+    if (highlighter_) ++syntax_revision_;
     if (selection) commit_selection(*selection);
     invalidate_state();
     auto callback = change_;
     if (callback) { Notification notification(notifying_); callback(text_); }
+    if (syntax_error) std::rethrow_exception(syntax_error);
 }
 void DocumentText::activate_link(std::size_t position) {
     std::size_t offset{};
