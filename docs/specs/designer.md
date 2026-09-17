@@ -23,6 +23,104 @@ The [template sources](../../bindings/dotnet/Designer/Templates) use the same la
 The [counter source](../../bindings/dotnet/Designer/Starter.xui) supplies the initial example.
 The examples do not access the network or save application data.
 
+## Source editing API
+
+`Xui.Generator.XuiSourceParser.Parse` exposes the existing compiler parser without a preview or native window.
+The result contains the ordered node hierarchy, authored arguments, diagnostics, and exact source ranges.
+Parsing does not compile or run authored C#.
+`Success` describes syntax, not C# type correctness.
+Malformed source returns diagnostics and no editable root.
+
+`SourceRange.Start` and `Length` count UTF-16 code units in the original source.
+Ranges use an exclusive `End`.
+The parser preserves CR, CRLF, and LF line endings.
+A node range starts at its control name and ends after its semicolon or closing brace.
+`ArgumentsSpan` and `BodySpan` exclude their surrounding delimiters.
+Argument ranges exclude separators, and `ValueSpan` identifies only the expression.
+
+`XuiSourceArgument.ValueKind` distinguishes strings, numbers, booleans, literal tuples, and C# expressions.
+Interpolated strings and tuples with state references count as expressions.
+`SupportedArguments` contains the property names that the parser accepts for that node.
+The `value` name identifies the positional argument.
+This metadata does not guarantee that a proposed value has the correct C# type.
+
+`Xui.Designer.VisualDocument` adds revision checks, caret selection, and source edit proposals:
+
+```csharp
+var document = VisualDocument.Parse(source, cancellation);
+var node = document.FindNode(caretOffset);
+if (node is not null)
+{
+    var result = document.SetArgument(
+        document.Revision, node.Id, "size", "(120, 40)",
+        cancellation: cancellation);
+    if (result.Success)
+    {
+        var edit = result.Edit!;
+        string updatedSource = edit.Apply(document.Revision, source);
+        // The resulting node occupies edit.Selection in updatedSource.
+    }
+}
+```
+
+`FindNode` returns the innermost node that contains the caret offset.
+It returns no node outside the view or source bounds.
+Node IDs belong only to one document revision.
+Each new `VisualDocument` has a new revision, even for identical text.
+
+Each successful edit returns one `VisualEdit` with `Revision`, `ExpectedSource`, `Range`, `Replacement`, and `Selection`.
+`Selection` identifies the full node range in the resulting source.
+`Apply` checks the source and revision preconditions, then returns the changed string.
+It does not change a native editor.
+The model preserves all source outside the replacement range.
+
+For native editor integration:
+
+1. Parse the current editor text after each text change.
+2. Run an edit proposal on a worker with a cancellation token.
+3. Before application, compare the live revision and complete source with the proposal.
+4. If either precondition differs, discard the proposal.
+5. Apply `Range` and `Replacement` through the native undo-preserving range API.
+6. Select the resulting `Selection` range.
+
+Edit proposals compile the original and resulting component with the existing generator and Roslyn.
+Compilation emits only to memory and does not load or run the authored assembly.
+Compiler-invalid documents and compiler-invalid edits return an actionable `Error`, not a replacement.
+Cancellation propagates as `OperationCanceledException`.
+The model supports self-contained components, including required parameters, but does not load code-behind or project dependencies.
+
+### Property and structure limits
+
+`SetArgument` accepts one complete C# expression.
+It replaces an existing value or inserts one supported named argument.
+It preserves unrelated arguments, comments, styles, whitespace, and C# code.
+An existing expression requires explicit `replaceExpression: true`.
+This approval also applies to event handlers, references, and style names.
+
+`DeleteNode` and `DuplicateNode` require a Stack or Grid parent.
+The view root cannot move, disappear, or duplicate.
+`ScrollView` and `Popup` retain exactly one child.
+`SplitView` retains exactly two children.
+`MoveNode` swaps adjacent siblings with `delta: -1` or `delta: 1`, including the two SplitView panes.
+Inter-node comments remain between the nodes, while comments inside a node move with that node.
+
+Duplication rejects subtrees with `ref`, `id`, `searchId`, or `Content`.
+This rule prevents duplicate identities and repeated ownership of an existing element.
+Grid duplication also requires an explicit `GridPlacement`.
+It changes placement only in the new copy and refuses existing placement expressions.
+
+`InsertControl` inserts a complete template at an ordered child index in a Stack or Grid.
+Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, and SplitView.
+Wrapper templates contain the required children.
+Grid insertion requires an explicit `GridPlacement`.
+Insertion, duplication, and placement changes reject unknown track lengths, placement expressions, out-of-bounds cells, and overlapping cells.
+Intentional overlaps remain available through source editing.
+
+The parser limit is 65,536 UTF-16 code units and 128 nested nodes.
+NUL characters and unpaired surrogates produce diagnostics.
+These limits apply to visual tooling, not ordinary generator builds.
+The source API does not require an embedded preview or change the native editor undo history.
+
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.

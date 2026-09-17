@@ -33,6 +33,27 @@ The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.
 
+### Visual source tools
+
+`Xui.Generator/Parser.cs` records authored node and argument ranges during the existing parse.
+`XuiSourceParser.cs` exposes an immutable projection without emission, runtime construction, or another grammar.
+It adds bounded input, nesting, Unicode, cancellation, and token-trivia diagnostics for visual tooling.
+The ordinary generator retains its existing grammar and emission path.
+
+`Designer/VisualDocument.cs` owns revision-scoped node selection and exact source replacement proposals.
+Its compilation helper runs the existing generator and emits to memory, without loading an assembly.
+It does not depend on `PreviewCompiler`, `PreviewHost`, or native editor controls.
+The UI must discard proposals after any source or revision change.
+The [public contract](../specs/designer.md#source-editing-api) defines ranges, approvals, placement rules, and editor integration.
+
+`Designer.SourceTests` links this model directly and rejects native DLL loading.
+The suite covers all templates, literal and expression boundaries, raw C# strings, comments, Unicode, line endings, and stale-source refusal.
+It also covers structural edits, fixed arity, ownership, Grid placement, and resulting assembly emission.
+The source suite passed 646 assertions on Windows on September 16, 2026.
+The same change passed 41,813 generator assertions and 78 existing designer compiler assertions.
+These results use designer baseline `ae3ddea` and the source-tools tranche.
+Commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

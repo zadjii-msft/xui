@@ -191,6 +191,15 @@ The template tests compile every built-in example and reject compiler warnings.
 The template sources are under `bindings\dotnet\Designer\Templates`, with the counter example in `Starter.xui`.
 The document tests cover atomic saves, disk conflicts, UTF-8 input, and recovery snapshots without a native DLL.
 
+Run the source hierarchy and visual edit tests without a native DLL:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
+```
+
+This suite checks exact UTF-16 ranges, source preservation, stale revisions, container rules, and generated compilation.
+The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
+
 After the native build, run the desktop smoke test:
 
 ```powershell
