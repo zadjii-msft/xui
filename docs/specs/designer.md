@@ -343,17 +343,28 @@ The next successful render creates new content.
 ## Files and recovery
 
 The **File path** field accepts a `.xui` path.
+**Open path** loads the path from this field.
+**Open...**, or Ctrl+O, opens the native file chooser.
 Open accepts UTF-8 source, with or without a byte-order mark.
-**Open** replaces an unchanged document.
-If the document has unsaved edits, save it before opening another file.
 Invalid syntax does not prevent Open or native source editing.
-**New** creates an unchanged, untitled document from the selected template.
+**New**, or Ctrl+N, creates an unchanged, untitled document from the selected template.
 New, Open, and Recovery replace the native document and reset its undo history.
 Visual actions use native range edits instead.
+
+For unsaved edits, New and Open require **Discard edits** or **Keep editing** in a native confirmation dialog.
+Keep editing preserves the source, undo history, and recovery draft.
+Discard approval does not delete the source before the replacement succeeds.
+Canceling the file chooser also preserves the current document after discard approval.
+Source or revision changes invalidate pending approval and file-chooser results.
+
 **Save**, or Ctrl+S, writes UTF-8 source with LF line endings.
+**Save as...**, or Ctrl+Shift+S, opens the native destination chooser.
+Save also opens this chooser when the File path field is empty.
+Canceling the chooser does not write a file or change the document identity.
 Save uses a temporary file in the destination directory before replacing the destination.
 
 Save rejects an existing destination unless the designer loaded that file.
+This protection also applies to Save As, regardless of the native chooser's overwrite confirmation.
 It compares raw file hashes and rejects changes since the last open or save, including changes to encoding or the byte-order mark.
 These checks are not a lock against concurrent writes.
 A different destination path keeps both versions.
@@ -376,6 +387,9 @@ Damaged metadata or a changed draft reports an error instead of loading unverifi
 The file status area reports file and recovery errors without replacing compiler diagnostics.
 A successful preview does not clear a file error.
 If a save succeeds but draft cleanup fails, the document stays clean and the file status reports the cleanup error.
+
+Programmatic closure during a native file chooser can leave the chooser open in the current designer.
+If this occurs, select **Cancel** in the chooser.
 
 ## Scope and execution
 

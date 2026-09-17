@@ -20,6 +20,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
     private readonly DesignerRecoveryDialog recovery;
+    private readonly DesignerFileActions fileActions;
     private CancellationTokenSource? revision;
     private long version;
     private bool live = true, light, disposed;
@@ -52,10 +53,14 @@ internal sealed partial class DesignerApplication : IDisposable
             document.UpdateSource(editor.Text);
             view.Path.Text = document.FilePath ?? "";
             recovery = new DesignerRecoveryDialog(window, document, RecoveredDocument, ReportFileError);
+            fileActions = new DesignerFileActions(window, editor, view.Path, document, () => version,
+                ReplacedDocument, SetFileStatus, ReportFileError);
             SetFileStatus(document.FilePath is { } path ? $"Opened {path}" : "Untitled example. Choose a file path before saving.");
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
+            view.OpenPicker.Click += () => fileActions.OpenChooser(view.OpenPicker);
             view.Save.Click += Save;
+            view.SaveAs.Click += fileActions.SaveAs;
             view.New.Click += NewDocument;
             view.Recovery.Click += () => { document.UpdateSource(editor.Text); recovery.Show(view.Recovery); };
             view.Undo.Click += () => SourceCommand(TextCommand.Undo);
@@ -66,6 +71,11 @@ internal sealed partial class DesignerApplication : IDisposable
             window.KeyHandler = key =>
             {
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'S') { Save(); return true; }
+                if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'S')
+                { fileActions.SaveAs(); return true; }
+                if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'O')
+                { fileActions.OpenChooser(view.OpenPicker); return true; }
+                if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'N') { NewDocument(); return true; }
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 0x0D) { Schedule(immediate: true); return true; }
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
                 { workspace.SelectFromCaret(); return true; }
@@ -85,7 +95,7 @@ internal sealed partial class DesignerApplication : IDisposable
         }
     }
 
-    internal void Run(bool smoke, bool builderSmoke = false, string? fileSmokeDirectory = null)
+    internal void Run(bool smoke, bool builderSmoke = false, string? fileSmokeDirectory = null, bool fileCloseOnly = false)
     {
         if (smoke)
         {
@@ -102,10 +112,11 @@ internal sealed partial class DesignerApplication : IDisposable
         }
         if (builderSmoke) smokeStage = -1;
         Task? driver = builderSmoke ? Task.Run(() => DesignerBuilderSmoke.Run(window, editor, diagnostics, workspace, view))
-            : fileSmokeDirectory is not null ? Task.Run(() => FileRecoverySmoke(fileSmokeDirectory)) : null;
+            : fileSmokeDirectory is not null ? Task.Run(() => FileRecoverySmoke(fileSmokeDirectory, fileCloseOnly)) : null;
         window.Post(() => { workspace.SourceChanged(); Schedule(immediate: true); });
         window.Run();
         driver?.GetAwaiter().GetResult();
+        fileSmokeClosedOwner?.CheckOwnerClosed();
         if (smokeError is not null) throw smokeError;
     }
 
@@ -256,20 +267,7 @@ internal sealed partial class DesignerApplication : IDisposable
         Schedule(immediate: true);
     }
 
-    private void Open()
-    {
-        try
-        {
-            document.UpdateSource(editor.Text);
-            document.Open(view.Path.Text);
-            editor.Text = document.Source;
-            document.UpdateSource(editor.Text);
-            view.Path.Text = document.FilePath!;
-            SetFileStatus($"Opened {document.FilePath}");
-            Schedule();
-        }
-        catch (Exception error) when (FileError(error)) { ReportFileError($"Open failed: {error.Message}"); }
-    }
+    private void Open() => fileActions.OpenPath(view.Open);
 
     private void NewDocument()
     {
@@ -278,18 +276,16 @@ internal sealed partial class DesignerApplication : IDisposable
             ReportFileError("Select a document template first.");
             return;
         }
-        try
-        {
-            document.UpdateSource(editor.Text);
-            var template = DesignerTemplates.All[templateIndex];
-            document.New(template.Source);
-            editor.Text = document.Source;
-            document.UpdateSource(editor.Text);
-            view.Path.Text = "";
-            SetFileStatus($"New {template.Name}. Choose a file path before saving.");
-            Schedule();
-        }
-        catch (Exception error) when (FileError(error)) { ReportFileError($"New document failed: {error.Message}"); }
+        fileActions.New(view.New, DesignerTemplates.All[templateIndex]);
+    }
+
+    private void ReplacedDocument(string message)
+    {
+        editor.Text = document.Source;
+        document.UpdateSource(editor.Text);
+        view.Path.Text = document.FilePath ?? "";
+        SetFileStatus(message);
+        Schedule();
     }
 
     private void RecoveredDocument()
@@ -308,22 +304,7 @@ internal sealed partial class DesignerApplication : IDisposable
         editor.Command(command);
     }
 
-    private void Save()
-    {
-        try
-        {
-            document.UpdateSource(editor.Text);
-            document.Save(view.Path.Text);
-            view.Path.Text = document.FilePath!;
-            window.SetTitle("XUI Designer");
-            SetFileStatus($"Saved {document.FilePath}");
-        }
-        catch (Exception error) when (FileError(error))
-        {
-            window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
-            ReportFileError($"Save failed: {error.Message}");
-        }
-    }
+    private void Save() => fileActions.Save();
 
     private static bool FileError(Exception error) => error is IOException or InvalidDataException or UnauthorizedAccessException
         or ArgumentException or NotSupportedException or InvalidOperationException or System.Security.SecurityException;
@@ -353,6 +334,7 @@ internal sealed partial class DesignerApplication : IDisposable
             view.Path.Text = other;
             Open();
             Require(editor.Text.Contains("Unsaved source"), "Open keeps unsaved edits.");
+            fileActions.Discard.View.Cancel();
             Save();
             Require(File.ReadAllText(other) == external, "Save does not overwrite another document.");
             view.Path.Text = first;
@@ -406,6 +388,7 @@ internal sealed partial class DesignerApplication : IDisposable
 
     private void SetFileStatus(string message)
     {
+        window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
         string safe = Limit(message);
         int length = Math.Min(safe.Length, 512);
         if (length > 0 && char.IsHighSurrogate(safe[length - 1])) length--;

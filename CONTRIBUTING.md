@@ -252,11 +252,21 @@ The builder smoke covers hierarchy selection, literal edits, palette insertion, 
 It also covers read-only expressions and recovery from invalid source without replacing the native document.
 The file smoke uses an isolated recovery directory and the complete application.
 It covers automatic drafts, the native recovery picker, disk conflicts, persistent file errors, and native edits after an invalid file opens.
+It also covers real native Open and Save As results, cancellation, file shortcuts, explicit discard approval, and stale chooser results.
 The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
 It covers pane bounds, pane order, native selection, and source preservation across theme changes.
 The workspace suite runs the same builder smoke against production controllers without the preview host.
 It compiles source transformations but does not execute authored preview code.
 The discard UI test covers native cancel and undo preservation, deferred approval, and rejection of stale source or revision snapshots.
+
+The following opt-in diagnostic currently fails for programmatic owner closure during a native chooser in the complete designer:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-close-smoke
+```
+
+It retains separate startup and cancellation deadlines, native HWND teardown checks, and rejection of late UI callbacks.
+Its fallback Cancel action ends the failed fixture. That action does not count as successful programmatic cancellation.
 The activation test checks the separate public window contract for foreground activation and initial keyboard focus.
 `XUI_DESKTOP_TESTS=ON` also registers the activation test with CTest.
 

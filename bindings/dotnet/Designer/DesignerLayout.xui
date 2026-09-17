@@ -15,8 +15,10 @@ component DesignerLayout {
                 Content(Templates, preferredSize: (160, 36));
                 Button("New", ref: New, id: "designer-new", help: "Create a document from the selected template");
                 TextInput("File path", ref: Path, placeholder: "Full path to a .xui file", captionVisible: false, preferredSize: (400, 36), flex: 1);
-                Button("Open", ref: Open, id: "designer-open");
+                Button("Open path", ref: Open, id: "designer-open", help: "Open the path entered in the File path field");
+                Button("Open...", ref: OpenPicker, id: "designer-open-picker", help: "Choose a .xui file (Ctrl+O)");
                 Button("Save", ref: Save, id: "designer-save");
+                Button("Save as...", ref: SaveAs, id: "designer-save-as", help: "Choose a new destination (Ctrl+Shift+S)");
                 Button("Recovery", ref: Recovery, id: "designer-recovery", help: "Browse saved recovery drafts");
             }
             Text("", ref: FileStatus, id: "designer-file-status", wrapping: true);

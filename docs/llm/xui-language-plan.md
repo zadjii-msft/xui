@@ -46,6 +46,8 @@ The [pointer-selection contract](../specs/designer.md#versioned-pointer-selectio
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
 `Designer.TemplateTests` compiles every catalog entry without a native DLL.
 `DesignerDocumentStore.cs` supplies the shell's file and recovery model.
+`DesignerFileActions.cs` connects the file store to native choosers and explicit dirty-document confirmation.
+It retains the file-store conflict policy and checks source revisions after native modal calls.
 It compares raw file hashes before replacement and writes each destination through a temporary file.
 Recovery metadata connects a source hash to the original path and file hash.
 A partial snapshot reports an error instead of restoring stale file identity.
@@ -58,6 +60,9 @@ The dialog shows bounded source previews, requires deletion approval, and preven
 It defers approved actions until the native dialog closes, then checks the exact source and revision again.
 `Designer.DiscardTests` covers native undo preservation, concurrent requests, and stale approval.
 `DesignerFileSmoke.cs` runs `--file-smoke` against the complete application with an isolated recovery directory.
+`DesignerFileDialogProbe.cs` drives only the smoke process's native chooser through its owner and UI thread.
+`--file-close-smoke` isolates owner closure and checks native HWND teardown after `Window.Run`.
+This opt-in diagnostic currently fails. It is separate from ordinary file-workflow acceptance.
 The application keeps file errors in a separate status label so compiler diagnostics remain available.
 `DesignerDiagnostics.cs` maps compiler messages to revision-scoped source selections for the next workspace.
 It uses the reported compiler coordinates and preserves exact native paragraph offsets.
@@ -229,6 +234,26 @@ On September 17, 2026, this tranche passed 41,861 generator assertions, 2,949 so
 The generated native fixture passed 52 assertions with this worktree's ARM64 Release DLL.
 That DLL came from a local `xui` target build, not another session's output.
 The native fixture covers a mounted window and callbacks, not screenshot-based appearance checks.
+
+### Native chooser owner-close investigation
+
+The ordinary ARM64 Release file-workflow smoke passed 32 assertions on 2026-09-17.
+It covered actual native chooser results, Unicode paths, cancellation, file shortcuts, dirty-document approval, failed destination reads, and source undo and redo.
+Native chooser errors and stale save results preserved the current document.
+The original application smoke also passed.
+The focused suites passed 16 builder assertions, 11 discard assertions, nine layout assertions, 49 document assertions, and 17 recovery assertions.
+
+On 2026-09-17, the complete designer exceeded a 30-second cancellation deadline after programmatic owner closure during a native file chooser.
+The native `Close` request reached the dialog, and its COM `Close` returned success.
+The modal `Show` call did not return before the diagnostic sent its fallback Cancel command.
+The fallback ends the failed fixture and does not establish successful programmatic cancellation.
+
+The same failure occurred with a direct native API call, retired preview content, and a label-only root before `Run`.
+Minimal native, C ABI, and managed fixtures passed separately, including a managed WinExe fixture.
+These results do not identify the cause of the full-process difference.
+No native cancellation correction accompanies the file-workflow integration.
+The strict `--file-close-smoke` diagnostic remains available.
+A UI-thread stack before the fallback is the next distinct evidence step.
 
 ## Goal
 
