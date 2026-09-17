@@ -42,6 +42,9 @@ void run(bool fail) {
     expect(xui_swap_chain_get_metrics(0, &metrics), XUI_INVALID_HANDLE);
     expect(xui_swap_chain_set(context.panel, nullptr), XUI_OK);
     expect(xui_swap_chain_set_surface(context.panel, nullptr), XUI_OK);
+    expect(xui_swap_chain_native_input(context.panel, 2), XUI_INVALID_ARGUMENT);
+    expect(xui_swap_chain_native_input(context.window, 1), XUI_WRONG_KIND);
+    expect(xui_swap_chain_native_input(context.panel, 1), XUI_OK);
     void* hwnd = reinterpret_cast<void*>(1);
     expect(xui_swap_chain_get_window(context.panel, &hwnd), XUI_OK);
     require(!hwnd);
@@ -59,6 +62,7 @@ void run(bool fail) {
     expect(xui_swap_chain_get_window(context.panel, &hwnd), XUI_OK);
     require(!hwnd);
     expect(xui_swap_chain_set_surface(context.panel, nullptr), XUI_CLOSED);
+    expect(xui_swap_chain_native_input(context.panel, 0), XUI_CLOSED);
     expect(xui_window_destroy(context.window), XUI_OK);
     expect(xui_swap_chain_get_metrics(context.panel, &metrics), XUI_INVALID_HANDLE);
 }

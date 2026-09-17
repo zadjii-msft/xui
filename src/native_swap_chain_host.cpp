@@ -25,7 +25,7 @@ struct SwapChainPanel::State {
     ComPtr<IUnknown> content;
     D2D_RECT_F clip{};
     bool clipped{};
-    bool active{}, disposed{};
+    bool active{}, disposed{}, native_input{};
 
     void check_thread() const {
         if (thread != GetCurrentThreadId())
@@ -131,6 +131,12 @@ void SwapChainPanel::on_metrics_changed(std::function<void(const SwapChainPanelM
     state_->check_thread();
     state_->changed = std::move(callback);
 }
+void SwapChainPanel::set_native_input(bool enabled) {
+    state_->check_thread();
+    state_->native_input = enabled;
+    set_tab_stop(enabled);
+}
+bool SwapChainPanel::native_input() const { return state_->native_input; }
 
 NativeSwapChainHost::NativeSwapChainHost(std::shared_ptr<SwapChainPanel> model, HWND window,
     std::function<bool()> can_activate) : model_(std::move(model)) {

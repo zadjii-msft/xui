@@ -26,3 +26,11 @@ xui_status XUI_CALL xui_swap_chain_get_window(xui_handle panel, void** window) n
         *window = as<xui::SwapChainPanel>(get(panel, XUI_SWAP_CHAIN_PANEL)).native_window();
     });
 }
+xui_status XUI_CALL xui_swap_chain_native_input(xui_handle panel, uint32_t enabled) noexcept {
+    return boundary([&] {
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Expected a native-input boolean.");
+        const auto node = get(panel, XUI_SWAP_CHAIN_PANEL);
+        editable(node->owner);
+        as<xui::SwapChainPanel>(node).set_native_input(enabled != 0);
+    });
+}

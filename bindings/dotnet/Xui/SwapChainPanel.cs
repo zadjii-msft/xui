@@ -52,6 +52,13 @@ public sealed class SwapChainPanel : Control
         Window.Guard();
         Window.Check(Native.SwapChainSetSurface(Handle, surface));
     }
+
+    /// <summary>Enables the tab stop and native Tab/Page keys for an application-owned HWND input adapter.</summary>
+    public void SetNativeInput(bool enabled)
+    {
+        Window.Guard();
+        Window.Check(Native.SwapChainNativeInput(Handle, enabled ? 1u : 0u));
+    }
 }
 
 public sealed partial class Window
@@ -77,4 +84,6 @@ internal static partial class Native
     internal static partial int SwapChainGetMetrics(ulong panel, ref SwapChainMetrics metrics);
     [LibraryImport("xui", EntryPoint = "xui_swap_chain_get_window")]
     internal static partial int SwapChainGetWindow(ulong panel, out nint window);
+    [LibraryImport("xui", EntryPoint = "xui_swap_chain_native_input")]
+    internal static partial int SwapChainNativeInput(ulong panel, uint enabled);
 }

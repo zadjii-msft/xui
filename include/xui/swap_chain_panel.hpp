@@ -27,6 +27,9 @@ public:
     bool has_content() const;
     const SwapChainPanelMetrics& metrics() const;
     void on_metrics_changed(std::function<void(const SwapChainPanelMetrics&)> callback);
+    // Opt-in for an application-owned HWND input adapter. Window shortcuts still run first.
+    void set_native_input(bool enabled);
+    bool native_input() const;
     // Borrowed peer HWND. Null before attachment and after window teardown.
     HWND native_window() const;
 private:

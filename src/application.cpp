@@ -1910,6 +1910,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 open_combo(*peer->parent); return true;
             }
         }
+        if (const auto* panel = dynamic_cast<SwapChainPanel*>(target); panel && panel->native_input())
+            return false;
         if (msg.wParam == VK_TAB) {
             traverse((GetKeyState(VK_SHIFT) & 0x8000) != 0);
             return true;

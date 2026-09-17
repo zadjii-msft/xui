@@ -21,6 +21,9 @@ XUI_API xui_status XUI_CALL xui_swap_chain_get_metrics(xui_handle panel,
     xui_swap_chain_metrics* metrics) XUI_NOEXCEPT;
 /* Borrowed HWND, null before attachment and after native teardown. Never destroy it. */
 XUI_API xui_status XUI_CALL xui_swap_chain_get_window(xui_handle panel, void** window) XUI_NOEXCEPT;
+/* Opts into Tab/Page key delivery to the child HWND and enables its tab stop.
+   Window shortcuts and modal routing still run first. No input adapter is installed by XUI. */
+XUI_API xui_status XUI_CALL xui_swap_chain_native_input(xui_handle panel, uint32_t enabled) XUI_NOEXCEPT;
 #ifdef __cplusplus
 }
 #endif

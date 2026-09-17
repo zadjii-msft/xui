@@ -145,3 +145,10 @@ A terminal adapter still needs renderer ownership, terminal sessions, keyboard a
 The panel exposes a named UIA group, not a text provider.
 It is not a tab stop by default.
 The application can enable its tab stop, but that change does not implement terminal input or accessibility.
+
+`set_native_input(true)` enables the tab stop and passes Tab and Page keys to an application-owned HWND input adapter.
+C# uses `SetNativeInput(true)`. The C ABI uses `xui_swap_chain_native_input(panel, 1)`.
+Window shortcuts and modal handling still run first.
+The default is false. Disabling native input also disables the tab stop.
+The application owns its HWND subclass and must remove it before the session or native peer closes.
+This opt-in does not add IME, clipboard, pointer selection, or terminal text accessibility.
