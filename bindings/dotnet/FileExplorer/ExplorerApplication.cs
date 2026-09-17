@@ -15,12 +15,15 @@ internal sealed class ExplorerApplication : IDisposable
     private bool splitOpen;
     private bool rightInitialized;
     private bool light;
+    private bool disposed;
 
-    public ExplorerApplication(string initialPath, bool smoke = false)
+    public ExplorerApplication(Application application, PreviewController preview, string initialPath, bool smoke = false)
     {
+        Application = application;
+        Preview = preview;
         this.smoke = smoke;
         initialPath = FileSystemService.ResolvePath(initialPath, Environment.CurrentDirectory);
-        Window = new("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
+        Window = application.CreateWindow("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
         Work = new(Window);
         Files = new();
         store = smoke ? new(Path.Combine(Environment.CurrentDirectory, ".file-explorer-smoke-state", "state.json")) : new();
@@ -40,7 +43,6 @@ internal sealed class ExplorerApplication : IDisposable
         active = Left;
         Sidebar = new(this);
         Palettes = new(this);
-        Preview = new(this);
         var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
         notification = layout.Notification;
         split = layout.Panes;
@@ -62,11 +64,18 @@ internal sealed class ExplorerApplication : IDisposable
         Transfers.Bind(Right);
         Window.KeyHandler = HandleKey;
         Window.NavigationHandler = HandleNavigation;
+        Window.Closed += _ =>
+        {
+            Work.Dispose();
+            if (!Application.Post(Dispose))
+                throw new InvalidOperationException("The application rejected Explorer retirement.");
+        };
         Sidebar.Refresh();
         UpdateTitle();
     }
 
     public Window Window { get; }
+    public Application Application { get; }
     public UiWork Work { get; }
     public FileSystemService Files { get; }
     public ExplorerState State { get; }
@@ -83,12 +92,13 @@ internal sealed class ExplorerApplication : IDisposable
     internal int FileOpenCount { get; private set; }
     internal string? NewWindowPath { get; private set; }
     internal bool CloseRequested { get; private set; }
+    internal bool IsDisposed => disposed;
 
     public void Run()
     {
         Left.Navigate(Left.Model.Active.Path);
         Task? smokeTask = smoke ? ExplorerSmoke.Start(this) : null;
-        try { Window.Run(); }
+        try { Application.Show(Window); Application.Run(); }
         finally
         {
             Work.Dispose();
@@ -99,7 +109,6 @@ internal sealed class ExplorerApplication : IDisposable
     public void Activate(FilePaneView pane)
     {
         if (ReferenceEquals(active, pane)) return;
-        Preview?.Dismiss();
         active = pane;
         Sidebar.Refresh();
         UpdateTitle();
@@ -311,7 +320,7 @@ internal sealed class ExplorerApplication : IDisposable
 
     private bool HandleNavigation(UiNavigationEvent navigation)
     {
-        if (Palettes.IsOpen || Preview.IsOpen) return true;
+        if (Palettes.IsOpen) return true;
         var pane = Active;
         if (navigation.Position is { } point)
         {
@@ -332,7 +341,6 @@ internal sealed class ExplorerApplication : IDisposable
     {
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
-        if (Preview.IsOpen) return Preview.HandleKey(key);
         if (Palettes.HandleKey(vk, modifiers)) return true;
         if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
@@ -423,12 +431,13 @@ internal sealed class ExplorerApplication : IDisposable
 
     public void Dispose()
     {
+        if (disposed) return;
         Left.Cancel();
         Right.Cancel();
-        Preview.Dispose();
         Work.Dispose();
         Left.DisposeSources();
         Right.DisposeSources();
         Window.Dispose();
+        disposed = true;
     }
 }

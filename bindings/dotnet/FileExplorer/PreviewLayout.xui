@@ -5,9 +5,7 @@ component PreviewLayout {
     param global::Xui.Element Status;
 
     view {
-        Popup("File preview", id: "file-preview", preferredSize: (800, 600),
-            placement: global::Xui.PopupPlacement.Center, windowBackground: true) {
-            VStack(padding: 12, spacing: 8) {
+        VStack(padding: 12, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("File preview", ref: Title, id: "preview-title", flex: 1);
                     Button("Open", ref: Open, id: "preview-open", icon: global::Xui.ButtonIcon.Open,
@@ -17,7 +15,6 @@ component PreviewLayout {
                 }
                 Content(Body, flex: 1);
                 Content(Status);
-            }
         }
     }
 }

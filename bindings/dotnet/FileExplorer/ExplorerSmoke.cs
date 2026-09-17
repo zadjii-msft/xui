@@ -18,6 +18,28 @@ internal static class ExplorerSmoke
     private static extern bool ClientToScreen(nint window, ref NativePoint point);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern uint GetDpiForWindow(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetWindow(nint window, uint command);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool IsWindow(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint process);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool OpenClipboard(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool CloseClipboard();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetClipboardData(uint format);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern nint GlobalLock(nint memory);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern bool GlobalUnlock(nint memory);
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }
 
@@ -420,16 +442,12 @@ internal static class ExplorerSmoke
                 await Transfers(fixture);
                 await FeedbackChecks();
                 await TabMenuChecks(fixture);
-                await Ui(() =>
-                {
-                    app.Report("Explorer smoke passed.");
-                    Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, previews, and file transfers.");
-                    app.Window.Close();
-                });
+                await DetachedLifetimeChecks();
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
-                if (!app.Window.Post(() => throw new InvalidOperationException("Explorer UI smoke failed.", error))) throw;
+                if (!app.Application.Post(() => throw new InvalidOperationException("Explorer UI smoke failed.", error))) throw;
             }
             finally
             {
@@ -496,8 +514,8 @@ internal static class ExplorerSmoke
                 {
                     if (!app.Preview.IsOpen)
                         throw new InvalidOperationException("A held Space key must not dismiss the preview.");
-                    app.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, 0));
-                    app.Window.KeyHandler?.Invoke(new(0x74, KeyModifiers.None, 0));
+                    if (app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, 0)) != false)
+                        throw new InvalidOperationException("Preview must not route Explorer shortcuts.");
                     app.Preview.Text.Focus();
                     nint format = Marshal.AllocHGlobal(116);
                     try
@@ -511,13 +529,13 @@ internal static class ExplorerSmoke
                     finally { Marshal.FreeHGlobal(format); }
                     app.Preview.Text.Selection = new(0, 3);
                     if (app.Preview.Text.Selection != new TextSelection(0, 3)
-                        || app.Window.KeyHandler?.Invoke(new(0x43, KeyModifiers.Control, app.Preview.Text.Id)) != false)
+                        || app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x43, KeyModifiers.Control, app.Preview.Text.Id)) != false)
                         throw new InvalidOperationException("Native preview selection and copying must remain available.");
-                    Shortcut(0x1b);
+                    app.Preview.Current!.Window.KeyHandler?.Invoke(new(0x1b, KeyModifiers.None, 0));
                 });
-                await Check(() => !app.Preview.IsOpen && app.Left.FilesFocused && app.Left.Model.Active.FindOpen
-                    && !app.Left.IsLoading && app.Preview.Text.Text == "",
-                    "Held Space does not toggle; Explorer shortcuts stay inactive; Escape restores focus without clearing Find");
+                await Until(() => !app.Preview.IsOpen && app.Preview.Current!.IsDisposed);
+                await Check(() => app.Left.Model.Active.FindOpen && !app.Left.IsLoading,
+                    "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
                 await Ui(() => app.Left.HideFind());
 
                 foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp" })
@@ -559,33 +577,39 @@ internal static class ExplorerSmoke
                             "Metadata has a large Shell icon to the left of the heading");
                     }
                     await Ui(app.Preview.Dismiss);
-                    await Check(() => app.Preview.Image.Status == ImageStatus.Empty
-                        && app.Preview.MetadataIcon.Status == ImageStatus.Empty, "Dismiss unloads preview images and Shell icons");
+                    await Until(() => app.Preview.Current!.IsDisposed);
+                    await Check(() => !app.Preview.IsOpen, "Closing retires the preview window and its resources");
                 }
+                PreviewSession? earlier = null;
                 await Ui(() =>
                 {
                     app.Left.SelectPath(Path.Combine(root, "notes.txt"));
                     app.Commands.Single(command => command.Name == "Preview selected item").Execute();
+                    earlier = app.Preview.Current;
                     app.Left.SelectPath(Path.Combine(root, "large.txt"));
                     app.Preview.ShowSelected(app.Left);
                 });
                 await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
-                await Check(() => app.Preview.Text.Text.Length == FilePreviewService.MaximumTextLength,
-                    "An obsolete completion cannot replace a newer preview");
+                await Until(() => earlier is { Pending: false });
+                await Check(() => earlier!.IsOpen && earlier.Text.Text == "one\rtwo"
+                    && app.Preview.Text.Text.Length == FilePreviewService.MaximumTextLength,
+                    "Each captured target completes into its own independent preview");
                 await Ui(() =>
                 {
                     SendMessageW(filePeer, 0x201, 1, (80 << 16) | 12);
                     SendMessageW(filePeer, 0x202, 0, (80 << 16) | 12);
                 });
-                await Check(() => !app.Preview.IsOpen, "A click outside preview dismisses it");
+                await Check(() => app.Preview.IsOpen && earlier!.IsOpen, "Explorer clicks do not dismiss detached previews");
+                await Ui(app.Preview.CloseAll);
+                await Until(() => app.Preview.Sessions.Count == 0);
                 await Ui(() =>
                 {
                     app.Left.SelectPath(Path.Combine(root, "notes.txt"));
                     app.Preview.ShowSelected(app.Left);
                     app.Preview.Dismiss();
                 });
-                await Check(() => !app.Preview.IsOpen && !app.Preview.Pending && app.Preview.Text.Text == "",
-                    "Dismissal cancels pending text delivery");
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Check(() => !app.Preview.IsOpen && !app.Preview.Pending, "Closing cancels pending text delivery");
                 await Ui(() =>
                 {
                     app.Left.SelectPath(Path.Combine(root, "notes.txt"));
@@ -597,7 +621,9 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(root, "notes.txt"), "one\r\ntwo");
                 await Ui(() => app.Left.Navigate(root));
                 await Ready(app.Left);
-                await Check(() => !app.Preview.IsOpen && !app.Preview.Pending, "Navigation cancels and dismisses preview");
+                await Check(() => app.Preview.IsOpen && !app.Preview.Pending, "Navigation leaves the captured preview open");
+                await Ui(app.Preview.Dismiss);
+                await Until(() => app.Preview.Current!.IsDisposed);
                 await Ui(() =>
                 {
                     app.Left.Grid.Navigate(GridNavigation.First);
@@ -610,7 +636,10 @@ internal static class ExplorerSmoke
                     app.Left.NewTab(root);
                 });
                 await Ready(app.Left);
-                await Check(() => !app.Preview.IsOpen && !app.Preview.Pending, "Tab changes dismiss preview");
+                await Until(() => !app.Preview.Pending);
+                await Check(() => app.Preview.IsOpen && app.Preview.Text.Text == "one\rtwo", "Tab changes leave preview content intact");
+                await Ui(app.Preview.Dismiss);
+                await Until(() => app.Preview.Current!.IsDisposed);
                 await Ui(() => app.Left.CloseTab());
                 await Ready(app.Left);
 
@@ -622,7 +651,8 @@ internal static class ExplorerSmoke
                 await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
                 await Check(() => app.Preview.Text.Text == "one\rtwo", "Columns selection uses the same preview");
                 await Ui(app.Preview.Open);
-                await Check(() => !app.Preview.IsOpen && app.FileOpenCount == opens + 1,
+                await Until(() => app.Preview.Current!.IsDisposed);
+                await Check(() => !app.Preview.IsOpen && app.Preview.OpenCount == 1 && app.FileOpenCount == opens,
                     "Only explicit Open invokes the associated application");
                 await Ui(() =>
                 {
@@ -634,6 +664,98 @@ internal static class ExplorerSmoke
                 await Ui(() => app.Left.Refresh());
                 await Ready(app.Left);
                 await Ui(() => { app.Left.Focus(); app.Left.Grid.Navigate(GridNavigation.First); });
+            }
+
+            async Task DetachedLifetimeChecks()
+            {
+                await File.WriteAllTextAsync(Path.Combine(fixture, "survivor.txt"), "abc");
+                string imagePath = Path.Combine(fixture, "survivor.bmp");
+                using (var writer = new BinaryWriter(File.Create(imagePath)))
+                {
+                    writer.Write((ushort)0x4d42);
+                    writer.Write(58); writer.Write(0); writer.Write(54); writer.Write(40);
+                    writer.Write(1); writer.Write(1); writer.Write((ushort)1); writer.Write((ushort)24);
+                    writer.Write(0); writer.Write(4);
+                    for (int i = 0; i < 4; ++i) writer.Write(0);
+                    writer.Write(new byte[] { 0x40, 0x80, 0xff, 0 });
+                }
+                await Ui(() => { app.Left.HideFind(); app.Left.SetViewMode(ExplorerViewMode.Details); app.Left.Navigate(fixture); });
+                await Ready(app.Left);
+                PreviewSession text = null!, image = null!, twin = null!, folder = null!;
+                nint opener = 0, textHost = 0, imageHost = 0;
+                await Ui(() =>
+                {
+                    app.Left.Focus();
+                    opener = GetAncestor(GetFocus(), 2);
+                    text = Show("survivor.txt");
+                    image = Show("survivor.bmp");
+                    twin = Show("survivor.bmp");
+                    folder = Show("alpha");
+                    text.Text.Focus();
+                    textHost = GetAncestor(GetFocus(), 2);
+                    image.CloseButton.Focus();
+                    imageHost = GetAncestor(GetFocus(), 2);
+                    uint thread = GetWindowThreadProcessId(opener, out uint process);
+                    foreach (nint host in new[] { textHost, imageHost })
+                        if (host == opener || GetWindow(host, 4) != 0 || !IsWindowVisible(host)
+                            || GetWindowThreadProcessId(host, out uint other) != thread || other != process
+                            || process != Environment.ProcessId || GetDpiForWindow(host) == 0)
+                            throw new InvalidOperationException("Preview HWNDs must be visible ownerless documents on the Explorer STA.");
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+
+                    PreviewSession Show(string name)
+                    {
+                        app.Left.SelectPath(Path.Combine(fixture, name));
+                        app.Preview.ShowSelected(app.Left);
+                        if (app.Preview.Current is not { IsOpen: true } current || current.Target.Name != name)
+                            throw new InvalidOperationException($"Could not select the {name} lifetime fixture.");
+                        return app.Preview.Current!;
+                    }
+                });
+                await Until(() => !text.Pending && !folder.Pending
+                    && image.Image.Status == ImageStatus.Ready && twin.Image.Status == ImageStatus.Ready);
+                await Ui(twin.Dismiss);
+                await Until(() => twin.IsDisposed);
+                await Check(() => image.Image.Status == ImageStatus.Ready && image.IsOpen,
+                    "Retiring one image preview does not invalidate another window's cached pixels");
+                await Ui(app.Window.Close);
+                await Until(() => app.IsDisposed);
+                await Check(() => !IsWindow(opener) && IsWindow(textHost) && IsWindow(imageHost)
+                    && text.IsOpen && image.IsOpen && folder.IsOpen, "Previews survive native opener destruction and managed disposal");
+                float previousWidth = 0;
+                await Ui(() =>
+                {
+                    previousWidth = image.Bounds.Width;
+                    if (!SetWindowPos(imageHost, 0, 70, 80, 680, 480, 0x14))
+                        throw new InvalidOperationException("The surviving image window could not move and resize.");
+                    text.Text.Focus();
+                    SendMessageW(GetFocus(), 0x00b1, 0, 3);
+                    SendMessageW(GetFocus(), 0x301, 0, 0);
+                    if (!OpenClipboard(textHost)) throw new InvalidOperationException("Cannot inspect native preview copy.");
+                    try
+                    {
+                        nint data = GetClipboardData(13), value = GlobalLock(data);
+                        try
+                        {
+                            string? copied = value == 0 ? null : Marshal.PtrToStringUni(value);
+                            if (copied != "abc")
+                                throw new InvalidOperationException($"Surviving native RichEdit copy failed: content={text.Text.Text}, selection={text.Text.Selection}, clipboard={copied}, focused={text.Text.Focused}.");
+                        }
+                        finally { if (value != 0) GlobalUnlock(data); }
+                    }
+                    finally { CloseClipboard(); }
+                    if (text.Window.KeyHandler?.Invoke(new(0x57, KeyModifiers.Control, text.Text.Id)) != false)
+                        throw new InvalidOperationException("A surviving preview routed an Explorer shortcut.");
+                    folder.Open();
+                });
+                await Until(() => folder.IsDisposed && image.Bounds.Width != previousWidth);
+                await Check(() => app.Preview.LastOpenedPath == Path.Combine(fixture, "alpha")
+                    && image.Image.Status == ImageStatus.Ready && image.Image.GetBounds().Height > 0,
+                    "Open uses the captured folder without a live Explorer pane; surviving image remains visible after resize");
+                await Ui(image.Dismiss);
+                await Until(() => image.IsDisposed);
+                await Ui(text.Open);
+                // Last-window retirement and queued disposal finish before Application.Run returns.
             }
 
             async Task ColumnsChecks()
@@ -1181,7 +1303,7 @@ internal static class ExplorerSmoke
         Task Ui(Action action)
         {
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!app.Window.Post(() =>
+            if (!app.Application.Post(() =>
             {
                 try { action(); completion.SetResult(); }
                 catch (Exception error) { completion.SetException(error); }

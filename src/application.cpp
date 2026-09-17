@@ -5093,16 +5093,23 @@ struct Application::Impl : std::enable_shared_from_this<Application::Impl> {
             {
                 std::lock_guard lock(mutex);
                 empty = windows.empty() && posts.empty();
-                if (empty) posts_closed = true;
             }
             if (empty) {
-                stopping = true;
-                for (const auto& weak : created) if (auto window = weak.lock(); window && !window->closed_notified) {
+                const auto pending = created;
+                for (const auto& weak : pending) if (auto window = weak.lock(); window && !window->closed_notified && !window->window) {
                     window->complete();
                     if (window->failed) record(window->options.title + L": " + window->error);
                 }
-                finished = true;
-                PostQuitMessage(error.empty() ? 0 : 1);
+                {
+                    std::lock_guard lock(mutex);
+                    empty = windows.empty() && posts.empty();
+                    if (empty) posts_closed = true;
+                }
+                if (empty) {
+                    stopping = true;
+                    finished = true;
+                    PostQuitMessage(error.empty() ? 0 : 1);
+                }
             }
         } catch (...) {
             try {
