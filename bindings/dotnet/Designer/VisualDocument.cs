@@ -203,6 +203,83 @@ public sealed class VisualDocument
             parent.Kind == "Grid" ? parent.Id : null, cancellation);
     }
 
+    public VisualEditResult WrapNode(Guid revision, int nodeId, ControlTemplate wrapper,
+        CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (Target(revision, nodeId, out var node) is { } error) return Failure(error);
+        if (wrapper is not (ControlTemplate.VStack or ControlTemplate.HStack or ControlTemplate.ScrollView))
+            return Failure("Wrap with VStack, HStack, or ScrollView. Edit other wrapper structures in source.");
+        var placement = node.Arguments.Where(IsPlacement).ToArray();
+        string arguments = string.Join(", ", placement.Select(a => Slice(a.Span)));
+        if (wrapper == ControlTemplate.ScrollView)
+            arguments = "\"Scroll\"" + (arguments.Length == 0 ? "" : ", " + arguments);
+        string subtree = RemoveArguments(node, placement);
+        string separator = NewLine() + Indent(node.Span.Start);
+        string replacement = wrapper + "(" + arguments + ") {" + separator + subtree + separator + "}";
+        return Propose(revision, node.Span, replacement, node.Span.Start, null, cancellation);
+    }
+
+    public VisualEditResult UnwrapNode(Guid revision, int nodeId, CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (Target(revision, nodeId, out var node) is { } error) return Failure(error);
+        if (node.BodySpan is not { } body || node.Children.Count != 1)
+            return Failure("Unwrap requires a container with exactly one child. Edit other structures in source.");
+        var child = node.Children[0];
+        var placement = node.Arguments.Where(IsPlacement).ToArray();
+        foreach (var argument in node.Arguments.Where(a => !IsPlacement(a)))
+        {
+            if (argument.IsPositional && argument.ValueKind == XuiValueKind.String) continue;
+            return Failure($"Unwrapping would discard '{argument.Name}' and its authored value or identity. Edit the wrapper in source.");
+        }
+        if (child.Arguments.Any(IsPlacement))
+            return Failure("The child has its own placement arguments. Reconcile inner and outer placement in source before unwrapping.");
+        int headerLength = body.Start - node.Span.Start;
+        foreach (var token in SyntaxFactory.ParseTokens(Source.Substring(node.Span.Start, headerLength)))
+            foreach (var trivia in token.LeadingTrivia.Concat(token.TrailingTrivia))
+            {
+                if (trivia.IsKind(SyntaxKind.WhitespaceTrivia) || trivia.IsKind(SyntaxKind.EndOfLineTrivia)) continue;
+                int offset = node.Span.Start + trivia.SpanStart;
+                if (placement.Any(a => a.Span.Contains(offset) && offset + trivia.Span.Length <= a.Span.End)) continue;
+                return Failure("The wrapper header contains comments or directives. Preserve them in source before unwrapping.");
+            }
+        string replacement = Slice(body);
+        if (placement.Length != 0)
+        {
+            int offset = child.Arguments.Count == 0 ? child.ArgumentsSpan.Start : child.Arguments[^1].ValueSpan.End;
+            string arguments = (child.Arguments.Count == 0 ? "" : ", ") + string.Join(", ", placement.Select(a => Slice(a.Span)));
+            replacement = replacement.Insert(offset - body.Start, arguments);
+        }
+        int selectionOffset = node.Span.Start + child.Span.Start - body.Start;
+        return Propose(revision, node.Span, replacement, selectionOffset, null, cancellation);
+    }
+
+    private static bool IsPlacement(XuiSourceArgument argument) =>
+        argument.Name is "row" or "column" or "rowSpan" or "columnSpan" or "flex";
+
+    private string RemoveArguments(XuiSourceNode node, IReadOnlyList<XuiSourceArgument> removed)
+    {
+        if (removed.Count == 0) return Slice(node.Span);
+        var ranges = removed.Select(a => a.Span).ToList();
+        var retained = node.Arguments.Select((argument, index) => (argument, index))
+            .Where(pair => !removed.Contains(pair.argument)).Select(pair => pair.index).ToArray();
+        for (int i = 0; i < node.Arguments.Count; i++)
+        {
+            bool keepComma = retained.Contains(i) && (i != retained[^1] || node.HasTrailingComma);
+            if (keepComma) continue;
+            int start = node.Arguments[i].ValueSpan.End;
+            int end = i + 1 < node.Arguments.Count ? node.Arguments[i + 1].Span.Start : node.ArgumentsSpan.End;
+            foreach (var token in SyntaxFactory.ParseTokens(Source[start..end]))
+                if (token.IsKind(SyntaxKind.CommaToken))
+                    ranges.Add(new(start + token.SpanStart, token.Span.Length));
+        }
+        string result = Slice(node.Span);
+        foreach (var range in ranges.OrderByDescending(r => r.Start))
+            result = result.Remove(range.Start - node.Span.Start, range.Length);
+        return result;
+    }
+
     private string? Target(Guid revision, int nodeId, out XuiSourceNode node)
     {
         node = null!;
@@ -320,7 +397,7 @@ public sealed class VisualDocument
     private string NewLine()
     {
         int index = Source.IndexOfAny(['\r', '\n']);
-        return index < 0 ? Environment.NewLine :
+        return index < 0 ? "\r" :
             Source[index] == '\r' && index + 1 < Source.Length && Source[index + 1] == '\n' ? "\r\n" : Source[index].ToString();
     }
     private string Indent(int offset)

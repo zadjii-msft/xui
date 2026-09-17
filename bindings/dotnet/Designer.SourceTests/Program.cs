@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Xui.Designer;
 using Xui.Generator;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private const string Source = """"
@@ -47,6 +47,7 @@ internal static class Program
             TestGrid();
             TestRevisions();
             TestCancellation();
+            TestWrapping();
             DesignerMetadataTests.Run(Assert);
             Console.WriteLine($"Designer source assertions: {assertions} passed.");
             return 0;

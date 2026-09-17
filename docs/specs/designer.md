@@ -104,6 +104,31 @@ The view root cannot move, disappear, or duplicate.
 `MoveNode` swaps adjacent siblings with `delta: -1` or `delta: 1`, including the two SplitView panes.
 Inter-node comments remain between the nodes, while comments inside a node move with that node.
 
+`WrapNode(revision, nodeId, wrapper, cancellation)` accepts `ControlTemplate.VStack`, `HStack`, or `ScrollView`.
+It can wrap the view root or a nested node.
+The new wrapper contains the existing subtree and becomes the selected node.
+`UnwrapNode(revision, nodeId, cancellation)` replaces a container with its only child and selects that child.
+Both operations preserve parent arity and return one contiguous replacement.
+
+Wrapping does not reindent the existing subtree.
+Unwrapping preserves the exact body, including comments before and after the child.
+These rules preserve raw and verbatim C# string contents.
+New separators use the first authored line ending.
+For a single-line document, new separators use native editor CR line endings.
+
+Wrapping transfers authored parent placement arguments from the node to its new wrapper.
+Unwrapping transfers these arguments from the wrapper to its child.
+The transfer preserves the complete argument text, including expressions and internal comments.
+This rule includes Stack `flex` and Grid `row`, `column`, `rowSpan`, and `columnSpan`.
+It retains existing Grid cells without a new placement choice, including expressions and unknown track lengths.
+
+Unwrapping refuses a child with its own placement arguments.
+It also refuses wrapper configuration or identities that the operation cannot retain.
+Only placement arguments and a literal positional wrapper name can disappear from the wrapper header.
+Placement transfers to the child, while the literal name disappears with the removed container.
+Other values, expressions, `ref`, and automation IDs require an explicit source edit.
+Header comments outside transferred arguments also require source editing.
+
 Duplication rejects subtrees with `ref`, `id`, `searchId`, or `Content`.
 This rule prevents duplicate identities and repeated ownership of an existing element.
 Grid duplication also requires an explicit `GridPlacement`.

@@ -68,6 +68,13 @@ With these checks, the source suite passed 780 assertions on September 16, 2026.
 The generator and designer compiler suites retained their previous counts.
 A managed Designer build with `XUI_DESIGNER` also passed against the actual bindings.
 
+`VisualDocument.WrapNode` and `UnwrapNode` add revision-safe grouping and ungrouping.
+They retain subtree text without reindentation and transfer exact authored placement arguments.
+Comma removal uses Roslyn tokens between existing argument spans, not a second grammar.
+Unwrapping refuses conflicting child placement, wrapper configuration, identity loss, and discarded header comments.
+`Program.Wrapping.cs` covers these rules, raw and verbatim strings, native CR selection, root changes, and fixed-arity parents.
+The grouping tranche passed 1,402 source assertions, 41,813 generator assertions, and a managed Designer build on September 16, 2026.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.
