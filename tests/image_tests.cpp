@@ -302,6 +302,60 @@ void shell_image_tests() {
     }
     empty();
 }
+void tab_image_tests() {
+    TabStrip tabs;
+    tabs.set_tabs({{1, L"Folder", ButtonIcon::folder, directory.wstring()},
+        {2, L"Image", ButtonIcon::none, path(0)}}, 1);
+    RowImages images;
+    auto wake = std::make_shared<TaskWake>();
+    std::vector<std::uint64_t> retained;
+    const auto sync = [&](UINT dpi = 96) {
+        std::vector<RowVisual> rows;
+        for (const auto& tab : tabs.tabs()) rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
+        size_t remaining = 48;
+        retained.clear();
+        return images.sync_visuals(std::move(rows), dpi, wake, retained, remaining, 16);
+    };
+    {
+        Gate gate(ImageDecodeStage::before_delivery, ImageKind::shell);
+        sync(); gate.await();
+        const auto pending = RowImagesTestAccess::request(images, {1, 0});
+        check(pending && pending->kind == ImageKind::shell && pending->size.width == 16,
+            "Folder tab requests use the shared Shell worker at 16 physical pixels");
+        auto reordered = tabs.tabs();
+        std::reverse(reordered.begin(), reordered.end());
+        reordered[1].title = L"Renamed";
+        tabs.set_tabs(reordered, 2); sync();
+        check(RowImagesTestAccess::request(images, {1, 0}) == pending && !pending->cancelled,
+            "Tab selection, title changes, and reorder preserve pending image identity");
+        reordered[1].image_path = (directory / L"missing-folder").wstring();
+        tabs.set_tabs(reordered, 2); sync();
+        check(pending->cancelled && !images.pixels({1, 0}),
+            "Changed tab paths cancel old requests before stale delivery");
+        tabs.set_tabs({}, {}); sync();
+        check(images.count() == 0, "Closed or hidden tabs release requests");
+        gate.release();
+    }
+    tabs.set_tabs({{1, L"Folder", ButtonIcon::folder, directory.wstring()}}, 1);
+    sync();
+    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+    sync();
+    check(images.pixels({1, 0}) && !retained.empty(), "Folder tab completion retains Shell pixels");
+    const auto original = images.pixels({1, 0})->id;
+    sync(192);
+    check(!images.pixels({1, 0}), "Tab DPI changes release the previous image");
+    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
+    sync(192);
+    check(images.pixels({1, 0}) && images.pixels({1, 0})->id != original &&
+        images.pixels({1, 0})->size.width == 32, "High-DPI tabs receive newly sized Shell pixels");
+    const auto settled = ImageResources::statistics();
+    for (int frame = 0; frame < 20; ++frame)
+        check(!sync(192), "Settled tab images do not request another paint");
+    const auto idle = ImageResources::statistics();
+    check(idle.decoded == settled.decoded && idle.cache_hits == settled.cache_hits &&
+        !idle.active && !idle.queued, "Settled tabs do not queue image work on repeated reconciliation");
+    images.clear(); empty();
+}
 void ordinary_row_image_refresh_test() {
     struct Source final : ItemsSource {
         size_t size() const override { return 1; }
@@ -566,7 +620,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
         decode_tests(); cancellation_tests(); shell_image_tests(); row_image_tests(); ordinary_row_image_refresh_test();
-        navigation_row_image_tests(); gpu_tests();
+        navigation_row_image_tests(); tab_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted
             << " rejected=" << s.rejected << " cancelled=" << s.cancelled << " cpu_peak=" << s.cpu_peak

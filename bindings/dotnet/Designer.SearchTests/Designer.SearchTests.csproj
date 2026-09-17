@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(XuiRuntimeIdentifier)</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="..\Xui.Native.targets" />
+  <ItemGroup>
+    <ProjectReference Include="..\Xui\Xui.csproj" />
+    <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <Compile Include="..\Designer\DesignerSourceSearch.cs" Link="DesignerSourceSearch.cs" />
+    <AdditionalFiles Include="..\Designer\DesignerSourceSearchLayout.xui" />
+  </ItemGroup>
+</Project>

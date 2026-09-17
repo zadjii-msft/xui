@@ -206,6 +206,31 @@ void run(const std::filesystem::path& captures) {
                                 save(pixels, captures / (std::to_wstring(static_cast<int>(style)) + L"-" +
                                     std::to_wstring(static_cast<int>(theme)) + L".bmp"));
                         }
+                        const auto text_tabs = tabs->tabs();
+                        const auto text_selection = tabs->selected();
+                        const auto text_pixels = owned_window_capture::capture(hwnd);
+                        const auto icon_band = paint_bounds(hwnd, tab_peer, dpi);
+                        auto icon_tabs = text_tabs;
+                        for (auto& tab : icon_tabs) tab.icon = ButtonIcon::folder;
+                        tabs->set_tabs(icon_tabs, tabs->selected()); flush(hwnd);
+                        const auto icon_pixels = owned_window_capture::capture(hwnd);
+                        for (size_t i = 0; i < icon_tabs.size(); ++i) {
+                            const auto tab = tabs->tab_bounds(i);
+                            bool different{};
+                            for (int y = 12; y < static_cast<int>(tab.height - 5); ++y)
+                                for (int x = 12; x < 28; ++x) {
+                                    const Point p{icon_band.x + tab.x + x, icon_band.y + tab.y + y};
+                                    different = different || pixel(text_pixels, p, dpi) != pixel(icon_pixels, p, dpi);
+                                }
+                            require(different, "Selected and inactive tab icons produce visible pixels at every theme and DPI");
+                        }
+                        const auto before_icon_activation = activated;
+                        const auto icon_tab = tabs->tab_bounds(0);
+                        SendMessageW(tab_peer, WM_LBUTTONDOWN, MK_LBUTTON,
+                            MAKELPARAM(MulDiv(static_cast<int>(icon_tab.x + 20), dpi, 96), MulDiv(20, dpi, 96)));
+                        require(tabs->selected() == text_tabs[0].id && activated == before_icon_activation + 1 && editor->focused(),
+                            "Clicking a tab icon activates its stable tab identity and content");
+                        tabs->set_tabs(text_tabs, text_selection); flush(hwnd);
                         const TabColors custom{0x122334, 0x244668, 0xffdd33, 0x304050, 0x44eecc, 0x486888, 0x99aabb};
                         tabs->select(2);
                         tabs->set_colors(custom); flush(hwnd);

@@ -1,0 +1,11 @@
+namespace Xui.Designer;
+
+component DesignerDiscardLayout {
+    view {
+        VStack(spacing: 12, preferredSize: (460, 130)) {
+            Text("", ref: Message, id: "designer-discard-message", wrapping: true);
+            Text("Discard replaces the source and clears its undo history.", wrapping: true);
+            Text("Keep editing preserves the source and its recovery draft. You can save before trying again.", wrapping: true);
+        }
+    }
+}

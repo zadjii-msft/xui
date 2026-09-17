@@ -7,6 +7,8 @@ internal static class ExplorerTextTests
     private static extern nint GetFocus();
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     private static extern nint SendMessage(nint window, uint message, nuint wparam, nint lparam);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
 
     private static int assertions;
     private static void Expect(bool condition)
@@ -79,6 +81,47 @@ internal static class ExplorerTextTests
         window.Dispose();
         Throws<ObjectDisposedException>(() => _ = input.Selection);
         Throws<ObjectDisposedException>(() => input.Selection = new(0, 0));
+        TypingRedirect();
         Console.WriteLine($"C# text selection assertions: {assertions} passed");
+    }
+
+    private static void TypingRedirect()
+    {
+        using var window = new Window("Native typing redirect");
+        var source = window.Button("Files");
+        var input = window.TextInput("Find").Visible(false);
+        window.SetContent(window.Stack().Add(source).Add(input));
+        bool navigationSeen = false, typingSeen = false, changed = false;
+        window.KeyHandler = key =>
+        {
+            Expect(key.TargetId == source.Id);
+            if (key.VirtualKey == 0x25)
+            {
+                Expect(!key.IsTextInput);
+                navigationSeen = true;
+                return false;
+            }
+            Expect(key.VirtualKey == 0x20 && key.IsTextInput && navigationSeen);
+            typingSeen = true;
+            input.Visible(true).Focus();
+            return false;
+        };
+        input.Changed += text =>
+        {
+            Expect(typingSeen && input.Focused && text == " ");
+            changed = true;
+            window.Close();
+        };
+        Expect(window.Post(() =>
+        {
+            source.Focus();
+            Expect(PostMessageW(GetFocus(), 0x100, 0x25, 1));
+            Expect(PostMessageW(GetFocus(), 0x100, 0x20, 1));
+        }));
+        using var finished = new ManualResetEventSlim();
+        var watchdog = Task.Run(() => { if (!finished.Wait(TimeSpan.FromSeconds(15))) window.Post(window.Close); });
+        try { window.Run(); }
+        finally { finished.Set(); watchdog.GetAwaiter().GetResult(); }
+        Expect(navigationSeen && typingSeen && changed);
     }
 }

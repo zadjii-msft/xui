@@ -54,6 +54,21 @@ void state_and_input() {
     require(nav.selected() == ItemKey{11, 1} && !nav.items()->selection().contains({20, 1}), "Shift replaces instead of range selecting");
     nav.items()->select({20, 1}, SelectionGesture::focus_only);
     require(nav.selected() == ItemKey{11, 1}, "UIA focus does not navigate");
+    const auto source = nav.items()->source();
+    const auto prior_selections = selections;
+    require(nav.items()->prepare_context_menu({}) && nav.items()->selection().focused() == ItemKey{20, 1},
+        "Keyboard menu targets the focused row");
+    require(nav.selected() == ItemKey{11, 1} && selections == prior_selections && nav.items()->source() == source,
+        "Menu targeting does not navigate or replace the source");
+    require(!nav.items()->prepare_context_menu(Point{5, 5}), "Section headers have no context menu");
+    require(nav.items()->prepare_context_menu(Point{30, 60}) && nav.items()->selection().focused() == ItemKey{11, 1},
+        "Pointer menu targets the row under the pointer");
+    require(!nav.items()->prepare_context_menu(Point{30, 9999}), "Empty space does not reuse the previous menu target");
+    require(nav.header_items()->prepare_context_menu(Point{30, 20}) &&
+        nav.footer_items()->prepare_context_menu(Point{30, 20}), "All navigation sections support row menus");
+    require(nav.selected() == ItemKey{11, 1} && selections == prior_selections, "Pinned menus do not navigate");
+    nav.items()->select({14, 1}, SelectionGesture::focus_only);
+    require(!nav.items()->prepare_context_menu(Point{30, 180}), "Disabled navigation rows have no menu");
     nav.items()->activate_item({20, 1});
     require(nav.selected() == ItemKey{20, 1} && activations == 1, "Activation selects and invokes");
     nav.header_items()->select({1, 1});
@@ -184,6 +199,66 @@ void scrolled_focus_repair() {
         "Filtering reveals repaired focus while preserving the hidden page identity");
     require(nav.selected() == ItemKey{80, 1}, "Focus repair never navigates away from the active page");
 }
+void hover_help() {
+    NavigationView nav; nav.set_items(fixture()); nav.arrange({25, 35, 280, 600});
+    nav.set_hover_delay(1000);
+    require(nav.items()->tooltip_delay() == 1000 && nav.header_items()->tooltip_delay() == 1000 &&
+        nav.footer_items()->tooltip_delay() == 1000, "Hover delay covers every navigation section");
+    rejects([&] { nav.set_hover_delay(99); });
+    int changes{}, requests{};
+    nav.on_hover_changed([&](std::optional<ItemKey>) { ++changes; });
+    nav.on_hover_requested([&](ItemKey key) {
+        ++requests;
+        require(nav.set_hover_help(key, L"Folder\nFull path\nCreated: today\nFiles: 2"), "Delayed request can supply multiline help");
+    });
+    const auto list = nav.items();
+    list->hover_item(ItemKey{11, 1});
+    const auto revision = list->hover_revision();
+    require(changes == 1 && requests == 0, "Pointer entry does not request expensive metadata");
+    list->hover_item(ItemKey{11, 1});
+    require(changes == 1 && revision == list->hover_revision(), "Movement within a row preserves the delay");
+    const auto row = list->item_bounds(*list->source()->find({11, 1}));
+    const auto anchor = list->hover_anchor();
+    require(anchor && anchor->y == list->bounds().y + row.y && anchor->y > list->bounds().y,
+        "Hover anchor is the actual row in window coordinates, not the navigation list origin");
+    list->request_hover_help(); list->request_hover_help();
+    require(requests == 1 && list->help_text().find(L"Files: 2") != std::wstring::npos,
+        "Delayed help is requested once per continuous hover");
+    list->hover_item(ItemKey{20, 1});
+    require(changes == 2 && list->hover_revision() != revision && list->help_text() == L"Reports",
+        "Moving to another row changes identity and replaces stale help");
+    require(!nav.set_hover_help({11, 1}, L"Stale worker"), "Async results for a previous row are ignored");
+    list->request_hover_help(); require(requests == 2, "New row has its own delayed request");
+    list->hover_item({});
+    require(changes == 3 && !list->hover_anchor() && list->help_text().empty(), "Exit clears anchor and metadata");
+    list->request_hover_help(); require(requests == 2, "Exit cannot request metadata");
+    list->hover_item(ItemKey{11, 1});
+    nav.set_filter(L"Reports");
+    require(!list->hovered_item() && changes == 5, "Filtering cancels pending hover work");
+    nav.set_filter(L"");
+    list->hover_item(ItemKey{11, 1});
+    nav.set_items(fixture());
+    require(!list->hovered_item(), "Snapshot replacement cancels pending hover work");
+    list->hover_item(ItemKey{999, 1});
+    require(!list->hovered_item() && !list->hover_anchor(), "Invalid row keys cannot create tooltip anchors");
+    nav.header_items()->hover_item(ItemKey{1, 1});
+    require(nav.set_hover_help({1, 1}, L"Header details"), "Pinned navigation supports custom hover content");
+    nav.header_items()->hover_item({});
+    nav.footer_items()->hover_item(ItemKey{40, 1});
+    require(nav.set_hover_help({40, 1}, L"Footer details"), "Footer navigation supports custom hover content");
+    nav.set_enabled(false);
+    require(!nav.footer_items()->hover_anchor(), "A disabled navigation owner cannot supply an active hover anchor");
+    auto owned = std::make_unique<NavigationView>(); owned->set_items(fixture()); owned->arrange({0, 0, 280, 600});
+    const auto retained = owned->items();
+    owned->on_hover_changed([&](std::optional<ItemKey>) { owned.reset(); });
+    retained->hover_item(ItemKey{11, 1});
+    require(!owned && !retained->hover_anchor(), "Hover callback can release its owner and disconnect retained rows");
+    owned = std::make_unique<NavigationView>(); owned->set_items(fixture()); owned->arrange({0, 0, 280, 600});
+    const auto requested = owned->items();
+    owned->on_hover_requested([&](ItemKey) { owned.reset(); });
+    requested->hover_item(ItemKey{11, 1}); requested->request_hover_help();
+    require(!owned && !requested->hover_anchor(), "Delayed hover callback can release its owner");
+}
 void validation_and_lifetime() {
     NavigationView nav; nav.set_items(fixture()); nav.select({13, 1});
     auto invalid = fixture(); invalid.push_back(invalid.front());
@@ -251,6 +326,6 @@ void validation_and_lifetime() {
 }
 }
 int main() {
-    try { state_and_input(); search_disclosure(); scrolled_focus_repair(); validation_and_lifetime(); std::cout << checks << " navigation view checks passed\n"; return 0; }
+    try { state_and_input(); search_disclosure(); scrolled_focus_repair(); hover_help(); validation_and_lifetime(); std::cout << checks << " navigation view checks passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

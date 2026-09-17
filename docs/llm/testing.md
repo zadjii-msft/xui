@@ -51,6 +51,30 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
+`tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
+It records callback errors without throwing through a native timer.
+The native window fixture covers closure and public-owner deletion while `IFileDialog::Show` owns its modal loop.
+The ABI and managed fixtures cover candidate and active content-scope rejection.
+The [dialog procedure](../../CONTRIBUTING.md#native-file-dialogs) lists commands and manifest requirements.
+
+Document range editing has separate core, native, ABI, and managed fixtures.
+`tests\document_editing_tests.cpp` checks validation before adapter dispatch.
+`tests\document_editing_window_tests.cpp` uses real RichEdit controls with an owned notification parent.
+It checks exact text and selection, independent undo actions, prior typing history, redo, stale native text, callback lifetime, and maximum length.
+Native notifications stay suppressed during the range transaction. The model publishes one change after native calls return.
+The fixture includes owner deletion from that callback and composition-message rejection.
+`tests\document_editing_abi_tests.cpp` checks invalid spans, status values, thread ownership, and output preservation.
+`bindings\dotnet\Tests\DocumentEditingTests.cs` checks the managed edit path and native tree selection.
+The [document procedure](../../CONTRIBUTING.md#document-range-editing) lists the commands.
+
+`tests\content_host_window_tests.cpp` covers the native retained content boundary.
+`bindings\dotnet\Designer.Preview.Tests` covers its C ABI and managed ownership through the embedded preview.
+The managed harness measures 100 replacements, repeated rollback, live handles, source-version delivery, and managed callback recovery.
+It keeps the same native editor and checks text, selection, undo availability, focus, and foreground activation.
+These desktop checks need the matching native DLL.
+Compiler-only `Designer.Tests` retains its rule that no native XUI library loads.
+
 The explorer adds these regressions:
 
 | Program | Coverage |

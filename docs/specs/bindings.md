@@ -61,6 +61,206 @@ Accepted closures execute or release their captures. Panics become callback erro
 Each window requires its own controls. Controls cannot move between binding arenas or live native hosts.
 Legacy `Window.Run` and `Window::run` remain available for standalone windows, outside an application context.
 
+### Scoped content replacement
+
+C++ and C# support one replaceable root inside a stable `ContentHost`.
+The C declarations are in `include\xui\xui_content.h`.
+Rust does not yet expose a typed wrapper for this extension.
+The host uses ordinary retained controls and native input, not another renderer or an embedded top-level window.
+
+```csharp
+var host = window.CreateContentHost();
+window.SetContent(window.Stack().Add(host, 1));
+window.Post(() =>
+{
+    var update = host.BeginUpdate();
+    try
+    {
+        var root = window.Stack().Add(window.Label("New content"));
+        update.Commit(root);
+    }
+    catch
+    {
+        update.Dispose();
+        throw;
+    }
+});
+window.Run();
+```
+
+The host must belong to the window tree before a live replacement.
+`BeginUpdate` permits candidate construction on that window's UI thread.
+Only one candidate can exist per window.
+Construction and commit or rollback must finish within the same UI-thread action.
+Candidate construction cannot change unrelated topology or replace window-wide callback handlers.
+An unattached root from that candidate is the only valid commit target.
+Scopes cannot share control handles or resource handles.
+Ordinary tree construction remains a before-run operation.
+
+`Commit` replaces the host content and completes native layout before returning.
+It retires the previous scope, including unattached objects that scope created.
+`Dispose` rolls back an uncommitted candidate.
+After commit, `Dispose` clears that scope if it remains current.
+`ContentHost.Clear` explicitly removes current content.
+Disposal of an already retired managed scope is harmless.
+Retired native handles are invalid.
+
+Replacement must occur outside native input callbacks.
+`Window.Post` provides a deferred UI-thread action for this purpose.
+The host preserves native peers outside its content.
+This includes editor selection, undo history, and focus outside the replaced subtree.
+Replacement does not take foreground activation.
+
+`ContentUpdate.CallbackFailed` opts into scoped managed event-error reporting.
+The scope stops further managed callbacks after the first exception.
+The error handler runs later on the UI thread and must clear or replace the failed content.
+Without this handler, callback exceptions keep the fatal-window contract.
+The scoped path covers control events, collection menus, file callbacks, Miller callbacks, and managed posted actions.
+Immutable-source queries and native failures retain the fatal-window contract.
+They cannot return fabricated data as an error substitute.
+
+Posted actions inherit the managed scope through the execution context.
+`ContentUpdate.Post` explicitly queues work that belongs to an active scope.
+A retired or failed scope rejects later posts.
+Retirement releases queued action delegates before native delivery.
+Each scope accepts at most 256 pending managed posts.
+Authored tasks that suppress execution-context flow remain the application's responsibility.
+
+Model and construction errors preserve the previous content.
+A fatal native materialization error can close the window instead.
+Scope rollback does not reverse arbitrary authored side effects.
+Scopes are ownership boundaries, not sandboxes or process isolation.
+
+The C++ counterpart is `Window::replace_content(ContentHost&, std::shared_ptr<Element>)`.
+A null content argument clears the host.
+C++ callers retain responsibility for their own callback captures and resources.
+The C ABI adds begin, commit, release, clear, context, owner, and handle-count operations.
+The context operation attributes new resources to a scoped callback without enabling topology changes.
+
+### Content pointer picking
+
+Content candidates can register inspection identities before commit:
+
+```csharp
+update.SetInspectionTargets([
+    new ContentInspectionTarget(0, root),
+    new ContentInspectionTarget(1, label)
+]);
+update.Picked += nodeId => Console.WriteLine($"Picked node {nodeId}");
+update.Commit(root);
+host.SetPointerPickMode(true);
+```
+
+The IDs must be unique and dense, starting at zero.
+Each target must belong to the candidate and its committed root.
+Registration borrows the managed elements and stores weak native references.
+Commit replaces the metadata with the content, and retirement discards both.
+A failed registration or replacement preflight leaves the previous content and metadata unchanged.
+
+`ContentHost.TryHitTest(x, y, out nodeId)` reads registered identity from native retained geometry.
+Its coordinates are window-client device-independent pixels.
+A miss returns `false` and `nodeId = -1`.
+Invalid coordinates and unsupported surfaces produce errors, not misses.
+Hit testing accounts for retained ancestry, clipping, and visibility rather than source order or a list of rectangles.
+An internal native child maps to its nearest registered ancestor.
+
+Pointer-picking mode consumes primary pointer gestures before native activation or text selection.
+It does not disable keyboard input, accessibility actions, or arbitrary authored code.
+The mode belongs to the host, while target identities and notifications belong to the current content.
+The native host defers pick notifications until the input callback returns.
+Replacement, clear, and close discard obsolete pending picks.
+Native delivery retains at most one pending pick per host.
+
+Managed inspection observers run in window context so they can queue replacements.
+Their delegate lifetime and error policy still belong to the content scope.
+This observer rule does not change scope attribution for ordinary authored control events.
+All registration, mode changes, and hit-test operations require the owning UI thread.
+Active capture, composition, or an unavailable modal route produces `XUI_BUSY`.
+Unsupported pointer surfaces produce `XUI_INVALID_ARGUMENT`.
+Neither error silently changes the mode.
+
+The initial picker refuses runtime-backed content, native file lists and date controls, vector/map canvases, and native suggestions.
+It also refuses popup/modal routes, adaptive overlays, nested or overlapping inspection hosts, and unproven native descendants.
+These limits apply to pointer inspection, not ordinary preview compilation or rendering with the mode off.
+The picker does not change a rejected surface into an approximate rectangle target.
+
+The C ABI uses `xui_content_inspection_targets`, `xui_content_pointer_picking`, and `xui_content_hit_test`.
+Pick callbacks receive `XUI_SELECTION`, the scope handle as `source`, and the registered ID as `value`.
+Pointer picking does not require an outline, overlay window, or changes to authored styles.
+
+### Non-occluding content outlines
+
+`ContentUpdate.Highlight(int? nodeId)` requests an outline for a registered node in the current committed scope.
+Null clears the outline.
+The C++ method is `Window::highlight_content(ContentHost&, std::optional<uint32_t>)`.
+The C ABI function is `xui_content_highlight(scope, key, clear, result)`.
+All calls require the owning UI thread and valid committed content.
+Invalid IDs, retired scopes, and unavailable native call contexts produce explicit errors.
+
+`ContentHighlightResult` reports `Applied`, `Cleared`, `NotVisible`, `OccludedNative`, or `UnsupportedSurface`.
+`Applied` describes the current arranged layout, not a promise of permanent visibility.
+A later unsafe layout hides the outline.
+A new hidden, occluded, or unsupported request clears the previous outline and retains no new target.
+The caller can keep hierarchy or inspector selection as feedback for these results.
+
+The renderer draws the original selected perimeter, clipped to the host, window client, and active ancestor viewports.
+It does not draw new edges around an intersection rectangle.
+The native implementation uses the same pixel-aligned perimeter strips for eligibility and painting.
+DPI changes, scrolling, resizing, and visibility changes recompute this geometry.
+Replacement, clear, scope retirement, and window closure discard the selected key.
+
+This feature never changes HWND regions, native styles, input routes, or authored styles.
+It creates no overlay window, peer, timer, or separate preview bitmap.
+Existing popup and tooltip code remains the sole owner of native occlusion regions.
+The outline requires no region restoration when it disappears.
+These guarantees also apply when pointer-picking mode is off.
+
+The supported subset requires every visible stroke segment to stay outside opaque native HWND rectangles.
+An intersection with an EDIT, RichEdit, or caption window produces `OccludedNative`, even when a region hole could expose some pixels.
+This conservative rule can refuse a geometrically possible outline rather than risk hiding native content or changing input.
+The pointer-inspection surface and ancestry restrictions also apply.
+The feature does not promise complete outlines around arbitrary native editors or composite controls.
+
+### Native file dialogs
+
+The C ABI declarations are in `include\xui\xui_file_dialog.h`, included by `xui.h`.
+`xui_window_open_file_dialog` and `xui_window_save_file_dialog` take an options record, receiver, and caller context.
+The record requires its exact size, `XUI_FILE_DIALOG_VERSION`, and zero reserved fields.
+Strings are strict UTF-8 spans. XUI copies all options before the modal dialog opens.
+The [native dialog contract](application.md#owned-native-file-dialogs) defines filters, length limits, ownership, and native behavior.
+
+The receiver runs once on successful completion, including cancellation.
+It receives `accepted = 1` and a borrowed filesystem path, or `accepted = 0` and an empty path.
+The path is valid only until the receiver returns. Native errors do not call the receiver.
+A receiver error produces `XUI_CALLBACK_FAILED` and closes the owner under the existing callback-error policy.
+Selecting a Save destination does not write a file.
+
+Malformed options produce `XUI_INVALID_ARGUMENT`. Invalid size or version produces `XUI_VERSION_MISMATCH`.
+The existing invalid-handle, wrong-kind, wrong-thread, and closed-window statuses apply.
+An unavailable native owner or a reentrant dialog call produces `XUI_BUSY`.
+Native Shell and directory-resolution failures produce `XUI_NATIVE_ERROR`, never a cancellation result.
+The window must remain alive through the receiver. Destruction during the call is rejected.
+Candidate construction and active preview callbacks cannot open these window-wide dialogs.
+
+C# exposes immutable option records and synchronous `Window.ShowOpenFileDialog` and `Window.ShowSaveFileDialog` methods:
+
+```csharp
+string? path = window.ShowSaveFileDialog(new FileDialogOptions
+{
+    Title = "Save component",
+    Filters = [new("Components", "*.xui"), new("All files", "*.*")],
+    DefaultExtension = "xui",
+    SuggestedName = "Component.xui"
+});
+```
+
+This call belongs in an unscoped UI callback while the window runs.
+A string contains the copied path. `null` means cancellation only.
+`XuiException` reports native errors. Managed argument, thread, scope, and disposal checks run before native dispatch.
+`Dispose` and nested dialogs are rejected during the modal call. `Close` requests native cancellation.
+These bindings use no Windows Forms, ownerless dialog, or public HWND.
+Rust has no typed file-dialog wrapper in this release.
+
 ### Windows file transfers
 
 The C# library supports filesystem clipboard transfers and native OLE drag-and-drop without Windows Forms or WPF.
@@ -182,6 +382,10 @@ They contain no second renderer or retained row array.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
 The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
+The handwritten C# `TreeView.Select(ItemKey)` method uses the native collection selection action.
+It retains the source identity, version checks, and selection callback behavior.
+C and C# also support [undo-preserving plain document edits](documents.md#undo-preserving-range-replacement).
+That additive API uses a separate header and handwritten managed imports.
 
 ### Miller columns in C#
 

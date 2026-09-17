@@ -78,6 +78,8 @@ protected:
 
 private:
     friend class Window;
+    friend class ContentHost;
+    void validate_adoption(const std::shared_ptr<Element>& child) const;
     void set_control_style_context_enabled(bool enabled);
     StyleStateMask effective_control_style_state_bits() const;
     struct InvalidationState;
@@ -125,6 +127,7 @@ public:
 protected:
     std::optional<StyleTarget> control_style_target() const override;
 private:
+    friend class ContentHost;
     struct Child {
         std::shared_ptr<Element> element;
         float flex{};
@@ -138,6 +141,16 @@ private:
     bool separator_inset_enabled_{true};
     std::vector<Child> children_;
     std::vector<Size> layout_children(Size available);
+};
+
+class ContentHost final : public Stack {
+public:
+    explicit ContentHost(std::shared_ptr<Element> content = {});
+    const std::shared_ptr<Element>& content() const noexcept;
+private:
+    friend class Window;
+    using Stack::add;
+    void replace(std::shared_ptr<Element> content);
 };
 
 struct FileItem {

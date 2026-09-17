@@ -2,22 +2,29 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal sealed class NavigationSidebar
+internal sealed class NavigationSidebar : IDisposable
 {
     private readonly ExplorerApplication app;
     private readonly Dictionary<string, ulong> identities = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, string> paths = [];
     private ulong nextId = 1;
     private bool updating;
+    private CancellationTokenSource? hover;
+    private ulong hoveredId;
+    private FileContextMenu? contextMenu;
 
     public NavigationSidebar(ExplorerApplication app)
     {
         this.app = app;
         View = new SidebarLayout(app.Window, attach: false).Root;
+        View.SetHoverDelay(1000);
+        BindContextMenu();
         foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })
             items.SetControlStyle(ExplorerStyles.NavigationItems);
         View.Event += e =>
         {
+            if (e.Kind == EventKind.Preview) HoverChanged(e.Value);
+            else if (e.Kind == EventKind.Request) LoadHover(e.Value);
             if (!updating && e.Kind is EventKind.Selection or EventKind.Click && paths.TryGetValue(e.Value, out string? path))
                 app.Active.Navigate(path);
         };
@@ -25,9 +32,31 @@ internal sealed class NavigationSidebar
 
     public NavigationView View { get; }
     public bool IsOpen { get; private set; } = true;
+    public void Dispose() => CancelHover();
+
+    internal void BindContextMenu() => View.OnContextMenu(GetContextCommands, InvokeContextCommand,
+        GetContextShellPaths, ShellMenuPresentation.Xui);
+
+    internal string[] GetContextShellPaths() => contextMenu?.GetShellPaths() ?? [];
+
+    internal void InvokeContextCommand(ulong id)
+    {
+        if (contextMenu is { } menu) menu.Invoke(id);
+        else app.Report("The navigation menu is no longer available.");
+    }
+
+    internal Command[] GetContextCommands(ulong id)
+    {
+        CancelHover();
+        contextMenu = null;
+        if (!paths.TryGetValue(id, out string? path)) return [];
+        contextMenu = new(app, app.Active);
+        return contextMenu.GetCommands([new(path, FolderName(path), true, 0, DateTime.MinValue)]);
+    }
 
     public void Toggle()
     {
+        CancelHover();
         IsOpen = !IsOpen;
         View.Visible(IsOpen);
     }
@@ -39,6 +68,7 @@ internal sealed class NavigationSidebar
 
     public void Refresh()
     {
+        CancelHover();
         var items = new List<NavigationEntry>();
         paths.Clear();
         ulong recents = Header("Recents", ButtonIcon.History);
@@ -96,6 +126,41 @@ internal sealed class NavigationSidebar
             items.Add(new(id, label, owner, Keywords: path, Icon: ButtonIcon.Folder, ImagePath: path));
             return id;
         }
+    }
+
+    private void CancelHover()
+    {
+        hover?.Cancel();
+        hover?.Dispose();
+        hover = null;
+        hoveredId = 0;
+    }
+
+    private void HoverChanged(ulong id)
+    {
+        CancelHover();
+        if (!paths.TryGetValue(id, out string? path))
+        {
+            if (id != 0) View.SetHoverHelp(id, "");
+            return;
+        }
+        hoveredId = id;
+        View.SetHoverHelp(id, $"{FolderName(path)}\n{path}\n\nReading folder details...");
+    }
+
+    private void LoadHover(ulong id)
+    {
+        if (id != hoveredId || hover is not null || !paths.TryGetValue(id, out string? path)) return;
+        hover = new();
+        app.Work.Start(token => FolderMetadataReader.ReadAsync(path, token), hover.Token,
+            metadata => { if (hoveredId == id) View.SetHoverHelp(id, metadata.HelpText()); },
+            error => { if (hoveredId == id) View.SetHoverHelp(id, $"{FolderName(path)}\n{path}\n\nFolder details unavailable: {error.Message}"); });
+    }
+
+    private static string FolderName(string path)
+    {
+        string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+        return string.IsNullOrEmpty(name) ? path : name;
     }
 
     private ulong Identify(string value)

@@ -110,6 +110,43 @@ void shared_root() {
     a->post([&] { label->set_text(L"First host remains usable"); a->close(); });
     require(app.run() == 1 && a->error().empty(), "Failed second host does not corrupt the original host");
 }
+void independent_content_replacement() {
+    xui::Application app;
+    auto opener = app.create_window({L"XUI replacement opener"});
+    auto preview = app.create_window({L"XUI replacement survivor"});
+    auto opener_root = std::make_shared<xui::Stack>(xui::Axis::vertical);
+    auto opener_field = std::make_shared<xui::TextInput>(L"Opener field");
+    opener_root->add(opener_field);
+    opener->set_content(opener_root);
+    auto initial = std::make_shared<xui::TextInput>(L"Initial preview field");
+    auto host = std::make_shared<xui::ContentHost>(initial);
+    preview->set_content(host);
+    app.show(*opener);
+    app.show(*preview);
+    bool replaced{};
+    require(app.post([&] {
+        bool rejected{};
+        try { preview->replace_content(*host, opener_root); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected && host->content() == initial,
+            "Replacement rejects a root owned by another live window without mutation");
+        require(opener->focus(*opener_field, true), "Rejected replacement preserves the original native host");
+        opener->close();
+        require(app.post([&] {
+            auto next = std::make_shared<xui::TextInput>(L"Replacement preview field");
+            next->set_text(L"Surviving content");
+            preview->replace_content(*host, next);
+            require(host->content() == next && preview->focus(*next, true),
+                "Surviving application window replaces content and focuses its new native peer");
+            require(!preview->focus(*initial), "Retired content no longer has a native peer");
+            preview->replace_content(*host, {});
+            require(!host->content(), "Surviving application window clears content");
+            replaced = true;
+            preview->close();
+        }), "Application accepts replacement after opener retirement");
+    }), "Application accepts independent replacement fixture");
+    require(app.run() == 0 && replaced, "Content replacement preserves independent window lifetime");
+}
 }
 int main() {
     try {
@@ -117,6 +154,7 @@ int main() {
         windows({2, 0, 1}, false);
         windows({1, 2, 0}, true);
         shared_root();
+        independent_content_replacement();
         xui::Window legacy({L"XUI legacy after applications"});
         auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
         root->add(std::make_shared<xui::Label>(L"Legacy"));

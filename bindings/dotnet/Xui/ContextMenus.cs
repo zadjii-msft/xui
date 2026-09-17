@@ -2,6 +2,24 @@ namespace Xui;
 
 public enum ShellMenuPresentation { Windows, Xui }
 
+public sealed partial class NavigationView
+{
+    /// <summary>Builds a file menu for the targeted row without navigating. Headers and empty space have no menu.</summary>
+    public NavigationView OnContextMenu(Func<ulong, Command[]> items, Action<ulong> invoked,
+        Func<string[]>? shellPaths = null, ShellMenuPresentation presentation = ShellMenuPresentation.Windows)
+    {
+        foreach (var section in new[] { Items, HeaderItems, FooterItems })
+            CollectionContextMenus.Bind(section, items, invoked, shellPaths, presentation);
+        return this;
+    }
+
+    public void ClearContextMenu()
+    {
+        foreach (var section in new[] { Items, HeaderItems, FooterItems })
+            Window.SetMenuSubscription(section.Handle, null);
+    }
+}
+
 public sealed partial class TabStrip
 {
     /// <summary>Builds a native menu for the right-clicked tab, or the selected tab for keyboard requests.</summary>
@@ -77,6 +95,13 @@ public static unsafe class CollectionContextMenus
         ShellMenuPresentation presentation)
     {
         ArgumentNullException.ThrowIfNull(items);
+        Bind(control, _ => items(), invoked, shellPaths, presentation);
+    }
+
+    internal static void Bind(Element control, Func<ulong, Command[]> items, Action<ulong> invoked, Func<string[]>? shellPaths,
+        ShellMenuPresentation presentation)
+    {
+        ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(invoked);
         if (presentation is not (ShellMenuPresentation.Windows or ShellMenuPresentation.Xui))
             throw new ArgumentOutOfRangeException(nameof(presentation));
@@ -85,7 +110,7 @@ public static unsafe class CollectionContextMenus
         {
             if (e.Kind == EventKind.Request)
             {
-                var commands = items() ?? throw new InvalidOperationException("Context menu items cannot be null.");
+                var commands = items(e.Value) ?? throw new InvalidOperationException("Context menu items cannot be null.");
                 var paths = shellPaths?.Invoke() ?? (shellPaths is null ? [] :
                     throw new InvalidOperationException("Shell paths cannot be null."));
                 if (paths.Length > 256) throw new ArgumentOutOfRangeException(nameof(shellPaths));

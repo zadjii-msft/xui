@@ -5,7 +5,9 @@
 #include "xui/file_list.hpp"
 #include "xui/foundation.hpp"
 #include "xui/file_transfer.hpp"
+#include "xui/file_dialog.hpp"
 #include "xui/miller_columns.hpp"
+#include <optional>
 #include <stop_token>
 
 namespace xui {
@@ -15,6 +17,12 @@ class LocationPicker;
 class ContentDialog;
 class Application;
 enum class WindowState { created, open, closing, closed };
+
+struct ContentInspectionTarget {
+    std::uint32_t key{};
+    std::weak_ptr<Element> element;
+};
+enum class ContentHighlightResult { applied = 0, cleared = 1, not_visible = 2, occluded_native = 3, unsupported_surface = 4 };
 
 struct WindowOptions {
     std::wstring title = L"XUI";
@@ -26,6 +34,7 @@ struct WindowOptions {
     bool custom_titlebar{};
     // Experimental solid-surface skin. Does not change control behavior or density.
     VisualStyle visual_style = VisualStyle::classic;
+    bool show_activated = true;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -38,7 +47,14 @@ enum class Key : std::uint16_t {
     f1 = 0x70, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,
     f13, f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24
 };
-struct KeyEvent { Key key; bool control{}, shift{}; Control* target{}; bool alt{}; };
+struct KeyEvent {
+    Key key;
+    bool control{}, shift{};
+    Control* target{};
+    bool alt{};
+    // A text-producing key outside a native editor. The keyboard layout performs translation.
+    bool text_input{};
+};
 enum class NavigationDirection { back, forward };
 struct NavigationEvent {
     NavigationDirection direction;
@@ -92,16 +108,31 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
     void set_content(std::shared_ptr<Stack> content);
+    // The host must belong to this window. Null clears its content.
+    // UI thread only, outside native input callbacks; use post from callbacks.
+    // Returns after native creation and layout. Native failures close the window.
+    void replace_content(ContentHost& host, std::shared_ptr<Element> content);
+    void replace_content(ContentHost& host, std::shared_ptr<Element> content,
+        std::vector<ContentInspectionTarget> targets, std::function<void(std::uint32_t)> picked);
+    void set_content_pointer_picking(ContentHost& host, bool enabled);
+    // Window-client DIPs. Returns the nearest registered authored ancestor or no hit.
+    std::optional<std::uint32_t> hit_test_content(ContentHost& host, Point position);
+    ContentHighlightResult highlight_content(ContentHost& host, std::optional<std::uint32_t> key);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
     // A type association only, never a target path. Empty selects a stock document icon.
     void set_file_type_icon(std::wstring extension = {}, bool directory = false);
     const std::wstring& title() const;
+    // Uses the shared asynchronous Shell thumbnail/icon service. Empty clears the icon.
+    // Replacing the source or closing cancels delivery. Failures use the UI-thread callback.
+    void set_icon_source(std::wstring path);
+    void on_icon_error(std::function<void(const std::wstring&)> callback);
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
     ThemeMode theme() const;
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
+    void set_show_activated(bool value);
     void set_tooltip_style(std::shared_ptr<const ControlStyle> style);
     std::shared_ptr<const ControlStyle> tooltip_style() const;
     void set_tooltip_style_values(StylePart part, PartStyleValues values);
@@ -124,6 +155,8 @@ public:
     std::shared_ptr<ViewTask> create_view_task(ViewWorker::Loader loader, std::function<void(ViewResult)> receive);
     std::shared_ptr<SampleTask> create_sample_task(SampleTask::Loader loader, SampleTask::Receiver receive, unsigned milliseconds = 1000);
     bool confirm(const std::wstring& title, const std::wstring& message);
+    std::optional<std::wstring> show_open_file_dialog(const FileDialogOptions& options);
+    std::optional<std::wstring> show_save_file_dialog(const FileDialogOptions& options);
     void copy_text(const std::wstring& text);
     void set_clipboard_text(const std::wstring& text);
     void set_file_clipboard(const std::vector<std::wstring>& paths, FileTransferEffect effect);
@@ -138,6 +171,7 @@ private:
     friend class Application;
     struct Impl;
     std::shared_ptr<Impl> impl_;
+    std::optional<std::wstring> show_file_dialog(bool save, const FileDialogOptions& options);
 };
 
 class Application final {

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(XuiRuntimeIdentifier)</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <XuiHotReload>false</XuiHotReload>
+    <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="..\Xui.Native.targets" />
+  <Import Project="..\Xui.Declarative.Common.targets" />
+  <ItemGroup>
+    <ProjectReference Include="..\Xui\Xui.csproj" />
+    <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
+    <Analyzer Include="..\Xui.Generator\bin\$(Configuration)\net10.0\Xui.Generator.dll" />
+    <Reference Include="Microsoft.CodeAnalysis" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.dll" />
+    <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(MSBuildToolsPath)\Roslyn\bincore\Microsoft.CodeAnalysis.CSharp.dll" />
+    <AdditionalFiles Remove="Starter.xui" />
+    <AdditionalFiles Remove="Templates\*.xui" />
+    <EmbeddedResource Include="Starter.xui" />
+    <EmbeddedResource Include="Templates\*.xui" />
+  </ItemGroup>
+  <Target Name="ValidateDesignerPublish" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(PublishAot)' == 'true' or '$(PublishTrimmed)' == 'true' or '$(PublishSingleFile)' == 'true'"
+           Text="The designer requires managed, untrimmed, multi-file output for runtime compilation." />
+  </Target>
+</Project>

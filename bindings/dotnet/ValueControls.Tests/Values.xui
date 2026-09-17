@@ -1,0 +1,38 @@
+namespace ValueControls.Tests;
+
+component Values {
+    param global::Xui.NumericRange Bounds;
+    state double Current = 150;
+    state bool Reverse = false;
+    state global::Xui.Axis Direction = global::Xui.Axis.Horizontal;
+    state global::Xui.ProgressState Status = global::Xui.ProgressState.Determinate;
+    state int Calls = 0;
+
+    style InputStyle for RangeInput {
+        part track { background: 0x345678; thickness: 4; }
+        part thumb { size: 16; }
+    }
+    style MeterStyle for Progress {
+        part fill { background: 0x238636; }
+    }
+
+    view {
+        VStack(spacing: 8, padding: 12) {
+            RangeInput("Volume", ref: Input, range: Bounds, currentValue: Current,
+                orientation: Direction, reversed: Reverse, change: Changed,
+                style: InputStyle, size: (320, 42));
+            Progress("Completion", ref: Meter, range: Bounds, currentValue: Current,
+                progressState: Status, style: MeterStyle, size: (320, 24));
+            RangeInput("Default range", ref: DefaultInput);
+            Progress("Default progress", ref: DefaultProgress);
+            RangeInput("Clamped initial range", ref: ClampedInput, range: Bounds);
+            Progress("Clamped initial progress", ref: ClampedProgress, range: Bounds);
+        }
+    }
+    code csharp {
+        void Changed(double value) {
+            Calls++;
+            Current = value;
+        }
+    }
+}

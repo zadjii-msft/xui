@@ -1,0 +1,55 @@
+namespace Xui.Designer;
+
+component DesignerInspectorLayout {
+    param global::Xui.Element Arguments;
+    param global::Xui.Element ValueEditor;
+    param global::Xui.Element Palette;
+
+    view {
+        ScrollView("Properties and control palette") {
+            VStack(padding: 10, spacing: 8) {
+                Text("Properties", fontSize: 20, fontWeight: 600);
+                Text("Select a control", ref: Selected, id: "designer-selected-node", wrapping: true);
+                Text("Argument");
+                Content(Arguments, preferredSize: (240, 36));
+                Text("Literal source value (include quotes for text)", ref: ValueLabel, wrapping: true);
+                Toggle("Edit as text", ref: TextMode, id: "designer-property-text-mode", enabled: false,
+                    help: "Edit a string literal without quotes or escape sequences");
+                Content(ValueEditor, preferredSize: (240, 80));
+                Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
+                HStack(spacing: 6) {
+                    Button("Apply property", ref: Apply, id: "designer-apply-property");
+                    Button("Reset", ref: Reset, id: "designer-reset-property", enabled: false,
+                        help: "Remove an authored named literal argument and use its default");
+                }
+                Text("Structure", fontSize: 18, fontWeight: 600);
+                HStack(spacing: 6) {
+                    Button("Move up", ref: Up, id: "designer-move-up", help: "Move to the previous sibling position (Alt+Up in hierarchy)");
+                    Button("Move down", ref: Down, id: "designer-move-down", help: "Move to the next sibling position (Alt+Down in hierarchy)");
+                }
+                HStack(spacing: 6) {
+                    Button("Duplicate", ref: Duplicate, id: "designer-duplicate", help: "Duplicate this control (Ctrl+D in hierarchy)");
+                    Button("Delete", ref: Delete, id: "designer-delete", help: "Delete this control (Delete in hierarchy)");
+                }
+                Text("Select a control to change its structure.", ref: StructureHelp, id: "designer-structure-help", wrapping: true);
+                Text("Wrap selected control");
+                HStack(spacing: 6) {
+                    Button("VStack", ref: WrapVertical, id: "designer-wrap-vertical", help: "Wrap in a vertical stack (Ctrl+G in hierarchy)");
+                    Button("HStack", ref: WrapHorizontal, id: "designer-wrap-horizontal", help: "Wrap in a horizontal stack");
+                    Button("Scroll", ref: WrapScroll, id: "designer-wrap-scroll", help: "Wrap in a scroll view");
+                }
+                Button("Unwrap one child", ref: Unwrap, id: "designer-unwrap", help: "Remove a safe one-child wrapper (Ctrl+Shift+G in hierarchy)");
+                Text("Unwrap needs one child and refuses to discard wrapper properties, identities, or comments.", wrapping: true);
+                Text("Control palette", fontSize: 18, fontWeight: 600);
+                Content(Palette, preferredSize: (240, 36));
+                Text("Insert at the end of the selected stack or grid. Grid insertion and duplication use the cell below.", wrapping: true);
+                HStack(spacing: 6) {
+                    TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));
+                    TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (106, 60));
+                }
+                Button("Insert control", ref: Insert, id: "designer-insert-control");
+                Text("Ready", ref: Feedback, id: "designer-builder-feedback", wrapping: true);
+            }
+        }
+    }
+}

@@ -73,7 +73,7 @@ void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const 
     else if (!visual.image_path.empty()) icon(bounds, ink, false);
 }
 void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
-    bool focus_visible, std::optional<Point> pointer) {
+    bool focus_visible, std::optional<Point> pointer, const RowImages* images) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const bool winui = palette.style == VisualStyle::winui;
     const auto& colors = strip.colors();
@@ -135,9 +135,21 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
         const float right = close.width > 0 ? close.x - 4 : b.x + b.width - 10;
         const auto padding = tab_style.padding.value_or(Insets{12, 0, 0, 0});
         const auto tab_border = tab_style.border_thickness.value_or(Insets{});
-        const Rect label_bounds{b.x + padding.left + tab_border.left, top + padding.top + tab_border.top,
+        Rect label_bounds{b.x + padding.left + tab_border.left, top + padding.top + tab_border.top,
             std::max(0.0f, right - b.x - padding.left - padding.right - tab_border.left - tab_border.right),
             std::max(0.0f, bottom - top - padding.top - padding.bottom - tab_border.top - tab_border.bottom)};
+        const auto& tab = strip.tabs()[index];
+        if (tab.icon != ButtonIcon::none || !tab.image_path.empty()) {
+            const float size = std::min({16.0f, label_bounds.width, label_bounds.height});
+            if (size > 0) {
+                const Rect icon_bounds{label_bounds.x, label_bounds.y + (label_bounds.height - size) / 2, size, size};
+                // Disabled and high-contrast tabs keep a theme-colored fallback instead of Shell pixels.
+                item_visual({tab.icon, tab.image_path},
+                    images && enabled && !palette.high_contrast ? images->pixels({tab.id, 0}) : nullptr, icon_bounds, ink);
+            }
+            const float advance = std::min(label_bounds.width, 22.0f);
+            label_bounds.x += advance; label_bounds.width -= advance;
+        }
         if (!label_style.empty()) styled_text(strip.tabs()[index].title, label_bounds, ink, label_style, winui ? TextStyle::body : TextStyle::caption);
         else text(strip.tabs()[index].title, label_bounds, ink, !winui);
         if (close.width > 0) {

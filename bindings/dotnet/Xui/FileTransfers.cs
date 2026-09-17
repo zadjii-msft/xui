@@ -10,10 +10,11 @@ public sealed record FileClipboardContent(string[] Paths, FileTransferEffect Eff
 public sealed unsafe partial class Window
 {
     private readonly Dictionary<ulong, FileSubscription> fileSubscriptions = [];
-    private sealed class FileSubscription(Window window, ulong handle)
+    private sealed class FileSubscription(Window window, ulong handle, ContentUpdate? scope)
     {
         internal readonly Window Window = window;
         internal readonly ulong Handle = handle;
+        internal readonly ContentUpdate? Scope = scope;
         internal Func<string[]>? Paths;
         internal Action<FileTransferEffect>? Completed;
         internal Func<ItemKey?, FileTransferEffect, FileTransferEffect>? Query;
@@ -24,7 +25,7 @@ public sealed unsafe partial class Window
     {
         Guard();
         if (fileSubscriptions.TryGetValue(handle, out var current)) return current;
-        var subscription = new FileSubscription(this, handle);
+        var subscription = new FileSubscription(this, handle, ScopeFor(handle));
         subscription.Root = GCHandle.Alloc(subscription, GCHandleType.Weak);
         try { fileSubscriptions.Add(handle, subscription); }
         catch { subscription.Root.Free(); throw; }
@@ -155,7 +156,9 @@ public sealed unsafe partial class Window
         {
             subscription = GCHandle.FromIntPtr(context).Target as FileSubscription;
             if (subscription is null) return 8;
+            if (subscription.Scope is { AcceptCallbacks: false }) return 0;
             var window = subscription.Window;
+            using var content = window.EnterContent(subscription.Scope);
             ++window.callbacks;
             try
             {
@@ -171,7 +174,7 @@ public sealed unsafe partial class Window
             finally { --window.callbacks; }
             return 0;
         }
-        catch (Exception error) { if (subscription is not null) subscription.Window.callbackError = error; return 8; }
+        catch (Exception error) { return subscription is null ? 8 : subscription.Window.ContentError(subscription.Scope, error); }
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int FileDropTrampoline(nint context, ulong id, ulong version, uint hasKey, Native.Text* paths,
@@ -182,7 +185,10 @@ public sealed unsafe partial class Window
         {
             subscription = GCHandle.FromIntPtr(context).Target as FileSubscription;
             if (subscription is null) return 8;
+            *effect = 0;
+            if (subscription.Scope is { AcceptCallbacks: false }) return 0;
             var window = subscription.Window;
+            using var content = window.EnterContent(subscription.Scope);
             ++window.callbacks;
             try
             {
@@ -194,7 +200,7 @@ public sealed unsafe partial class Window
             finally { --window.callbacks; }
             return 0;
         }
-        catch (Exception error) { if (subscription is not null) subscription.Window.callbackError = error; return 8; }
+        catch (Exception error) { *effect = 0; return subscription is null ? 8 : subscription.Window.ContentError(subscription.Scope, error); }
     }
 }
 public sealed partial class DataGrid

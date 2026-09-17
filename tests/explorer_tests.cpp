@@ -114,6 +114,25 @@ void control_tests() {
     tabs.on_select([&](auto) { ++selected; });
     tabs.on_close([&](auto) { ++closed; });
     tabs.set_tabs({{1, L"First"}, {2, L"Second"}, {3, L"Third"}, {4, L"Fourth"}}, 1);
+    const auto original_tabs = tabs.tabs();
+    const auto original_close = tabs.close_bounds(0), original_tab = tabs.tab_bounds(0);
+    auto visual_tabs = original_tabs;
+    visual_tabs[0].icon = ButtonIcon::folder;
+    visual_tabs[0].image_path = L"C:\\Unicode 日本";
+    tabs.set_tabs(visual_tabs, 1);
+    require(tabs.tabs() == visual_tabs && tabs.selected() == 1 && selected == 0 &&
+        tabs.tab_bounds(0).width == original_tab.width && tabs.close_bounds(0).x == original_close.x,
+        "Optional tab visuals preserve identities, selection, callbacks, and hit geometry");
+    for (auto invalid : {TabItem{1, L"First", static_cast<ButtonIcon>(999)},
+        TabItem{1, L"First", ButtonIcon::folder, std::wstring(32768, L'x')},
+        TabItem{1, L"First", ButtonIcon::folder, std::wstring(L"a\0b", 3)}}) {
+        bool rejected{};
+        try { tabs.set_tabs({invalid}, 1); } catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected && tabs.tabs() == visual_tabs, "Invalid tab visuals do not replace existing tabs");
+    }
+    tabs.set_tabs(original_tabs, 1);
+    require(tabs.tabs()[0].icon == ButtonIcon::none && tabs.tabs()[0].image_path.empty(),
+        "Existing two-field TabItem construction restores text-only tabs");
     const auto first = tabs.tab_bounds(0), second = tabs.tab_bounds(1);
     require(tabs.prepare_context_menu(Point{second.x + 8, second.y + 8}) &&
         tabs.context_tab() == 2 && tabs.selected() == 1 && selected == 0,

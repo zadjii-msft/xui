@@ -20,6 +20,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Test coverage and protocols](testing.md): Regression scope, release-package checks, fixture behavior, and measurement methods.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Source ownership, fidelity gaps, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, delivery stages, and acceptance evidence.
+- [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, and safe menu replacement.
 - [Control styling implementation and evidence](control-styling.md): Shared styles, binding lifetimes, family coverage, native paint checks, and performance evidence.
@@ -30,7 +31,7 @@ Handoff branch names, uncommitted-state warnings, and local build paths describe
 
 ## Historical evidence
 
-- [Explorer history](explorer-history.md): Compact headers, WIC thumbnails, and Shell icons.
+- [Explorer history](explorer-history.md): Folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
 - [Rendering history](rendering-history.md): Complete text frames and native context menus.
 - [Task Manager history](task-manager-history.md): Grid delivery, retained resources, and graphics-memory investigations.
 - [Earlier milestones](milestone-history.md): Suggestions, navigation, images, Windows integration, layout, and performance baselines.

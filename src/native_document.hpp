@@ -21,6 +21,7 @@ public:
 private:
     static LRESULT CALLBACK subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR) noexcept;
     bool command(TextCommand command);
+    TextSelection replace_range(TextSelection range, const std::wstring& expected, const std::wstring& replacement);
     std::wstring text() const;
     std::shared_ptr<Control> model_;
     HWND window_{};

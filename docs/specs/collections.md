@@ -272,6 +272,8 @@ The fragment tree contains visible rows and required tree ancestors, not every s
 `TreeSource::roots` supplies a virtual root index. `has_children` uses cached, nonblocking data.
 Right expands a branch or enters its first child. Left collapses a branch or selects its parent.
 Collapse retains hidden selection and repairs focus to the collapsed ancestor.
+If collapse changes the focused identity, the tree reports one selection callback after the visible projection updates.
+Collapse without a focus change does not report a selection callback.
 The tree retains at most 4,096 branch records and permits at most 128 expansion levels.
 Closed branches retain cached children until source replacement or tree destruction.
 

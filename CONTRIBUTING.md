@@ -160,6 +160,120 @@ Use `bindings\dotnet\Sample` for the handwritten C# sample.
 Run the generated executable or use `dotnet run`.
 Direct `dotnet Sample.dll` execution does not apply the apphost's native-control manifest.
 
+### XUI Designer
+
+After the native build, run the designer:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid
+```
+
+To open an existing trusted component, append its path:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- "C:\Projects\Demo\Counter.xui"
+```
+
+The designer uses the same native DLL selection as the other C# samples.
+Its runtime includes the XUI generator and the SDK Roslyn assemblies.
+It does not support NativeAOT, trimming, or single-file publishing.
+The [designer guide](docs/specs/designer.md) describes preview limits, shortcuts, file behavior, and recovery drafts.
+
+Run the compiler tests without a native DLL:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer.Tests -c Release
+dotnet run --project bindings\dotnet\Designer.TemplateTests -c Release
+dotnet run --project bindings\dotnet\Designer.DocumentTests -c Release
+dotnet run --project bindings\dotnet\Designer.DiagnosticsTests -c Release
+```
+
+The template tests compile every built-in example and reject compiler warnings.
+The template sources are under `bindings\dotnet\Designer\Templates`, with the counter example in `Starter.xui`.
+The document tests cover atomic saves, disk conflicts, UTF-8 input, and recovery snapshots without a native DLL.
+The diagnostics tests cover native paragraph offsets, Unicode selection, stale revisions, and locations from the real compiler.
+
+Run the source hierarchy and visual edit tests without a native DLL:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
+```
+
+This suite checks exact UTF-16 ranges, source preservation, stale revisions, container rules, and generated compilation.
+It also checks opt-in element mapping with the existing managed generator fakes, without native DLL calls.
+Diagnostic checks cover exact expression columns and the actual preview compiler output.
+The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
+
+After the native build, run the generated RangeInput and Progress checks:
+
+```powershell
+dotnet run --project bindings\dotnet\ValueControls.Tests -c Release -r $rid
+```
+
+The fixture uses the actual `.xui` generator and this checkout's native DLL.
+It checks construction order, numeric updates, callbacks, defaults, invalid values, and opt-in element mapping.
+It also opens a bounded native window and closes it through the window dispatcher.
+
+After the native build, run the desktop smoke test:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --smoke
+dotnet run --project bindings\dotnet\Designer.RecoveryTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.TextModeTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.SearchTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --selection-smoke
+dotnet run --project bindings\dotnet\Designer.LayoutTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.WorkspaceTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.DiscardTests -c Release -r $rid
+cmake --build $build --config Release --target xui_content_host_window_tests
+& ".\$build\Release\xui_content_host_window_tests.exe"
+cmake --build $build --config Release --target xui_abi_features_tests
+& ".\$build\Release\xui_abi_features_tests.exe" --activation
+```
+
+The preview regression opens one window with native editor and preview content.
+It covers repeated replacement, bounded handles, candidate rollback, source versions, scoped callback errors, and editor identity, selection, and undo.
+It also checks that replacement does not change foreground activation.
+The smoke test opens the designer with its embedded preview.
+It covers native layout, compiler diagnostics, preview construction errors, recovery after those errors, and file operations.
+The recovery UI test uses isolated drafts and a real native `ContentDialog`.
+It covers draft selection, recovery copies, dirty-source protection, confirmed deletion, corrupt metadata, and file races.
+The grouping UI test uses the production hierarchy and inspector with native source editing.
+It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
+The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
+The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
+The selection smoke uses actual native preview clicks in the full application.
+It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
+It also covers outline feedback for the selected control and immediate invalidation after a source revision.
+The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
+
+The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
+It also covers read-only expressions and recovery from invalid source without replacing the native document.
+The file smoke uses an isolated recovery directory and the complete application.
+It covers automatic drafts, the native recovery picker, disk conflicts, persistent file errors, and native edits after an invalid file opens.
+It also covers real native Open and Save As results, cancellation, file shortcuts, explicit discard approval, and stale chooser results.
+The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
+It covers pane bounds, pane order, native selection, and source preservation across theme changes.
+The workspace suite runs the same builder smoke against production controllers without the preview host.
+It compiles source transformations but does not execute authored preview code.
+The discard UI test covers native cancel and undo preservation, deferred approval, and rejection of stale source or revision snapshots.
+
+The following opt-in diagnostic currently fails for programmatic owner closure during a native chooser in the complete designer:
+
+```powershell
+dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-close-smoke
+```
+
+It retains separate startup and cancellation deadlines, native HWND teardown checks, and rejection of late UI callbacks.
+Its fallback Cancel action ends the failed fixture. That action does not count as successful programmatic cancellation.
+The activation test checks the separate public window contract for foreground activation and initial keyboard focus.
+`XUI_DESKTOP_TESTS=ON` also registers the activation test with CTest.
+
 ### C# file explorer
 
 The explorer uses the same automatic DLL copy as the other samples:
@@ -361,6 +475,93 @@ The Explorer smoke also closes Explorer before its text, image, and folder previ
 It checks real ownerless HWNDs, native text copying, image reuse, resize, and captured-target Open after opener disposal.
 Smoke mode records Open targets instead of starting associated applications.
 Manual coverage still includes cross-monitor DPI changes, taskbar grouping, physical IME, and screen-reader output.
+
+### Content pointer inspection
+
+Build and run the native inspection fixture and managed preview lifecycle suite:
+
+```powershell
+cmake --build $build --config Release --target xui xui_content_inspection_window_tests
+ctest --test-dir $build -C Release -R '^xui_content_inspection_window_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
+```
+
+The native fixture uses real HWND routes and registered retained nodes.
+It covers clipping, editor state, explicit refusals, deferred delivery, and repeated replacement.
+The managed suite adds ABI validation, source-version checks, observer retirement, and collectible assembly checks.
+The [inspection contract](docs/specs/bindings.md#content-pointer-picking) lists unsupported surfaces.
+Physical IME, touch/pen hardware, and screen-reader speech require manual checks.
+
+### Non-occluding selection outlines
+
+Build the outline fixture:
+
+```powershell
+cmake --build $build --config Release --target xui xui_content_highlight_window_tests
+```
+
+Run geometry checks without desktop access:
+
+```powershell
+ctest --test-dir $build -C Release -R '^xui_content_highlight_geometry_tests$' --output-on-failure
+```
+
+With an available desktop, run the renderer and managed lifecycle checks:
+
+```powershell
+ctest --test-dir $build -C Release -R '^xui_content_highlight_window_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
+```
+
+Do not run concurrent focus-sensitive desktop fixtures.
+The native fixture checks original-perimeter pixels, native occlusion refusal, unchanged regions and input, and repeated retirement.
+The [outline contract](docs/specs/bindings.md#non-occluding-content-outlines) defines the conservative supported subset.
+
+### Native file dialogs
+
+Build and run the focused dialog checks:
+
+```powershell
+cmake --build $build --config Release --target xui_file_dialog_tests xui_file_dialog_native_tests xui_file_dialog_window_tests xui_file_dialog_abi_tests
+ctest --test-dir $build -C Release -R "^xui_file_dialog_.*tests$" --output-on-failure
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --file-dialogs
+```
+
+These desktop fixtures open real owned Windows Shell dialogs and cancel them through bounded, owner-specific probes.
+They cover Open and Save paths, Unicode, default extensions, invalid options, thread access, callback failures, and content-scope guards.
+The native window fixture covers focus return, composition rejection, owner closure, and owner deletion during the modal loop.
+The Save fixtures select unique absent destinations and assert that no file was created.
+Each native window fixture uses `demo\xui.rc` and `/MANIFEST:NO`. The managed fixture uses the matching apphost manifest.
+The probes use a local temporary directory to avoid unrelated Shell startup delays from remembered locations.
+
+### Stack preferred sizing
+
+Run the core and native Stack layout regressions:
+
+```powershell
+cmake --build $build --config Release --target xui_core_tests xui_stack_layout_window_tests
+ctest --test-dir $build -C Release -R "^xui_(core_tests|stack_layout_window_tests)$" --output-on-failure
+```
+
+The core fixture covers both axes, nested flex allocation, natural sizing, explicit preferences, automatic overrides, padding, and size limits.
+The native fixture uses the matching manifest and real RichEdit peers.
+It checks nonzero source geometry, retained focus and HWND identity, preference changes, and native undo and redo after layout.
+
+### Document range editing
+
+Build and run the focused document checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_document_editing_tests xui_document_editing_window_tests xui_document_editing_abi_tests xui_documents_tests
+ctest --test-dir $build -C Release -R '^xui_(document_editing.*|documents_tests)$' --output-on-failure
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --document-editing
+```
+
+The native fixture uses real RichEdit controls and the common-controls v6 manifest.
+It covers exact native text, selection, undo, redo, callback counts, rejected edits, owner deletion, and the maximum document length.
+Its composition checks use native composition messages. Physical IME interaction remains a manual check.
+The ABI fixture covers strict UTF-8 spans, explicit errors, thread affinity, and unchanged failure outputs.
+The C# fixture also covers the native `TreeView.Select` action.
 
 ### Control styling
 

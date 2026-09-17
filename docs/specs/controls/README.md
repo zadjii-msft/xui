@@ -220,6 +220,7 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `TextInput` and search variant | [TextInput](basic.md#textinput) | `TextInput` | `text_input` |
 | `NativeEditBridge` backend boundary | [NativeEditBridge](basic.md#nativeeditbridge) | No factory | No factory |
 | `Stack` | [Stack](layout.md#stack) | `Stack` | `stack` |
+| `ContentHost` | [ContentHost](layout.md#contenthost) | `CreateContentHost` | No typed wrapper |
 | `Grid` | [Grid](layout.md#grid) | `Grid` | `grid` |
 | `Wrap` | [Wrap](layout.md#wrap) | `Wrap` | `wrap` |
 | `AdaptiveLayout` | [AdaptiveLayout](layout.md#adaptivelayout) | `AdaptiveLayout` | `adaptive_layout` |

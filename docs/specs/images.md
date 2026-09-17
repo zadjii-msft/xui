@@ -138,6 +138,35 @@ The Shell handler limits described in the next section also apply.
 
 ## Explorer thumbnail icons
 
+### Native window icons
+
+`Window::set_icon_source(path)` uses the shared Shell thumbnail and icon service.
+`Window::on_icon_error(callback)` reports asynchronous errors on the UI thread.
+The C ABI exposes `xui_window_set_icon_source` and `xui_window_on_icon_error`.
+C# exposes `Window.SetIconSource(path)` and `Window.IconErrorHandler`.
+
+The source can identify a folder or a file. An empty path clears the native window icon.
+XUI requests a Shell thumbnail first and a Shell icon second.
+The Shell worker performs file access and decoding, with the same cancellation, queue, cache, and pixel limits as other Shell images.
+
+The setter accepts calls before `Run` and during `Run`, on the creating UI thread.
+Before `Run`, it retains the path without decoding.
+A new source cancels the previous request and clears both native icon slots.
+Cancelled requests cannot deliver stale pixels or errors. A DPI change requests a new physical icon size.
+The setter rejects embedded NUL characters and paths longer than 32,767 UTF-16 units.
+
+XUI creates and owns the HICON that the small and large HWND icon slots use.
+Replacement and closure clear both slots before XUI destroys its handle.
+XUI does not destroy handles that another component supplies.
+Closure cancels pending delivery without a worker join.
+Asynchronous errors leave the native icon clear and call the error handler once.
+The normal callback error contract applies if the handler throws.
+
+The C# FileExplorer requests the committed directory of the active pane and tab.
+Its notification area reports icon errors. Pending navigation does not change the icon source.
+
+### File list icons
+
 `FileList` provides optional thumbnail icons through the C++ API.
 The explorer enables this option in both panes. Other `FileList` clients retain vector icons by default.
 The C ABI and the C# and Rust wrappers remain unchanged.

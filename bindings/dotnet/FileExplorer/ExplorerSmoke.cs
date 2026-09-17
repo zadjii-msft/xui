@@ -10,6 +10,8 @@ internal static class ExplorerSmoke
     private static extern nint GetFocus();
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern nint SendMessageTextW(nint window, uint message, nuint wparam, string text);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool PostMessageW(nint window, uint message, nuint wparam, nint lparam);
     [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
@@ -40,6 +42,8 @@ internal static class ExplorerSmoke
     private static extern nint GlobalLock(nint memory);
     [DllImport("kernel32.dll", ExactSpelling = true)]
     private static extern bool GlobalUnlock(nint memory);
+    [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern int GetWindowTextW(nint window, System.Text.StringBuilder text, int capacity);
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }
 
@@ -119,6 +123,9 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.VisibleCount == 4, "Folder rows");
                 await Check(() => app.Left.Model.Active.Path == fixture, "Committed address");
+                await CaptionCheck(app.Left);
+                await NavigationMenuChecks();
+                await TypeToFindChecks(app.Left);
                 await Ui(() =>
                 {
                     app.Left.Focus();
@@ -232,11 +239,38 @@ internal static class ExplorerSmoke
                 await Ui(app.Left.HideFind);
                 await Ready(app.Left);
 
-                await Ui(() => app.Left.Navigate(Path.Combine(fixture, "alpha")));
+                await Ui(() =>
+                {
+                    app.Left.ShowFind();
+                    app.Left.SetFilter("small");
+                });
                 await Ready(app.Left);
+                await Ui(app.Left.Refresh);
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Filter == "small" && app.Left.VisibleCount == 1,
+                    "Refresh preserves the folder filter");
+                await Ui(() => app.Left.Navigate(Path.Combine(fixture, "missing-filter")));
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Filter == "small" && app.Left.VisibleCount == 1 && app.Left.Error is not null,
+                    "Failed navigation preserves the folder filter");
+                await Ui(() =>
+                {
+                    app.Window.SetIconSource("");
+                    nint hwnd = GetAncestor(GetFocus(), 2);
+                    if (SendMessageW(hwnd, 0x7f, 0, 0) != 0 || SendMessageW(hwnd, 0x7f, 1, 0) != 0)
+                        throw new InvalidOperationException("Clearing the window icon must clear both HWND icon slots.");
+                    app.Left.Navigate(Path.Combine(fixture, "alpha"));
+                });
+                await Ready(app.Left);
+                await Check(() => app.Left.Model.Active.Filter == "" && app.Left.FindInput.Text == ""
+                    && app.Left.Model.Active.FindOpen && app.Left.VisibleCount == 1,
+                    "Successful folder navigation clears the model and native Find text");
+                await CaptionCheck(app.Left);
                 await Ui(() => MouseTravel(app.Left.Grid, NavigationDirection.Back));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == fixture, "Mouse Back navigates the file pane");
+                await Ui(app.Left.HideFind);
+                await Ready(app.Left);
                 await Ui(() => MouseTravel(app.Left.Grid, NavigationDirection.Forward));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "alpha"), "Mouse Forward restores the next location");
@@ -347,6 +381,8 @@ internal static class ExplorerSmoke
                 await Check(() => ReferenceEquals(app.Active, app.Right) && app.Right.Model.Active.Path == Path.Combine(fixture, "beta")
                     && app.Left.Model.Active.Path == Path.Combine(fixture, "alpha", "child"),
                     "Mouse Back over the inactive pane's native Find editor activates only that pane");
+                await CaptionCheck(app.Left);
+                await CaptionCheck(app.Right);
                 await Ui(app.Right.HideFind);
                 await Ready(app.Right);
                 await Ui(() => app.Palettes.ShowNavigation(app.Right));
@@ -823,6 +859,7 @@ internal static class ExplorerSmoke
                 await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 1 && pane.FilesFocused
                     && pane.Model.Active.Path == fixture && !pane.Grid.Focused && !pane.ViewMenu.IsOpen,
                     "Footer flyout enables focused columns without changing the committed path");
+                await TypeToFindChecks(pane);
                 await Ui(() =>
                 {
                     pane.ViewModeButton.Invoke();
@@ -916,13 +953,15 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Ui(() =>
                 {
-                    if (!pane.FindInput.Focused || pane.FindInput.Text != "child"
+                    if (!pane.FindInput.Focused || pane.FindInput.Text != "" || pane.Model.Active.Filter != ""
                         || pane.Model.Active.Path != Path.Combine(alpha, "child"))
                         throw new InvalidOperationException(
-                            $"Find Down selects a folder in the rightmost column without moving input focus: " +
+                            $"Find Down opens the folder and clears its filter without moving input focus: " +
                             $"findFocused={pane.FindInput.Focused}, query={pane.FindInput.Text}, path={pane.Model.Active.Path}, " +
                             $"activeColumn={pane.Columns.ActiveColumn}, columns={pane.Columns.ColumnCount}, filesFocused={pane.FilesFocused}.");
                 });
+                await Ui(() => pane.SetFilter("child"));
+                await Ready(pane);
                 ulong columnsTab = 0;
                 await Ui(() =>
                 {
@@ -1041,6 +1080,7 @@ internal static class ExplorerSmoke
                 await Check(() => string.Equals(app.Left.Model.Active.Path, root, StringComparison.OrdinalIgnoreCase)
                     && !app.Palettes.IsOpen && app.Left.Error is null,
                     "Enter on a drive root opens the drive, not its first child or drive-relative directory");
+                await CaptionCheck(app.Left);
             }
             await Ui(() => app.Left.Navigate(fixture));
             await Ready(app.Left);
@@ -1342,6 +1382,125 @@ internal static class ExplorerSmoke
             });
             await Ready(app.Left);
             await Ready(app.Right);
+        }
+
+        async Task NavigationMenuChecks()
+        {
+            string path = app.Left.Model.Active.Path;
+            string alpha = Path.Combine(path, "alpha");
+            nint peer = 0;
+            int requests = 0;
+            ulong target = 0;
+            await Ui(() =>
+            {
+                app.Sidebar.View.OnContextMenu(id =>
+                {
+                    requests++;
+                    var commands = app.Sidebar.GetContextCommands(id);
+                    var paths = app.Sidebar.GetContextShellPaths();
+                    if (paths.SequenceEqual([alpha]))
+                    {
+                        target = id;
+                        if (!commands.Any(c => c.Id == FileContextMenu.NewTab) ||
+                            !commands.Any(c => c.Id == FileContextMenu.Copy) ||
+                            !commands.Any(c => c.Id == FileContextMenu.Paste))
+                            throw new InvalidOperationException("Navigation folders must share the Details menu commands.");
+                    }
+                    return [];
+                }, _ => throw new InvalidOperationException("The menu probe must not execute a command."));
+                app.Sidebar.FocusFilter();
+                SendMessageTextW(GetFocus(), 0xC2, 1, "alpha");
+            });
+            await Ui(() =>
+            {
+                // Retained list names precede the declarative name assignment to their owner.
+                peer = FindWindowExW(GetAncestor(GetFocus(), 1), 0, "Xui.Control.1", " items");
+                if (peer == 0) throw new InvalidOperationException("Navigation menu peer is unavailable.");
+                var bounds = app.Sidebar.View.Items.GetBounds();
+                for (int y = 14; y < bounds.Height && target == 0; y += 28)
+                {
+                    var point = new NativePoint { X = 30, Y = (int)(y * GetDpiForWindow(peer) / 96) };
+                    if (!ClientToScreen(peer, ref point)) throw new InvalidOperationException("Cannot locate the navigation row.");
+                    SendMessageW(peer, 0x7B, (nuint)peer, (point.Y << 16) | (point.X & 0xffff));
+                }
+                if (target == 0 || app.Left.Model.Active.Path != path || app.Left.IsLoading)
+                    throw new InvalidOperationException("Right-click must target a navigation folder without opening it.");
+                int previous = requests;
+                SendMessageW(peer, 0x7B, (nuint)peer, -1);
+                if (requests != previous + 1 || !app.Sidebar.GetContextShellPaths().SequenceEqual([alpha]))
+                    throw new InvalidOperationException("Keyboard menus must use the focused navigation row.");
+                app.Left.SelectPath(Path.Combine(path, "beta"));
+                app.Sidebar.InvokeContextCommand(FileContextMenu.Bookmark);
+                if (!app.State.Bookmarks.Contains(alpha))
+                    throw new InvalidOperationException("Navigation commands must retain the clicked path, not the Details selection.");
+                app.ToggleBookmark(alpha);
+                app.Sidebar.GetContextCommands(target);
+                app.Sidebar.InvokeContextCommand(FileContextMenu.NewTab);
+                app.Sidebar.BindContextMenu();
+            });
+            await Ready(app.Left);
+            await Check(() => app.Left.Model.Active.Path == alpha, "Navigation menu opens its folder in a new tab");
+            await Ui(() =>
+            {
+                app.Left.CloseTab();
+                app.Sidebar.FocusFilter();
+                SendMessageTextW(GetFocus(), 0xC2, 1, "");
+                app.Left.Focus();
+            });
+            await Ready(app.Left);
+        }
+
+        async Task CaptionCheck(FilePaneView pane)
+        {
+            nint hwnd = 0;
+            await Ui(() =>
+            {
+                pane.Focus();
+                hwnd = GetAncestor(GetFocus(), 2);
+                string path = pane.Model.Active.Path;
+                string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+                var title = new System.Text.StringBuilder(32768);
+                if (GetWindowTextW(hwnd, title, title.Capacity) == 0 ||
+                    title.ToString() != $"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui")
+                    throw new InvalidOperationException("The HWND caption must identify the active folder and full path.");
+            });
+            await Until(() => SendMessageW(hwnd, 0x7f, 0, 0) != 0 && SendMessageW(hwnd, 0x7f, 1, 0) != 0);
+        }
+
+        async Task TypeToFindChecks(FilePaneView pane)
+        {
+            await Ui(() =>
+            {
+                pane.HideFind();
+                pane.Focus();
+                if (!PostMessageW(GetFocus(), 0x100, 0x53, 1))
+                    throw new InvalidOperationException("Could not post the first typing key.");
+            });
+            await Until(() => pane.FindInput.Focused && pane.Model.Active.Filter == "s" && !pane.IsFiltering);
+            await Check(() => pane.Model.Active.FindOpen && pane.FindInput.Text == "s",
+                "Typing in either file view opens Find without losing the first character");
+            await Ui(() =>
+            {
+                if (!PostMessageW(GetFocus(), 0x100, 0x4d, 1))
+                    throw new InvalidOperationException("Could not post the next typing key.");
+            });
+            await Until(() => pane.Model.Active.Filter == "sm" && !pane.IsFiltering);
+            await Ui(() =>
+            {
+                SendMessageW(GetFocus(), 0x102, 0x00e9, 1);
+            });
+            await Until(() => pane.Model.Active.Filter == "sm\u00e9" && !pane.IsFiltering);
+            await Ui(pane.HideFind);
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.Focus();
+                if (!PostMessageW(GetFocus(), 0x100, 0x25, 1))
+                    throw new InvalidOperationException("Could not post a file-navigation key.");
+            });
+            await Task.Delay(50);
+            await Check(() => !pane.Model.Active.FindOpen && pane.FilesFocused,
+                "File-navigation keys do not start Find");
         }
 
         Task Ui(Action action)

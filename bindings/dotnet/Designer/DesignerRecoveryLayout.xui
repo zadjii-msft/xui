@@ -1,0 +1,20 @@
+namespace Xui.Designer;
+
+component DesignerRecoveryLayout {
+    param global::Xui.Element DraftChoices;
+
+    view {
+        VStack(spacing: 10, preferredSize: (500, 340)) {
+            Text("Recover a copy of an unsaved .xui document.", wrapping: true);
+            Content(DraftChoices, preferredSize: (480, 36));
+            Text("No recovery drafts.", ref: Details, wrapping: true, preferredSize: (480, 80));
+            Text("", ref: SourcePreview, wrapping: true, preferredSize: (480, 120), fontSize: 12);
+            HStack(spacing: 8) {
+                Button("Refresh", ref: Refresh, id: "designer-recovery-refresh");
+                Toggle("Confirm draft deletion", ref: ConfirmDelete, id: "designer-recovery-confirm-delete");
+                Button("Delete draft", ref: Delete, enabled: false, id: "designer-recovery-delete");
+            }
+            Text("Other designer instances keep their drafts when you recover a copy.", wrapping: true);
+        }
+    }
+}

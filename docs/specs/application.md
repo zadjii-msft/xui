@@ -84,7 +84,19 @@ The window retains its content through `std::shared_ptr`. A control has one layo
 Build the tree before `Application::run`. Set properties and use callbacks on that same UI thread.
 The legacy `Application::run(window)` supports one active run on the thread.
 Each legacy `Window` runs once, but separate windows can run in sequence.
+`ContentHost` provides an explicit exception for a single replaceable root.
+`Window::replace_content` changes only that host and preserves surrounding native peers.
+It requires the UI thread and rejects replacement from active native input callbacks.
+The [binding contract](bindings.md#scoped-content-replacement) describes candidate scopes and managed callback ownership.
 The caller must not initialize COM as MTA.
+
+Windows take activation and initial keyboard focus by default.
+Before `Run`, `Window::set_show_activated(false)` shows a window without taking either.
+`WindowOptions::show_activated` supplies the same initial choice in C++.
+The C ABI uses `xui_window_show_activated(window, 0)` from `xui_layout.h`.
+C# uses `Window.SetShowActivated(false)`.
+Later user activation remains available.
+Changes during or after `Run` fail.
 
 Callbacks must not outlive the objects that they reference.
 Reference captures in the example remain valid during the blocking `Application::run` call.
@@ -142,6 +154,7 @@ The caller keeps each C++ `Window` alive and keeps its callback captures valid a
 Every window has its own control tree, native text peers, focus, renderer, tasks, and post queue.
 The same retained tree cannot belong to two live native hosts.
 Window states are `created`, `open`, `closing`, and `closed`.
+Closure before the first show or run also rejects later mutations.
 `on_closed` runs once after native destruction and after active window dispatch unwinds.
 `Window::post` rejects closed windows and discards pending callbacks on closure.
 `Application::post` supports deferred cleanup after a window closes.
@@ -159,6 +172,49 @@ The application retains the failure and returns a nonzero run result.
 `Application::error()` supplies the retained messages.
 An application-post callback failure requests application shutdown.
 Final native-runtime cleanup occurs after all windows close and before OLE teardown, not after each window.
+
+### Owned native file dialogs
+
+`Window::show_open_file_dialog` and `show_save_file_dialog` show the Windows Shell file dialog.
+Both methods take `FileDialogOptions` and return `std::optional<std::wstring>`.
+A value contains one absolute filesystem path. An empty result means cancellation, including owner closure.
+Native failures throw. These methods do not read or write the selected file.
+The Save dialog requests overwrite confirmation but leaves the actual write and conflict policy to the application.
+
+The application supplies filters and extensions. XUI has no application-specific file type.
+This example belongs in a callback while the window runs:
+
+```cpp
+xui::FileDialogOptions options;
+options.title = L"Open component";
+options.filters = {{L"Components", L"*.xui"}, {L"All files", L"*.*"}};
+options.default_extension = L"xui";
+const auto selected = window.show_open_file_dialog(options);
+```
+
+For Save, `suggested_name` supplies a leaf filename. An optional `initial_directory` selects an existing absolute drive or UNC directory.
+An empty directory leaves the initial location to Windows. A missing or invalid directory produces an error, not a different location.
+The first filter is selected. Patterns accept `*`, `*.*`, or semicolon-separated `*.extension` entries, with no spaces.
+`default_extension` omits the leading dot and wildcards. A compound extension is permitted.
+
+All option strings require valid UTF-16 without NUL or control characters.
+The limits, in UTF-16 units, are 256 for titles, 128 for filter names, and 512 for filter patterns.
+Default extensions permit 64 units, suggested names permit 255, and directory and result paths permit 32,767.
+There are at most 32 filters. Empty filter names, malformed patterns, device paths, and invalid filename characters produce errors.
+`FileDialogOptions::validate` checks the options without opening a window.
+
+The caller must use the window's UI thread during its active run.
+The window must be visible and enabled, with no active text composition, popup, file dialog, or content replacement.
+Calls before startup, during native synchronization, or after closure produce errors.
+The existing COM and manifest requirements apply. The API does not expose a native window handle.
+
+The native dialog owns a modal loop and disables its XUI owner.
+Messages and native callbacks can run inside that loop, but ordinary `Window::post` delivery waits until it returns.
+Nested file dialogs and content replacement are rejected. Option data is copied before native dispatch.
+Owner closure requests native cancellation. C++ owner destruction defers native teardown until the modal call returns.
+The method retains its backend, not the public `Window`. Callers must not use a deleted `Window` after the method returns.
+Focus returns to the surviving native child only while the owner remains active. XUI does not reactivate another window.
+The [binding contract](bindings.md#native-file-dialogs) defines C results, managed disposal, and content-scope restrictions.
 
 ### Content sizes and constraints
 
@@ -186,6 +242,8 @@ A new minimum raises a smaller maximum. A new maximum lowers a larger minimum.
 `TextInput`, `FileList`, and `ScrollView` retain their preferred viewport sizes.
 
 A Stack measures non-flex children first, in order, against the remaining main-axis space.
+An explicit Stack preferred size replaces natural measurement unless `set_auto_size(true)` overrides it.
+That preferred size includes padding and remains subject to parent bounds and size limits.
 Flex children share the remaining main-axis space. On the cross axis, children stretch up to their maximum size.
 Maximum limits do not redistribute unused flex space.
 In an unbounded main axis, flex children use their natural desired size instead of an infinite share.

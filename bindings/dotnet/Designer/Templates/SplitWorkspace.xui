@@ -1,0 +1,33 @@
+namespace Playground;
+
+component SplitWorkspace {
+    state string Query = "";
+    state string Selection = "Choose an item.";
+
+    view {
+        VStack(padding: 16, spacing: 12) {
+            Text("Split workspace", fontSize: 26, fontWeight: 600);
+            SplitView("Navigation and details", flex: 1) {
+                VStack(padding: 12, spacing: 10) {
+                    Text("Navigation", fontSize: 18, fontWeight: 600);
+                    TextInput("Filter", text: Query, change: Search, captionVisible: false, placeholder: "Filter items");
+                    Button("Overview", click: Overview);
+                    Button("Activity", click: Activity);
+                    Button("Settings", click: Settings);
+                }
+                VStack(padding: 12, spacing: 10) {
+                    Text("Details", fontSize: 18, fontWeight: 600);
+                    Text(Selection, wrapping: true);
+                    Text($"Filter text: {Query}", wrapping: true);
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void Search(string value) => Query = value;
+        void Overview() => Selection = "The overview page.";
+        void Activity() => Selection = "Recent activity appears here.";
+        void Settings() => Selection = "Workspace preferences appear here.";
+    }
+}

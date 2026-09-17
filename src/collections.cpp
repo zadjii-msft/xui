@@ -561,11 +561,15 @@ bool TreeView::disclose(ItemKey key, bool open) {
     if (!branches_.contains(key) && branches_.size() >= maximum_branches) throw std::length_error("Tree branch limit reached");
     auto& branch = branches_[key]; branch.parent = span.parent;
     if (!open) {
+        const auto previous_focus = selection_.focused();
         if (selection_.focused() && descendant(*selection_.focused(), key)) selection_.set_focus(key);
         for (auto& [child, state] : branches_) if (child == key || descendant(child, key)) {
             state.stop.request_stop(); state.pending = false; ++state.generation;
         }
-        branch.open = false; rebuild(); return true;
+        branch.open = false;
+        rebuild();
+        if (selection_.focused() != previous_focus) changed();
+        return true;
     }
     if (branch.open && (branch.pending || branch.children)) return true;
     branch.open = true;

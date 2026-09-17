@@ -1,4 +1,5 @@
 #include "xui/xui.h"
+#include "xui/xui_content.h"
 #include "xui/application.hpp"
 #include "xui/image.hpp"
 #include "xui/navigation.hpp"
@@ -51,9 +52,11 @@ void error(xui_status status, const char* message) noexcept {
     }
     last_message[used] = 0;
 }
+struct InspectionFailure { xui_status status; std::string message; };
 template<class F> xui_status boundary(F&& body, bool style_schema = false) noexcept {
     try { body(); error(XUI_OK, ""); return XUI_OK; }
     catch (const Failure& f) { error(f.status, f.message); return f.status; }
+    catch (const InspectionFailure& f) { error(f.status, f.message.c_str()); return f.status; }
     catch (const std::bad_alloc&) { error(XUI_OUT_OF_MEMORY, "Native allocation failed."); return XUI_OUT_OF_MEMORY; }
     catch (const std::invalid_argument& f) {
         const auto status = style_schema ? XUI_INVALID_ARGUMENT : XUI_NATIVE_ERROR;
@@ -95,9 +98,11 @@ struct State {
     std::shared_ptr<xui::Window> window;
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
+    bool file_dialog_active{};
     unsigned callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
+    xui_handle building_content{}, content_context{};
     xui_status callback_failure{};
     xui_callback closed_callback{};
     void* closed_context{};
@@ -108,6 +113,7 @@ struct State {
 struct Node {
     xui_handle handle{};
     uint32_t kind{};
+    xui_handle content_scope{}, current_content{};
     std::shared_ptr<State> owner;
     std::shared_ptr<xui::Element> element;
     std::shared_ptr<void> resource;
@@ -212,6 +218,8 @@ std::shared_ptr<Node> get(xui_handle handle, uint32_t kind = 0) {
 }
 void same(const std::shared_ptr<Node>& a, const std::shared_ptr<Node>& b) {
     require(a->owner == b->owner, XUI_INVALID_ARGUMENT, "Handles belong to different windows.");
+    require(a->kind == XUI_WINDOW || b->kind == XUI_WINDOW || a->content_scope == b->content_scope,
+        XUI_INVALID_ARGUMENT, "Handles belong to different content scopes.");
 }
 void editable(const std::shared_ptr<State>& state) {
     require(!state->closed && state->window->state() < xui::WindowState::closing, XUI_CLOSED, "The window is closed.");
@@ -219,12 +227,18 @@ void editable(const std::shared_ptr<State>& state) {
 }
 void topology(const std::shared_ptr<State>& state) {
     editable(state);
-    require(!state->used, XUI_BUSY, "Build the control tree before run.");
+    require(!state->used || state->building_content, XUI_BUSY, "Build the control tree before run or in a content update.");
+}
+void content_topology(const std::shared_ptr<Node>& node) {
+    topology(node->owner);
+    require(node->content_scope == node->owner->building_content, XUI_BUSY,
+        "Only the active candidate can change topology.");
 }
 xui_handle insert(const std::shared_ptr<State>& owner, uint32_t kind, std::shared_ptr<xui::Element> element = {}) {
     require(owner->handles.size() < 65536, XUI_INVALID_ARGUMENT, "A window supports at most 65536 handles.");
     auto node = std::make_shared<Node>();
     node->kind = kind; node->owner = owner; node->element = std::move(element);
+    node->content_scope = owner->content_context;
     std::lock_guard lock(registry_mutex);
     require(next_handle != UINT64_MAX, XUI_NATIVE_ERROR, "Handle generation exhausted.");
     node->handle = next_handle++;
@@ -290,7 +304,7 @@ void wire(const std::shared_ptr<Node>& n) {
             if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
                 const auto target = event_target(node->owner, e.target);
                 const xui_key_event event{sizeof(xui_key_event), static_cast<uint32_t>(e.key),
-                    uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, 0, target};
+                    uint32_t(e.control) | uint32_t(e.shift) << 1 | uint32_t(e.alt) << 2, uint32_t(e.text_input), target};
                 uint32_t handled{};
                 ++node->owner->callbacks;
                 xui_status status{};
@@ -388,7 +402,9 @@ xui_status XUI_CALL xui_window_run(xui_handle window) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); auto s = n->owner;
         require(!s->application, XUI_INVALID_ARGUMENT, "Use the owning application's dispatcher.");
-        topology(s); s->used = true; s->running = true;
+        topology(s);
+        require(!s->building_content && !s->content_context, XUI_BUSY, "Finish the content update before run.");
+        s->used = true; s->running = true;
         struct Reset { State& s; ~Reset() { s.running = false; s.closed = true; } } reset{*s};
         const int result = xui::Application::run(*s->window);
         callback_result(s);
@@ -445,6 +461,7 @@ xui_status XUI_CALL xui_application_show(xui_handle application, xui_handle wind
         auto state = get(window, XUI_WINDOW)->owner;
         topology(state);
         require(state->application == application, XUI_INVALID_ARGUMENT, "Window belongs to another application.");
+        require(!state->building_content && !state->content_context, XUI_BUSY, "Finish the content update before show.");
         state->used = true;
         state->running = true;
         app->application->show(*state->window);
@@ -538,6 +555,7 @@ xui_status XUI_CALL xui_window_closed(xui_handle window, xui_callback callback, 
     return boundary([&] {
         const auto state = get(window, XUI_WINDOW)->owner;
         require(!state->closed, XUI_CLOSED, "The window is closed.");
+        require(!state->content_context, XUI_BUSY, "Content scopes cannot replace window callbacks.");
         state->closed_callback = callback;
         state->closed_context = context;
     });
@@ -576,6 +594,7 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
         case XUI_IMAGE: element = std::make_shared<xui::Image>(std::move(text)); break;
         case XUI_SCROLL_VIEW:
             child = get(content); same(n, child);
+            content_topology(child);
             require(child->element && !child->attached, XUI_INVALID_ARGUMENT, "Content already has a parent.");
             element = std::make_shared<xui::ScrollView>(child->element, std::move(text)); break;
         default: throw Failure{XUI_WRONG_KIND, "Invalid control kind."};
@@ -586,7 +605,7 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
 }
 xui_status XUI_CALL xui_stack_add(xui_handle stack, xui_handle child, float flex) noexcept {
     return boundary([&] {
-        auto n = get(stack, XUI_STACK); auto c = get(child); same(n, c); topology(n->owner);
+        auto n = get(stack, XUI_STACK); auto c = get(child); same(n, c); content_topology(n);
         require(c->element && !c->attached && std::isfinite(flex) && flex >= 0,
             XUI_INVALID_ARGUMENT, "Invalid child or flex.");
         as<xui::Stack>(n).add(c->element, flex); c->attached = true;
@@ -595,6 +614,7 @@ xui_status XUI_CALL xui_stack_add(xui_handle stack, xui_handle child, float flex
 xui_status XUI_CALL xui_window_content(xui_handle window, xui_handle stack) noexcept {
     return boundary([&] {
         auto n = get(window, XUI_WINDOW); auto c = get(stack, XUI_STACK); same(n, c); topology(n->owner);
+        require(!n->owner->building_content && !c->content_scope, XUI_BUSY, "A content update cannot replace the window root.");
         require(!c->attached, XUI_INVALID_ARGUMENT, "Content already has a parent.");
         n->owner->window->set_content(std::static_pointer_cast<xui::Stack>(c->element)); c->attached = true;
     });
@@ -670,6 +690,8 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
 xui_status XUI_CALL xui_subscribe(xui_handle target, xui_callback callback, void* context) noexcept {
     return boundary([&] {
         auto n = get(target);
+        require(n->kind != XUI_WINDOW || !n->owner->content_context, XUI_BUSY,
+            "Content scopes cannot replace window callbacks.");
         if (callback) { editable(n->owner); wire(n); }
         n->callback = callback; n->context = callback ? context : nullptr;
     });
@@ -770,6 +792,7 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
 #include "c_api_text.inc"
+#include "c_api_document_editing.inc"
 
 namespace {
 constexpr uint32_t button_style_kind = 102;
@@ -1297,3 +1320,5 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
     return get_host_style_values(window, part, effective, properties, capacity, count, true);
 }
 #include "c_api_file_transfer.inc"
+#include "c_api_content.inc"
+#include "c_api_file_dialog.inc"
