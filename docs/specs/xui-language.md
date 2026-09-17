@@ -39,7 +39,7 @@ The `view` block describes the native tree.
 The `code csharp` block supplies C# methods.
 Fields belong in `state` declarations.
 
-The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, and `SplitView`.
+The native node names are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, `RangeInput`, and `Progress`.
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.
@@ -73,6 +73,82 @@ Its `searchId` and `searchHelp` arguments configure the native search input.
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
+
+## Range input and progress
+
+`RangeInput` is the native slider control.
+Its name is not `Slider`.
+`Progress` is a read-only native progress control.
+Both require a positional accessible-name string and accept the common control, layout, reference, and style arguments.
+Both are leaf nodes.
+
+```text
+component VolumeMeter {
+    state double Level = 25;
+    view {
+        VStack(spacing: 8) {
+            RangeInput("Volume",
+                range: new global::Xui.NumericRange(0, 100, 1, 10),
+                currentValue: Level,
+                orientation: global::Xui.Axis.Horizontal,
+                reversed: false,
+                change: SetLevel);
+            Progress("Volume level",
+                currentValue: Level,
+                progressState: global::Xui.ProgressState.Determinate);
+        }
+    }
+    code csharp {
+        void SetLevel(double value) { Level = value; }
+    }
+}
+```
+
+| Argument | Type | Controls |
+| --- | --- | --- |
+| `range` | `global::Xui.NumericRange` | RangeInput, Progress |
+| `currentValue` | `double` | RangeInput, Progress |
+| `orientation` | `global::Xui.Axis` | RangeInput |
+| `reversed` | `bool` | RangeInput |
+| `change` | Method with one `double` parameter | RangeInput |
+| `progressState` | `global::Xui.ProgressState` | Progress |
+
+The `currentValue` argument sets the numeric value.
+The language reserves `value` for the positional accessible-name operand, so `value:` remains invalid.
+Numeric values, orientation, reversal, and progress state support ordinary reactive expressions.
+The compiler checks expression and handler types through C#.
+Progress states are `Determinate`, `Indeterminate`, `Paused`, `Error`, and `Unknown`.
+Indeterminate and unknown native states are static, not an application animation loop.
+
+The optional `range` expression runs once during component construction, before the first numeric value setter.
+It cannot depend on component state or call component methods.
+It can use constructor parameters and supported state-free C# expressions.
+This rule does not make parameter objects or external objects immutable.
+Later external changes do not trigger a range update.
+Changes to the authored range expression require structural replacement during hot reload.
+
+An omitted range retains native bounds from 0 through 100, with small step 1 and large step 10.
+An omitted numeric value retains the native initial value.
+With a supplied range, native construction can clamp that initial value to its bounds.
+The generator does not subsequently write a synthetic zero.
+The omitted orientation is horizontal, reversal is false, and progress state is determinate.
+
+Native setters require finite increasing bounds, a finite interval span, and positive finite steps.
+Numeric values must be finite and inside the range.
+Progress checks the supplied range structure but uses only its minimum and maximum for display.
+Invalid values and enum values produce native errors, without generator coercion or silent recovery.
+As with other reactive bindings, a failed native setter does not roll back the authored C# state assignment.
+The next valid state update can restore the control value.
+
+The `change` handler receives committed RangeInput changes as a `double`.
+Property setters do not call this handler.
+The generated component registers the handler once, not during property refresh.
+Native drag previews and cancellation retain their existing behavior but do not call this committed-change handler.
+This language extension does not add preview or cancellation handlers.
+Progress does not accept a change handler.
+
+Named styles use the existing `RangeInput` and `Progress` catalog targets and named parts.
+The [foundation reference](foundation-controls.md) describes the native range, input, and progress contracts.
 
 <a id="declare-button-styles-and-resources"></a>
 
@@ -231,7 +307,7 @@ Resources and styles have separate name scopes.
 The compiler rejects missing base styles and inheritance cycles.
 
 Native nodes accept a declared style name in `style: Identifier`.
-The supported nodes are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, and `Content`.
+The supported nodes are `VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, `RangeInput`, `Progress`, and `Content`.
 The style target must match the node.
 Other supported targets use `Content(existingElement, style: NamedStyle)`, without a new constructor syntax.
 Native attachment checks the actual target of that existing element.

@@ -177,6 +177,15 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         else if (Dependencies(node.Arguments["value"]).Length != 0)
             Errors.Add(new ParseError($"{node.Kind} positional input cannot depend on state. This constructor input is fixed for the component lifetime.", node.Arguments["value"].Offset));
+        if (node.Kind is "RangeInput" or "Progress")
+        {
+            if (node.Arguments.TryGetValue("range", out var range) && Dependencies(range).Length != 0)
+                Errors.Add(new ParseError("'range' is evaluated only during construction and cannot depend on component state.", range.Offset));
+            if (node.Arguments.ContainsKey("currentValue")) Bind("currentValue", "double", "SetValue({0})", "0");
+            if (node.Arguments.ContainsKey("orientation")) Bind("orientation", "global::Xui.Axis", "SetOrientation({0})", "default");
+            if (node.Arguments.ContainsKey("reversed")) Bind("reversed", "bool", "SetReversed({0})", "false");
+            if (node.Arguments.ContainsKey("progressState")) Bind("progressState", "global::Xui.ProgressState", "SetState({0})", "default");
+        }
         foreach (var option in new[]
         {
             ("icon", "global::Xui.ButtonIcon", "SetIcon({0})"),
@@ -252,6 +261,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         string.Concat(new[] { "ref", "row", "column", "rowSpan", "columnSpan", "flex" }
             .Select(key => Part(node.Arguments.GetValueOrDefault(key)?.Text ?? ""))) +
         Part(node.Kind is "Content" or "Grid" ? node.Arguments["value"].Text : "") +
+        (node.Kind is "RangeInput" or "Progress" ? Part(node.Arguments.GetValueOrDefault("range")?.Text ?? "") : "") +
         Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
     internal string Emit()
@@ -393,6 +403,14 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Line($"__xuiN{i} = window.{create};");
                 Unmap();
             }
+            if (node.Kind is "RangeInput" or "Progress" && node.Arguments.TryGetValue("range", out var range))
+            {
+                Line($"global::Xui.NumericRange __xuiRange{i} =");
+                Map(range);
+                Line(range.Text + ";");
+                Unmap();
+                Line($"__xuiN{i}.SetRange(__xuiRange{i});");
+            }
         }
         Line("__xuiRefresh();");
         for (int i = 0; i < nodes.Count; i++)
@@ -432,7 +450,9 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             {
                 if (!node.Arguments.ContainsKey(key)) continue;
                 var eventName = key switch { "click" => "Click", "change" => "Changed", _ => "Submitted" };
-                Line($"__xuiN{i}.{eventName} += __xuiEvent{i}_{key};");
+                if (node.Kind == "RangeInput" && key == "change")
+                    Line($"__xuiN{i}.OnChange(__xuiEvent{i}_{key});");
+                else Line($"__xuiN{i}.{eventName} += __xuiEvent{i}_{key};");
             }
         }
         if (component.Root.Kind is "VStack" or "HStack") Line("if (attach) window.SetContent(__xuiN0);");
@@ -486,7 +506,12 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             foreach (string key in new[] { "click", "change", "submit" })
             {
                 if (!nodes[i].Arguments.TryGetValue(key, out var handler)) continue;
-                string arg = key == "change" ? (nodes[i].Kind == "Toggle" ? "bool __xuiValue" : "string __xuiValue") : "";
+                string arg = key == "change" ? nodes[i].Kind switch
+                {
+                    "Toggle" => "bool __xuiValue",
+                    "RangeInput" => "double __xuiValue",
+                    _ => "string __xuiValue"
+                } : "";
                 Line($"private void __xuiEvent{i}_{key}({arg})");
                 Line("{");
                 Map(handler);

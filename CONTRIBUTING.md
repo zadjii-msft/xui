@@ -204,6 +204,16 @@ It also checks opt-in element mapping with the existing managed generator fakes,
 Diagnostic checks cover exact expression columns and the actual preview compiler output.
 The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
 
+After the native build, run the generated RangeInput and Progress checks:
+
+```powershell
+dotnet run --project bindings\dotnet\ValueControls.Tests -c Release -r $rid
+```
+
+The fixture uses the actual `.xui` generator and this checkout's native DLL.
+It checks construction order, numeric updates, callbacks, defaults, invalid values, and opt-in element mapping.
+It also opens a bounded native window and closes it through the window dispatcher.
+
 After the native build, run the desktop smoke test:
 
 ```powershell

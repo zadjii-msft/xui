@@ -17,6 +17,8 @@ public class Window
     public Button Button(string text) => Add(new Button());
     public Toggle Toggle(string text) => Add(new Toggle());
     public TextInput TextInput(string text) => Add(new TextInput());
+    public RangeInput RangeInput(string text) => Add(new RangeInput());
+    public Progress Progress(string text) => Add(new Progress());
     public Grid Grid(string name) => Add(new Grid { Name = name });
     public DataGrid DataGrid(string name) => Add(new DataGrid());
     public ItemsView ItemsView(string name) => Add(new ItemsView());
@@ -215,6 +217,47 @@ public sealed class NavigationView : Control
     public NavigationView SetHeaderVisible(bool value) { HeaderVisible = value; return this; }
 }
 public sealed class ItemsView : Control;
+public readonly record struct NumericRange(double Minimum, double Maximum, double SmallStep = 1, double LargeStep = 10);
+public enum ProgressState { Determinate, Indeterminate, Paused, Error, Unknown }
+public abstract class ValueControl : Control
+{
+    public NumericRange Range = new(0, 100);
+    public double Value;
+    public int RangeSets, ValueSets;
+    public void SetRange(NumericRange range)
+    {
+        if (!double.IsFinite(range.Minimum) || !double.IsFinite(range.Maximum) || range.Minimum >= range.Maximum ||
+            !double.IsFinite(range.Maximum - range.Minimum) || !double.IsFinite(range.SmallStep) || range.SmallStep <= 0 ||
+            !double.IsFinite(range.LargeStep) || range.LargeStep <= 0)
+            throw new ArgumentOutOfRangeException(nameof(range));
+        Range = range;
+        Value = Math.Clamp(Value, range.Minimum, range.Maximum);
+        RangeSets++;
+    }
+    public void SetValue(double value)
+    {
+        if (!double.IsFinite(value) || value < Range.Minimum || value > Range.Maximum)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        Value = value;
+        ValueSets++;
+    }
+}
+public sealed class RangeInput : ValueControl
+{
+    private event Action<double>? changed;
+    public int Subscriptions;
+    public Axis Orientation;
+    public bool Reversed;
+    public void SetOrientation(Axis value) => Orientation = value;
+    public void SetReversed(bool value) => Reversed = value;
+    public void OnChange(Action<double> callback) { changed += callback; Subscriptions++; }
+    public void ChangeValue(double value) { SetValue(value); changed?.Invoke(value); }
+}
+public sealed class Progress : ValueControl
+{
+    public ProgressState State;
+    public void SetState(ProgressState value) => State = value;
+}
 public abstract class ContentControl : Control
 {
     public readonly List<Element> Children = [];

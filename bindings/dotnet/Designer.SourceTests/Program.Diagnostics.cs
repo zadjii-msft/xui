@@ -34,6 +34,8 @@ internal static partial class Program
             """component FlexMapping { view { VStack() { Text("child", flex: MissingFlex); } } }""",
             """component ContentMapping { view { Content(MissingContent); } }""",
             """component Handler { view { Button("button", click: MissingHandler); } }""",
+            """component RangeMapping { view { RangeInput("range", range: MissingRange, currentValue: MissingNumber, orientation: MissingOrientation, reversed: MissingReversed, change: MissingChange); } }""",
+            """component ProgressMapping { view { Progress("progress", range: MissingRange, currentValue: MissingNumber, progressState: MissingState); } }""",
             """component Initializer { state int Count = MissingState; view { Text("x"); } }""",
             """component InlineCode { view { Text("x"); } code csharp { void Run() { MissingCode(); } } }""",
             """

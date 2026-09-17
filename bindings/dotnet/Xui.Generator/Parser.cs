@@ -186,6 +186,8 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],
+            "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
+            "Progress" => ["value", "range", "currentValue", "progressState"],
             "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp"],
             "ItemsView" or "ScrollView" => ["value"],
             "Popup" => ["value", "placement", "windowBackground"],

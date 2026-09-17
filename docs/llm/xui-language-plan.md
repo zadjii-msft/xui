@@ -188,6 +188,28 @@ The existing `--smoke` passed, and `--builder-smoke` passed 16 assertions.
 `Designer.RecoveryTests` passed 17 native dialog assertions.
 `Designer.LayoutTests` passed eight native geometry and editor-state assertions.
 
+### Declarative value controls
+
+The parser accepts `RangeInput` and `Progress` as native leaves.
+The emitter applies their optional `NumericRange` during construction, before reactive property refresh.
+The range has no reactive binding and its authored expression contributes to the structural reload signature.
+`currentValue` avoids the existing positional `value` key.
+`progressState` selects the native Progress state.
+RangeInput uses the existing `OnChange(Action<double>)` adapter for committed changes.
+The shared parser supplies source spans, and the existing style catalog supplies control and part schemas.
+
+`GeneratorTests/Program.ValueControls.cs` covers initialization order, default preservation, reactive values, handler registration, diagnostics, styles, and shape changes.
+`Designer.SourceTests/Program.ValueControls.cs` covers source edits and native-control hierarchy metadata.
+The existing diagnostic and element-mapping fixtures also include these controls.
+`ValueControls.Tests/Values.xui` is the actual generated native fixture.
+Its executable checks native errors and callbacks, then runs a bounded native window.
+The [language contract](../specs/xui-language.md#range-input-and-progress) defines the limits.
+The [contributor guide](../../CONTRIBUTING.md#xui-designer) contains test commands.
+On September 17, 2026, this tranche passed 41,861 generator assertions, 2,949 source assertions, and 78 designer compiler assertions.
+The generated native fixture passed 52 assertions with this worktree's ARM64 Release DLL.
+That DLL came from a local `xui` target build, not another session's output.
+The native fixture covers a mounted window and callbacks, not screenshot-based appearance checks.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

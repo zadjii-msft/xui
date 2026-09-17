@@ -31,6 +31,8 @@ internal static class DesignerMetadataTests
                     DataGrid("data", ref: Data);
                     NavigationView("navigation", ref: Navigation);
                     ItemsView("items", ref: Items);
+                    RangeInput("range", ref: Range);
+                    Progress("progress", ref: Progress);
                 }
             }
         }

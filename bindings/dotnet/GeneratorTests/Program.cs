@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 using Xui.Generator;
 
-internal static class Program
+internal static partial class Program
 {
     private static int count;
     private sealed class File(string path, string text) : AdditionalText
@@ -74,6 +74,7 @@ internal static class Program
         TestComposition();
         TestCompositionDiagnostics();
         TestCompositionShape();
+        TestValueControls();
         TestStyling();
         TestStylingDiagnostics();
         TestStylingShape();
