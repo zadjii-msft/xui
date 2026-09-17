@@ -127,6 +127,30 @@ internal sealed partial class DesignerApplication
                 "Switching back to WinUI preserves the same preview state."));
             await Ui(() =>
             {
+                source = editor.Text;
+                sourceSearch.HandleKey(new('H', KeyModifiers.Control, 0));
+                sourceSearch.Layout.Query.Text = "Find target";
+                sourceSearch.Layout.Replacement.Text = "Updated target";
+                sourceSearch.Layout.ReplaceAll.Invoke();
+                Require(editor.Text.Contains("Updated target", StringComparison.Ordinal) && version > styledVersion,
+                    "Integrated replacement updates source and supersedes the preview through the normal edit pipeline.");
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(preview.AppliedVersion == version && workspace.Document!.Source == editor.Text,
+                    "Replacement publishes a matching hierarchy and compiled preview.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(editor.Text == source && preview.AppliedVersion == version,
+                    "One native undo restores the pre-replacement source and its preview.");
+                sourceSearch.Layout.Close.Invoke();
+            });
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();

@@ -47,7 +47,7 @@ internal sealed partial class DesignerApplication : IDisposable
             workspace = new DesignerWorkspace(window, editor, ShowError);
             diagnosticNavigator = new DesignerDiagnosticNavigator(window, editor, diagnostics,
                 () => version, ReportNavigation, workspace.SelectFromCaret);
-            sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret);
+            sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret, ShowError, MaximumLength);
             sourceIndentation = new DesignerSourceIndentation(editor, ShowError);
             templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);

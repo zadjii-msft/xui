@@ -94,6 +94,14 @@ F3 and Shift+F3 also open the panel and navigate the retained query.
 Every navigation reads current native text and selection rather than cached offsets.
 `Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
 It also covers panel visibility, retained query state, focus restoration, and reclaimed editor space.
+The search controller also owns whole-word matching and the collapsible replacement row.
+Ctrl+H focuses the native replacement field.
+Single replacement requires a current exact match selection.
+Bulk replacement computes one bounded candidate from one source snapshot before it calls `ReplaceRange`.
+The controller preserves text outside the first and last match and treats replacement text literally.
+Identical replacements bypass native editing, and length or read-only errors reach both Find status and application Output.
+The native search fixture covers Unicode boundaries, replacement expansion and deletion, no-op undo preservation, and length-limit refusals.
+The selection smoke checks replacement through the application, parser, compiler, preview, and native undo.
 `Designer.LayoutTests` covers the toolbar band, panel styles, Output header position, focus, and native editor state across panel changes.
 
 The application now composes the Find toolbar and versioned pointer picking with its native source editor.

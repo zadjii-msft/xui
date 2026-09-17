@@ -60,11 +60,29 @@ Ctrl+F opens a compact Find panel above the source editor and focuses its native
 F3 selects the next literal match, and Shift+F3 selects the previous match.
 These shortcuts also open the panel if it is closed.
 The **Aa** toggle selects case-sensitive matching.
+The **Word** toggle excludes matches inside longer words or identifiers.
+Word boundaries include Unicode letters, digits, combining marks, connector punctuation, and format characters.
+Search never selects half of a UTF-16 surrogate pair.
 Search reads the current source each time and does not change text or undo history.
 Enter in the Find field selects a match.
 Escape or the close button collapses the panel and returns focus to source.
 Escape also closes the panel after a search returns focus to source.
-The panel retains its query and case choice between uses.
+The panel retains its query, replacement text, and matching choices between uses.
+
+Ctrl+H opens the replacement row and focuses **Replace with**.
+The chevron beside the navigation buttons also shows or hides this row.
+**Replace** changes the selected match, then selects the next match.
+If the selection is not a current match, Replace selects a match without changing source.
+Enter in **Replace with** has the same behavior.
+**Replace all** changes all matches from one source snapshot as one native undo action.
+Replacement text is literal. Dollar signs and backslashes have no special replacement syntax.
+An empty replacement deletes matched text.
+
+Replacement uses the same case and word choices as Find.
+Identical replacements do not create source edits or undo entries.
+Read-only source and excessive replacement length produce explicit errors without partial changes.
+Replacement follows the ordinary source-edit pipeline, including recovery drafts, hierarchy updates, and live compilation.
+Like source typing, replacement can introduce syntax errors. The last valid preview remains available.
 
 The hierarchy, property inspector, and Output have theme-aware backgrounds and borders.
 Hierarchy rows use a compact 28-DIP height with reduced padding and indentation.
