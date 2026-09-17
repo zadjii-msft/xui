@@ -49,7 +49,8 @@ internal static class PreviewCompiler
                 return Failure("Replace the unpaired Unicode surrogate with valid Unicode text.", text, i);
         }
 
-        var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
+        var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest)
+            .WithPreprocessorSymbols("XUI_DESIGNER");
         var input = CSharpCompilation.Create(
             "Xui.Designer.Preview." + Guid.NewGuid().ToString("N"),
             references: References(cancellation),
@@ -126,6 +127,9 @@ internal static class PreviewCompiler
                         return component;
                     }
                     public static global::Xui.Element Root(object component) => (({{componentName}})component).Root;
+                    public static int NodeCount(object component) => (({{componentName}})component).__xuiDesignerNodeCount;
+                    public static global::Xui.Element Node(object component, int nodeId) =>
+                        (({{componentName}})component).__xuiDesignerElement(nodeId);
                 }
             }
             """, parseOptions, "GeneratedPreview.g.cs", Encoding.UTF8, cancellation);

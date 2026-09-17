@@ -199,12 +199,33 @@ internal static class Program
         Assert(metadata.GetString(rootType.Namespace) == "Xui" && metadata.GetString(rootType.Name) == "Element",
             "Root must return Xui.Element.");
         Assert(rootSignature.ReadSignatureTypeCode() == SignatureTypeCode.Object, "Root must accept the built component.");
+        var count = wrapper.GetMethods().Select(metadata.GetMethodDefinition)
+            .Single(m => metadata.GetString(m.Name) == "NodeCount");
+        Assert((count.Attributes & (MethodAttributes.Public | MethodAttributes.Static)) ==
+            (MethodAttributes.Public | MethodAttributes.Static), "NodeCount must be public static.");
+        var countSignature = metadata.GetBlobReader(count.Signature);
+        Assert(!countSignature.ReadSignatureHeader().IsInstance && countSignature.ReadCompressedInteger() == 1 &&
+            countSignature.ReadSignatureTypeCode() == SignatureTypeCode.Int32 &&
+            countSignature.ReadSignatureTypeCode() == SignatureTypeCode.Object, "NodeCount must return int and accept object.");
+        var node = wrapper.GetMethods().Select(metadata.GetMethodDefinition)
+            .Single(m => metadata.GetString(m.Name) == "Node");
+        Assert((node.Attributes & (MethodAttributes.Public | MethodAttributes.Static)) ==
+            (MethodAttributes.Public | MethodAttributes.Static), "Node must be public static.");
+        var nodeSignature = metadata.GetBlobReader(node.Signature);
+        Assert(!nodeSignature.ReadSignatureHeader().IsInstance && nodeSignature.ReadCompressedInteger() == 2 &&
+            nodeSignature.ReadSignatureTypeCode() == SignatureTypeCode.TypeHandle, "Node must take two arguments and return a named type.");
+        var nodeType = metadata.GetTypeReference((TypeReferenceHandle)nodeSignature.ReadTypeHandle());
+        Assert(metadata.GetString(nodeType.Namespace) == "Xui" && metadata.GetString(nodeType.Name) == "Element" &&
+            nodeSignature.ReadSignatureTypeCode() == SignatureTypeCode.Object &&
+            nodeSignature.ReadSignatureTypeCode() == SignatureTypeCode.Int32, "Node must return Element and accept object and int.");
         var component = metadata.TypeDefinitions.Select(metadata.GetTypeDefinition).Single(t =>
             metadata.GetString(t.Namespace) == "Example" && metadata.GetString(t.Name) == "Counter");
         Assert(component.GetProperties().Select(metadata.GetPropertyDefinition)
             .Any(p => metadata.GetString(p.Name) == "Count"), "State must survive compilation.");
         Assert(component.GetMethods().Select(metadata.GetMethodDefinition)
             .Any(m => metadata.GetString(m.Name) == "Increment"), "Handler must survive compilation.");
+        Assert(component.GetMethods().Select(metadata.GetMethodDefinition)
+            .Any(m => metadata.GetString(m.Name) == "__xuiDesignerElement"), "Designer metadata was excluded from the preview assembly.");
         Assert(firstReader.GetMethodBody(build.RelativeVirtualAddress).GetILBytes() is { Length: > 0 },
             "Wrapper must have a compiled body.");
     }

@@ -224,6 +224,35 @@ The source-tools API does not enable this symbol automatically.
 Ordinary builds omit both members and add no designer fields or runtime work.
 The mapping does not add native event handlers, ownership changes, or preview UI.
 
+### Applied preview snapshots
+
+The designer compiler enables `XUI_DESIGNER` for its generator driver and runtime wrapper.
+Its internal `PreviewHost` adapter exposes these UI-thread-only reads:
+
+```csharp
+long? AppliedVersion { get; }
+bool TryReadNodeMap(long expectedVersion, out IReadOnlyList<PreviewNodeSnapshot> nodes);
+bool TryReadNode(long expectedVersion, int nodeId, out PreviewNodeSnapshot node);
+```
+
+Each immutable snapshot contains `Version`, `NodeId`, `ElementType`, `Bounds`, and nullable numeric `ControlId`.
+`Bounds` contains the latest arranged rectangle in window-client coordinates, measured in device-independent pixels.
+The rectangle is not a visible or clipped region and does not provide hit testing.
+`ElementType` is the runtime binding type name, not the authored syntax name.
+For example, `VStack` maps to `Stack`, while `Content` maps to its supplied element.
+`ControlId` is a diagnostic value, not an ownership grant or a stable identity across revisions.
+
+The reads return `false` when no preview exists or the requested version differs from `AppliedVersion`.
+For the matching version, an invalid node ID throws `ArgumentOutOfRangeException`.
+A pending or failed edit does not relabel the last successful map with a newer source revision.
+The caller must compare the source revision before it uses node IDs for source selection.
+After retirement, the old map is no longer available through the adapter.
+
+The adapter creates value snapshots without retaining an element array.
+Retained snapshots contain no element, component, delegate, or assembly-context references.
+Snapshot reads do not create native peers or handles.
+These internal reads do not change the public ownership contract of generated element lookups.
+
 ## Edit and preview
 
 1. Start the designer with its example component or a trusted `.xui` file.

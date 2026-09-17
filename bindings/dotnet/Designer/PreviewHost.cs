@@ -23,7 +23,27 @@ internal sealed class PreviewHost : IDisposable
     }
 
     internal Element View => host;
-    internal long? AppliedVersion => current?.Version;
+    internal long? AppliedVersion { get { window.VerifyAccess(); return current?.Version; } }
+
+    internal bool TryReadNodeMap(long expectedVersion, out IReadOnlyList<PreviewNodeSnapshot> nodes)
+    {
+        window.VerifyAccess();
+        nodes = Array.Empty<PreviewNodeSnapshot>();
+        if (current is not { } candidate || candidate.Version != expectedVersion) return false;
+        var snapshot = new PreviewNodeSnapshot[candidate.NodeCount];
+        for (int nodeId = 0; nodeId < snapshot.Length; nodeId++) snapshot[nodeId] = candidate.ReadNode(nodeId);
+        nodes = Array.AsReadOnly(snapshot);
+        return true;
+    }
+
+    internal bool TryReadNode(long expectedVersion, int nodeId, out PreviewNodeSnapshot node)
+    {
+        window.VerifyAccess();
+        node = default;
+        if (current is not { } candidate || candidate.Version != expectedVersion) return false;
+        node = candidate.ReadNode(nodeId);
+        return true;
+    }
 
     internal void Supersede(long value)
     {
@@ -129,8 +149,10 @@ internal sealed class PreviewHost : IDisposable
         private readonly ContentUpdate update;
         private object? component;
         private Element? root;
+        private Func<object, int, Element>? getNode;
         private bool disposed;
         internal long Version { get; }
+        internal int NodeCount { get; }
 
         internal Candidate(Window window, ContentHost host, Request request, Action<Candidate, Exception> failed)
         {
@@ -150,6 +172,14 @@ internal sealed class PreviewHost : IDisposable
                     ?? throw new InvalidOperationException("The preview component is missing.");
                 root = getRoot.Invoke(null, [component]) as Element
                     ?? throw new InvalidOperationException("The preview root is not an XUI element.");
+                var count = wrapper.GetMethod("NodeCount", BindingFlags.Public | BindingFlags.Static)?
+                    .CreateDelegate<Func<object, int>>()
+                    ?? throw new MissingMethodException("The preview node-count entry point is missing.");
+                getNode = wrapper.GetMethod("Node", BindingFlags.Public | BindingFlags.Static)?
+                    .CreateDelegate<Func<object, int, Element>>()
+                    ?? throw new MissingMethodException("The preview node entry point is missing.");
+                NodeCount = count(component);
+                if (NodeCount < 1) throw new InvalidOperationException("The preview node map must include its root.");
                 if (update.CallbackError is { } error)
                     throw new InvalidOperationException("Candidate construction raised a callback error.", error);
             }
@@ -162,6 +192,14 @@ internal sealed class PreviewHost : IDisposable
 
         internal void Commit() => update.Commit(root ?? throw new ObjectDisposedException(nameof(Candidate)));
 
+        internal PreviewNodeSnapshot ReadNode(int nodeId)
+        {
+            if ((uint)nodeId >= (uint)NodeCount) throw new ArgumentOutOfRangeException(nameof(nodeId));
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var element = getNode!(component!, nodeId);
+            return new(Version, nodeId, element.GetType().Name, element.GetBounds(), (element as Control)?.Id);
+        }
+
         public void Dispose()
         {
             if (disposed) return;
@@ -170,6 +208,7 @@ internal sealed class PreviewHost : IDisposable
             GC.KeepAlive(component);
             component = null;
             root = null;
+            getNode = null;
             context.Unload();
         }
     }

@@ -20,6 +20,8 @@ It rejects stale source or revision results before the native call.
 `Designer.WorkspaceTests` runs the shared builder smoke with the production controllers and source model, without a preview host.
 `PreviewCompiler.cs` runs `XuiGenerator` and Roslyn, with semantic discovery of the generated component.
 It emits `Build(Window)` and `Root(object)` wrappers for the component and its unattached root.
+The `XUI_DESIGNER` parse option enables source-preorder metadata in the generated component.
+The wrapper also exposes typed `NodeCount(object)` and `Node(object, int)` entry points.
 It does not execute authored code during compilation.
 
 `PreviewHost.cs` owns a stable `ContentHost` inside the designer window.
@@ -30,6 +32,10 @@ The host checks the source version before construction and before commit.
 Successful commit completes native materialization and layout before status delivery.
 The host reports construction and scoped managed event exceptions to the editor.
 The preview shares the editor UI thread and does not isolate authored code.
+The host binds the metadata entry points once per candidate and clears those delegates during retirement.
+`PreviewNodeSnapshot.cs` defines value-only snapshots of the current arranged node bounds, binding type, and numeric control identity.
+All snapshot reads check UI-thread access and the exact applied source version.
+The [snapshot contract](../specs/designer.md#applied-preview-snapshots) distinguishes arranged bounds from visible geometry.
 
 `Designer.Tests` covers compilation, diagnostics, cancellation, input limits, and the generated wrapper.
 `DesignerTemplates.cs` exposes the embedded example catalog to the workspace.
@@ -55,6 +61,18 @@ Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.
+
+### Applied node-map evidence
+
+The node-map tranche passed 89 compiler assertions, 780 source assertions, and 1,456 embedded preview assertions on ARM64 Release.
+The desktop fixture compares parser preorder with native control text and runtime binding types.
+It covers nested Stack, Grid, and external Content nodes, plus a non-Stack replacement root.
+Its bounds check compares the snapshot with the actual label HWND in client coordinates at the current DPI.
+One hundred repeated map reads leave native handle counts and peer identities unchanged.
+The suite rejects wrong-thread reads and invalid IDs.
+It preserves the old map after construction failure and rejects maps for pending, failed, or retired revisions.
+Retained value snapshots do not prevent collection of the retired preview assembly context.
+The designer `--smoke` also passed.
 
 ### Visual source tools
 

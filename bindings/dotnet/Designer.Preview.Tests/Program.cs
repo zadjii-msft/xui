@@ -5,19 +5,38 @@ using System.Runtime.Loader;
 using System.Text;
 using Xui;
 using Xui.Designer;
+using Xui.Generator;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 internal static class Program
 {
     private static int assertions;
     private static Exception? failure;
     private static readonly string Title = "XUI embedded preview regression " + Guid.NewGuid().ToString("N");
+    private const string MappedSource = """
+        component Good {
+            view {
+                VStack(spacing: 2, ref: Outer) {
+                    Text("Retained preview", ref: Label);
+                    HStack(ref: Row) {
+                        Button("Mapped action", ref: Action);
+                        Toggle("Mapped toggle", ref: Toggle);
+                    }
+                    Grid("Mapped grid", ref: Grid) { Text("Mapped cell", ref: Cell); }
+                    TextInput("Mapped input", ref: Input);
+                    Content(__xuiWindow.Label("Mapped external"), ref: External);
+                }
+            }
+        }
+        """;
 
     [STAThread]
     private static int Main()
     {
         try
         {
-            var good = PreviewCompiler.Compile("""component Good { view { Text("Retained preview"); } }""");
+            var good = PreviewCompiler.Compile(MappedSource);
             var bad = PreviewCompiler.Compile("""component Bad { state int Count = int.Parse("bad"); view { Text($"{Count}"); } }""");
             var recovered = PreviewCompiler.Compile("""component Recovered { view { Text("Recovered preview"); } }""");
             Assert(good.Success && bad.Success && recovered.Success, "Fixture compilation failed.");
@@ -30,6 +49,7 @@ internal static class Program
             PreviewHost? preview = null;
             var statuses = new List<(long Version, bool Success)>();
             WeakReference? oldContext = null;
+            IReadOnlyList<PreviewNodeSnapshot>? oldNodes = null;
             var beforeForeground = GetForegroundWindow();
             preview = new PreviewHost(window, (version, message, success) =>
             {
@@ -40,16 +60,22 @@ internal static class Program
                     if (version == 1 && success)
                     {
                         Assert(preview!.AppliedVersion == 1, "First preview was not committed.");
+                        oldNodes = NodeMapTests(window, preview, 1, MappedSource);
                         oldContext = CurrentPreviewContext();
                         Assert(preview.View.GetBounds().Width > 100 && preview.View.GetBounds().Height > 50, "Preview has no usable native bounds.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Retained preview"), "Preview has no native label.");
                         preview.Supersede(2);
+                        Assert(!preview.TryReadNodeMap(2, out var pendingNodes) && pendingNodes.Count == 0,
+                            "Pending source received the previous source's node IDs.");
                         preview.Publish(2, bad.Assembly!, Theme.Dark);
                     }
                     else if (version == 2 && !success)
                     {
                         Assert(message.StartsWith("Preview construction failed:", StringComparison.Ordinal), message);
                         Assert(preview!.AppliedVersion == 1, "A constructor error replaced the previous preview.");
+                        Assert(preview.TryReadNodeMap(1, out var preservedNodes) && preservedNodes.SequenceEqual(oldNodes!),
+                            "A constructor error changed the last successful node map.");
+                        Assert(!preview.TryReadNodeMap(2, out _), "A failed source received a node map.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Retained preview"), "A constructor error removed old native content.");
                         preview.Supersede(3);
                         preview.Publish(3, good.Assembly!, Theme.Dark);
@@ -60,9 +86,18 @@ internal static class Program
                     else if (version == 4 && success)
                     {
                         Assert(preview!.AppliedVersion == 4, "Latest preview was not applied.");
+                        Assert(!preview.TryReadNodeMap(1, out _) && !preview.TryReadNode(1, 0, out _),
+                            "A replaced revision remained readable as the current preview.");
+                        Assert(preview.TryReadNodeMap(4, out var replacementNodes) && replacementNodes.Count == 1 &&
+                            replacementNodes[0] is { NodeId: 0, ElementType: "Label", ControlId: not null },
+                            "A non-stack replacement root has an incorrect map.");
+                        foreach (var node in oldNodes!.Where(n => n.ControlId.HasValue))
+                            Assert(TextCopy(node.ControlId!.Value, null, 0, out _) == 2, "A snapshot retained a retired control handle.");
                         Assert(statuses.All(x => x.Version != 3), "An obsolete source version was reported.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Recovered preview"), "Recovery has no native content.");
                         preview.Dispose();
+                        Assert(preview.AppliedVersion is null && !preview.TryReadNodeMap(4, out _),
+                            "Disposed preview metadata remained available.");
                         window.Post(() =>
                         {
                             try
@@ -71,6 +106,8 @@ internal static class Program
                                 GC.WaitForPendingFinalizers();
                                 GC.Collect();
                                 Assert(oldContext is { IsAlive: false }, "The retired preview assembly context remained rooted.");
+                                Assert(oldNodes![0].Version == 1, "Retained value snapshots changed after replacement.");
+                                GC.KeepAlive(oldNodes);
                             }
                             catch (Exception error) { failure = error; }
                             window.Close();
@@ -82,6 +119,8 @@ internal static class Program
             });
             using (preview)
             {
+                Assert(preview.AppliedVersion is null && !preview.TryReadNodeMap(0, out _),
+                    "An empty preview exposed a node map.");
                 window.SetContent(window.Stack().Add(editor, 1).Add(scopeHost, 1).Add(preview.View, 1));
                 window.Post(() =>
                 {
@@ -116,6 +155,93 @@ internal static class Program
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
+    }
+
+    private static IReadOnlyList<PreviewNodeSnapshot> NodeMapTests(Window window, PreviewHost preview, long version, string source)
+    {
+        var handles = HandleCount(window);
+        var hwnd = FindWindowW(null, Title);
+        var nativeChildren = Children(hwnd);
+        var document = XuiSourceParser.Parse(source);
+        Assert(document.Success, "Node-map fixture did not parse.");
+        var authored = Flatten(document.Root!).ToArray();
+        Assert(preview.TryReadNodeMap(version, out var nodes) && nodes.Count == authored.Length,
+            "Preview metadata count differs from the source parser.");
+        Assert(nodes[0].Bounds == preview.View.GetBounds(), "Root bounds do not match the embedded host.");
+        var expectedTypes = new Dictionary<string, string>
+        {
+            ["VStack"] = "Stack", ["HStack"] = "Stack", ["Text"] = "Label", ["Content"] = "Label",
+            ["Button"] = "Button", ["Toggle"] = "Toggle", ["Grid"] = "Grid", ["TextInput"] = "TextInput"
+        };
+        foreach (var node in authored)
+        {
+            var actual = nodes[node.Id];
+            Assert(actual.Version == version && actual.NodeId == node.Id && actual.ElementType == expectedTypes[node.Kind],
+                $"Wrong runtime mapping for source node {node.Id} ({node.Kind}).");
+            Assert(preview.TryReadNode(version, node.Id, out var single) && single == actual, "Single-node and full-map reads differ.");
+            Assert(float.IsFinite(actual.Bounds.X) && float.IsFinite(actual.Bounds.Y) &&
+                actual.Bounds.Width >= 0 && actual.Bounds.Height >= 0, "Node bounds are invalid.");
+            if (node.Kind is "Text" or "Button" or "Toggle")
+            {
+                var literal = (LiteralExpressionSyntax)SyntaxFactory.ParseExpression(node.Arguments.Single(a => a.IsPositional).Value);
+                Assert(actual.ControlId.HasValue && ReadText(actual.ControlId.Value) == literal.Token.ValueText,
+                    "The source ID mapped to a different native control.");
+                if (node.Kind == "Text" && literal.Token.ValueText == "Retained preview")
+                {
+                    var peer = nativeChildren.Single(child => WindowText(child) == literal.Token.ValueText);
+                    Assert(GetWindowRect(peer, out var rect), "Native label bounds are unavailable.");
+                    var origin = new Point { X = rect.Left, Y = rect.Top };
+                    Assert(ScreenToClient(hwnd, ref origin), "Native coordinate conversion failed.");
+                    float scale = GetDpiForWindow(hwnd) / 96f;
+                    Assert(scale > 0 && Math.Abs(origin.X - actual.Bounds.X * scale) <= 1 &&
+                        Math.Abs(origin.Y - actual.Bounds.Y * scale) <= 1 &&
+                        Math.Abs(rect.Right - rect.Left - actual.Bounds.Width * scale) <= 1 &&
+                        Math.Abs(rect.Bottom - rect.Top - actual.Bounds.Height * scale) <= 1,
+                        "Snapshot bounds differ from the actual native label.");
+                }
+            }
+            if (node.Kind is "VStack" or "HStack") Assert(actual.ControlId is null, "A layout node invented a control handle.");
+            if (node.Kind == "Content") Assert(ReadText(actual.ControlId!.Value) == "Mapped external",
+                "Content did not map to its existing authored element.");
+        }
+        foreach (int invalid in new[] { -1, nodes.Count, int.MaxValue })
+            Throws<ArgumentOutOfRangeException>(() => preview.TryReadNode(version, invalid, out _), "An invalid source ID was accepted.");
+        Assert(Task.Run(() =>
+        {
+            try { _ = preview.AppliedVersion; return false; }
+            catch (XuiException error) { return error.Status == 4; }
+        }).GetAwaiter().GetResult(), "AppliedVersion omitted the UI-thread guard.");
+        Assert(Task.Run(() =>
+        {
+            try { preview.TryReadNodeMap(version, out _); return false; }
+            catch (XuiException error) { return error.Status == 4; }
+        }).GetAwaiter().GetResult(), "Node-map read omitted the UI-thread guard.");
+        Assert(Task.Run(() =>
+        {
+            try { preview.TryReadNode(version, 0, out _); return false; }
+            catch (XuiException error) { return error.Status == 4; }
+        }).GetAwaiter().GetResult(), "Node read omitted the UI-thread guard.");
+        Assert(nodes is IList<PreviewNodeSnapshot> { IsReadOnly: true }, "Node map is mutable.");
+        for (int i = 0; i < 100; i++)
+            Assert(preview.TryReadNodeMap(version, out var reread) && reread.SequenceEqual(nodes), "Repeated node-map reads changed identity.");
+        Assert(HandleCount(window) == handles && Children(hwnd).SequenceEqual(nativeChildren), "Node-map reads allocated native handles or peers.");
+        return nodes;
+    }
+
+    private static IEnumerable<XuiSourceNode> Flatten(XuiSourceNode node)
+    {
+        yield return node;
+        foreach (var child in node.Children)
+            foreach (var descendant in Flatten(child)) yield return descendant;
+    }
+
+    private static string ReadText(ulong control)
+    {
+        int status = TextCopy(control, null, 0, out var length);
+        Assert(status is 0 or 6, "Native text length failed.");
+        var bytes = new byte[length];
+        Assert(TextCopy(control, bytes, length, out _) == 0, "Native text read failed.");
+        return Encoding.UTF8.GetString(bytes);
     }
 
     private static void ScopeTests(Window window, ContentHost host, MultilineText editor, Action complete)
@@ -297,10 +423,11 @@ internal static class Program
     {
         var text = new StringBuilder(256); GetClassNameW(window, text, text.Capacity); return text.ToString();
     }
-    private static string[] Texts(nint window) => Children(window).Select(h =>
+    private static string WindowText(nint window)
     {
-        var text = new StringBuilder(1024); GetWindowTextW(h, text, text.Capacity); return text.ToString();
-    }).ToArray();
+        var text = new StringBuilder(1024); GetWindowTextW(window, text, text.Capacity); return text.ToString();
+    }
+    private static string[] Texts(nint window) => Children(window).Select(WindowText).ToArray();
     private static void Throws<T>(Action action, string message) where T : Exception
     {
         try { action(); }
@@ -324,4 +451,10 @@ internal static class Program
     [DllImport("user32.dll")] private static extern nint SendMessageW(nint window, uint message, nint first, nint second);
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)] private static extern nint ReplaceSelection(nint window, uint message, nint first, string text);
     [DllImport("xui", EntryPoint = "xui_content_handle_count")] private static extern int ContentHandleCount(ulong window, out uint count);
+    [DllImport("xui", EntryPoint = "xui_text_copy")] private static extern int TextCopy(ulong control, [Out] byte[]? bytes, uint capacity, out uint count);
+    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
+    [DllImport("user32")] private static extern bool GetWindowRect(nint hwnd, out Rect rect);
+    [DllImport("user32")] private static extern bool ScreenToClient(nint hwnd, ref Point point);
+    [DllImport("user32")] private static extern uint GetDpiForWindow(nint hwnd);
 }
