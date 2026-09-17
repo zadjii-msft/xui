@@ -59,6 +59,11 @@ It uses the reported compiler coordinates and preserves exact native paragraph o
 Generated-file locations, invalid coordinates, and stale source cannot produce a source selection.
 `Designer.DiagnosticsTests` covers this model and real compiler output without a native DLL.
 `DesignerDiagnosticNavigator.cs` adds native diagnostic navigation through `DesignerDiagnosticsLayout.xui`.
+
+`DesignerSourceSearch.cs` supplies a native Find toolbar around the existing source editor.
+`DesignerSourceSearchLayout.xui` keeps the query, case toggle, match status, and source document in one declarative component.
+Every navigation reads current native text and selection rather than cached offsets.
+`Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
 It checks the current source revision and displayed diagnostic text before changing either native selection.
 `Designer.NavigationTests` covers its buttons, F8 routing, Unicode selections, and invalidation.
 `DesignerWorkspace.cs` connects the hierarchy and inspector to native source transactions.
