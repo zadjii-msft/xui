@@ -9,6 +9,13 @@ struct TextSelection {
     bool operator==(const TextSelection&) const = default;
 };
 enum class TextCommand { undo, redo, copy, cut, paste, select_all };
+enum class SyntaxKind { other, comment, string, number, keyword, type, function, variable };
+// Half-open UTF-16 ranges in the normalized CR document snapshot.
+struct SyntaxSpan {
+    std::size_t start{}, end{};
+    SyntaxKind kind{};
+    bool operator==(const SyntaxSpan&) const = default;
+};
 struct TextRun {
     std::wstring text;
     bool bold{}, italic{}, underline{};
@@ -29,6 +36,10 @@ public:
     bool monospace() const { return monospace_; }
     void set_monospace(bool value);
     bool rich() const { return rich_; }
+    void set_syntax_highlighter(std::function<std::vector<SyntaxSpan>(std::wstring_view)> callback);
+    const std::vector<SyntaxSpan>& syntax_spans() const { return syntax_spans_; }
+    std::uint64_t syntax_revision() const { return syntax_revision_; }
+    bool syntax_enabled() const { return static_cast<bool>(highlighter_); }
     std::uint64_t revision() const { return revision_; }
     const std::vector<TextRun>& runs() const { return runs_; }
     TextSelection selection() const { return selection_; }
@@ -58,9 +69,13 @@ protected:
 private:
     std::wstring text_;
     std::vector<TextRun> runs_;
+    std::vector<SyntaxSpan> syntax_spans_;
+    std::function<std::vector<SyntaxSpan>(std::wstring_view)> highlighter_;
     std::size_t maximum_{65536};
     bool rich_{}, read_only_{}, monospace_{}, notifying_{};
+    bool highlighting_{};
     std::uint64_t revision_{1}, selection_revision_{};
+    std::uint64_t syntax_revision_{1};
     TextSelection selection_;
     std::function<void(const std::wstring&)> change_;
     std::function<void(const std::wstring&)> link_;

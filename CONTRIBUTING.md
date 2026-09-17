@@ -824,6 +824,93 @@ The [native-host reference](docs/specs/scenes-and-hosts.md) describes explicit l
 Use the [extension README](integrations/vscode-xui/README.md) for packaging, installation, and tokenizer commands.
 The package supplies syntax support, not a language server or visual designer.
 
+## Microsoft Edit LSH grammar
+
+The standalone grammar is `integrations\edit-lsh\xui.lsh`.
+The [language guide](docs/specs/xui-language.md#microsoft-edit-syntax-support) describes its highlighting limits.
+The regression suite requires Rust 1.93 or later.
+Cargo downloads the LSH compiler and runtime from a pinned Microsoft Edit commit.
+No native XUI build is required.
+
+From the XUI repository root, run:
+
+```powershell
+cargo test --locked --manifest-path integrations\edit-lsh\Cargo.toml
+```
+
+The suite checks token colors, filename detection, multiline state, UTF-8 span boundaries, repository samples, and compatibility with the built-in Edit definitions.
+The pinned revision is `826b4c097b6f14ba0a846dc56f2f0223a3aaf73a`.
+Both dependencies in `Cargo.toml` must use the same revision.
+
+To use the grammar in Edit, start with a separate [Edit source checkout](https://github.com/microsoft/edit).
+From the XUI repository root, set `$edit` to that checkout:
+
+```powershell
+$edit = "C:\src\edit"
+$sample = (Resolve-Path bindings\dotnet\DeclarativeSample\Counter.xui).Path
+Copy-Item integrations\edit-lsh\xui.lsh "$edit\crates\lsh\definitions\xui.lsh"
+```
+
+In the Edit checkout, run:
+
+```powershell
+Set-Location $edit
+cargo run -p lsh-bin -- assembly crates\lsh\definitions
+cargo run -p lsh-bin -- render --input $sample crates\lsh\definitions
+cargo build --release -p edit
+```
+
+Edit discovers the copied definition during its build.
+An installed Edit binary does not load this source file at runtime.
+The [Edit build documentation](https://github.com/microsoft/edit#building-from-source) lists platform requirements.
+
+### LSH highlighting in XUI applications
+
+The gallery, Designer, and FileExplorer use LSH when the native XUI build enables it.
+The default build has no LSH dependency and keeps plain text.
+Use the `Lsh` NuGet package, version `0.3.0`, for Windows x64 or ARM64.
+This package supplies custom-grammar compilation through its native C API.
+The samples do not need the package's managed wrapper.
+
+Restore from a local package feed.
+Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
+
+```powershell
+$feed = "C:\packages"
+dotnet restore integrations\lsh\Lsh.Package.csproj --source $feed --packages build\packages
+$lsh = (Resolve-Path build\packages\lsh\0.3.0).Path
+cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh"
+cmake --build $build --config Release --target xui xui_gallery xui_winui_gallery --parallel 4
+dotnet build bindings\dotnet\Designer -c Release -r $rid
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
+```
+
+Use the `$build` and `$rid` values from [Build the native code](#build-the-native-code).
+The default managed sample paths use `build\<architecture>\Release`.
+For another build directory, pass `-p:XuiNativeDir=<native-output-directory>` to each managed command.
+Set `XUI_LSH_PACKAGE_DIR` to an empty string to disable LSH.
+
+CMake embeds the trusted XUI, C, C++, C#, and Rust grammars at build time.
+It copies the matching `lsh_lib.dll` and `LSH-LICENSE.txt` beside the native binaries.
+Managed sample builds and publishes copy those files with `xui.dll`.
+Keep all three files together when deploying an LSH-enabled managed sample.
+For a statically linked C++ application, keep the LSH DLL and license beside the executable.
+An unknown file extension uses plain text.
+Missing DLLs, incompatible APIs, grammar errors, and highlighting failures report errors.
+No sample loads a grammar from the file being previewed.
+
+Run the focused checks with LSH enabled:
+
+```powershell
+cmake --build $build --config Release --target xui_syntax_highlighting_tests xui_document_syntax_tests xui_document_syntax_window_tests xui_document_editing_window_tests xui_document_editing_abi_tests --parallel 4
+ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Syntax.Tests -c Release -r $rid
+```
+
+The native syntax test also supports an LSH-disabled build.
+The managed syntax fixture requires LSH.
+Native window checks need an interactive Windows desktop.
+
 ## Documentation and changes
 
 ### Retype preview and GitHub Pages

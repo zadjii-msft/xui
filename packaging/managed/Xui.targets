@@ -3,6 +3,10 @@
     <ApplicationManifest Condition="'$(ApplicationManifest)' == ''">$(MSBuildThisFileDirectory)..\native\xui.manifest</ApplicationManifest>
   </PropertyGroup>
   <Import Project="$(MSBuildThisFileDirectory)Xui.Declarative.Common.targets" />
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\licenses\$(RuntimeIdentifier)\LSH-LICENSE.txt')">
+    <Content Include="$(MSBuildThisFileDirectory)..\..\licenses\$(RuntimeIdentifier)\LSH-LICENSE.txt"
+             Link="LSH-LICENSE.txt" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" />
+  </ItemGroup>
   <ItemGroup Condition="'$(XuiHotReload)' == 'true'">
     <Reference Include="Xui.Development" HintPath="$(MSBuildThisFileDirectory)..\..\tools\net10.0\Xui.Development.dll" Private="true" />
   </ItemGroup>

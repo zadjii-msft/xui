@@ -7,6 +7,7 @@ The code tabs offer `.xui`, C#, Rust, and C++ examples.
 The gallery starts with `.xui` and remembers the selected language across pages.
 Code blocks support native text selection, preserve indentation, and use a monospace font.
 Copy code copies the selected language, not the live example's state.
+An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights the selected language.
 
 ## Use the gallery as a reference
 

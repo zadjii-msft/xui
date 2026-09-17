@@ -495,6 +495,8 @@ internal static class ExplorerSmoke
                 string root = Path.Combine(fixture, "preview-fixtures");
                 Directory.CreateDirectory(Path.Combine(root, "folder"));
                 await File.WriteAllTextAsync(Path.Combine(root, "notes.txt"), "one\r\ntwo");
+                const string syntaxSource = "component Preview {\rview { Text(\"source\"); }\r}";
+                await File.WriteAllTextAsync(Path.Combine(root, "source.xui"), syntaxSource);
                 await File.WriteAllTextAsync(Path.Combine(root, "large.txt"), new string('x', FilePreviewService.MaximumTextLength + 10));
                 await File.WriteAllTextAsync(Path.Combine(root, "invalid.txt"), "binary\0text");
                 await File.WriteAllTextAsync(Path.Combine(root, "unsupported.pdf"), "not a PDF");
@@ -601,7 +603,7 @@ internal static class ExplorerSmoke
                     "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
                 await Ui(() => app.Left.HideFind());
 
-                foreach (string name in new[] { "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp", "restricted.txt" })
+                foreach (string name in new[] { "source.xui", "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp", "restricted.txt" })
                 {
                     nint previewHost = 0, initialIcon = 0;
                     await Ui(() =>
@@ -617,7 +619,10 @@ internal static class ExplorerSmoke
                             throw new InvalidOperationException("A loading preview must not focus its caption Close button.");
                     });
                     await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
-                    if (name == "large.txt")
+                    if (name == "source.xui")
+                        await Check(() => app.Preview.Text.Text == syntaxSource && !app.Preview.StatusVisible,
+                            "Source previews retain readable native text without highlighting errors");
+                    else if (name == "large.txt")
                         await Check(() => app.Preview.Text.Text.Length == FilePreviewService.MaximumTextLength
                             && app.Preview.Message.Contains("truncated"), "Large previews are bounded and visibly truncated");
                     else if (name == "invalid.txt")

@@ -1,5 +1,6 @@
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
+#include "xui/syntax_highlighting.hpp"
 #include "xui/image.hpp"
 #include "xui/suggestions.hpp"
 #include "xui/adaptive_layout.hpp"
@@ -42,8 +43,9 @@ std::shared_ptr<Button> button(Panel parent, std::wstring name, std::function<vo
     parent->add(result);
     return result;
 }
-void set_code(DocumentText& code, std::wstring_view text) {
+void set_code(MultilineText& code, std::wstring_view text, std::string_view language) {
     code.set_text(std::wstring(text));
+    if (syntax_highlighting_available()) set_syntax_language(code, language);
     const auto lines = 1 + std::count(code.text().begin(), code.text().end(), L'\r');
     code.set_preferred_size({400, std::clamp(24.0f + 20.0f * static_cast<float>(lines), 100.0f, 300.0f)});
 }
@@ -240,7 +242,7 @@ private:
         code->set_automation_id(L"gallery-code-" + std::wstring(entry.id));
         code->set_read_only(true);
         code->set_monospace(true);
-        set_code(*code, entry.code);
+        set_code(*code, entry.code, "cpp");
         parent->add(code);
         auto actions = panel(Axis::horizontal);
         auto copy = button(actions, L"Copy code", [this, code, output] {
@@ -255,7 +257,8 @@ private:
             const auto text = id == 2 ? reference.csharp : id == 3 ? reference.rust : id == 4 ? reference.xui : entry.code;
             const auto name = id == 2 ? L"C#" : id == 3 ? L"Rust" : id == 4 ? L".xui" : L"C++";
             code->set_name(std::wstring(entry.title) + L" " + name + L" code");
-            set_code(*code, text);
+            const auto syntax = id == 2 ? "csharp" : id == 3 ? "rust" : id == 4 ? "xui" : "cpp";
+            set_code(*code, text, syntax);
             language->set_tabs(language->tabs(), id);
             copy->set_enabled(*text != L'\0');
             context->set_text(*text == L'\0' ? L"No example for this language. See Usage and limits." : L"");

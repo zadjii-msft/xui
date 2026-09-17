@@ -40,4 +40,9 @@
   <Target Name="CopyXuiPackageRuntime" AfterTargets="Build" Condition="'$(XuiNativeLinkage)' == 'CAbi'">
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\xui.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
+  <Target Name="CopyXuiSyntaxRuntime" AfterTargets="Build"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\lsh_lib.dll')">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\runtimes\$(_XuiRid)\native\lsh_lib.dll;$(MSBuildThisFileDirectory)..\..\licenses\$(_XuiRid)\LSH-LICENSE.txt"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

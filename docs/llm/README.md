@@ -19,7 +19,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Native architecture](architecture.md): Window hosting, drawing, accessibility, lists, and worker ownership.
 - [Test coverage and protocols](testing.md): Regression scope, release-package checks, fixture behavior, and measurement methods.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
-- [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, delivery stages, and acceptance evidence.
+- [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, and safe menu replacement.
