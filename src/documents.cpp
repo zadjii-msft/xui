@@ -93,10 +93,33 @@ void DocumentText::commit_selection(TextSelection value) {
 }
 bool DocumentText::command(TextCommand value) {
     if (value < TextCommand::undo || value > TextCommand::select_all) throw std::invalid_argument("Invalid document command");
-    if (!enabled() || !command_) return false;
+    if (!enabled() || notifying_ || !command_) return false;
     auto callback = command_; return callback(value);
 }
-void DocumentText::commit_text(std::wstring value) {
+TextSelection DocumentText::replace_range(TextSelection range, std::wstring_view expected_text, std::wstring replacement) {
+    if (rich_) throw std::logic_error("Range replacement supports plain documents only");
+    if (!visible() || !enabled() || read_only_ || notifying_ || !replace_)
+        throw std::logic_error("Document is unavailable for range replacement");
+    validate_text(expected_text, document_limit);
+    validate_text(replacement, document_limit);
+    if (expected_text != text_) throw std::logic_error("Document range replacement is stale");
+    if (range.start > range.end || range.end > expected_text.size())
+        throw std::invalid_argument("Invalid document replacement range");
+    const auto boundary = [&](std::size_t i) {
+        return i == expected_text.size() || expected_text[i] < 0xdc00 || expected_text[i] > 0xdfff;
+    };
+    if (!boundary(range.start) || !boundary(range.end))
+        throw std::invalid_argument("Replacement range splits a UTF-16 surrogate");
+    normalize_paragraphs(replacement);
+    if (replacement.size() > maximum_ - (expected_text.size() - (range.end - range.start)))
+        throw std::length_error("Document replacement exceeds its UTF-16 limit");
+    if (expected_text.substr(range.start, range.end - range.start) == replacement)
+        throw std::invalid_argument("Document replacement must change text");
+    const std::wstring snapshot(expected_text);
+    auto callback = replace_;
+    return callback(range, snapshot, replacement);
+}
+void DocumentText::commit_text(std::wstring value, std::optional<TextSelection> selection) {
     validate_text(value, maximum_);
     normalize_paragraphs(value);
     if (read_only_ || notifying_ || text_ == value) return;
@@ -135,6 +158,7 @@ void DocumentText::commit_text(std::wstring value) {
         if (next.size() <= 4096) runs_ = std::move(next); else runs_.clear();
     }
     text_ = std::move(value);
+    if (selection) commit_selection(*selection);
     invalidate_state();
     auto callback = change_;
     if (callback) { Notification notification(notifying_); callback(text_); }

@@ -396,6 +396,22 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Document range editing
+
+Build and run the focused document checks:
+
+```powershell
+cmake --build $build --config Release --target xui xui_document_editing_tests xui_document_editing_window_tests xui_document_editing_abi_tests xui_documents_tests
+ctest --test-dir $build -C Release -R '^xui_(document_editing.*|documents_tests)$' --output-on-failure
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --document-editing
+```
+
+The native fixture uses real RichEdit controls and the common-controls v6 manifest.
+It covers exact native text, selection, undo, redo, callback counts, rejected edits, owner deletion, and the maximum document length.
+Its composition checks use native composition messages. Physical IME interaction remains a manual check.
+The ABI fixture covers strict UTF-8 spans, explicit errors, thread affinity, and unchanged failure outputs.
+The C# fixture also covers the native `TreeView.Select` action.
+
 ### Control styling
 
 Build and run the focused style checks:

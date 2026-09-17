@@ -559,6 +559,7 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
 #include "c_api_text.inc"
+#include "c_api_document_editing.inc"
 
 namespace {
 constexpr uint32_t button_style_kind = 102;

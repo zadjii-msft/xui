@@ -51,6 +51,16 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+Document range editing has separate core, native, ABI, and managed fixtures.
+`tests\document_editing_tests.cpp` checks validation before adapter dispatch.
+`tests\document_editing_window_tests.cpp` uses real RichEdit controls with an owned notification parent.
+It checks exact text and selection, independent undo actions, prior typing history, redo, stale native text, callback lifetime, and maximum length.
+Native notifications stay suppressed during the range transaction. The model publishes one change after native calls return.
+The fixture includes owner deletion from that callback and composition-message rejection.
+`tests\document_editing_abi_tests.cpp` checks invalid spans, status values, thread ownership, and output preservation.
+`bindings\dotnet\Tests\DocumentEditingTests.cs` checks the managed edit path and native tree selection.
+The [document procedure](../../CONTRIBUTING.md#document-range-editing) lists the commands.
+
 The explorer adds these regressions:
 
 | Program | Coverage |

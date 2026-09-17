@@ -127,6 +127,10 @@ They contain no second renderer or retained row array.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
 The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
+The handwritten C# `TreeView.Select(ItemKey)` method uses the native collection selection action.
+It retains the source identity, version checks, and selection callback behavior.
+C and C# also support [undo-preserving plain document edits](documents.md#undo-preserving-range-replacement).
+That additive API uses a separate header and handwritten managed imports.
 
 ### Miller columns in C#
 
