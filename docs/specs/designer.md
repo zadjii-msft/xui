@@ -315,7 +315,25 @@ The shell checks the exact source snapshot before it uses the versioned ID for s
 The mode is **pointer picking**, not a disabled-code mode or a sandbox.
 Native keyboard input and accessibility actions retain their normal behavior.
 Unsupported surfaces and active capture, composition, or modal routes produce explicit errors.
-This adapter does not draw a highlight or change authored styles.
+Pointer picking does not require an outline and does not change authored styles.
+
+### Versioned selection outlines
+
+`PreviewHost.TryHighlight(long expectedVersion, int? nodeId)` requests a [non-occluding content outline](bindings.md#non-occluding-content-outlines).
+Its result is `Applied`, `Cleared`, `StaleVersion`, `NotVisible`, `OccludedNative`, or `UnsupportedSurface`.
+Null explicitly clears an outline for the matching source version.
+An invalid ID for that version throws.
+A stale request cannot change the outline of a newer preview.
+
+`Applied` describes the current layout only.
+A later hidden or unsafe layout suppresses painting rather than changing native regions or input.
+A new hidden or unsupported selection clears the old outline instead of leaving the wrong control marked.
+The hierarchy and inspector remain the fallback for targets that cannot receive an outline.
+
+`Supersede` rejects stale requests immediately and queues one bounded UI-thread clear.
+A fresh accepted highlight cancels an obsolete queued clear.
+Content retirement and disposal also clear the selection.
+The adapter retains no additional element or assembly references for highlighting.
 
 ## Edit and preview
 

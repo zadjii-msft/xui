@@ -63,6 +63,14 @@ internal static class Program
                     {
                         Assert(preview!.AppliedVersion == 1, "First preview was not committed.");
                         oldNodes = NodeMapTests(window, preview, 1, MappedSource);
+                        int selected = oldNodes.Single(n => n.ElementType == "Button").NodeId;
+                        Assert(preview.TryHighlight(1, selected) == PreviewHighlightResult.Applied,
+                            "A custom preview control did not accept a non-occluding outline.");
+                        Assert(preview.TryHighlight(0, selected) == PreviewHighlightResult.StaleVersion,
+                            "A stale highlight request changed the current preview.");
+                        ThrowsStatus(() => preview.TryHighlight(1, int.MaxValue), 1, "An invalid highlight ID was accepted.");
+                        Assert(preview.TryHighlight(1, null) == PreviewHighlightResult.Cleared, "Explicit highlight clear failed.");
+                        Assert(preview.TryHighlight(1, selected) == PreviewHighlightResult.Applied, "Highlight restoration failed.");
                         oldContext = CurrentPreviewContext();
                         Assert(preview.View.GetBounds().Width > 100 && preview.View.GetBounds().Height > 50, "Preview has no usable native bounds.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Retained preview"), "Preview has no native label.");
@@ -78,6 +86,8 @@ internal static class Program
                         Assert(preview.TryReadNodeMap(1, out var preservedNodes) && preservedNodes.SequenceEqual(oldNodes!),
                             "A constructor error changed the last successful node map.");
                         Assert(!preview.TryReadNodeMap(2, out _), "A failed source received a node map.");
+                        Assert(preview.TryHighlight(1, 0) == PreviewHighlightResult.StaleVersion && !HighlightRequested(preview),
+                            "A superseded source retained an active highlight.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Retained preview"), "A constructor error removed old native content.");
                         preview.Supersede(3);
                         preview.Publish(3, good.Assembly!, Theme.Dark);
@@ -98,7 +108,18 @@ internal static class Program
                         Assert(statuses.All(x => x.Version != 3), "An obsolete source version was reported.");
                         Assert(Texts(FindWindowW(null, Title)).Contains("Recovered preview"), "Recovery has no native content.");
                         focusBeforePick = GetFocus();
-                        ClickPreview("Recovered preview");
+                        Assert(preview.TryHighlight(4, 0) == PreviewHighlightResult.Applied, "Replacement highlight failed.");
+                        preview.Supersede(4);
+                        Assert(preview.TryHighlight(4, 0) == PreviewHighlightResult.Applied, "Fresh highlight failed after supersession.");
+                        window.Post(() =>
+                        {
+                            try
+                            {
+                                Assert(HighlightRequested(preview), "An obsolete queued clear removed a fresh highlight.");
+                                ClickPreview("Recovered preview");
+                            }
+                            catch (Exception error) { failure = error; window.Close(); }
+                        });
                     }
                     else throw new InvalidOperationException($"Unexpected preview status {version}: {message}");
                 }
@@ -151,6 +172,8 @@ internal static class Program
             {
                 Assert(preview.AppliedVersion is null && !preview.TryReadNodeMap(0, out _),
                     "An empty preview exposed a node map.");
+                Assert(preview.TryHighlight(0, 0) == PreviewHighlightResult.StaleVersion,
+                    "An empty preview accepted a highlight.");
                 window.SetContent(window.Stack().Add(editor, 1).Add(scopeHost, 1).Add(preview.View, 1));
                 window.Post(() =>
                 {
@@ -252,6 +275,8 @@ internal static class Program
             catch (XuiException error) { return error.Status == 4; }
         }).GetAwaiter().GetResult(), "Node read omitted the UI-thread guard.");
         Assert(nodes is IList<PreviewNodeSnapshot> { IsReadOnly: true }, "Node map is mutable.");
+        ThrowsStatus(() => Task.Run(() => preview.TryHighlight(version, null)).GetAwaiter().GetResult(), 4,
+            "Highlight accepted a foreign UI thread.");
         for (int i = 0; i < 100; i++)
             Assert(preview.TryReadNodeMap(version, out var reread) && reread.SequenceEqual(nodes), "Repeated node-map reads changed identity.");
         Assert(HandleCount(window) == handles && Children(hwnd).SequenceEqual(nativeChildren), "Node-map reads allocated native handles or peers.");
@@ -312,6 +337,7 @@ internal static class Program
                 ThrowsStatus(() => candidate.SetInspectionTargets([new(1, root)]), 1, "A sparse key was accepted.");
                 ThrowsStatus(() => candidate.SetInspectionTargets([new(0, editor)]), 1, "A foreign scope target was accepted.");
                 ThrowsStatus(() => host.SetPointerPickMode(true), 7, "Picking started during candidate construction.");
+                Throws<InvalidOperationException>(() => candidate.Highlight(0), "Uncommitted content accepted a highlight.");
                 var scopeHandle = (ulong)typeof(ContentUpdate).GetField("Handle", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(candidate)!;
                 Assert(InspectionTargets(scopeHandle, null, 0, 0, 0) == 1, "The ABI accepted an empty inspection span.");
                 Assert(InspectionTargets(scopeHandle, [new() { Key = 0, Reserved = 1, Element = label.Id }], 1, 0, 0) == 1,
@@ -320,6 +346,9 @@ internal static class Program
             }
             candidate.SetInspectionTargets([new(0, root), new(1, label), new(2, button), new(3, input)]);
             candidate.Commit(root);
+            Assert(candidate.Highlight(1) == ContentHighlightResult.Applied, "Registered custom control highlight failed.");
+            Assert(candidate.Highlight(3) == ContentHighlightResult.OccludedNative, "An opaque native editor accepted an outline.");
+            Assert(candidate.Highlight(null) == ContentHighlightResult.Cleared, "Content highlight clear failed.");
             Throws<InvalidOperationException>(() => candidate.SetInspectionTargets([new(0, root)]), "Committed metadata was mutable.");
             var labelBounds = label.GetBounds();
             Assert(host.TryHitTest(labelBounds.X + 1, labelBounds.Y + 1, out var key) && key == 1,
@@ -480,6 +509,8 @@ internal static class Program
         Assert(status == 0, "Could not read native handle count.");
         return count;
     }
+    private static bool HighlightRequested(PreviewHost preview) =>
+        (bool)typeof(PreviewHost).GetField("highlightRequested", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(preview)!;
     private static ulong WindowHandle(Window window) =>
         (ulong)typeof(Window).GetProperty("Handle", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
     private static List<nint> Children(nint window)

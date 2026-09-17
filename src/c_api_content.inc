@@ -199,3 +199,18 @@ xui_status XUI_CALL xui_content_hit_test(xui_handle host, float x, float y, uint
         if (result) { *key = *result; *found = 1; }
     });
 }
+xui_status XUI_CALL xui_content_highlight(xui_handle scope, uint32_t key, uint32_t clear, uint32_t* result) noexcept {
+    return boundary([&] {
+        require(result && clear <= 1, XUI_INVALID_ARGUMENT, "Invalid highlight arguments.");
+        auto n = get(scope, content_scope_kind);
+        auto value = content_scope(n);
+        editable(n->owner);
+        auto host = get(value->host, content_host_kind);
+        require(value->committed && host->current_content == scope && !n->owner->building_content && !n->owner->content_context,
+            XUI_BUSY, "Highlight committed content outside construction and scoped callbacks.");
+        *result = static_cast<uint32_t>(inspect_content([&] {
+            return n->owner->window->highlight_content(as<xui::ContentHost>(host),
+                clear ? std::nullopt : std::optional<uint32_t>(key));
+        }));
+    });
+}

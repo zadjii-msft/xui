@@ -131,7 +131,40 @@ The picker does not change a rejected surface into an approximate rectangle targ
 
 The C ABI uses `xui_content_inspection_targets`, `xui_content_pointer_picking`, and `xui_content_hit_test`.
 Pick callbacks receive `XUI_SELECTION`, the scope handle as `source`, and the registered ID as `value`.
-These APIs do not add highlighting, overlay windows, or changes to authored styles.
+Pointer picking does not require an outline, overlay window, or changes to authored styles.
+
+### Non-occluding content outlines
+
+`ContentUpdate.Highlight(int? nodeId)` requests an outline for a registered node in the current committed scope.
+Null clears the outline.
+The C++ method is `Window::highlight_content(ContentHost&, std::optional<uint32_t>)`.
+The C ABI function is `xui_content_highlight(scope, key, clear, result)`.
+All calls require the owning UI thread and valid committed content.
+Invalid IDs, retired scopes, and unavailable native call contexts produce explicit errors.
+
+`ContentHighlightResult` reports `Applied`, `Cleared`, `NotVisible`, `OccludedNative`, or `UnsupportedSurface`.
+`Applied` describes the current arranged layout, not a promise of permanent visibility.
+A later unsafe layout hides the outline.
+A new hidden, occluded, or unsupported request clears the previous outline and retains no new target.
+The caller can keep hierarchy or inspector selection as feedback for these results.
+
+The renderer draws the original selected perimeter, clipped to the host, window client, and active ancestor viewports.
+It does not draw new edges around an intersection rectangle.
+The native implementation uses the same pixel-aligned perimeter strips for eligibility and painting.
+DPI changes, scrolling, resizing, and visibility changes recompute this geometry.
+Replacement, clear, scope retirement, and window closure discard the selected key.
+
+This feature never changes HWND regions, native styles, input routes, or authored styles.
+It creates no overlay window, peer, timer, or separate preview bitmap.
+Existing popup and tooltip code remains the sole owner of native occlusion regions.
+The outline requires no region restoration when it disappears.
+These guarantees also apply when pointer-picking mode is off.
+
+The supported subset requires every visible stroke segment to stay outside opaque native HWND rectangles.
+An intersection with an EDIT, RichEdit, or caption window produces `OccludedNative`, even when a region hole could expose some pixels.
+This conservative rule can refuse a geometrically possible outline rather than risk hiding native content or changing input.
+The pointer-inspection surface and ancestry restrictions also apply.
+The feature does not promise complete outlines around arbitrary native editors or composite controls.
 
 ### Native file dialogs
 

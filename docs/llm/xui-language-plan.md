@@ -127,6 +127,30 @@ Compiler and source suites passed 89 and 780 assertions.
 The designer smoke, managed dialog suite, and documentation checks passed.
 There is no highlight implementation in this tranche.
 
+### Non-occluding outline evidence
+
+On September 17, 2026, the ARM64 native outline fixture passed for Classic, WinUI, and clipped layouts.
+The fixture checks actual outline and clear pixels without changing production input or HWND regions.
+It covers EDIT and RichEdit occlusion refusals, exact region equality, native hit targets, styles, bounds, and editor state.
+Each visual style completes 100 highlight, clear, and replacement cycles with exact HWND, USER, and GDI baselines.
+The fixture also covers original-perimeter clipping, scrolling, resizing, target recreation, and refusal-state retirement.
+Geometry checks cover 96, 144, and 192 DPI without fabricated clipping edges.
+
+An initial physical-hit check failed because an unrelated foreground window covered the test editor.
+The fixture now selects an unobstructed monitor and identifies editors by exact fixture text.
+The strict physical EDIT-hit assertion remains unchanged.
+Other fixture corrections keep capture checks paint-only and initialize the capture apartment for the fixture lifetime.
+No production highlight change was necessary during this investigation.
+
+The integrated managed preview suite passed 2,091 assertions.
+Its checks include 100 registered outline cycles, native-editor refusal, source-version guards, bounded supersession cleanup, and assembly retirement.
+The compiler and source suites passed 89 and 780 assertions.
+Documentation checks also passed.
+
+Active-highlight physical DPI transitions, real file-dialog and tooltip/popup interaction, and external UIA clients remain outside this evidence.
+Modal checks use owner disable. UIA checks use the native action endpoint.
+The test procedure is in [CONTRIBUTING](../../CONTRIBUTING.md#non-occluding-selection-outlines).
+
 ### Visual source tools
 
 `Xui.Generator/Parser.cs` records authored node and argument ranges during the existing parse.

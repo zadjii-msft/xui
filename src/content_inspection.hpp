@@ -6,6 +6,7 @@
 #include "xui/navigation.hpp"
 #include "xui/runtime_hosts.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <set>
 #include <unordered_map>
@@ -22,6 +23,41 @@ inline Rect intersect(Rect first, Rect second) {
     const auto bottom = std::min(first.y + first.height, second.y + second.height);
     const auto x = std::max(first.x, second.x), y = std::max(first.y, second.y);
     return {x, y, std::max(0.0f, right - x), std::max(0.0f, bottom - y)};
+}
+
+struct Outline {
+    std::array<Rect, 4> segments{};
+    bool visible() const {
+        return std::any_of(segments.begin(), segments.end(), [](Rect rect) { return rect.width > 0 && rect.height > 0; });
+    }
+    bool overlaps(Rect bounds) const {
+        return std::any_of(segments.begin(), segments.end(), [&](Rect rect) {
+            const auto overlap = intersect(rect, bounds);
+            return overlap.width > 0 && overlap.height > 0;
+        });
+    }
+};
+inline Outline outline(Rect original, Rect clip, float scale) {
+    const auto snap = [scale](Rect rect) {
+        const float x = std::ceil(rect.x * scale), y = std::ceil(rect.y * scale);
+        return Rect{x, y, std::max(0.0f, std::floor((rect.x + rect.width) * scale) - x),
+            std::max(0.0f, std::floor((rect.y + rect.height) * scale) - y)};
+    };
+    const auto bounds = snap(original), viewport = snap(clip);
+    Outline result;
+    constexpr float stroke = 2;
+    if (bounds.width < 2 * stroke || bounds.height < 2 * stroke) return result;
+    // Form the original perimeter first. Clipping must never introduce a new edge.
+    result.segments = {{
+        {bounds.x, bounds.y, bounds.width, stroke},
+        {bounds.x, bounds.y + bounds.height - stroke, bounds.width, stroke},
+        {bounds.x, bounds.y + stroke, stroke, bounds.height - 2 * stroke},
+        {bounds.x + bounds.width - stroke, bounds.y + stroke, stroke, bounds.height - 2 * stroke}}};
+    for (auto& segment : result.segments) {
+        segment = intersect(segment, viewport);
+        segment = {segment.x / scale, segment.y / scale, segment.width / scale, segment.height / scale};
+    }
+    return result;
 }
 
 struct Child {

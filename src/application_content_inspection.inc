@@ -2,6 +2,65 @@
         return std::any_of(content_picking.begin(), content_picking.end(),
             [](const auto& item) { return item.second.enabled && !item.second.host.expired(); });
     }
+    ContentHighlightResult content_highlight_geometry(const ContentHost& host, const ContentPicking& state,
+        std::uint32_t target_key, inspection::Outline& ring) const {
+        using Result = ContentHighlightResult;
+        const auto found = std::find_if(state.registration.targets.begin(), state.registration.targets.end(),
+            [target_key](const auto& target) { return target.key == target_key; });
+        const auto target = found == state.registration.targets.end() ? nullptr : found->element.lock();
+        if (!target || !ready || closing || layout_pending || syncing || replacing ||
+            !IsWindowVisible(window) || IsIconic(window)) return Result::not_visible;
+        GUITHREADINFO info{sizeof(info)};
+        if (native_file_dialog || !IsWindowEnabled(window) || !popups.empty() || tooltip_shown ||
+            (GetGUIThreadInfo(owner_thread, &info) && (info.flags & (GUI_INMENUMODE | GUI_INMOVESIZE))))
+            return Result::unsupported_surface;
+        const auto path = inspection::host_path(root, host, root->bounds(), true);
+        const auto target_clip = inspection::element_clip(host.content(), *target, root->bounds());
+        if (!path || !target_clip) return Result::not_visible;
+        try {
+            validate_inspection_ancestors(*path);
+            inspection::supported(host.content(), &host);
+            validate_inspection_region(host);
+            validate_inspection_native(host);
+        } catch (const std::invalid_argument&) { return Result::unsupported_surface; }
+        RECT client{};
+        win32_require(GetClientRect(window, &client) != 0, "Read highlight viewport");
+        const float scale = dpi / 96.0f;
+        const auto clip = inspection::intersect(inspection::intersect(path->clip, host.bounds()),
+            inspection::intersect(*target_clip, {0, 0, client.right / scale, client.bottom / scale}));
+        ring = inspection::outline(target->bounds(), clip, scale);
+        if (!ring.visible()) return Result::not_visible;
+        std::vector<HWND> surfaces;
+        const auto collect = [](HWND hwnd, LPARAM data) -> BOOL {
+            reinterpret_cast<std::vector<HWND>*>(data)->push_back(hwnd); return TRUE;
+        };
+        EnumChildWindows(window, collect, reinterpret_cast<LPARAM>(&surfaces));
+        EnumThreadWindows(owner_thread, collect, reinterpret_cast<LPARAM>(&surfaces));
+        for (const auto hwnd : surfaces) {
+            if (hwnd == window || !IsWindowVisible(hwnd) ||
+                (!IsChild(window, hwnd) && GetAncestor(hwnd, GA_ROOTOWNER) != window)) continue;
+            const auto peer = std::find_if(peers.begin(), peers.end(),
+                [hwnd](const auto& value) { return value->window == hwnd || value->caption == hwnd; });
+            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime &&
+                hwnd != (*peer)->caption) continue;
+            RECT bounds{};
+            win32_require(GetWindowRect(hwnd, &bounds) != 0, "Read opaque highlight surface");
+            MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&bounds), 2);
+            if (ring.overlaps({bounds.left / scale, bounds.top / scale,
+                (bounds.right - bounds.left) / scale, (bounds.bottom - bounds.top) / scale}))
+                return peer == peers.end() ? Result::unsupported_surface : Result::occluded_native;
+        }
+        return Result::applied;
+    }
+    void paint_content_highlights() {
+        for (const auto& [id, state] : content_picking) if (state.highlight) {
+            const auto host = state.host.lock();
+            inspection::Outline ring;
+            if (host && content_highlight_geometry(*host, state, *state.highlight, ring) == ContentHighlightResult::applied)
+                for (const auto segment : ring.segments)
+                    if (segment.width > 0 && segment.height > 0) drawing.fill(segment, palette.accent);
+        }
+    }
     void inspection_api_ready() const {
         if (GetCurrentThreadId() != owner_thread)
             throw std::logic_error("Inspect content on the window UI thread");

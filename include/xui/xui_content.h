@@ -34,6 +34,14 @@ XUI_API xui_status XUI_CALL xui_content_pointer_picking(xui_handle host, uint32_
 /* Coordinates are window-client DIPs. A miss succeeds with found=0 and key=0. */
 XUI_API xui_status XUI_CALL xui_content_hit_test(xui_handle host, float x, float y,
     uint32_t* key, uint32_t* found) XUI_NOEXCEPT;
+typedef enum xui_content_highlight_result {
+    XUI_HIGHLIGHT_APPLIED = 0, XUI_HIGHLIGHT_CLEARED = 1, XUI_HIGHLIGHT_NOT_VISIBLE = 2,
+    XUI_HIGHLIGHT_OCCLUDED_NATIVE = 3, XUI_HIGHLIGHT_UNSUPPORTED_SURFACE = 4
+} xui_content_highlight_result;
+/* Current-layout result only. Later unsafe layout hides the original-perimeter outline.
+   No native window regions, styles, or input behavior change. clear must be 0 or 1. */
+XUI_API xui_status XUI_CALL xui_content_highlight(xui_handle scope, uint32_t key,
+    uint32_t clear, uint32_t* result) XUI_NOEXCEPT;
 #ifdef __cplusplus
 }
 #endif

@@ -469,6 +469,31 @@ The managed suite adds ABI validation, source-version checks, observer retiremen
 The [inspection contract](docs/specs/bindings.md#content-pointer-picking) lists unsupported surfaces.
 Physical IME, touch/pen hardware, and screen-reader speech require manual checks.
 
+### Non-occluding selection outlines
+
+Build the outline fixture:
+
+```powershell
+cmake --build $build --config Release --target xui xui_content_highlight_window_tests
+```
+
+Run geometry checks without desktop access:
+
+```powershell
+ctest --test-dir $build -C Release -R '^xui_content_highlight_geometry_tests$' --output-on-failure
+```
+
+With an available desktop, run the renderer and managed lifecycle checks:
+
+```powershell
+ctest --test-dir $build -C Release -R '^xui_content_highlight_window_tests$' --output-on-failure
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -r $rid
+```
+
+Do not run concurrent focus-sensitive desktop fixtures.
+The native fixture checks original-perimeter pixels, native occlusion refusal, unchanged regions and input, and repeated retirement.
+The [outline contract](docs/specs/bindings.md#non-occluding-content-outlines) defines the conservative supported subset.
+
 ### Native file dialogs
 
 Build and run the focused dialog checks:

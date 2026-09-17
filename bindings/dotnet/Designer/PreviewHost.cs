@@ -14,6 +14,7 @@ internal sealed class PreviewHost : IDisposable
     private Candidate? current;
     private long version;
     private bool posted, stopping;
+    private bool highlightRequested, highlightClearPending, highlightClearPosted;
 
     internal PreviewHost(Window window, Action<long, string, bool> report)
     {
@@ -31,6 +32,28 @@ internal sealed class PreviewHost : IDisposable
         host.SetPointerPickMode(enabled);
     }
     internal long? AppliedVersion { get { window.VerifyAccess(); return current?.Version; } }
+
+    internal PreviewHighlightResult TryHighlight(long expectedVersion, int? nodeId)
+    {
+        window.VerifyAccess();
+        lock (gate)
+        {
+            if (stopping || current is null || current.Version != expectedVersion || version != expectedVersion)
+                return PreviewHighlightResult.StaleVersion;
+            var result = current.Highlight(nodeId);
+            highlightRequested = result == ContentHighlightResult.Applied;
+            highlightClearPending = false;
+            return result switch
+            {
+                ContentHighlightResult.Applied => PreviewHighlightResult.Applied,
+                ContentHighlightResult.Cleared => PreviewHighlightResult.Cleared,
+                ContentHighlightResult.NotVisible => PreviewHighlightResult.NotVisible,
+                ContentHighlightResult.OccludedNative => PreviewHighlightResult.OccludedNative,
+                ContentHighlightResult.UnsupportedSurface => PreviewHighlightResult.UnsupportedSurface,
+                _ => throw new InvalidOperationException("Unknown preview highlight result.")
+            };
+        }
+    }
 
     internal bool TryReadNodeMap(long expectedVersion, out IReadOnlyList<PreviewNodeSnapshot> nodes)
     {
@@ -59,6 +82,31 @@ internal sealed class PreviewHost : IDisposable
             if (value < version) return;
             version = value;
             pending = null;
+            if (highlightRequested)
+            {
+                highlightClearPending = true;
+                if (!highlightClearPosted)
+                {
+                    highlightClearPosted = true;
+                    if (!window.Post(ClearSupersededHighlight))
+                    {
+                        highlightClearPosted = highlightClearPending = false;
+                        Console.Error.WriteLine("Preview highlight clear was rejected because the designer window is closed.");
+                    }
+                }
+            }
+        }
+    }
+
+    private void ClearSupersededHighlight()
+    {
+        window.VerifyAccess();
+        lock (gate)
+        {
+            highlightClearPosted = false;
+            if (stopping || !highlightClearPending) return;
+            current?.Highlight(null);
+            highlightRequested = highlightClearPending = false;
         }
     }
 
@@ -111,6 +159,7 @@ internal sealed class PreviewHost : IDisposable
                 var previous = current;
                 current = candidate;
                 candidate = null;
+                highlightRequested = highlightClearPending = false;
                 previous?.Dispose();
             }
             report(request.Version, "Preview updated. Component state was reset.", true);
@@ -129,6 +178,7 @@ internal sealed class PreviewHost : IDisposable
         if (!ReferenceEquals(current, candidate)) return;
         current = null;
         candidate.Dispose();
+        lock (gate) highlightRequested = highlightClearPending = false;
         ReportError(candidate.Version, "Preview callback failed", error);
     }
 
@@ -161,6 +211,7 @@ internal sealed class PreviewHost : IDisposable
             if (stopping) return;
             stopping = true;
             pending = null;
+            highlightRequested = highlightClearPending = false;
         }
         current?.Dispose();
         current = null;
@@ -221,6 +272,7 @@ internal sealed class PreviewHost : IDisposable
         }
 
         internal void Commit() => update.Commit(root ?? throw new ObjectDisposedException(nameof(Candidate)));
+        internal ContentHighlightResult Highlight(int? nodeId) => update.Highlight(nodeId);
 
         internal PreviewNodeSnapshot ReadNode(int nodeId)
         {

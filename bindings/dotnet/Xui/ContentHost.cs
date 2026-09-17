@@ -6,6 +6,9 @@ namespace Xui;
 /// <summary>An inspection key and a borrowed element from one content candidate.</summary>
 public readonly record struct ContentInspectionTarget(int NodeId, Element Element);
 
+/// <summary>The current-layout result of a renderer-only selection outline.</summary>
+public enum ContentHighlightResult { Applied, Cleared, NotVisible, OccludedNative, UnsupportedSurface }
+
 /// <summary>A stable layout element whose content changes through an explicit UI-thread ownership scope.</summary>
 public sealed class ContentHost : Element
 {
@@ -116,6 +119,20 @@ public sealed class ContentUpdate : IDisposable
     }
 
     internal void RaisePick(int nodeId) => Picked?.Invoke(nodeId);
+
+    /// <summary>Outlines a registered node without changing native regions or input. Null clears the outline.</summary>
+    /// <remarks>Applied describes the current layout. Later unsafe or hidden geometry hides the outline.</remarks>
+    public ContentHighlightResult Highlight(int? nodeId)
+    {
+        Host.Window.Guard();
+        ObjectDisposedException.ThrowIf(Retired, this);
+        if (!Committed) throw new InvalidOperationException("Commit content before highlighting a node.");
+        if (nodeId < 0) throw new ArgumentOutOfRangeException(nameof(nodeId));
+        Host.Window.Check(Native.ContentHighlight(Handle, (uint)nodeId.GetValueOrDefault(),
+            nodeId.HasValue ? 0u : 1u, out var result));
+        if (!Enum.IsDefined((ContentHighlightResult)result)) throw new InvalidOperationException("Native highlight returned an invalid result.");
+        return (ContentHighlightResult)result;
+    }
 
     public void Commit(Element root)
     {
@@ -314,4 +331,6 @@ internal static unsafe partial class Native
     internal static partial int ContentPointerPicking(ulong host, uint enabled);
     [LibraryImport("xui", EntryPoint = "xui_content_hit_test")]
     internal static partial int ContentHitTest(ulong host, float x, float y, out uint key, out uint found);
+    [LibraryImport("xui", EntryPoint = "xui_content_highlight")]
+    internal static partial int ContentHighlight(ulong scope, uint key, uint clear, out uint result);
 }

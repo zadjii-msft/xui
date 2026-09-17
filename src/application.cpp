@@ -161,6 +161,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         inspection::Registration registration;
         std::uint64_t generation{};
         std::optional<std::uint32_t> pending;
+        std::optional<std::uint32_t> highlight;
         bool enabled{}, mouse_down{}, pointer_down{};
     };
     std::unordered_map<std::uint64_t, ContentPicking> content_picking;
@@ -2068,6 +2069,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                 };
                 if (composed) paint_adaptive(0);
+                if (composed) paint_content_highlights();
                 if (composed) for (const auto& entry : popups) {
                     const auto bounds = entry.popup->bounds();
                     if (entry.dialog && palette.style == VisualStyle::winui && !palette.high_contrast)
@@ -3610,6 +3612,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             state.mouse_down = state.pointer_down = false;
             state.pending.reset();
         }
+        if (window && std::any_of(content_picking.begin(), content_picking.end(),
+            [](const auto& item) { return item.second.highlight.has_value(); })) InvalidateRect(window, nullptr, FALSE);
         hide_tooltip();
         std::vector<Peer*> snapshot;
         for (const auto& peer : peers) snapshot.push_back(peer.get());
@@ -5007,6 +5011,8 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         state.registration = std::move(registration);
         ++state.generation;
         state.pending.reset();
+        state.highlight.reset();
+        if (impl->window) InvalidateRect(impl->window, nullptr, FALSE);
         return;
     }
     impl->replacing = true;
@@ -5033,6 +5039,7 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         state.registration = std::move(registration);
         ++state.generation;
         state.pending.reset();
+        state.highlight.reset();
         impl->prune_inspection_hosts();
     } catch (...) {
         impl->fail();
@@ -5072,6 +5079,30 @@ std::optional<std::uint32_t> Window::hit_test_content(ContentHost& host, Point p
     const auto found = impl->content_picking.find(host.id());
     if (found == impl->content_picking.end()) return {};
     return impl->inspection_hit(host, position, found->second.registration).key;
+}
+ContentHighlightResult Window::highlight_content(ContentHost& host, std::optional<std::uint32_t> key) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || !impl->ready || impl->closing || !impl->window ||
+        impl->input_depth || impl->replacing || impl->syncing)
+        throw std::logic_error("Highlight content on the running UI thread outside native input");
+    if (!impl->root || !inspection::host_path(impl->root, host, impl->root->bounds(), false))
+        throw std::invalid_argument("ContentHost must belong to this window");
+    const auto found = impl->content_picking.find(host.id());
+    if (key && (found == impl->content_picking.end() ||
+        std::none_of(found->second.registration.targets.begin(), found->second.registration.targets.end(),
+            [&](const auto& target) { return target.key == *key; })))
+        throw std::invalid_argument("Highlight key is not registered in the current content");
+    if (found != impl->content_picking.end()) found->second.highlight.reset();
+    InvalidateRect(impl->window, nullptr, FALSE);
+    if (!key) return ContentHighlightResult::cleared;
+    if (impl->layout_pending) impl->update();
+    if (!impl->ready || impl->closing || !impl->window)
+        throw std::runtime_error("The window closed while preparing highlight layout");
+    auto& state = impl->content_picking.at(host.id());
+    inspection::Outline ring;
+    const auto result = impl->content_highlight_geometry(host, state, *key, ring);
+    if (result == ContentHighlightResult::applied) state.highlight = key;
+    return result;
 }
 void Window::set_theme(ThemeMode theme) {
     if (impl_->options.theme == theme) return;

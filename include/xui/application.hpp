@@ -20,6 +20,7 @@ struct ContentInspectionTarget {
     std::uint32_t key{};
     std::weak_ptr<Element> element;
 };
+enum class ContentHighlightResult { applied = 0, cleared = 1, not_visible = 2, occluded_native = 3, unsupported_surface = 4 };
 
 struct WindowOptions {
     std::wstring title = L"XUI";
@@ -114,6 +115,7 @@ public:
     void set_content_pointer_picking(ContentHost& host, bool enabled);
     // Window-client DIPs. Returns the nearest registered authored ancestor or no hit.
     std::optional<std::uint32_t> hit_test_content(ContentHost& host, Point position);
+    ContentHighlightResult highlight_content(ContentHost& host, std::optional<std::uint32_t> key);
     // Calling UI thread only, before or during run. The title remains available after run.
     void set_title(std::wstring title);
     const std::wstring& title() const;
