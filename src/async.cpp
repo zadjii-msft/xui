@@ -110,7 +110,7 @@ struct SampleTask::Impl::Worker {
                     // Keep an undelivered failure even when a newer successful sample replaces the payload.
                     if (!failure.empty() || !ready) error = std::move(failure);
                     result_generation = version; ready = true;
-                    SetEvent(wake->event);
+                    wake->signal();
                 }
                 if (requested) continue;
                 if (!paused && !suspended) {

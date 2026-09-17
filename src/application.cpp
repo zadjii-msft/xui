@@ -25,6 +25,7 @@
 #include <windowsx.h>
 #include <cmath>
 #include <utility>
+#include <unordered_map>
 
 namespace xui {
 namespace {
@@ -34,6 +35,9 @@ constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 thread_local bool running{};
+thread_local bool application_context{};
+std::mutex host_claim_mutex;
+std::unordered_map<std::uint64_t, const void*> host_claims;
 }
 
 struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
@@ -154,6 +158,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::mutex post_mutex;
     std::vector<std::function<void()>> posts;
     bool posts_closed{};
+    bool application_managed{}, closed_notified{};
+    std::weak_ptr<void> application;
+    std::function<void()> closed_callback;
+    std::vector<std::shared_ptr<Element>> claimed;
+    void claim(const std::shared_ptr<Element>& element) {
+        std::lock_guard lock(host_claim_mutex);
+        const auto [it, inserted] = host_claims.emplace(element->id(), this);
+        if (it->second != this) throw std::logic_error("Content belongs to another live Window");
+        if (inserted) {
+            try { claimed.push_back(element); }
+            catch (...) { host_claims.erase(it); throw; }
+        }
+    }
+    void release_claims() {
+        std::lock_guard lock(host_claim_mutex);
+        for (const auto& element : claimed) host_claims.erase(element->id());
+        claimed.clear();
+    }
     void close_posts() {
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
@@ -173,6 +195,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         destroying = true;
         closing = true;
         close_posts();
+        for (auto& task : samples) task->cancel();
+        for (auto& task : tasks) task->cancel();
+        for (const auto& peer : peers) {
+            if (peer->runtime) peer->runtime->cancel_owner();
+            if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
+        }
         hide_tooltip();
         if (!popups.empty()) {
             try { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::owner_closed, false); }
@@ -196,13 +224,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& peer : peers) if (peer->row_images) peer->row_images->clear();
         for (const auto& peer : peers) if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
         for (const auto& peer : peers) if (peer->list) peer->list->detach_thumbnails();
-        if (has_images) clear_image_cache();
+        if (has_images) ImageResources::clear_unused();
         attached = false;
     }
     struct InputScope {
         Impl& host;
         explicit InputScope(Impl& value) : host(value) { ++host.input_depth; }
-        ~InputScope() { --host.input_depth; }
+        ~InputScope() {
+            if (--host.input_depth == 0 && host.closing && host.application_managed)
+                SetEvent(host.wake->event);
+        }
     };
     void teardown() {
         for (auto& task : samples) task->cancel();
@@ -215,6 +246,45 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (background) { DeleteObject(background); background = nullptr; }
         if (field) { DeleteObject(field); field = nullptr; }
         if (font) { DeleteObject(font); font = nullptr; }
+        if (!input_depth) release_claims();
+    }
+    void complete() {
+        if (closed_notified || input_depth) return;
+        teardown();
+        closed_notified = true;
+        if (closed_callback) {
+            try { auto callback = closed_callback; callback(); }
+            catch (...) { fail(); }
+        }
+        closed_callback = {};
+    }
+    void deliver() {
+        InputScope scope(*this);
+        try {
+            std::vector<std::function<void()>> queued;
+            {
+                std::lock_guard lock(post_mutex);
+                const auto count = std::min<std::size_t>(posts.size(), 64);
+                queued.insert(queued.end(), std::make_move_iterator(posts.begin()), std::make_move_iterator(posts.begin() + count));
+                posts.erase(posts.begin(), posts.begin() + count);
+                if (!posts.empty()) wake->signal();
+            }
+            for (auto& callback : queued) {
+                if (!ready || closing) break;
+                callback();
+            }
+            const auto views = tasks;
+            for (const auto& task : views) {
+                if (!ready || closing) break;
+                task->deliver();
+            }
+            if (ready && !closing) deliver_images();
+            const auto periodic = samples;
+            for (const auto& task : periodic) {
+                if (!ready || closing) break;
+                task->deliver();
+            }
+        } catch (...) { fail(); }
     }
     void fail() noexcept {
         failed = true;
@@ -243,6 +313,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         }
         if (!self) return DefWindowProcW(hwnd, message, wparam, lparam);
+        InputScope scope(*self);
         try { return self->message(hwnd, message, wparam, lparam); }
         catch (...) { self->fail(); return 0; }
     }
@@ -474,6 +545,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
+        claim(element);
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
             stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
@@ -1006,6 +1078,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (closing) throw std::logic_error("The Window is closed");
         used = true;
         if (!root) throw std::logic_error("Window content is required");
+        claim(root);
         drawing.initialize(options.visual_style);
         WNDCLASSEXW cls{sizeof(cls)};
         cls.hInstance = GetModuleHandleW(nullptr);
@@ -4685,17 +4758,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_CLOSE: destroy(); return 0;
         case WM_DESTROY:
+            closing = true;
+            close_posts();
             for (auto& task : samples) task->cancel();
             ready = false;
             drawing.discard();
             for (auto& task : tasks) task->cancel();
             detach();
-            PostQuitMessage(failed ? 1 : 0);
-            quit_posted = true;
+            if (!application_managed) {
+                PostQuitMessage(failed ? 1 : 0);
+                quit_posted = true;
+            }
             return 0;
         case WM_NCDESTROY:
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             window = nullptr;
+            if (application_managed) wake->signal();
             break;
         }
         return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -4842,6 +4920,7 @@ void Window::show_shell_commands(Control& anchor, const std::vector<std::wstring
 }
 void Window::close() {
     auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Close the Window on its UI thread");
     Impl::InputScope input_scope(*impl);
     impl->closing = true;
     impl->close_posts();
@@ -4851,7 +4930,18 @@ void Window::close() {
         if (peer->runtime) peer->runtime->cancel_owner();
         if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
     }
-    if (impl->window) PostMessageW(impl->window, WM_CLOSE, 0, 0);
+    if (impl->window) win32_require(PostMessageW(impl->window, WM_CLOSE, 0, 0) != FALSE, "Close native window");
+    if (impl->application_managed) impl->wake->signal();
+}
+WindowState Window::state() const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read Window state on its UI thread");
+    return impl_->closed_notified ? WindowState::closed : impl_->closing ? WindowState::closing :
+        impl_->ready ? WindowState::open : WindowState::created;
+}
+void Window::on_closed(std::function<void()> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Subscribe on the Window UI thread");
+    if (impl_->closed_notified) throw std::logic_error("The Window is closed");
+    impl_->closed_callback = std::move(callback);
 }
 void Window::on_key(std::function<bool(const KeyEvent&)> callback) { impl_->key = std::move(callback); }
 bool Window::post(std::function<void()> callback) {
@@ -4860,7 +4950,7 @@ bool Window::post(std::function<void()> callback) {
     std::lock_guard lock(impl->post_mutex);
     if (impl->posts_closed) return false;
     impl->posts.push_back(std::move(callback));
-    SetEvent(impl->wake->event);
+    impl->wake->signal();
     return true;
 }
 void Window::on_navigation(std::function<bool(const NavigationEvent&)> callback) { impl_->navigation = std::move(callback); }
@@ -4884,7 +4974,7 @@ std::shared_ptr<ViewTask> Window::create_view_task(ViewWorker::Loader loader, st
     std::erase_if(impl_->tasks, [](const auto& task) { return task->cancelled; });
     auto state = std::make_shared<ViewTask::Impl>();
     state->receive = std::move(receive);
-    state->worker = std::make_shared<ViewWorker>(std::move(loader), [wake = impl_->wake] { SetEvent(wake->event); });
+    state->worker = std::make_shared<ViewWorker>(std::move(loader), [wake = impl_->wake] { wake->signal(); });
     state->worker->start();
     impl_->tasks.push_back(state);
     return std::shared_ptr<ViewTask>(new ViewTask(std::move(state)));
@@ -4929,11 +5019,203 @@ std::optional<bool> Window::paste_files(const std::wstring& destination) {
     Impl::InputScope scope(*impl);
     return files::paste(impl->window, destination, [impl] { return impl->closing || impl->failed; });
 }
+struct Application::Impl : std::enable_shared_from_this<Application::Impl> {
+    const DWORD thread = GetCurrentThreadId();
+    platform::Runtime runtime;
+    std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
+    std::vector<std::shared_ptr<Window::Impl>> windows;
+    std::vector<std::weak_ptr<Window::Impl>> created;
+    std::mutex mutex;
+    std::vector<std::function<void()>> posts;
+    HWND dispatcher{};
+    bool used{}, pumping{}, accepting{}, stopping{}, posts_closed{}, finished{}, drained{};
+    std::wstring error;
+
+    void guard() const {
+        if (GetCurrentThreadId() != thread) throw std::logic_error("Use the application UI thread");
+    }
+    void record(const std::wstring& message) {
+        if (!error.empty()) error += L"\n";
+        error += message.empty() ? L"A window callback failed." : message;
+    }
+    static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM w, LPARAM l) noexcept {
+        auto* self = reinterpret_cast<Impl*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            self = static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        }
+        if (self && message == WM_APP + 71) { self->accept(); return 0; }
+        return DefWindowProcW(hwnd, message, w, l);
+    }
+    Impl() {
+        WNDCLASSEXW cls{sizeof(cls)};
+        cls.hInstance = GetModuleHandleW(nullptr);
+        cls.lpfnWndProc = procedure;
+        cls.lpszClassName = L"Xui.Dispatcher.1";
+        if (!RegisterClassExW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+            win32_require(false, "Register application dispatcher");
+        dispatcher = CreateWindowExW(0, cls.lpszClassName, L"", 0, 0, 0, 0, 0,
+            HWND_MESSAGE, nullptr, cls.hInstance, this);
+        win32_require(dispatcher != nullptr, "Create application dispatcher");
+        wake->connect(dispatcher);
+    }
+    void stop() {
+        stopping = true;
+        const auto snapshot = created;
+        for (const auto& weak : snapshot) if (auto window = weak.lock(); window && !window->closed_notified)
+            window->destroy();
+        wake->signal();
+    }
+    void accept() noexcept {
+        wake->accepted();
+        if (!pumping || accepting || finished) return;
+        accepting = true;
+        try {
+            auto snapshot = windows;
+            for (const auto& window : snapshot) {
+                if (window->ready && !window->closing) window->deliver();
+                if (!window->window && !window->input_depth && !window->closed_notified) {
+                    window->complete();
+                    if (window->failed) record(window->options.title + L": " + window->error);
+                    std::erase(windows, window);
+                }
+            }
+            std::vector<std::function<void()>> queued;
+            {
+                std::lock_guard lock(mutex);
+                const auto count = std::min<std::size_t>(posts.size(), 64);
+                queued.insert(queued.end(), std::make_move_iterator(posts.begin()), std::make_move_iterator(posts.begin() + count));
+                posts.erase(posts.begin(), posts.begin() + count);
+                if (!posts.empty()) wake->signal();
+            }
+            for (auto& callback : queued) callback();
+            bool empty{};
+            {
+                std::lock_guard lock(mutex);
+                empty = windows.empty() && posts.empty();
+                if (empty) posts_closed = true;
+            }
+            if (empty) {
+                stopping = true;
+                for (const auto& weak : created) if (auto window = weak.lock(); window && !window->closed_notified) {
+                    window->complete();
+                    if (window->failed) record(window->options.title + L": " + window->error);
+                }
+                finished = true;
+                PostQuitMessage(error.empty() ? 0 : 1);
+            }
+        } catch (...) {
+            try {
+                try { throw; }
+                catch (const std::exception& failure) { record(exception_message(failure)); }
+                catch (...) { record(L"An application callback failed."); }
+                stop();
+            } catch (...) { PostQuitMessage(1); }
+        }
+        accepting = false;
+    }
+    ~Impl() {
+        wake->connect(nullptr);
+        if (dispatcher) DestroyWindow(dispatcher);
+    }
+};
+
+Application::Application() {
+    if (running || application_context) throw std::logic_error("An application already owns this UI thread");
+    impl_ = std::make_shared<Impl>();
+    application_context = true;
+}
+Application::~Application() {
+    if (!impl_) return;
+    impl_->guard();
+    impl_->stop();
+    for (const auto& weak : impl_->created)
+        if (auto window = weak.lock()) window->teardown();
+    if (!impl_->drained && !NativeRuntimeHost::drain_shutdown())
+        OutputDebugStringW(L"XUI: Native runtime shutdown timed out during application destruction.\n");
+    impl_.reset();
+    application_context = false;
+}
+std::shared_ptr<Window> Application::create_window(WindowOptions options) {
+    impl_->guard();
+    if (impl_->stopping) throw std::logic_error("The application is stopping");
+    auto window = std::make_shared<Window>(std::move(options));
+    window->impl_->application_managed = true;
+    window->impl_->application = impl_;
+    window->impl_->wake = impl_->wake;
+    impl_->created.push_back(window->impl_);
+    return window;
+}
+void Application::show(Window& window) {
+    impl_->guard();
+    const auto host = window.impl_;
+    if (impl_->stopping) throw std::logic_error("The application is stopping");
+    if (host->application.lock() != impl_) throw std::logic_error("Window belongs to another application");
+    if (host->used || host->closing) throw std::logic_error("A Window can show only once");
+    impl_->windows.push_back(host);
+    try { host->create(); }
+    catch (...) {
+        host->fail();
+        impl_->wake->signal();
+        throw;
+    }
+    impl_->wake->signal();
+}
+bool Application::post(std::function<void()> callback) {
+    if (!callback) throw std::invalid_argument("An application callback is required");
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->posts_closed) return false;
+    impl_->posts.push_back(std::move(callback));
+    impl_->wake->signal();
+    return true;
+}
+void Application::shutdown() { impl_->guard(); impl_->stop(); }
+const std::wstring& Application::error() const { return impl_->error; }
+int Application::run() {
+    const auto self = impl_;
+    self->guard();
+    if (self->used || running) throw std::logic_error("The application can run only once without nesting");
+    self->used = true;
+    self->pumping = true;
+    running = true;
+    struct Reset { Impl& self; ~Reset() { self.pumping = false; running = false; } } reset{*self};
+    int result{};
+    try {
+        self->wake->signal();
+        result = self->runtime.run([&](MSG& msg) {
+            const auto snapshot = self->windows;
+            for (const auto& window : snapshot) {
+                if (!window->ready || window->closing) continue;
+                if (msg.hwnd == window->window || IsChild(window->window, msg.hwnd)) {
+                    try { return window->translate(msg); }
+                    catch (...) { window->fail(); return true; }
+                }
+            }
+            return false;
+        }, self->wake->event, [&] { self->accept(); });
+    } catch (const std::exception& failure) { self->record(exception_message(failure)); result = 1; }
+    self->finished = true;
+    self->stop();
+    for (const auto& weak : self->created) if (auto window = weak.lock(); window && !window->closed_notified) {
+        window->complete();
+        if (window->failed) self->record(window->options.title + L": " + window->error);
+    }
+    self->windows.clear();
+    std::vector<std::function<void()>> removed;
+    { std::lock_guard lock(self->mutex); self->posts_closed = true; removed.swap(self->posts); }
+    self->drained = true;
+    if (!NativeRuntimeHost::drain_shutdown()) {
+        self->record(L"Owned web runtime shutdown did not complete within thirty seconds");
+        result = 1;
+    }
+    return self->error.empty() ? result : 1;
+}
+
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch
     // unwinds, but Window destruction still closes native windows immediately.
     const auto impl = window.impl_;
-    if (running) {
+    if (running || application_context || impl->application_managed) {
         impl->error = L"Another window is already running on this UI thread.";
         return 1;
     }
@@ -4971,6 +5253,7 @@ int Application::run(Window& window) {
                 });
             impl->quit_posted = false;
             impl->teardown();
+            impl->complete();
             shutdown_attempted = true;
             if (!NativeRuntimeHost::drain_shutdown())
                 throw std::runtime_error("Owned web runtime shutdown did not complete within thirty seconds");
