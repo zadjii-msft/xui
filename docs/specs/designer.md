@@ -54,6 +54,11 @@ Unavailable commands are disabled, with the reason beside the commands.
 In the hierarchy, Delete deletes a control, Ctrl+D duplicates it, and Alt+Up or Alt+Down moves it.
 These shortcuts do not replace native source-editor shortcuts.
 
+The wrap buttons place the selected control inside a VStack, HStack, or ScrollView.
+**Unwrap one child** removes a safe one-child wrapper without discarding authored properties or identities.
+In the hierarchy, Ctrl+G wraps in a VStack, and Ctrl+Shift+G unwraps.
+Each grouping action uses the same compilation and native undo checks as other visual edits.
+
 Each visual change creates one native undo operation.
 The **Undo** and **Redo** buttons act on the source editor.
 Only one visual change compiles at a time.
@@ -265,6 +270,13 @@ It compiles on a worker, with one queued source snapshot.
 New edits cancel obsolete compilation.
 XUI and C# diagnostics include the source line and column.
 Invalid source leaves the last valid preview unchanged.
+
+**Next**, or F8, selects the next diagnostic that has an authored source location.
+**Previous**, or Shift+F8, selects the previous location.
+**Go to selected** uses the caret in the diagnostics pane.
+Navigation selects the exact source location and its hierarchy control when a current hierarchy is available.
+Generated-file locations do not point into the source editor.
+Source changes invalidate navigation until the compiler supplies new diagnostics.
 
 The preview supports styles, C# state, and event handlers.
 Each successful update replaces the content of the embedded preview and resets component state.

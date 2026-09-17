@@ -12,6 +12,7 @@ internal static class Program
             using var window = new Window("Designer layout smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("Source");
             var diagnostics = window.MultilineText("Diagnostics");
+            var diagnosticLayout = new DesignerDiagnosticsLayout(window, diagnostics, attach: false);
             var tree = window.TreeView("Hierarchy");
             var arguments = window.ComboBox("Arguments", false);
             var value = window.MultilineText("Literal value");
@@ -20,7 +21,7 @@ internal static class Program
             var hierarchy = new DesignerHierarchyLayout(window, tree, attach: false);
             var inspector = new DesignerInspectorLayout(window, arguments, value, palette, attach: false);
             var preview = window.Label("Layout fixture preview");
-            var layout = new DesignerLayout(window, editor, diagnostics, hierarchy.Root, inspector.Root, preview, templates);
+            var layout = new DesignerLayout(window, editor, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates);
             editor.Text = "Native editor layout fixture";
             int assertions = 0;
             Exception? failure = null;
@@ -42,6 +43,7 @@ internal static class Program
                         Require(tree.GetBounds().Width >= 100 && tree.GetBounds().Height >= 150, "Native tree bounds");
                         Require(value.GetBounds().Width >= 100 && value.GetBounds().Height >= 60, "Native inspector bounds");
                         Require(diagnostics.GetBounds().Height >= 60, "Diagnostics bounds");
+                        Require(diagnosticLayout.Root.GetBounds().Height == 140, "Diagnostics do not consume the flexible workspace");
                         Require(tree.GetBounds().X < editor.GetBounds().X &&
                             editor.GetBounds().X < preview.GetBounds().X &&
                             preview.GetBounds().X < value.GetBounds().X, "Hierarchy, source, preview and inspector order");

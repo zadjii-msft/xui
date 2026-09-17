@@ -15,6 +15,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly DesignerLayout view;
     private readonly PreviewHost preview;
     private readonly DesignerWorkspace workspace;
+    private readonly DesignerDiagnosticNavigator diagnosticNavigator;
     private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
@@ -36,10 +37,12 @@ internal sealed partial class DesignerApplication : IDisposable
             preview = new PreviewHost(window, (value, message, success) =>
                 window.Post(() => OnPreview(value, message, success)));
             workspace = new DesignerWorkspace(window, editor, ShowError);
+            diagnosticNavigator = new DesignerDiagnosticNavigator(window, editor, diagnostics,
+                () => version, ReportNavigation, workspace.SelectFromCaret);
             templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
-            view = new DesignerLayout(window, editor, diagnostics, workspace.Hierarchy.Layout.Root,
+            view = new DesignerLayout(window, editor, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, preview.View, templates);
             document = new DesignerDocumentStore(recoveryDirectory ?? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Xui", "Designer", "Drafts"),
@@ -66,6 +69,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 0x0D) { Schedule(immediate: true); return true; }
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
                 { workspace.SelectFromCaret(); return true; }
+                if (diagnosticNavigator.HandleKey(key)) return true;
                 return workspace.HandleHierarchyKey(key);
             };
             compiler = Task.Run(CompileEdits);
@@ -138,6 +142,7 @@ internal sealed partial class DesignerApplication : IDisposable
         workspace.SourceChanged();
         revision?.Cancel();
         version++;
+        diagnosticNavigator.Invalidate();
         preview.Supersede(version);
         window.SetTitle(Dirty ? "XUI Designer - unsaved changes" : "XUI Designer");
         if (!live && !immediate)
@@ -172,8 +177,9 @@ internal sealed partial class DesignerApplication : IDisposable
                     var result = PreviewCompiler.Compile(edit.Source, cancellation.Token);
                     window.Post(() =>
                     {
-                        if (edit.Version != version || disposed) return;
+                        if (edit.Version != version || disposed || edit.Source != editor.Text) return;
                         diagnostics.Text = Limit(result.Diagnostics);
+                        diagnosticNavigator.Publish(edit.Version, edit.Source);
                         if (!result.Success)
                         {
                             view.Status.Text = "Source has errors. The last valid preview is unchanged.";
@@ -385,9 +391,12 @@ internal sealed partial class DesignerApplication : IDisposable
     private void ShowError(string message)
     {
         diagnostics.Text = Limit(message);
+        diagnosticNavigator.Invalidate();
         view.Status.Text = "Error. See diagnostics.";
         Console.Error.WriteLine(message);
     }
+
+    private void ReportNavigation(string message) => view.Status.Text = Limit(message);
 
     private void ReportFileError(string message)
     {

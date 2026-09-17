@@ -31,6 +31,8 @@ internal sealed partial class DesignerApplication
                 File.ReadAllText(currentPath) == Normalize(editor.Text), "Save updates file identity and clean state.");
             await Ui(() =>
             {
+                if (editor.GetBounds() is { Width: <= 0 } or { Height: <= 0 })
+                    throw new InvalidOperationException($"The source editor has no usable bounds: {editor.GetBounds()}.");
                 string source = editor.Text;
                 editor.ReplaceRange(new((ulong)source.Length, (ulong)source.Length), source, "\r// Unsaved edit");
             });
@@ -105,6 +107,27 @@ internal sealed partial class DesignerApplication
             });
             await Ready();
             await Check(() => Dirty && editor.Text == saved, "Native editing repairs an invalid file and refreshes its hierarchy.");
+            const string diagnosticSource = "component Diagnostic { view { Text(MissingValue); } }";
+            await Ui(() =>
+            {
+                string source = editor.Text;
+                editor.ReplaceRange(new(0, (ulong)source.Length), source, diagnosticSource);
+            });
+            await Until(() => diagnosticNavigator.IsCurrent && diagnostics.Text.Contains("CS0103", StringComparison.Ordinal));
+            await Ui(diagnosticNavigator.Layout.Next.Invoke);
+            await Check(() => editor.Selection.Start == (ulong)diagnosticSource.IndexOf("MissingValue", StringComparison.Ordinal) &&
+                workspace.Hierarchy.Selection?.Kind == "Text" && diagnostics.GetBounds().Height >= 60,
+                "The integrated diagnostic toolbar selects the exact compiler location and matching hierarchy control.");
+            bool stalePreserved = false;
+            await Ui(() =>
+            {
+                string source = editor.Text;
+                editor.ReplaceRange(new(0, 0), source, "// shifted\r");
+                var selection = editor.Selection;
+                diagnosticNavigator.Move();
+                stalePreserved = editor.Selection == selection && !diagnosticNavigator.IsCurrent;
+            });
+            await Check(() => stalePreserved, "Source changes invalidate diagnostic navigation before another compile result arrives.");
             Console.WriteLine($"Designer application file/recovery assertions: {assertions} passed.");
         }
         finally { window.Post(window.Close); }

@@ -44,7 +44,9 @@ component DesignerLayout {
                 Content(Inspector, column: 2);
             }
             Text("Ready", ref: Status, id: "designer-status");
-            Content(Diagnostics, preferredSize: (400, 100));
+            Grid("Diagnostics", preferredSize: (400, 140)) {
+                Content(Diagnostics);
+            }
         }
     }
 }

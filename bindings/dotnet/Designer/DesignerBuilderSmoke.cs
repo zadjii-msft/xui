@@ -27,6 +27,7 @@ internal static class DesignerBuilderSmoke
             {
                 editor.Text = fixture;
                 workspace.SourceChanged();
+                view.Render.Invoke();
             });
             await Ready();
             await Check(() => editor.GetBounds().Width >= 150 && editor.GetBounds().Height >= 150 &&
@@ -145,6 +146,7 @@ internal static class DesignerBuilderSmoke
                     }
                     """;
                 workspace.SourceChanged();
+                view.Render.Invoke();
             });
             await Ready();
             await Ui(() =>
@@ -172,6 +174,7 @@ internal static class DesignerBuilderSmoke
             {
                 editor.Text = "component OneLine { view { VStack() { Text(\"Single\"); } } }";
                 workspace.SourceChanged();
+                view.Render.Invoke();
             });
             await Ready();
             await Ui(workspace.Inspector.Layout.Insert.Invoke);
@@ -185,6 +188,7 @@ internal static class DesignerBuilderSmoke
                 editor.Text = "component UnicodeLabel { view { VStack() { Text(\"" +
                     new string('x', 45) + "\U0001F600" + new string('y', 10) + "\"); } } }";
                 workspace.SourceChanged();
+                view.Render.Invoke();
             });
             await Ready();
             await Ui(() =>
@@ -198,6 +202,7 @@ internal static class DesignerBuilderSmoke
             {
                 editor.Text = "component Nested { view { VStack() { HStack() { VStack() { Text(\"Deep\"); } } } } }";
                 workspace.SourceChanged();
+                view.Render.Invoke();
             });
             await Ready();
             await Ui(() =>
