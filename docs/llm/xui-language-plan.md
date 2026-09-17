@@ -79,6 +79,14 @@ Unwrapping refuses conflicting child placement, wrapper configuration, identity 
 `Program.Wrapping.cs` covers these rules, raw and verbatim strings, native CR selection, root changes, and fixed-arity parents.
 The grouping tranche passed 1,402 source assertions, 41,813 generator assertions, and a managed Designer build on September 16, 2026.
 
+`Emitter.Map(Expression)` emits enhanced `#line` spans only for unchanged authored source slices.
+Generated-prefix offsets keep inline Grid constructors and Stack flex expressions accurate.
+Grid track tuples emit each authored expression under a separate mapping.
+Synthesized expressions and columns beyond the directive limit retain the original line-only mapping.
+`Program.Diagnostics.cs` checks exact UTF-16 start and end locations, line endings, nested expressions, raw strings, and long-source compatibility.
+It links the unchanged `PreviewCompiler.cs` to check actual preview diagnostic text.
+The diagnostic tranche passed 1,561 source assertions, 41,813 generator assertions, 78 designer compiler assertions, and a managed Designer build on September 16, 2026.
+
 ## Goal
 
 Developers author a retained XUI application with a small declarative language.

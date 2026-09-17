@@ -78,15 +78,36 @@ public sealed class XuiGenerator : IIncrementalGenerator
 
 internal sealed class Emitter(Component component, string path, SourceText source)
 {
+    private const int MaximumLineDirectiveColumn = 65536;
     internal List<ParseError> Errors { get; } = [];
     private readonly StringBuilder output = new();
     private readonly List<Node> nodes = [];
     private readonly List<Binding> bindings = [];
     private readonly StyleCompiler styling = new(component);
-    private sealed record Binding(string Name, int Node, string Type, string Setter, Expression Value, string[] Dependencies);
+    private sealed record Binding(string Name, int Node, string Type, string Setter, Expression Value, string[] Dependencies,
+        IReadOnlyList<Expression>? TupleItems = null);
     private void Line(string value = "") => output.AppendLine(value);
     // #line filenames do not interpret backslash escapes like C# string expressions.
     private void Map(int offset) => Line($"#line {source.Lines.GetLineFromPosition(Math.Clamp(offset, 0, source.Length)).LineNumber + 1} \"{path}\"");
+    private void Map(Expression value, int generatedOffset = 0)
+    {
+        if (value.Text.Length == 0 || value.Offset < 0 || value.Offset > source.Length - value.Text.Length ||
+            source.ToString(new TextSpan(value.Offset, value.Text.Length)) != value.Text)
+        {
+            Map(value.Offset);
+            return;
+        }
+        var start = source.Lines.GetLinePosition(value.Offset);
+        var end = source.Lines.GetLinePosition(value.Offset + value.Text.Length - 1);
+        if (start.Character >= MaximumLineDirectiveColumn || end.Character >= MaximumLineDirectiveColumn)
+        {
+            Map(value.Offset);
+            return;
+        }
+        // The generated offset is zero-based, but the directive represents zero by omission.
+        string offset = generatedOffset == 0 ? "" : generatedOffset + " ";
+        Line($"#line ({start.Line + 1},{start.Character + 1})-({end.Line + 1},{end.Character + 1}) {offset}\"{path}\"");
+    }
     private void Unmap() => Line("#line default");
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value, true);
     private static string Type(Node node) => node.Kind switch
@@ -205,7 +226,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 "(global::Xui.GridTrack[] Rows, global::Xui.GridTrack[] Columns)",
                 $"__xuiN{index}.SetTracks({{0}}.Rows, {{0}}.Columns)",
                 new($"({rows.Text}, {columns.Text})", rows.Offset),
-                Dependencies(rows).Concat(Dependencies(columns)).Distinct().ToArray()));
+                Dependencies(rows).Concat(Dependencies(columns)).Distinct().ToArray(), [rows, columns]));
         }
         if (node.Kind == "DataGrid" && node.Arguments.ContainsKey("columns"))
             Bind("columns", "global::Xui.GridColumn[]", "SetColumns({0})", "[]");
@@ -294,7 +315,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         {
             Map(state.Offset);
             Line($"private {state.Type} __xuiState_{state.Name.TrimStart('@')} =");
-            Map(state.Initializer.Offset);
+            Map(state.Initializer);
             Line(state.Initializer.Text + ";");
             Unmap();
             Map(state.Offset);
@@ -360,14 +381,15 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             if (node.Kind == "Content")
             {
                 Line($"__xuiN{i} =");
-                Map(node.Arguments["value"].Offset);
+                Map(node.Arguments["value"]);
                 Line(node.Arguments["value"].Text + ";");
                 Unmap();
                 Line($"global::System.ArgumentNullException.ThrowIfNull(__xuiN{i});");
             }
             else
             {
-                Map(node.Arguments.GetValueOrDefault("value")?.Offset ?? node.Offset);
+                if (node.Kind == "Grid") Map(node.Arguments["value"], $"__xuiN{i} = window.Grid(".Length);
+                else Map(node.Arguments.GetValueOrDefault("value")?.Offset ?? node.Offset);
                 Line($"__xuiN{i} = window.{create};");
                 Unmap();
             }
@@ -386,7 +408,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                     {
                         var value = child.Arguments.GetValueOrDefault(key) ?? new Expression(key.EndsWith("Span") ? "1" : "0", child.Offset);
                         Line($"int __xuiP{childIndex}_{key} =");
-                        Map(value.Offset);
+                        Map(value);
                         Line(value.Text + ";");
                         Unmap();
                         Line($"if (__xuiP{childIndex}_{key} < {(key.EndsWith("Span") ? 1 : 0)}) throw new global::System.ArgumentOutOfRangeException(\"{key}\");");
@@ -395,8 +417,10 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 }
                 else
                 {
-                    Map(child.Arguments.GetValueOrDefault("flex")?.Offset ?? child.Offset);
-                    Line($"__xuiN{i}.Add(__xuiN{childIndex}, {child.Arguments.GetValueOrDefault("flex")?.Text ?? "0"});");
+                    var flex = child.Arguments.GetValueOrDefault("flex") ?? new Expression("0", child.Offset);
+                    string prefix = $"__xuiN{i}.Add(__xuiN{childIndex}, ";
+                    Map(flex, prefix.Length);
+                    Line(prefix + flex.Text + ");");
                     Unmap();
                 }
             }
@@ -427,9 +451,23 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Line($"private void {binding.Name}()");
             Line("{");
             Line($"{binding.Type} __xuiValue =");
-            Map(binding.Value.Offset);
-            Line(binding.Value.Text + ";");
-            Unmap();
+            if (binding.TupleItems is { } items)
+            {
+                Line("(");
+                for (int i = 0; i < items.Count; i++)
+                {
+                    Map(items[i]);
+                    Line(items[i].Text + (i + 1 < items.Count ? "," : ""));
+                    Unmap();
+                }
+                Line(");");
+            }
+            else
+            {
+                Map(binding.Value);
+                Line(binding.Value.Text + ";");
+                Unmap();
+            }
             string equal = binding.Type.EndsWith("[]")
                 ? $"global::System.Linq.Enumerable.SequenceEqual({binding.Name}_last, __xuiValue)"
                 : binding.Name.EndsWith("_tracks")
@@ -451,13 +489,13 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 string arg = key == "change" ? (nodes[i].Kind == "Toggle" ? "bool __xuiValue" : "string __xuiValue") : "";
                 Line($"private void __xuiEvent{i}_{key}({arg})");
                 Line("{");
-                Map(handler.Offset);
+                Map(handler);
                 Line(handler.Text + "(" + (arg.Length == 0 ? "" : "__xuiValue") + ");");
                 Unmap();
                 Line("}");
             }
         }
-        Map(component.Code.Offset);
+        Map(component.Code);
         Line(component.Code.Text);
         Unmap();
         Line("}");

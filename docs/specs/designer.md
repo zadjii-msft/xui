@@ -89,6 +89,18 @@ Compiler-invalid documents and compiler-invalid edits return an actionable `Erro
 Cancellation propagates as `OperationCanceledException`.
 The model supports self-contained components, including required parameters, but does not load code-behind or project dependencies.
 
+### Diagnostic locations
+
+C# diagnostics for unchanged authored expressions retain their source line, UTF-16 column, and expression range.
+This mapping includes positional and named arguments, handlers, placement, state initializers, and embedded C#.
+Grid track expressions retain separate mappings inside the generated tuple.
+The generator uses enhanced C# `#line` directives without changes to the XUI grammar.
+
+Synthesized expressions retain a source-line fallback instead of an invented exact column.
+Ordinary generator input beyond the enhanced directive column limit also retains the source-line fallback.
+These fallbacks do not reject otherwise valid source.
+The preview compiler displays one-based line and column positions from these mappings.
+
 ### Property and structure limits
 
 `SetArgument` accepts one complete C# expression.

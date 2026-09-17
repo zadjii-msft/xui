@@ -39,6 +39,7 @@ internal static partial class Program
         {
             NativeLibrary.SetDllImportResolver(typeof(Xui.Window).Assembly, (_, _, _) =>
                 throw new InvalidOperationException("Source tests must never load native XUI."));
+            TestDiagnosticColumns();
             TestSpans();
             TestEmbeddedCSharp();
             TestInvalidSource();
