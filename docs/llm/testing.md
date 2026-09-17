@@ -61,6 +61,18 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### Swap chain host input
+
+`tests\swap_chain_input_tests.cpp` uses a fixture-owned HWND and its normal XUI message loop.
+It checks native Tab, Shift+Tab, and PageDown delivery after the explicit input opt-in.
+Application F6 and Shift+F6 handlers move focus out of and back into the panel.
+With the opt-in disabled, ordinary Tab traversal skips the panel.
+Modifier changes affect only the fixture thread's keyboard state and are restored after the test.
+The test does not inject desktop-wide input or prove terminal text composition.
+
+`tests\swap_chain_abi_tests.cpp` checks graphics-host handles, metrics, callback errors, owner-thread guards, and teardown.
+`tests\swap_chain_panel_tests.cpp` checks the native compositor with owned-window pixel capture.
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.
