@@ -140,15 +140,21 @@ Mode and tab changes detach obsolete native sources and cancel pending work.
 Space opens an independent preview window for one selected item in Details or Columns view.
 The context menu contains **Preview**. The command palette contains **Preview selected item**.
 Preview does not open the file through its association.
-The **Open** button performs that separate action. **Open folder** uses the Windows Shell, without an originating pane.
+The titlebar **Open** button performs that separate action. **Open folder** uses the Windows Shell, without an originating pane.
 
-Escape, **Close preview**, or the caption Close button closes only that preview.
+The titlebar contains the filename, Open glyph, and normal Windows caption controls.
+The content starts directly below it, without a second filename or Close row.
+Escape or the caption Close button closes only that preview.
 Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open, Windows preview, or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
 It retains the native document control because ordinary labels do not support text selection.
 The Open button uses the Open glyph and retains its accessible name.
+Each HWND has small and large file-type icons for Windows taskbar and window-switching surfaces.
+Eligible files use their extension's association icon without access to the target file.
+Restricted and unknown-origin targets retain stock document or folder icons, without association or provider calls.
+Window closure releases the icon handles. DPI changes replace them with the corresponding sizes.
 Explorer shortcuts and mouse history navigation continue to work in the Explorer window.
 Preview windows do not route shortcuts to Explorer.
 Space in Find or another text input retains its text-input behavior.
@@ -182,7 +188,7 @@ Basic preview does not execute documents, media, or web content.
 Restricted or unknown-origin paths show generic metadata before text or WIC decoding.
 Preview metadata uses retained vector icons, not `ShellSource`, because the pathname thumbnail API cannot retain a checked file identity.
 
-**Open Windows preview** explicitly requests an installed preview handler in a separate broker-owned window.
+The footer's **Open Windows preview** action explicitly requests an installed preview handler in a separate broker-owned window.
 Space never starts this helper. The basic preview stays open and available.
 The action discloses that third-party handlers can access files and network resources.
 Unsupported formats, missing providers, initialization errors, and timeouts leave basic preview available.
