@@ -10,6 +10,7 @@ internal static class Tests
         {
             if (args is ["--multiwindow"]) { MultiWindowTests.Run(); return 0; }
             StylingTests.Definitions();
+            if (args is ["--shell-preview"]) { ShellPreviewTests.Run(); return 0; }
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }

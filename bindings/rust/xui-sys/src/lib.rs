@@ -2,6 +2,8 @@
 use std::ffi::c_void;
 mod features;
 pub use features::*;
+mod shell_preview;
+pub use shell_preview::*;
 pub type Handle = u64;
 pub type Status = i32;
 pub const ABI_VERSION: u32 = 0x10000;

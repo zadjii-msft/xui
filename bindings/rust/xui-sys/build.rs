@@ -25,7 +25,7 @@ fn main() {
                 bundled
             }
         });
-    for name in ["xui.lib", "xui.dll"] {
+    for name in ["xui.lib", "xui.dll", "xui_preview_host.exe"] {
         let asset = lib.join(name);
         assert!(
             asset.is_file(),
@@ -43,4 +43,5 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=xui");
     println!("cargo:runtime_dir={}", lib.display());
     println!("cargo:runtime_dll={}", lib.join("xui.dll").display());
+    println!("cargo:preview_host={}", lib.join("xui_preview_host.exe").display());
 }

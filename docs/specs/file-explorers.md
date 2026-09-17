@@ -144,7 +144,7 @@ The **Open** button performs that separate action. **Open folder** uses the Wind
 
 Escape, **Close preview**, or the caption Close button closes only that preview.
 Tab moves between preview controls. Enter activates a focused button.
-A held Space cannot activate the preview's Open or Close button.
+A held Space cannot activate the preview's Open, Windows preview, or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
 It retains the native document control because ordinary labels do not support text selection.
@@ -159,8 +159,8 @@ The preview supports these content types:
 | --- | --- |
 | Text and code | Selectable, borderless text for common text, source, configuration, and extensionless files |
 | Images | PNG, JPEG, BMP, GIF, TIFF, and WebP through installed WIC codecs |
-| Folders | Large Shell icon, name, file type, modification date, and an uncalculated-size field |
-| Other formats | Large Shell thumbnail or icon, name, file type, size, and modification date |
+| Folders | Large generic vector icon, name, file type, modification date, and an uncalculated-size field |
+| Other formats | Large generic vector icon, name, file type, size, and modification date |
 
 The metadata view does not scan folders recursively or report their size as zero.
 File sizes include a readable unit and the exact byte count.
@@ -178,7 +178,18 @@ Images use a 1,024-by-1,024-pixel decode box and preserve their aspect ratio.
 The [image contract](images.md) defines file-size limits, shared memory budgets, codec support, and orientation restrictions.
 The image control displays its own loading and decode errors.
 The decode limit belongs to the shared image service. The preview does not display it as a warning.
-The preview does not support PDF rendering, Office preview handlers, media playback, or web content.
+Basic preview does not execute documents, media, or web content.
+Restricted or unknown-origin paths show generic metadata before text or WIC decoding.
+Preview metadata uses retained vector icons, not `ShellSource`, because the pathname thumbnail API cannot retain a checked file identity.
+
+**Open Windows preview** explicitly requests an installed preview handler in a separate broker-owned window.
+Space never starts this helper. The basic preview stays open and available.
+The action discloses that third-party handlers can access files and network resources.
+Unsupported formats, missing providers, initialization errors, and timeouts leave basic preview available.
+No-handler results stay quiet. Real failures show a reason, phase, and HRESULT.
+Closing the broker window does not close the basic preview.
+Closing the basic preview revokes delivery and retires only its owned helper.
+See [installed Windows previews](shell-preview.md) for exact eligibility, architecture, security, and cleanup limits.
 
 Each preview captures its own immutable target and creates its own controls and cancellation scope.
 Selection, navigation, tab changes, and opener closure do not change or close an existing preview.

@@ -2,6 +2,9 @@
 #include "xui/native_edit.hpp"
 #include "native_document.hpp"
 #include "native_runtime_host.hpp"
+#include "native_preview_host.hpp"
+#include "preview_session.hpp"
+#include "xui/shell_preview.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
 #include "platform.hpp"
@@ -52,6 +55,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::weak_ptr<Control> clear_owner;
         std::unique_ptr<NativeDocumentBridge> document;
         std::unique_ptr<NativeRuntimeHost> runtime;
+        std::unique_ptr<NativePreviewHost> preview;
         bool native() const { return edit || document; }
         std::unique_ptr<ListPeer> list;
         std::unique_ptr<ImagePeer> image;
@@ -92,6 +96,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             file_target.Reset();
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
             runtime.reset();
+            preview.reset();
             if (list) window = nullptr;
             if (window && IsWindow(window)) DestroyWindow(window);
             if (caption && IsWindow(caption)) DestroyWindow(caption);
@@ -199,6 +204,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto& task : tasks) task->cancel();
         for (const auto& peer : peers) {
             if (peer->runtime) peer->runtime->cancel_owner();
+            if (peer->preview) peer->preview->cancel_owner();
             if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
         }
         hide_tooltip();
@@ -644,6 +650,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             });
+        if (auto preview = std::dynamic_pointer_cast<ShellPreview>(peer->control))
+            peer->preview = std::make_unique<NativePreviewHost>(preview, peer->window,
+                [this] { return !closing; }, [this](bool reverse) { traverse(reverse); },
+                [] {}, [this] { fail(); });
         if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
             const std::weak_ptr<Impl> weak = shared_from_this();
             const std::weak_ptr<DataGrid> weak_grid = grid;
@@ -1382,6 +1392,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
                 static_cast<MapView&>(*peer->control).cancel_request();
+            if (peer->preview) {
+                peer->preview->sync(visible(*peer) && onscreen(*peer) && IsWindowVisible(window), dpi);
+                if (!window || closing) return;
+            }
             const bool tab_stop = control.focusable() && control.tab_stop() && !is_caption_button(control);
             const auto native_style = GetWindowLongPtrW(peer->window, GWL_STYLE);
             if (((native_style & WS_TABSTOP) != 0) != tab_stop)
@@ -2221,6 +2235,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto foundation_text = enabled(peer) ? palette.text : palette.disabled;
         const bool fluent = palette.style == VisualStyle::winui;
         const bool focus_visible = control.focused() && (!fluent || keyboard_focus_visible);
+        if (auto* preview = dynamic_cast<ShellPreview*>(&control)) {
+            canvas.text(
+                preview->status().state == PreviewState::loading ? L"Opening Windows preview..." :
+                preview->status().state == PreviewState::accepted ? L"Windows preview is open in a separate window." :
+                L"Windows preview uses installed third-party handlers in a separate window.",
+                {0, 0, bounds.width, bounds.height}, palette.secondary, true);
+            return;
+        }
         if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
             const auto area = runtime->visual_bounds();
             const auto* root_values = runtime->effective_control_style_values(StylePart::root);
@@ -4447,6 +4469,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_NCDESTROY:
             if (peer.file_target) { RevokeDragDrop(hwnd); peer.file_target.Reset(); }
             peer.runtime.reset();
+            peer.preview.reset();
             control.cancel();
             control.set_focused(false);
             disconnect_control(peer.accessibility, peer.provider);
@@ -4928,6 +4951,7 @@ void Window::close() {
     for (auto& task : impl->tasks) task->cancel();
     for (const auto& peer : impl->peers) {
         if (peer->runtime) peer->runtime->cancel_owner();
+        if (peer->preview) peer->preview->cancel_owner();
         if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
     }
     if (impl->window) win32_require(PostMessageW(impl->window, WM_CLOSE, 0, 0) != FALSE, "Close native window");
@@ -5138,6 +5162,8 @@ Application::~Application() {
     impl_->stop();
     for (const auto& weak : impl_->created)
         if (auto window = weak.lock()) window->teardown();
+    if (!impl_->drained && !preview::drain_sessions())
+        OutputDebugStringW(L"XUI: Preview helper retirement timed out during application destruction.\n");
     if (!impl_->drained && !NativeRuntimeHost::drain_shutdown())
         OutputDebugStringW(L"XUI: Native runtime shutdown timed out during application destruction.\n");
     impl_.reset();
@@ -5211,6 +5237,10 @@ int Application::run() {
     std::vector<std::function<void()>> removed;
     { std::lock_guard lock(self->mutex); self->posts_closed = true; removed.swap(self->posts); }
     self->drained = true;
+    if (!preview::drain_sessions()) {
+        self->record(L"Owned preview helper retirement did not complete within the shutdown deadline");
+        result = 1;
+    }
     if (!NativeRuntimeHost::drain_shutdown()) {
         self->record(L"Owned web runtime shutdown did not complete within thirty seconds");
         result = 1;
@@ -5262,11 +5292,14 @@ int Application::run(Window& window) {
             impl->teardown();
             impl->complete();
             shutdown_attempted = true;
+            if (!preview::drain_sessions())
+                throw std::runtime_error("Owned preview helper retirement did not complete within the shutdown deadline");
             if (!NativeRuntimeHost::drain_shutdown())
                 throw std::runtime_error("Owned web runtime shutdown did not complete within thirty seconds");
             return impl->failed ? 1 : result;
         } catch (...) {
             impl->teardown();
+            preview::drain_sessions();
             if (!shutdown_attempted) NativeRuntimeHost::drain_shutdown();
             if (impl->quit_posted) {
                 MSG quit{};

@@ -52,7 +52,7 @@ internal sealed class PreviewController(Application application, bool smoke) : I
     internal Image Image => Current!.Image;
     internal Button OpenButton => Current!.OpenButton;
     internal ElementBounds Bounds => Current!.Bounds;
-    internal Image MetadataIcon => Current!.MetadataIcon;
+    internal VectorCanvas MetadataIcon => Current!.MetadataIcon;
     internal string MetadataName => Current!.MetadataName;
     internal string MetadataKind => Current!.MetadataKind;
     internal string MetadataSize => Current!.MetadataSize;
