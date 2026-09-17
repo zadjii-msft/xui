@@ -59,6 +59,9 @@ internal static class Program
                             layout.Commands.GetBounds().X + layout.Commands.GetBounds().Width <=
                             layout.ToolbarHost.GetBounds().X + layout.ToolbarHost.GetBounds().Width,
                             "Command discovery has a visible, named toolbar action");
+                        Require(layout.GoToLine.Text == "Go to line" && layout.GoToLine.GetBounds().Width >= 80 &&
+                            layout.GoToLine.GetBounds().Y + layout.GoToLine.GetBounds().Height <= editor.GetBounds().Y,
+                            "Source location navigation has a visible, named action above the editor");
                         foreach (var panel in new[] { layout.HierarchyPanel, layout.InspectorPanel, layout.OutputPanel })
                         {
                             var style = panel.GetControlStyleValues(StylePart.Root, effective: true);

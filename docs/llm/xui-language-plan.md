@@ -29,6 +29,16 @@ The shell leaves pointer picking before opening the palette, then leaves popup k
 `Designer.CommandTests` exercises real native search input and both visual styles.
 The application selection smoke covers command shortcuts, file confirmation, and focus inside the inspector.
 
+`DesignerGoTo.cs` and `DesignerGoToLayout.xui` provide the native source-location dialog.
+The controller shares `DesignerDiagnostics.Locate` for UTF-16 line and column boundaries.
+It captures the source text and application revision when the dialog opens.
+Submission checks current field values, and the posted navigation checks the revision and source again after dismissal.
+Reopening or disposal cancels queued navigation.
+The application refreshes dialog validation after each revision change, including programmatic document replacement.
+The source-only Ctrl+G route leaves hierarchy grouping unchanged.
+`Designer.NavigationTests` covers native input, Enter/Escape, validation, exact caret positions, cancellation, stale revisions, and undo in both visual styles.
+The application selection smoke covers the header action, command palette, focus routing, pointer-mode exit, hierarchy synchronization, and retained preview state.
+
 `DesignerSourceIndentation.cs` handles Enter and leading-whitespace Tab shortcuts only in the focused source editor.
 It uses native range replacement for single-action undo and reports rejected edits through Output.
 The window's native key router excludes IME composition and modal dialogs before these shortcuts.

@@ -273,6 +273,7 @@ It covers draft selection, recovery copies, dirty-source protection, confirmed d
 The grouping UI test uses the production hierarchy and inspector with native source editing.
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
+It also covers the native Go to dialog in Classic and WinUI, Unicode boundaries, Enter/Escape, revision guards, cancellation, and undo.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
 It also covers Unicode word boundaries, single and bulk replacement, no-op edits, native undo and redo, and atomic length-limit errors.
 The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, retained preview state, and controls inside a narrow pane.
@@ -285,6 +286,7 @@ It also covers outline feedback for the selected control and immediate invalidat
 Source replacement also exercises hierarchy updates, preview compilation, and one-action undo through the complete application.
 Viewport checks cover exact Compact dimensions, retained preview versions and state, native picking, and a return to Fit.
 Command checks cover shortcut routing, pointer-mode exit, native dismissal, discard protection, and focus inside the scrollable inspector.
+Go to checks cover the header action, command palette, source-only shortcut, exact caret, hierarchy synchronization, and retained preview state.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
 The selection smoke checks exact native preview sizes after a dimension edit and its source undo.

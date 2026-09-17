@@ -78,7 +78,11 @@ component DesignerLayout {
                 }
                 SplitView("Source and live preview", ref: SourcePreview, column: 1) {
                     VStack(spacing: 6, padding: 6) {
-                        Text("Source", fontSize: 18, fontWeight: 600);
+                        HStack(spacing: 8) {
+                            Text("Source", fontSize: 18, fontWeight: 600, flex: 1);
+                            Button("Go to line", ref: GoToLine, id: "designer-go-to-line",
+                                help: "Go to a source line and column (Ctrl+G in source)");
+                        }
                         Content(Editor, flex: 1);
                     }
                     VStack(spacing: 6, padding: 6) {

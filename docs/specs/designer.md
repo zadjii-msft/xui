@@ -68,6 +68,24 @@ Unavailable commands appear disabled. Each action checks its availability again 
 File commands use the existing discard confirmation, file chooser, and disk-conflict checks.
 Command discovery does not replace source, clear undo, or rebuild the preview.
 
+**Go to line**, above the source editor, opens a native dialog for an exact source location.
+Ctrl+G opens the same dialog when the source editor has focus.
+The command palette includes **Source: Go to line and column**.
+Ctrl+G in the hierarchy retains its existing grouping action.
+Opening the dialog turns off **Pick controls**.
+
+The dialog starts with the current caret's line and column.
+Both fields accept positive whole numbers, without spaces or signs.
+Line and column numbers start at 1. Columns count UTF-16 code units, as compiler diagnostics do.
+The position after a line's last character is valid, including the last empty line.
+The dialog rejects missing lines, excessive columns, and positions inside a surrogate pair.
+
+Enter confirms a valid location. Escape or Cancel preserves the previous source selection.
+After confirmation, the dialog closes before the source caret moves and receives focus.
+Navigation updates the hierarchy when the current source model is available.
+It also works with syntax-invalid source and does not change text, native undo, or the live preview.
+A changed source revision cancels navigation, even if the source text later returns to its earlier value.
+
 Find starts collapsed.
 Ctrl+F opens a compact Find panel above the source editor and focuses its native field.
 F3 selects the next literal match, and Shift+F3 selects the previous match.
@@ -122,7 +140,7 @@ Keyboard and accessibility actions remain live.
 An outdated preview cannot select controls in newer source.
 Unsupported preview surfaces produce an explicit error and keep the previous mode.
 
-Selection from the hierarchy, Find, diagnostics, or preview also requests a preview outline.
+Selection from the hierarchy, Find, Go to line, diagnostics, or preview also requests a preview outline.
 The outline does not cover native controls or change their input behavior.
 The **Live preview** heading tooltip explains hidden, clipped, overlapping, and unsupported outlines.
 The **Pick controls** tooltip describes the current pointer mode.

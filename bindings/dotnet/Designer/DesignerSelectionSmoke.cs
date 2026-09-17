@@ -177,6 +177,49 @@ internal sealed partial class DesignerApplication
             await Until(() => !commandPalette.IsOpen);
             await Ui(() => Require(sourceSearch.Layout.FindOpen && sourceSearch.Layout.ReplaceOpen,
                 "Escape dismisses the command palette without closing the underlying Find panel."));
+            await Ui(() => view.Pick.Invoke());
+            await Until(() => pickControls);
+            await Ui(view.GoToLine.Invoke);
+            await Until(() => sourceGoTo.IsPending && !pickControls);
+            int destination = 0;
+            await Ui(() =>
+            {
+                destination = editor.Text.IndexOf("Find target", StringComparison.Ordinal) + 3;
+                var line = Microsoft.CodeAnalysis.Text.SourceText.From(editor.Text).Lines.GetLineFromPosition(destination);
+                sourceGoTo.Layout.Line.Text = (line.LineNumber + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                sourceGoTo.Layout.Column.Text = (destination - line.Start + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                sourceGoTo.Refresh();
+                sourceGoTo.View.Primary.Invoke();
+            });
+            await Until(() => !sourceGoTo.IsPending && editor.Focused);
+            await Ui(() =>
+            {
+                Require(editor.Selection == new TextSelection((ulong)destination, (ulong)destination) &&
+                    workspace.Hierarchy.Selection?.Kind == "Text",
+                    "Go to line leaves pointer picking and synchronizes the hierarchy without expanding the exact caret.");
+                Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Source navigation preserves the compiled preview and authored control state.");
+                view.Path.Focus();
+                Require(!window.KeyHandler!(new('G', KeyModifiers.Control, view.Path.Id)),
+                    "Ctrl+G in a different text field does not open source navigation.");
+                editor.Focus();
+                Require(window.KeyHandler!(new('G', KeyModifiers.Control, editor.Id)),
+                    "Ctrl+G in source opens the location dialog.");
+            });
+            await Until(() => sourceGoTo.IsPending);
+            await Ui(() => sourceGoTo.View.CancelButton.Invoke());
+            await Until(() => !sourceGoTo.IsPending);
+            await Ui(view.Commands.Invoke);
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.GoToLine));
+            await Until(() => sourceGoTo.IsPending);
+            await Ui(() =>
+            {
+                Require(!commandPalette.IsOpen && sourceGoTo.Layout.Line.Focused,
+                    "The Go to command opens its native dialog after the command palette closes.");
+                sourceGoTo.View.CancelButton.Invoke();
+            });
+            await Until(() => !sourceGoTo.IsPending);
             await Ui(() =>
             {
                 source = editor.Text;

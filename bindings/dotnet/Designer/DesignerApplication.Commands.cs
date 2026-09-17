@@ -8,6 +8,12 @@ internal sealed partial class DesignerApplication
         commandPalette.Show();
     }
 
+    private void ShowGoTo()
+    {
+        RequestPicking(false);
+        sourceGoTo.Show(view.GoToLine);
+    }
+
     private IReadOnlyList<DesignerCommand> DesignerCommands() =>
     [
         new(DesignerCommandId.New, "File: New from selected template", NewDocument, "Ctrl+N"),
@@ -19,6 +25,7 @@ internal sealed partial class DesignerApplication
         new(DesignerCommandId.Redo, "Source: Redo", () => SourceCommand(TextCommand.Redo), "Ctrl+Y"),
         new(DesignerCommandId.Find, "Source: Find text", () => sourceSearch.HandleKey(new('F', KeyModifiers.Control, editor.Id)), "Ctrl+F"),
         new(DesignerCommandId.Replace, "Source: Find and replace text", () => sourceSearch.HandleKey(new('H', KeyModifiers.Control, editor.Id)), "Ctrl+H"),
+        new(DesignerCommandId.GoToLine, "Source: Go to line and column", ShowGoTo, "Ctrl+G in source"),
         new(DesignerCommandId.SelectFromCaret, "Selection: Select control from source caret", workspace.SelectFromCaret, "Ctrl+Shift+L",
             () => workspace.IsCurrent),
         new(DesignerCommandId.FocusSource, "Focus: Source editor", () => editor.Focus()),
