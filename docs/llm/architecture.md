@@ -26,6 +26,9 @@ The producer owns buffer resizing and presentation.
 The handle path imports composition surfaces for renderers such as Windows Terminal's Atlas engine.
 The [public contract](../specs/swap-chain-panel.md) separates graphics hosting from the future terminal input and accessibility adapter.
 `demo\swap_chain.cpp` and `tests\swap_chain_panel_tests.cpp` exercise native composition without a terminal dependency.
+`src\c_api_swap_chain.inc` exposes graphics attachment and metrics through the C ABI.
+`bindings\dotnet\Xui\SwapChainPanel.cs` uses the existing scoped subscription trampoline, including NativeAOT callback ownership.
+`tests\swap_chain_abi_tests.cpp` covers malformed queries, thread affinity, native peer lifetime, and callback failures.
 
 `demo\browser.cpp` builds the tabs, panes, address fields, lists, status labels, shortcuts, and menus through public APIs.
 `demo\explorer_state.hpp` contains bounded history and tab state without a window dependency.

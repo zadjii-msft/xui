@@ -42,6 +42,7 @@ Fields belong in `state` declarations.
 Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, and `SplitView`.
 Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
+`SwapChainPanel` is a Windows-only graphics leaf. Its generated reference exposes the [native graphics contract](swap-chain-panel.md).
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.

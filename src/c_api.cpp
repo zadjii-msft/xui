@@ -10,6 +10,8 @@
 #include "xui/data_grid.hpp"
 #include "xui/titlebar.hpp"
 #include "xui/menu_bar.hpp"
+#include "xui/swap_chain_panel.hpp"
+#include "xui/xui_swap_chain.h"
 #include "xui/styling.hpp"
 #include "abi_callbacks.hpp"
 #include <bit>
@@ -301,6 +303,10 @@ void wire(const std::shared_ptr<Node>& n) {
             dispatch(weak, XUI_FOCUS_ENTERED);
         });
     switch (n->kind) {
+    case XUI_SWAP_CHAIN_PANEL:
+        as<xui::SwapChainPanel>(n).on_metrics_changed([weak](const xui::SwapChainPanelMetrics&) {
+            dispatch(weak, XUI_VIEW);
+        }); break;
     case XUI_WINDOW:
         n->owner->window->on_key([weak](const xui::KeyEvent& e) {
             if (auto node = weak.lock(); node && node->key_handler && !node->owner->callback_failure) {
@@ -597,6 +603,7 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
         case XUI_TEXT_INPUT: element = std::make_shared<xui::TextInput>(std::move(text)); break;
         case XUI_FILE_LIST: element = std::make_shared<xui::FileList>(std::move(text)); break;
         case XUI_IMAGE: element = std::make_shared<xui::Image>(std::move(text)); break;
+        case XUI_SWAP_CHAIN_PANEL: element = std::make_shared<xui::SwapChainPanel>(std::move(text)); break;
         case XUI_SCROLL_VIEW:
             child = get(content); same(n, child);
             content_topology(child);
@@ -1333,3 +1340,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 #include "c_api_file_transfer.inc"
 #include "c_api_content.inc"
 #include "c_api_file_dialog.inc"
+#include "c_api_swap_chain.inc"

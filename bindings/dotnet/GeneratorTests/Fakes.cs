@@ -27,6 +27,7 @@ public class Window
     public SelectorBar SelectorBar(string text) => Add(new SelectorBar());
     public InfoBadge InfoBadge(string text) => Add(new InfoBadge());
     public MenuBar MenuBar(string text) => Add(new MenuBar());
+    public SwapChainPanel SwapChainPanel(string text) => Add(new SwapChainPanel());
     public Grid Grid(string name) => Add(new Grid { Name = name });
     public DataGrid DataGrid(string name) => Add(new DataGrid());
     public ItemsView ItemsView(string name) => Add(new ItemsView());
@@ -93,6 +94,7 @@ public abstract class Control : Element
     public bool IsVisible = true;
 }
 public sealed class Label : Control;
+public sealed class SwapChainPanel : Control;
 public class Button : Control
 {
     private ButtonStyle? style;

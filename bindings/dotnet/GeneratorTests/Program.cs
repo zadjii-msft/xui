@@ -64,6 +64,10 @@ internal static partial class Program
         """;
     private static void Main()
     {
+        var (_, swapChainCompilation) = Generate(new File(@"C:\fixture\Surface.xui",
+            """component Surface { view { VStack() { SwapChainPanel("Terminal", ref: Display, id: "terminal", flex: 1); } } }"""));
+        Assert(!swapChainCompilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
+            string.Join("\n", swapChainCompilation.GetDiagnostics()));
         TestButtonIconContract();
         TestPortableStyleCatalog();
         TestExecution();

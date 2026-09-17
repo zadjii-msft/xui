@@ -2,8 +2,9 @@
 
 `SwapChainPanel` embeds an application-owned DirectX surface in XUI layout.
 It uses DirectComposition, not a bitmap copy or a child application window.
-This Windows-only C++ API is in `include\xui\swap_chain_panel.hpp`.
-The C ABI, C#, Rust, and declarative `.xui` do not expose this control.
+The Windows-only C++ API is in `include\xui\swap_chain_panel.hpp`.
+The C ABI is in `include\xui\xui_swap_chain.h`.
+C# and declarative `.xui` expose the control. Rust has no typed wrapper.
 Build and sample commands are in [CONTRIBUTING](../../CONTRIBUTING.md#swap-chain-sample).
 
 ## Attach a renderer
@@ -51,6 +52,22 @@ It displays a rainbow triangle that rotates around its Y axis, with perspective,
 Its frame scheduler permits at most one pending UI callback and stops while the panel is hidden.
 
 ## Size and visibility
+
+C# creates a panel through `Window.SwapChainPanel(name)`.
+`SetSwapChain(nint)` accepts the COM pointer. `SetSurfaceHandle(nint)` accepts the composition surface handle.
+`Metrics` returns physical dimensions, rasterization scale, and visibility.
+`MetricsChanged` uses the existing window-owned, content-scoped callback lifetime and error contract.
+`NativeWindow` returns the borrowed child HWND.
+
+The declarative leaf `SwapChainPanel("Terminal", ref: Display, flex: 1)` supports common control and layout arguments.
+The C# controller uses the generated `Display` property for graphics operations and event subscriptions.
+Markup does not store native pointers or handles.
+
+The C ABI creates `XUI_SWAP_CHAIN_PANEL` through `xui_create`.
+`xui_subscribe` reports changed metrics with `XUI_VIEW`.
+The callback reads `xui_swap_chain_get_metrics`, with its structure size initialized.
+Native errors return an explicit status and `xui_error_copy` message.
+Managed exceptions follow the existing callback-error path. They do not cross the unmanaged boundary.
 
 `metrics()` returns the current `SwapChainPanelMetrics`.
 `pixel_width` and `pixel_height` describe the full native client area, not its visible scroll intersection.
