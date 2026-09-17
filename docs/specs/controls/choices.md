@@ -112,6 +112,109 @@ The style target is `radio_group`.
 Item surfaces, labels, radio indicators, and selected dots share virtual row geometry.
 Item selection and disabled states do not become independent child controls.
 
+## SelectorBar
+
+Use `SelectorBar` for one selection in a horizontal row.
+It derives from RadioGroup and uses the same stable ChoiceItem IDs.
+The items remain virtual entries, not separate retained Buttons.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component SortSelector {
+    state (global::Xui.Choice[] Items, ulong? Selected) Options =
+        (new global::Xui.Choice[] { new(1, "Name"), new(2, "Date") }, 1UL);
+    view {
+        VStack() {
+            SelectorBar("Sort order", items: Options.Items,
+                selected: Options.Selected, change: ChangeOrder);
+        }
+    }
+    code csharp {
+        void ChangeOrder(ulong value) => Options = (Options.Items, value);
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var status = window.Label("Name order");
+var choices = window.SelectorBar("Sort order")
+    .SetItems([new(1, "Name"), new(2, "Date")], 1);
+choices.Changed += id => status.Text = id == 1 ? "Name order" : "Date order";
+root.Add(choices).Add(status);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let status = window.label("Name order")?;
+let choices = window.selector_bar("Sort order")?;
+choices.set_items(&[
+    Choice { id: 1, text: "Name".into(), enabled: true, version: 0 },
+    Choice { id: 2, text: "Date".into(), enabled: true, version: 0 },
+], Some(1))?;
+let output = status.downgrade();
+choices.on_change(move |id| {
+    if let Some(output) = output.upgrade() {
+        output.set_text(if id == 1 { "Name order" } else { "Date order" })?;
+    }
+    Ok(())
+})?;
+root.add(&choices, 0.0)?;
+root.add(&status, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto status = std::make_shared<xui::Label>(L"Name order");
+auto choices = std::make_shared<xui::SelectorBar>(L"Sort order");
+choices->set_items({{1, L"Name"}, {2, L"Date"}}, 1);
+choices->on_change([status](std::uint64_t id) {
+    status->set_text(id == 1 ? L"Name order" : L"Date order");
+});
+root->add(choices);
+root->add(status);
+```
+
+{% endtab %}
+{% endtabs %}
+
+`set_items` replaces the items and selected ID as one snapshot.
+`set_selected` changes the property silently. `select` performs a semantic selection and reports a change.
+The selected ID must identify an enabled item.
+IDs must be nonzero, unique, and at most `INTPTR_MAX - 100`. The limit is 4,096 items.
+
+Without an explicit selected ID, a new snapshot preserves a surviving enabled selection.
+Otherwise, it selects the first enabled item.
+An empty or all-disabled snapshot has no selection.
+The selection getter can return absence, but `set_selected` requires an ID.
+There is no clear-selection setter. An empty snapshot removes the selection.
+
+Selecting the current ID emits no change event.
+The bindings return an error for semantic selection on a disabled control.
+
+The style target is `choice_list`, not a new SelectorBar target.
+It supplies item surfaces, text, and a selection marker in horizontal geometry.
+
+UIA exposes a List with SelectionItem children.
+The items do not expose a Toggle pattern.
+The bar has one Tab stop.
+Narrow widths reveal the selected overflow choice.
+Horizontal arrows, Home, End, and prefix input select enabled choices.
+
+The `.xui` compiler applies `items` and `selected` together.
+A tuple state keeps joint reactive replacements in one update.
+Two separate state assignments refresh immediately and can expose an invalid intermediate selection.
+The [language contract](../xui-language.md#checkbox-links-selectors-badges-and-menu-bars) describes these arguments.
+
 ## ChoiceList
 
 ChoiceList is the list presentation of `RadioGroup`.
@@ -558,65 +661,48 @@ Use a RangeInput for editable progress-like values.
 {% tabs %}
 {% tab title=".xui" %}
 
-`Progress` has no markup constructor.
-This component requires C# progress controls from the same window, without existing parents.
-The binding has no capacity setter. A separate label supplies the used and total values.
+The capacity recipe uses a generated reference and a C# setter.
 
 ```text
 namespace ControlExamples;
 component ImportProgress {
-    param global::Xui.Progress Task;
-    param global::Xui.Progress Capacity;
     view {
         VStack() {
-            Content(Task);
-            Content(Capacity);
-            Text("Storage: 40 of 100 GB");
+            Progress("Import progress", currentValue: 40,
+                progressState: global::Xui.ProgressState.Determinate);
+            Progress("Storage capacity", ref: Capacity);
         }
     }
 }
 ```
 
-C# constructs both measurements:
-
 ```csharp
-var task = window.Progress("Import progress").SetRange(new(0, 100))
-    .SetValue(40).SetState(ProgressState.Determinate);
-var capacity = window.Progress("Storage capacity: 40 of 100 GB")
-    .SetRange(new(0, 100)).SetValue(40).SetState(ProgressState.Determinate);
-var view = new ControlExamples.ImportProgress(window, task, capacity);
+var view = new ControlExamples.ImportProgress(window);
+view.Capacity.SetCapacity(40, 100, "GB");
 ```
 
 {% endtab %}
 {% tab title="C#" %}
 
-The binding has no capacity setter. A separate label supplies the used and total values.
-
 ```csharp
 var task = window.Progress("Import progress").SetRange(new(0, 100))
     .SetValue(40).SetState(ProgressState.Determinate);
-var capacity = window.Progress("Storage capacity: 40 of 100 GB")
-    .SetRange(new(0, 100)).SetValue(40).SetState(ProgressState.Determinate);
-root.Add(task).Add(capacity).Add(window.Label("Storage: 40 of 100 GB"));
+var capacity = window.Progress("Storage capacity").SetCapacity(40, 100, "GB");
+root.Add(task).Add(capacity);
 ```
 
 {% endtab %}
 {% tab title="Rust" %}
-
-The binding has no capacity setter. A separate label supplies the used and total values.
 
 ```rust
 let task = window.progress("Import progress")?;
 task.set_range(NumericRange { minimum: 0.0, maximum: 100.0, small_step: 1.0, large_step: 10.0 })?;
 task.set_value(40.0)?;
 task.set_state(ProgressState::Determinate)?;
-let capacity = window.progress("Storage capacity: 40 of 100 GB")?;
-capacity.set_range(NumericRange { minimum: 0.0, maximum: 100.0, small_step: 1.0, large_step: 10.0 })?;
-capacity.set_value(40.0)?;
-capacity.set_state(ProgressState::Determinate)?;
+let capacity = window.progress("Storage capacity")?;
+capacity.set_capacity(40.0, 100.0, "GB")?;
 root.add(&task, 0.0)?;
 root.add(&capacity, 0.0)?;
-root.add(&*window.label("Storage: 40 of 100 GB")?, 0.0)?;
 ```
 
 {% endtab %}
@@ -637,12 +723,91 @@ root->add(capacity);
 {% endtabs %}
 
 `paused`, `error`, `unknown`, and `indeterminate` describe other states.
-Indeterminate progress is static. It has no progress animation or ring.
+Indeterminate progress animates while attached, visible, and effectively enabled.
+The window-owned timer stops without eligible controls, including hidden or minimized windows.
+The system client-area animation preference suppresses motion without changing the state.
+Unknown, paused, error, and determinate states remain static.
 Capacity text describes used and total values without an active-task claim.
+`set_capacity` selects determinate state and requires finite values with `0 <= used <= total` and a positive total.
 
 The style target is `progress`.
 Caption, track, and fill styles do not alter the value.
 There is no action callback or editable UIA value.
+The [foundation contract](../foundation-controls.md#progress-presentations-and-animation) defines animation ownership and lifecycle.
+
+## ProgressRing
+
+Use `ProgressRing` for task status in a circular presentation.
+The native class derives from Progress and defaults to indeterminate state.
+An ordinary Progress still defaults to a determinate bar.
+The native preferred size is 48 by 48 DIPs.
+
+{% tabs %}
+{% tab title=".xui" %}
+
+```text
+namespace ControlExamples;
+component ImportRing {
+    view {
+        VStack() {
+            ProgressRing("Import activity");
+            ProgressRing("Import completion", currentValue: 40,
+                progressState: global::Xui.ProgressState.Determinate);
+        }
+    }
+}
+```
+
+{% endtab %}
+{% tab title="C#" %}
+
+```csharp
+var activity = window.ProgressRing("Import activity");
+var completion = window.ProgressRing("Import completion")
+    .SetRange(new(0, 100)).SetValue(40).SetState(ProgressState.Determinate);
+root.Add(activity).Add(completion);
+```
+
+{% endtab %}
+{% tab title="Rust" %}
+
+```rust
+let activity = window.progress_ring("Import activity")?;
+let completion = window.progress_ring("Import completion")?;
+completion.set_range(NumericRange {
+    minimum: 0.0, maximum: 100.0, small_step: 1.0, large_step: 10.0
+})?;
+completion.set_value(40.0)?;
+completion.set_state(ProgressState::Determinate)?;
+root.add(&activity, 0.0)?;
+root.add(&completion, 0.0)?;
+```
+
+{% endtab %}
+{% tab title="C++" %}
+
+```cpp
+auto activity = std::make_shared<xui::ProgressRing>(L"Import activity");
+auto completion = std::make_shared<xui::ProgressRing>(L"Import completion");
+completion->set_range(0, 100);
+completion->set_value(40);
+completion->set_state(xui::ProgressState::determinate);
+root->add(activity);
+root->add(completion);
+```
+
+{% endtab %}
+{% endtabs %}
+
+Range, value, paused/error/unknown states, and read-only accessibility follow Progress.
+Indeterminate and unknown states omit the UIA RangeValue pattern.
+The ring does not add a keyboard focus stop.
+The ring uses the same lifecycle-bound indeterminate animation and reduced-animation rules as the bar.
+The style target remains `progress`.
+Track and fill parts describe a circular track and arc rather than a linear track and segment.
+The ring retains its accessible name and value but has no visible caption.
+A separate Label can show task or capacity text.
+Styles do not change the progress state or request animation.
 
 ## Expander
 

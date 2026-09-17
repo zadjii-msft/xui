@@ -18,6 +18,8 @@ enum class TextTone { normal, secondary, accent, error };
 enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
     menu, home, folder, settings, search, library, history, bookmark, drive, open };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
+enum class CheckState { unchecked, checked, indeterminate };
+enum class InfoBadgeKind { dot, count, icon };
 struct MenuItem {
     // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.
     // Shortcut labels do not register application keyboard shortcuts.
@@ -172,7 +174,7 @@ private:
     TextTone tone_{};
 };
 
-class Button final : public Control {
+class Button : public Control {
 public:
     explicit Button(std::wstring text) : Control(ControlRole::button, std::move(text), {240, 40}) { set_auto_size(true); }
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
@@ -241,10 +243,22 @@ private:
     std::function<void()> click_;
 };
 
-class Toggle final : public Control {
+class ToggleButton final : public Button {
 public:
-    explicit Toggle(std::wstring text) : Control(ControlRole::toggle, std::move(text), {320, 36}) { set_auto_size(true); }
-    bool checked() const { return checked_; }
+    explicit ToggleButton(std::wstring text) : Button(std::move(text)) { set_behavior(ButtonBehavior::toggle); }
+};
+
+class HyperlinkButton final : public Button {
+public:
+    explicit HyperlinkButton(std::wstring name) : Button(std::move(name)) { set_appearance(ButtonAppearance::subtle); }
+};
+
+class Toggle : public Control {
+public:
+    explicit Toggle(std::wstring text) : Toggle(std::move(text), false) {}
+    bool switch_presentation() const { return switch_; }
+    bool checked() const { return state_ == CheckState::checked; }
+    bool indeterminate() const { return state_ == CheckState::indeterminate; }
     // Property updates do not invoke the application callback.
     void set_checked(bool checked);
     void on_change(std::function<void(bool)> callback) { change_ = std::move(callback); }
@@ -269,14 +283,57 @@ public:
     Rect content_bounds(Rect bounds) const;
     Rect label_bounds(Rect bounds) const;
 protected:
+    CheckState check_state() const { return state_; }
+    void set_check_state(CheckState state);
+    Toggle(std::wstring text, bool switch_presentation)
+        : Control(ControlRole::toggle, std::move(text), {320, 36}), switch_(switch_presentation) { set_auto_size(true); }
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::toggle; }
     StyleStateMask control_style_state_bits() const override {
-        return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
+        return Control::control_style_state_bits() | (state_ != CheckState::unchecked ? style_states::checked : 0);
     }
 private:
     void activate() override;
-    bool checked_{};
+    CheckState state_{CheckState::unchecked};
+    bool switch_{};
     std::function<void(bool)> change_;
+};
+
+class ToggleSwitch final : public Toggle {
+public:
+    explicit ToggleSwitch(std::wstring text) : Toggle(std::move(text), true) {}
+};
+
+class CheckBox final : public Toggle {
+public:
+    explicit CheckBox(std::wstring name) : Toggle(std::move(name)) {}
+    CheckState state() const { return check_state(); }
+    void set_state(CheckState value) { set_check_state(value); }
+    bool three_state() const { return three_state_; }
+    void set_three_state(bool value) { if (three_state_ != value) { cancel(); three_state_ = value; } }
+    void on_change(std::function<void(CheckState)> callback) { change_ = std::move(callback); }
+private:
+    void activate() override;
+    bool three_state_{};
+    std::function<void(CheckState)> change_;
+};
+
+class InfoBadge final : public Control {
+public:
+    explicit InfoBadge(std::wstring name) : Control(ControlRole::inline_status, std::move(name), {8, 8}) { set_auto_size(true); }
+    InfoBadgeKind kind() const { return kind_; }
+    std::uint32_t count() const { return count_; }
+    void set_count(std::uint32_t value);
+    ButtonIcon icon() const { return icon_; }
+    void set_icon(ButtonIcon value);
+    void set_dot();
+    std::wstring display_text() const;
+    Size measure(Size available) override;
+protected:
+    std::optional<StyleTarget> control_style_target() const override { return StyleTarget::inline_status; }
+private:
+    InfoBadgeKind kind_{InfoBadgeKind::dot};
+    std::uint32_t count_{};
+    ButtonIcon icon_{};
 };
 
 // Retains ordinary content; unlike FileList, this does not virtualize children.

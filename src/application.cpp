@@ -36,7 +36,7 @@ namespace xui {
 namespace {
 constexpr UINT update_message = WM_APP + 12;
 constexpr UINT metrics_message = WM_APP + 60;
-constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42;
+constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42, progress_timer = 43;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 thread_local bool running{};
@@ -159,6 +159,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::optional<Rect> context_anchor;
     };
     std::vector<PopupEntry> popups;
+#include "menu_bar_host.inc"
     bool composing_native{};
     bool keyboard_focus_visible{};
     std::weak_ptr<Control> hovered_edit;
@@ -178,6 +179,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::optional<Rect> tooltip_anchor;
     std::chrono::steady_clock::time_point tooltip_due;
     bool tooltip_shown{};
+    bool progress_animating{}, client_animation{true};
+    std::chrono::steady_clock::time_point progress_epoch;
+    std::uint64_t progress_frames{};
+    float progress_phase{};
     Rect tooltip_bounds{};
     std::unique_ptr<ControlStyleAttachment> tooltip_styling;
     HWND window{}, last_focus{};
@@ -263,6 +268,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     ~Impl() { teardown(); }
     void destroy() {
+        stop_progress_animation();
         if (native_file_dialog) {
             closing = true;
             native_file_dialog->cancel();
@@ -303,6 +309,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (peer.runtime) peer.runtime->cancel_owner();
     }
     void detach() {
+        stop_progress_animation();
         if (!attached) return;
         root->set_invalidator({});
         for (const auto& peer : peers) detach_peer(*peer);
@@ -399,6 +406,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void invalidate(Invalidation kind) {
         layout_pending = layout_pending || kind == Invalidation::layout;
         if (!window || !ready) return;
+        if (progress_animating && !syncing) sync_progress_animation();
         if (!pending) {
             pending = true;
             win32_require(PostMessageW(window, update_message, 0, 0) != 0, "Schedule control update");
@@ -586,7 +594,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
         }
         if (message == WM_LBUTTONDOWN) {
-            peer.suppress_popup_click = !peer.host.popups.empty() && peer.host.popups.back().anchor == peer.control;
+            peer.suppress_popup_click = (!peer.host.popups.empty() && peer.host.popups.back().anchor == peer.control) ||
+                peer.host.menu_bar_popup_anchor(peer);
             try { peer.host.light_dismiss(&peer); }
             catch (...) { peer.host.fail(); return 0; }
         }
@@ -680,6 +689,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         auto control = std::dynamic_pointer_cast<Control>(element);
         if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
         control->set_visual_style(options.visual_style);
+        bind_menu_bar(control);
         for (size_t i = 0; i < peers.size(); ++i) if (peers[i]->control == control) {
             auto* peer = peers[i].get();
             peer->surface = surface;
@@ -755,7 +765,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
             peer->provider = role == ControlRole::data_grid ? create_grid_provider(peer->accessibility) :
                 role == ControlRole::items_view || role == ControlRole::tree_view || role == ControlRole::command_menu ? create_collection_provider(peer->accessibility) :
-                role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ?
+                role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
+                    dynamic_cast<MenuBar*>(peer->control.get()) || dynamic_cast<MenuBar::Heading*>(peer->control.get()) ?
                 create_workspace_provider(peer->accessibility) : create_control_provider(peer->accessibility);
         }
         if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer->control))
@@ -1233,7 +1244,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             case ControlRole::document_text: supported = dynamic_cast<const DocumentText*>(value); break;
             case ControlRole::password_input: supported = dynamic_cast<const PasswordInput*>(value); break;
             case ControlRole::date_time: supported = dynamic_cast<const DateTimePicker*>(value); break;
-            case ControlRole::inline_status: supported = dynamic_cast<const InlineStatus*>(value); break;
+            case ControlRole::inline_status: supported = dynamic_cast<const InlineStatus*>(value) || dynamic_cast<const InfoBadge*>(value); break;
             case ControlRole::color_picker: supported = dynamic_cast<const ColorPicker*>(value); break;
             case ControlRole::vector_canvas: supported = dynamic_cast<const VectorCanvas*>(value); break;
             case ControlRole::map_view: supported = dynamic_cast<const MapView*>(value); break;
@@ -1366,6 +1377,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (options.show_activated && !IsChild(window, GetFocus())) platform::traverse_focus(focus_targets, false);
     }
     void apply_theme() {
+        BOOL animation{};
+        win32_require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) != 0,
+            "Read client area animation preference");
+        client_animation = animation != FALSE;
+        if (!client_animation) stop_progress_animation();
         if (!window) return;
         cancel_control_menu(window);
         if (options.visual_style != VisualStyle::winui) hover_edit(nullptr, nullptr);
@@ -1727,6 +1743,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             else if (tooltip_shown) place_tooltip(**it);
         }
         if (window) {
+            sync_progress_animation();
             sync_native_occlusion();
             InvalidateRect(window, nullptr, FALSE);
         }
@@ -1798,6 +1815,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (peer->edit->suggestion_key(msg.wParam)) return true;
         }
         for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document && peer->document->composing()) return false;
+        if (translate_menu_bar(msg)) return true;
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
         if (key && (popups.empty() || !popups.back().dialog)) {
@@ -1941,6 +1959,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         return true;
     }
+    void stop_progress_animation() {
+        if (progress_animating && window) KillTimer(window, progress_timer);
+        progress_animating = false;
+        progress_phase = 0;
+    }
+    bool animated_progress(const Peer& peer) const {
+        const auto* progress = dynamic_cast<const Progress*>(peer.control.get());
+        return progress && progress->state() == ProgressState::indeterminate &&
+            enabled(peer) && onscreen(peer) && retains(*progress);
+    }
+    void sync_progress_animation() {
+        const bool active = window && ready && !closing && client_animation &&
+            IsWindowVisible(window) && IsWindowEnabled(window) && !IsIconic(window) &&
+            std::any_of(peers.begin(), peers.end(), [&](const auto& peer) { return animated_progress(*peer); });
+        if (!active) { stop_progress_animation(); return; }
+        if (!progress_animating) {
+            win32_require(SetTimer(window, progress_timer, 16, nullptr) != 0, "Start progress animation");
+            progress_epoch = std::chrono::steady_clock::now();
+            progress_animating = true;
+        }
+    }
     void reveal(Peer& peer) {
         if (auto* list = dynamic_cast<MillerColumnList*>(peer.control.get());
             list && list->owner() && list->column_index() < list->owner()->columns().size()) {
@@ -2054,7 +2093,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
             drawing.push_clip(control->bounds());
             if (control->visible() && (dynamic_cast<NavigationView*>(control.get()) || dynamic_cast<NavigationPane*>(control.get()) ||
-                dynamic_cast<Breadcrumb*>(control.get()) || dynamic_cast<CommandBar*>(control.get()) || dynamic_cast<TitleBar*>(control.get()))) {
+                dynamic_cast<Breadcrumb*>(control.get()) || dynamic_cast<CommandBar*>(control.get()) ||
+                dynamic_cast<MenuBar*>(control.get()) || dynamic_cast<TitleBar*>(control.get()))) {
                 if (const auto* style = control->effective_control_style_values(StylePart::root))
                     drawing.styled_surface(control->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             }
@@ -2787,7 +2827,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-            if (choices->has_control_styling()) {
+            if (choices->has_control_styling() || choices->horizontal_presentation()) {
                 const PartStyleValues empty;
                 const auto* root_values = choices->effective_control_style_values(StylePart::root);
                 canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
@@ -2805,7 +2845,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const bool hovered = enabled(peer) && item.enabled && peer.hovered_choice == i;
                     const bool pressed = hovered && peer.pressed_choice == item.id;
                     const auto row = choices->item_style_values(StylePart::item, i, hovered, pressed);
-                    const auto label = choices->item_style_values(StylePart::label, i, hovered, pressed);
+                    auto label = choices->item_style_values(StylePart::label, i, hovered, pressed);
+                    if (choices->horizontal_presentation() && !label.horizontal_alignment)
+                        label.horizontal_alignment = StyleAlignment::center;
                     auto ink = !enabled(peer) || !item.enabled ? palette.disabled :
                         selected && !radio ? palette.selection_text : palette.text;
                     canvas.styled_surface(b, palette, row, selected && !radio ? palette.selection :
@@ -2825,7 +2867,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     } else if (selected) {
                         const auto marker = choices->item_style_values(StylePart::selected_marker, i, hovered, pressed);
                         const float width = std::min(b.width, marker.size.value_or(3));
-                        canvas.styled_surface({b.x, b.y + b.height / 4, width, b.height / 2}, palette, marker,
+                        const auto marker_bounds = choices->horizontal_presentation() ?
+                            Rect{b.x + b.width / 4, b.y + std::max(0.0f, b.height - width), b.width / 2, std::min(width, b.height)} :
+                            Rect{b.x, b.y + b.height / 4, width, b.height / 2};
+                        canvas.styled_surface(marker_bounds, palette, marker,
                             palette.accent, palette.border, width / 2, {});
                     }
                     canvas.styled_text(item.text, choices->label_bounds(i, hovered, pressed), ink_for(label, ink), label);
@@ -3046,6 +3091,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (progress->has_control_styling())
                 canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_style,
                     D2D1::ColorF(0, 0.0f), palette.border, 0, {});
+            if (progress->ring_presentation()) {
+                const Rect ring{content.x + 2, content.y + 2,
+                    std::max(0.0f, content.width - 4), std::max(0.0f, content.height - 4)};
+                const auto track_ink = !palette.high_contrast && track_style.background ?
+                    D2D1::ColorF(track_style.background->resolve(palette.mode)) : palette.border;
+                if (!palette.high_contrast && fill_style.background)
+                    ink = D2D1::ColorF(fill_style.background->resolve(palette.mode));
+                canvas.arc(ring, 0, 1, track_ink, thickness);
+                if (progress->state() == ProgressState::indeterminate)
+                    canvas.arc(ring, animated_progress(peer) && progress_animating ? progress_phase : 0, 0.25f,
+                        ink, fill_style.thickness.value_or(thickness));
+                else if (progress->state() != ProgressState::unknown) {
+                    const auto fraction = static_cast<float>((progress->value() - progress->range().minimum) /
+                        (progress->range().maximum - progress->range().minimum));
+                    canvas.arc(ring, 0, fraction, ink, fill_style.thickness.value_or(thickness));
+                }
+                return;
+            }
             if (progress->has_control_styling())
                 canvas.styled_surface(track, palette, track_style, palette.border, palette.border, thickness / 2, {});
             else canvas.rounded(track, palette.border, thickness / 2);
@@ -3058,7 +3121,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (progress->state() == ProgressState::indeterminate || progress->state() == ProgressState::unknown) {
                 text = progress->state() == ProgressState::unknown ? L"Unknown" : L"In progress";
                 if (progress->state() == ProgressState::indeterminate) {
-                    if (fluent)
+                    if (progress_animating && animated_progress(peer)) {
+                        const float offset = progress_phase * 1.4f - 0.4f;
+                        const float left = std::max(0.0f, offset);
+                        const float right = std::min(1.0f, offset + 0.4f);
+                        if (right > left)
+                            segment({track.x + track.width * left, track.y, track.width * (right - left), track.height});
+                    } else if (fluent)
                         segment({track.x + track.width * 0.3f, track.y, track.width * 0.4f, track.height});
                     else for (int i = 0; i < 5; ++i) segment({track.x + track.width * (i + 1) / 6 - 3, track.y, 6, thickness});
                 }
@@ -3568,6 +3637,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return;
             }
         }
+        if (auto* badge = dynamic_cast<InfoBadge*>(&control)) {
+            canvas.info_badge(*badge, {0, 0, bounds.width, bounds.height}, palette, enabled(peer));
+            return;
+        }
+        if (auto* link = dynamic_cast<HyperlinkButton*>(&control)) {
+            canvas.hyperlink(*link, {0, 0, bounds.width, bounds.height}, palette, enabled(peer), focus_visible);
+            return;
+        }
         if (role == ControlRole::button && control.has_control_styling()) {
             std::optional<bool> step_increment;
             if (peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
@@ -3578,7 +3655,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 palette, enabled(peer), focus_visible, {}, 0, step_increment);
             return;
         }
-        if (role == ControlRole::toggle && control.has_control_styling()) {
+        if (role == ControlRole::toggle && (control.has_control_styling() ||
+            static_cast<const Toggle&>(control).switch_presentation() || dynamic_cast<CheckBox*>(&control))) {
             canvas.styled_toggle(static_cast<const Toggle&>(control), {0, 0, bounds.width, bounds.height},
                 palette, enabled(peer), peer.text_layout.Get(), focus_visible);
             return;
@@ -3597,7 +3675,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             canvas.text_layout(peer.text_layout.Get(), area, color);
         } else {
             const auto* button = dynamic_cast<const Button*>(&control);
-            const bool checked_action = button && button->behavior() == ButtonBehavior::toggle && button->checked();
+            const bool checked_action = button && button->checked() &&
+                (button->behavior() == ButtonBehavior::toggle || dynamic_cast<const MenuBar::Heading*>(button));
             const bool winui = palette.style == VisualStyle::winui;
             auto ink = control.pressed() || checked_action ? palette.selection_text : text;
             const auto* style = button ? button->effective_style_values() : nullptr;
@@ -3700,7 +3779,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void activated(Peer& peer, bool invoked) {
         if (invoked && peer.control->role() == ControlRole::combo_box) open_combo(peer);
         update();
-        if (invoked && window && peer.control->role() == ControlRole::button)
+        if (invoked && window && peer.control->role() == ControlRole::button && !dynamic_cast<MenuBar::Heading*>(peer.control.get()))
             raise_control_invoked(peer.provider);
     }
     bool focus(Peer& peer, bool activate_window) {
@@ -3801,7 +3880,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return PtInRect(&rect, {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}) != 0;
         };
         const auto choice_hit = [&](const RadioGroup& choices) {
-            auto hit = choices.hit_test(GET_Y_LPARAM(lparam) * 96.0f / dpi);
+            auto hit = choices.hit_test(Point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
             if (hit && (options.visual_style == VisualStyle::winui || choices.has_control_styling())) {
                 const auto body = choices.item_bounds(*hit);
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
@@ -3824,6 +3903,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         case WM_SETCURSOR:
+            if (dynamic_cast<HyperlinkButton*>(&control) && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
+                SetCursor(LoadCursorW(nullptr, IDC_HAND)); return TRUE;
+            }
             if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
                 POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
                 const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
@@ -3934,6 +4016,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return UiaReturnRawElementProvider(hwnd, wparam, lparam, peer.provider);
             break;
         case WM_SETFOCUS:
+            menu_bar_focused(peer, reinterpret_cast<HWND>(wparam));
             last_focus = hwnd;
             reveal(peer);
             control.set_focused(true);
@@ -3947,6 +4030,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_MOUSEMOVE:
+            if (menu_bar_hover(peer, inside())) return 0;
             if (peer.grid_drag == 6) {
                 auto grid = std::static_pointer_cast<DataGrid>(peer.control);
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
@@ -4379,6 +4463,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer.grid_drag = 0; peer.dragging = false; control.cancel(); invalidate(Invalidation::paint); return 0;
         case WM_KEYDOWN:
             if (!enabled(peer) || !visible(peer)) return 0;
+            if (menu_bar_key(peer, wparam, lparam)) return 0;
             hide_tooltip();
             if (auto* map = dynamic_cast<MapView*>(&control)) {
                 if (wparam == VK_LEFT || wparam == VK_RIGHT) { map->pan(wparam == VK_LEFT ? 32 : -32, 0); return 0; }
@@ -4644,6 +4729,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (expander->expanded() != expand) expander->invoke();
                 } else if (auto* combo = dynamic_cast<ComboBox*>(&control)) {
                     if (combo->popup()->is_open() != expand) open_combo(peer);
+                } else if (dynamic_cast<MenuBar::Heading*>(&control)) {
+                    if (!menu_bar_expand(peer, expand)) return UIA_E_INVALIDOPERATION;
                 } else return UIA_E_INVALIDOPERATION;
             } else if (auto* number = dynamic_cast<NumericInput*>(&control)) {
                 if (action.kind == FoundationAction::text) {
@@ -4785,6 +4872,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto result = navigation_message(hwnd, message, wparam, lparam)) return *result;
         switch (message) {
         case WM_TIMER:
+            if (wparam == progress_timer) {
+                sync_progress_animation();
+                if (progress_animating) {
+                    const auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - progress_epoch).count();
+                    progress_phase = std::fmod(elapsed / 1.4f, 1.0f);
+                    ++progress_frames;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+                return 0;
+            }
             if (wparam == tooltip_timer) {
                 KillTimer(hwnd, tooltip_timer);
                 if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) { hide_tooltip(); return 0; }
@@ -4838,9 +4935,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             break;
         case WM_ENABLE:
             if (!wparam) {
+                stop_progress_animation();
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
+            else invalidate(Invalidation::paint);
             break;
         case WM_ERASEBKGND: return 1;
         case WM_PAINT: if (ready) paint(); else return DefWindowProcW(hwnd, message, wparam, lparam); return 0;
@@ -4848,6 +4947,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (titlebar) titlebar->set_maximized(wparam == SIZE_MAXIMIZED);
             hide_tooltip();
             if (wparam == SIZE_MINIMIZED) {
+                stop_progress_animation();
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
@@ -4863,6 +4963,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_SHOWWINDOW:
             if (!wparam && ready) sync_images(false);
             if (!wparam) {
+                stop_progress_animation();
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
@@ -5005,6 +5106,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             focus_edit_at(hwnd, lparam);
             return 0;
         case metrics_message:
+            if (wparam == 33) return progress_animating;
+            if (wparam == 34) return static_cast<LRESULT>(progress_frames);
             if (wparam == 30) return static_cast<LRESULT>(drawing.native_buffer_bytes());
             if (wparam == 31) return static_cast<LRESULT>(drawing.native_bitmap_bytes());
             if (wparam == 32) return static_cast<LRESULT>(drawing.scene_paths());
@@ -5063,6 +5166,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_CLOSE: destroy(); return 0;
         case WM_DESTROY:
+            stop_progress_animation();
             closing = true;
             close_posts();
             window_icon.set_source({}, window, dpi, wake);

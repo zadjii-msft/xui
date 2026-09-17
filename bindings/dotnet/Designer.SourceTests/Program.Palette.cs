@@ -18,6 +18,33 @@ internal static partial class Program
             "New supported controls append after the existing palette.");
         Assert((int)ControlTemplate.RangeInput == 11 && (int)ControlTemplate.Progress == 12,
             "Numeric palette controls preserve all earlier enum values.");
+        Assert((int)ControlTemplate.ToggleSwitch == 13 && (int)ControlTemplate.ToggleButton == 14 && (int)ControlTemplate.ProgressRing == 15,
+            "Toggle and ring palette entries append without renumbering existing entries.");
+        Assert((int)ControlTemplate.CheckBox == 16 && (int)ControlTemplate.MenuBar == 20,
+            "Parity controls append after the switch and ring entries.");
+        foreach (var template in new[] { ControlTemplate.CheckBox, ControlTemplate.HyperlinkButton, ControlTemplate.SelectorBar, ControlTemplate.InfoBadge, ControlTemplate.MenuBar })
+        {
+            var document = Parse("""component ParityPalette { view { VStack() { } } }""");
+            var inserted = Parse(Apply(document, document.InsertControl(document.Revision, 0, 0, template)));
+            var node = inserted.Root!.Children.Single();
+            Assert(node.Kind == template.ToString(), "Parity palette templates compile to distinct constructors.");
+            Apply(inserted, inserted.SetArgument(inserted.Revision, node.Id, "help", "\"Description\""));
+        }
+        foreach (var template in new[] { ControlTemplate.ToggleSwitch, ControlTemplate.ToggleButton, ControlTemplate.ProgressRing })
+        {
+            var document = Parse("""component NewPalette { view { VStack() { } } }""");
+            var inserted = Parse(Apply(document, document.InsertControl(document.Revision, 0, 0, template)));
+            var node = inserted.Root!.Children.Single();
+            Assert(node.Kind == template.ToString(), "New palette entries compile to their distinct constructors.");
+            if (template == ControlTemplate.ProgressRing)
+                Assert(node.Arguments.All(a => a.Name is not ("currentValue" or "progressState" or "range")),
+                    "Ring palette template preserves the native indeterminate default.");
+            else
+                Assert(node.Arguments.Single(a => a.Name == "checked").Value == "false", "Toggle templates expose editable checked state.");
+            Apply(inserted, inserted.SetArgument(inserted.Revision, node.Id,
+                template == ControlTemplate.ProgressRing ? "progressState" : "checked",
+                template == ControlTemplate.ProgressRing ? "global::Xui.ProgressState.Paused" : "true"));
+        }
         foreach (string source in new[]
         {
             """component Palette { view { VStack() { } } }""",

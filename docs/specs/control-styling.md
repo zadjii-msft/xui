@@ -216,6 +216,16 @@ The current generic schema also supports root/label typography and alignment.
 The inventory and exported catalog describe the complete current coverage.
 
 Toggle uses `ControlStyle`, not `ButtonStyle`.
+`ToggleSwitch` reuses the `toggle` target, parts, and checked-state rules.
+Its indicator has a switch pill and thumb instead of a checkbox mark.
+`ToggleButton` reuses the `button` target.
+`ProgressRing` reuses the `progress` target.
+These presentations add no style catalog targets.
+CheckBox also uses `toggle`, with the `mark` part for checked and mixed-state marks.
+HyperlinkButton uses `button`. SelectorBar uses `choice_list`.
+InfoBadge uses `inline_status`, with `root`, `message`, and `icon` parts.
+MenuBar uses `command_bar`, with Button styles on its retained headings.
+These aliases preserve the existing style IDs and do not add unrelated behavior from the target family.
 The generic engine stores sparse per-part state rules instead of every possible state combination.
 The state mask has 64 bits.
 The pilot accepts `focused`, `checked`, `hovered`, `pressed`, and `disabled`, in that precedence order.

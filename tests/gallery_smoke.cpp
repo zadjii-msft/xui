@@ -645,6 +645,151 @@ void miller_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
         return !horizontal;
     }), "Reset removes horizontal overflow without replacing the control");
 }
+void choose_gallery_page(IUIAutomation* automation, IUIAutomationElement* root, std::size_t index) {
+    auto catalog = identified(automation, root, L"gallery-catalog");
+    auto item = identified(automation, catalog.Get(), std::to_wstring(index + 1) + L":1");
+    check(pattern<IUIAutomationVirtualizedItemPattern>(item.Get(), UIA_VirtualizedItemPatternId)->Realize(),
+        "Realize new control gallery page");
+    check(pattern<IUIAutomationSelectionItemPattern>(item.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Select new control gallery page");
+    require(eventually([&] {
+        return identified(automation, root, L"gallery-page-" + std::wstring(gallery::entries[index].id)) != nullptr;
+    }), "New control gallery page materialized");
+}
+void winui_controls_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    const auto choose = [&](std::size_t index) { choose_gallery_page(automation, root, index); };
+    for (const auto index : {48u, 49u}) {
+        choose(index);
+        const bool is_switch = index == 48;
+        auto control = identified(automation, root, is_switch ? L"gallery-toggle-switch" : L"gallery-toggle-button");
+        auto toggle = pattern<IUIAutomationTogglePattern>(control.Get(), UIA_TogglePatternId);
+        ToggleState state{};
+        check(toggle->get_CurrentToggleState(&state), "Read new toggle initial state");
+        require(state == ToggleState_On, "New gallery toggle starts checked");
+        check(toggle->Toggle(), "Change new gallery toggle");
+        check(toggle->get_CurrentToggleState(&state), "Read changed gallery toggle");
+        require(state == ToggleState_Off, "New gallery toggle changed");
+        require(eventually([&] {
+            return named(automation, root, is_switch ? L"Events: notifications off." : L"Events: preview unpinned.") != nullptr;
+        }), "New gallery toggle reports its event");
+        auto enable = named(automation, root, is_switch ? L"Enable switch" : L"Enable pin action");
+        auto enable_toggle = pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId);
+        check(enable_toggle->Toggle(), "Disable new gallery toggle");
+        require(!enabled(control.Get()) && toggle->Toggle() == UIA_E_ELEMENTNOTENABLED,
+            "Disabled gallery toggles reject changes");
+        check(enable_toggle->Toggle(), "Enable new gallery toggle");
+    }
+    for (const auto index : {25u, 50u}) {
+        choose(index);
+        auto progress = identified(automation, root, index == 50 ? L"gallery-progress-ring" : L"foundation-progress");
+        require(progress != nullptr, "Gallery exposes real progress control");
+        check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Advance").Get(), UIA_InvokePatternId)->Invoke(),
+            "Set determinate progress");
+        auto range = pattern<IUIAutomationRangeValuePattern>(progress.Get(), UIA_RangeValuePatternId);
+        double value{}; check(range->get_CurrentValue(&value), "Read progress value");
+        require(value == 50, "Progress example advances its real value");
+        BOOL read_only{}; check(range->get_CurrentIsReadOnly(&read_only), "Read progress permissions");
+        require(read_only, "Progress is read-only");
+        check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Indeterminate").Get(), UIA_InvokePatternId)->Invoke(),
+            "Set indeterminate progress");
+        auto visibility = pattern<IUIAutomationTogglePattern>(
+            named(automation, root, L"Show indicator").Get(), UIA_TogglePatternId);
+        check(visibility->Toggle(), "Hide progress indicator");
+        require(eventually([&] {
+            return !identified(automation, root, index == 50 ? L"gallery-progress-ring" : L"foundation-progress");
+        }), "Hidden progress indicator leaves the accessible tree");
+        check(visibility->Toggle(), "Restore progress indicator");
+        require(eventually([&] {
+            return identified(automation, root, index == 50 ? L"gallery-progress-ring" : L"foundation-progress") != nullptr;
+        }), "Restored progress indicator returns to the accessible tree");
+    }
+    choose(48);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    const auto paints = SendMessageW(window, WM_APP + 60, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    require(SendMessageW(window, WM_APP + 60, 0, 0) == paints, "Hidden progress gallery pages do not repaint");
+}
+void parity_controls_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
+    choose_gallery_page(automation, root, 51);
+    auto checkbox = identified(automation, root, L"gallery-checkbox");
+    auto toggle = pattern<IUIAutomationTogglePattern>(checkbox.Get(), UIA_TogglePatternId);
+    ToggleState state{};
+    check(toggle->get_CurrentToggleState(&state), "Read mixed checkbox state");
+    require(state == ToggleState_Indeterminate, "Gallery checkbox starts mixed");
+    for (int i = 0; i < 3; ++i) check(toggle->Toggle(), "Cycle three-state checkbox");
+    check(toggle->get_CurrentToggleState(&state), "Read cycled checkbox state");
+    require(state == ToggleState_Indeterminate, "Three-state cycle returns to mixed");
+    auto enable_check = pattern<IUIAutomationTogglePattern>(
+        named(automation, root, L"Enable checkbox").Get(), UIA_TogglePatternId);
+    check(enable_check->Toggle(), "Disable checkbox");
+    require(toggle->Toggle() == UIA_E_ELEMENTNOTENABLED, "Disabled mixed checkbox rejects changes");
+    check(enable_check->Toggle(), "Restore checkbox");
+
+    choose_gallery_page(automation, root, 52);
+    auto link = identified(automation, root, L"gallery-hyperlink-button");
+    CONTROLTYPEID role{};
+    check(link->get_CurrentControlType(&role), "Read hyperlink role");
+    require(role == UIA_HyperlinkControlTypeId, "Hyperlink has link semantics, not button semantics");
+    auto invoke = pattern<IUIAutomationInvokePattern>(link.Get(), UIA_InvokePatternId);
+    check(invoke->Invoke(), "Activate callback-only hyperlink");
+    require(eventually([&] {
+        return named(automation, root, L"Events: help requested. No browser was opened.") != nullptr;
+    }), "Hyperlink invokes the application callback");
+    auto enable_link = pattern<IUIAutomationTogglePattern>(
+        named(automation, root, L"Enable help link").Get(), UIA_TogglePatternId);
+    check(enable_link->Toggle(), "Disable hyperlink");
+    require(invoke->Invoke() == UIA_E_ELEMENTNOTENABLED, "Disabled hyperlink rejects activation");
+    check(enable_link->Toggle(), "Restore hyperlink");
+
+    choose_gallery_page(automation, root, 53);
+    auto selector = identified(automation, root, L"gallery-selector-bar");
+    auto selection = pattern<IUIAutomationSelectionPattern>(selector.Get(), UIA_SelectionPatternId);
+    BOOL multiple{};
+    check(selection->get_CurrentCanSelectMultiple(&multiple), "Read selector selection mode");
+    require(!multiple, "Selector bar is exclusive");
+    auto active = named(automation, selector.Get(), L"Active");
+    check(pattern<IUIAutomationSelectionItemPattern>(active.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Select a gallery filter");
+    require(eventually([&] { return named(automation, root, L"Events: task filter ID 2") != nullptr; }),
+        "Selector emits stable choice identity");
+    auto archived = named(automation, selector.Get(), L"Archived");
+    require(!enabled(archived.Get()) &&
+        pattern<IUIAutomationSelectionItemPattern>(archived.Get(), UIA_SelectionItemPatternId)->Select() == UIA_E_ELEMENTNOTENABLED,
+        "Disabled selector item cannot become selected");
+
+    choose_gallery_page(automation, root, 54);
+    auto badge = identified(automation, root, L"gallery-info-badge");
+    BOOL focusable{};
+    check(badge->get_CurrentIsKeyboardFocusable(&focusable), "Read badge focus policy");
+    require(!focusable, "InfoBadge is not a keyboard target");
+    ComPtr<IUnknown> badge_action;
+    check(badge->GetCurrentPattern(UIA_InvokePatternId, &badge_action), "Read badge action policy");
+    require(!badge_action, "InfoBadge has no command action");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Add notification").Get(),
+        UIA_InvokePatternId)->Invoke(), "Update badge count");
+    require(eventually([&] { return named(automation, root, L"Events: notification count 8") != nullptr; }),
+        "Gallery updates the real badge count");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Show dot").Get(),
+        UIA_InvokePatternId)->Invoke(), "Show dot badge");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Show icon").Get(),
+        UIA_InvokePatternId)->Invoke(), "Show icon badge");
+
+    choose_gallery_page(automation, root, 55);
+    auto menu = identified(automation, root, L"gallery-menu-bar");
+    check(menu->get_CurrentControlType(&role), "Read menu bar role");
+    require(role == UIA_MenuBarControlTypeId, "MenuBar has menu semantics");
+    auto file = named(automation, menu.Get(), L"File");
+    check(pattern<IUIAutomationExpandCollapsePattern>(file.Get(), UIA_ExpandCollapsePatternId)->Expand(),
+        "Open File menu");
+    ComPtr<IUIAutomationElement> save;
+    require(eventually([&] { save = named(automation, root, L"Save sample"); return save != nullptr; }),
+        "MenuBar opens its retained command menu");
+    check(pattern<IUIAutomationInvokePattern>(save.Get(), UIA_InvokePatternId)->Invoke(), "Invoke File command");
+    require(eventually([&] { return named(automation, root, L"Events: Sample saved in memory.") != nullptr; }),
+        "MenuBar invokes its command snapshot callback");
+    auto publish = named(automation, menu.Get(), L"Publish");
+    require(publish && !enabled(publish.Get()), "Disabled menu heading is exposed as disabled");
+}
 int wmain(int argc, wchar_t** argv) {
     std::cout << std::unitbuf;
     const bool global_focus_events = argc == 3 && std::wstring_view(argv[2]) == L"--focus-events";
@@ -653,8 +798,11 @@ int wmain(int argc, wchar_t** argv) {
     const bool winui_only = argc == 3 && std::wstring_view(argv[2]) == L"--winui";
     const bool winui_catalog = argc == 3 && std::wstring_view(argv[2]) == L"--winui-catalog";
     const bool miller_only = argc == 3 && std::wstring_view(argv[2]) == L"--miller-only";
-    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only) {
-        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only]\n";
+    const bool controls_only = argc == 3 && std::wstring_view(argv[2]) == L"--controls-only";
+    const bool parity_only = argc == 3 && (std::wstring_view(argv[2]) == L"--parity-only" ||
+        std::wstring_view(argv[2]) == L"--parity-classic");
+    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only && !controls_only && !parity_only) {
+        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only | --controls-only | --parity-only | --parity-classic]\n";
         return 1;
     }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -666,6 +814,11 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring command = L"\"" + std::wstring(argv[1]) + L"\"";
         if (palette_only) command += L" --page commands";
         if (miller_only) command += L" --page miller-columns";
+        if (controls_only) command += L" --winui-catalog --page toggle-switch";
+        if (parity_only) {
+            command += L" --page checkbox";
+            if (std::wstring_view(argv[2]) == L"--parity-only") command += L" --winui-catalog";
+        }
         if (winui_only) command += L" --winui";
         if (winui_catalog) command += L" --winui-catalog";
         STARTUPINFOW startup{sizeof(startup)};
@@ -675,13 +828,23 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
-        if (!search_only && !miller_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+        if (!search_only && !miller_only && !controls_only && !parity_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
             SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (parity_only) {
+            parity_controls_smoke(automation.Get(), root.Get());
+            std::cout << "CheckBox, HyperlinkButton, SelectorBar, InfoBadge and MenuBar gallery checks passed\n";
+            return 0;
+        }
+        if (controls_only) {
+            winui_controls_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "ToggleSwitch, ToggleButton, ProgressRing and progress gallery checks passed\n";
+            return 0;
+        }
         if (miller_only) {
             miller_smoke(automation.Get(), root.Get());
             std::cout << "Miller gallery deep-path, horizontal scrolling, and reset checks passed\n";
@@ -1213,6 +1376,44 @@ int wmain(int argc, wchar_t** argv) {
                     auto range = pattern<IUIAutomationRangeValuePattern>(capacity.Get(), UIA_RangeValuePatternId);
                     double capacity_value{}; check(range->get_CurrentValue(&capacity_value), "Gallery capacity value");
                     require(capacity_value == 48, "Gallery uses real capacity API");
+                }
+                if (!round && (i == 48 || i == 49)) {
+                    const bool is_switch = i == 48;
+                    auto control = identified(automation.Get(), root.Get(),
+                        is_switch ? L"gallery-toggle-switch" : L"gallery-toggle-button");
+                    auto gallery_toggle = pattern<IUIAutomationTogglePattern>(control.Get(), UIA_TogglePatternId);
+                    ToggleState gallery_state{};
+                    check(gallery_toggle->get_CurrentToggleState(&gallery_state), "Read gallery toggle initial state");
+                    require(gallery_state == ToggleState_On, "New gallery toggles start checked");
+                    check(gallery_toggle->Toggle(), "Change new gallery toggle");
+                    require(eventually([&] {
+                        return named(automation.Get(), root.Get(),
+                            is_switch ? L"Events: notifications off." : L"Events: preview unpinned.") != nullptr;
+                    }), "New gallery toggles report accepted state changes");
+                    auto enable = named(automation.Get(), root.Get(), is_switch ? L"Enable switch" : L"Enable pin action");
+                    check(pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId)->Toggle(), "Disable new gallery toggle");
+                    require(!enabled(control.Get()) && gallery_toggle->Toggle() == UIA_E_ELEMENTNOTENABLED,
+                        "Disabled gallery toggles reject automation changes");
+                    check(pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId)->Toggle(), "Restore new gallery toggle");
+                }
+                if (!round && i == 50) {
+                    auto ring = identified(automation.Get(), root.Get(), L"gallery-progress-ring");
+                    require(ring != nullptr, "Gallery exposes progress ring");
+                    check(pattern<IUIAutomationInvokePattern>(named(automation.Get(), root.Get(), L"Advance").Get(),
+                        UIA_InvokePatternId)->Invoke(), "Advance ring to determinate progress");
+                    auto range = pattern<IUIAutomationRangeValuePattern>(ring.Get(), UIA_RangeValuePatternId);
+                    double ring_value{}; check(range->get_CurrentValue(&ring_value), "Read progress ring value");
+                    require(ring_value == 50, "Ring and bar share the range model");
+                    BOOL read_only{}; check(range->get_CurrentIsReadOnly(&read_only), "Read ring range permissions");
+                    require(read_only, "Progress ring is read-only");
+                    check(pattern<IUIAutomationInvokePattern>(named(automation.Get(), root.Get(), L"Indeterminate").Get(),
+                        UIA_InvokePatternId)->Invoke(), "Restore indeterminate ring");
+                    auto visible = pattern<IUIAutomationTogglePattern>(
+                        named(automation.Get(), root.Get(), L"Show indicator").Get(), UIA_TogglePatternId);
+                    check(visible->Toggle(), "Hide ring through the gallery");
+                    require(eventually([&] { return !identified(automation.Get(), root.Get(), L"gallery-progress-ring"); }),
+                        "Hidden ring leaves the accessible tree");
+                    check(visible->Toggle(), "Show ring through the gallery");
                 }
                 if (!round && i == 26) {
                     auto items = named(automation.Get(), root.Get(), L"Synthetic items", UIA_ListControlTypeId);

@@ -33,6 +33,22 @@ Previous and Next expand the pane and use visible example rows.
 The `--page` argument selects a page directly.
 Page IDs include `combo`, `popup`, `items`, `tree`, `miller-columns`, `adaptive`, `grid-extensions`, `commands`, `breadcrumb`, and `navigation`.
 Other IDs include `navigation-view`, `shell`, `titlebar`, `dialog`, `status`, `multiline`, `password`, `rich-text`, `date-time`, `color`, and `images`.
+Dedicated presentation pages use `toggle-switch`, `toggle-button`, and `progress-ring`.
+The `progress` and `progress-ring` pages share Advance, Indeterminate, Pause, and Error buttons.
+Their Show indicator switch controls visibility.
+These pages use the public controls, not gallery-specific drawing.
+
+The toggle pages separate switch preferences from button-shaped toggle actions.
+The progress pages demonstrate determinate, indeterminate, paused, and error states.
+Indeterminate motion respects visibility, enabled state, and the system client-area animation preference.
+The [foundation contract](foundation-controls.md) defines these controls and animation limits.
+
+The Input category also includes `checkbox`, `hyperlink-button`, and `selector-bar`.
+Appearance includes `info-badge`. Commands includes `menu-bar`.
+The checkbox example starts in the mixed state with three-state input enabled.
+The hyperlink callback reports an action without opening a browser.
+The menu bar has File, Edit, View, and disabled Publish roots, with nested Recent examples.
+Its sample commands do not change files, access the clipboard, or open a browser.
 
 The grid calculates synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.

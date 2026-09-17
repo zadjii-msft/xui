@@ -237,6 +237,99 @@ void toggle_pixel_contracts() {
     }
     std::cout << "PASS Toggle software pixels: parts, inheritance, checked, themes, high contrast\n" << std::flush;
 }
+void switch_ring_pixel_contracts() {
+    SoftwareFixture fixture;
+    ToggleSwitch toggle(L"Switch");
+    PartStyleValues indicator; indicator.background = ThemeColor{0x2468ac};
+    PartStyleValues mark; mark.foreground = ThemeColor{0xfedcba};
+    toggle.set_style(ControlStyle::create(StyleTarget::toggle,
+        {{StylePart::indicator, indicator}, {StylePart::mark, mark}}, {}));
+    for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+        toggle.set_visual_style(visual);
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark}) {
+            auto palette = regular_palette(mode, visual);
+            const auto render = [&] {
+                require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin switch pixel frame");
+                Size size{}; auto label = fixture.drawing.layout(toggle.name(), toggle.text_style(), size);
+                fixture.drawing.styled_toggle(toggle, face, palette, true, label.Get(), true);
+                auto pixels = readback(fixture.drawing);
+                require(fixture.drawing.end(), "End switch pixel frame");
+                return pixels;
+            };
+            toggle.set_checked(false); const auto off = render();
+            const auto off_thumb = toggle.mark_bounds(face);
+            off.expect(static_cast<int>(off_thumb.x + off_thumb.width / 2),
+                static_cast<int>(off_thumb.y + off_thumb.height / 2), mark.foreground->light, "Switch off thumb is painted");
+            toggle.set_checked(true); const auto on = render();
+            const auto on_thumb = toggle.mark_bounds(face);
+            on.expect(static_cast<int>(on_thumb.x + on_thumb.width / 2),
+                static_cast<int>(on_thumb.y + on_thumb.height / 2), mark.foreground->light, "Switch on thumb is painted");
+            require(on.data != off.data, "Switch checked state moves visible pixels");
+            palette.high_contrast = true;
+            const auto hc = render();
+            require(hc.matches({12, 12, 132, 68}, indicator.background->light) == 0 &&
+                hc.matches({12, 12, 132, 68}, mark.foreground->light) == 0, "Switch high contrast suppresses authored colors");
+        }
+    }
+    const auto render_arc = [&](float phase, float sweep) {
+        require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin circular progress frame");
+        fixture.drawing.arc({20, 20, 48, 48}, 0, 1, D2D1::ColorF(0x345678), 4);
+        fixture.drawing.arc({20, 20, 48, 48}, phase, sweep, D2D1::ColorF(0xabcdef), 4);
+        auto pixels = readback(fixture.drawing);
+        require(fixture.drawing.end(), "End circular progress frame");
+        return pixels;
+    };
+    const auto first = render_arc(0, 0.25f), next = render_arc(0.25f, 0.25f);
+    require(first.data != next.data, "Progress ring phase changes actual rendered pixels");
+    first.expect(44, 44, sentinel, "Ring leaves its center open");
+    const auto empty = render_arc(0, 0), full = render_arc(0, 1);
+    require(empty.matches({20, 20, 68, 68}, 0xabcdef) == 0 &&
+        full.matches({20, 20, 68, 68}, 0xabcdef) > first.matches({20, 20, 68, 68}, 0xabcdef),
+        "Determinate ring zero and full ranges render distinct coverage");
+}
+void next_controls_pixel_contracts() {
+    SoftwareFixture fixture;
+    for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+        for (const auto theme : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+            auto palette = theme == ThemeMode::high_contrast ? Palette::system(theme, visual) : regular_palette(theme, visual);
+            CheckBox check(L"Include"); check.set_visual_style(visual);
+            const auto render_check = [&](CheckState state) {
+                check.set_state(state);
+                require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin checkbox pixels");
+                Size size{}; auto label = fixture.drawing.layout(check.name(), check.text_style(), size);
+                fixture.drawing.styled_toggle(check, face, palette, true, label.Get(), true);
+                auto result = readback(fixture.drawing); require(fixture.drawing.end(), "End checkbox pixels"); return result;
+            };
+            const auto off = render_check(CheckState::unchecked), on = render_check(CheckState::checked),
+                mixed = render_check(CheckState::indeterminate);
+            require(off.data != on.data && on.data != mixed.data && off.data != mixed.data,
+                "Unchecked, checked and mixed checkbox states have distinct pixels");
+            InfoBadge badge(L"Unread");
+            const auto render_badge = [&] {
+                require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin badge pixels");
+                const auto size = badge.measure({100, 100});
+                fixture.drawing.info_badge(badge, {20, 20, size.width, size.height}, palette, true);
+                auto result = readback(fixture.drawing); require(fixture.drawing.end(), "End badge pixels"); return result;
+            };
+            const auto dot = render_badge(); badge.set_count(100); const auto count = render_badge();
+            badge.set_icon(ButtonIcon::bookmark); const auto icon = render_badge();
+            require(dot.data != count.data && count.data != icon.data && dot.data != icon.data,
+                "Badge dot, bounded count and icon presentations render distinctly");
+            HyperlinkButton link(L"Documentation"); link.set_visual_style(visual);
+            link.set_text_measurer([&fixture](std::wstring_view text, TextStyle style) -> Size {
+                Size size{}; fixture.drawing.layout(text, style, size); return size;
+            });
+            const auto render_link = [&](bool enabled) {
+                require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin hyperlink pixels");
+                fixture.drawing.hyperlink(link, face, palette, enabled, true);
+                auto result = readback(fixture.drawing); require(fixture.drawing.end(), "End hyperlink pixels"); return result;
+            };
+            const auto active = render_link(true), disabled = render_link(false);
+            require(active.data != disabled.data, "Hyperlink disabled state changes visible ink");
+            active.expect(70, 16, sentinel, "Unstyled hyperlink has no button face");
+        }
+    }
+}
 void pixel_contracts() {
     const auto before = Drawing::live_targets();
     {
@@ -1129,6 +1222,18 @@ int main(int argc, char** argv) {
             else if (argument == "--trace-resources" && !trace_resources_enabled) trace_resources_enabled = true;
             else if (argument == "--styled-first" && !benchmark_styled_first) benchmark_styled_first = true;
             else if (argument == "--lower-level" && !lower) lower = true;
+            else if (argument == "--switch-ring-only" || argument == "--next-controls-only") {
+#ifndef XUI_STYLING_BASELINE
+                SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Initialize switch/ring fixture COM");
+                struct Com { ~Com() { CoUninitialize(); } } com;
+                if (argument == "--next-controls-only") next_controls_pixel_contracts();
+                else switch_ring_pixel_contracts();
+                return 0;
+#else
+                throw std::runtime_error("Switch/ring pixels are not available in the pristine baseline");
+#endif
+            }
             else if (argument == "--toggle-only" && !toggle_only) toggle_only = true;
             else if (argument == "--alignment-only" && !alignment_only) alignment_only = true;
             else throw std::runtime_error("Usage: xui_styling_window_tests [--toggle-only] [--alignment-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
@@ -1143,11 +1248,13 @@ int main(int argc, char** argv) {
         }
         if (toggle_only) {
             toggle_pixel_contracts();
+            switch_ring_pixel_contracts();
             toggle_native_contracts();
             return 0;
         }
         pixel_contracts();
         toggle_pixel_contracts();
+        switch_ring_pixel_contracts();
         if (lower) { lower_level_benchmarks(); return 0; }
         button_alignment_contracts();
         toggle_native_contracts();

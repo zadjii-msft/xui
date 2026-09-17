@@ -16,7 +16,15 @@ Applications describe a control tree and callbacks. They do not supply a window 
 | `Stack` | Layout, padding, spacing, flex space, an optional surface, and a separator |
 | `Label` | Text, heading or caption appearance, semantic color, and an accessible name |
 | `Button` | An enabled command with an `on_click` callback and optional vector icon |
+| `HyperlinkButton` | A link-shaped callback action without implicit URI navigation |
 | `Toggle` | A checkbox with `checked`, `set_checked`, and an `on_change` callback |
+| `CheckBox` | A CheckState value, an optional three-state input cycle, and a typed change callback |
+| `SelectorBar` | A horizontal exclusive choice with stable item IDs |
+| `InfoBadge` | An accessible, noninteractive dot, count, or icon |
+| `MenuBar` | Persistent command headings with window-managed submenu popups |
+| `ToggleSwitch` | A switch presentation of Toggle with the same checked state, callback, and accessibility role |
+| `ToggleButton` | A Button with toggle behavior by default, `checked`, `set_checked`, and an `on_toggle` callback |
+| `Progress`, `ProgressRing` | Read-only bar and ring presentations with shared range, value, and state contracts |
 | `TextInput` | Native EDIT, committed-text and submit callbacks, optional asynchronous suggestions, search appearance, placeholder, and shortcut hint |
 | `ScrollView` | Retained content, a vertical viewport, a scrollbar, focus reveal, and UIA scroll actions |
 | `ContentView` | A clipped retained subtree with a native parent for child controls |
@@ -107,7 +115,9 @@ Retained controls remain valid after window destruction.
 Enabled state and checked state request paint updates.
 Text and typography changes request layout for automatic sizes, or paint for preferred sizes.
 Size limits, spacing, and padding request layout and paint updates.
-The host combines pending updates. It has no animation timer or continuous render loop.
+The host combines pending updates. It has no continuous render loop.
+Eligible indeterminate progress controls use a window-owned timer.
+The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines its lifecycle and reduced-animation behavior.
 Text stays on one line unless the text contains an explicit line break.
 An ellipsis marks text that exceeds the available width. The accessible name retains the full text.
 

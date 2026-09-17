@@ -75,6 +75,8 @@ internal static partial class Program
         TestCompositionDiagnostics();
         TestCompositionShape();
         TestValueControls();
+        TestToggleControls();
+        TestParityControls();
         TestStyling();
         TestStylingDiagnostics();
         TestStylingShape();

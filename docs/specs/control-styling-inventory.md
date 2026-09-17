@@ -37,9 +37,12 @@ Local values remain distinct from style values.
 
 | Control or composition | Styling properties and parts | Additional states | Boundary |
 | --- | --- | --- | --- |
-| `Button`, icon, repeat, toggle, and dropdown variants | Surface, text, icon, dropdown indicator, content alignment | checked | The existing Button API and grammar remain compatible. |
+| `Button`, `ToggleButton`, icon, repeat, toggle, and dropdown variants | Surface, text, icon, dropdown indicator, content alignment | checked | ToggleButton uses the existing `button` target. |
 | `Label` / `.xui Text` | Surface, text, caption, heading, wrapping and line limits | disabled | Text tone remains a semantic default, not a hard-coded override of authored color. |
-| `Toggle` | Surface, label text, indicator surface and size, check mark | checked | One control retains activation and Toggle accessibility. |
+| `Toggle`, `ToggleSwitch` | Surface, label text, indicator surface and size, check mark or switch thumb | checked | Both use the `toggle` target and retain Toggle accessibility. |
+| `CheckBox` | Toggle surface, label, indicator, and mark | checked presentation includes mixed state | The target remains `toggle`. The mark draws a check or mixed-state dash. |
+| `HyperlinkButton` | Button surface, text, and icon | Button interaction states | The target remains `button`. Appearance does not add URI handling. |
+| `InfoBadge` | Root surface, `message` count text, `icon` size and foreground | disabled | The target remains `inline_status`. There is no `title` part or action/dismiss child. |
 | `Stack` | Frame, separator, padding, spacing, content alignment | disabled | Explicit structural padding/spacing override style values, including explicit zero. |
 | `Grid`, `Wrap` | Frame, separator, padding, spacing, row/column gaps, content alignment | disabled | Existing tracks and child-placement APIs remain authoritative. |
 | `AdaptiveLayout` | Frame, separator, padding, spacing | compact, expanded | Adaptive navigation state and ownership remain unchanged. |
@@ -56,11 +59,12 @@ Local values remain distinct from style values.
 | --- | --- | --- | --- |
 | `RadioGroup` | Root surface, item surface and text, radio indicator, selected dot, row spacing and height | selected, item disabled | Stable choice IDs remain the source for input and accessibility. |
 | `ChoiceList` presentation | Root and item surfaces, item text, selected marker, row padding and height | selected, item disabled | There is no retained control or style allocation for every source item. |
+| `SelectorBar` | ChoiceList root, item surface, text, and selection marker | selected, item disabled | The target remains `choice_list`. Items use horizontal geometry. |
 | `ComboBox`, editable and noneditable | Root/field surfaces, selected text, arrow, opt-in header | open, empty | `editor()`, `popup()`, and `choices()` expose real children. Noneditable editor access returns absence. |
 | `TextInput`, plain and search variants | Header text, field surface, native text, placeholder, search icon, clear action, shortcut badge | empty, focused native editor | Supported native colors and font settings must match the surrounding frame. |
 | `NumericInput` | Root/field surfaces and opt-in header | invalid, minimum, maximum | Native text uses `editor()`. Spin styling uses `decrease_button()` and `increase_button()`, not synthetic parent parts. |
 | `RangeInput` | Root surface, track, filled track, thumb surface, thumb size, track thickness | dragging, minimum, maximum | Horizontal, vertical, and reversed geometry use one shared layout calculation. |
-| `Progress` | Root surface, caption, track, filled segment, thickness | determinate, indeterminate, paused, error, unknown | Styling does not add an animation timer to a static progress control. |
+| `Progress`, `ProgressRing` | Root surface, track, filled segment or arc, thickness, bar caption | determinate, indeterminate, paused, error, unknown | Both use the `progress` target. The ring has no visible caption. State and lifecycle control animation. |
 | `MultilineText`, `RichText` | Owned frame, supported native background, text foreground and default font | read-only, empty | No header part. Rich defaults do not restyle existing authored runs. Selection, IME, undo, and native scrollbars retain ownership. |
 | `PasswordInput` | Owned frame, supported native background, text foreground and font | revealed, empty | No header or reveal Button part. Styling does not expose password content or create a reveal control. |
 | `DateTimePicker`, date, time, and calendar | Owned frame and native font | focused, disabled | No header part. Native content background/foreground reject. Calendar internals remain platform-owned. |
@@ -90,6 +94,7 @@ Local values remain distinct from style values.
 | --- | --- | --- | --- |
 | `CommandMenu` | Root, item, section header, separator, icon, check mark, shortcut, submenu arrow, scrollbar | item disabled, selected, checked, submenu open | Command snapshots and menu input semantics remain intact. |
 | `CommandBar` | Root frame, retained command/overflow Buttons, separators and overflow menu | Root overflowed/disabled. Checked on command children. | Separator background and base/local thickness are implemented. Unstyled pitch remains unchanged. Arbitrary slot metrics and section labels are not supported. |
+| `MenuBar` | Root frame and retained heading Buttons, with CommandMenu popup content | Heading selection and expansion | The target remains `command_bar`. This alias does not add toolbar overflow behavior. |
 | `CommandSurface` and XUI command palette | Actual Popup root; retained search field, title/status Labels, menu, content and results Stacks, close Button | Root: open, disabled. Menu items: selected, checked, submenu open and interaction states. | Query loading/error/empty are not automatic facade-root selectors. Status Labels use their own Label schema. |
 | Custom Shell menu | Owner-drawn Shell menu customization remains unsupported by this expansion. | No exported style states. | Neither custom nor platform-owned Shell menu rendering gains a facade style target. |
 | `Popup` | Frame, padding, corner radius | open, disabled | Foreground rejects. Placement, clipping, dismissal, and focus restoration remain window-owned. |

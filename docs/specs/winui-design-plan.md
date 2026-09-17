@@ -16,6 +16,9 @@ The existing XUI interaction model, native text input, virtualization, and UI Au
 
 Status: the opt-in solid-surface style now covers the custom control catalog, not only the compact experiment.
 The [style reference](winui-style.md) describes the current scope.
+ToggleSwitch, ToggleButton, ProgressRing, and lifecycle-bound indeterminate animation extend that scope.
+The [foundation contract](foundation-controls.md) defines these additions.
+Static-progress and absent-animation statements in the earlier stages describe those stages, not the current implementation.
 [CONTRIBUTING](../../CONTRIBUTING.md#gallery) contains the build instructions.
 The style includes state tokens, button variants, fields, selection marks, sliders, grids, status surfaces, and popup geometry.
 It retains the renderer and native text input. Classic retains its vector icons.

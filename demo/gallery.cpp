@@ -10,6 +10,7 @@
 #include "xui/runtime_hosts.hpp"
 #include "host_fixtures.hpp"
 #include "gallery_catalog.hpp"
+#include "parity_samples.hpp"
 #include "winui_gallery.hpp"
 #include <windows.h>
 #include <shellapi.h>
@@ -581,18 +582,35 @@ private:
             demo->add(expander); targets_[index] = expander;
             break;
         }
-        case 25: {
-            auto progress = std::make_shared<Progress>(L"Sample task"); progress->set_value(40);
-            progress->set_automation_id(L"foundation-progress"); demo->add(progress);
+        case 25:
+        case 50: {
+            const bool circular = index == 50;
+            std::shared_ptr<Progress> progress;
+            if (circular) {
+                progress = std::make_shared<ProgressRing>(L"Load preview");
+                progress->set_fixed_size({64, 64});
+            } else {
+                progress = std::make_shared<Progress>(L"Sample task");
+            }
+            progress->set_value(40);
+            progress->set_automation_id(circular ? L"gallery-progress-ring" : L"foundation-progress");
+            demo->add(progress);
             auto row = panel(Axis::horizontal);
             targets_[index] = button(row, L"Advance", [progress, output] {
                 progress->set_state(ProgressState::determinate); progress->set_value(std::min(100.0, progress->value() + 10));
                 output->set_text(L"Events: progress advanced.");
             });
-            button(row, L"Indeterminate", [progress, output] { progress->set_state(ProgressState::indeterminate); output->set_text(L"Events: static indeterminate state."); });
-            button(row, L"Pause", [progress] { progress->set_state(ProgressState::paused); }); demo->add(row);
-            auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
-            auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
+            button(row, L"Indeterminate", [progress, output] { progress->set_state(ProgressState::indeterminate); output->set_text(L"Events: indeterminate progress."); });
+            button(row, L"Pause", [progress, output] { progress->set_state(ProgressState::paused); output->set_text(L"Events: progress paused."); });
+            button(row, L"Error", [progress, output] { progress->set_state(ProgressState::error); output->set_text(L"Events: progress error."); });
+            demo->add(row);
+            auto visibility = std::make_shared<ToggleSwitch>(L"Show indicator"); visibility->set_checked(true);
+            visibility->on_change([progress](bool value) { progress->set_visible(value); }); demo->add(visibility);
+            label(demo, L"Only visible indeterminate indicators animate. Windows animation preferences also apply.", TextTone::secondary);
+            if (!circular) {
+                auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
+                auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
+            }
             break;
         }
         case 26: {
@@ -1035,6 +1053,122 @@ private:
             });
             label(demo, L"Eight levels and 28 siblings per column use immutable in-memory sources. No filesystem or network access.",
                 TextTone::secondary);
+            break;
+        }
+        case 48: {
+            auto notifications = std::make_shared<ToggleSwitch>(L"Send notifications");
+            notifications->set_automation_id(L"gallery-toggle-switch");
+            notifications->set_checked(true);
+            notifications->on_change([output](bool value) {
+                output->set_text(value ? L"Events: notifications on." : L"Events: notifications off.");
+            });
+            demo->add(notifications); targets_[index] = notifications;
+            auto enabled = std::make_shared<Toggle>(L"Enable switch"); enabled->set_checked(true);
+            enabled->on_change([notifications](bool value) { notifications->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<ToggleSwitch>(L"Unavailable preference");
+            unavailable->set_checked(true); unavailable->set_enabled(false); demo->add(unavailable);
+            label(demo, L"Space changes the focused switch on release. Enter leaves its value unchanged.", TextTone::secondary);
+            break;
+        }
+        case 49: {
+            auto pin = std::make_shared<ToggleButton>(L"Pin preview");
+            pin->set_automation_id(L"gallery-toggle-button");
+            pin->set_checked(true);
+            pin->on_toggle([output](bool value) { output->set_text(value ? L"Events: preview pinned." : L"Events: preview unpinned."); });
+            demo->add(pin); targets_[index] = pin;
+            auto enabled = std::make_shared<Toggle>(L"Enable pin action"); enabled->set_checked(true);
+            enabled->on_change([pin](bool value) { pin->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<ToggleButton>(L"Unavailable action");
+            unavailable->set_checked(true); unavailable->set_enabled(false); demo->add(unavailable);
+            button(demo, L"Reset pin", [pin, output] {
+                pin->set_checked(true);
+                output->set_text(L"Events: pin reset without a toggle callback.");
+            });
+            break;
+        }
+        case 51: {
+            auto check = std::make_shared<CheckBox>(L"Include attachments");
+            check->set_automation_id(L"gallery-checkbox");
+            check->set_three_state(true);
+            check->set_state(CheckState::indeterminate);
+            check->on_change([output](CheckState state) {
+                output->set_text(state == CheckState::indeterminate ? L"Events: mixed attachments." :
+                    state == CheckState::checked ? L"Events: all attachments." : L"Events: no attachments.");
+            });
+            demo->add(check); targets_[index] = check;
+            auto three = std::make_shared<ToggleSwitch>(L"Cycle through three states"); three->set_checked(true);
+            three->on_change([check](bool value) { check->set_three_state(value); }); demo->add(three);
+            auto enabled = std::make_shared<Toggle>(L"Enable checkbox"); enabled->set_checked(true);
+            enabled->on_change([check](bool value) { check->set_enabled(value); }); demo->add(enabled);
+            button(demo, L"Set mixed state", [check, output] {
+                check->set_state(CheckState::indeterminate);
+                output->set_text(L"Events: mixed state set without a change callback.");
+            });
+            label(demo, L"Mixed describes a group with different values. Existing Toggle and ToggleSwitch remain binary.", TextTone::secondary);
+            break;
+        }
+        case 52: {
+            auto link = std::make_shared<HyperlinkButton>(L"Learn about this sample");
+            link->set_automation_id(L"gallery-hyperlink-button");
+            link->on_click([output] { output->set_text(L"Events: help requested. No browser was opened."); });
+            demo->add(link); targets_[index] = link;
+            auto enabled = std::make_shared<Toggle>(L"Enable help link"); enabled->set_checked(true);
+            enabled->on_change([link](bool value) { link->set_enabled(value); }); demo->add(enabled);
+            auto unavailable = std::make_shared<HyperlinkButton>(L"Unavailable documentation");
+            unavailable->set_enabled(false); demo->add(unavailable);
+            label(demo, L"The application handles activation. This sample performs no navigation or network request.", TextTone::secondary);
+            break;
+        }
+        case 53: {
+            auto selector = std::make_shared<SelectorBar>(L"Task filter");
+            selector->set_automation_id(L"gallery-selector-bar");
+            selector->set_items({{1, L"All"}, {2, L"Active"}, {3, L"Completed"}, {4, L"Archived", false}}, 1);
+            selector->on_change([output](std::uint64_t id) {
+                output->set_text(L"Events: task filter ID " + std::to_wstring(id));
+            });
+            demo->add(selector); targets_[index] = selector;
+            auto enabled = std::make_shared<Toggle>(L"Enable task filter"); enabled->set_checked(true);
+            enabled->on_change([selector](bool value) { selector->set_enabled(value); }); demo->add(enabled);
+            button(demo, L"Reset task filter", [selector, output] {
+                selector->set_selected(1);
+                output->set_text(L"Events: task filter reset without a change callback.");
+            });
+            label(demo, L"One Tab stop. Arrow keys change the selection and skip disabled choices.", TextTone::secondary);
+            break;
+        }
+        case 54: {
+            auto row = panel(Axis::horizontal);
+            label(row, L"Unread notifications");
+            auto badge = std::make_shared<InfoBadge>(L"Unread notifications");
+            badge->set_automation_id(L"gallery-info-badge"); badge->set_count(7);
+            row->add(badge); demo->add(row);
+            auto actions = panel(Axis::horizontal);
+            targets_[index] = button(actions, L"Add notification", [badge, output] {
+                badge->set_count(badge->count() + 1);
+                output->set_text(L"Events: notification count " + std::to_wstring(badge->count()));
+            });
+            button(actions, L"Show dot", [badge, output] { badge->set_dot(); output->set_text(L"Events: notification dot."); });
+            button(actions, L"Show icon", [badge, output] { badge->set_icon(ButtonIcon::bookmark); output->set_text(L"Events: notification icon."); });
+            demo->add(actions);
+            button(demo, L"Reset notification count", [badge, output] {
+                badge->set_count(7); output->set_text(L"Events: notification count reset.");
+            });
+            label(demo, L"The badge describes status and never receives keyboard focus.", TextTone::secondary);
+            break;
+        }
+        case 55: {
+            auto menu = std::make_shared<MenuBar>(L"Document menu");
+            menu->set_automation_id(L"gallery-menu-bar");
+            menu->set_commands(gallery::menu_bar_commands([output](std::wstring message) {
+                output->set_text(L"Events: " + message);
+            }));
+            demo->add(menu);
+            auto editor = std::make_shared<TextInput>(L"Document title"); editor->set_text(L"Untitled sample");
+            demo->add(editor); targets_[index] = editor;
+            auto enabled = std::make_shared<Toggle>(L"Enable document menu"); enabled->set_checked(true);
+            enabled->on_change([menu](bool value) { menu->set_enabled(value); }); demo->add(enabled);
+            label(demo, L"F10 enters the menu. Alt+F opens File. Arrow keys navigate; Escape returns focus.", TextTone::secondary);
+            label(demo, L"Recent samples contains a nested menu. Publish and Cut are disabled. No external actions run.", TextTone::secondary);
             break;
         }
         }

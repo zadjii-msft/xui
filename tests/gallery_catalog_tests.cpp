@@ -1,4 +1,5 @@
 #include "../demo/gallery_catalog.hpp"
+#include "../demo/parity_samples.hpp"
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -23,17 +24,33 @@ int main() {
             require(catalog.items()->source()->find(key).has_value());
             require(*gallery::entries[i].code != L'\0');
         }
-        require(gallery::entries.size() == 48);
+        require(gallery::entries.size() == 56);
         require(std::wstring_view(gallery::entries[45].id) == L"web-content");
         require(std::wstring_view(gallery::entries[46].id) == L"navigation-view");
         require(std::wstring_view(gallery::entries[47].id) == L"miller-columns");
         require(std::wstring_view(gallery::entries[47].group) == L"Collections");
         require(std::wstring_view(gallery::entries[47].code).find(L"xui::MillerColumns") != std::wstring_view::npos);
         require(std::wstring_view(gallery::entries[47].code).find(L"next.resize(column + 1)") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[48].id) == L"toggle-switch");
+        require(std::wstring_view(gallery::entries[49].id) == L"toggle-button");
+        require(std::wstring_view(gallery::entries[50].id) == L"progress-ring");
+        require(std::wstring_view(gallery::entries[48].code).find(L"ToggleSwitch") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[49].code).find(L"ToggleButton") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[50].code).find(L"ProgressRing") != std::wstring_view::npos);
+        for (const auto& [index, id] : std::array<std::pair<std::size_t, const wchar_t*>, 5>{
+            {{51, L"checkbox"}, {52, L"hyperlink-button"}, {53, L"selector-bar"}, {54, L"info-badge"}, {55, L"menu-bar"}}})
+            require(std::wstring_view(gallery::entries[index].id) == id);
         for (auto id : {L"radio", L"combo", L"popup", L"tooltip", L"actions", L"number", L"range", L"disclosure", L"progress"})
             require(ids.contains(id));
         require(!gallery::entry_index({999, 1}) && !gallery::entry_index({1, 2}));
         require(gallery::entry_index(gallery::home_key) == 0 && gallery::entry_index(gallery::appearance_key) == 16);
+        std::wstring menu_output;
+        const auto menu = gallery::menu_bar_commands([&](std::wstring text) { menu_output = std::move(text); });
+        require(menu->find(1)->kind == xui::CommandKind::submenu && menu->find(1)->label == L"&File");
+        require(menu->find(13)->parent == 1 && menu->find(131)->parent == 13);
+        require(!menu->enabled(4) && !menu->enabled(21));
+        require(menu->invoke(12) && menu_output == L"Sample saved in memory.");
+        require(menu->invoke(131) && menu_output == L"Welcome sample selected.");
         int changes{};
         catalog.on_select([&](xui::ItemKey) { ++changes; });
         require(catalog.select({1, 1}) && catalog.select({1, 1}) && changes == 1);
@@ -49,7 +66,7 @@ int main() {
             if (query == L"COLLECTIONS") require(catalog.match_count() == 6);
         });
         for (const auto& [query, count] : std::array<std::pair<const wchar_t*, unsigned>, 4>{
-            {{L"COLLECTIONS", 6u}, {L"input", 11u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
+            {{L"COLLECTIONS", 6u}, {L"input", 16u}, {L"grid", 3u}, {L"nothing-matches-this", 0u}}}) {
             catalog.set_filter(query);
             require(catalog.match_count() == count && catalog.selected() == xui::ItemKey{1, 1});
             require(catalog.header_items()->source()->size() == 1 && catalog.footer_items()->source()->size() == 1);

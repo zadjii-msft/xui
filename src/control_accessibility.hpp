@@ -54,6 +54,9 @@ struct ControlSnapshot {
     bool vertical_choices{}, expanded{}, read_only{}, invalid{}, toggle_action{};
     float choice_left{}, choice_width{};
     bool dialog_surface{};
+    bool indeterminate{}, hyperlink{}, selector_bar{}, menu_bar{}, menu_heading{}, menu_selected{};
+    float choice_top{}, choice_height{};
+    std::wstring access_key;
     bool single_selection{};
     bool visible{};
     std::shared_ptr<const ItemsSource> collection;

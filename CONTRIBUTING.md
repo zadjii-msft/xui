@@ -454,6 +454,47 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Toggles and progress
+
+Run the model, native animation, pixel, and gallery checks sequentially:
+
+```powershell
+cmake --build $build --config Release --target xui xui_foundation_tests xui_foundation_window_tests xui_styling_window_tests xui_abi_features_tests xui_gallery xui_gallery_smoke
+ctest --test-dir $build -C Release -R '^xui_(foundation_tests|foundation_window_tests|switch_ring_pixels)$' --output-on-failure
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --controls-only
+& ".\$build\Release\xui_abi_features_tests.exe" --toggle-controls
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --toggle-controls
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
+```
+
+The pixel check covers switch geometry and circular progress in Classic, WinUI, and high contrast.
+The window check covers keyboard input, UIA, animation, hidden controls, disabled ancestors, detached content, and minimized windows.
+It respects the Windows animation preference without changing that preference.
+The gallery check covers the `toggle-switch`, `toggle-button`, `progress-ring`, and `progress` pages.
+With `XUI_DESKTOP_TESTS=ON`, CTest also registers this gallery check as `xui_winui_controls_gallery_smoke`.
+
+### Choices, links, badges, and menus
+
+Run the focused native and gallery checks sequentially:
+
+```powershell
+cmake --build $build --config Release --target xui xui_next_controls_tests xui_menu_bar_tests xui_next_controls_window_tests xui_menu_bar_window_tests xui_styling_window_tests xui_abi_features_tests xui_gallery xui_gallery_smoke xui_gallery_catalog_tests
+ctest --test-dir $build -C Release -R '^xui_(next_controls_tests|menu_bar_tests|next_controls_window_tests|menu_bar_window_tests|next_controls_pixels)$' --output-on-failure
+& ".\$build\Release\xui_gallery_catalog_tests.exe"
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --parity-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --parity-classic
+& ".\$build\Release\xui_abi_features_tests.exe" --parity-controls
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --parity-controls
+$env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui parity_controls -- --test-threads=1
+```
+
+The gallery checks cover CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar in WinUI and Classic styles.
+They cover mixed checkbox state, disabled input, link callbacks, exclusive selection, badge updates, and menu commands.
+The hyperlink example does not open a browser.
+The menu example does not write files or change the clipboard.
+
 ### Independent windows
 
 Run these desktop checks sequentially:

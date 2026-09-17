@@ -14,6 +14,8 @@ internal static class Tests
             if (args is ["--file-dialogs"]) { FileDialogTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
+            if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }
+            if (args is ["--parity-controls"]) { FeatureTests.ParityControls(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }
             if (args is ["--visual-primitives"]) { Run(); return 0; }

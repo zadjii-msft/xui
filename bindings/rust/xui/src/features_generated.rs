@@ -216,6 +216,51 @@ impl Window {
             .map(MillerColumns)
     }
 }
+impl Window {
+    pub fn toggle_switch(&self, name: &str) -> Result<ToggleSwitch> {
+        self.feature_create(48, name, None, None, 0)
+            .map(ToggleSwitch)
+    }
+}
+impl Window {
+    pub fn toggle_button(&self, name: &str) -> Result<ToggleButton> {
+        self.feature_create(49, name, None, None, 0)
+            .map(ToggleButton)
+    }
+}
+impl Window {
+    pub fn progress_ring(&self, name: &str) -> Result<ProgressRing> {
+        self.feature_create(50, name, None, None, 0)
+            .map(ProgressRing)
+    }
+}
+impl Window {
+    pub fn check_box(&self, name: &str) -> Result<CheckBox> {
+        self.feature_create(51, name, None, None, 0).map(CheckBox)
+    }
+}
+impl Window {
+    pub fn hyperlink_button(&self, name: &str) -> Result<HyperlinkButton> {
+        self.feature_create(52, name, None, None, 0)
+            .map(HyperlinkButton)
+    }
+}
+impl Window {
+    pub fn selector_bar(&self, name: &str) -> Result<SelectorBar> {
+        self.feature_create(53, name, None, None, 0)
+            .map(SelectorBar)
+    }
+}
+impl Window {
+    pub fn info_badge(&self, name: &str) -> Result<InfoBadge> {
+        self.feature_create(54, name, None, None, 0).map(InfoBadge)
+    }
+}
+impl Window {
+    pub fn menu_bar(&self, name: &str) -> Result<MenuBar> {
+        self.feature_create(55, name, None, None, 0).map(MenuBar)
+    }
+}
 #[derive(Clone)]
 pub struct RangeInput(pub(crate) Element);
 pub struct WeakRangeInput(WeakElement);
@@ -1561,6 +1606,358 @@ impl MillerColumns {
     }
 }
 impl std::ops::Deref for MillerColumns {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+#[derive(Clone)]
+pub struct ToggleSwitch(pub(crate) Element);
+pub struct WeakToggleSwitch(WeakElement);
+impl WeakToggleSwitch {
+    pub fn upgrade(&self) -> Option<ToggleSwitch> {
+        self.0.upgrade().map(ToggleSwitch)
+    }
+}
+impl ToggleSwitch {
+    pub fn weak(&self) -> WeakToggleSwitch {
+        WeakToggleSwitch(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for ToggleSwitch {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl ToggleSwitch {
+    pub fn set_checked(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            46,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ToggleSwitch {
+    pub fn checked(&self) -> Result<bool> {
+        let v = self.0.feature_get(46)?;
+        Ok(v.first != 0)
+    }
+}
+#[derive(Clone)]
+pub struct ToggleButton(pub(crate) Element);
+pub struct WeakToggleButton(WeakElement);
+impl WeakToggleButton {
+    pub fn upgrade(&self) -> Option<ToggleButton> {
+        self.0.upgrade().map(ToggleButton)
+    }
+}
+impl ToggleButton {
+    pub fn weak(&self) -> WeakToggleButton {
+        WeakToggleButton(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for ToggleButton {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl ToggleButton {
+    pub fn set_checked(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            10,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ToggleButton {
+    pub fn checked(&self) -> Result<bool> {
+        let v = self.0.feature_get(10)?;
+        Ok(v.first != 0)
+    }
+}
+impl ToggleButton {
+    pub fn set_icon(&self, value: ButtonIcon) -> Result<()> {
+        self.0.feature_set(
+            45,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ToggleButton {
+    pub fn icon(&self) -> Result<ButtonIcon> {
+        let v = self.0.feature_get(45)?;
+        ButtonIcon::from_native(v.first)
+    }
+}
+#[derive(Clone)]
+pub struct ProgressRing(pub(crate) Element);
+pub struct WeakProgressRing(WeakElement);
+impl WeakProgressRing {
+    pub fn upgrade(&self) -> Option<ProgressRing> {
+        self.0.upgrade().map(ProgressRing)
+    }
+}
+impl ProgressRing {
+    pub fn weak(&self) -> WeakProgressRing {
+        WeakProgressRing(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for ProgressRing {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl ProgressRing {
+    pub fn set_range(&self, value: NumericRange) -> Result<()> {
+        self.0.feature_set(
+            1,
+            sys::FeatureValue {
+                a: value.minimum,
+                b: value.maximum,
+                c: value.small_step,
+                d: value.large_step,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ProgressRing {
+    pub fn range(&self) -> Result<NumericRange> {
+        let v = self.0.feature_get(1)?;
+        Ok(NumericRange {
+            minimum: v.a,
+            maximum: v.b,
+            small_step: v.c,
+            large_step: v.d,
+        })
+    }
+}
+impl ProgressRing {
+    pub fn set_value(&self, value: f64) -> Result<()> {
+        self.0.feature_set(
+            2,
+            sys::FeatureValue {
+                a: value,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ProgressRing {
+    pub fn value(&self) -> Result<f64> {
+        let v = self.0.feature_get(2)?;
+        Ok(v.a)
+    }
+}
+impl ProgressRing {
+    pub fn set_state(&self, value: ProgressState) -> Result<()> {
+        self.0.feature_set(
+            6,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl ProgressRing {
+    pub fn state(&self) -> Result<ProgressState> {
+        let v = self.0.feature_get(6)?;
+        ProgressState::from_native(v.first)
+    }
+}
+#[derive(Clone)]
+pub struct CheckBox(pub(crate) Element);
+pub struct WeakCheckBox(WeakElement);
+impl WeakCheckBox {
+    pub fn upgrade(&self) -> Option<CheckBox> {
+        self.0.upgrade().map(CheckBox)
+    }
+}
+impl CheckBox {
+    pub fn weak(&self) -> WeakCheckBox {
+        WeakCheckBox(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for CheckBox {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl CheckBox {
+    pub fn set_state(&self, value: CheckState) -> Result<()> {
+        self.0.feature_set(
+            48,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl CheckBox {
+    pub fn state(&self) -> Result<CheckState> {
+        let v = self.0.feature_get(48)?;
+        CheckState::from_native(v.first)
+    }
+}
+impl CheckBox {
+    pub fn set_three_state(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            49,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl CheckBox {
+    pub fn three_state(&self) -> Result<bool> {
+        let v = self.0.feature_get(49)?;
+        Ok(v.first != 0)
+    }
+}
+#[derive(Clone)]
+pub struct HyperlinkButton(pub(crate) Element);
+pub struct WeakHyperlinkButton(WeakElement);
+impl WeakHyperlinkButton {
+    pub fn upgrade(&self) -> Option<HyperlinkButton> {
+        self.0.upgrade().map(HyperlinkButton)
+    }
+}
+impl HyperlinkButton {
+    pub fn weak(&self) -> WeakHyperlinkButton {
+        WeakHyperlinkButton(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for HyperlinkButton {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl HyperlinkButton {
+    pub fn set_icon(&self, value: ButtonIcon) -> Result<()> {
+        self.0.feature_set(
+            45,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl HyperlinkButton {
+    pub fn icon(&self) -> Result<ButtonIcon> {
+        let v = self.0.feature_get(45)?;
+        ButtonIcon::from_native(v.first)
+    }
+}
+#[derive(Clone)]
+pub struct SelectorBar(pub(crate) Element);
+pub struct WeakSelectorBar(WeakElement);
+impl WeakSelectorBar {
+    pub fn upgrade(&self) -> Option<SelectorBar> {
+        self.0.upgrade().map(SelectorBar)
+    }
+}
+impl SelectorBar {
+    pub fn weak(&self) -> WeakSelectorBar {
+        WeakSelectorBar(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for SelectorBar {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+#[derive(Clone)]
+pub struct InfoBadge(pub(crate) Element);
+pub struct WeakInfoBadge(WeakElement);
+impl WeakInfoBadge {
+    pub fn upgrade(&self) -> Option<InfoBadge> {
+        self.0.upgrade().map(InfoBadge)
+    }
+}
+impl InfoBadge {
+    pub fn weak(&self) -> WeakInfoBadge {
+        WeakInfoBadge(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for InfoBadge {
+    type Target = Element;
+    fn deref(&self) -> &Element {
+        &self.0
+    }
+}
+impl InfoBadge {
+    pub fn set_count(&self, value: u32) -> Result<()> {
+        self.0.feature_set(
+            52,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl InfoBadge {
+    pub fn count(&self) -> Result<u32> {
+        let v = self.0.feature_get(52)?;
+        u32::try_from(v.first).map_err(|_| invalid("Invalid unsigned integer."))
+    }
+}
+impl InfoBadge {
+    pub fn set_icon(&self, value: ButtonIcon) -> Result<()> {
+        self.0.feature_set(
+            53,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl InfoBadge {
+    pub fn icon(&self) -> Result<ButtonIcon> {
+        let v = self.0.feature_get(53)?;
+        ButtonIcon::from_native(v.first)
+    }
+}
+impl InfoBadge {
+    pub fn set_dot(&self) -> Result<()> {
+        self.0.feature_action(18, 0, 0)
+    }
+}
+#[derive(Clone)]
+pub struct MenuBar(pub(crate) Element);
+pub struct WeakMenuBar(WeakElement);
+impl WeakMenuBar {
+    pub fn upgrade(&self) -> Option<MenuBar> {
+        self.0.upgrade().map(MenuBar)
+    }
+}
+impl MenuBar {
+    pub fn weak(&self) -> WeakMenuBar {
+        WeakMenuBar(self.0.downgrade())
+    }
+}
+impl std::ops::Deref for MenuBar {
     type Target = Element;
     fn deref(&self) -> &Element {
         &self.0
