@@ -349,6 +349,7 @@ cmake --build $build --config Release --target xui xui_multiwindow_tests xui_app
 & ".\$build\Release\xui_multiwindow_tests.exe"
 & ".\$build\Release\xui_application_abi_tests.exe"
 dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --multiwindow
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --window-icons
 $env:PATH = (Resolve-Path "$build\Release").Path + ";" + $env:PATH
 cargo test --manifest-path bindings\rust\Cargo.toml -p xui --test application -- --test-threads=1
 ```

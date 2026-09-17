@@ -74,7 +74,8 @@ void TitleBar::arrange(Rect b) {
     const float caption = std::min(caption_width, b.width / 3), remaining = std::max(0.0f, b.width - caption * 3);
     const float button_height = std::min(caption_height, b.height);
     const float leading = leading_->visible() ? std::min(44.0f, remaining) : 0;
-    const float title = title_->visible() ? std::min(180.0f, (remaining - leading) / 3) : 0;
+    const float title = title_->visible() ? (tabs_->visible() || secondary_tabs_->visible()
+        ? std::min(180.0f, (remaining - leading) / 3) : remaining - leading) : 0;
     leading_->arrange({b.x, b.y + 3, leading, std::max(0.0f, b.height - 6)});
     title_->arrange({b.x + leading + 8, b.y, std::max(0.0f, title - 8), b.height});
     const float tab_width = std::max(0.0f, remaining - leading - title - 36);

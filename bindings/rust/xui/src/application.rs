@@ -165,6 +165,10 @@ unsafe extern "C" fn deliver(context: *mut c_void, execute: u32) -> i32 {
     }
 }
 impl Window {
+    /// Sets a type-association icon, not a target-file icon. Empty uses the stock file/folder icon.
+    pub fn set_file_type_icon(&self, extension: &str, directory: bool) -> Result<()> {
+        check(unsafe { sys::xui_window_file_type_icon(self.0.handle, text(extension)?, directory as u32) })
+    }
     pub fn state(&self) -> Result<WindowState> {
         let mut state = 0;
         check(unsafe { sys::xui_window_state(self.0.handle, &mut state) })?;
