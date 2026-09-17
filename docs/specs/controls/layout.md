@@ -69,6 +69,23 @@ Explicit padding and spacing override style values, including zero.
 Passive layout roots reject foreground text color.
 Child text uses the child style.
 
+## ContentHost
+
+`ContentHost` retains its layout identity while one scoped root changes inside it.
+It uses native XUI controls and input, not a separate preview window.
+Controls outside the host retain their native peers, focus, selection, and undo history.
+
+C# creates the host with `Window.CreateContentHost`.
+The `.xui` shell accepts that element through a parameter and places it with `Content(...)`.
+The [scoped content contract](../bindings.md#scoped-content-replacement) contains the C# example, C ABI declarations, and ownership rules.
+C++ uses `Window::replace_content`.
+Rust does not yet expose a typed wrapper.
+
+Live replacement runs in a deferred UI-thread action, outside native input callbacks.
+Ordinary topology changes remain restricted to initial construction.
+Disposing a committed update clears its content if that update remains current.
+This boundary does not isolate untrusted code or prevent native materialization failures.
+
 ## Grid
 
 Use `Grid` for aligned rows and columns.
