@@ -1,0 +1,14 @@
+[package]
+name = "xui-lsh-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dev-dependencies]
+lsh = { git = "https://github.com/microsoft/edit", rev = "826b4c097b6f14ba0a846dc56f2f0223a3aaf73a" }
+stdext = { git = "https://github.com/microsoft/edit", rev = "826b4c097b6f14ba0a846dc56f2f0223a3aaf73a" }
+
+[[test]]
+name = "highlighting"
+path = "tests/highlighting.rs"

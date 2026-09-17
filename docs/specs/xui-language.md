@@ -596,6 +596,26 @@ The extension supplies `.xui` highlighting, embedded C# highlighting, brackets, 
 It is a syntax package.
 It does not provide a language server, semantic completion, or a visual designer.
 
+## Microsoft Edit syntax support
+
+The [XUI LSH grammar](../../integrations/edit-lsh/xui.lsh) supplies `.xui` highlighting for [Microsoft Edit](https://github.com/microsoft/edit).
+It recognizes declarations, control names, named arguments, styles, resources, and embedded C# tokens.
+It preserves multiline comments, verbatim strings, raw strings, and nested C# blocks.
+Ordinary and verbatim interpolated strings use C# highlighting inside interpolation expressions.
+Raw interpolated strings use one string color.
+Their interpolation expressions are not parsed.
+A delimiter-length quote run inside a raw interpolation can end highlighting early.
+
+The grammar is a standalone file with no dependency on other LSH definitions.
+It uses existing Edit highlight kinds and registers the `XUI` display name for `*.xui` files.
+Highlighting is lexical, not semantic validation.
+It does not check control arguments, style catalog entries, or C# types.
+Incomplete multiline strings, comments, and blocks retain their context until a closing delimiter.
+
+Edit compiles LSH definitions into its executable.
+This repository does not install the grammar into an existing Edit binary.
+The [integration procedure](../../CONTRIBUTING.md#microsoft-edit-lsh-grammar) describes compilation and the regression suite.
+
 ## Run the integration checks
 
 Use the [compiler and integration commands](../../CONTRIBUTING.md#tests).

@@ -436,6 +436,21 @@ Reload requests must not access a closed window.
 Window shutdown must revoke development subscriptions and queued work.
 The release application must not poll for edits.
 
+## Microsoft Edit integration
+
+`integrations/edit-lsh/xui.lsh` supplies the standalone LSH definition for Microsoft Edit.
+Its helpers use the `xui_` prefix because LSH functions share one global namespace.
+The shared token lexer handles C# expressions, strings, comments, and nested delimiters.
+The outer lexer handles XUI declarations and control names.
+Loops that call the token lexer use `continue` to bypass LSH's automatic character skipping.
+The optimizer cannot see regexes inside helper calls.
+
+`integrations/edit-lsh/tests/highlighting.rs` compiles the grammar with the upstream LSH compiler and checks runtime highlight spans.
+It also compiles the grammar beside all upstream definitions to detect symbol conflicts.
+The Cargo manifest and lockfile pin the upstream compiler and runtime.
+The [contributor procedure](../../CONTRIBUTING.md#microsoft-edit-lsh-grammar) contains test and integration commands.
+The [public guide](../specs/xui-language.md#microsoft-edit-syntax-support) describes coverage and limits.
+
 ## VS Code package
 
 The extension registers the `.xui` file association.

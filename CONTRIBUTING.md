@@ -747,6 +747,46 @@ The [native-host reference](docs/specs/scenes-and-hosts.md) describes explicit l
 Use the [extension README](integrations/vscode-xui/README.md) for packaging, installation, and tokenizer commands.
 The package supplies syntax support, not a language server or visual designer.
 
+## Microsoft Edit LSH grammar
+
+The standalone grammar is `integrations\edit-lsh\xui.lsh`.
+The [language guide](docs/specs/xui-language.md#microsoft-edit-syntax-support) describes its highlighting limits.
+The regression suite requires Rust 1.93 or later.
+Cargo downloads the LSH compiler and runtime from a pinned Microsoft Edit commit.
+No native XUI build is required.
+
+From the XUI repository root, run:
+
+```powershell
+cargo test --locked --manifest-path integrations\edit-lsh\Cargo.toml
+```
+
+The suite checks token colors, filename detection, multiline state, UTF-8 span boundaries, repository samples, and compatibility with the built-in Edit definitions.
+The pinned revision is `826b4c097b6f14ba0a846dc56f2f0223a3aaf73a`.
+Both dependencies in `Cargo.toml` must use the same revision.
+
+To use the grammar in Edit, start with a separate [Edit source checkout](https://github.com/microsoft/edit).
+From the XUI repository root, set `$edit` to that checkout:
+
+```powershell
+$edit = "C:\src\edit"
+$sample = (Resolve-Path bindings\dotnet\DeclarativeSample\Counter.xui).Path
+Copy-Item integrations\edit-lsh\xui.lsh "$edit\crates\lsh\definitions\xui.lsh"
+```
+
+In the Edit checkout, run:
+
+```powershell
+Set-Location $edit
+cargo run -p lsh-bin -- assembly crates\lsh\definitions
+cargo run -p lsh-bin -- render --input $sample crates\lsh\definitions
+cargo build --release -p edit
+```
+
+Edit discovers the copied definition during its build.
+An installed Edit binary does not load this source file at runtime.
+The [Edit build documentation](https://github.com/microsoft/edit#building-from-source) lists platform requirements.
+
 ## Documentation and changes
 
 ### Retype preview and GitHub Pages

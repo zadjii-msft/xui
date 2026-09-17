@@ -1,0 +1,280 @@
+#[display_name = "XUI"]
+#[path = "**/*.xui"]
+pub fn xui() {
+    until /$/ {
+        yield other;
+        if /(@?[\w\x80-\xff]+)\s*:/ {
+            yield $1 as variable;
+        } else if /[\w]*[\x80-\xff][\w\x80-\xff]*/ {
+            yield other;
+        } else if /code\>/ {
+            yield keyword.other;
+            xui_code();
+        } else if /(?:namespace|state|param)\>/ {
+            yield keyword.other;
+            xui_field();
+        } else if /(?:component|style|for|basedOn)\>/ {
+            yield keyword.other;
+            xui_type_name();
+        } else if /(?:view|resources|part|when)\>/ {
+            yield keyword.other;
+        } else if /(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|RangeInput|Progress|Content)\>/ {
+            yield storage.type;
+        } else if /\(/ {
+            yield other;
+            xui_arguments();
+        } else if /[{};]/ {
+            yield other;
+        } else {
+            xui_token();
+        }
+        yield other;
+        // Do not fast-skip characters recognized only inside xui_token().
+        continue;
+    }
+}
+
+fn xui_type_name() {
+    loop {
+        yield other;
+        await input;
+        if /@?[\w\x80-\xff]+/ {
+            yield storage.type;
+            return;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_code() {
+    loop {
+        yield other;
+        await input;
+        if /csharp\>/ {
+            yield storage.type;
+        } else if /\{/ {
+            yield other;
+            xui_braces();
+            return;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_field() {
+    loop {
+        yield other;
+        await input;
+        if /;/ {
+            yield other;
+            return;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_braces() {
+    loop {
+        yield other;
+        await input;
+        if /\}/ {
+            yield other;
+            return;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_arguments() {
+    loop {
+        yield other;
+        await input;
+        if /\)/ {
+            yield other;
+            return;
+        } else if /@?[\w\x80-\xff]+::/ {
+            yield other;
+        } else if /(@?[\w\x80-\xff]+)\s*:/ {
+            yield $1 as variable;
+            yield other;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_brackets() {
+    loop {
+        yield other;
+        await input;
+        if /\]/ {
+            yield other;
+            return;
+        } else {
+            xui_token();
+        }
+        continue;
+    }
+}
+
+fn xui_token() {
+    yield other;
+    if /\/\/.*/ {
+        yield comment;
+    } else if /\/\*/ {
+        loop {
+            yield comment;
+            await input;
+            if /\*\// {
+                yield comment;
+                break;
+            }
+        }
+    } else if /\$*"""/ {
+        xui_raw_string();
+    } else if /(?:\$@|@\$)"/ {
+        xui_interpolated_verbatim_string();
+    } else if /@"/ {
+        xui_verbatim_string();
+    } else if /\$"/ {
+        xui_interpolated_string();
+    } else if /"/ {
+        xui_string();
+    } else if /'/ {
+        until /$/ {
+            if /\\./ {
+            } else if /'/ {
+                break;
+            }
+        }
+        yield string;
+    } else if /#\s*(?:define|elif|else|endif|endregion|error|if|line|nullable|pragma|region|undef|warning)\>.*/ {
+        yield keyword.preprocessor;
+    } else if /@[\w\x80-\xff]+/ {
+        yield other;
+    } else if /[\w]*[\x80-\xff][\w\x80-\xff]*/ {
+        yield other;
+    } else if /(?:break|case|catch|continue|default|do|else|finally|foreach|for|goto|if|return|switch|throw|try|while|yield)\>/ {
+        yield keyword.control;
+    } else if /(?:abstract|and|as|async|await|base|checked|class|const|delegate|dynamic|enum|event|explicit|extern|file|fixed|from|get|global|group|implicit|in|init|interface|internal|into|is|join|let|lock|nameof|namespace|new|not|notnull|operator|or|orderby|out|override|params|partial|private|protected|public|readonly|record|ref|required|scoped|sealed|select|set|sizeof|stackalloc|static|struct|this|typeof|unchecked|unmanaged|unsafe|using|var|virtual|volatile|when|where|with)\>/ {
+        yield keyword.other;
+    } else if /(?:true|false|null)\>/ {
+        yield constant.language;
+    } else if /(?:bool|byte|char|decimal|double|float|int|long|nint|nuint|object|sbyte|short|string|uint|ulong|ushort|void)\>/ {
+        yield storage.type;
+    } else if /(?i:(?:0x[\da-f_]+|0b[01_]+|[0-9][\d_]*(?:\.[\d_]+)?|\.[0-9][\d_]*)(?:e[+-]?[\d_]+)?[dflmu]{0,2})/ {
+        if /[\w\x80-\xff]+/ {
+            yield other;
+        } else {
+            yield constant.numeric;
+        }
+    } else if /([\w\x80-\xff]+)\s*\(/ {
+        yield $1 as method;
+        yield other;
+        xui_arguments();
+    } else if /[\w\x80-\xff]+/ {
+        yield other;
+    } else if /\{/ {
+        yield other;
+        xui_braces();
+    } else if /\(/ {
+        yield other;
+        xui_arguments();
+    } else if /\[/ {
+        yield other;
+        xui_brackets();
+    } else if /./ {
+        yield other;
+    }
+    yield other;
+}
+
+fn xui_string() {
+    until /$/ {
+        if /\\./ {
+        } else if /"/ {
+            break;
+        }
+    }
+    yield string;
+}
+
+fn xui_verbatim_string() {
+    loop {
+        yield string;
+        await input;
+        if /""/ {
+        } else if /"/ {
+            yield string;
+            break;
+        }
+    }
+}
+
+fn xui_interpolated_string() {
+    until /$/ {
+        if /\\.|\{\{|\}\}/ {
+        } else if /\{/ {
+            yield string;
+            xui_braces();
+        } else if /"/ {
+            break;
+        }
+    }
+    yield string;
+}
+
+fn xui_interpolated_verbatim_string() {
+    loop {
+        yield string;
+        await input;
+        if /""|\{\{|\}\}/ {
+        } else if /\{/ {
+            yield string;
+            xui_braces();
+        } else if /"/ {
+            yield string;
+            break;
+        }
+    }
+}
+
+fn xui_raw_string() {
+    var delimiter = 3;
+    loop {
+        if /"/ {
+            delimiter += 1;
+            continue;
+        } else {
+            break;
+        }
+    }
+    loop {
+        yield string;
+        await input;
+        if /"/ {
+            var quotes = 1;
+            loop {
+                if /"/ {
+                    quotes += 1;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            if quotes >= delimiter {
+                yield string;
+                break;
+            }
+        }
+    }
+}
