@@ -10,7 +10,10 @@ enum {
     XUI_BUTTON_ICON_MORE = 12, XUI_BUTTON_ICON_NAVIGATION = 13, XUI_BUTTON_ICON_HOME = 14,
     XUI_BUTTON_ICON_FOLDER = 15, XUI_BUTTON_ICON_SETTINGS = 16, XUI_BUTTON_ICON_SEARCH = 17,
     XUI_BUTTON_ICON_LIBRARY = 18, XUI_BUTTON_ICON_HISTORY = 19, XUI_BUTTON_ICON_BOOKMARK = 20,
-    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22
+    XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
+    XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
+    XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -265,6 +268,13 @@ typedef struct xui_item_visual {
     uint32_t size, icon;
     xui_string image_path;
 } xui_item_visual;
+/* Icon values match C++ ButtonIcon and C# ButtonIcon:
+   none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
+   minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
+   folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28.
+   This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
+   Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */
 XUI_API xui_status XUI_CALL xui_navigation_items_visual(xui_handle target,
     const xui_navigation_entry* items, const xui_item_visual* visuals, uint32_t count) XUI_NOEXCEPT;

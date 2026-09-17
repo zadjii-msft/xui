@@ -1520,6 +1520,29 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         stroke(4, 3, 12, 3); stroke(12, 3, 14, 9); stroke(14, 9, 14, 13);
         stroke(14, 13, 2, 13); stroke(2, 13, 2, 9); stroke(2, 9, 4, 3);
         stroke(2, 9, 14, 9); stroke(10, 11, 12, 11);
+    } else if (icon == ButtonIcon::save || icon == ButtonIcon::save_as) {
+        stroke(2, 1, 12, 1); stroke(12, 1, 14, 3); stroke(2, 1, 2, 14);
+        stroke(5, 1, 5, 6); stroke(5, 6, 11, 6); stroke(11, 6, 11, 1);
+        stroke(5, 14, 5, 9); stroke(5, 9, 8, 9);
+        if (icon == ButtonIcon::save) {
+            stroke(14, 3, 14, 14); stroke(14, 14, 2, 14);
+            stroke(8, 9, 11, 9); stroke(11, 9, 11, 14);
+        } else {
+            // Leave space for the pencil instead of painting it over the disk.
+            stroke(14, 3, 14, 5); stroke(2, 14, 7, 14);
+            stroke(8, 15, 9, 12); stroke(9, 12, 13, 8);
+            stroke(13, 8, 15, 10); stroke(15, 10, 11, 14); stroke(11, 14, 8, 15);
+            stroke(11, 10, 13, 12);
+        }
+    } else if (icon == ButtonIcon::undo || icon == ButtonIcon::redo) {
+        const auto arrow = [&](float x1, float y1, float x2, float y2) {
+            if (icon == ButtonIcon::redo) { x1 = 16 - x1; x2 = 16 - x2; }
+            stroke(x1, y1, x2, y2);
+        };
+        constexpr float points[][2]{{2, 6}, {7, 4}, {11, 4}, {14, 7}, {14, 10}, {11, 13}, {7, 13}};
+        for (std::size_t i = 1; i < std::size(points); ++i)
+            arrow(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]);
+        arrow(2, 2, 2, 6); arrow(2, 6, 6, 8);
     } else if (icon == ButtonIcon::open) {
         stroke(9, 2, 14, 2); stroke(14, 2, 14, 7); stroke(14, 2, 7, 9);
         stroke(6, 3, 2, 3); stroke(2, 3, 2, 14); stroke(2, 14, 13, 14); stroke(13, 14, 13, 10);
@@ -1545,6 +1568,10 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         const float tail = 16 - tip;
         const float shoulder = icon == ButtonIcon::back ? 7.0f : 9.0f;
         stroke(tip, 8, tail, 8); stroke(tip, 8, shoulder, 3); stroke(tip, 8, shoulder, 13);
+    } else if (icon == ButtonIcon::chevron_up || icon == ButtonIcon::chevron_down) {
+        const float tip = icon == ButtonIcon::chevron_up ? 5.0f : 11.0f;
+        const float tail = 16 - tip;
+        stroke(3, tail, 8, tip); stroke(8, tip, 13, tail);
     } else if (icon == ButtonIcon::add) {
         stroke(8, 3, 8, 13); stroke(3, 8, 13, 8);
     } else if (icon == ButtonIcon::up) {

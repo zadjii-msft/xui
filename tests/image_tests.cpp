@@ -61,9 +61,21 @@ void row_image_tests() {
     auto wake = std::make_shared<TaskWake>();
     RowImages first, second, third;
     std::vector<RowVisual> rows;
-    for (size_t i = 0; i < 100; ++i) rows.push_back({source->key(i), {ButtonIcon::none, path(i)}});
     std::vector<uint64_t> retained;
     size_t remaining = 48;
+    for (const auto icon : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down}) {
+        first.sync(source, {{source->key(0), {icon, {}}}}, 96, wake, retained, remaining);
+        check(first.visual(source->key(0)).icon == icon && remaining == 48,
+            "Document row icons retain their value without image requests");
+    }
+    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(29)}) {
+        bool rejected{};
+        try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained, remaining); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected, "Invalid row icons fail before I/O");
+    }
+    for (size_t i = 0; i < 100; ++i) rows.push_back({source->key(i), {ButtonIcon::none, path(i)}});
     first.sync(source, rows, 96, wake, retained, remaining);
     second.sync(source, rows, 96, wake, retained, remaining);
     third.sync(source, rows, 96, wake, retained, remaining);

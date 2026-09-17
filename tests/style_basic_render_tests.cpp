@@ -62,6 +62,43 @@ struct Fixture {
 std::size_t count(const std::vector<uint32_t>& pixels, uint32_t value) {
     return std::count(pixels.begin(), pixels.end(), value);
 }
+void document_icons(Fixture& fixture) {
+    constexpr std::array icons{ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down};
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        fixture.drawing.set_visual_style(style);
+        for (const auto size : {16.0f, 20.0f, 32.0f}) {
+            std::array<std::vector<uint32_t>, icons.size()> images;
+            for (std::size_t i = 0; i < icons.size(); ++i) {
+                images[i] = fixture.render([&] {
+                    fixture.drawing.button_icon({20, 20, size, size}, D2D1::ColorF(0xffffff), icons[i]);
+                });
+                require(count(images[i], 0x101010) < images[i].size(),
+                    "Every document icon paints visible pixels in both visual styles");
+                for (std::size_t previous = 0; previous < i; ++previous)
+                    require(images[i] != images[previous], "Document command icons have distinct shapes");
+                if (icons[i] == ButtonIcon::chevron_up || icons[i] == ButtonIcon::chevron_down) {
+                    const bool up = icons[i] == ButtonIcon::chevron_up;
+                    const auto expected = fixture.render([&] {
+                        if (style == VisualStyle::winui) {
+                            fixture.drawing.symbol(up ? Symbol::chevron_up : Symbol::chevron_down,
+                                {20, 20, size, size}, D2D1::ColorF(0xffffff), size);
+                        } else {
+                            const float tip = 20 + (up ? 5 : 11) * size / 16;
+                            const float tail = 20 + (up ? 11 : 5) * size / 16;
+                            fixture.drawing.line(20 + 3 * size / 16, tail, 20 + 8 * size / 16, tip,
+                                D2D1::ColorF(0xffffff), 1.5f);
+                            fixture.drawing.line(20 + 8 * size / 16, tip, 20 + 13 * size / 16, tail,
+                                D2D1::ColorF(0xffffff), 1.5f);
+                        }
+                    });
+                    require(images[i] == expected, "Chevron buttons use the existing symbol or exactly two directional strokes");
+                }
+            }
+        }
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
 void typography_cache(Fixture& fixture) {
     auto& drawing = fixture.drawing;
     const auto baseline = fixture.render([&] { drawing.text(L"Default path", {10, 10, 180, 50}, D2D1::ColorF(0xffffff)); });
@@ -350,7 +387,7 @@ void clear_glyph_and_state(Fixture& fixture) {
 }
 }
 int main() {
-    try { Fixture fixture; typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
+    try { Fixture fixture; document_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";
 }
