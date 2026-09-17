@@ -58,6 +58,11 @@ Switching between modes preserves an unapplied property value when conversion su
 Failed conversion leaves that value unchanged and shows an error.
 Expressions, interpolation, UTF-8 literals, NUL, and invalid Unicode cannot use text mode.
 
+**Reset** removes an authored named literal argument so the control can use its default.
+Reset compiles the candidate and creates one native undo operation.
+It does not remove positional operands, expressions, references, or comments inside the argument.
+Required arguments and unsafe Grid changes produce an error without changing source.
+
 The palette inserts a complete control at the end of the selected stack or grid.
 Grid insertion and duplication require an empty, valid row and column.
 **Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.
@@ -165,6 +170,13 @@ It replaces an existing value or inserts one supported named argument.
 It preserves unrelated arguments, comments, styles, whitespace, and C# code.
 An existing expression requires explicit `replaceExpression: true`.
 This approval also applies to event handlers, references, and style names.
+
+`RemoveArgument(revision, nodeId, argumentName, cancellation)` removes an existing named argument and one adjacent comma.
+It preserves the remaining arguments and the comments and whitespace between them.
+It refuses positional operands and comments or directives inside the argument.
+The method compiles the original and candidate source and checks Grid placement after a reset.
+Calling this method explicitly authorizes removal of a named expression.
+The inspector applies a stricter policy and permits only literal resets.
 
 `DeleteNode` and `DuplicateNode` require a Stack or Grid parent.
 The view root cannot move, disappear, or duplicate.

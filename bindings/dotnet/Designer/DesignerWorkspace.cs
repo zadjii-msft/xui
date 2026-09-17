@@ -43,6 +43,7 @@ internal sealed class DesignerWorkspace : IDisposable
         };
         Hierarchy.Layout.FromCaret.Click += SelectFromCaret;
         Inspector.Layout.Apply.Click += ApplyProperty;
+        Inspector.Layout.Reset.Click += ResetProperty;
         Inspector.Layout.Delete.Click += () => Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token));
         Inspector.Layout.Duplicate.Click += Duplicate;
         Inspector.Layout.Up.Click += () => Move(-1);
@@ -185,6 +186,24 @@ internal sealed class DesignerWorkspace : IDisposable
     }
 
     internal void Move(int delta) => Edit((document, node, token) => document.MoveNode(document.Revision, node.Id, delta, token));
+
+    internal void ResetProperty()
+    {
+        string? name = Inspector.Argument;
+        var argument = Hierarchy.Selection?.Arguments.FirstOrDefault(value => value.Name == name);
+        if (argument is null) { Inspector.Layout.Feedback.Text = "This argument is not set in source."; return; }
+        if (argument.IsPositional)
+        {
+            Inspector.Layout.Feedback.Text = "Positional arguments cannot be reset. Edit the value instead.";
+            return;
+        }
+        if (argument.ValueKind == XuiValueKind.Expression)
+        {
+            Inspector.Layout.Feedback.Text = "Expressions are read-only here. Remove this argument in the source editor.";
+            return;
+        }
+        Edit((document, node, token) => document.RemoveArgument(document.Revision, node.Id, argument.Name, token));
+    }
     internal void Wrap(ControlTemplate wrapper) =>
         Edit((document, node, token) => document.WrapNode(document.Revision, node.Id, wrapper, token));
     internal void Unwrap() => Edit((document, node, token) => document.UnwrapNode(document.Revision, node.Id, token));

@@ -17,7 +17,11 @@ component DesignerInspectorLayout {
                     help: "Edit a string literal without quotes or escape sequences");
                 Content(ValueEditor, preferredSize: (240, 80));
                 Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
-                Button("Apply property", ref: Apply, id: "designer-apply-property");
+                HStack(spacing: 6) {
+                    Button("Apply property", ref: Apply, id: "designer-apply-property");
+                    Button("Reset", ref: Reset, id: "designer-reset-property", enabled: false,
+                        help: "Remove an authored named literal argument and use its default");
+                }
                 Text("Structure", fontSize: 18, fontWeight: 600);
                 HStack(spacing: 6) {
                     Button("Move up", ref: Up, id: "designer-move-up", help: "Move to the previous sibling position (Alt+Up in hierarchy)");

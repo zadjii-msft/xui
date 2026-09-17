@@ -75,7 +75,9 @@ Its grouping actions call `VisualDocument.WrapNode` and `UnwrapNode` through the
 `DesignerInspector.cs` exposes this conversion through an opt-in text-mode toggle.
 `DesignerWorkspace.ApplyProperty` rejects no-op values before it starts a source transaction.
 `Designer.TextModeTests` covers the complete native inspector, source callbacks, undo, raw and verbatim spelling, draft conversion, and size-limit errors.
-The September 17, 2026 ARM64 Release run passed 19 text-mode assertions, 16 workspace assertions, and 19 grouping assertions.
+The September 17, 2026 ARM64 Release run passed 26 text-mode and reset assertions, 16 workspace assertions, and 19 grouping assertions.
+`DesignerWorkspace.ResetProperty` permits named literal resets through `VisualDocument.RemoveArgument`.
+Positional operands and expression-backed arguments remain protected in the inspector.
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.

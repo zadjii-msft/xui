@@ -236,7 +236,7 @@ The grouping UI test uses the production hierarchy and inspector with native sou
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
-The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, and encoded-length errors.
+The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 It also covers read-only expressions and recovery from invalid source without replacing the native document.

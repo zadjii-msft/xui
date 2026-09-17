@@ -105,6 +105,7 @@ internal sealed class DesignerInspector
         Value.Text = argument?.Value ?? "";
         Value.ReadOnly = !writable;
         Layout.Apply.Enabled = writable;
+        Layout.Reset.Enabled = writable && argument is { IsPositional: false };
         Layout.ArgumentHelp.Text = !editable ? validationPending
             ? "Read-only while the visual edit is validated."
             : "Read-only until the hierarchy matches valid source."

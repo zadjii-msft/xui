@@ -12,7 +12,9 @@ internal static class Program
 
     private static void Run()
     {
-        const string original = """"component TextModes { state string Title = "Expression"; view { VStack() { Text(@"C:\folder ""quoted"""); Text("Line1\r\nLine2"); Text("""Raw \ path"""); Text(Title); Text("\0"); } } }"""";
+        const string original = """"component TextModes { state string Title = "Expression"; view { VStack() { Text(@"C:\folder ""quoted""", fontSize: 16, wrapping: true); Text("Line1\r\nLine2"); Text("""Raw \ path"""); Text(Title, ref: Caption); Text("\0"); } } }"""";
+        var parsed = VisualDocument.Parse(original);
+        if (!parsed.Success) throw new InvalidOperationException(string.Join("; ", parsed.Diagnostics.Select(value => value.Message)));
         using var window = new Window("Designer string text mode", 1200, 1000);
         window.SetShowActivated(false);
         var editor = window.MultilineText("Source").SetDocument(original);
@@ -79,7 +81,7 @@ internal static class Program
                     changedSource = editor.Text;
                     var expression = workspace.Document!.Root!.Children[0].Arguments.Single(argument => argument.Name == "value").Value;
                     Require(DesignerLiteralCodec.TryDecodeText(expression, out string decoded, out _) && decoded == changedText,
-                        "Text Apply encodes quotes, native paragraphs, and complete Unicode scalars.");
+                        "Text Apply encodes quotes, native paragraphs, and complete Unicode scalars. " + workspace.Inspector.Layout.Feedback.Text);
                     Require(changes == beforeApply + 1 && !workspace.Inspector.IsTextMode,
                         "A text edit emits one native source change and returns the refreshed inspector to raw mode.");
                     editor.Command(TextCommand.Undo);
@@ -136,6 +138,52 @@ internal static class Program
                     workspace.ApplyProperty();
                     Require(editor.Text == invalid && workspace.Inspector.Value.ReadOnly && !workspace.Inspector.IsTextMode,
                         "A source change retires text mode and refuses a stale property edit.");
+                    editor.Command(TextCommand.Undo);
+                });
+                await Ready();
+                int beforeReset = 0;
+                string resetSource = "";
+                await Ui(() =>
+                {
+                    Select(0);
+                    workspace.Inspector.ChooseArgument("fontSize");
+                    beforeReset = changes;
+                    workspace.Inspector.Layout.Reset.Invoke();
+                });
+                await Ready();
+                await Ui(() =>
+                {
+                    resetSource = editor.Text;
+                    var node = workspace.Document!.Root!.Children[0];
+                    Require(node.Arguments.All(argument => argument.Name != "fontSize") &&
+                        node.Arguments.Any(argument => argument.Name == "wrapping" && argument.Value == "true"),
+                        "Reset removes only the chosen named literal argument.");
+                    Require(changes == beforeReset + 1, "A property reset emits exactly one native source change.");
+                    editor.Command(TextCommand.Undo);
+                });
+                await Ready();
+                await Ui(() =>
+                {
+                    Require(editor.Text == changedSource, "One native Undo restores the exact named argument and separator.");
+                    editor.Command(TextCommand.Redo);
+                });
+                await Ready();
+                await Ui(() =>
+                {
+                    Require(editor.Text == resetSource, "Native Redo restores the property reset.");
+                    Select(0);
+                    workspace.ResetProperty();
+                    Require(editor.Text == resetSource && workspace.Inspector.Layout.Feedback.Text.Contains("Positional", StringComparison.Ordinal),
+                        "The reset controller protects positional operands.");
+                    workspace.Inspector.ChooseArgument("fontSize");
+                    workspace.ResetProperty();
+                    Require(editor.Text == resetSource && workspace.Inspector.Layout.Feedback.Text.Contains("not set", StringComparison.Ordinal),
+                        "An absent property cannot create a reset edit.");
+                    Select(3);
+                    workspace.Inspector.ChooseArgument("ref");
+                    workspace.ResetProperty();
+                    Require(editor.Text == resetSource && workspace.Inspector.Layout.Feedback.Text.Contains("Expressions are read-only", StringComparison.Ordinal),
+                        "Named expression-backed source remains unchanged by Reset.");
                     Require(errors.Count == 0, "Expected mode and edit refusals do not produce runtime failures.");
                 });
             }
