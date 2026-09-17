@@ -82,6 +82,46 @@ C++ callers retain responsibility for their own callback captures and resources.
 The C ABI adds begin, commit, release, clear, context, owner, and handle-count operations.
 The context operation attributes new resources to a scoped callback without enabling topology changes.
 
+### Native file dialogs
+
+The C ABI declarations are in `include\xui\xui_file_dialog.h`, included by `xui.h`.
+`xui_window_open_file_dialog` and `xui_window_save_file_dialog` take an options record, receiver, and caller context.
+The record requires its exact size, `XUI_FILE_DIALOG_VERSION`, and zero reserved fields.
+Strings are strict UTF-8 spans. XUI copies all options before the modal dialog opens.
+The [native dialog contract](application.md#owned-native-file-dialogs) defines filters, length limits, ownership, and native behavior.
+
+The receiver runs once on successful completion, including cancellation.
+It receives `accepted = 1` and a borrowed filesystem path, or `accepted = 0` and an empty path.
+The path is valid only until the receiver returns. Native errors do not call the receiver.
+A receiver error produces `XUI_CALLBACK_FAILED` and closes the owner under the existing callback-error policy.
+Selecting a Save destination does not write a file.
+
+Malformed options produce `XUI_INVALID_ARGUMENT`. Invalid size or version produces `XUI_VERSION_MISMATCH`.
+The existing invalid-handle, wrong-kind, wrong-thread, and closed-window statuses apply.
+An unavailable native owner or a reentrant dialog call produces `XUI_BUSY`.
+Native Shell and directory-resolution failures produce `XUI_NATIVE_ERROR`, never a cancellation result.
+The window must remain alive through the receiver. Destruction during the call is rejected.
+Candidate construction and active preview callbacks cannot open these window-wide dialogs.
+
+C# exposes immutable option records and synchronous `Window.ShowOpenFileDialog` and `Window.ShowSaveFileDialog` methods:
+
+```csharp
+string? path = window.ShowSaveFileDialog(new FileDialogOptions
+{
+    Title = "Save component",
+    Filters = [new("Components", "*.xui"), new("All files", "*.*")],
+    DefaultExtension = "xui",
+    SuggestedName = "Component.xui"
+});
+```
+
+This call belongs in an unscoped UI callback while the window runs.
+A string contains the copied path. `null` means cancellation only.
+`XuiException` reports native errors. Managed argument, thread, scope, and disposal checks run before native dispatch.
+`Dispose` and nested dialogs are rejected during the modal call. `Close` requests native cancellation.
+These bindings use no Windows Forms, ownerless dialog, or public HWND.
+Rust has no typed file-dialog wrapper in this release.
+
 ### Windows file transfers
 
 The C# library supports filesystem clipboard transfers and native OLE drag-and-drop without Windows Forms or WPF.

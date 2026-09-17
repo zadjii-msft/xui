@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "xui/native_edit.hpp"
 #include "native_document.hpp"
+#include "native_file_dialog.hpp"
 #include "native_runtime_host.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
@@ -152,6 +153,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     HFONT font{};
     bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{}, replacing{};
     ContentHost* replacement_host{};
+    std::shared_ptr<NativeFileDialog> native_file_dialog;
+    bool file_dialog_teardown_pending{};
     std::uint64_t paints{}, layouts{};
     std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
     WindowIcon window_icon;
@@ -176,6 +179,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     ~Impl() { teardown(); }
     void destroy() {
+        if (native_file_dialog) {
+            closing = true;
+            native_file_dialog->cancel();
+            close_posts();
+            return;
+        }
         if (destroying) return;
         destroying = true;
         closing = true;
@@ -215,6 +224,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         ~InputScope() { --host.input_depth; }
     };
     void teardown() {
+        if (native_file_dialog) {
+            file_dialog_teardown_pending = true;
+            destroy();
+            return;
+        }
         for (auto& task : samples) task->cancel();
         for (auto& task : tasks) task->cancel();
         detach();
@@ -5101,6 +5115,7 @@ void Window::close() {
     auto impl = impl_;
     Impl::InputScope input_scope(*impl);
     impl->closing = true;
+    if (impl->native_file_dialog) impl->native_file_dialog->cancel();
     impl->close_posts();
     for (auto& task : impl->samples) task->cancel();
     for (auto& task : impl->tasks) task->cancel();
@@ -5188,7 +5203,7 @@ std::optional<bool> Window::paste_files(const std::wstring& destination) {
 }
 int Application::run(Window& window) {
     // A command can delete its public Window. Retain the backend until dispatch
-    // unwinds, but Window destruction still closes native windows immediately.
+    // unwinds. An active native file dialog defers HWND teardown until its modal call returns.
     const auto impl = window.impl_;
     if (running) {
         impl->error = L"Another window is already running on this UI thread.";
@@ -5249,5 +5264,7 @@ int Application::run(Window& window) {
         return 1;
     }
 }
+
+#include "application_file_dialog.inc"
 
 }

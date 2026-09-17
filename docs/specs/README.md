@@ -26,7 +26,7 @@ No hosted site is required to read these pages.
 
 - [Packages and deployment](packages.md): NuGet, Cargo, native-only C++ integration, sample archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, project integration, and hot reload.
-- [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, and accessibility.
+- [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
 - [Control styles and color resources](control-styling.md): Shared schemas, named parts, typography, state rules, declarative authoring, and binding contracts.

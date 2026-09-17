@@ -12,6 +12,7 @@ endif()
 
 add_library(xui_core src/core.cpp src/views.cpp src/controls.cpp src/control_styling.cpp src/styling.cpp src/data_grid.cpp src/foundation.cpp src/collections.cpp src/adaptive_layout.cpp src/commands.cpp src/navigation.cpp src/navigation_view.cpp src/miller_columns.cpp src/shell_command_session.cpp src/titlebar.cpp src/documents.cpp src/vector_canvas.cpp src/map_view.cpp src/runtime_hosts.cpp)
 target_sources(xui_core PRIVATE
+    src/file_dialog.cpp
     src/file_list.cpp
     src/style_basic_schema.cpp src/style_fields_schema.cpp src/style_choices_schema.cpp src/style_layouts_schema.cpp
     src/style_collections_schema.cpp src/style_grid_schema.cpp src/style_navigation_schema.cpp src/style_hosts_schema.cpp)
@@ -94,6 +95,9 @@ if(BUILD_TESTING)
     add_executable(xui_document_editing_tests tests/document_editing_tests.cpp)
     target_link_libraries(xui_document_editing_tests PRIVATE xui_core)
     add_test(NAME xui_document_editing_tests COMMAND xui_document_editing_tests)
+    add_executable(xui_file_dialog_tests tests/file_dialog_tests.cpp)
+    target_link_libraries(xui_file_dialog_tests PRIVATE xui_core)
+    add_test(NAME xui_file_dialog_tests COMMAND xui_file_dialog_tests)
     add_executable(xui_hosts_tests tests/hosts_tests.cpp)
     target_link_libraries(xui_hosts_tests PRIVATE xui_core)
     add_test(NAME xui_hosts_tests COMMAND xui_hosts_tests)
@@ -119,6 +123,7 @@ if(WIN32)
         src/drawing.cpp
         src/native_edit.cpp
         src/native_document.cpp
+        src/native_file_dialog.cpp
         src/native_runtime_host.cpp
         src/folder_suggestions.cpp
         src/path_input.cpp
@@ -173,6 +178,24 @@ if(WIN32)
         target_compile_options(xui_document_editing_abi_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         target_link_options(xui_document_editing_abi_tests PRIVATE /MANIFEST:NO)
         add_test(NAME xui_document_editing_abi_tests COMMAND xui_document_editing_abi_tests)
+        add_executable(xui_file_dialog_native_tests tests/file_dialog_native_tests.cpp demo/xui.rc)
+        target_link_libraries(xui_file_dialog_native_tests PRIVATE xui_windows)
+        target_compile_options(xui_file_dialog_native_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_file_dialog_native_tests PRIVATE /MANIFEST:NO)
+        add_test(NAME xui_file_dialog_native_tests COMMAND xui_file_dialog_native_tests)
+        set_tests_properties(xui_file_dialog_native_tests PROPERTIES TIMEOUT 90)
+        add_executable(xui_file_dialog_window_tests tests/file_dialog_window_tests.cpp demo/xui.rc)
+        target_link_libraries(xui_file_dialog_window_tests PRIVATE xui_windows)
+        target_compile_options(xui_file_dialog_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_file_dialog_window_tests PRIVATE /MANIFEST:NO)
+        add_test(NAME xui_file_dialog_window_tests COMMAND xui_file_dialog_window_tests)
+        set_tests_properties(xui_file_dialog_window_tests PROPERTIES TIMEOUT 120)
+        add_executable(xui_file_dialog_abi_tests tests/file_dialog_abi_tests.cpp demo/xui.rc)
+        target_link_libraries(xui_file_dialog_abi_tests PRIVATE xui)
+        target_compile_options(xui_file_dialog_abi_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_file_dialog_abi_tests PRIVATE /MANIFEST:NO)
+        add_test(NAME xui_file_dialog_abi_tests COMMAND xui_file_dialog_abi_tests)
+        set_tests_properties(xui_file_dialog_abi_tests PROPERTIES TIMEOUT 120)
     endif()
     target_compile_options(xui PRIVATE /W4 /permissive- /utf-8 /EHsc)
     add_executable(xui_style_catalog bindings/native/style_catalog.cpp)

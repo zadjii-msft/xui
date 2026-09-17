@@ -421,6 +421,23 @@ These scripts use isolated fixtures. The explorer smoke does not write the norma
 The [test reference](docs/llm/testing.md) describes coverage and measurement protocols.
 Physical IME, mixed-monitor transitions, and screen-reader speech still require manual coverage.
 
+### Native file dialogs
+
+Build and run the focused dialog checks:
+
+```powershell
+cmake --build $build --config Release --target xui_file_dialog_tests xui_file_dialog_native_tests xui_file_dialog_window_tests xui_file_dialog_abi_tests
+ctest --test-dir $build -C Release -R "^xui_file_dialog_.*tests$" --output-on-failure
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --file-dialogs
+```
+
+These desktop fixtures open real owned Windows Shell dialogs and cancel them through bounded, owner-specific probes.
+They cover Open and Save paths, Unicode, default extensions, invalid options, thread access, callback failures, and content-scope guards.
+The native window fixture covers focus return, composition rejection, owner closure, and owner deletion during the modal loop.
+The Save fixtures select unique absent destinations and assert that no file was created.
+Each native window fixture uses `demo\xui.rc` and `/MANIFEST:NO`. The managed fixture uses the matching apphost manifest.
+The probes use a local temporary directory to avoid unrelated Shell startup delays from remembered locations.
+
 ### Document range editing
 
 Build and run the focused document checks:

@@ -51,6 +51,13 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
+`tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
+It records callback errors without throwing through a native timer.
+The native window fixture covers closure and public-owner deletion while `IFileDialog::Show` owns its modal loop.
+The ABI and managed fixtures cover candidate and active content-scope rejection.
+The [dialog procedure](../../CONTRIBUTING.md#native-file-dialogs) lists commands and manifest requirements.
+
 Document range editing has separate core, native, ABI, and managed fixtures.
 `tests\document_editing_tests.cpp` checks validation before adapter dispatch.
 `tests\document_editing_window_tests.cpp` uses real RichEdit controls with an owned notification parent.
