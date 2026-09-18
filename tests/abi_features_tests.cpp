@@ -833,7 +833,9 @@ void explorer_contracts() {
     expect(xui_navigation_header(first_pane, 0) == XUI_WRONG_KIND);
     auto centered_popup = create(window, XUI_POPUP, create(window, XUI_GRID));
     ok(xui_popup_placement(centered_popup, 4));
-    expect(xui_popup_placement(centered_popup, 5) == XUI_INVALID_ARGUMENT);
+    ok(xui_popup_placement(centered_popup, 5));
+    ok(xui_popup_placement(centered_popup, 6));
+    expect(xui_popup_placement(centered_popup, 7) == XUI_INVALID_ARGUMENT);
     expect(xui_popup_placement(first_pane, 4) == XUI_WRONG_KIND);
     ok(xui_popup_window_background(centered_popup, 1));
     ok(xui_popup_window_background(centered_popup, 0));
@@ -959,6 +961,18 @@ void split_first_visibility_contracts() {
     ok(xui_stack_create(window, 1, &first));
     ok(xui_stack_create(window, 1, &second));
     const auto split = create(window, XUI_SPLIT_VIEW, first, second);
+    uint32_t axis{};
+    float minimum{};
+    ok(xui_split_get_layout(split, &axis, &minimum)); expect(axis == 0 && minimum == 300);
+    ok(xui_split_set_layout(split, 1, 48));
+    ok(xui_split_get_layout(split, &axis, &minimum)); expect(axis == 1 && minimum == 48);
+    expect(xui_split_set_layout(split, 2, 48) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_set_layout(split, 0, 0) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_set_layout(split, 0, std::numeric_limits<float>::quiet_NaN()) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_get_layout(split, nullptr, &minimum) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_get_layout(split, &axis, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_split_set_layout(first, 0, 48) == XUI_WRONG_KIND);
+    ok(xui_split_get_layout(split, &axis, &minimum)); expect(axis == 1 && minimum == 48);
     uint32_t visible{};
     ok(xui_split_get_first_visible(split, &visible)); expect(visible == 1);
     auto ratio = value(); ratio.a = .4;
@@ -975,6 +989,9 @@ void split_first_visibility_contracts() {
         uint32_t result{};
         expect(xui_split_set_first_visible(split, 1) == XUI_WRONG_THREAD);
         expect(xui_split_get_first_visible(split, &result) == XUI_WRONG_THREAD);
+        float extent{};
+        expect(xui_split_set_layout(split, 0, 48) == XUI_WRONG_THREAD);
+        expect(xui_split_get_layout(split, &result, &extent) == XUI_WRONG_THREAD);
     });
     worker.join();
     ok(xui_split_get_first_visible(split, &visible)); expect(visible == 0);
@@ -987,6 +1004,8 @@ void split_first_visibility_contracts() {
     ok(xui_window_destroy(window));
     expect(xui_split_get_first_visible(split, &visible) == XUI_INVALID_HANDLE);
     expect(xui_split_set_first_visible(split, 1) == XUI_INVALID_HANDLE);
+    expect(xui_split_set_layout(split, 0, 48) == XUI_INVALID_HANDLE);
+    expect(xui_split_get_layout(split, &axis, &minimum) == XUI_INVALID_HANDLE);
 }
 void toggle_control_contracts() {
     static_assert(XUI_RETAINED_ELEMENT == 47 && XUI_TOGGLE_SWITCH == 48 && XUI_TOGGLE_BUTTON == 49 && XUI_PROGRESS_RING == 50);

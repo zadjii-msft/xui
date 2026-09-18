@@ -5,6 +5,7 @@
   "version": "0.2.0",
   "publisher": "zadjii-msft",
   "license": "MIT",
+  "icon": "images/zoey.png",
   "engines": {
     "vscode": "^1.85.0",
     "node": ">=22"

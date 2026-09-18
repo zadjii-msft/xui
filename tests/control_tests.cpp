@@ -161,6 +161,15 @@ void sizing_and_scroll() {
         content->add(button, i == 9 ? 1.0f : 0.0f);
     }
     auto scroll = std::make_shared<ScrollView>(content);
+    scroll->set_visible(false);
+    require(scroll->measure({640, 480}).width == 0 && scroll->measure({640, 480}).height == 0,
+        "Hidden scroll views reserve no layout space");
+    scroll->set_passthrough(true);
+    require(scroll->measure({640, 480}).width == 0 && scroll->measure({640, 480}).height == 0,
+        "Hidden passthrough scroll views reserve no layout space");
+    scroll->set_visible(true);
+    require(scroll->measure({640, 480}).height > 0, "Restored passthrough content measures normally");
+    scroll->set_passthrough(false);
     Stack root(Axis::vertical);
     root.add(scroll, 1);
     root.arrange({0, 0, 220, 120});

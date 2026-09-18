@@ -1,9 +1,15 @@
 input: build/retype-input
 output: build/retype-site
 url: zadjii-msft.github.io/xui/
+favicon: assets/branding/zoey.ico
 branding:
   title: XUI
   label: Handbook
+  logo: assets/branding/zoey.svg
+  logoWidth: 40
+  logoHeight: 40
+include:
+  - assets/branding/site.webmanifest
 links:
   - text: Source
     link: https://github.com/zadjii-msft/xui

@@ -41,7 +41,7 @@
                 (!IsChild(window, hwnd) && GetAncestor(hwnd, GA_ROOTOWNER) != window)) continue;
             const auto peer = std::find_if(peers.begin(), peers.end(),
                 [hwnd](const auto& value) { return value->window == hwnd || value->caption == hwnd; });
-            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime &&
+            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime && !(*peer)->swap_chain &&
                 hwnd != (*peer)->caption) continue;
             RECT bounds{};
             win32_require(GetWindowRect(hwnd, &bounds) != 0, "Read opaque highlight surface");
@@ -58,7 +58,7 @@
             inspection::Outline ring;
             if (host && content_highlight_geometry(*host, state, *state.highlight, ring) == ContentHighlightResult::applied)
                 for (const auto segment : ring.segments)
-                    if (segment.width > 0 && segment.height > 0) drawing.fill(segment, palette.accent);
+                    if (segment.width > 0 && segment.height > 0) drawing().fill(segment, palette.accent);
         }
     }
     void inspection_api_ready() const {
@@ -306,6 +306,7 @@
     void prune_inspection_hosts() {
         std::set<std::uint64_t> live;
         content_ids(root, live);
+        for (const auto& entry : popups) content_ids(entry.popup, live);
         std::erase_if(content_picking, [&](const auto& entry) {
             return entry.second.host.expired() || !live.contains(entry.first);
         });

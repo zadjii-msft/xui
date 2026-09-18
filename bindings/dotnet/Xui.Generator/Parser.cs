@@ -195,7 +195,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
             "Progress" or "ProgressRing" => ["value", "range", "currentValue", "progressState"],
             "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp", "duration"],
-            "ItemsView" or "ScrollView" => ["value"],
+            "ItemsView" or "ScrollView" or "SwapChainPanel" => ["value"],
             "Reveal" => ["value", "open", "duration", "layout", "direction"],
             "Popup" => ["value", "placement", "windowBackground"],
             "SplitView" => ["value", "secondVisible", "duration"],

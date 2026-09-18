@@ -49,6 +49,7 @@
 * [Images and thumbnails](images.md)
 * [Documents, dialogs, and color](documents.md)
 * [Scenes and native hosts](scenes-and-hosts.md)
+* [Swap chain panel](swap-chain-panel.md)
 
 ## Samples
 
@@ -62,6 +63,7 @@
 ## Contribute and explore designs
 
 * [Build, test, and contribute](../../CONTRIBUTING.md)
+* [Zoey the XUI Lion](branding/zoey.md)
 * [Styles and templates proposal](styling-and-templates-design.md)
 * [WinUI-style proposal](winui-design-plan.md)
 * [Windows GUI memory report](windows-gui-memory.md)

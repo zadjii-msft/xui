@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Xui;
 using Xui.Designer;
 
@@ -28,6 +29,8 @@ internal static partial class Program
             string original = "";
             ElementBounds editorBounds = default;
             nint nativeSource = 0;
+            nint foregroundBeforeEscape = 0;
+            bool restoreSourceFocus = false;
             try
             {
                 await Ui(workspace.SourceChanged);
@@ -55,14 +58,18 @@ internal static partial class Program
                     Require(inspector.Template == ControlTemplate.RangeInput &&
                         inspector.PaletteLayout.PaletteHelp.Text == "1 control. Slider for a numeric value.",
                         "Real native query input filters the original palette templates.");
+                    foregroundBeforeEscape = GetForegroundWindow();
+                    restoreSourceFocus = foregroundBeforeEscape == GetAncestor(nativeSource, 2);
                     NativeKey(0x1B);
                 });
                 await Until(() => !inspector.IsPaletteOpen);
                 await Ui(() =>
                 {
-                    Require(editor.Focused && editor.Selection == new TextSelection(2, 4) &&
+                    Require(editor.Selection == new TextSelection(2, 4) &&
                         editor.Text == original && !inspector.PaletteLayout.PaletteFilter.Focused,
-                        "Escape restores source focus and selection without a source edit.");
+                        "Escape preserves source selection without an edit or hidden palette focus.");
+                    Require(restoreSourceFocus ? editor.Focused : GetForegroundWindow() == foregroundBeforeEscape,
+                        "Escape restores foreground-owner focus or preserves passive foreground ownership.");
                     inspector.ShowPalette(anchor);
                 });
                 await Until(() => inspector.IsPaletteOpen);
@@ -172,4 +179,7 @@ internal static partial class Program
             }
         }
     }
+
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
 }

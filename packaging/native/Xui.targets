@@ -24,7 +24,7 @@
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>xui_windows.lib;xui_core.lib;d2d1.lib;dwrite.lib;dwmapi.lib;uiautomationcore.lib;ole32.lib;oleaut32.lib;comctl32.lib;shell32.lib;user32.lib;gdi32.lib;windowscodecs.lib;uxtheme.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>xui_windows.lib;xui_core.lib;d2d1.lib;dwrite.lib;dwmapi.lib;dcomp.lib;uiautomationcore.lib;ole32.lib;oleaut32.lib;comctl32.lib;shell32.lib;user32.lib;gdi32.lib;windowscodecs.lib;uxtheme.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(XuiNativeLinkage)' == 'CAbi'">

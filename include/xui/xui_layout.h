@@ -27,6 +27,11 @@ XUI_API xui_status XUI_CALL xui_tab_get_new_button(xui_handle tabs, uint32_t* vi
    second pane the full area, including narrow layouts, and preserves the ratio. */
 XUI_API xui_status XUI_CALL xui_split_set_first_visible(xui_handle split, uint32_t visible) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_split_get_first_visible(xui_handle split, uint32_t* visible) XUI_NOEXCEPT;
+/* Axis 0 places panes left/right; 1 places them top/bottom. Minimum extent is
+   finite and in [1,65536] DIPs. Defaults are axis 0 and 300 DIPs.
+   Ratio changes emit XUI_CHANGE; read XUI_F_SPLIT_RATIO for the current ratio. */
+XUI_API xui_status XUI_CALL xui_split_set_layout(xui_handle split, uint32_t axis, float minimum_extent) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_get_layout(xui_handle split, uint32_t* axis, float* minimum_extent) XUI_NOEXCEPT;
 typedef enum xui_visual_style {
     XUI_STYLE_CLASSIC = 0,
     XUI_STYLE_WINUI = 1
@@ -43,7 +48,10 @@ XUI_API xui_status XUI_CALL xui_window_show_activated(xui_handle window, uint32_
 XUI_API xui_status XUI_CALL xui_window_titlebar_layout(xui_handle window,
     xui_handle first_pane, xui_handle second_pane, uint32_t show_title) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_navigation_header(xui_handle navigation, uint32_t visible) XUI_NOEXCEPT;
-/* 0=below, 1=above, 2=right, 3=left, 4=center in the visible client viewport. */
+/* 0=below, 1=above, 2=right, 3=left, 4=center in the visible client viewport,
+   5=below and horizontally centered on the anchor,
+   6=below and horizontally centered in the client viewport.
+   Below placements flip above if necessary. */
 XUI_API xui_status XUI_CALL xui_popup_placement(xui_handle popup, uint32_t placement) XUI_NOEXCEPT;
 /* Use the window background for the popup frame and its unstyled children. */
 XUI_API xui_status XUI_CALL xui_popup_window_background(xui_handle popup, uint32_t enabled) XUI_NOEXCEPT;

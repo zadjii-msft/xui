@@ -2,6 +2,7 @@
 #include "xui/documents.hpp"
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
+#include "native_focus_diagnostics.hpp"
 #include <windows.h>
 #include <ole2.h>
 #include <UIAutomation.h>
@@ -128,6 +129,7 @@ void model_contract() {
     rejects<std::logic_error>([&] { window.replace_content(*host, {}); }, "Reject closed window");
 }
 void native_contract(VisualStyle style) {
+    native_focus_diagnostics::Trace trace(style == VisualStyle::winui ? "ContentHost WinUI" : "ContentHost Classic");
     WindowOptions options;
     options.title = L"XUI ContentHost native contract";
     options.size = {900, 650};
@@ -170,8 +172,10 @@ void native_contract(VisualStyle style) {
         SendMessageW(input_hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"Edited "));
         SendMessageW(input_hwnd, EM_SETSEL, 1, 4);
         check(input_rejected && document_rejected, "Both native input paths reject synchronous replacement");
-        SetFocus(edit_hwnd);
-        check(GetFocus() == edit_hwnd && GetForegroundWindow() == foreground, "Focus stays in the background editor");
+        const bool active_owner = GetForegroundWindow() == hwnd;
+        if (active_owner) SetFocus(edit_hwnd);
+        check((!active_owner || GetFocus() == edit_hwnd) && GetForegroundWindow() == foreground,
+            "Native editor focus requires an already active owner");
         const auto captured_hwnd = named(hwnd, L"Outside captured button");
         const auto document_value = text(edit_hwnd), input_value = text(input_hwnd);
         const auto focus_before = GetFocus();
@@ -182,7 +186,7 @@ void native_contract(VisualStyle style) {
         for (unsigned i = 1; i <= 100; ++i) {
             const auto previous = host->content();
             auto candidate = preview(i);
-            window.replace_content(*host, candidate);
+            trace.during("replace ContentHost", [&] { window.replace_content(*host, candidate); });
             check(descendants(hwnd).size() == count, "One hundred replacements have bounded HWND count");
             check(native(hwnd, L"RICHEDIT50W") == edit_hwnd && native(hwnd, L"EDIT") == input_hwnd,
                 "Outside editor HWNDs are stable");
@@ -200,16 +204,22 @@ void native_contract(VisualStyle style) {
             GetWindowRect(button, &bounds);
             check(bounds.right > bounds.left + 1 && bounds.bottom > bounds.top + 1,
                 "Replacement returns after actual native layout");
-            check(GetFocus() == focus_before && GetForegroundWindow() == foreground, "Replacement does not change focus or foreground");
+            const auto actual_focus = GetFocus(), actual_foreground = GetForegroundWindow();
+            if (actual_focus != focus_before || actual_foreground != foreground)
+                std::cerr << "Replacement " << i << " owner=" << hwnd << " focus=" << focus_before
+                    << " -> " << actual_focus << " foreground=" << foreground << " -> " << actual_foreground << '\n';
+            check(actual_focus == focus_before && actual_foreground == foreground, "Replacement does not change focus or foreground");
             auto recovered = std::make_shared<Stack>(Axis::vertical);
             recovered->add(previous);
             previous->measure({300, 100});
         }
-        SendMessageW(captured_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
-        check(GetCapture() == captured_hwnd, "Outside button owns real pointer capture");
-        window.replace_content(*host, preview(101));
-        check(GetCapture() == captured_hwnd, "Replacement preserves outside pointer capture");
-        SendMessageW(captured_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
+        if (active_owner) {
+            SendMessageW(captured_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
+            check(GetCapture() == captured_hwnd, "Outside button owns real pointer capture");
+            window.replace_content(*host, preview(101));
+            check(GetCapture() == captured_hwnd, "Replacement preserves outside pointer capture");
+            SendMessageW(captured_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
+        }
         const auto current = host->content();
         rejects<std::invalid_argument>([&] { window.replace_content(*host, std::make_shared<Element>()); },
             "Invalid running candidate rejected");
@@ -229,7 +239,8 @@ void native_contract(VisualStyle style) {
         window.replace_content(*host, {});
         check(!popup->is_open() && recursion_rejected, "Retirement dismisses anchored popups without recursive replacement");
         check(descendants(hwnd).size() == count - 3, "Clear immediately reclaims preview and popup HWNDs");
-        check(GetFocus() == nullptr, "Retired popup focus is cleared without moving to another editor");
+        check(GetFocus() == (active_owner ? nullptr : focus_before),
+            "Retirement clears active popup focus or preserves background focus");
         check(GetForegroundWindow() == foreground, "Popup retirement does not activate another window");
         SendMessageW(edit_hwnd, EM_UNDO, 0, 0);
         check(text(edit_hwnd) == L"Retained document", "Preserved document undo works");
@@ -253,6 +264,7 @@ void native_contract(VisualStyle style) {
     check(result == 0 && ran, "Native replacement contract completes");
     rejects<std::logic_error>([&] { window.replace_content(*host, {}); }, "Replacement after shutdown rejected");
     check(!window.post([] {}), "Shutdown rejects future work");
+    trace.verify_passive();
 }
 void provider_contract() {
     WindowOptions options;

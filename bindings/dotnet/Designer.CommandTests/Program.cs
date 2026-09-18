@@ -55,11 +55,14 @@ internal static class Program
         async Task Drive()
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+            nint owner = 0, initialForeground = 0;
             try
             {
                 await Ui(() =>
                 {
                     source.Focus();
+                    owner = GetAncestor(GetFocus(), 2);
+                    initialForeground = GetForegroundWindow();
                     source.Selection = new(2, 4);
                     palette.Show();
                 });
@@ -79,8 +82,8 @@ internal static class Program
                 await Until(() => invoked.Count == 1);
                 await Check(() => invoked[0] == DesignerCommandId.Replace && !palette.IsOpen && !openDuringAction,
                     "Real native search and Enter choose the matching command after dismissal.");
-                await Check(() => source.Focused && source.Selection == new TextSelection(2, 4) && source.Text == "Original",
-                    "Command dismissal restores source focus and preserves its exact selection and text.");
+                await Check(() => CorrectDismissalFocus() && source.Selection == new TextSelection(2, 4) && source.Text == "Original",
+                    "Command dismissal preserves foreground-owner focus, exact source selection, and text.");
 
                 await Ui(palette.Show);
                 await Until(() => palette.IsOpen);
@@ -91,8 +94,8 @@ internal static class Program
                 await Check(() => invoked.Count == 1 && palette.IsOpen, "Enter with no matches keeps the palette open without an action.");
                 await Ui(() => Key(0x1B));
                 await Until(() => !palette.IsOpen);
-                await Check(() => source.Focused && source.Selection == new TextSelection(2, 4),
-                    "Native Escape returns focus and selection to source.");
+                await Check(() => CorrectDismissalFocus() && source.Selection == new TextSelection(2, 4),
+                    "Native Escape preserves foreground-owner focus and source selection.");
 
                 await Ui(() =>
                 {
@@ -123,7 +126,7 @@ internal static class Program
                     palette.Surface.Invoke((ulong)DesignerCommandId.Save);
                 });
                 await Until(() => invoked.Count == 2);
-                await Check(() => invoked[^1] == DesignerCommandId.Save && !openDuringAction && source.Focused,
+                await Check(() => invoked[^1] == DesignerCommandId.Save && !openDuringAction && CorrectDismissalFocus(),
                     "Repeated invocation dispatches only once and dismisses before the deferred action.");
 
                 await Ui(palette.Show);
@@ -165,8 +168,13 @@ internal static class Program
                 });
                 await Ui(() => { });
                 await Check(() => invoked.Count == 4, "Controller disposal cancels a queued command.");
+                await Check(() => GetForegroundWindow() == initialForeground,
+                    "The passive command fixture does not change foreground ownership.");
             }
             finally { window.Post(window.Close); }
+
+            bool CorrectDismissalFocus() => !palette.Surface.Editor.Focused && !palette.Surface.CloseButton.Focused &&
+                (GetForegroundWindow() != owner || source.Focused);
 
             async Task Ui(Action action)
             {
@@ -214,6 +222,8 @@ internal static class Program
     }
 
     [DllImport("user32.dll")] private static extern nint GetFocus();
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern nint SendMessageW(nint window, uint message, nuint first, string second);
     [DllImport("user32.dll")] private static extern bool PostMessageW(nint window, uint message, nuint first, nint second);

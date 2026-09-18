@@ -62,16 +62,35 @@ Before callbacks run, closed popups have stale generations. Use `Popup::current(
 Applications must also cancel their own queries and avoid strong callback ownership cycles.
 
 Popups stay inside the intersection of the client area and monitor work area. They cannot extend outside the application window.
-They share the root Direct2D target. Open content creates normal child input/UIA peers, including native EDIT/caption peers where needed.
+Ordinary windows share the root Direct2D target.
+Windows with `SwapChainPanel` peers give each popup an independent opaque Direct2D child surface above the live compositor content.
+Each target owns its brushes, bitmaps, and device-dependent resources.
+Native sibling clipping also applies through retained container HWNDs.
+Open content creates normal child input/UIA peers, including native EDIT/caption peers where needed.
 Dismissed peers are released after input dispatch. Retaining the public Popup does not retain its closed native peers.
 Native text is composed before `EndDraw`; popup clipping also masks underlying native fields.
 
 Popup padding has an opaque background in both Classic and WinUI.
 `Popup::set_window_background(true)` selects the window background instead of the default surface color.
-WinUI popups retain rounded corners and shadows outside this background.
+WinUI popups retain rounded corners. Root-target popups also have shadows outside this background.
+Native popup surfaces use rounded window regions without translucent shadows over swap-chain content.
+These surfaces preserve producer layout, native HWNDs, and ongoing presentation.
+Target recreation affects only the failed popup target. Other drawing failures follow the window error path.
+Popup rendering defers owner destruction until the current paint ends.
 High-contrast popups use system colors without shadows.
 Content controls retain their own background rules.
 For example, Classic `ItemsView` uses the window background, while WinUI `ItemsView` uses the popup background unless an inner Stack selects a surface.
+
+`PopupPlacement::below_center` centers the popup horizontally on its anchor and places it below that anchor.
+It flips above when necessary and retains the normal viewport clamp.
+C# exposes `PopupPlacement.BelowCenter`. The C ABI placement value is `5`.
+
+`PopupPlacement::below_viewport_center` instead centers horizontally in the client viewport.
+It retains the anchor's lower edge, upward fallback, and viewport clamping.
+C# exposes `PopupPlacement.BelowViewportCenter`. The C ABI placement value is `6`.
+This placement supports palettes below titlebar tabs without an offset for caption buttons.
+An inactive owner can open a popup without activation.
+Initial focus and focus restoration run only when that owner is already the foreground window.
 
 Tooltips use one pending one-shot timer and no extra HWND or target. Hidden tooltips have no timer.
 

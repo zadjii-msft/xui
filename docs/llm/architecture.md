@@ -20,6 +20,17 @@ The host draws captions in the retained frame. Their STATIC HWNDs supply accessi
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
 
+`include\xui\swap_chain_panel.hpp` defines the Windows-only `SwapChainPanel` interop control.
+`src\native_swap_chain_host.cpp` owns its DirectComposition device, target, visual, and producer reference.
+`src\application.cpp` supplies native peer lifetime, viewport clips, size/DPI notifications, and native-surface popup restrictions.
+The producer owns buffer resizing and presentation.
+The handle path imports composition surfaces for renderers such as Windows Terminal's Atlas engine.
+The [public contract](../specs/swap-chain-panel.md) separates graphics hosting from the future terminal input and accessibility adapter.
+`demo\swap_chain.cpp` and `tests\swap_chain_panel_tests.cpp` exercise native composition without a terminal dependency.
+`src\c_api_swap_chain.inc` exposes graphics attachment and metrics through the C ABI.
+`bindings\dotnet\Xui\SwapChainPanel.cs` uses the existing scoped subscription trampoline, including NativeAOT callback ownership.
+`tests\swap_chain_abi_tests.cpp` covers malformed queries, thread affinity, native peer lifetime, and callback failures.
+
 During host synchronization, `navigation_procedure` adds `SWP_NOREDRAW | SWP_NOCOPYBITS` to each peer's `WM_WINDOWPOSCHANGING` flags.
 This shared subclass covers custom controls, native fields, captions, and deferred image placement.
 Without these flags, Windows copies old child pixels during layout, before the root presents the new positions.

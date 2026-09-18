@@ -1,5 +1,7 @@
 # XUI
 
+<a href="docs/specs/branding/zoey.md"><img src="assets/branding/generated/zoey.svg" alt="Zoey the XUI Lion, XUI's lion mascot" width="112" height="112"></a>
+
 A small Windows UI framework for C++, C#, and Rust.
 Build desktop applications from retained controls, native text inputs, and callbacks.
 Win32 hosts the windows, Direct2D draws the interface, and DirectWrite draws text.

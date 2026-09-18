@@ -24,6 +24,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
+      - run: npm run branding:check
+      - run: npm run branding:test
       - run: npm run docs:check
       - run: npm run docs:build
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

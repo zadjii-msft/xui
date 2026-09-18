@@ -27,6 +27,7 @@ public class Window
     public SelectorBar SelectorBar(string text) => Add(new SelectorBar());
     public InfoBadge InfoBadge(string text) => Add(new InfoBadge());
     public MenuBar MenuBar(string text) => Add(new MenuBar());
+    public SwapChainPanel SwapChainPanel(string text) => Add(new SwapChainPanel());
     public Grid Grid(string name) => Add(new Grid { Name = name });
     public DataGrid DataGrid(string name) => Add(new DataGrid());
     public ItemsView ItemsView(string name) => Add(new ItemsView());
@@ -95,6 +96,7 @@ public abstract class Control : Element
     public bool IsVisible = true;
 }
 public sealed class Label : Control;
+public sealed class SwapChainPanel : Control;
 public enum RevealLayout : uint { Fixed = 0, Expand = 1 }
 public enum RevealDirection : uint { Bottom = 0, Top = 1, Left = 2, Right = 3 }
 public sealed class Reveal : ContentControl
@@ -232,7 +234,7 @@ public sealed class TextInput : Control
     public void Submit() => Submitted?.Invoke();
 }
 public enum ButtonIcon { None, Back, Forward, Up, Refresh, Search }
-public enum PopupPlacement { Below, Above, Right, Left, Center }
+public enum PopupPlacement { Below, Above, Right, Left, Center, BelowCenter, BelowViewportCenter }
 public enum TrackSizing { Fixed, Automatic, Star }
 public readonly record struct GridTrack(TrackSizing Sizing = TrackSizing.Star, float Value = 1, float Minimum = 0, float Maximum = float.MaxValue);
 public readonly record struct GridColumn(string Name, float Width = 120, bool Numeric = false, bool Filterable = false, bool Checkable = false);

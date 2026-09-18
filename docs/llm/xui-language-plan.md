@@ -797,6 +797,13 @@ The cause remains unknown.
 The final direct-process repetition passed without runtime workarounds or weaker assertions.
 This result does not establish the cause of the original editor-feel report.
 
+The later merge from `1dcfb3cd` retained the upstream popup rule for passive windows.
+Native popup opening and dismissal do not automatically request focus when the owner is not foreground.
+Designer command invocation now explicitly focuses its query, like the other Designer toolbar flyouts.
+The command and palette fixtures retain exact source-selection checks and reject focus in hidden popup controls.
+They require automatic source-focus restoration only for a foreground owner and check that passive operations preserve foreground ownership.
+The command, workspace, property, syntax, and full Designer fixtures passed after this integration.
+
 ## VS Code package
 
 The extension registers the `.xui` file association.

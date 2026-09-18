@@ -58,6 +58,7 @@ internal sealed class DesignerCommandPalette : IDisposable
                 Surface.SetCommands(entries.Select(command => new Command((ulong)command.Id, command.Label,
                     Enabled: command.CanExecute?.Invoke() ?? true, Checked: command.Checked, ShortcutHint: command.Shortcut)).ToArray());
                 Surface.Show(anchor);
+                Surface.Editor.Focus();
             }
             catch (XuiException error) { report($"Could not open Designer commands: {error.Message}"); }
         });

@@ -21,7 +21,7 @@ await new Promise((resolve, reject) => {
       stream.on("error", reject);
       stream.on("data", (chunk) => chunks.push(chunk));
       stream.on("end", () => {
-        contents.set(entry.fileName, Buffer.concat(chunks).toString("utf8"));
+        contents.set(entry.fileName, Buffer.concat(chunks));
         zip.readEntry();
       });
     });
@@ -35,6 +35,7 @@ const required = [
   "extension/package.json",
   "extension/readme.md",
   "extension/LICENSE.txt",
+  "extension/images/zoey.png",
   "extension/language-configuration.json",
   "extension/syntaxes/xui.tmLanguage.json",
   "extension/snippets/xui.json"
@@ -45,6 +46,10 @@ assert.equal(packaged.publisher, "zadjii-msft");
 assert.equal(packaged.name, "xui");
 assert.equal(packaged.version, manifest.version);
 assert.equal(packaged.main, undefined);
+assert.equal(packaged.icon, "images/zoey.png");
+assert.ok(contents.get("extension/images/zoey.png").equals(
+  await readFile(new URL("../images/zoey.png", import.meta.url))
+), "The VSIX must include the generated Zoey icon unchanged");
 for (const [name, packagedName] of [
   ["language-configuration.json", "language-configuration.json"],
   ["syntaxes/xui.tmLanguage.json", "syntaxes/xui.tmLanguage.json"],
@@ -53,7 +58,7 @@ for (const [name, packagedName] of [
   ["LICENSE", "LICENSE.txt"]
 ]) {
   assert.equal(
-    contents.get(`extension/${packagedName}`),
+    contents.get(`extension/${packagedName}`).toString("utf8"),
     await readFile(new URL(`../${name}`, import.meta.url), "utf8"),
     `Packaged ${name} must match the source`
   );

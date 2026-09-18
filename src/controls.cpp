@@ -224,6 +224,7 @@ ScrollView::ScrollView(std::shared_ptr<Element> content, std::wstring name)
     adopt(content_);
 }
 Size ScrollView::measure(Size available) {
+    if (!visible()) return {};
     if (passthrough_) {
         const auto p = layout_style::insets(effective_control_style_values(StylePart::root));
         return constrain(layout_style::outer(content_->measure(layout_style::inner(available, p)), p), available);
@@ -1144,11 +1145,11 @@ StyleStateMask SplitView::control_style_state_bits() const {
 }
 void SplitView::set_style_dragging(bool value) {
     if (style_dragging_ == value) return;
-    if (value) {
-        if (ratio_animating_) ratio_ = ratio_presented_ / (pane_area().width - effective_divider_width());
-        settle();
-    }
+    const auto adopted_ratio = value && ratio_animating_ ?
+        std::optional<float>{ratio_presented_ / (pane_extent() - effective_divider_width())} : std::nullopt;
+    if (value) settle();
     style_dragging_ = value;
+    if (adopted_ratio) set_ratio(*adopted_ratio);
     if (!invalidate_control_style_state()) invalidate(Invalidation::paint);
 }
 float SplitView::effective_divider_width() const {
@@ -1156,44 +1157,57 @@ float SplitView::effective_divider_width() const {
     return values ? values->width.value_or(divider_width) : divider_width;
 }
 Rect SplitView::pane_area() const { return layout_style::content(*this, bounds()); }
-bool SplitView::expanded() const {
-    return secondary_visible_ && (!primary_visible_ || pane_area().width >= 2 * minimum_pane_width + effective_divider_width());
+float SplitView::pane_extent() const {
+    const auto area = pane_area();
+    return axis_ == Axis::horizontal ? area.width : area.height;
 }
-float SplitView::presented_first_width() const {
+bool SplitView::expanded() const {
+    return secondary_visible_ && (!primary_visible_ || pane_extent() >= 2 * minimum_extent_ + effective_divider_width());
+}
+float SplitView::presented_first_extent() const {
     if (ratio_animating_) return ratio_presented_;
-    const float width = pane_area().width - effective_divider_width();
-    return width >= 2 * minimum_pane_width ?
-        std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width) : width;
+    const float extent = pane_extent() - effective_divider_width();
+    return extent >= 2 * minimum_extent_ ?
+        std::clamp(extent * ratio_, minimum_extent_, extent - minimum_extent_) : extent;
 }
 Rect SplitView::divider() const {
     const auto b = pane_area();
-    if (!primary_visible_) return secondary_visible_ ? Rect{b.x, b.y, 0, b.height} : Rect{};
-    if (b.width < 2 * minimum_pane_width + effective_divider_width() || progress_ == 0) return {};
+    if (!primary_visible_) return {};
+    const auto extent = pane_extent();
+    if (extent < 2 * minimum_extent_ + effective_divider_width() || progress_ == 0) return {};
     const auto divider_extent = effective_divider_width();
-    const float left = presented_first_width();
-    return {b.x + b.width - (b.width - left) * progress_, b.y, divider_extent * progress_, b.height};
+    const auto offset = extent - (extent - presented_first_extent()) * progress_;
+    return axis_ == Axis::horizontal ? Rect{b.x + offset, b.y, divider_extent * progress_, b.height} :
+        Rect{b.x, b.y + offset, b.width, divider_extent * progress_};
+}
+Rect SplitView::first_pane_area() const {
+    const auto b = pane_area();
+    if (!primary_visible_) return {b.x, b.y, 0, 0};
+    const auto extent = pane_extent();
+    const bool presenting = extent >= 2 * minimum_extent_ + effective_divider_width() &&
+        (secondary_visible_ || animating_ || progress_ > 0);
+    const auto first = presenting ? extent - (extent - presented_first_extent()) * progress_ : extent;
+    return axis_ == Axis::horizontal ? Rect{b.x, b.y, first, b.height} :
+        Rect{b.x, b.y, b.width, first};
+}
+Rect SplitView::second_pane_area() const {
+    const auto b = pane_area();
+    if (!primary_visible_) return secondary_visible_ ? b : Rect{b.x, b.y, 0, 0};
+    const auto extent = pane_extent();
+    const bool presenting = extent >= 2 * minimum_extent_ + effective_divider_width() &&
+        (secondary_visible_ || animating_ || progress_ > 0);
+    const auto second = presenting ? extent - effective_divider_width() - presented_first_extent() : 0;
+    const auto offset = extent - second * progress_;
+    return axis_ == Axis::horizontal ? Rect{b.x + offset, b.y, second, presenting ? b.height : 0} :
+        Rect{b.x, b.y + offset, presenting ? b.width : 0, second};
 }
 void SplitView::arrange(Rect rect) {
     Element::arrange(rect);
     const auto b = pane_area();
-    if (!primary_visible_) {
-        settle();
-        first_->arrange(layout_style::content(*this, {b.x, b.y, 0, 0}, StylePart::first_pane));
-        second_->arrange(layout_style::content(*this, {b.x, b.y,
-            secondary_visible_ ? b.width : 0, secondary_visible_ ? b.height : 0}, StylePart::second_pane));
-    } else {
-        if (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height)) settle();
-        const bool available = b.width >= 2 * minimum_pane_width + effective_divider_width();
-        if (!available) settle();
-        const bool presenting = available && (secondary_visible_ || animating_ || progress_ > 0);
-        const auto width = std::max(0.0f, b.width - effective_divider_width());
-        const auto left = available ? presented_first_width() : width;
-        const auto right = width - left;
-        first_->arrange(layout_style::content(*this, {b.x, b.y,
-            presenting ? b.width - (right + effective_divider_width()) * progress_ : b.width, b.height}, StylePart::first_pane));
-        second_->arrange(layout_style::content(*this, {presenting ? b.x + b.width - right * progress_ : b.x + b.width, b.y,
-            presenting ? right : 0, presenting ? b.height : 0}, StylePart::second_pane));
-    }
+    if (!primary_visible_ || pane_extent() < 2 * minimum_extent_ + effective_divider_width() ||
+        (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height))) settle();
+    first_->arrange(layout_style::content(*this, first_pane_area(), StylePart::first_pane));
+    second_->arrange(layout_style::content(*this, second_pane_area(), StylePart::second_pane));
     const bool value = expanded();
     if (arranged_expanded_ != value) {
         arranged_expanded_ = value;
@@ -1209,11 +1223,11 @@ void SplitView::set_ratio(float value) {
         second_->bounds().width > 0 && second_->bounds().height > 0 &&
         (!animating_ || ratio_animating_);
     if (animate) {
-        ratio_start_ = presented_first_width();
+        ratio_start_ = presented_first_extent();
         ratio_ = value;
         const auto area = pane_area();
-        const float width = area.width - effective_divider_width();
-        ratio_target_ = std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width);
+        const float extent = pane_extent() - effective_divider_width();
+        ratio_target_ = std::clamp(extent * ratio_, minimum_extent_, extent - minimum_extent_);
         ratio_presented_ = ratio_start_;
         ratio_viewport_ = {area.width, area.height};
         started_ = Clock::now();
@@ -1223,6 +1237,21 @@ void SplitView::set_ratio(float value) {
         ratio_ = value;
     }
     invalidate(Invalidation::layout);
+    auto callback = ratio_callback_;
+    if (callback) callback(value);
+}
+void SplitView::set_layout(Axis axis, float minimum_extent) {
+    if ((axis != Axis::horizontal && axis != Axis::vertical) ||
+        !std::isfinite(minimum_extent) || minimum_extent < 1 || minimum_extent > 65536)
+        throw std::invalid_argument("Split layout requires a valid axis and a pane minimum from 1 to 65536 DIPs");
+    if (axis_ == axis && minimum_extent_ == minimum_extent) return;
+    settle();
+    axis_ = axis;
+    minimum_extent_ = minimum_extent;
+    first_->set_name(axis == Axis::horizontal ? L"Left pane" : L"Top pane");
+    second_->set_name(axis == Axis::horizontal ? L"Right pane" : L"Bottom pane");
+    set_style_dragging(false);
+    invalidate(Invalidation::layout);
 }
 void SplitView::set_secondary_visible(bool value) {
     if (secondary_visible_ == value) return;
@@ -1230,6 +1259,7 @@ void SplitView::set_secondary_visible(bool value) {
     const auto now = Clock::now();
     advance(now);
     secondary_visible_ = value;
+    if (!value) set_style_dragging(false);
     start_ = progress_;
     started_ = now;
     animating_ = transition_duration_ && primary_visible_ && progress_ != (value ? 1.0f : 0.0f);
