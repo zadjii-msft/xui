@@ -41,6 +41,24 @@ xui_status XUI_CALL xui_tab_get_duration(xui_handle target, uint32_t* millisecon
     });
 }
 
+xui_status XUI_CALL xui_split_set_layout(xui_handle target, uint32_t axis, float minimum_extent) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_SPLIT_VIEW); editable(n->owner);
+        require(axis <= 1 && std::isfinite(minimum_extent) && minimum_extent >= 1 && minimum_extent <= 65536,
+            XUI_INVALID_ARGUMENT, "Split layout requires axis zero or one and a minimum from 1 to 65536 DIPs.");
+        as<xui::SplitView>(n).set_layout(static_cast<xui::Axis>(axis), minimum_extent);
+    });
+}
+xui_status XUI_CALL xui_split_get_layout(xui_handle target, uint32_t* axis, float* minimum_extent) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_SPLIT_VIEW);
+        require(axis && minimum_extent, XUI_INVALID_ARGUMENT, "Split layout outputs are required.");
+        const auto& split = as<xui::SplitView>(n);
+        *axis = static_cast<uint32_t>(split.axis());
+        *minimum_extent = split.minimum_pane_extent();
+    });
+}
+
 xui_status XUI_CALL xui_split_set_first_visible(xui_handle target, uint32_t visible) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_SPLIT_VIEW); editable(n->owner);

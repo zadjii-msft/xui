@@ -69,6 +69,21 @@ The terminal palette exposed a hidden `ScrollView` that still reserved its prefe
 `xui_control_tests` reproduced the failure before the visibility guard in `ScrollView::measure`.
 The regression covers normal and passthrough scroll hosts, plus restored visible content.
 
+### Split axes and divider input
+
+`xui_split_axis_window_tests` uses an owned, non-activating window.
+It sends pointer messages to both divider orientations and checks nested pane geometry, arrow keys, Home, callbacks, and capture cancellation.
+It also checks that layout changes and hidden panes release capture without another pointer movement.
+The fixture never calls `SetFocus` or changes the foreground window.
+`xui_explorer_tests` covers axis-specific minima and pane layout.
+`xui_split_animation_tests` covers both axes with custom minima, animated surface geometry, drag takeover, and layout changes during animation.
+`xui_abi_features_tests --split-first-visible` covers layout arguments, handle kinds, thread affinity, and closed handles.
+The managed `--split-first-visible` mode covers layout round trips and deferred ratio events.
+
+On September 18, 2026, these ARM64 checks and `xui_style_layouts_tests` passed.
+The x64 native package counterpart compiled but was not executed.
+These checks do not prove application terminal output, installed IME input, or screen-reader behavior.
+
 ### Swap chain host input
 
 `tests\swap_chain_input_tests.cpp` uses a fixture-owned HWND and its normal XUI message loop.

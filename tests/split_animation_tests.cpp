@@ -341,10 +341,76 @@ void primary_visibility() {
     require(!split.animating() && split.progress() == 0 && split.first()->bounds().width == 0 &&
         split.second()->bounds().width == 0, "Primary retirement settles an active secondary exit");
 }
+void axis_animation_contracts() {
+    for (const auto axis : {Axis::horizontal, Axis::vertical}) {
+        SplitView split(std::make_shared<Label>(L"First"), std::make_shared<Label>(L"Second"));
+        split.set_layout(axis, 48);
+        const bool horizontal = axis == Axis::horizontal;
+        const auto extent = [=](Rect r) { return horizontal ? r.width : r.height; };
+        const auto origin = [=](Rect r) { return horizontal ? r.x : r.y; };
+        split.arrange(horizontal ? Rect{10, 20, 400, 200} : Rect{10, 20, 200, 400});
+        split.set_secondary_visible(false);
+        split.arrange(split.bounds());
+        split.set_transition_duration(1000);
+        split.set_secondary_visible(true);
+        split.arrange(split.bounds());
+        near(extent(split.first_pane_area()), 400, "Both axes start entry with a full first pane");
+        near(extent(split.second_pane_area()), 195, "Both axes retain full incoming content extent");
+        near(origin(split.second_pane_area()), origin(split.pane_area()) + 400, "Entry starts beyond the trailing clip");
+        const auto started = Animation::Clock::now();
+        for (const int time : {100, 500, 1001}) {
+            split.advance(started + std::chrono::milliseconds(time));
+            split.arrange(split.bounds());
+            const auto first = split.first_pane_area(), second = split.second_pane_area(), divider = split.divider();
+            near(extent(first), 400 - 205 * split.progress(), "First pane follows visibility progress on either axis");
+            near(extent(second), 195, "Secondary extent remains fixed through entry");
+            near(origin(first) + extent(first), origin(divider), "Styled first pane touches the moving divider");
+            near(origin(divider) + extent(divider), origin(second), "Styled second pane touches the moving divider");
+            near(extent(split.first()->bounds()), extent(first), "First content and surface share geometry");
+            near(extent(split.second()->bounds()), extent(second), "Second content and surface share geometry");
+        }
+        unsigned changes{};
+        split.on_ratio_changed([&](float ratio) {
+            require(ratio == split.ratio(), "Callbacks observe the committed logical ratio");
+            ++changes;
+        });
+        split.set_ratio(0.9f);
+        split.advance(Animation::Clock::now() + std::chrono::milliseconds(500));
+        split.arrange(split.bounds());
+        require(split.animating() && extent(split.first_pane_area()) > 195 &&
+            extent(split.first_pane_area()) < 342, "Both axes animate toward the configured minimum");
+        const auto grabbed = extent(split.first_pane_area());
+        split.set_style_dragging(true);
+        split.arrange(split.bounds());
+        near(extent(split.first_pane_area()), grabbed, "Drag takeover preserves the presented position on both axes");
+        near(split.ratio(), grabbed / 390, "Drag takeover uses the selected axis extent");
+        require(changes == 2, "Drag takeover reports its adopted ratio even without pointer movement");
+        split.set_ratio(0.1f);
+        split.arrange(split.bounds());
+        near(extent(split.first_pane_area()), 48, "Direct drag honors the custom minimum");
+        require(changes == 3 && !split.animating(), "Logical ratio notifications do not fire on animation frames");
+        split.set_style_dragging(false);
+        split.set_ratio(0.6f);
+        require(split.animating(), "A later ratio preset animates");
+        split.set_layout(horizontal ? Axis::vertical : Axis::horizontal, 40);
+        split.arrange(split.bounds());
+        require(!split.animating() && !split.divider_dragging(), "Changing axes settles stale pixel targets and capture");
+        split.set_secondary_visible(false);
+        split.advance(Animation::Clock::now() + std::chrono::milliseconds(250));
+        split.arrange(split.bounds());
+        require(split.animating() && split.second_pane_area().width > 0 && split.second_pane_area().height > 0,
+            "Closing retains the outgoing styled surface before logical retirement");
+        split.set_primary_visible(false);
+        split.arrange(split.bounds());
+        require(!split.animating() && split.divider().width == 0 && split.second_pane_area().width == 0,
+            "Retiring both panes removes the divider and outgoing content");
+    }
+}
 }
 int main() {
     try {
         contracts(); ratio_contracts(); ratio_interruptions(); ratio_visibility(); ratio_rounded_completion(); primary_visibility();
+        axis_animation_contracts();
         std::cout << "Split visibility and ratio animation contracts passed\n";
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

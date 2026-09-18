@@ -592,6 +592,10 @@ public:
     void arrange(Rect bounds) override;
     void set_ratio(float ratio);
     float ratio() const { return ratio_; }
+    void set_layout(Axis axis, float minimum_extent);
+    Axis axis() const { return axis_; }
+    float minimum_pane_extent() const { return minimum_extent_; }
+    void on_ratio_changed(std::function<void(float)> callback) { ratio_callback_ = std::move(callback); }
     void set_secondary_visible(bool visible);
     bool secondary_visible() const { return secondary_visible_; }
     void set_transition_duration(unsigned milliseconds);
@@ -606,8 +610,11 @@ public:
     void on_expanded(std::function<void(bool)> callback) { expanded_callback_ = std::move(callback); }
     Rect divider() const;
     Rect pane_area() const;
+    Rect first_pane_area() const;
+    Rect second_pane_area() const;
     float effective_divider_width() const;
     void set_style_dragging(bool dragging);
+    bool divider_dragging() const { return style_dragging_; }
     static constexpr float divider_width = 10;
     static constexpr float minimum_pane_width = 300;
 protected:
@@ -615,9 +622,12 @@ protected:
     StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override { if (ratio_animating_) settle(); }
 private:
-    float presented_first_width() const;
+    float pane_extent() const;
+    float presented_first_extent() const;
     std::shared_ptr<ContentView> first_, second_;
     float ratio_{0.5f};
+    Axis axis_{Axis::horizontal};
+    float minimum_extent_{minimum_pane_width};
     bool primary_visible_{true}, secondary_visible_{true};
     bool arranged_expanded_{};
     bool style_dragging_{};
@@ -629,6 +639,7 @@ private:
     bool ratio_animating_{};
     float ratio_start_{}, ratio_target_{}, ratio_presented_{};
     Size ratio_viewport_{};
+    std::function<void(float)> ratio_callback_;
 };
 
 // Returns null when there are no enabled focus targets. Traversal wraps.

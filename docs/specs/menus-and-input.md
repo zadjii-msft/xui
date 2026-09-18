@@ -211,11 +211,18 @@ Rust provides `set_new_tab_button_visible` and `new_tab_button_visible`.
 The tab strip exposes UIA `Tab`, `TabItem`, `SelectionPattern`, and `SelectionItemPattern`.
 It publishes structure, selection, and focus changes. A removed tab provider rejects later actions.
 `SplitView` exposes a divider through `RangeValuePattern`, with a ratio from 10 to 90 percent.
-The layout also enforces pane minima. A requested ratio can therefore differ from the physical split near the minimum width.
+The layout also enforces pane minima. A requested ratio can therefore differ from the physical split near the minimum extent.
+`set_layout(Axis::vertical, minimum_extent)` places the panes above and below the divider.
+The default remains horizontal with a 300-DIP minimum. Each configured minimum must be finite and between 1 and 65536 DIPs.
+Left/Right keys resize horizontal panes. Up/Down keys resize vertical panes. Home restores the midpoint.
+`on_ratio_changed` reports a changed ratio. Layout changes preserve the ratio and cancel an active drag.
+Opt-in visibility and ratio animations use the configured axis and minimum extent.
+An axis or minimum change settles active animation before the next layout.
 Native children and custom pixels stay inside their content host.
-The horizontal resize cursor applies only to an enabled, expanded divider or its active drag.
+The axis-specific resize cursor applies only to an enabled, expanded divider or its active drag.
 Pane controls keep their own cursors, including the native text editor's I-beam.
 Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
+Synthetic pointer messages do not focus a divider in an inactive window.
 
 `SplitView::set_primary_visible(false)` removes the primary pane without replacing either content tree.
 If the secondary pane is enabled, it receives the full pane area, including in a narrow window.

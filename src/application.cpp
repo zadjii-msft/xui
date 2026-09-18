@@ -1860,6 +1860,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if ((!enabled(*peer) || !visible(*peer)) &&
                 (GetFocus() == peer->window || focus_before_layout == peer->window)) disabled_focus = peer->window;
             const auto range = dynamic_cast<const RangeInput*>(&control);
+            if (auto* split = dynamic_cast<SplitView*>(peer->control.get()); split && peer->dragging &&
+                (!split->divider_dragging() || split->divider().width <= 0)) {
+                peer->dragging = false;
+                split->set_style_dragging(false);
+            }
             if (!peer->list && !control.captured() && !peer->pressed_choice && !peer->pressed_tab &&
                 !(range && range->dragging()) && !peer->dragging && !peer->grid_drag &&
                 !peer->collection_drag && !peer->collection_scroll && GetCapture() == peer->window) ReleaseCapture();
@@ -2316,14 +2321,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             drawing().push_clip(split->bounds());
             if (const auto* style = split->effective_control_style_values(StylePart::root))
                 drawing().styled_surface(split->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-            const auto area = split->pane_area(), divider = split->divider();
             if (const auto* style = split->primary_visible() ? split->effective_control_style_values(StylePart::first_pane) : nullptr)
-                drawing().styled_surface({area.x, area.y, divider.width > 0 ? divider.x - area.x : area.width, area.height},
+                drawing().styled_surface(split->first_pane_area(),
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-            if (divider.width > 0 || (!split->primary_visible() && split->expanded()))
+            const auto second = split->second_pane_area();
+            if (second.width > 0 && second.height > 0)
                 if (const auto* style = split->effective_control_style_values(StylePart::second_pane))
-                drawing().styled_surface({divider.x + divider.width, area.y,
-                    std::max(0.0f, area.x + area.width - divider.x - divider.width), area.height},
+                drawing().styled_surface(second,
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             paint_content_surface(split->first());
             paint_content_surface(split->second());
@@ -3967,7 +3971,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto* grip_style = split.effective_control_style_values(StylePart::grip);
             const PartStyleValues empty;
             canvas.styled_surface(d, palette, divider_style ? *divider_style : empty, palette.background, palette.border, 0, {});
-            const auto width = std::min(4.0f, d.width), height = std::min(44.0f, d.height);
+            const bool horizontal = split.axis() == Axis::horizontal;
+            const auto width = std::min(horizontal ? 4.0f : 44.0f, d.width);
+            const auto height = std::min(horizontal ? 44.0f : 4.0f, d.height);
             canvas.styled_surface({d.x + (d.width - width) / 2, d.y + (d.height - height) / 2, width, height},
                 palette, grip_style ? *grip_style : empty,
                 control.focused() || peer.dragging ? palette.accent : fluent ? palette.secondary : palette.border,
@@ -4396,7 +4402,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto divider = split->divider();
                 if (peer.dragging || (x >= divider.x && x < divider.x + divider.width &&
                     y >= divider.y && y < divider.y + divider.height)) {
-                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE)); return TRUE;
+                    SetCursor(LoadCursorW(nullptr, split->axis() == Axis::horizontal ? IDC_SIZEWE : IDC_SIZENS)); return TRUE;
                 }
             }
             break;
@@ -4641,16 +4647,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (peer.dragging) {
                 if (auto split = dynamic_cast<SplitView*>(&control)) {
-                    if (split->divider().width <= 0) {
+                    if (split->divider().width <= 0 || !split->divider_dragging()) {
                         peer.dragging = false;
                         split->set_style_dragging(false);
                         if (GetCapture() == hwnd) ReleaseCapture();
                         return 0;
                     }
                     const auto area = split->pane_area();
-                    const float width = area.width - split->effective_divider_width();
-                    if (width > 0) split->set_ratio((GET_X_LPARAM(lparam) * 96.0f / dpi - peer.drag_offset -
-                        (area.x - split->bounds().x)) / width);
+                    const bool horizontal = split->axis() == Axis::horizontal;
+                    const float extent = (horizontal ? area.width : area.height) - split->effective_divider_width();
+                    const auto position = horizontal ? GET_X_LPARAM(lparam) : GET_Y_LPARAM(lparam);
+                    const auto origin = horizontal ? area.x - split->bounds().x : area.y - split->bounds().y;
+                    if (extent > 0) split->set_ratio((position * 96.0f / dpi - peer.drag_offset - origin) / extent);
                     update();
                     return 0;
                 }
@@ -4840,12 +4848,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->expanded()) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
+                const float y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 const auto d = split->divider();
-                if (x >= d.x - split->bounds().x && x < d.x - split->bounds().x + d.width) {
-                    SetFocus(hwnd);
+                if (x >= d.x - split->bounds().x && x < d.x - split->bounds().x + d.width &&
+                    y >= d.y - split->bounds().y && y < d.y - split->bounds().y + d.height) {
+                    if (GetForegroundWindow() == window) SetFocus(hwnd);
                     peer.dragging = true;
                     split->set_style_dragging(true);
-                    peer.drag_offset = x - (d.x - split->bounds().x);
+                    peer.drag_offset = split->axis() == Axis::horizontal ?
+                        x - (d.x - split->bounds().x) : y - (d.y - split->bounds().y);
                     SetCapture(hwnd);
                 }
                 return 0;
@@ -5122,8 +5133,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
             }
             if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->divider().width > 0) {
-                if (wparam == VK_LEFT || wparam == VK_RIGHT) {
-                    split->set_ratio(split->ratio() + (wparam == VK_LEFT ? -0.025f : 0.025f)); return 0;
+                const auto previous = split->axis() == Axis::horizontal ? VK_LEFT : VK_UP;
+                const auto next = split->axis() == Axis::horizontal ? VK_RIGHT : VK_DOWN;
+                if (wparam == previous || wparam == next) {
+                    split->set_ratio(split->ratio() + (wparam == previous ? -0.025f : 0.025f)); return 0;
                 }
                 if (wparam == VK_HOME) { split->set_ratio(0.5f); return 0; }
             }

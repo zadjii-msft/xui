@@ -148,6 +148,12 @@ void wire_feature(const std::shared_ptr<Node>& n) {
         as<xui::DataGrid>(n).on_filter_open([weak](size_t column) { dispatch(weak, XUI_FILTER_OPEN, column); }); break;
     case XUI_COMMAND_BAR: case XUI_COMMAND_SURFACE: case XUI_MENU_BAR: break; // CommandSet actions dispatch directly.
     case XUI_SPLIT_VIEW:
+        as<xui::SplitView>(n).on_ratio_changed([weak](float ratio) {
+            if (auto node = weak.lock()) node->owner->window->post([weak, ratio] {
+                if (auto current = weak.lock(); current && as<xui::SplitView>(current).ratio() == ratio)
+                    dispatch(weak, XUI_CHANGE);
+            });
+        });
         as<xui::SplitView>(n).on_expanded([weak](bool expanded) {
             if (auto node = weak.lock()) node->owner->window->post([weak, expanded] {
                 if (auto current = weak.lock(); current && as<xui::SplitView>(current).expanded() == expanded)

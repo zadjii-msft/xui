@@ -27,6 +27,11 @@ XUI_API xui_status XUI_CALL xui_tab_get_new_button(xui_handle tabs, uint32_t* vi
    second pane the full area, including narrow layouts, and preserves the ratio. */
 XUI_API xui_status XUI_CALL xui_split_set_first_visible(xui_handle split, uint32_t visible) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_split_get_first_visible(xui_handle split, uint32_t* visible) XUI_NOEXCEPT;
+/* Axis 0 places panes left/right; 1 places them top/bottom. Minimum extent is
+   finite and in [1,65536] DIPs. Defaults are axis 0 and 300 DIPs.
+   Ratio changes emit XUI_CHANGE; read XUI_F_SPLIT_RATIO for the current ratio. */
+XUI_API xui_status XUI_CALL xui_split_set_layout(xui_handle split, uint32_t axis, float minimum_extent) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_get_layout(xui_handle split, uint32_t* axis, float* minimum_extent) XUI_NOEXCEPT;
 typedef enum xui_visual_style {
     XUI_STYLE_CLASSIC = 0,
     XUI_STYLE_WINUI = 1

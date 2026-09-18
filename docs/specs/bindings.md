@@ -105,6 +105,11 @@ Application models can move between windows. Native controls cannot.
 The FileExplorer sample demonstrates this protocol without P/Invoke or window-procedure code.
 `SplitView.FirstVisible` can hide the primary pane while the secondary pane keeps its control identities and receives the full width.
 The C functions are `xui_split_set_first_visible` and `xui_split_get_first_visible` in `xui_layout.h`.
+`SplitView.SetLayout(Axis.Vertical, 48)` selects top/bottom panes with a 48-DIP minimum.
+`SplitView.Layout` returns the axis and minimum. The default is horizontal with a 300-DIP minimum.
+The C functions are `xui_split_set_layout` and `xui_split_get_layout`.
+Ratio changes post `EventKind.Change` (`XUI_CHANGE`) on the owner thread. Read the current `Ratio` in the handler.
+Rapid changes can supersede queued intermediate values. Retired controls and closed windows do not receive these events.
 
 ### Scoped content replacement
 

@@ -7,6 +7,24 @@ public enum PopupPlacement : uint { Below, Above, Right, Left, Center, BelowCent
 
 public sealed partial class SplitView
 {
+    /// <summary>Places panes left/right or top/bottom, with a minimum extent on that axis.</summary>
+    public SplitView SetLayout(Axis axis, float minimumExtent = 300)
+    {
+        Window.Guard();
+        Window.Check(Native.SplitSetLayout(Handle, (uint)axis, minimumExtent));
+        return this;
+    }
+
+    public (Axis Axis, float MinimumExtent) Layout
+    {
+        get
+        {
+            Window.Guard();
+            Window.Check(Native.SplitGetLayout(Handle, out uint axis, out float minimumExtent));
+            return ((Axis)axis, minimumExtent);
+        }
+    }
+
     /// <summary>Shows the first pane by default. False gives the visible second pane the full area without changing Ratio.</summary>
     public bool FirstVisible
     {
@@ -132,6 +150,10 @@ public sealed partial class NavigationView
 
 internal static partial class Native
 {
+    [LibraryImport("xui", EntryPoint = "xui_split_set_layout")]
+    internal static partial int SplitSetLayout(ulong target, uint axis, float minimumExtent);
+    [LibraryImport("xui", EntryPoint = "xui_split_get_layout")]
+    internal static partial int SplitGetLayout(ulong target, out uint axis, out float minimumExtent);
     [LibraryImport("xui", EntryPoint = "xui_split_set_first_visible")]
     internal static partial int SplitSetFirstVisible(ulong target, uint visible);
     [LibraryImport("xui", EntryPoint = "xui_split_get_first_visible")]
