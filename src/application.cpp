@@ -2312,7 +2312,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool sync_images(bool window_shown = true) {
         bool changed{};
         std::vector<std::uint64_t> retained;
-        std::size_t remaining = 48;
+        struct RowWork {
+            Peer* peer;
+            Rect clip;
+            bool shown;
+            std::shared_ptr<const CollectionIndex> source;
+            std::vector<RowVisual> rows;
+            bool tabs{};
+        };
+        std::vector<RowWork> work;
         for (const auto& peer : peers) if (peer->image || dynamic_cast<VirtualCollection*>(peer->control.get()) ||
             dynamic_cast<TabStrip*>(peer->control.get()) ||
             dynamic_cast<DataGrid*>(peer->control.get()) || (peer->list &&
@@ -2336,7 +2344,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (peer->image->pixels) retained.push_back(peer->image->pixels->id);
             } else if (peer->list) {
                 rect.y -= peer->control->bounds().y;
-                changed = peer->list->sync_thumbnails(shown, rect, wake, retained, remaining) || changed;
+                work.push_back({peer.get(), rect, shown});
             } else if (const auto* tabs = dynamic_cast<TabStrip*>(peer->control.get())) {
                 if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
                 rect.x -= tabs->bounds().x; rect.y -= tabs->bounds().y;
@@ -2349,8 +2357,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
                     if (rows.size() == RowImages::maximum_rows) break;
                 }
-                changed = peer->row_images->sync_visuals(std::move(rows), dpi, wake, retained, remaining, 16) || changed;
-                has_images = has_images || peer->row_images->count() != 0;
+                work.push_back({peer.get(), rect, shown, {}, std::move(rows), true});
             } else {
                 if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
                 rect.x -= peer->control->bounds().x; rect.y -= peer->control->bounds().y;
@@ -2384,10 +2391,23 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         }
                     }
                 }
-                const bool retain_on_source_change = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr;
-                changed = peer->row_images->sync(std::move(source), std::move(rows), dpi, wake, retained, remaining,
-                    retain_on_source_change) || changed;
-                has_images = has_images || peer->row_images->count() != 0;
+                work.push_back({peer.get(), rect, shown, std::move(source), std::move(rows)});
+            }
+        }
+        std::size_t remaining = 48;
+        // Cancel hidden rows before visible controls compete for queue space.
+        for (const bool shown : {false, true}) for (auto& item : work) {
+            auto& peer = *item.peer;
+            if (item.shown != shown) continue;
+            if (peer.list) {
+                changed = peer.list->sync_thumbnails(item.shown, item.clip, wake, retained, remaining) || changed;
+            } else {
+                if (item.tabs)
+                    changed = peer.row_images->sync_visuals(std::move(item.rows), dpi, wake, retained, 16) || changed;
+                else
+                    changed = peer.row_images->sync(std::move(item.source), std::move(item.rows), dpi, wake, retained,
+                        dynamic_cast<NavigationList*>(peer.control.get()) != nullptr) || changed;
+                has_images = has_images || peer.row_images->count() != 0;
             }
         }
         drawing.keep_images(retained);
@@ -4123,6 +4143,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
             hide_tooltip();
             if (focus_edit_at(hwnd, lparam)) return 0;
+            if (peer.parent)
+                if (auto* columns = dynamic_cast<MillerColumns*>(peer.parent->control.get());
+                    columns && columns->focus_pointer(control,
+                        {GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) return 0;
             if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
                 const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
                 const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();

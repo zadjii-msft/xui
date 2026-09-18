@@ -318,6 +318,7 @@ internal static class Program
         Equal(root, tab.Columns.Single().Snapshot.Path);
         Equal(leaf.FullPath, tab.Columns[0].SelectedPath);
         Equal(80d, tab.Columns[0].ScrollOffset);
+        Equal("leaf", tab.Columns[0].Filter);
         tab.SetViewMode(ExplorerViewMode.Columns);
         var ancestor = tab.Columns[0];
         tab.CommitColumn(0, new(alpha.FullPath, [child]));
@@ -326,8 +327,19 @@ internal static class Program
         Equal(alpha.FullPath, tab.Path);
         Equal(alpha.FullPath, tab.Columns[0].SelectedPath);
         Equal("", tab.Filter);
+        Equal("leaf", ancestor.Filter);
+        Equal("", tab.Columns[1].Filter);
+        tab.Columns[1].Filter = "child";
         tab.CommitColumn(1, new(child.FullPath, []));
         Equal(3, tab.Columns.Count);
+        Equal("leaf", tab.Columns[0].Filter);
+        Equal("child", tab.Columns[1].Filter);
+        Equal("", tab.Columns[2].Filter);
+        var descendants = tab.Columns.Skip(1).ToArray();
+        ancestor.Filter = "no matches";
+        Equal(alpha.FullPath, ancestor.SelectedPath);
+        True(descendants.SequenceEqual(tab.Columns.Skip(1)));
+        Equal(child.FullPath, tab.Path);
         var committed = tab.Entries;
         Throws<InvalidOperationException>(() => tab.CommitColumn(0, new(child.FullPath, [])));
         Throws<ArgumentException>(() => tab.CommitColumn(1, new("", [])));
@@ -339,6 +351,8 @@ internal static class Program
         Equal(beta.FullPath, tab.Path);
         True(ReferenceEquals(ancestor, tab.Columns[0]));
         Equal(beta.FullPath, tab.Columns[0].SelectedPath);
+        Equal("no matches", ancestor.Filter);
+        Equal("", tab.Columns[1].Filter);
         tab.SelectColumnLeaf(0, leaf.FullPath);
         Equal(root, tab.Path);
         Equal(1, tab.Columns.Count);
@@ -358,9 +372,13 @@ internal static class Program
         tab.Commit(new(root, [alpha]));
         Equal(root, tab.Columns.Single().Snapshot.Path);
         tab.CommitColumn(0, new(alpha.FullPath, [child]));
+        tab.Columns[1].Filter = "refresh query";
         tab.Commit(new(alpha.FullPath, []));
         Equal(1, tab.Columns.Count);
         Equal(0, tab.Columns[0].Snapshot.Entries.Count);
+        Equal("refresh query", tab.Columns[0].Filter);
+        tab.SetViewMode(ExplorerViewMode.Details);
+        Equal("refresh query", tab.Filter);
 
         var bounded = new ExplorerTab(2, root);
         bounded.Commit(new(root, [Folder(root, "next")]));
@@ -546,6 +564,9 @@ internal static class Program
         True(copy.TryGetHistory(-1, out var previous));
         Equal(fixture, previous);
         True(!ReferenceEquals(first.Columns[0], copy.Columns[0]));
+        Equal("query", copy.Columns[0].Filter);
+        copy.Columns[0].Filter = "independent column";
+        Equal("query", first.Columns[0].Filter);
         copy.Columns[0].ScrollOffset = 99;
         Equal(27d, first.Columns[0].ScrollOffset);
         copy.Filter = "different";

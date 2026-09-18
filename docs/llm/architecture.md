@@ -41,7 +41,19 @@ Tab data can change without these tree operations.
 `include\xui\miller_columns.hpp` and `src\miller_columns.cpp` supply the retained Miller columns composition.
 Applications supply a path of immutable sibling sources, not filesystem callbacks.
 Column lists reuse virtual collection drawing, input, image resources, and accessibility.
+`RowImages` in `src\images.cpp` retains image state for every current visible row, including deferred requests.
+`try_request_image` pauses admission at the row queue threshold, with headroom for explicit images and native window icons.
+The image service stores one weak wake reference per waiting window.
+Queue removal and cancellation wake these owners to admit the next visible requests.
+Completed row images do not consume an admission allowance. Actual decode failures stay terminal for the current row image.
+`Drawing::image` evicts its least-recently drawn bitmap at the cache entry limit and uploads retained pixels again when needed.
 The native child tree stays fixed while the source path changes.
+The child tree contains only column headers and lists, without navigation buttons or a toolbar.
+`set_columns` reveals the final column when the path grows, without changing the active column.
+Zero-width layouts retain a pending reveal until the viewport has a width.
+Focused offscreen lists keep their native peers visible but clipped, so host focus repair cannot undo the reveal.
+Collection accessibility uses the shared clipped bounds for list and row visibility.
+The FileExplorer restores this horizontal position after it restores parent focus.
 `MillerColumnList` stores a local hover point and resolves the current visible row without changing collection selection.
 The host clears hover during capture and cancellation. Source replacement also clears hover.
 `MillerColumns::separator_bounds` describes the reserved space between columns.
@@ -50,7 +62,14 @@ This keeps fractional scrolling and DPI changes from covering a row or scrollbar
 `src\c_api_features.inc` preserves the composition callbacks when bindings subscribe to borrowed column lists.
 `bindings\dotnet\Xui\MillerColumns.cs` supplies typed path records, events, and borrowed child access.
 The FileExplorer controller owns asynchronous directory scans and rejects obsolete results.
-`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, and layout.
+`ExplorerColumn.Filter` owns each column's query. `ExplorerTab.Filter` retains the Details query.
+`FilePaneView` binds its shared native Find field to a column object, not a reusable slot index.
+Column focus changes restore the query and footer counts without moving focus into the editor.
+Filter jobs capture every column's query and reuse unchanged `ColumnPresentation` sources.
+Cancellation and identity checks reject results for obsolete paths or queries.
+`SaveViewport` retains a selected path when its row is absent from the filtered source.
+Filtering therefore preserves descendants without exposing hidden rows as selected command targets.
+`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, layout, and appended-column visibility.
 `tests\collections_window_tests.cpp --miller-only` covers native focus, context selection, horizontal reveal, and window closure.
 The binding tests cover borrowed peers, source ownership, and callback errors.
 FileExplorer `--smoke` covers view changes, folder selection, tabs, Find, and cancellation.

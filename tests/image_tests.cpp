@@ -62,51 +62,55 @@ void row_image_tests() {
     RowImages first, second, third;
     std::vector<RowVisual> rows;
     std::vector<uint64_t> retained;
-    size_t remaining = 48;
     for (const auto icon : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
         ButtonIcon::chevron_up, ButtonIcon::chevron_down}) {
-        first.sync(source, {{source->key(0), {icon, {}}}}, 96, wake, retained, remaining);
-        check(first.visual(source->key(0)).icon == icon && remaining == 48,
+        first.sync(source, {{source->key(0), {icon, {}}}}, 96, wake, retained);
+        check(first.visual(source->key(0)).icon == icon && !first.count(),
             "Document row icons retain their value without image requests");
     }
     for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(29)}) {
         bool rejected{};
-        try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained, remaining); }
+        try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained); }
         catch (const std::invalid_argument&) { rejected = true; }
         check(rejected, "Invalid row icons fail before I/O");
     }
     for (size_t i = 0; i < 100; ++i) rows.push_back({source->key(i), {ButtonIcon::none, path(i)}});
-    first.sync(source, rows, 96, wake, retained, remaining);
-    second.sync(source, rows, 96, wake, retained, remaining);
-    third.sync(source, rows, 96, wake, retained, remaining);
-    check(first.count() == 24 && second.count() == 24 && third.count() == 0 && !remaining, "24 per control and 48 shared image slots");
-    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
-    retained.clear(); remaining = 48;
-    first.sync(source, rows, 96, wake, retained, remaining);
-    check(first.pixels({1, 1}) && retained.size() == 24, "Visible row completion retains actual pixels");
+    const auto before = ImageResources::statistics();
+    const std::array controls{&first, &second, &third};
+    wait([&] {
+        retained.clear();
+        for (auto* images : controls) {
+            images->sync(source, rows, 96, wake, retained);
+            check(images->count() == rows.size(), "All visible image rows retain a slot");
+        }
+        bounds();
+        return retained.size() == rows.size() * controls.size();
+    });
+    check(ImageResources::statistics().rejected == before.rejected, "Queue pressure defers rows instead of failing them");
+    for (const auto* images : controls) for (const auto& row : rows)
+        check(images->pixels(row.key) != nullptr, "Every visible row loads, including lower rows in later columns");
     const auto id = first.pixels({1, 1})->id;
-    remaining = 48; retained.clear(); first.sync(source, rows, 192, wake, retained, remaining);
+    retained.clear(); first.sync(source, rows, 192, wake, retained);
     check(!first.pixels({1, 1}), "DPI change releases old pixel slots before completion");
-    wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
-    remaining = 48; first.sync(source, rows, 192, wake, retained, remaining);
+    wait([&] { retained.clear(); first.sync(source, rows, 192, wake, retained); return retained.size() == rows.size(); });
     check(first.pixels({1, 1}) && first.pixels({1, 1})->id != id, "DPI change uses newly sized pixels");
     rows = {{{1, 2}, {ButtonIcon::none, (directory / L"missing.png").wstring()}}};
-    remaining = 48; first.sync(source, rows, 96, wake, retained, remaining);
+    first.sync(source, rows, 96, wake, retained);
     check(!first.pixels({1, 1}), "Key/version replacement drops stale visuals");
     wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
-    remaining = 48; first.sync(source, rows, 96, wake, retained, remaining);
+    first.sync(source, rows, 96, wake, retained);
     const auto failed = ImageResources::statistics();
-    for (int i = 0; i < 10; ++i) { remaining = 48; first.sync(source, rows, 96, wake, retained, remaining); }
+    for (int i = 0; i < 10; ++i) first.sync(source, rows, 96, wake, retained);
     const auto after = ImageResources::statistics();
     check(first.count() == 1 && !first.pixels({1, 2}) && !after.queued && !after.active &&
         after.rejected == failed.rejected, "Failed row images do not retry on each paint");
     for (auto invalid : {std::wstring(32768, L'x'), std::wstring(L"a\0b", 3)}) {
         bool rejected{};
-        try { remaining = 48; first.sync(source, {{{1, 1}, {ButtonIcon::none, invalid}}}, 96, wake, retained, remaining); }
+        try { first.sync(source, {{{1, 1}, {ButtonIcon::none, invalid}}}, 96, wake, retained); }
         catch (const std::invalid_argument&) { rejected = true; }
         check(rejected, "Invalid row image paths fail before I/O");
     }
-    remaining = 48; first.sync(source, {}, 96, wake, retained, remaining);
+    first.sync(source, {}, 96, wake, retained);
     check(!first.count(), "Hidden or empty rows release image requests");
     first.clear(); second.clear(); third.clear(); source.reset(); empty();
 }
@@ -227,6 +231,78 @@ struct Gate {
         CloseHandle(entered); CloseHandle(release_gate);
     }
 };
+void row_image_queue_tests() {
+    for (const auto kind : {ImageKind::wic, ImageKind::shell}) {
+        {
+            Gate gate(ImageDecodeStage::before_decode, kind);
+            auto active = request_image(path(0), {24, 24}, {}, kind);
+            gate.await();
+            std::vector<std::shared_ptr<ImageRequest>> queued;
+            for (std::size_t i = 0; i < ImageLimits::queue; ++i)
+                queued.push_back(request_image(path(1), {24, 24}, {}, kind));
+            auto wake = std::make_shared<TaskWake>();
+            auto abandoned = std::make_shared<TaskWake>();
+            std::weak_ptr<TaskWake> weak = abandoned;
+            check(!try_request_image(path(2), {24, 24}, abandoned, kind), "A full queue defers row requests");
+            abandoned.reset();
+            check(weak.expired(), "Deferred queue waiters do not retain closed windows");
+            RowImages images;
+            std::vector<std::uint64_t> retained;
+            const auto before = ImageResources::statistics();
+            images.sync_visuals({{{999, 1}, {ButtonIcon::none, (directory / L"stale-missing.png").wstring()}}},
+                96, wake, retained);
+            check(!RowImagesTestAccess::request(images, {999, 1}) && wake.use_count() == 1,
+                "Deferred rows hold no request and no window wake ownership");
+            std::vector<RowVisual> rows;
+            for (std::size_t i = 0; i < 160; ++i)
+                rows.push_back({{i + 1, 1}, {ButtonIcon::none, path(i)}, kind == ImageKind::shell});
+            images.sync_visuals(rows, 96, wake, retained);
+            check(images.visual({999, 1}).image_path.empty() && images.count() == rows.size(),
+                "Navigation discards deferred stale rows before they enter the queue");
+            check(WaitForSingleObject(wake->event, 0) == WAIT_TIMEOUT &&
+                ImageResources::statistics().queued == ImageLimits::queue,
+                "Deferred rows neither spin nor grow the full queue");
+            gate.release();
+            check(WaitForSingleObject(wake->event, 10000) == WAIT_OBJECT_0,
+                "Another window's queue completion wakes a window with only deferred rows");
+            wait([&] {
+                retained.clear();
+                images.sync_visuals(rows, 96, wake, retained);
+                const auto stats = ImageResources::statistics();
+                check(stats.queued <= ImageLimits::queue && stats.active <= ImageLimits::workers,
+                    "Incremental row admission preserves worker and queue limits");
+                return retained.size() == rows.size();
+            });
+            check(ImageResources::statistics().rejected == before.rejected,
+                "Queue saturation and deferred source replacement cause no permanent image failures");
+            images.clear();
+        }
+        empty();
+        {
+            Gate gate(ImageDecodeStage::before_decode, kind);
+            auto active = request_image(path(0), {24, 24}, {}, kind);
+            gate.await();
+            auto wake = std::make_shared<TaskWake>();
+            RowImages images;
+            std::vector<RowVisual> rows;
+            std::vector<std::uint64_t> retained;
+            for (std::size_t i = 0; i < 100; ++i)
+                rows.push_back({{i + 1, 1}, {ButtonIcon::none, path(i)}, kind == ImageKind::shell});
+            images.sync_visuals(rows, 96, wake, retained);
+            check(ImageResources::statistics().queued == RowImages::maximum_queued,
+                "Row admission bounds outstanding work without limiting retained row count");
+            auto preview = request_image(path(101), {24, 24}, {}, kind);
+            check(!preview->done && ImageResources::statistics().queued == RowImages::maximum_queued + 1,
+                "Row loading reserves queue headroom for a preview or window icon");
+            images.clear(); active->cancel(); preview->cancel();
+            ImageResources::clear_unused();
+            check(!ImageResources::statistics().queued && WaitForSingleObject(wake->event, 0) == WAIT_OBJECT_0,
+                "Cancellation frees queue capacity and wakes deferred owners without waiting for the blocked worker");
+            gate.release();
+        }
+        empty();
+    }
+}
 void shell_image_tests() {
     Image image(L"Shell preview");
     ImagePeer peer(image);
@@ -324,9 +400,8 @@ void tab_image_tests() {
     const auto sync = [&](UINT dpi = 96) {
         std::vector<RowVisual> rows;
         for (const auto& tab : tabs.tabs()) rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
-        size_t remaining = 48;
         retained.clear();
-        return images.sync_visuals(std::move(rows), dpi, wake, retained, remaining, 16);
+        return images.sync_visuals(std::move(rows), dpi, wake, retained, 16);
     };
     {
         Gate gate(ImageDecodeStage::before_delivery, ImageKind::shell);
@@ -385,9 +460,8 @@ void ordinary_row_image_refresh_test() {
     auto wake = std::make_shared<TaskWake>();
     std::vector<std::uint64_t> retained;
     const auto sync = [&] {
-        size_t remaining = 48;
         retained.clear();
-        return images.sync(source, {{{1, 0}, {ButtonIcon::none, file.wstring()}}}, 96, wake, retained, remaining);
+        return images.sync(source, {{{1, 0}, {ButtonIcon::none, file.wstring()}}}, 96, wake, retained);
     };
     const auto deliver = [&] {
         wait([] { const auto s = ImageResources::statistics(); return !s.active && !s.queued; });
@@ -433,11 +507,11 @@ void navigation_row_image_tests() {
         nav.set_items(entries);
         nav.arrange({0, 0, 280, 600});
     };
-    const auto sync = [&](UINT dpi = 96, size_t budget = 48) {
-        const auto available = budget;
+    const auto sync = [&](UINT dpi = 96, size_t visible_rows = RowImages::maximum_rows) {
         std::vector<RowVisual> rows;
         const auto source = nav.items()->source();
         for (const auto& row : nav.items()->visible_content()) {
+            if (rows.size() == visible_rows) break;
             auto visual = source->visual(row.index);
             if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
             if (visual.image_path.empty()) visual.image_path = row.content.image_path;
@@ -446,9 +520,8 @@ void navigation_row_image_tests() {
             rows.push_back({row.key, std::move(visual), row.navigation});
         }
         retained.clear();
-        const auto changed = images.sync(source, std::move(rows), dpi, wake, retained, budget, true);
-        check(images.count() <= RowImages::maximum_images && images.count() + budget == available,
-            "Navigation refresh respects row and shared image budgets");
+        const auto changed = images.sync(source, std::move(rows), dpi, wake, retained, true);
+        check(images.count() <= visible_rows, "Navigation retains only visible row images");
         return changed;
     };
     const auto deliver = [&] {
@@ -522,9 +595,9 @@ void navigation_row_image_tests() {
             replacement->size == ImageSize{36, 36} && retained.empty(),
             "DPI changes cancel old work even across snapshot replacements");
         check(sync(144, 1) && images.count() == 1 && !replacement->cancelled,
-            "A reduced shared budget evicts excess slots but preserves the retained pending row");
+            "A smaller visible range releases offscreen slots but preserves the retained pending row");
         sync(144, 0);
-        check(!images.count() && replacement->cancelled, "A zero budget releases all row image work");
+        check(!images.count() && replacement->cancelled, "An empty visible range releases all row image work");
         gate.release();
     }
     images.clear(); empty();
@@ -617,10 +690,22 @@ void gpu_tests() {
     drawing.end();
     drawing.keep_images({});
     check(ImageResources::statistics().gpu_bytes == 0, "Unload drops the bitmap cache");
+    b.reset(); c.reset();
+    empty();
+    std::vector<std::shared_ptr<ImageRequest>> rows;
+    for (std::size_t i = 0; i < 160; ++i) rows.push_back(load(path(i), {24, 24}));
+    check(drawing.begin(window, 96, D2D1::ColorF(0)), "Begin a frame larger than the bitmap cache");
+    for (const auto& row : rows)
+        check(row->pixels && drawing.image(row->pixels, {0, 0, 24, 24}),
+            "Every decoded row draws even when visible images outnumber bitmap cache entries");
+    check(ImageResources::statistics().gpu_bytes <= ImageLimits::cache_entries * 24 * 24 * 4,
+        "Bitmap cache eviction preserves its entry limit");
+    check(drawing.image(rows.front()->pixels, {24, 0, 24, 24}), "An evicted visible bitmap uploads again on demand");
+    check(drawing.end(), "Finish the complete row image frame");
+    rows.clear();
     bounds();
     drawing.release();
     DestroyWindow(window);
-    b.reset(); c.reset();
     empty();
 }
 }
@@ -631,7 +716,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
-        decode_tests(); cancellation_tests(); shell_image_tests(); row_image_tests(); ordinary_row_image_refresh_test();
+        decode_tests(); cancellation_tests(); shell_image_tests(); row_image_queue_tests(); row_image_tests(); ordinary_row_image_refresh_test();
         navigation_row_image_tests(); tab_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted

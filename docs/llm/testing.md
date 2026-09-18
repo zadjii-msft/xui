@@ -108,6 +108,8 @@ The model checks compare cached and scanned suggestions for relative, quoted, ex
 Footer checks cover upward view selection, both choices, Escape, focus restoration, and independent pane feedback.
 Feedback timing checks cover the three-second lifetime, replacement cancellation, singular counts, and persistent errors.
 Native Miller capture checks cover row hover and pixel-aligned vertical separators across themes and DPI values.
+Column Find checks cover independent queries, hidden ancestor selections, preserved descendants, target changes, and tab duplication.
+Native header and empty-area focus checks distinguish column focus from row selection and navigation.
 Command snapshot checks require eager availability evaluation, stable row content, and no action execution during source callbacks.
 The smoke opens and filters Copy/Cut commands with selected entries in both Details and Columns views.
 These checks cover the native callback guard that rejects selection queries from an immutable source callback.
@@ -134,11 +136,12 @@ The protocol retains the original 60-file workload, 924×641 client extent, and 
 Native child discovery now supports pane hosts. The theme workload uses the Theme command instead of F6.
 The baseline path still supports the original F6 command.
 
-The four image regressions require `-DXUI_DESKTOP_TESTS=ON`:
+The image regressions require `-DXUI_DESKTOP_TESTS=ON`:
 
 | Program | Coverage |
 | --- | --- |
-| `xui_image_tests` | Exact budgets, reservations, sharing, alpha conversion, size keys, file versions, corrupt data, LRU eviction, cancellation, and device recreation |
+| `xui_image_tests` | Exact budgets, complete row-image loading, deferred admission and wakes, reservations, sharing, alpha conversion, size keys, file versions, corrupt data, LRU eviction, cancellation, and device recreation |
+| `xui_visual_window_tests` | Actual pixels in every visible row, grid source identity, clipped and hidden controls, and Miller images through navigation, scrolling, filtering, and idle |
 | `xui_image_window_tests` | A 20,000-item recycled grid, folder replacements, real pixels, native geometry, clipping, scrolling, idle frames, unload, and blocked-decoder closure |
 | `xui_images_smoke` | The actual thumbnail executable, external UIA, native folder input, source errors, image errors, unload, idle, and stale providers |
 | `xui_gallery_image_smoke` | The gallery preview, real decoding, external image semantics, native path input, corrupt files, unload, idle, and provider disconnection |
@@ -148,7 +151,14 @@ Its malformed files cover zero dimensions, huge dimensions, truncated pixels, co
 Deterministic gates stop the worker before decoding, during a reservation, and before completion delivery.
 The tests replace a tile source at each boundary and reject the obsolete result.
 The full-queue test holds one active job and fills all 64 queue slots.
+Row-image gates cover WIC and Shell queues, deferred source replacement, weak window ownership, cancellation wakes, and queue headroom for explicit images.
+Another assertion requires every row to draw when visible images outnumber bitmap cache entries.
 The GPU test fills the controlled bitmap budget, rejects an extra upload, evicts a bitmap, and uploads again.
+
+The Miller image regression keeps a thumbnail-enabled sidebar beside the columns.
+It opens a path of eight columns while focus stays on the root column.
+Owned-window pixel captures verify images in every visible row, including rows beyond the former retained-slot limits.
+The regression also scrolls both axes, replaces an ancestor with an empty filtered source, and checks idle paints.
 
 The window test holds a 4 MiB reservation while the decoder gate remains closed.
 `Application::run` returns before the test opens that gate.

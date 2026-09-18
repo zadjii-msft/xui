@@ -187,11 +187,13 @@ public:
     void bounds(const ControlSnapshot& s, UiaRect& value) const {
         value = {}; RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
+        const auto clip = clipped_bounds(s.window);
+        if (IsRectEmpty(&clip)) return;
         const auto scale = GetDpiForWindow(s.window) / 96.0;
         double x{}, y{}, width = s.collection_width, height = s.collection_height;
         if (!key_) {
-            value = {static_cast<double>(window.left), static_cast<double>(window.top),
-                static_cast<double>(window.right - window.left), static_cast<double>(window.bottom - window.top)};
+            value = {static_cast<double>(clip.left), static_cast<double>(clip.top),
+                static_cast<double>(clip.right - clip.left), static_cast<double>(clip.bottom - clip.top)};
             return;
         }
         if (key_) {
@@ -209,8 +211,12 @@ public:
         const auto left = std::max(0.0, x), right = std::min(s.collection_width, x + width);
         const auto top = std::max(0.0, y), bottom = std::min(s.collection_height, y + height);
         if (right <= left || bottom <= top) return;
-        value = {window.left + (s.collection_viewport_x + left) * scale,
-            window.top + (s.collection_viewport_y + top) * scale, (right - left) * scale, (bottom - top) * scale};
+        const auto screen_left = std::max(double(clip.left), window.left + (s.collection_viewport_x + left) * scale);
+        const auto screen_top = std::max(double(clip.top), window.top + (s.collection_viewport_y + top) * scale);
+        const auto screen_right = std::min(double(clip.right), window.left + (s.collection_viewport_x + right) * scale);
+        const auto screen_bottom = std::min(double(clip.bottom), window.top + (s.collection_viewport_y + bottom) * scale);
+        if (screen_right <= screen_left || screen_bottom <= screen_top) return;
+        value = {screen_left, screen_top, screen_right - screen_left, screen_bottom - screen_top};
     }
     HRESULT STDMETHODCALLTYPE get_BoundingRectangle(UiaRect* value) override {
         if (!value) return E_POINTER; *value = {}; return with([&](const auto& s) { bounds(s, *value); return S_OK; });

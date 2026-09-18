@@ -33,6 +33,8 @@ internal static class ExplorerSmoke
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool GetWindowRect(nint window, out NativeRect rectangle);
+    [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool OpenClipboard(nint window);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool CloseClipboard();
@@ -46,6 +48,8 @@ internal static class ExplorerSmoke
     private static extern int GetWindowTextW(nint window, System.Text.StringBuilder text, int capacity);
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
 
     private static void CheckCommandSnapshot()
     {
@@ -475,6 +479,7 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
                 await ColumnsChecks();
+                await PerColumnFindChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
                 await TabMenuChecks(fixture);
@@ -843,6 +848,156 @@ internal static class ExplorerSmoke
                 // Last-window retirement and queued disposal finish before Application.Run returns.
             }
 
+            async Task PerColumnFindChecks()
+            {
+                var pane = app.Left;
+                string root = Path.Combine(fixture, "per-column-find");
+                string top = Path.Combine(root, "top");
+                string middle = Path.Combine(top, "middle");
+                string leaf = Path.Combine(middle, "leaf");
+                Directory.CreateDirectory(leaf);
+                Directory.CreateDirectory(Path.Combine(root, "elsewhere"));
+                await File.WriteAllTextAsync(Path.Combine(top, "note.txt"), "note");
+                await File.WriteAllTextAsync(Path.Combine(middle, "other.txt"), "other");
+                await File.WriteAllTextAsync(Path.Combine(leaf, "inside.txt"), "inside");
+                await Ui(() => pane.Navigate(root));
+                await Ready(pane);
+                await Ui(() => pane.SetViewMode(ExplorerViewMode.Columns));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(0, top));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(1, middle));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(2, leaf));
+                await Ready(pane);
+                ExplorerColumn[] path = [];
+                ulong[] peers = [];
+                nint ancestorList = 0;
+                await Ui(() =>
+                {
+                    path = pane.Model.Active.Columns.ToArray();
+                    peers = Enumerable.Range(0, 4).Select(i => pane.Columns.Column((uint)i).Id).ToArray();
+                    pane.HideFind();
+                    pane.Columns.FocusColumn(1);
+                    ancestorList = GetFocus();
+                    pane.Columns.FocusColumn(2);
+                    pane.Columns.HorizontalOffset = Math.Min(pane.Columns.ColumnWidth, pane.Columns.MaximumHorizontalOffset);
+                });
+                await Ui(() =>
+                {
+                    if (!GetWindowRect(ancestorList, out var listBounds))
+                        throw new InvalidOperationException("The ancestor list bounds are unavailable.");
+                    nint header = 0, parent = GetAncestor(ancestorList, 1);
+                    for (nint child = FindWindowExW(parent, 0, null, null); child != 0;
+                        child = FindWindowExW(parent, child, null, null))
+                        if (GetWindowRect(child, out var bounds) && bounds.Left == listBounds.Left &&
+                            bounds.Right == listBounds.Right && bounds.Bottom == listBounds.Top && bounds.Top < bounds.Bottom)
+                        {
+                            header = child;
+                            break;
+                        }
+                    if (header == 0) throw new InvalidOperationException("The ancestor directory header is missing.");
+                    SendMessageW(header, 0x201, 1, (16 << 16) | 12);
+                    ancestorList = GetFocus();
+                    if (!pane.Columns.Column(1).Focused || pane.Columns.ActiveColumn != 1 ||
+                        !path.SequenceEqual(pane.Model.Active.Columns))
+                        throw new InvalidOperationException("Clicking an ancestor header must focus it without changing the path.");
+                    if (!PostMessageW(GetFocus(), 0x100, 0x4e, 1))
+                        throw new InvalidOperationException("Could not type into the ancestor column.");
+                });
+                await Until(() => pane.FindInput.Focused && pane.FilterQuery == "n" && !pane.IsFiltering);
+                await Check(() => pane.Columns.ActiveColumn == 1 && pane.VisibleCount == 1 &&
+                    pane.Model.Active.Path == leaf && path.SequenceEqual(pane.Model.Active.Columns) &&
+                    path[1].SelectedPath == middle && pane.SelectedEntry is null &&
+                    !pane.HasSelection && pane.Status.Text.Contains("1 of 2"),
+                    "Type-to-find targets an ancestor, hides its selected branch, and preserves all descendants");
+                await Ui(() => pane.SetFilter("no matches"));
+                await Ready(pane);
+                await Check(() => pane.VisibleCount == 0 && path[1].SelectedPath == middle &&
+                    path.SequenceEqual(pane.Model.Active.Columns) &&
+                    peers.SequenceEqual(Enumerable.Range(0, 4).Select(i => pane.Columns.Column((uint)i).Id)),
+                    "An empty ancestor result preserves logical path selection and retained column peers");
+                await Ui(() => SendMessageW(ancestorList, 0x201, 1, (80 << 16) | 12));
+                await Check(() => pane.Columns.Column(1).Focused && pane.FilterQuery == "no matches" &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ColumnCount == 4,
+                    "Clicking an empty filtered column focuses it without clearing its query or descendants");
+                await Ui(() => pane.SetFilter("mid"));
+                await Ready(pane);
+                await Check(() => pane.VisibleCount == 1 && pane.SelectedEntry?.FullPath == middle &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ColumnCount == 4,
+                    "Restoring a matching branch restores its selection without navigating or trimming descendants");
+                await Ui(() =>
+                {
+                    pane.Columns.FocusColumn(2);
+                    pane.ShowFind();
+                    pane.SetFilter("other");
+                });
+                await Ready(pane);
+                await Check(() => path[1].Filter == "mid" && path[2].Filter == "other" &&
+                    path[2].SelectedPath == leaf && pane.VisibleCount == 1 && pane.Columns.ColumnCount == 4,
+                    "Each column keeps its own query and hidden path selection");
+                await Ui(() => pane.Columns.FocusColumn(1));
+                await Check(() => pane.FilterQuery == "mid" && pane.FindInput.Text == "mid" &&
+                    pane.Columns.ActiveColumn == 1 && pane.FilesFocused,
+                    "Refocusing an ancestor restores its remembered query without moving focus into Find");
+                await Ui(pane.HideFind);
+                await Ready(pane);
+                await Check(() => path[1].Filter == "" && path[2].Filter == "other" &&
+                    pane.VisibleCount == 2 && pane.Model.Active.Path == leaf,
+                    "Closing Find clears only its target column and preserves the open path");
+                await Ui(() =>
+                {
+                    pane.ShowFind();
+                    pane.SetFilter("no matches");
+                    pane.Columns.FocusColumn(2);
+                    pane.SetFilter("leaf");
+                    pane.Columns.FocusColumn(1);
+                });
+                await Ready(pane);
+                await Check(() => pane.FindInput.Text == "no matches" && pane.FilterQuery == "no matches" &&
+                    pane.VisibleCount == 0 && path[2].Filter == "leaf" &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ActiveColumn == 1,
+                    "Rapid query and target changes cannot deliver results into the wrong Find target");
+                ExplorerTab? original = null;
+                ulong duplicate = 0;
+                await Ui(() =>
+                {
+                    original = pane.Model.Active;
+                    pane.DuplicateTab(original);
+                    duplicate = pane.Model.Active.Id;
+                });
+                await Ready(pane);
+                await Check(() => pane.FilterQuery == "no matches" &&
+                    pane.Model.Active.Columns[2].Filter == "leaf" &&
+                    !ReferenceEquals(path[1], pane.Model.Active.Columns[1]),
+                    "Tab duplication copies independent per-column queries and restores the Find target");
+                await Ui(() => pane.SetFilter("note"));
+                await Ready(pane);
+                await Check(() => path[1].Filter == "no matches" && pane.VisibleCount == 1,
+                    "Editing a duplicate's query does not change the original tab");
+                await Ui(() =>
+                {
+                    pane.CloseTab(duplicate);
+                    pane.SelectTab(original?.Id ?? throw new InvalidOperationException("The original column tab is missing."));
+                });
+                await Ready(pane);
+                await Check(() => ReferenceEquals(original, pane.Model.Active) &&
+                    pane.FilterQuery == "no matches" && pane.Model.Active.Columns[2].Filter == "leaf",
+                    "Tab restoration restores the original target and all column queries");
+                await Ui(() =>
+                {
+                    pane.SetFilter("obsolete");
+                    pane.SelectColumnPath(0, Path.Combine(root, "elsewhere"));
+                });
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == Path.Combine(root, "elsewhere") &&
+                    pane.Model.Active.Columns[1].Filter == "" && pane.FilterQuery == "" &&
+                    !ReferenceEquals(path[1], pane.Model.Active.Columns[1]),
+                    "Replacing a branch cancels obsolete filters and gives replacement columns fresh query state");
+                await Ui(() => { pane.HideFind(); pane.SetViewMode(ExplorerViewMode.Details); pane.Navigate(fixture); });
+                await Ready(pane);
+            }
+
             async Task ColumnsChecks()
             {
                 var pane = app.Left;
@@ -874,19 +1029,28 @@ internal static class ExplorerSmoke
                 await Until(() => !pane.ViewMenu.IsOpen);
                 await Check(() => pane.IsColumns && pane.FilesFocused,
                     "Escape closes the view flyout without changing the view and restores file focus");
-                await Ui(() => pane.SelectColumnPath(0, alpha));
-                await Ready(pane);
-                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
-                    && pane.Columns.ActiveColumn == 0, "Single selection drills while retaining its ancestor and focus");
-                await Ui(() => pane.SelectColumnPath(1, Path.Combine(alpha, "child")));
-                await Ready(pane);
-                await Check(() => pane.Columns.ColumnCount == 3, "Nested selection appends a column");
                 double columnWidth = 0, horizontalOffset = 0;
                 await Ui(() =>
                 {
                     columnWidth = pane.Columns.ColumnWidth;
                     pane.Columns.ColumnWidth = 2000;
                 });
+                bool LastColumnVisible()
+                {
+                    var viewport = pane.Columns.GetBounds();
+                    var last = pane.Columns.Column(pane.Columns.ColumnCount - 1).GetBounds();
+                    return last.Width > 0 && last.X >= viewport.X &&
+                        last.X + last.Width <= viewport.X + viewport.Width;
+                }
+                await Ui(() => pane.SelectColumnPath(0, alpha));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
+                    && pane.Columns.ActiveColumn == 0 && LastColumnVisible(),
+                    "Single selection reveals the entire child while retaining its active ancestor");
+                await Ui(() => pane.SelectColumnPath(1, Path.Combine(alpha, "child")));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 3 && pane.Columns.ActiveColumn == 1 && LastColumnVisible(),
+                    "Nested selection reveals the entire appended column without moving the active ancestor");
                 await Until(() => pane.Columns.MaximumHorizontalOffset > 0);
                 await Ui(() =>
                 {
@@ -939,12 +1103,12 @@ internal static class ExplorerSmoke
                 });
                 await Ui(() => pane.SelectColumnPath(0, alpha));
                 await Ready(pane);
-                await Ui(() => { pane.ShowFind(); pane.SetFilter("child"); });
+                await Ui(() => { pane.Columns.FocusColumn(1); pane.ShowFind(); pane.SetFilter("child"); });
                 await Ready(pane);
                 await Check(() => pane.VisibleCount == 1 && pane.Columns.ColumnCount == 2
                     && pane.Model.Active.Columns[0].Snapshot.Entries.Count == 5
                     && pane.Model.Active.Columns[1].SelectedPath is null,
-                    "Find filters the rightmost folder without removing siblings or selecting its focus-only row");
+                    "Find filters its focused column without removing siblings or selecting its focus-only row");
                 await Ui(() =>
                 {
                     foreach (uint key in new uint[] { 0x25, 0x27, 0x24, 0x23 })
@@ -958,10 +1122,10 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Ui(() =>
                 {
-                    if (!pane.FindInput.Focused || pane.FindInput.Text != "" || pane.Model.Active.Filter != ""
+                    if (!pane.FindInput.Focused || pane.FindInput.Text != "child" || pane.FilterQuery != "child"
                         || pane.Model.Active.Path != Path.Combine(alpha, "child"))
                         throw new InvalidOperationException(
-                            $"Find Down opens the folder and clears its filter without moving input focus: " +
+                            $"Find Down opens the folder and retains the ancestor query without moving input focus: " +
                             $"findFocused={pane.FindInput.Focused}, query={pane.FindInput.Text}, path={pane.Model.Active.Path}, " +
                             $"activeColumn={pane.Columns.ActiveColumn}, columns={pane.Columns.ColumnCount}, filesFocused={pane.FilesFocused}.");
                 });
@@ -979,7 +1143,7 @@ internal static class ExplorerSmoke
                 await Check(() => !pane.IsColumns && pane.Model.Active.Filter == "", "New tabs default to Details");
                 await Ui(() => pane.SelectTab(columnsTab));
                 await Ready(pane);
-                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 3 && pane.Model.Active.Filter == "child",
+                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 3 && pane.FilterQuery == "child",
                     "Tab selection restores mode, chain, and filter");
                 await Ui(pane.HideFind);
                 await Ready(pane);
@@ -1481,7 +1645,7 @@ internal static class ExplorerSmoke
                 if (!PostMessageW(GetFocus(), 0x100, 0x53, 1))
                     throw new InvalidOperationException("Could not post the first typing key.");
             });
-            await Until(() => pane.FindInput.Focused && pane.Model.Active.Filter == "s" && !pane.IsFiltering);
+            await Until(() => pane.FindInput.Focused && pane.FilterQuery == "s" && !pane.IsFiltering);
             await Check(() => pane.Model.Active.FindOpen && pane.FindInput.Text == "s",
                 "Typing in either file view opens Find without losing the first character");
             await Ui(() =>
@@ -1489,12 +1653,12 @@ internal static class ExplorerSmoke
                 if (!PostMessageW(GetFocus(), 0x100, 0x4d, 1))
                     throw new InvalidOperationException("Could not post the next typing key.");
             });
-            await Until(() => pane.Model.Active.Filter == "sm" && !pane.IsFiltering);
+            await Until(() => pane.FilterQuery == "sm" && !pane.IsFiltering);
             await Ui(() =>
             {
                 SendMessageW(GetFocus(), 0x102, 0x00e9, 1);
             });
-            await Until(() => pane.Model.Active.Filter == "sm\u00e9" && !pane.IsFiltering);
+            await Until(() => pane.FilterQuery == "sm\u00e9" && !pane.IsFiltering);
             await Ui(pane.HideFind);
             await Ready(pane);
             await Ui(() =>

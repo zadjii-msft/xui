@@ -11,7 +11,6 @@
 #include <cmath>
 
 namespace xui {
-namespace {
 RECT clipped_bounds(HWND window) {
     RECT rect{};
     if (!IsWindowVisible(window) || !GetWindowRect(window, &rect)) return {};
@@ -30,6 +29,7 @@ RECT clipped_bounds(HWND window) {
     }
     return rect;
 }
+namespace {
 ControlSnapshot read(const std::shared_ptr<ControlAccessibility>& state) {
     std::lock_guard lock(state->mutex);
     return state->snapshot;

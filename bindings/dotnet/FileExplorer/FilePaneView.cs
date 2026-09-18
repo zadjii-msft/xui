@@ -24,6 +24,7 @@ internal sealed class FilePaneView
     private string? error;
     private readonly List<ColumnPresentation> columnViews = [];
     private bool focusColumnsAfterRender;
+    private ExplorerColumn? findColumn;
 
     private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
         FileRows Rows, ImmutableSource Source);
@@ -67,8 +68,13 @@ internal sealed class FilePaneView
             ShellMenuPresentation.Xui);
         for (uint i = 0; i < ExplorerTab.ColumnLimit; i++)
         {
-            var list = Columns.Column(i);
-            list.FocusEntered += Activate;
+            uint index = i;
+            var list = Columns.Column(index);
+            list.FocusEntered += () =>
+            {
+                Activate();
+                if (!rendering) SetFindColumn(index);
+            };
             list.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
                 ShellMenuPresentation.Xui);
         }
@@ -96,14 +102,14 @@ internal sealed class FilePaneView
         {
             if (rendering) return;
             SaveViewport();
-            Model.Active.Filter = text;
+            StoreFilter(text);
             ApplyFilter();
         };
         find.Submitted += Focus;
         Columns.SelectionChanged += e => SelectColumn(e.Column, e.Key);
         Columns.ItemActivated += e =>
         {
-            if (rendering || !IsCurrentColumn(e.Column)) return;
+            if (rendering || !ColumnMatchesQuery(e.Column)) return;
             Activate();
             if (columnViews[(int)e.Column].Rows.Entry(e.Key.Id) is { IsDirectory: false } entry)
                 app.Open(entry, this);
@@ -153,11 +159,14 @@ internal sealed class FilePaneView
     public bool IsLoading { get; private set; }
     public bool IsFiltering { get; private set; }
     public string? Error => error;
-    public int VisibleCount => checked((int)rows.Count);
+    public string FilterQuery => findColumn?.Filter ?? Model.Active.Filter;
+    private ColumnPresentation? FindPresentation =>
+        columnViews.FirstOrDefault(view => ReferenceEquals(view.Model, findColumn));
+    public int VisibleCount => checked((int)(IsColumns ? FindPresentation?.Rows.Count ?? 0 : rows.Count));
     public bool HasCurrentRows => !IsLoading && !IsFiltering && displayedTab == Model.Active.Id;
     public string TransferDirectory => IsColumns && IsCurrentColumn(Columns.ActiveColumn)
         ? columnViews[(int)Columns.ActiveColumn].Model.Snapshot.Path : Model.Active.Path;
-    public FileEntry? Entry(ItemKey key) => rows.Entry(key.Id);
+    public FileEntry? Entry(ItemKey key) => IsColumns ? FindPresentation?.Rows.Entry(key.Id) : rows.Entry(key.Id);
     public bool HasSelection => HasCurrentRows &&
         (IsColumns ? SelectedEntry is not null :
             Enumerable.Range(0, VisibleCount).Any(index => Grid.Contains(rows.Key((ulong)index))));
@@ -254,15 +263,15 @@ internal sealed class FilePaneView
 
     private void SelectColumn(uint column, ItemKey key)
     {
-        if (rendering || !IsCurrentColumn(column)) return;
+        if (rendering || !ColumnMatchesQuery(column)) return;
         Activate();
         SaveViewport();
-        Model.Active.ActiveColumn = (int)column;
+        SetFindColumn(column);
         if (columnViews[(int)column].Rows.Entry(key.Id) is not { } entry)
         {
             Cancel();
             error = null;
-            UpdateStatus(checked((int)rows.Count), Model.Active.Entries.Count, Model.Active.Filter);
+            UpdateColumnStatus();
             return;
         }
         if (entry.IsDirectory)
@@ -294,6 +303,9 @@ internal sealed class FilePaneView
     private bool IsCurrentColumn(uint column) => IsColumns && displayedTab == Model.Active.Id
         && column < columnViews.Count && column < Model.Active.Columns.Count
         && ReferenceEquals(columnViews[(int)column].Model, Model.Active.Columns[(int)column]);
+
+    private bool ColumnMatchesQuery(uint column) => IsCurrentColumn(column) &&
+        columnViews[(int)column].Query == Model.Active.Columns[(int)column].Filter;
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
@@ -428,6 +440,7 @@ internal sealed class FilePaneView
 
     public void ShowFind()
     {
+        if (IsColumns && Columns.ColumnCount != 0) SetFindColumn(Columns.ActiveColumn);
         Model.Active.FindOpen = true;
         SetFindVisible(true);
         find.Focus(selectAll: true);
@@ -436,12 +449,43 @@ internal sealed class FilePaneView
     public void SetFilter(string query)
     {
         SaveViewport();
-        Model.Active.Filter = query;
+        StoreFilter(query);
         rendering = true;
         try { find.Text = query; }
         finally { rendering = false; }
         ApplyFilter();
     }
+
+    private void StoreFilter(string query)
+    {
+        if (findColumn is not null) findColumn.Filter = query;
+        else Model.Active.Filter = query;
+    }
+
+    private void SetFindColumn(uint index)
+    {
+        if (!IsCurrentColumn(index)) return;
+        Model.Active.ActiveColumn = (int)index;
+        findColumn = Model.Active.Columns[(int)index];
+        SyncFind();
+        UpdateColumnStatus();
+    }
+
+    private void SyncFind()
+    {
+        bool prior = rendering;
+        rendering = true;
+        try
+        {
+            if (find.Text != FilterQuery) find.Text = FilterQuery;
+            find.SetPlaceholder(findColumn is null ? "Find" : $"Find in {TabName(findColumn.Snapshot.Path)}");
+            find.Help(findColumn is null ? "Filter this folder" : $"Filter {findColumn.Snapshot.Path}");
+        }
+        finally { rendering = prior; }
+    }
+
+    private void UpdateColumnStatus() => UpdateStatus(VisibleCount,
+        findColumn?.Snapshot.Entries.Count ?? 0, FilterQuery);
 
     public void HideFind()
     {
@@ -469,12 +513,14 @@ internal sealed class FilePaneView
         var modifiers = key.VirtualKey is 0x24 or 0x23 ? key.Modifiers & ~KeyModifiers.Control : key.Modifiers;
         if (IsColumns && Columns.ColumnCount != 0)
         {
-            uint last = Columns.ColumnCount - 1;
-            var list = Columns.Column(last);
-            int count = checked((int)rows.Count);
+            int column = columnViews.FindIndex(view => ReferenceEquals(view.Model, findColumn));
+            if (column < 0 || !IsCurrentColumn((uint)column) || IsFiltering || IsLoading) return true;
+            var list = Columns.Column((uint)column);
+            var matches = columnViews[column].Rows;
+            int count = checked((int)matches.Count);
             if (count == 0) return true;
             int index = list.Selection.Focused is { } selected && list.Contains(selected)
-                && rows.Find(selected) is { } found ? (int)found : -1;
+                && matches.Find(selected) is { } found ? (int)found : -1;
             int page = Math.Max(1, (int)(list.GetBounds().Height / 40));
             int target = direction.Value switch
             {
@@ -485,7 +531,7 @@ internal sealed class FilePaneView
                 GridNavigation.Previous => Math.Max(0, index - 1),
                 _ => Math.Min(count - 1, index + 1)
             };
-            list.Select(rows.Key((ulong)target));
+            list.Select(matches.Key((ulong)target));
         }
         else Grid.Navigate(direction.Value, modifiers);
         return true;
@@ -500,9 +546,13 @@ internal sealed class FilePaneView
             {
                 var column = columnViews[i];
                 column.Model.ScrollOffset = Columns.Column((uint)i).Offset;
-                column.Model.SelectedPath = Columns.Column((uint)i).Selection.Focused is { } key
+                var selected = Columns.Column((uint)i).Selection.Focused is { } key
                     && Columns.Column((uint)i).Contains(key)
                     ? column.Rows.Entry(key.Id)?.FullPath : null;
+                // A filtered-out path selection still connects the columns to its right.
+                if (selected is not null || column.Model.SelectedPath is null ||
+                    column.Rows.KeyForPath(column.Model.SelectedPath) is not null)
+                    column.Model.SelectedPath = selected;
             }
             Model.Active.ActiveColumn = (int)Columns.ActiveColumn;
             if (Model.Active.Columns.Count > 0)
@@ -525,7 +575,16 @@ internal sealed class FilePaneView
         rendering = true;
         try
         {
-            find.Text = Model.Active.Filter;
+            for (int i = 0; IsColumns && i < Model.Active.Columns.Count; i++)
+                if (ReferenceEquals(Model.Active.Columns[i], findColumn))
+                {
+                    Model.Active.ActiveColumn = i;
+                    break;
+                }
+            findColumn = IsColumns && Model.Active.Columns.Count > 0
+                ? Model.Active.Columns[Math.Clamp(Model.Active.ActiveColumn, 0, Model.Active.Columns.Count - 1)]
+                : null;
+            SyncFind();
             SetFindVisible(Model.Active.FindOpen);
             UpdateTabs();
             UpdateNavigation();
@@ -611,11 +670,11 @@ internal sealed class FilePaneView
         IsFiltering = true;
         var tab = Model.Active;
         var chain = tab.Columns.ToArray();
-        string query = tab.Filter;
+        var queries = chain.Select(column => column.Filter).ToArray();
         int sort = tab.SortColumn;
         bool descending = tab.SortDescending;
         var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
-            ReferenceEquals(view.Model, column) && view.Query == (i == chain.Length - 1 ? query : "")
+            ReferenceEquals(view.Model, column) && view.Query == queries[i]
             && view.Sort == sort && view.Descending == descending)).ToArray();
         app.Work.Start(token => Task.Run(() =>
         {
@@ -625,12 +684,13 @@ internal sealed class FilePaneView
                 token.ThrowIfCancellationRequested();
                 if (reusable[i] is null)
                     results[i] = FileSystemService.FilterAndSort(chain[i].Snapshot.Entries,
-                        i == chain.Length - 1 ? query : "", sort, descending);
+                        queries[i], sort, descending);
             }
             return results;
         }, token), filtering.Token, results =>
         {
-            if (!ReferenceEquals(tab, Model.Active) || !IsColumns) return;
+            if (!ReferenceEquals(tab, Model.Active) || !IsColumns || !chain.SequenceEqual(tab.Columns) ||
+                !queries.SequenceEqual(tab.Columns.Select(column => column.Filter))) return;
             IsFiltering = false;
             var next = new List<ColumnPresentation>();
             try
@@ -641,13 +701,15 @@ internal sealed class FilePaneView
                     else
                     {
                         var sourceRows = new FileRows(results[i]!, Identify);
-                        next.Add(new(chain[i], i == chain.Length - 1 ? query : "", sort, descending,
+                        next.Add(new(chain[i], queries[i], sort, descending,
                             sourceRows, window.ImmutableSource(sourceRows)));
                     }
                 }
                 rendering = true;
+                bool appended = displayedTab == tab.Id && next.Count > Columns.ColumnCount;
                 Columns.SetColumns(next.Select(c => new MillerColumn(TabName(c.Model.Snapshot.Path), c.Source,
                     c.Rows.KeyForPath(c.Model.SelectedPath))).ToArray());
+                double revealedOffset = Columns.HorizontalOffset;
                 for (uint i = 0; i < next.Count; i++)
                 {
                     var list = Columns.Column(i);
@@ -659,12 +721,13 @@ internal sealed class FilePaneView
                 columnViews.Clear();
                 columnViews.AddRange(next);
                 displayedTab = tab.Id;
-                rows = next.Count == 0 ? new([], Identify) : next[^1].Rows;
                 if (focusColumnsAfterRender && next.Count > 0)
                 {
                     focusColumnsAfterRender = false;
                     Columns.FocusColumn(Columns.ActiveColumn);
                 }
+                // Restoring parent focus must not hide the newly appended child.
+                if (appended) Columns.HorizontalOffset = revealedOffset;
             }
             catch
             {
@@ -673,7 +736,7 @@ internal sealed class FilePaneView
                 throw;
             }
             finally { rendering = false; }
-            UpdateStatus(checked((int)rows.Count), tab.Entries.Count, query);
+            UpdateColumnStatus();
         }, failure =>
         {
             IsFiltering = false;
@@ -685,6 +748,7 @@ internal sealed class FilePaneView
     private void ClearColumns()
     {
         Columns.SetColumns([]);
+        findColumn = null;
         foreach (var column in columnViews) column.Source.Dispose();
         columnViews.Clear();
     }
