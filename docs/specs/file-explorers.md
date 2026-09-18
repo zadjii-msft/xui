@@ -100,7 +100,7 @@ Disabled system animations make these transitions immediate.
 Typing with file-view focus opens Find and sends the first key to its native editor.
 Keyboard layouts, dead keys, and IME input use native text translation.
 Shortcuts, the navigation filter, and palette editors do not start a file filter.
-Successful navigation to a different folder clears the filter but retains the Find bar state.
+In Details, successful navigation to a different folder clears the filter but retains the Find bar state.
 Refresh, failed navigation, and tab switches preserve the filter.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -159,9 +159,12 @@ Closing the last tab or all tabs closes that pane.
 Closing the left pane preserves the other pane's tabs in the remaining workspace.
 Closing the last pane closes the window.
 
-Column headers support sorting and width adjustment.
+Details column headers support sorting and width adjustment.
 File and folder rows highlight under the pointer without changing the selection.
 File rows, navigation folders, and navigation-palette results show asynchronous Windows thumbnails or Shell icons.
+Visible Miller rows load images incrementally without a fixed allowance for completed icons.
+When the decode queue fills, remaining rows wait for capacity instead of remaining on vector icons permanently.
+Pending or failed image requests retain their vector icons.
 Navigation sections also have icons.
 Right-click selects the target row and opens its context menu.
 The XUI menu combines supported Windows Shell commands with folder navigation, bookmarks, and Refresh.
@@ -203,7 +206,8 @@ Each column scrolls vertically on its own.
 Rows highlight under the pointer without changing selection or keyboard focus.
 Vertical separators distinguish adjacent columns.
 Left and Right move focus between existing columns.
-The horizontal navigation buttons reveal earlier or later columns.
+Clicking a directory header or empty space below its rows focuses that column without changing selection or the open path.
+New columns scroll fully into view without moving keyboard focus.
 Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
 When the path exceeds the pane width, a bottom scrollbar supports thumb dragging and track paging.
 The control supports at most 32 columns in one path.
@@ -211,9 +215,22 @@ The application reports an error at the limit instead of discarding ancestors.
 
 A successful directory scan commits the address, history, and current folder.
 A failed scan preserves the committed folder and displays an error.
-Find filters the rightmost folder. Its navigation keys retain native text-input focus.
+Find filters the focused column. Each column remembers its own query.
+The pane shares one native Find field. Its placeholder identifies the target folder.
+Typing in a column opens Find for that column without losing the first character.
+Focusing another column restores its query without moving focus into Find.
+Closing Find clears only the target column's query.
+
+Filtering an ancestor preserves its descendants, even when the selected folder no longer matches.
+Clearing the filter restores that folder's selection without navigation.
+Selecting a different folder still replaces the descendants. Selecting a file removes later columns.
+Find navigation keys move selection in the target column and retain native text-input focus.
+Opening a child preserves the ancestor's query. New child columns start without a filter.
+The footer reports matches in the target column.
 Context menus use the selected row in the column under the pointer.
-Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Tabs retain their column paths, queries, and active column. Tab duplication copies this state independently.
+Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Refresh preserves that folder's query. Navigation to a different root clears it.
 Mode and tab changes detach obsolete native sources and cancel pending work.
 
 ### File preview

@@ -2,6 +2,7 @@
 #include "xui/application.hpp"
 #include "xui/data_grid.hpp"
 #include "xui/navigation.hpp"
+#include "xui/miller_columns.hpp"
 #include "../src/images.hpp"
 #include <chrono>
 #include <iostream>
@@ -68,6 +69,110 @@ void context_selection() {
     auto replacement = std::make_shared<Rows>(); replacement->grid = &grid; replacement->generation = 2;
     grid.set_source(replacement); grid.prepare_context_menu({});
     check(!grid.selected(), "Filtered identity replacement cannot use stale context selection");
+}
+void miller_images(const std::filesystem::path& directory) {
+    struct ColumnItems final : ItemsSource {
+        std::wstring path;
+        std::size_t count{100};
+        std::size_t size() const override { return count; }
+        ItemKey key(std::size_t row) const override { return {row + 1, 1}; }
+        std::optional<std::size_t> find(ItemKey key) const override {
+            return key.version == 1 && key.id && key.id <= count ? std::optional<std::size_t>{key.id - 1} : std::nullopt;
+        }
+        ItemContent item(std::size_t) const override {
+            ItemContent result{L"File", {}, ButtonIcon::library};
+            result.image_path = path; return result;
+        }
+    };
+    Window window({L"XUI Miller row images", {980, 850}});
+    auto source = std::make_shared<ColumnItems>();
+    source->path = (directory / L"blue.png").wstring();
+    auto sidebar = std::make_shared<FileList>();
+    auto files = std::make_shared<std::vector<FileItem>>();
+    for (std::size_t i = 0; i < 100; ++i) files->push_back({i + 1, L"File", source->path, false});
+    sidebar->set_items(files); sidebar->set_thumbnails(true); sidebar->set_preferred_size({180, 850});
+    auto columns = std::make_shared<MillerColumns>();
+    columns->set_column_width(180);
+    std::vector<MillerColumn> path{{L"Root", source, {}}};
+    columns->set_columns(path);
+    auto root = std::make_shared<Stack>(Axis::horizontal);
+    root->add(sidebar); root->add(columns, 1); window.set_content(root);
+    const auto before = ImageResources::statistics();
+    auto changed_at = std::chrono::steady_clock::now();
+    int phase{}, settled{};
+    LRESULT idle_paints{};
+    tick = [&](HWND hwnd) {
+        const auto stats = ImageResources::statistics();
+        check(std::chrono::steady_clock::now() - changed_at < 8s,
+            "Every visible Miller column loads image pixels after navigation");
+        check(stats.rejected == before.rejected, "Column navigation does not reject image requests");
+        check(stats.cpu_bytes + stats.cpu_reserved <= ImageLimits::cpu_bytes &&
+            stats.gpu_bytes + stats.gpu_reserved <= ImageLimits::gpu_bytes &&
+            stats.queued <= ImageLimits::queue && stats.active <= ImageLimits::workers,
+            "Miller navigation retains bounded image resources");
+        if (phase == 5) {
+            if (std::chrono::steady_clock::now() - changed_at < 300ms) return;
+            check(!stats.active && !stats.queued && SendMessageW(hwnd, WM_APP + 60, 0, 0) == idle_paints,
+                "Completed row images have no idle requests or repaints");
+            KillTimer(hwnd, 98); window.close(); ++phase; return;
+        }
+        if (stats.active || stats.queued || ++settled < 4) return;
+        RECT bounds{}; GetWindowRect(hwnd, &bounds);
+        POINT client{}; ClientToScreen(hwnd, &client);
+        const auto dc = GetDC(hwnd), memory = CreateCompatibleDC(dc);
+        const auto bitmap = CreateCompatibleBitmap(dc, bounds.right - bounds.left, bounds.bottom - bounds.top);
+        const auto previous = SelectObject(memory, bitmap);
+        const bool captured = PrintWindow(hwnd, memory, 2) != FALSE;
+        const auto scale = GetDpiForWindow(hwnd) / 96.0f;
+        std::size_t visible{}, ready{};
+        for (std::size_t i = 0; i < path.size(); ++i) {
+            const auto list = columns->column_list(i);
+            const auto b = list->bounds();
+            const auto viewport = columns->bounds();
+            if (b.x + 22 < viewport.x || b.x + 22 >= viewport.x + viewport.width) continue;
+            for (const auto& row : list->visible_content()) {
+                const auto y = row.bounds.y + row.bounds.height / 2;
+                if (y < 0 || y >= b.height) continue;
+                ++visible;
+                const auto color = GetPixel(memory, client.x - bounds.left + int((b.x + 22) * scale),
+                    client.y - bounds.top + int((b.y + y) * scale));
+                ready += color == RGB(0x20, 0x40, 0xc0);
+            }
+        }
+        SelectObject(memory, previous); DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(hwnd, dc);
+        check(captured && visible, "Capture owned visible column images");
+        if (ready != visible) return;
+        if (phase == 0 && path.size() < 8) {
+            if (path.size() == 1) check(window.focus(*columns->column_list(0)), "Keep ancestor focus during appended reveal");
+            path.push_back({L"Child", source, {}});
+            columns->set_columns(path);
+        } else if (phase == 0) {
+            columns->set_horizontal_offset(0); ++phase;
+        } else if (phase == 1) {
+            auto empty = std::make_shared<ColumnItems>(); empty->count = 0;
+            path[1].source = empty; columns->set_columns(path); ++phase;
+        } else if (phase == 2) {
+            path[1].source = source; columns->set_columns(path);
+            columns->set_horizontal_offset(columns->maximum_horizontal()); ++phase;
+        } else if (phase == 3) {
+            for (std::size_t i = 0; i < path.size(); ++i)
+                columns->column_list(i)->set_offset(columns->column_list(i)->maximum_offset());
+            ++phase;
+        } else {
+            idle_paints = SendMessageW(hwnd, WM_APP + 60, 0, 0); ++phase;
+        }
+        changed_at = std::chrono::steady_clock::now(); settled = 0;
+    };
+    window.post([&] {
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI Miller row images");
+        check(hwnd && SetTimer(hwnd, 98, 25, timer), "Start Miller image navigation checks");
+    });
+    check(Application::run(window) == 0, "Miller image window succeeds");
+    tick = {};
+    if (failure) std::rethrow_exception(failure);
+    check(phase == 6, "All row images survive deep navigation, horizontal and vertical scrolling, ancestor filtering, and idle");
+    ImageResources::clear_unused();
+    check(!ImageResources::statistics().gpu_bytes, "Closing columns releases image bitmaps");
 }
 void workload(const std::filesystem::path& directory) {
     Window window({L"XUI visible row visuals", {900, 650}});
@@ -176,7 +281,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::png(directory / L"blue.png", 24, 24, 0xff2040c0);
         image_fixture::png(directory / L"red.png", 24, 24, 0xffc04020);
-        context_selection(); workload(directory);
+        context_selection(); miller_images(directory); workload(directory);
         CoUninitialize();
         std::cout << "Visible row visuals, identity replacement, budgets, context selection passed\n";
         return 0;

@@ -899,7 +899,7 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
     if (it == bitmaps_.end()) {
         const auto bytes = pixels->accounted;
         // Allocate the cache slot before reserving GPU bytes. No allocation can leak a reservation.
-        if (bitmaps_.size() >= ImageLimits::cache_entries) return false;
+        if (bitmaps_.size() >= ImageLimits::cache_entries) erase_bitmap(0);
         bitmaps_.reserve(bitmaps_.size() + 1);
         if (!reserve_bitmap(bytes)) return false;
         const auto start = std::chrono::steady_clock::now();
@@ -912,6 +912,9 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
         if (FAILED(result)) return false;
         bitmaps_.push_back({pixels->id, bytes, std::move(bitmap)});
+        it = std::prev(bitmaps_.end());
+    } else if (std::next(it) != bitmaps_.end()) {
+        std::rotate(it, std::next(it), bitmaps_.end());
         it = std::prev(bitmaps_.end());
     }
     const float scale = std::min(bounds.width / pixels->size.width, bounds.height / pixels->size.height);

@@ -95,6 +95,8 @@ These limits are not a process-memory ceiling.
 
 Visible controls pin their decoded resources. Cache eviction cannot release those resources.
 `clear_unused` removes unpinned decoded entries. The renderer removes bitmaps that no visible peer retains.
+At the bitmap cache entry limit, the renderer evicts the least-recently drawn bitmap instead of omitting the next image.
+An evicted bitmap can upload again from retained pixels without another file decode.
 Window closure clears the decoded cache and releases its target-owned bitmaps.
 Device loss releases all bitmaps for that target. The next frame recreates them from retained pixels without another file decode.
 Settled images have no timer, animation loop, or periodic repaint.
@@ -165,6 +167,21 @@ The normal callback error contract applies if the handler throws.
 The C# FileExplorer requests the committed directory of the active pane and tab.
 Its notification area reports icon errors. Pending navigation does not change the icon source.
 
+### Collection row icons
+
+Miller columns, virtual collections, grids, and tabs load image paths from their visible rows.
+The host inspects at most 512 row visuals per control.
+Within that visible set, completed images do not consume a fixed slot allowance that prevents later rows from loading.
+Visible rows retain their completed pixels, subject to the shared byte budgets.
+Pending requests and failed requests use their vector icons.
+
+Row requests enter the shared queue incrementally.
+At 48 queued requests, row admission pauses and leaves capacity for explicit images and native window icons.
+Queue capacity changes wake the affected windows, which submit their remaining visible rows.
+These waiters hold weak window references. They do not create extra decode jobs or periodic repaint timers.
+Navigation, filtering, scrolling, and closure discard obsolete deferred rows as well as pending requests.
+Actual file, decode, and pixel-budget failures remain errors. Failed rows do not retry every frame.
+
 ### File list icons
 
 `FileList` provides optional thumbnail icons through the C++ API.
@@ -205,7 +222,8 @@ If both Shell requests fail, the callback includes an HRESULT. Missing files als
 The list does not retry a failed slot every frame.
 
 The native list adapter retains only visible rows and the existing viewport buffer.
-Limits are 24 thumbnail slots per list and 48 per window. Additional rows retain vector icons.
+`FileList` limits are 24 thumbnail slots per list and 48 across the window's file lists.
+Additional `FileList` rows retain vector icons. Collection row icons use the incremental loading contract described earlier.
 There is no thumbnail control, HWND, render target, or worker for each file.
 WIC and Shell requests use separate, lazy, process-lifetime workers.
 The Shell worker initializes a COM STA and pumps messages between requests and while idle.

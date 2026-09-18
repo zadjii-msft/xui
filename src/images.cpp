@@ -129,11 +129,17 @@ class Service {
     std::mutex mutex_;
     std::condition_variable changed_;
     std::deque<std::shared_ptr<ImageRequest>> queue_;
+    std::vector<std::weak_ptr<TaskWake>> waiting_;
     HANDLE shell_changed_{};
     std::once_flag shell_started_, wic_started_;
     std::list<Entry> cache_;
     std::uint64_t epoch_{}, next_id_{};
+    void wake_waiters() {
+        for (const auto& weak : waiting_) if (auto wake = weak.lock()) wake->signal();
+        waiting_.clear();
+    }
     void prune() {
+        const auto before = queue_.size();
         for (auto it = queue_.begin(); it != queue_.end();) {
             if ((*it)->cancelled) {
                 it = queue_.erase(it);
@@ -141,6 +147,7 @@ class Service {
             }
             else ++it;
         }
+        if (queue_.size() != before) wake_waiters();
     }
     void evict(bool all_unused) {
         auto& a = accounting();
@@ -315,6 +322,7 @@ class Service {
                     if (found == queue_.end()) continue;
                     request = std::move(*found);
                     queue_.erase(found);
+                    wake_waiters();
                     if (shell && std::any_of(queue_.begin(), queue_.end(), belongs)) SetEvent(shell_changed_);
                     auto& a = accounting();
                     std::lock_guard guard(a.mutex);
@@ -363,7 +371,7 @@ class Service {
         if (SUCCEEDED(com)) CoUninitialize();
     }
 public:
-    void add(const std::shared_ptr<ImageRequest>& request) {
+    bool add(const std::shared_ptr<ImageRequest>& request, bool defer_if_full = false) {
         try {
             if (request->kind == ImageKind::shell) std::call_once(shell_started_, [this] {
                 shell_changed_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -377,19 +385,29 @@ public:
             request->error.assign(text.begin(), text.end());
             request->done = true;
             auto& a = accounting(); std::lock_guard guard(a.mutex); ++a.stats.rejected;
-            return;
+            return true;
         }
         std::lock_guard lock(mutex_);
         prune();
-        if (queue_.size() >= ImageLimits::queue) {
+        // Row loading leaves queue headroom for explicit images and native window icons.
+        const auto limit = defer_if_full ? RowImages::maximum_queued : ImageLimits::queue;
+        if (queue_.size() >= limit) {
+            if (defer_if_full) {
+                std::erase_if(waiting_, [](const auto& weak) { return weak.expired(); });
+                if (request->wake && std::none_of(waiting_.begin(), waiting_.end(),
+                    [&](const auto& weak) { return weak.lock() == request->wake; }))
+                    waiting_.push_back(request->wake);
+                return false;
+            }
             request->done = true;
             request->error = L"The image queue is full. Unload other images, then reload this image.";
             auto& a = accounting(); std::lock_guard guard(a.mutex); ++a.stats.rejected;
-            return;
+            return true;
         }
         queue_.push_back(request);
         if (request->kind == ImageKind::shell) SetEvent(shell_changed_);
         changed_.notify_all();
+        return true;
     }
     void clear(bool all) {
         std::lock_guard lock(mutex_);
@@ -494,7 +512,7 @@ static void validate_row_visuals(const std::vector<RowVisual>& rows) {
     }
 }
 bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
-    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
+    const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained,
     bool retain_on_source_change) {
     if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
     validate_row_visuals(rows);
@@ -503,10 +521,10 @@ bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<
         changed = !slots_.empty(); clear();
     }
     source_ = source;
-    return sync_visuals(std::move(rows), dpi, wake, retained, remaining) || changed;
+    return sync_visuals(std::move(rows), dpi, wake, retained) || changed;
 }
 bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
-    std::vector<std::uint64_t>& retained, std::size_t& remaining, float image_dips) {
+    std::vector<std::uint64_t>& retained, float image_dips) {
     if (rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
     validate_row_visuals(rows);
     if (!std::isfinite(image_dips) || image_dips <= 0 || image_dips > ImageLimits::output_dimension)
@@ -518,9 +536,7 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
     }
     rows_ = std::move(rows);
     std::vector<const RowVisual*> wanted;
-    const auto limit = std::min(maximum_images, remaining);
     for (const auto& row : rows_) {
-        if (wanted.size() == limit) break;
         if (!row.visual.image_path.empty()) wanted.push_back(&row);
     }
     const auto kind = [](const RowVisual& row) {
@@ -539,15 +555,17 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         if (found == slots_.end()) {
             auto slot = std::make_unique<Slot>();
             slot->key = row->key; slot->path = row->visual.image_path; slot->kind = kind(*row);
-            slot->request = request_image(slot->path, {pixels, pixels}, wake, slot->kind);
             slots_.push_back(std::move(slot)); found = std::prev(slots_.end());
         }
         auto& slot = **found;
+        if (!slot.request && !slot.pixels && !slot.failed)
+            slot.request = try_request_image(slot.path, {pixels, pixels}, wake, slot.kind);
         if (const auto request = slot.request) {
             std::lock_guard lock(request->mutex);
             if (request->done && !request->cancelled) {
                 slot.pixels = request->pixels;
                 if (!slot.pixels) {
+                    slot.failed = true;
                     const auto message = L"XUI thumbnail: " + slot.path + L": " +
                         (request->error.empty() ? L"Decoding failed." : request->error) + L"\n";
                     OutputDebugStringW(message.c_str());
@@ -557,7 +575,6 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         }
         if (slot.pixels) retained.push_back(slot.pixels->id);
     }
-    remaining -= slots_.size();
     return changed;
 }
 std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake, ImageKind kind) {
@@ -565,6 +582,11 @@ std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, s
     request->path = std::move(path); request->size = size; request->wake = std::move(wake); request->kind = kind;
     service().add(request);
     return request;
+}
+std::shared_ptr<ImageRequest> try_request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake, ImageKind kind) {
+    auto request = std::make_shared<ImageRequest>();
+    request->path = std::move(path); request->size = size; request->wake = std::move(wake); request->kind = kind;
+    return service().add(request, true) ? request : nullptr;
 }
 void ImagePeer::sync(bool shown, const std::shared_ptr<TaskWake>& wake) {
     if (revision == control.revision() && visible == shown) { deliver(); return; }

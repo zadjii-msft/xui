@@ -11,6 +11,7 @@
 
 namespace xui {
 
+RECT clipped_bounds(HWND window);
 constexpr UINT control_action_message = WM_APP + 31;
 constexpr UINT grid_action_message = WM_APP + 32;
 constexpr UINT foundation_action_message = WM_APP + 33;
