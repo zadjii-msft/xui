@@ -61,6 +61,47 @@ Accepted closures execute or release their captures. Panics become callback erro
 Each window requires its own controls. Controls cannot move between binding arenas or live native hosts.
 Legacy `Window.Run` and `Window::run` remain available for standalone windows, outside an application context.
 
+### Title-bar tab dragging
+
+C# `Window.TabDragHandler` exposes the [native tab-drag protocol](menus-and-input.md#tab-dragging-between-windows).
+`TabDragEvent` contains `Kind`, `SourceStrip`, `TabId`, `Target`, `TargetStrip`, and `Index`.
+`Target` is a managed window from the same `Application`, or null.
+`TabDragKind` values are `Reorder=0`, `TearOut=1`, `Drop=2`, `Cancel=3`, `Completed=4`, `QueryDrop=5`, `Join=6`, and `Leave=7`.
+The callback returns a Boolean acceptance value.
+The binding retains the callback and reports exceptions through the window callback error path.
+The C ABI uses sized placement and drag-event structures in `xui.h`.
+Rust has low-level declarations in `xui-sys`, without a typed `xui` drag-handler wrapper.
+
+`Join` accepts a temporary transfer to the hovered destination.
+Repeated `Join` events can change the hosted tab's position in that destination.
+`Leave` precedes retargeting or cancellation. True means that the tab is back in its initiating strip with its original identity.
+`SourceStrip` and `TabId` always identify the initiator, not the temporary host.
+`Target` and `TargetStrip` identify the joined destination.
+An external `Join` follows `TearOut`, which retains the original HWND and separates the remaining models.
+Before `Application.Show(remainder)`, the handler must call `remainder.SetShowActivated(false)`.
+The C equivalent is `xui_window_show_activated(remainder, 0)`.
+This prevents remainder creation from taking activation from the native move loop.
+During a gesture, the framework inserts nonactivated same-application windows immediately below the moving HWND in the Z-order.
+
+For a joined tab, `Drop` commits the transfer already in place.
+Handlers must not transfer that tab a second time.
+`Completed` follows the native move loop and permits cleanup of retained drag state.
+Handlers keep all participating windows and control trees alive until then, including an empty initiator.
+Ignoring or rejecting `Join` preserves release-only behavior. Outline-only dragging uses the same fallback.
+The added kinds preserve the ABI version and event layout.
+
+`Window.Placement` gets or sets a `WindowPlacement`.
+Its `X`, `Y`, `Width`, and `Height` fields use physical screen pixels.
+`Maximized` preserves the maximized state separately from the restored bounds.
+Placement can be set before `Application.Show`.
+An unshown window without explicit placement rejects the getter because its screen location is unknown.
+
+Each window keeps its controls, subscriptions, dispatcher, and native editors.
+Application models can move between windows. Native controls cannot.
+The FileExplorer sample demonstrates this protocol without P/Invoke or window-procedure code.
+`SplitView.FirstVisible` can hide the primary pane while the secondary pane keeps its control identities and receives the full width.
+The C functions are `xui_split_set_first_visible` and `xui_split_get_first_visible` in `xui_layout.h`.
+
 ### Scoped content replacement
 
 C++ and C# support one replaceable root inside a stable `ContentHost`.
@@ -365,8 +406,8 @@ They contain no second renderer or retained row array.
 
 | Family | C# and Rust types | Usable contracts |
 | --- | --- | --- |
-| Numeric and exclusive choice | `RangeInput`, `NumericInput`, `RadioGroup`, `ComboBox`, `Progress` | Ranges, values, orientation, selection, editable combo creation, state, events |
-| Actions and disclosure | `SplitButton`, `Expander`, `Popup` | Independent actions, expanded state, arbitrary popup content, explicit owner and anchor |
+| Numeric and exclusive choice | `RangeInput`, `NumericInput`, `RadioGroup`, `ComboBox`, `Progress`, `ProgressRing` | Ranges, values, orientation, selection, editable combo creation, state, events |
+| Actions and disclosure | `ToggleSwitch`, `ToggleButton`, `SplitButton`, `Expander`, `Popup` | Checked state, toggle events, independent actions, expanded state, arbitrary popup content, explicit owner and anchor |
 | Virtual collections | `ItemsView`, `TreeView`, `ImmutableSource` | Constant-cost identity lookup, bounded row callbacks, compact select-all, lazy tree requests, owner-bound completion |
 | Layout and workspace | `Grid`, `Wrap`, `AdaptiveLayout`, `TabStrip`, `SplitView`, `PageView` | Tracks, cells, wrapping, breakpoints, retained panes, tabs, active pages |
 | Data and history | `DataGrid`, `HistoryChart` | Immutable source, logical columns, resize, reorder, filter state, sort state, check selection, samples |
@@ -377,6 +418,7 @@ They contain no second renderer or retained row array.
 | Scenes and maps | `VectorCanvas`, `MapView` | Immutable shapes, transforms, clips, stable IDs, offline markers, view state, cancelable overlay tokens |
 | Native hosts | `MediaPlayback`, `WebContent` | Explicit local media load, volume, seek, playback actions, allowed origins, HTML, JavaScript result tokens, stop and unload |
 | Window integration | `Window` | Optional custom title bar and explicit native Shell menu fallback |
+| Additional state and menus | `CheckBox`, `HyperlinkButton`, `SelectorBar`, `InfoBadge`, `MenuBar` | Tri-state input, callback-only links, choice snapshots, noninteractive badges, command snapshots |
 
 `include\xui\xui_features.h` declares the extension through `xui.h`.
 `bindings\generate_features.py` generates both FFI declarations from that header.
@@ -386,6 +428,105 @@ The handwritten C# `TreeView.Select(ItemKey)` method uses the native collection 
 It retains the source identity, version checks, and selection callback behavior.
 C and C# also support [undo-preserving plain document edits](documents.md#undo-preserving-range-replacement).
 That additive API uses a separate header and handwritten managed imports.
+
+### Toggle and progress presentations
+
+The C ABI creates the new presentations through `xui_feature_create`.
+Their kinds are `XUI_TOGGLE_SWITCH`, `XUI_TOGGLE_BUTTON`, and `XUI_PROGRESS_RING`.
+Existing control kinds and style target IDs retain their values.
+
+`XUI_F_CHECKED` reads or writes ToggleSwitch checked state through the `first` field.
+`XUI_F_BUTTON_CHECKED` supplies the same operation for ToggleButton.
+Both require a boolean value and keep property setters silent.
+Accepted toggle actions emit `XUI_CHANGE`, with the checked state in the event value.
+ToggleButton actions emit the change event, not an additional click event.
+
+C# creates these controls through `Window.ToggleSwitch`, `Window.ToggleButton`, and `Window.ProgressRing`.
+Both toggle wrappers expose `Checked` and `SetChecked`.
+ToggleSwitch reports changes through `Changed`.
+ToggleButton reports changes through `Toggled`, with `Changed` as an alias.
+It has no managed `Click` event or declarative `click` argument.
+The three managed wrappers are separate sealed Control-derived classes, not subclasses of the existing Toggle, Button, or Progress wrappers.
+
+Rust uses `Window::toggle_switch`, `Window::toggle_button`, and `Window::progress_ring`.
+Both toggle wrappers expose `checked()` and `set_checked(bool)`.
+`on_event` receives change kind `2` and the boolean value.
+ToggleSwitch also exposes `on_change`.
+ToggleButton exposes `on_toggle` and its `on_change` alias.
+Each Rust registration replaces the previous subscription. C# events support multiple handlers.
+Callbacks retain the existing ownership and error contracts.
+
+ProgressRing shares `XUI_F_RANGE`, `XUI_F_VALUE`, and `XUI_F_PROGRESS_STATE` with Progress.
+C# uses `Range`, `Value`, `State`, and their `SetRange`, `SetValue`, and `SetState` methods.
+Rust uses `range`, `value`, `state`, and their `set_` methods.
+ProgressRing defaults to indeterminate state. Progress defaults to determinate state.
+The native window owns indeterminate animation, not the language wrapper.
+The [foundation contract](foundation-controls.md#progress-presentations-and-animation) defines visibility, enabled-state, timer, and reduced-animation rules.
+
+Both progress wrappers expose a capacity setter.
+C# uses `SetCapacity(used, total, unit)`, and Rust uses `set_capacity(used, total, unit)`.
+The C ABI uses `XUI_F_PROGRESS_CAPACITY`, with `a` for used, `b` for total, and `text` for the unit.
+The capacity setter selects determinate state and does not request animation.
+The `.xui` language uses a generated `ref` for this C# operation, not a capacity argument.
+
+The [basic control guide](controls/basic.md#togglebutton) and [progress guide](controls/choices.md#progressring) include examples.
+The declarative language has dedicated `ToggleSwitch`, `ToggleButton`, and `ProgressRing` nodes.
+Their style targets remain `Toggle`, `Button`, and `Progress`.
+
+### CheckBox, links, selectors, badges, and menu bars
+
+The C ABI adds `XUI_CHECK_BOX`, `XUI_HYPERLINK_BUTTON`, `XUI_SELECTOR_BAR`, `XUI_INFO_BADGE`, and `XUI_MENU_BAR` feature kinds.
+Existing feature kinds remain unchanged.
+C# factories use the public control names on Window.
+Rust factories are `check_box`, `hyperlink_button`, `selector_bar`, `info_badge`, and `menu_bar`.
+Each factory requires a name.
+
+CheckBox exposes `State` and `ThreeState`, with fluent `SetState` and `SetThreeState` methods.
+`CheckState` has `Unchecked`, `Checked`, and `Indeterminate` values.
+`Changed` receives a CheckState.
+Rust uses `state`, `three_state`, their `set_` methods, and `on_change`.
+Both wrappers expose semantic invocation.
+Toggle and ToggleSwitch retain their existing binary contracts.
+
+HyperlinkButton exposes C# `Click`, `Icon`, `SetIcon`, and `Invoke`.
+Rust uses `on_click`, `icon`, `set_icon`, and `invoke`.
+Neither wrapper supplies a URI property or automatic browser navigation.
+
+SelectorBar exposes `SetItems`, a nullable `Selected` getter, `SetSelected(ulong)`, semantic `Select`, and `Changed`.
+Rust uses `set_items`, `selected`, `set_selected`, `select`, and `on_change`.
+The Rust setter requires a `u64`, not an Option.
+The item records are Choice values. A change callback receives the selected ID.
+The item snapshot and selected ID pass together to the native control.
+
+Neither binding has a clear-selection setter.
+An empty snapshot removes the selection.
+The [selector contract](controls/choices.md#selectorbar) defines omitted selection, disabled input, and snapshot limits.
+
+InfoBadge exposes `Kind`, `Count`, `Icon`, `SetCount`, `SetIcon`, and `SetDot`.
+Only `Kind` is read-only. Count and icon setters select their corresponding presentations.
+Rust exposes `kind`, `count`, `icon`, `set_count`, `set_icon`, and `set_dot`.
+`InfoBadgeKind` has Dot, Count, and Icon values.
+The count type is an unsigned 32-bit integer.
+The badge has no input callback.
+
+MenuBar exposes `SetCommands`, `Invoke(id, pin)`, `Bind`, `Invoked`, and `Pinned`.
+Rust uses `set_commands`, `invoke`, `bind`, `on_invoke`, and `on_pin`.
+C# `Invoke` defaults `pin` to false. Rust requires the explicit boolean argument.
+The native command model rejects malformed snapshots without replacing the existing commands.
+
+Rust callback helpers replace the single subscription. C# events support multiple handlers.
+A MenuBar has at most 64 submenu roots and 4,096 command records across at most eight hierarchy levels.
+Command labels have a 1,024-UTF-16-code-unit limit. Pin labels have a 128-code-unit limit.
+The ABI accepts one shortcut hint per command, with at most 64 code units.
+
+The C ABI uses `XUI_F_CHECK_STATE`, `XUI_F_THREE_STATE`, and `XUI_F_SELECTED` for the input properties.
+Badge properties are `XUI_F_BADGE_KIND`, `XUI_F_BADGE_COUNT`, and `XUI_F_BADGE_ICON`.
+CheckBox events carry a CheckState value, not a boolean.
+SelectorBar events carry a selection ID.
+The [language contract](xui-language.md#checkbox-links-selectors-badges-and-menu-bars) defines the dedicated nodes and reactive snapshot rules.
+The [control catalog](controls/README.md) links the four-language recipes.
+The style targets are Toggle, Button, ChoiceList, InlineStatus, and CommandBar, respectively.
+The extension adds no style target IDs.
 
 ### Miller columns in C#
 
@@ -644,7 +785,8 @@ Button styles change presentation.
 Native behavior, input, and accessibility stay unchanged.
 This compatible `ButtonStyle` API supports `Button` only.
 Typography and named parts use the [generic control-style API](#generic-control-styles).
-Neither API provides control templates, item templates, animations, or arbitrary brushes.
+Neither styling API provides control templates, item templates, animated style transitions, or arbitrary brushes.
+The separate [Reveal host](animations.md) supplies opt-in edge motion and layout expansion.
 `Window.Style` selects Classic or WinUI presentation.
 `Button.Style` supplies an application-authored definition on that presentation.
 

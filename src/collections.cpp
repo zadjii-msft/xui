@@ -1,10 +1,140 @@
 #include "xui/collections.hpp"
+#include "collection_presentation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <climits>
 #include <stdexcept>
 
 namespace xui {
+namespace detail {
+std::shared_ptr<const FrozenCollectionRow> CollectionPresentationAccess::freeze(
+    const VirtualCollection& control, const CollectionRow& row) {
+    if (!control.source() || row.index >= control.source()->size() || control.source()->key(row.index) != row.key)
+        throw std::invalid_argument("Cannot freeze a stale collection row");
+    auto snapshot = row;
+    snapshot.index = (std::numeric_limits<std::size_t>::max)();
+    snapshot.hovered = false;
+    auto visual = control.source()->visual(row.index);
+    if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
+    if (visual.image_path.empty()) visual.image_path = row.content.image_path;
+    if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none) visual.icon = ButtonIcon::folder;
+    return std::make_shared<const FrozenCollectionRow>(FrozenCollectionRow{
+        std::move(snapshot), std::move(visual), control.selection().contains(row.key)});
+}
+bool CollectionBox::contains(double px, double py) const {
+    return px >= x && py >= y && px < x + width && py < y + height;
+}
+CollectionBox CollectionBox::intersect(CollectionBox b) const {
+    const auto left = std::max(x, b.x), top = std::max(y, b.y);
+    return {left, top, std::max(0.0, std::min(x + width, b.x + b.width) - left),
+        std::max(0.0, std::min(y + height, b.y + b.height) - top)};
+}
+Rect CollectionBox::in_view(Rect viewport, double offset) const {
+    return {viewport.x + static_cast<float>(x), viewport.y + static_cast<float>(y - offset),
+        static_cast<float>(width), static_cast<float>(height)};
+}
+CollectionPresentation::CollectionPresentation(std::shared_ptr<const ItemsSource> source, std::uint64_t version,
+    double width, double item_height, double extent, std::vector<CollectionBand> bands,
+    std::vector<OutgoingCollectionRow> outgoing) :
+    source_(std::move(source)), version_(version), width_(width), item_height_(item_height), extent_(extent),
+    bands_(std::move(bands)), outgoing_(std::move(outgoing)) {
+    if (!source_ || source_->size() > INT_MAX || !version || !std::isfinite(width) || width <= 0 ||
+        !std::isfinite(item_height) || item_height < 1 || !std::isfinite(extent) || extent < 0)
+        throw std::invalid_argument("Invalid collection presentation dimensions or source");
+    if (bands_.size() > maximum_bands || outgoing_.size() > maximum_outgoing)
+        throw std::length_error("Collection presentation storage limit reached");
+    const auto valid_box = [](CollectionBox b) {
+        return std::isfinite(b.x) && std::isfinite(b.y) && std::isfinite(b.width) && std::isfinite(b.height) &&
+            b.x >= 0 && b.y >= 0 && b.width >= 0 && b.height >= 0 &&
+            std::isfinite(b.x + b.width) && std::isfinite(b.y + b.height);
+    };
+    std::size_t next{};
+    double end{};
+    for (std::size_t i = 0; i < bands_.size(); ++i) {
+        const auto& b = bands_[i];
+        if (b.first != next || !b.count || b.count > source_->size() - next ||
+            !valid_box(b.row) || !valid_box(b.clip) || b.row.width <= 0 || b.row.height < 1 ||
+            b.row.x + b.row.width > width || !std::isfinite(b.stride) || b.stride < b.row.height)
+            throw std::invalid_argument("Invalid ordered collection presentation band");
+        const auto bottom = b.row.y + (b.count - 1) * b.stride + b.row.height;
+        if (!std::isfinite(bottom)) throw std::invalid_argument("Collection presentation extent overflow");
+        const auto painted = CollectionBox{b.row.x, b.row.y, b.row.width, bottom - b.row.y}.intersect(b.clip);
+        if (painted.width > 0 && painted.height > 0) {
+            if (painted.y < end || painted.y + painted.height > extent)
+                throw std::invalid_argument("Collection presentation bands overlap or exceed the extent");
+            intervals_.push_back({painted.y, painted.y + painted.height, i});
+            end = painted.y + painted.height;
+        }
+        next += b.count;
+    }
+    if (next != source_->size()) throw std::invalid_argument("Collection presentation must cover every logical row");
+    std::vector<std::pair<double, double>> exits;
+    std::set<ItemKey> keys;
+    for (const auto& row : outgoing_) {
+        if (!row.frozen || source_->find(row.frozen->row.key) || !keys.insert(row.frozen->row.key).second ||
+            !valid_box(row.bounds) || !valid_box(row.clip) || row.bounds.width <= 0 || row.bounds.height < 1 ||
+            row.bounds.x + row.bounds.width > width)
+            throw std::invalid_argument("Invalid draw-only outgoing collection row");
+        const auto painted = row.bounds.intersect(row.clip);
+        if (painted.width <= 0 || painted.height <= 0) continue;
+        if (painted.y + painted.height > extent)
+            throw std::invalid_argument("Outgoing collection row exceeds the presentation extent");
+        const auto interval = std::lower_bound(intervals_.begin(), intervals_.end(), painted.y,
+            [](const Interval& a, double top) { return a.bottom <= top; });
+        if (interval != intervals_.end() && interval->top < painted.y + painted.height)
+            throw std::invalid_argument("Outgoing collection pixels overlap live rows");
+        exits.emplace_back(painted.y, painted.y + painted.height);
+    }
+    std::sort(exits.begin(), exits.end());
+    for (std::size_t i = 1; i < exits.size(); ++i)
+        if (exits[i].first < exits[i - 1].second) throw std::invalid_argument("Outgoing collection rows overlap");
+}
+const CollectionBand& CollectionPresentation::band(std::size_t index) const {
+    if (index >= source_->size()) throw std::out_of_range("Collection presentation row index");
+    return *std::prev(std::upper_bound(bands_.begin(), bands_.end(), index,
+        [](std::size_t row, const CollectionBand& b) { return row < b.first; }));
+}
+CollectionBox CollectionPresentation::bounds(std::size_t index) const {
+    const auto& b = band(index);
+    auto result = b.row;
+    result.y += (index - b.first) * b.stride;
+    return result;
+}
+CollectionBox CollectionPresentation::clip(std::size_t index) const {
+    return bounds(index).intersect(band(index).clip);
+}
+std::vector<std::size_t> CollectionPresentation::visible(double offset, double height) const {
+    std::vector<std::size_t> rows;
+    if (!std::isfinite(offset) || !std::isfinite(height) || offset < 0 || height < 0)
+        throw std::invalid_argument("Invalid collection presentation viewport");
+    if (height == 0) return rows;
+    auto interval = std::lower_bound(intervals_.begin(), intervals_.end(), offset,
+        [](const Interval& a, double top) { return a.bottom <= top; });
+    for (; interval != intervals_.end() && interval->top < offset + height; ++interval) {
+        const auto& b = bands_[interval->band];
+        const auto top = std::max(offset, interval->top), bottom = std::min(offset + height, interval->bottom);
+        const auto first = static_cast<std::size_t>(std::clamp(std::floor((top - b.row.y) / b.stride), 0.0, double(b.count)));
+        const auto last = static_cast<std::size_t>(std::clamp(std::ceil((bottom - b.row.y) / b.stride), 0.0, double(b.count)));
+        for (auto i = first; i < last; ++i) {
+            const auto box = clip(b.first + i);
+            if (box.y + box.height > offset && box.y < offset + height && box.height > 0) rows.push_back(b.first + i);
+        }
+    }
+    return rows;
+}
+std::optional<std::size_t> CollectionPresentation::hit(double x, double y) const {
+    if (!std::isfinite(x) || !std::isfinite(y)) throw std::invalid_argument("Invalid collection presentation point");
+    const auto interval = std::lower_bound(intervals_.begin(), intervals_.end(), y,
+        [](const Interval& a, double top) { return a.bottom <= top; });
+    if (interval == intervals_.end() || y < interval->top) return {};
+    const auto& b = bands_[interval->band];
+    const auto relative = std::floor((y - b.row.y) / b.stride);
+    if (relative < 0 || relative >= double(b.count)) return {};
+    const auto index = b.first + static_cast<std::size_t>(relative);
+    return clip(index).contains(x, y) ? std::optional{index} : std::nullopt;
+}
+}
+
 double ItemsSource::row_start(std::size_t index, double row_height) const {
     return std::min(index, size()) * row_height;
 }
@@ -302,11 +432,44 @@ void VirtualCollection::changed() {
     auto callback = change_; if (callback) callback();
 }
 void VirtualCollection::set_selection(CollectionSelection value) { selection_ = std::move(value); invalidate(Invalidation::paint); }
-void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std::shared_ptr<const CollectionIndex> full) {
+void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std::shared_ptr<const CollectionIndex> full,
+    std::shared_ptr<const detail::CollectionPresentation> frame) {
     if (value && value->size() > INT_MAX) throw std::length_error("Collection supports at most INT_MAX items");
-    if (source_ == value && full_ == full) return;
+    if (frame && (frame->source() != value || (presentation_ != ItemsPresentation::list && presentation_ != ItemsPresentation::grouped) ||
+        frame->width() != content_viewport().width || frame->item_height() != item_size().height ||
+        (frame != collection_presentation_ && frame->version() <= collection_presentation_version_)))
+        throw std::invalid_argument("Stale or incompatible collection presentation");
+    if (source_ == value && full_ == full && (!frame || frame == collection_presentation_)) return;
+    if (!frame) clear_collection_presentation();
     source_ = std::move(value); full_ = std::move(full);
-    set_offset(offset_); repair_focus(); invalidate(Invalidation::paint);
+    collection_presentation_ = std::move(frame);
+    if (collection_presentation_) {
+        collection_presentation_version_ = collection_presentation_->version();
+        if (selection_.focused() && !source_->find(*selection_.focused())) selection_.set_focus({});
+    } else offset_ = std::clamp(offset_, 0.0, maximum_offset());
+    repair_focus(); invalidate(Invalidation::paint);
+}
+void VirtualCollection::set_collection_presentation(std::shared_ptr<const detail::CollectionPresentation> frame) {
+    if (!frame) clear_collection_presentation();
+    else set_source(source_, full_, std::move(frame));
+}
+void VirtualCollection::set_collection_presentation_offset(double value) {
+    if (!collection_presentation_ || !std::isfinite(value) || value < 0)
+        throw std::invalid_argument("Presentation offset requires an active frame and a finite nonnegative value");
+    if (offset_ == value) return;
+    offset_ = value;
+    invalidate(Invalidation::paint);
+}
+void VirtualCollection::clear_collection_presentation() {
+    if (!collection_presentation_) return;
+    collection_presentation_.reset();
+    offset_ = std::clamp(offset_, 0.0, maximum_offset());
+    collection_presentation_retired();
+    invalidate(Invalidation::paint);
+}
+void VirtualCollection::cancel() {
+    Control::cancel();
+    clear_collection_presentation();
 }
 void VirtualCollection::repair_focus() {
     if (!selection_.focused() && source_ && source_->size()) selection_.set_focus(source_->key(0));
@@ -347,6 +510,7 @@ void VirtualCollection::activate_item(ItemKey key, bool inline_action) {
 }
 void VirtualCollection::set_presentation(ItemsPresentation value) {
     if (presentation_ == value) return;
+    clear_collection_presentation();
     presentation_ = value; set_offset(offset_); if (selection_.focused()) reveal(*selection_.focused());
     invalidate(Invalidation::paint);
 }
@@ -354,22 +518,26 @@ void VirtualCollection::set_item_size(Size value) {
     if (!std::isfinite(value.width) || !std::isfinite(value.height) || value.width < 48 || value.height < 32)
         throw std::invalid_argument("Item size must be finite and at least 48 by 32");
     if (item_size_.width == value.width && item_size_.height == value.height) return;
+    clear_collection_presentation();
     item_size_ = value; set_offset(offset_); invalidate(Invalidation::paint);
 }
 std::size_t VirtualCollection::columns() const {
     return presentation_ == ItemsPresentation::tiles ? static_cast<std::size_t>(std::max(1.0f, std::floor(content_viewport().width / item_size().width))) : 1;
 }
 double VirtualCollection::maximum_offset() const {
+    if (collection_presentation_) return std::max(0.0, collection_presentation_->extent() - content_viewport().height);
     const auto height = item_size().height;
     return std::max(0.0, (source_ ? columns() == 1 ? source_->row_start(source_->size(), height) :
         std::ceil(double(source_->size()) / columns()) * height : 0) - content_viewport().height);
 }
 void VirtualCollection::set_offset(double value) {
+    clear_collection_presentation();
     value = std::clamp(std::isfinite(value) ? value : 0, 0.0, maximum_offset());
     if (value == offset_) return;
     offset_ = value; invalidate(Invalidation::paint);
 }
 Rect VirtualCollection::item_bounds(std::size_t index) const {
+    if (collection_presentation_) return collection_presentation_->bounds(index).in_view(content_viewport(), offset());
     const auto cols = columns();
     const auto viewport = content_viewport();
     const auto height = item_size().height;
@@ -409,6 +577,7 @@ Rect VirtualCollection::disclosure_bounds(const CollectionRow &row, bool hovered
 bool VirtualCollection::disclosure_hit(std::size_t index, Point point) const {
     if (!source_ || index >= source_->size())
         return false;
+    if (collection_presentation_ && hit_test(point) != index) return false;
     const auto info = source_->hierarchy(index);
     if (!info.expandable)
         return false;
@@ -429,6 +598,10 @@ bool VirtualCollection::disclosure_hit(std::size_t index, Point point) const {
 VisibleRange VirtualCollection::visible_items() const {
     const auto viewport = content_viewport();
     if (!source_ || viewport.height <= 0 || viewport.width <= 0) return {};
+    if (collection_presentation_) {
+        const auto rows = collection_presentation_->visible(offset(), viewport.height);
+        return rows.empty() ? VisibleRange{} : VisibleRange{rows.front(), rows.back() + 1};
+    }
     const auto height = item_size().height;
     const auto scroll = std::min(offset_, maximum_offset());
     if (columns() == 1) return {source_->row_at(scroll, height),
@@ -441,6 +614,7 @@ std::optional<std::size_t> VirtualCollection::hit_test(Point point) const {
     const auto viewport = content_viewport();
     point.x -= viewport.x; point.y -= viewport.y;
     if (!source_ || point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height) return {};
+    if (collection_presentation_) return collection_presentation_->hit(point.x, point.y + offset());
     const auto cols = columns();
     const auto height = item_size().height;
     const auto scroll = std::min(offset_, maximum_offset());
@@ -454,6 +628,11 @@ std::optional<std::size_t> VirtualCollection::hit_test(Point point) const {
 }
 std::vector<CollectionRow> VirtualCollection::visible_content() const {
     std::vector<CollectionRow> rows;
+    if (collection_presentation_) {
+        for (const auto i : collection_presentation_->visible(offset(), content_viewport().height))
+            rows.push_back({source_->key(i), source_->item(i), item_bounds(i), i});
+        return rows;
+    }
     const auto visible = visible_items(); rows.reserve(visible.end - visible.begin);
     for (auto i = visible.begin; i < visible.end; ++i) rows.push_back({source_->key(i), source_->item(i), item_bounds(i), i});
     return rows;
@@ -461,6 +640,7 @@ std::vector<CollectionRow> VirtualCollection::visible_content() const {
 void VirtualCollection::reveal(ItemKey key) {
     const auto row = source_ ? source_->find(key) : std::nullopt;
     if (!row) return;
+    clear_collection_presentation();
     const auto b = item_bounds(*row);
     const auto viewport = content_viewport();
     if (b.y < viewport.y) set_offset(offset() + b.y - viewport.y);
@@ -477,7 +657,13 @@ Rect VirtualCollection::thumb() const {
         viewport.y + float(offset() / maximum_offset()) * (height - length), width / 2, length};
 }
 void VirtualCollection::arrange(Rect value) {
-    const auto before = columns(); Control::arrange(value); set_offset(offset_);
+    const auto before = columns();
+    if (collection_presentation_ && (value.width != bounds().width || value.height != bounds().height))
+        clear_collection_presentation();
+    Control::arrange(value);
+    if (collection_presentation_ && (collection_presentation_->width() != content_viewport().width ||
+        collection_presentation_->item_height() != item_size().height)) clear_collection_presentation();
+    if (!collection_presentation_) set_offset(offset_);
     if (columns() != before && selection_.focused()) reveal(*selection_.focused());
 }
 bool VirtualCollection::disclose(ItemKey, bool) { return false; }
@@ -652,7 +838,7 @@ void TreeView::horizontal(bool right, SelectionGesture gesture) {
     }
 }
 void TreeView::cancel() {
-    Control::cancel();
+    VirtualCollection::cancel();
     bool changed{};
     for (auto& [key, branch] : branches_) if (branch.pending) {
         branch.stop.request_stop(); branch.pending = false; branch.open = false; ++branch.generation; changed = true;

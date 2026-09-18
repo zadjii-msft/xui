@@ -249,19 +249,20 @@ grid.set_source(source)?;
 grid.set_column_order(&[1, 0])?;)"},
     Reference{L"tabs",
         L"Use TabStrip for document identities. Handle close requests in application code before replacing the tab list.",
-        L"Select Preview. Add a document, close it, and toggle Custom tab colors.",
-        L"Selection uses stable IDs, not array positions. The gallery limits its sample to 12 tabs. TabStrip does not create document content. For .xui, create tabs in C# and pass it to Documents.",
+        L"Choose Slow. Reverse document order, then add and close a document. Fill overflow and alternate First document and Last document. Compare Immediate mode.",
+        L"Selection uses stable IDs, not array positions. Overflow selection moves the viewport. Overflow insertion, removal, and reorder remain immediate. The sample has 12 tabs at most. For .xui, pass a C# TabStrip to Documents.",
         L"docs/specs/controls/layout.md",
         LR"(component Documents {
     param global::Xui.TabStrip Tabs;
     view { VStack() { Content(Tabs); } }
 })",
-        LR"(var tabs = window.TabStrip("Sample documents");
+        LR"(var tabs = window.TabStrip("Sample documents").SetDuration(180);
 tabs.SetTabs([new(1, "Notes"), new(2, "Preview")], 1);
 tabs.Event += e => {
     if (e.Kind == EventKind.Selection) System.Console.WriteLine(e.Value);
 };)",
         LR"(let tabs = window.tab_strip("Sample documents")?;
+tabs.set_duration(180)?;
 tabs.set_items(&[
     Choice { id: 1, text: "Notes".into(), enabled: true, version: 0 },
     Choice { id: 2, text: "Preview".into(), enabled: true, version: 0 },
@@ -294,8 +295,8 @@ split.set_ratio(0.5)?;
 split.set_second_visible(true)?;)"},
     Reference{L"pages",
         L"Use PageView to switch between existing content trees without reconstructing their controls.",
-        L"Enter text in the first field. Select Switch content page twice. Inspect the original field value.",
-        L"Page indices are zero-based. Only the active page participates in layout and input. The window retains inactive controls. For .xui, create pages in C# and pass it to ContentPages.",
+        L"Enter text in the first field. Choose Slow, then select Switch content page twice. Compare the directions and Immediate mode. Inspect the original field value.",
+        L"Page indices are zero-based. Only the active page participates in layout and input. The demo wraps PageView in a fixed Reveal for incoming entry. Switching retires old input immediately and retains each editor. PageView itself has no transition duration. The excerpts show plain page selection. For .xui, create pages in C# and pass it to ContentPages.",
         L"docs/specs/controls/layout.md",
         LR"(component ContentPages {
     param global::Xui.PageView Pages;
@@ -403,7 +404,7 @@ format.set_items(&[
 ], Some(11))?;)"},
     Reference{L"popup",
         L"Use Popup for anchored interactive content. Use a tooltip only for noninteractive help.",
-        L"Open the retained popup. Edit its native input. Open Nested popup, then dismiss both with Escape.",
+        L"Enable Animate popup content. Open the retained popup and edit its native input. Open Nested popup, then dismiss both with Escape.",
         L"Popup content has one owner. Dismissal restores focus to the anchor when possible. Construct the .xui component with attach: false. Host code calls view.Panel.Show(anchor) from a visible anchor action.",
         L"docs/specs/controls/choices.md",
         LR"(component PopupPanel {
@@ -508,7 +509,7 @@ range.set_orientation(Axis::Vertical)?;
 range.on_change(|value| { println!("{value}"); Ok(()) })?;)"},
     Reference{L"disclosure",
         L"Use Expander for optional detail fields. Keep important validation messages outside collapsed content.",
-        L"Expand Details. Enter a note and select Keep detail selection. Collapse and expand Details again.",
+        L"Enter a note and select Keep detail selection. Collapse and expand Details. Select Slow and reverse during motion. Compare Immediate mode.",
         L"Collapse retains values, repairs focus, and prevents input in the hidden subtree. The content must have no existing parent. For .xui, pass the C# group to DetailsGroup.",
         L"docs/specs/controls/choices.md",
         LR"(component DetailsGroup {
@@ -516,25 +517,26 @@ range.on_change(|value| { println!("{value}"); Ok(()) })?;)"},
     view { VStack() { Content(Group); } }
 })",
         LR"(var content = window.Stack().Add(window.TextInput("Detail note"));
-var group = window.Expander("Details", content).SetExpanded(false);)",
+var group = window.Expander("Details", content).SetExpanded(false).SetDuration(180);)",
         LR"(let content = window.stack(Axis::Vertical)?;
 content.add(&*window.text_input("Detail note")?, 0.)?;
 let group = window.expander("Details", &content)?;
 group.set_expanded(false)?;)"},
     Reference{L"progress",
         L"Use Progress for read-only completion or capacity. Represent unknown work with an explicit state.",
-        L"Select Advance, Indeterminate, and Pause. Compare Sample task with Storage capacity and Unknown capacity.",
-        L"Indeterminate is static and creates no idle animation timer. Bindings expose ranges, values, and states but lack the C++ capacity-label API. For .xui, pass the C# progress to TaskProgress.",
+        L"Choose Slow, then Retarget progress twice. Compare Immediate mode. Select Complete progress, Indeterminate, Pause, and Error. Clear Show indicator to stop animation.",
+        L"Determinate values update immediately while the bar interpolates. Visible, enabled indeterminate indicators animate when Windows permits client-area animation. Hidden indicators stop animation. Capacity remains static. C# and Rust expose SetCapacity/set_capacity with explicit units. For .xui, pass the C# progress to TaskProgress.",
         L"docs/specs/controls/choices.md",
         LR"(component TaskProgress {
     param global::Xui.Progress Progress;
     view { VStack() { Content(Progress); } }
 })",
-        LR"(var progress = window.Progress("Sample task").SetValue(40);
-progress.State = ProgressState.Indeterminate;)",
+        LR"(var progress = window.Progress("Sample task").SetValue(40).SetDuration(180);
+progress.SetValue(75);)",
         LR"(let progress = window.progress("Sample task")?;
 progress.set_value(40.)?;
-progress.set_state(ProgressState::Indeterminate)?;)"},
+progress.set_duration(180)?;
+progress.set_value(75.)?;)"},
     Reference{L"items",
         L"Use ItemsView for a large immutable source. Reuse stable item identities across list, tile, and grouped presentations.",
         L"Choose Tiles and drag a selection rectangle. Enable Show even IDs. Compare Select filtered with Select full source.",
@@ -717,7 +719,7 @@ caption_window.titlebar_tabs()?.set_items(&[
 // Set content and run this window while its owner remains alive.;)"},
     Reference{L"dialog",
         L"Use ContentDialog for modal form content that needs validation. Use native confirmation for a simple yes-or-no decision.",
-        L"Open the dialog. Submit an empty title. Enter a title and save. Reopen the dialog and cancel.",
+        L"Enable Animate dialog content. Open the dialog. Submit an empty title. Enter a title and save. Reopen the dialog and cancel.",
         L"An invalid title remains visible while focus stays inside the dialog. Bindings use a stored validation message, not a validation callback. For .xui, pass the C# dialog with attach: false, then call dialog.Show(anchor).",
         L"docs/specs/controls/documents.md",
         LR"(component SaveDialog {
@@ -935,15 +937,15 @@ anchor.on_event(move |event| {
 // Check Window::web_content_enabled() before offering browser actions.;)"},
     Reference{L"navigation-view",
         L"Use NavigationView for a searchable application hierarchy. Keep navigation selection separate from page activation.",
-        L"Select Filter reports. Expand Projects and Reports. Reset the filter, then collapse the pane with its menu button.",
+        L"Choose Slow and toggle Reports twice. Compare Immediate mode. Filter reports, reset the filter, then collapse the pane with its menu button.",
         L"C# uses unversioned IDs and lacks header/footer placement, pane-width setters, and a direct filter setter. Rust cannot supply NavigationView entries. The .xui host calls view.Navigation.SetItems(records) after construction. The native search field filters user input.",
         L"docs/specs/controls/navigation.md",
         LR"(component WorkspaceNavigation {
     view {
-        VStack() { NavigationView("Workspace", ref: Navigation); }
+        VStack() { NavigationView("Workspace", duration: 180, ref: Navigation); }
     }
 })",
-        LR"(var nav = window.NavigationView("Workspace").SetItems([
+        LR"(var nav = window.NavigationView("Workspace").SetDuration(180).SetItems([
     new(1, "Projects", Selectable: false),
     new(2, "Reports", Parent: 1),
     new(3, "Project notes", Parent: 1)
@@ -968,6 +970,258 @@ columns.SelectionChanged += item =>
     System.Console.WriteLine($"Column {item.Column}, item {item.Key.Id}");
 // Replace the complete path with SetColumns after resolving children.
 // The maximum path contains 32 columns.)",
-        L""}
+        L""},
+    Reference{L"animations",
+        L"Use opt-in motion to connect a state change to its visible layout. Controls remain immediate unless the application supplies a duration.",
+        L"Select Open all and type. Close and reopen. Select Slow, then Reverse during motion. Compare Resize neighbors with fixed slots. Toggle the pane.",
+        L"Windows reduced motion overrides every duration. Layout and duration changes settle active targets. Exit disables input immediately. Native editors retain their text. Large trees still pay for root layout and full-frame drawing.",
+        L"docs/specs/animations.md",
+        LR"(component AnimatedDetails {
+    param bool Open;
+    view {
+        Reveal(open: Open, duration: 180, layout: expand, direction: bottom) {
+            TextInput("Notes");
+        }
+    }
+})",
+        LR"(var editor = window.TextInput("Notes");
+var reveal = window.Reveal(editor, "Details")
+    .SetLayout(RevealLayout.Expand)
+    .SetDirection(RevealDirection.Bottom)
+    .SetDuration(180);
+// Mount reveal, then set reveal.Open from an action.)",
+        LR"(let editor = window.text_input("Notes")?;
+let reveal = window.reveal(&editor, "Details")?;
+reveal.set_layout(RevealLayout::Expand)?;
+reveal.set_direction(RevealDirection::Bottom)?;
+reveal.set_duration(180)?;
+// Mount reveal, then call set_open from an action.)"},
+    Reference{L"feedback-motion",
+        L"Use expanding feedback beside a field or inside an application page. Update the message and logical state once, not on every frame.",
+        L"Validate the empty name. Type a name and erase it. Show and hide notices. Disable Animate feedback to compare immediate layout.",
+        L"The name stays in the same native editor. Validation requires a nonempty value. Notice controls only demonstrate feedback, not file writes. Reveal controls visibility without changing InlineStatus dismissal semantics.",
+        L"docs/specs/animations.md",
+        LR"(component AnimatedValidation {
+    state string Name = "";
+    state bool Checked = false;
+    view {
+        VStack() {
+            TextInput("Name", text: Name, change: Edit);
+            Button("Validate", click: Validate);
+            Reveal(open: Checked && Name.Length == 0, duration: 180, layout: expand) {
+                Text("Enter a name.");
+            }
+        }
+    }
+    code csharp {
+        void Edit(string value) { Name = value; Checked = true; }
+        void Validate() => Checked = true;
+    }
+})",
+        LR"(var input = window.TextInput("Name");
+var message = window.InlineStatus("Enter a name.");
+var validation = window.Reveal(message, "Validation")
+    .SetLayout(RevealLayout.Expand).SetDuration(180);
+input.Changed += text => validation.Open = text.Length == 0;
+// Mount input and validation in the same vertical stack.)",
+        LR"(let input = window.text_input("Name")?;
+let message = window.inline_status("Enter a name.")?;
+let validation = window.reveal(&message, "Validation")?;
+validation.set_layout(RevealLayout::Expand)?;
+validation.set_duration(180)?;
+let target = validation.weak();
+let editor = input.downgrade();
+input.on_event(move |event| {
+    if event.kind == 2 {
+        if let (Some(target), Some(editor)) = (target.upgrade(), editor.upgrade()) {
+            target.set_open(editor.text()?.is_empty())?;
+        }
+    }
+    Ok(())
+})?;)"},
+    Reference{L"content-motion",
+        L"Use retained state content when loading, empty, and result views share one slot. Keep the query editor outside the transition.",
+        L"Choose Slow. Press Enter in the query to show results. Type in the result note, then press Enter to show loading. Compare Immediate mode.",
+        L"These controls simulate states without a background request. Outgoing content stops accepting input immediately. The result editor keeps its text and undo. Focus returns to the query only when the outgoing editor owned focus.",
+        L"docs/specs/animations.md",
+        LR"(component ResultState {
+    param global::Xui.Reveal Results;
+    view { Content(Results); }
+})",
+        LR"(var note = window.TextInput("Result note");
+var results = window.Reveal(note, "Results")
+    .SetDirection(RevealDirection.Right).SetDuration(180);
+// Mount state reveals in the same fixed Grid cell.
+// Close the previous reveal, then set results.Open = true.)",
+        LR"(let note = window.text_input("Result note")?;
+let results = window.reveal(&note, "Results")?;
+results.set_direction(RevealDirection::Right)?;
+results.set_duration(180)?;
+// Mount state reveals in the same fixed Grid cell.
+// Close the previous reveal, then call results.set_open(true).)"},
+    Reference{L"document-motion",
+        L"Use Reveal around retained native documents when an application needs pane motion. Native editing continues to own selection, caret, and undo.",
+        L"Choose Slow. Type and select text, hide the documents, then show them before exit completes. Compare Immediate mode and Edit moving rich document.",
+        L"The documents remain full size behind the clip. Closing blocks input immediately. This example does not establish video, WebView, opacity, snapshot, or IME support.",
+        L"docs/specs/animations.md",
+        LR"(component DocumentMotion {
+    param global::Xui.Reveal Documents;
+    view { Content(Documents); }
+})",
+        LR"(var notes = window.MultilineText("Notes");
+var documents = window.Reveal(notes, "Documents")
+    .SetLayout(RevealLayout.Expand)
+    .SetDirection(RevealDirection.Top).SetDuration(180);
+// Mount once, then change documents.Open from an action.)",
+        LR"(let notes = window.multiline_text("Notes")?;
+let documents = window.reveal(&notes, "Documents")?;
+documents.set_layout(RevealLayout::Expand)?;
+documents.set_direction(RevealDirection::Top)?;
+documents.set_duration(180)?;
+// Mount once, then call documents.set_open(true).)"},
+    Reference{L"toggle-switch",
+        L"Use ToggleSwitch for an immediate on/off preference. Use CheckBox for a choice that can have a mixed state.",
+        L"Change Send notifications with Space. Disable the switch and try it again. Compare the unavailable preference.",
+        L"Checked is binary. Programmatic setters are silent; user changes report a boolean. The switch shares Toggle styles and accessibility semantics.",
+        L"docs/specs/controls/basic.md",
+        LR"(component NotificationPreference {
+    state bool Enabled = true;
+    view { VStack() { ToggleSwitch("Send notifications", checked: Enabled, change: Changed); } }
+    code csharp { void Changed(bool value) => Enabled = value; }
+})",
+        LR"(var notifications = window.ToggleSwitch("Send notifications").SetChecked(true);
+notifications.Changed += value => System.Console.WriteLine(value);)",
+        LR"(let notifications = window.toggle_switch("Send notifications")?;
+notifications.set_checked(true)?;
+notifications.on_change(|value| { println!("{value}"); Ok(()) })?;)"},
+    Reference{L"toggle-button",
+        L"Use ToggleButton for a persistent on/off action with button presentation, such as a pinned preview.",
+        L"Toggle Pin preview with Space or Enter. Disable the action and confirm that its checked state does not change.",
+        L"ToggleButton reports checked-state changes, not Click. C# exposes Toggled and the Changed alias; .xui uses change. It shares Button styles.",
+        L"docs/specs/controls/basic.md",
+        LR"(component PinnedPreview {
+    state bool Pinned = false;
+    view { VStack() { ToggleButton("Pin preview", checked: Pinned, change: Changed); } }
+    code csharp { void Changed(bool value) => Pinned = value; }
+})",
+        LR"(var pin = window.ToggleButton("Pin preview").SetChecked(false);
+pin.Toggled += value => System.Console.WriteLine(value);)",
+        LR"(let pin = window.toggle_button("Pin preview")?;
+pin.set_checked(false)?;
+pin.on_toggle(|value| { println!("{value}"); Ok(()) })?;)"},
+    Reference{L"progress-ring",
+        L"Use ProgressRing for compact circular task progress. Its initial state is indeterminate and it has no visible caption.",
+        L"Select Advance, Indeterminate, Pause, and Error. Clear Show indicator to hide the ring and stop its animation.",
+        L"Use a separate Label for visible explanatory text. Determinate ranges are read-only. Animation respects visibility, enabled state, and the Windows animation preference.",
+        L"docs/specs/controls/choices.md",
+        LR"(component PreviewProgress {
+    view { VStack() { ProgressRing("Load preview", progressState: global::Xui.ProgressState.Indeterminate); } }
+})",
+        LR"(var ring = window.ProgressRing("Load preview");
+ring.SetState(ProgressState.Determinate).SetValue(40);)",
+        LR"(let ring = window.progress_ring("Load preview")?;
+ring.set_state(ProgressState::Determinate)?;
+ring.set_value(40.)?;)"},
+    Reference{L"checkbox",
+        L"Use CheckBox for unchecked, checked, or mixed values. Enable three-state input when users must choose all three states.",
+        L"Cycle Include attachments from its mixed state. Change the three-state option, disable the checkbox, and set mixed state explicitly.",
+        L"Programmatic mixed state is valid even when three-state input is disabled. Setters are silent. Space activates the checkbox; Enter does not. Existing Toggle remains binary.",
+        L"docs/specs/controls/basic.md",
+        LR"(component AttachmentChoice {
+    state global::Xui.CheckState Selection = global::Xui.CheckState.Indeterminate;
+    view { VStack() { CheckBox("Include attachments", threeState: true, checkState: Selection, change: Changed); } }
+    code csharp { void Changed(global::Xui.CheckState value) => Selection = value; }
+})",
+        LR"(var check = window.CheckBox("Include attachments")
+    .SetThreeState(true).SetState(CheckState.Indeterminate);
+check.Changed += value => System.Console.WriteLine(value);)",
+        LR"(let check = window.check_box("Include attachments")?;
+check.set_three_state(true)?;
+check.set_state(CheckState::Indeterminate)?;
+check.on_change(|value| { println!("{value:?}"); Ok(()) })?;)"},
+    Reference{L"hyperlink-button",
+        L"Use HyperlinkButton for an application action that needs link presentation and Hyperlink accessibility semantics.",
+        L"Activate Learn about this sample. Disable the help link and try it again. The example does not open a browser.",
+        L"Enter, Space, and UIA Invoke run the explicit callback. There is no URI property or automatic navigation. The application owns any external action.",
+        L"docs/specs/controls/basic.md",
+        LR"(component SampleHelp {
+    view { VStack() { HyperlinkButton("Learn more", click: ShowHelp); } }
+    code csharp { void ShowHelp() => System.Console.WriteLine("Help requested"); }
+})",
+        LR"(var help = window.HyperlinkButton("Learn more");
+help.Click += () => System.Console.WriteLine("Help requested");)",
+        LR"(let help = window.hyperlink_button("Learn more")?;
+help.on_click(|| { println!("Help requested"); Ok(()) })?;)"},
+    Reference{L"selector-bar",
+        L"Use SelectorBar for a compact, horizontal set of exclusive choices with stable IDs and one keyboard focus stop.",
+        L"Select All, Active, and Completed. Use the arrow keys and try the disabled Archived choice. Reset the filter.",
+        L"SetItems replaces items and selection atomically. SetSelected is silent; Select reports a user change. IDs must name enabled items. Omitted selection preserves an enabled selection or chooses the first enabled item.",
+        L"docs/specs/controls/choices.md",
+        LR"(component TaskFilter {
+    view {
+        VStack() {
+            SelectorBar("Task filter", items: new global::Xui.Choice[] {
+                new(1, "All"), new(2, "Active"), new(3, "Completed")
+            }, selected: 1UL, change: Changed);
+        }
+    }
+    code csharp { void Changed(ulong id) => System.Console.WriteLine(id); }
+})",
+        LR"(var filter = window.SelectorBar("Task filter").SetItems([
+    new(1, "All"), new(2, "Active"), new(3, "Completed")
+], 1);
+filter.Changed += id => System.Console.WriteLine(id);)",
+        LR"(let filter = window.selector_bar("Task filter")?;
+filter.set_items(&[
+    Choice { id: 1, label: "All".into(), enabled: true },
+    Choice { id: 2, label: "Active".into(), enabled: true },
+    Choice { id: 3, label: "Completed".into(), enabled: true },
+], Some(1))?;
+filter.on_change(|id| { println!("{id}"); Ok(()) })?;)"},
+    Reference{L"info-badge",
+        L"Use InfoBadge for a compact dot, notification count, or icon. It describes status without an interactive focus target.",
+        L"Add a notification, then choose Show dot or Show icon. Reset the count to return to the initial count presentation.",
+        L"Counts above 99 display as 99+ while the stored value and accessible name retain the exact count. The default presentation is a dot. There is no activation event.",
+        L"docs/specs/controls/basic.md",
+        LR"(component NotificationCount {
+    view { VStack() { InfoBadge("Unread notifications", count: 7U); } }
+})",
+        LR"(var badge = window.InfoBadge("Unread notifications").SetCount(7);
+// Later updates can select another presentation:
+badge.SetDot();
+badge.SetIcon(ButtonIcon.Bookmark);)",
+        LR"(let badge = window.info_badge("Unread notifications")?;
+badge.set_count(7)?;
+badge.set_dot()?;
+badge.set_icon(ButtonIcon::Bookmark)?;)"},
+    Reference{L"menu-bar",
+        L"Use MenuBar for persistent submenu headings backed by an immutable command snapshot. The window manages popup behavior.",
+        L"Press F10 or Alt+F. Open Recent samples, navigate between headings, and dismiss with Escape. Publish and Cut are disabled.",
+        L"Root commands must be submenu groups. Command labels can contain access-key markers. The framework owns heading activation, nested popups, and focus restoration. The sample actions do not write files or change the clipboard.",
+        L"docs/specs/controls/commands.md",
+        LR"(component DocumentMenu {
+    view {
+        VStack() {
+            MenuBar("Document menu", commands: new global::Xui.Command[] {
+                new(1, "&File", Kind: global::Xui.CommandKind.Submenu),
+                new(2, "Show summary", Parent: 1)
+            }, invoke: Execute);
+        }
+    }
+    code csharp { void Execute(ulong id) => System.Console.WriteLine(id); }
+})",
+        LR"(var menu = window.MenuBar("Document menu").SetCommands([
+    new(1, "&File", Kind: CommandKind.Submenu),
+    new(2, "Show summary", Parent: 1)
+]);
+menu.Invoked += id => System.Console.WriteLine(id);)",
+        LR"(let menu = window.menu_bar("Document menu")?;
+menu.set_commands(&[
+    Command { id: 1, parent: 0, label: "&File".into(), kind: CommandKind::Submenu,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+    Command { id: 2, parent: 1, label: "Show summary".into(), kind: CommandKind::Action,
+        enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+])?;
+menu.on_invoke(|id| { println!("{id}"); Ok(()) })?;)"}
 };
 }

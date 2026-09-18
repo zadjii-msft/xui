@@ -15,19 +15,28 @@
 
 namespace owned_window_capture {
 struct Pixels { int width{}, height{}; std::vector<DWORD> data; };
+struct Device {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice direct{nullptr};
+    Device() {
+        winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &context));
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgi; winrt::check_hresult(device.As(&dxgi));
+        winrt::com_ptr<IInspectable> inspectable;
+        winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put()));
+        direct = inspectable.as<winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice>();
+    }
+};
 // HWND interop selects only the owned test window. No monitor or desktop item exists.
-inline Pixels capture(HWND hwnd) {
+inline Pixels capture(HWND hwnd, const Device& capture_device) {
     DWORD process{}; GetWindowThreadProcessId(hwnd, &process);
     if (process != GetCurrentProcessId()) throw std::runtime_error("Capture requires a window owned by this test process");
     using namespace winrt::Windows::Graphics;
     using Microsoft::WRL::ComPtr;
-    ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
-    winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-        nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &context));
-    ComPtr<IDXGIDevice> dxgi; winrt::check_hresult(device.As(&dxgi));
-    winrt::com_ptr<IInspectable> inspectable;
-    winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(), inspectable.put()));
-    const auto direct = inspectable.as<winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice>();
+    const auto& device = capture_device.device;
+    const auto& context = capture_device.context;
+    const auto& direct = capture_device.direct;
     const auto interop = winrt::get_activation_factory<Capture::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     Capture::GraphicsCaptureItem item{nullptr};
     winrt::check_hresult(interop->CreateForWindow(hwnd, winrt::guid_of<Capture::GraphicsCaptureItem>(), winrt::put_abi(item)));
@@ -69,5 +78,8 @@ inline Pixels capture(HWND hwnd) {
         memcpy(pixels.data.data() + row * pixels.width, static_cast<const BYTE*>(mapped.pData) + (row + y) * mapped.RowPitch + x * 4, pixels.width * 4);
     frame.Close();
     return pixels;
+}
+inline Pixels capture(HWND hwnd) {
+    return capture(hwnd, Device{});
 }
 }

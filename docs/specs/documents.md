@@ -27,7 +27,8 @@ window.show_dialog(dialog, *anchor, notes.get());
 `ContentDialog` uses the existing client-bound `Popup` and the root Direct2D target.
 Owner controls remain disabled while the dialog is open. Tab stays within the top popup.
 Enter invokes the default action outside multiline documents. Escape cancels after native composition ends.
-Invalid content stays visible. Dismissal restores focus and revokes the old popup generation before result callbacks.
+Invalid content stays visible. Dismissal revokes the old popup generation before result callbacks.
+After callbacks, dismissal restores focus if no replacement popup supersedes it and the return target remains eligible.
 Validation callbacks can close or reopen the dialog. An obsolete validation result cannot close the new generation.
 The UIA Window pattern reports modal state and supports Close.
 Minimize, maximize, and process-idle waits are not operations of a client-bound dialog.

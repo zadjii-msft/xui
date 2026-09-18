@@ -77,6 +77,22 @@ const counter = await readFile(new URL("./fixtures/counter.xui", import.meta.url
 const nested = await readFile(new URL("./fixtures/nested.xui", import.meta.url), "utf8");
 const catalog = JSON.parse(await readFile(new URL("./fixtures/style-catalog.json", import.meta.url), "utf8"));
 
+test("Reveal is a native node with ordinary reactive arguments", () => {
+  const doc = tokenize(`component FindBar {
+    state bool FindOpen = false;
+    view {
+      Reveal("Find", open: FindOpen, duration: 180) {
+        HStack() { TextInput("Find"); }
+      }
+    }
+  }`);
+  has(doc, "Reveal", "support.class.node.xui");
+  has(doc, "open:", "variable.parameter.named.xui");
+  has(doc, "duration:", "variable.parameter.named.xui");
+  has(doc, "180", "constant.numeric");
+  closed(doc);
+});
+
 test("named style declarations retain XUI scopes and return to view and C# contexts", async () => {
   const source = await readFile(new URL("../../../bindings/dotnet/GeneratorTests/Fixtures/Styling.xui", import.meta.url), "utf8");
   const doc = tokenize(source);
@@ -382,7 +398,8 @@ test("style target aliases do not expand the application constructor vocabulary"
     const doc = tokenize(`component Targets { style Defined for ${target} {}
       view { ${target}("Lexical probe"); } }`);
     has(doc, `for ${target}`, "support.class.node.xui", "for ".length);
-    const nodes = ["VStack", "HStack", "Text", "Button", "Toggle", "TextInput", "Grid", "DataGrid",
+    const nodes = ["VStack", "HStack", "Text", "Button", "Toggle", "ToggleSwitch", "ToggleButton", "ProgressRing",
+      "CheckBox", "HyperlinkButton", "SelectorBar", "InfoBadge", "MenuBar", "TextInput", "Grid", "DataGrid",
       "NavigationView", "ItemsView", "ScrollView", "Popup", "SplitView", "Content"];
     has(doc, `${target}("`, nodes.includes(target) ? "support.class.node.xui" : "entity.name.tag.xui");
     closed(doc);

@@ -176,7 +176,10 @@ void RangeInput::cancel_drag() {
 }
 
 RadioGroup::RadioGroup(std::wstring name, bool list)
-    : Control(list ? ControlRole::choice_list : ControlRole::radio_group, std::move(name), {320, 136}) {}
+    : RadioGroup(std::move(name), list, false) {}
+RadioGroup::RadioGroup(std::wstring name, bool list, bool horizontal)
+    : Control(list ? ControlRole::choice_list : ControlRole::radio_group, std::move(name), horizontal ? Size{320, 42} : Size{320, 136}),
+      horizontal_(horizontal) {}
 void RadioGroup::set_items(std::vector<ChoiceItem> items, std::optional<std::uint64_t> selected) {
     if (items.size() > 4096) throw std::invalid_argument("Choice controls support at most 4096 items");
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -277,7 +280,7 @@ Size RadioGroup::measure(Size available) {
         reveal_selected();
     }
     auto desired = Control::measure(available);
-    if ((has_control_styling() || (visual_style() == VisualStyle::winui && role() == ControlRole::radio_group)) && !preferred_size_explicit())
+    if (!horizontal_ && (has_control_styling() || (visual_style() == VisualStyle::winui && role() == ControlRole::radio_group)) && !preferred_size_explicit())
         desired.height = static_cast<float>(items_.size()) * effective_row_pitch() + 2 * effective_vertical_padding();
     return constrain(desired, available);
 }
@@ -296,7 +299,8 @@ PartStyleValues RadioGroup::item_style_values(StylePart part, std::size_t index,
 Rect RadioGroup::item_content_bounds(std::size_t index, bool hovered, bool pressed) const {
     const auto row = item_style_values(StylePart::item, index, hovered, pressed);
     const auto b = item_bounds(index);
-    const auto padding = row.padding.value_or(Insets{role() == ControlRole::radio_group ? 4.0f : 11.0f, 2, 11, 2});
+    const auto padding = row.padding.value_or(visual_style() == VisualStyle::winui && role() == ControlRole::radio_group ?
+        Insets{} : Insets{role() == ControlRole::radio_group ? 4.0f : 11.0f, 2, 11, 2});
     const auto border = row.border_thickness.value_or(Insets{});
     const float left = std::min(b.width, padding.left + border.left);
     const float top = std::min(b.height, padding.top + border.top);
@@ -315,12 +319,22 @@ Rect RadioGroup::indicator_bounds(std::size_t index, bool hovered, bool pressed)
 Rect RadioGroup::label_bounds(std::size_t index, bool hovered, bool pressed) const {
     auto content = item_content_bounds(index, hovered, pressed);
     if (role() == ControlRole::radio_group) {
-        const float prefix = std::min(content.width, indicator_bounds(index, hovered, pressed).width + 8);
+        const float prefix = std::min(content.width, indicator_bounds(index, hovered, pressed).width +
+            (visual_style() == VisualStyle::winui ? 9 : 8));
         content.x += prefix; content.width -= prefix;
     }
     return content;
 }
 Rect RadioGroup::item_bounds(std::size_t index) const {
+    if (horizontal_) {
+        const auto slots = horizontal_slots();
+        if (index >= items_.size() || index < first_ || index - first_ >= slots) return {};
+        const auto content = content_bounds();
+        const float gap = horizontal_gap();
+        const float width = std::max(0.0f,
+            (content.width - gap * static_cast<float>(slots - 1)) / static_cast<float>(slots));
+        return {content.x + static_cast<float>(index - first_) * (width + gap), content.y, width, content.height};
+    }
     if (index < first_ || index >= items_.size()) return {};
     const auto content = content_bounds();
     const float padding = content.y;
@@ -354,6 +368,16 @@ std::optional<std::size_t> RadioGroup::hit_test(float y) const {
     const auto row = item_bounds(index);
     return y >= row.y && y < row.y + row.height ? std::optional(index) : std::nullopt;
 }
+std::optional<std::size_t> RadioGroup::hit_test(Point point) const {
+    if (!horizontal_) return hit_test(point.y);
+    if (!std::isfinite(point.x) || !std::isfinite(point.y)) return {};
+    for (std::size_t i = 0; i < items_.size(); ++i) {
+        const auto rect = item_bounds(i);
+        if (point.x >= rect.x && point.x < rect.x + rect.width &&
+            point.y >= rect.y && point.y < rect.y + rect.height) return i;
+    }
+    return {};
+}
 void RadioGroup::reveal_selected() {
     first_ = std::min(first_, items_.empty() ? 0 : items_.size() - 1);
     if (!selected_) return;
@@ -361,11 +385,20 @@ void RadioGroup::reveal_selected() {
     if (it == items_.end()) return;
     const auto index = static_cast<std::size_t>(it - items_.begin());
     const float height = content_bounds().height;
-    const auto rows = std::max<std::size_t>(1, static_cast<std::size_t>(height / effective_row_pitch()));
-    if (visual_style() == VisualStyle::winui)
+    const auto rows = horizontal_ ? horizontal_slots() : std::max<std::size_t>(1, static_cast<std::size_t>(height / effective_row_pitch()));
+    if (horizontal_ || visual_style() == VisualStyle::winui)
         first_ = std::min(first_, items_.size() > rows ? items_.size() - rows : 0);
     if (index < first_) first_ = index;
     else if (index >= first_ + rows) first_ = index - rows + 1;
+}
+float RadioGroup::horizontal_gap() const {
+    const auto* root = effective_control_style_values(StylePart::root);
+    return root && root->spacing ? *root->spacing : 4.0f;
+}
+std::size_t RadioGroup::horizontal_slots() const {
+    const auto slots = static_cast<std::size_t>(std::max(1.0f, std::floor(
+        (content_bounds().width + horizontal_gap()) / (64.0f + horizontal_gap()))));
+    return std::max<std::size_t>(1, std::min(items_.size(), slots));
 }
 void RadioGroup::arrange(Rect value) { Element::arrange(value); reveal_selected(); }
 
@@ -664,9 +697,23 @@ Expander::Expander(std::wstring header, std::shared_ptr<Element> content)
     : Control(ControlRole::expander, std::move(header), {320, 180}), children_{std::move(content)} { adopt(children_[0]); }
 void Expander::set_expanded(bool value) {
     if (expanded_ == value) return;
+    transition_.retarget(value ? 1.0f : 0.0f, duration_, Clock::now());
     expanded_ = value;
     invalidate_control_style_state();
     invalidate(Invalidation::layout);
+}
+void Expander::set_duration(unsigned milliseconds) {
+    if (milliseconds > 10000) throw std::invalid_argument("Expander duration must be between 0 and 10000 milliseconds");
+    if (duration_ == milliseconds) return;
+    duration_ = milliseconds;
+    transition_.settle();
+    invalidate(Invalidation::layout);
+}
+void Expander::advance(Clock::time_point now) {
+    if (transition_.advance(now)) invalidate(Invalidation::layout);
+}
+void Expander::settle() {
+    if (transition_.settle()) invalidate(Invalidation::layout);
 }
 void Expander::activate() {
     set_expanded(!expanded_);
@@ -674,6 +721,20 @@ void Expander::activate() {
     if (callback) callback(expanded_);
 }
 Size Expander::measure(Size available) {
+    if (!duration_ || !body_presented()) return measure_state(available, expanded_);
+    const auto full = expanded_size(available);
+    const auto closed = measure_state(available, false);
+    return constrain({full.width, closed.height + (full.height - closed.height) * progress()}, available);
+}
+Size Expander::expanded_size(Size available) {
+    // Measure independently of the shrinking body slot, including repeated grid measurement.
+    available.height = (std::numeric_limits<float>::max)();
+    const auto desired = measure_state(available, true);
+    if (!std::isfinite(desired.height) || desired.height >= (std::numeric_limits<float>::max)())
+        throw std::invalid_argument("Animated expander content requires a bounded natural height");
+    return desired;
+}
+Size Expander::measure_state(Size available, bool expanded) {
     const auto* root_style = effective_control_style_values(StylePart::root);
     const auto* header_style = effective_control_style_values(StylePart::header);
     const auto* body_style = effective_control_style_values(StylePart::content);
@@ -695,10 +756,10 @@ Size Expander::measure(Size available) {
         measured_header_height_ = std::max(visual_style() == VisualStyle::winui ? 48.0f : header_height,
             std::max(text.height, indicator) + header.top + header.bottom);
         const auto fixed = Element::measure(available);
-        if (preferred_size_explicit() && expanded_) return fixed;
+        if (preferred_size_explicit() && expanded) return fixed;
         Size desired{std::max(fixed.width - root.left - root.right, text.width + indicator + 24 + header.left + header.right),
             effective_header_height()};
-        if (expanded_) {
+        if (expanded) {
             const auto body = layout_style::insets(effective_control_style_values(StylePart::content),
                 visual_style() == VisualStyle::winui ? Insets{expander_content_inset, expander_content_padding, expander_content_inset,
                     expander_body_chrome - expander_content_padding} : Insets{});
@@ -711,7 +772,7 @@ Size Expander::measure(Size available) {
         return constrain(layout_style::outer(desired, root), available);
     }
     if (visual_style() == VisualStyle::classic) {
-        if (expanded_) return Element::measure(available);
+        if (expanded) return Element::measure(available);
         return constrain({Element::measure(available).width, header_height}, available);
     }
     if (!visible()) return {};
@@ -719,7 +780,7 @@ Size Expander::measure(Size available) {
     measured_header_height_ = std::max(48.0f, text.height);
     if (preferred_size_explicit()) return Element::measure(available);
     Size desired{text.width + expander_header_chrome, effective_header_height()};
-    if (expanded_) {
+    if (expanded) {
         const auto limit = constrain(available, available);
         const auto content = children_[0]->measure({std::max(0.0f, limit.width - 2 * expander_content_inset),
             std::max(0.0f, limit.height - effective_header_height() - expander_body_chrome)});
@@ -747,16 +808,24 @@ Rect Expander::header_bounds() const {
     return {value.x, value.y, value.width, std::min(effective_header_height(), value.height)};
 }
 Rect Expander::content_bounds() const {
+    if (!body_presented()) {
+        if (has_control_styling()) return {bounds().x, bounds().y, 0, 0};
+        return {bounds().x, bounds().y + header_bounds().height, 0, 0};
+    }
+    if (!duration_) return body_content(bounds());
+    const auto content = full_content_bounds(), clip = content_surface_bounds();
+    const float x = std::max(content.x, clip.x), y = std::max(content.y, clip.y);
+    return {x, y, std::max(0.0f, std::min(content.x + content.width, clip.x + clip.width) - x),
+        std::max(0.0f, std::min(content.y + content.height, clip.y + clip.height) - y)};
+}
+Rect Expander::body_content(Rect value) const {
     if (has_control_styling()) {
-        if (!expanded_) return {bounds().x, bounds().y, 0, 0};
-        return layout_style::inset(content_surface_bounds(), layout_style::insets(
+        return layout_style::inset(body_surface(value), layout_style::insets(
             effective_control_style_values(StylePart::content), visual_style() == VisualStyle::winui ?
                 Insets{expander_content_inset, expander_content_padding, expander_content_inset,
                     expander_body_chrome - expander_content_padding} : Insets{}));
     }
-    const auto value = bounds();
-    const float body_y = value.y + header_bounds().height;
-    if (!expanded_) return {value.x, body_y, 0, 0};
+    const float body_y = value.y + std::min(effective_header_height(), value.height);
     const float body_height = std::max(0.0f, value.height - effective_header_height());
     if (visual_style() == VisualStyle::classic) return {value.x, body_y, value.width, body_height};
     return {value.x + std::min(expander_content_inset, value.width / 2),
@@ -765,10 +834,23 @@ Rect Expander::content_bounds() const {
         std::max(0.0f, body_height - expander_body_chrome)};
 }
 Rect Expander::content_surface_bounds() const {
-    const auto value = layout_style::content(*this, bounds());
-    const auto height = header_bounds().height;
-    return {value.x, value.y + height, expanded_ ? value.width : 0,
-        expanded_ ? std::max(0.0f, value.height - height) : 0};
+    auto surface = body_surface(bounds());
+    if (!body_presented()) { surface.width = 0; surface.height = 0; }
+    else if (duration_) {
+        const auto b = bounds();
+        const auto full = body_surface({b.x, b.y, b.width, full_height_});
+        surface.height = std::min(surface.height, full.height * progress());
+    }
+    return surface;
+}
+Rect Expander::body_surface(Rect bounds) const {
+    const auto value = layout_style::content(*this, bounds);
+    const auto height = std::min(effective_header_height(), value.height);
+    return {value.x, value.y + height, value.width, std::max(0.0f, value.height - height)};
+}
+Rect Expander::full_content_bounds() const {
+    const auto b = bounds();
+    return body_content({b.x, b.y, b.width, full_height_});
 }
 Rect Expander::disclosure_bounds() const {
     const auto fluent = visual_style() == VisualStyle::winui;
@@ -793,10 +875,15 @@ Rect Expander::header_text_bounds() const {
 void Expander::presentation_changed() { arrange(bounds()); }
 void Expander::arrange(Rect value) {
     Element::arrange(value);
-    const auto content = content_bounds();
+    if (duration_ && body_presented())
+        full_height_ = std::max(bounds().height, expanded_size({bounds().width, bounds().height}).height);
+    const auto content = duration_ && body_presented() ? full_content_bounds() : content_bounds();
     children_[0]->measure({content.width, content.height}); children_[0]->arrange(content);
 }
-Progress::Progress(std::wstring name) : Control(ControlRole::progress, std::move(name), {320, 42}) {}
+Progress::Progress(std::wstring name) : Progress(std::move(name), false) {}
+Progress::Progress(std::wstring name, bool ring)
+    : Control(ControlRole::progress, std::move(name), ring ? Size{48, 48} : Size{320, 42}),
+      state_(ring ? ProgressState::indeterminate : ProgressState::determinate), ring_(ring) {}
 Rect Progress::content_bounds() const {
     return choice_style_content(*this, {0, 0, bounds().width, bounds().height});
 }
@@ -808,16 +895,54 @@ StyleStateMask Progress::control_style_state_bits() const {
 void Progress::set_range(double minimum, double maximum) {
     NumericRange value{minimum, maximum}; value.validate();
     if (range_ == value) return;
-    range_ = value; value_ = std::clamp(value_, minimum, maximum); text_.clear(); invalidate(Invalidation::paint);
+    range_ = value; value_ = std::clamp(value_, minimum, maximum);
+    transition_.settle(); presented_ = value_;
+    text_.clear(); invalidate(Invalidation::paint);
 }
 void Progress::set_value(double value) {
     bounded(value, range_);
     if (value_ == value) return;
-    value_ = value; text_.clear(); invalidate(Invalidation::paint);
+    start_ = presented_value();
+    value_ = value;
+    if (duration_ && state_ == ProgressState::determinate && start_ != value_) {
+        presented_ = start_;
+        transition_ = ScalarTransition(0);
+        transition_.retarget(1, duration_, Clock::now());
+    } else {
+        transition_.settle();
+        presented_ = value_;
+    }
+    text_.clear(); invalidate(Invalidation::paint);
+}
+void Progress::set_duration(unsigned milliseconds) {
+    if (milliseconds > 10000) throw std::invalid_argument("Progress duration must be between 0 and 10000 milliseconds");
+    if (duration_ == milliseconds) return;
+    duration_ = milliseconds;
+    settle();
+}
+double Progress::presented_value() const {
+    const auto value = animating() ? presented_ : value_;
+    return value_ < range_.maximum ? std::min(value, std::nextafter(range_.maximum, range_.minimum)) : value;
+}
+double Progress::presented_fraction() const {
+    const auto fraction = std::clamp((presented_value() - range_.minimum) / (range_.maximum - range_.minimum), 0.0, 1.0);
+    // A nearly complete double must not round to a complete float fill or 100% caption.
+    return value_ < range_.maximum ? std::min(fraction, static_cast<double>(std::nextafter(1.0f, 0.0f))) : fraction;
+}
+void Progress::advance(Clock::time_point now) {
+    if (!transition_.advance(now)) return;
+    presented_ = animating() ? std::lerp(start_, value_, static_cast<double>(transition_.value())) : value_;
+    invalidate(Invalidation::paint);
+}
+void Progress::settle() {
+    if (!transition_.settle()) return;
+    presented_ = value_;
+    invalidate(Invalidation::paint);
 }
 void Progress::set_state(ProgressState value) {
     if (value < ProgressState::determinate || value > ProgressState::unknown) throw std::invalid_argument("Invalid progress state");
     if (state_ == value) return;
+    transition_.settle(); presented_ = value_;
     state_ = value; invalidate_state();
 }
 void Progress::set_capacity(double used, double total, std::wstring unit) {
@@ -826,7 +951,9 @@ void Progress::set_capacity(double used, double total, std::wstring unit) {
     std::wostringstream stream; stream << used << L" / " << total << L" " << unit;
     const auto text = stream.str();
     if (range_.minimum == 0 && range_.maximum == total && value_ == used && text_ == text && state_ == ProgressState::determinate) return;
-    range_ = {0, total}; value_ = used; text_ = text; state_ = ProgressState::determinate; invalidate_state();
+    range_ = {0, total}; value_ = used;
+    transition_.settle(); presented_ = value_;
+    text_ = text; state_ = ProgressState::determinate; invalidate_state();
 }
 SplitButton::SplitButton(std::wstring primary_name, std::wstring secondary_name)
     : Stack(Axis::horizontal), primary_(std::make_shared<Button>(std::move(primary_name))),

@@ -4,6 +4,7 @@
 #include "xui/image.hpp"
 #include "xui/foundation.hpp"
 #include "xui/documents.hpp"
+#include "xui/menu_bar.hpp"
 #include "workspace_accessibility.hpp"
 #include "grid_accessibility.hpp"
 #include <UIAutomation.h>
@@ -280,7 +281,8 @@ public:
             }
             if (id == UIA_ControlTypePropertyId) {
                 value->vt = VT_I4;
-                value->lVal = !root_ || snapshot.role == ControlRole::scroll_view || snapshot.role == ControlRole::content_view ? UIA_PaneControlTypeId : snapshot.role == ControlRole::button ? UIA_ButtonControlTypeId :
+                value->lVal = !root_ || snapshot.role == ControlRole::scroll_view || snapshot.role == ControlRole::content_view ? UIA_PaneControlTypeId :
+                    snapshot.hyperlink ? UIA_HyperlinkControlTypeId : snapshot.role == ControlRole::button ? UIA_ButtonControlTypeId :
                     snapshot.role == ControlRole::toggle ? UIA_CheckBoxControlTypeId :
                     snapshot.role == ControlRole::image ? UIA_ImageControlTypeId : UIA_TextControlTypeId;
             } else if (id == UIA_IsEnabledPropertyId || id == UIA_HasKeyboardFocusPropertyId ||
@@ -452,7 +454,7 @@ public:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if (snapshot.role != ControlRole::toggle && !snapshot.toggle_action) return UIA_E_INVALIDOPERATION;
-            *value = snapshot.checked ? ToggleState_On : ToggleState_Off;
+            *value = snapshot.indeterminate ? ToggleState_Indeterminate : snapshot.checked ? ToggleState_On : ToggleState_Off;
             return S_OK;
         });
     }
@@ -538,17 +540,32 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     ControlSnapshot next{window, control.id(), control.role(), control.name(), control.automation_id(), enabled,
         control.focused(), control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked()};
     next.help_text = control.help_text();
+    if (const auto toggle = dynamic_cast<const Toggle*>(&control)) next.indeterminate = toggle->indeterminate();
+    next.hyperlink = dynamic_cast<const HyperlinkButton*>(&control) != nullptr;
+    next.menu_bar = dynamic_cast<const MenuBar*>(&control) != nullptr;
+    if (const auto heading = dynamic_cast<const MenuBar::Heading*>(&control)) {
+        next.menu_heading = true; next.expanded = heading->expanded(); next.menu_selected = heading->selected();
+        if (const auto mnemonic = heading->mnemonic()) next.access_key = L"Alt+" + std::wstring(1, *mnemonic);
+    }
+    if (const auto badge = dynamic_cast<const InfoBadge*>(&control)) {
+        next.visible = badge->visible() && IsWindowVisible(window);
+        if (badge->kind() == InfoBadgeKind::count) next.name += L": " + std::to_wstring(badge->count());
+        next.help_text += badge->kind() == InfoBadgeKind::dot ? L" New activity." : L" Status indicator.";
+    }
     if (const auto button = dynamic_cast<const Button*>(&control)) {
         next.toggle_action = button->behavior() == ButtonBehavior::toggle;
         next.checked = button->checked();
     }
     if (const auto choices = dynamic_cast<const RadioGroup*>(&control)) {
-        next.selected_tab = choices->selected(); next.vertical_choices = true;
+        next.selected_tab = choices->selected(); next.vertical_choices = !choices->horizontal_presentation();
+        next.selector_bar = choices->horizontal_presentation();
         for (std::size_t i = 0; i < choices->items().size(); ++i) {
             const auto& item = choices->items()[i];
             next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
             const auto b = choices->item_bounds(i);
-            next.tab_edges.push_back(b.y); next.tab_edges.push_back(b.y + b.height);
+            next.tab_edges.push_back(next.vertical_choices ? b.y : b.x);
+            next.tab_edges.push_back(next.vertical_choices ? b.y + b.height : b.x + b.width);
+            next.choice_top = b.y; next.choice_height = b.height;
             if (b.height > 0) {
                 next.choice_left = b.x;
                 next.choice_width = b.width;
@@ -636,6 +653,7 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     if (const auto collection = dynamic_cast<const VirtualCollection*>(&control)) {
         next.single_selection = !collection->multiple_selection();
         next.collection = collection->source(); next.selection = collection->selection();
+        next.collection_presentation = detail::CollectionPresentationAccess::get(*collection);
         next.collection_columns = collection->columns(); next.collection_item_height = collection->item_size().height;
         const auto viewport = collection->content_viewport();
         next.collection_offset = collection->offset(); next.collection_width = viewport.width;
@@ -671,7 +689,7 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         return;
     }
     if (control.role() == ControlRole::tab_strip || control.role() == ControlRole::split_view ||
-        control.role() >= ControlRole::popup) {
+        control.role() >= ControlRole::popup || read(state).menu_bar || read(state).menu_heading) {
         raise_workspace_changes(provider, previous, read(state));
         return;
     }
@@ -711,11 +729,12 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     if (!previous.focused && control.focused()) UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);
     name_event(provider, previous.name, control.name());
     const auto snapshot = read(state);
-    if ((control.role() == ControlRole::toggle || snapshot.toggle_action) && previous.checked != snapshot.checked) {
+    if ((control.role() == ControlRole::toggle || snapshot.toggle_action) &&
+        (previous.checked != snapshot.checked || previous.indeterminate != snapshot.indeterminate)) {
         VARIANT old_value{}, new_value{};
         old_value.vt = new_value.vt = VT_I4;
-        old_value.lVal = previous.checked ? ToggleState_On : ToggleState_Off;
-        new_value.lVal = snapshot.checked ? ToggleState_On : ToggleState_Off;
+        old_value.lVal = previous.indeterminate ? ToggleState_Indeterminate : previous.checked ? ToggleState_On : ToggleState_Off;
+        new_value.lVal = snapshot.indeterminate ? ToggleState_Indeterminate : snapshot.checked ? ToggleState_On : ToggleState_Off;
         UiaRaiseAutomationPropertyChangedEvent(provider, UIA_ToggleToggleStatePropertyId, old_value, new_value);
     }
 }

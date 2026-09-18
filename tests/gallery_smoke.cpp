@@ -202,6 +202,29 @@ void key(HWND window, UINT key) {
     require(PostMessageW(window, WM_KEYDOWN, key, 0) != 0, "Post key down");
     require(PostMessageW(window, WM_KEYUP, key, 0) != 0, "Post key up");
 }
+void choose_combo(IUIAutomation* automation, IUIAutomationElement* root, const wchar_t* id, const wchar_t* text) {
+    auto control = identified(automation, root, id);
+    auto popup = pattern<IUIAutomationExpandCollapsePattern>(control.Get(), UIA_ExpandCollapsePatternId);
+    check(popup->Expand(), "Open combo choices");
+    auto item = named(automation, root, text, UIA_ListItemControlTypeId);
+    check(pattern<IUIAutomationSelectionItemPattern>(item.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Preview combo choice");
+    key(handle(automation, item.Get()), VK_RETURN);
+    auto selection = pattern<IUIAutomationSelectionPattern>(control.Get(), UIA_SelectionPatternId);
+    require(eventually([&] {
+        ExpandCollapseState state{};
+        check(popup->get_CurrentExpandCollapseState(&state), "Read combo popup state");
+        if (state != ExpandCollapseState_Collapsed) return false;
+        ComPtr<IUIAutomationElementArray> items;
+        check(selection->GetCurrentSelection(&items), "Read committed combo selection");
+        int count{};
+        check(items->get_Length(&count), "Read committed combo selection count");
+        if (count != 1) return false;
+        ComPtr<IUIAutomationElement> selected;
+        check(items->GetElement(0, &selected), "Read committed combo item");
+        return name(selected.Get()) == text;
+    }), "Combo choice commits before the next action");
+}
 void set_value(IUIAutomationValuePattern* pattern, const wchar_t* text) {
     BSTR value = SysAllocString(text);
     require(value != nullptr, "Allocate edit text");
@@ -647,6 +670,892 @@ void miller_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
         return !horizontal;
     }), "Reset removes horizontal overflow without replacing the control");
 }
+void animation_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    require(identified(automation, root, L"gallery-page-animations") != nullptr, "Animation gallery loads directly");
+    require(named(automation, root, L"Motion", UIA_TextControlTypeId) != nullptr, "The motion lab has a discoverable page heading");
+    const auto invoke = [&](const wchar_t* id) {
+        auto control = identified(automation, root, id);
+        check(pattern<IUIAutomationInvokePattern>(control.Get(), UIA_InvokePatternId)->Invoke(), "Invoke animation action");
+    };
+    const auto choose_duration = [&](const wchar_t* text) {
+        choose_combo(automation, root, L"gallery-animation-duration", text);
+    };
+    const auto idle = [&] {
+        return eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; });
+    };
+    choose_duration(L"Immediate: 0 ms");
+    invoke(L"gallery-animation-open");
+    require(idle(), "Immediate gallery motion has no timer");
+    ComPtr<IUIAutomationElement> edit;
+    require(eventually([&] {
+        edit = named(automation, root, L"Bottom animation text", UIA_EditControlTypeId);
+        return edit != nullptr;
+    }), "Incoming native editor is reachable");
+    const auto native = handle(automation, edit.Get());
+    set_value(pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId).Get(), L"Retained animation text");
+    choose_duration(L"Slow: 1200 ms");
+    BOOL motion = TRUE;
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read system animation preference");
+    invoke(L"gallery-animation-close");
+    if (motion) {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) != 0; }),
+            "Slow gallery motion uses the active window clock");
+        invoke(L"gallery-animation-reverse");
+    } else {
+        require(idle(), "System reduced motion settles the gallery");
+        invoke(L"gallery-animation-open");
+    }
+    require(idle(), "Reversed gallery motion eventually stops its clock");
+    edit = named(automation, root, L"Bottom animation text", UIA_EditControlTypeId);
+    require(edit && handle(automation, edit.Get()) == native, "Reversal retains the native editor");
+    BSTR text{};
+    check(pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId)->get_CurrentValue(&text),
+        "Read retained gallery text");
+    const bool retained = text && std::wstring_view(text) == L"Retained animation text";
+    SysFreeString(text);
+    require(retained, "Reversal preserves typed text");
+    auto expand = identified(automation, root, L"gallery-animation-expand");
+    check(pattern<IUIAutomationTogglePattern>(expand.Get(), UIA_TogglePatternId)->Toggle(), "Use fixed animation slots");
+    invoke(L"gallery-animation-close");
+    choose_duration(L"Immediate: 0 ms");
+    require(idle(), "Duration changes settle active targets");
+    invoke(L"gallery-animation-open");
+    require(idle() && IsWindow(native), "Fixed slots retain the native editor without idle motion");
+    choose_duration(L"Slow: 1200 ms");
+    auto page = identified(automation, root, L"gallery-example-animations");
+    check(pattern<IUIAutomationScrollPattern>(page.Get(), UIA_ScrollPatternId)->SetScrollPercent(UIA_ScrollPatternNoScroll, 40),
+        "Expose the pane example");
+    invoke(L"gallery-animation-pane");
+    require(eventually([&] { return named(automation, root, L"Secondary animation text", UIA_EditControlTypeId) != nullptr; }),
+        "The pane demonstration exposes its retained editor");
+    require(idle(), "Pane entry finishes before the preset demonstration");
+    auto secondary = named(automation, root, L"Secondary animation text", UIA_EditControlTypeId);
+    RECT before{}, after{};
+    check(secondary->get_CurrentBoundingRectangle(&before), "Read pane editor before ratio motion");
+    invoke(L"gallery-animation-ratio-2");
+    std::vector<LONG> positions;
+    require(eventually([&] {
+        RECT current{};
+        check(secondary->get_CurrentBoundingRectangle(&current), "Read native editor during ratio motion");
+        positions.push_back(current.left);
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Ratio preset finishes");
+    check(secondary->get_CurrentBoundingRectangle(&after), "Read pane editor after ratio motion");
+    require(after.left > before.left, "The preset moves the actual secondary editor");
+    if (motion) require(std::any_of(positions.begin(), positions.end(), [&](LONG x) {
+        return x > before.left && x < after.left;
+    }), "The ratio demo presents intermediate native positions");
+    invoke(L"gallery-animation-ratio-0");
+    invoke(L"gallery-animation-ratio-1");
+    require(idle(), "Rapid ratio presets settle without an idle timer");
+    invoke(L"gallery-animation-pane");
+    require(idle(), "Closing the pane leaves no animation timer");
+    auto disclosure_page = identified(automation, root, L"25:1");
+    check(pattern<IUIAutomationSelectionItemPattern>(disclosure_page.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Open the animated expander demo");
+    auto expander = identified(automation, root, L"foundation-disclosure");
+    auto disclosure = pattern<IUIAutomationExpandCollapsePattern>(expander.Get(), UIA_ExpandCollapsePatternId);
+    auto detail = named(automation, root, L"Detail note", UIA_EditControlTypeId);
+    require(detail != nullptr, "Expander demo exposes its retained native input");
+    const auto detail_hwnd = handle(automation, detail.Get());
+    set_value(pattern<IUIAutomationValuePattern>(detail.Get(), UIA_ValuePatternId).Get(), L"Retained detail");
+    check(disclosure->Collapse(), "Collapse animated detail");
+    require(idle(), "Expander collapse stops its clock");
+    check(disclosure->Expand(), "Expand retained detail");
+    require(idle(), "Expander entry stops its clock");
+    detail = named(automation, root, L"Detail note", UIA_EditControlTypeId);
+    require(detail && handle(automation, detail.Get()) == detail_hwnd, "Expander replay retains the native input");
+    BSTR detail_text{};
+    check(pattern<IUIAutomationValuePattern>(detail.Get(), UIA_ValuePatternId)->get_CurrentValue(&detail_text),
+        "Read retained detail text");
+    const bool detail_retained = detail_text && std::wstring_view(detail_text) == L"Retained detail";
+    SysFreeString(detail_text);
+    require(detail_retained, "Expander replay retains edited text");
+}
+void feedback_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window, DWORD process) {
+    require(identified(automation, root, L"gallery-page-feedback-motion") != nullptr, "Feedback gallery loads directly");
+    uia_test::Subscription subscription;
+    subscription.automation = automation;
+    ComPtr<uia_test::Events> events;
+    events.Attach(new uia_test::Events(process));
+    ComPtr<IUIAutomationCacheRequest> cache;
+    check(automation->CreateCacheRequest(&cache), "Create feedback event cache");
+    check(cache->AddProperty(UIA_ProcessIdPropertyId), "Cache feedback process");
+    check(cache->AddProperty(UIA_NamePropertyId), "Cache feedback name");
+    check(automation->AddAutomationEventHandler(UIA_LiveRegionChangedEventId, root, TreeScope_Subtree,
+        cache.Get(), events.Get()), "Subscribe feedback announcements");
+    const auto invoke = [&](const wchar_t* id) {
+        auto control = identified(automation, root, id);
+        check(pattern<IUIAutomationInvokePattern>(control.Get(), UIA_InvokePatternId)->Invoke(), "Invoke feedback action");
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+            "Feedback motion stops its clock");
+    };
+    auto edit = named(automation, root, L"Validated name", UIA_EditControlTypeId);
+    require(edit != nullptr, "Feedback uses a native editor");
+    const auto native = handle(automation, edit.Get());
+    invoke(L"gallery-feedback-validate");
+    require(eventually([&] {
+        return events->count(UIA_LiveRegionChangedEventId, L"Warning: Enter a name.") == 1;
+    }), "Validation announces its logical message");
+    idle();
+    focus(edit.Get(), "Validation focuses the same native field");
+    SendMessageW(native, WM_CHAR, L'x', 0);
+    idle();
+    require(focused(edit.Get()) && handle(automation, edit.Get()) == native,
+        "Validation exit preserves the editor and focus");
+    require(SendMessageW(native, EM_GETSEL, 0, 0) == MAKELONG(1, 1) && SendMessageW(native, EM_CANUNDO, 0, 0),
+        "Validation exit preserves caret and native undo");
+    require(events->count(UIA_LiveRegionChangedEventId, L"Warning: Enter a name.") == 1,
+        "Animation frames do not repeat validation announcements");
+    invoke(L"gallery-feedback-show");
+    require(eventually([&] {
+        return events->count(UIA_LiveRegionChangedEventId, L"Success: Saved notice 1.") == 1;
+    }), "Notice entry announces one message");
+    idle();
+    require(events->count(UIA_LiveRegionChangedEventId, L"Success: Saved notice 1.") == 1,
+        "Notice frames do not repeat announcements");
+    invoke(L"gallery-feedback-hide");
+    idle();
+    focus(edit.Get(), "The name remains focusable after notice dismissal");
+    SendMessageW(native, WM_CHAR, L'\b', 0);
+    require(eventually([&] {
+        return events->count(UIA_LiveRegionChangedEventId, L"Warning: Enter a name.") == 2;
+    }), "A new validation state announces again");
+    idle();
+    require(focused(edit.Get()) && handle(automation, edit.Get()) == native,
+        "Validation entry preserves native editing");
+    auto motion = named(automation, root, L"Animate feedback", UIA_CheckBoxControlTypeId);
+    check(pattern<IUIAutomationTogglePattern>(motion.Get(), UIA_TogglePatternId)->Toggle(), "Disable feedback motion");
+    invoke(L"gallery-feedback-show");
+    require(eventually([&] {
+        return events->count(UIA_LiveRegionChangedEventId, L"Success: Saved notice 2.") == 1;
+    }), "Immediate feedback still announces its message");
+    idle();
+}
+void popup_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    auto motion = identified(automation, root, L"gallery-popup-motion");
+    check(pattern<IUIAutomationTogglePattern>(motion.Get(), UIA_TogglePatternId)->Toggle(), "Enable popup content motion");
+    auto anchor = identified(automation, root, L"foundation-popup");
+    const auto open = pattern<IUIAutomationInvokePattern>(anchor.Get(), UIA_InvokePatternId);
+    check(open->Invoke(), "Open animated popup content");
+    ComPtr<IUIAutomationElement> edit;
+    require(eventually([&] {
+        edit = named(automation, root, L"Popup native input", UIA_EditControlTypeId);
+        return edit != nullptr;
+    }), "Animated popup exposes its native editor");
+    const auto native = handle(automation, edit.Get());
+    set_value(pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId).Get(), L"Retained popup text");
+    require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+        "Popup entry stops its clock");
+    require(handle(automation, edit.Get()) == native,
+        "Popup entry preserves native editor identity");
+    auto nested = named(automation, root, L"Nested popup", UIA_ButtonControlTypeId);
+    check(pattern<IUIAutomationInvokePattern>(nested.Get(), UIA_InvokePatternId)->Invoke(), "Open animated nested popup");
+    ComPtr<IUIAutomationElement> choice;
+    require(eventually([&] {
+        choice = named(automation, root, L"Nested independent choice", UIA_CheckBoxControlTypeId);
+        return choice && SendMessageW(window, WM_APP + 60, 24, 0) == 2;
+    }), "Nested motion preserves popup stack order");
+    key(handle(automation, choice.Get()), VK_ESCAPE);
+    require(eventually([&] { return SendMessageW(window, WM_APP + 60, 24, 0) == 1; }),
+        "Nested dismissal remains immediate");
+    key(native, VK_ESCAPE);
+    require(eventually([&] {
+        return SendMessageW(window, WM_APP + 60, 24, 0) == 0 && SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Parent dismissal cancels all popup motion");
+    require(eventually([&] { return !IsWindow(native); }),
+        "Dismissal releases closed popup native peers");
+    check(open->Invoke(), "Reopen retained animated popup");
+    require(eventually([&] {
+        edit = named(automation, root, L"Popup native input", UIA_EditControlTypeId);
+        return edit && IsWindow(handle(automation, edit.Get()));
+    }), "Popup replay creates an active native editor");
+    BSTR text{};
+    check(pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId)->get_CurrentValue(&text), "Read retained popup text");
+    const bool retained = text && std::wstring_view(text) == L"Retained popup text";
+    SysFreeString(text);
+    require(retained, "Popup replay preserves native text");
+    key(handle(automation, edit.Get()), VK_ESCAPE);
+    require(eventually([&] {
+        return SendMessageW(window, WM_APP + 60, 24, 0) == 0 && SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Popup replay leaves no idle clock");
+    auto page = identified(automation, root, L"36:1");
+    check(pattern<IUIAutomationSelectionItemPattern>(page.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Select modal animation example");
+    ComPtr<IUIAutomationElement> modal_motion;
+    require(eventually([&] {
+        modal_motion = named(automation, root, L"Animate dialog content", UIA_CheckBoxControlTypeId);
+        return modal_motion != nullptr;
+    }), "Modal example exposes its opt-in animation");
+    check(pattern<IUIAutomationTogglePattern>(modal_motion.Get(), UIA_TogglePatternId)->Toggle(), "Enable modal content motion");
+    auto modal_anchor = identified(automation, root, L"gallery-dialog-open");
+    check(pattern<IUIAutomationInvokePattern>(modal_anchor.Get(), UIA_InvokePatternId)->Invoke(), "Open animated modal content");
+    require(eventually([&] {
+        edit = named(automation, root, L"Document title", UIA_EditControlTypeId);
+        return edit && !enabled(modal_anchor.Get());
+    }), "Modal entry exposes the editor and disables its owner");
+    const auto modal_native = handle(automation, edit.Get());
+    auto accept = named(automation, root, L"OK", UIA_ButtonControlTypeId);
+    check(pattern<IUIAutomationInvokePattern>(accept.Get(), UIA_InvokePatternId)->Invoke(), "Validate during modal entry");
+    require(eventually([&] { return named(automation, root, L"Error: Enter a document title.") != nullptr; }),
+        "Modal validation remains visible without dismissal");
+    set_value(pattern<IUIAutomationValuePattern>(edit.Get(), UIA_ValuePatternId).Get(), L"Animated document");
+    require(handle(automation, edit.Get()) == modal_native, "Modal entry retains its native editor");
+    check(pattern<IUIAutomationInvokePattern>(accept.Get(), UIA_InvokePatternId)->Invoke(), "Accept animated modal");
+    require(eventually([&] {
+        return named(automation, root, L"Events: dialog saved") && enabled(modal_anchor.Get()) &&
+            SendMessageW(window, WM_APP + 60, 24, 0) == 0 && SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Modal result immediately restores owner input without idle motion");
+}
+void progress_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    auto progress = identified(automation, root, L"foundation-progress");
+    auto range = pattern<IUIAutomationRangeValuePattern>(progress.Get(), UIA_RangeValuePatternId);
+    const auto native = handle(automation, progress.Get());
+    const auto invoke = [&](const wchar_t* id) {
+        auto action = identified(automation, root, id);
+        check(pattern<IUIAutomationInvokePattern>(action.Get(), UIA_InvokePatternId)->Invoke(), "Invoke progress target");
+    };
+    const auto choose = [&](const wchar_t* text) {
+        choose_combo(automation, root, L"gallery-progress-duration", text);
+    };
+    const auto value = [&] {
+        double result{};
+        check(range->get_CurrentValue(&result), "Read logical progress value");
+        return result;
+    };
+    const auto idle = [&] {
+        require(eventually([&] {
+            return SendMessageW(window, WM_APP + 60, 33, 0) == 0 &&
+                SendMessageW(window, WM_APP + 60, 37, 0) == 0;
+        }), "Progress stops both animation clocks");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+        UpdateWindow(window);
+    };
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read progress motion policy");
+    choose(L"Slow: 1200 ms");
+    invoke(L"gallery-progress-retarget");
+    require(value() == 75, "Accessibility reports the target rather than an intermediate display value");
+    if (motion) require(SendMessageW(window, WM_APP + 60, 33, 0) != 0, "Progress interpolation uses the shared clock");
+    invoke(L"gallery-progress-retarget");
+    require(value() == 25, "Retargeting updates the logical value immediately");
+    idle();
+    require(handle(automation, progress.Get()) == native, "Progress changes retain the native control identity");
+    invoke(L"gallery-progress-complete");
+    require(value() == 100, "Actual completion is immediately accessible");
+    idle();
+    invoke(L"gallery-progress-reset");
+    require(value() == 0, "Reset publishes the new logical value");
+    auto unknown = named(automation, root, L"Indeterminate", UIA_ButtonControlTypeId);
+    check(pattern<IUIAutomationInvokePattern>(unknown.Get(), UIA_InvokePatternId)->Invoke(), "Switch to indeterminate progress");
+    require(eventually([&] {
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0 &&
+            (SendMessageW(window, WM_APP + 60, 37, 0) != 0) == (motion != FALSE);
+    }), "Indeterminate animation follows the Windows motion policy");
+    auto visibility = pattern<IUIAutomationTogglePattern>(
+        named(automation, root, L"Show indicator").Get(), UIA_TogglePatternId);
+    check(visibility->Toggle(), "Hide the indeterminate indicator");
+    idle();
+    const auto paints = SendMessageW(window, WM_APP + 60, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    require(SendMessageW(window, WM_APP + 60, 0, 0) == paints, "Hidden indeterminate progress has no periodic paint");
+    check(visibility->Toggle(), "Restore the indeterminate indicator");
+    choose(L"Immediate: 0 ms");
+    invoke(L"gallery-progress-retarget");
+    SendMessageW(window, WM_APP + 12, 0, 0);
+    const auto immediate_value = value();
+    const auto immediate_timer = SendMessageW(window, WM_APP + 60, 33, 0);
+    if (immediate_value != 75 || immediate_timer)
+        std::cerr << "Immediate progress: value=" << immediate_value << " timer=" << immediate_timer << '\n';
+    require(immediate_value == 75 && immediate_timer == 0 && SendMessageW(window, WM_APP + 60, 37, 0) == 0,
+        "Immediate mode changes progress without animation");
+}
+void page_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    const auto field = [&](const wchar_t* name) { return named(automation, root, name, UIA_EditControlTypeId); };
+    const auto text = [](IUIAutomationElement* element) {
+        BSTR value{};
+        check(pattern<IUIAutomationValuePattern>(element, UIA_ValuePatternId)->get_CurrentValue(&value), "Read retained page text");
+        const std::wstring result = value ? value : L"";
+        SysFreeString(value);
+        return result;
+    };
+    auto action = identified(automation, root, L"gallery-page-switch");
+    auto entry = identified(automation, root, L"gallery-page-entry");
+    const auto switch_page = [&] {
+        check(pattern<IUIAutomationInvokePattern>(action.Get(), UIA_InvokePatternId)->Invoke(), "Switch the real PageView");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }), "Page entry releases the shared clock");
+    };
+    auto first = field(L"First page field");
+    require(first && action && entry, "Find retained page entry controls");
+    const auto first_host = handle(automation, first.Get());
+    choose_combo(automation, root, L"gallery-page-duration", L"Slow: 1200 ms");
+    set_value(pattern<IUIAutomationValuePattern>(first.Get(), UIA_ValuePatternId).Get(), L"First page text");
+    focus(first.Get(), "Focus the original page editor");
+    SendMessageW(first_host, EM_SETSEL, 15, 15);
+    SendMessageW(first_host, WM_CHAR, L'!', 1);
+    SendMessageW(first_host, EM_SETSEL, 2, 7);
+    const auto first_text = text(first.Get());
+    require(SendMessageW(first_host, EM_CANUNDO, 0, 0) != 0, "The original page owns native undo history");
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read page motion policy independently");
+    RECT slot{};
+    check(entry->get_CurrentBoundingRectangle(&slot), "Read the reserved page slot");
+    switch_page();
+    require((SendMessageW(window, WM_APP + 60, 33, 0) != 0) == (motion != FALSE),
+        "The selected page starts entry according to system policy");
+    BOOL old_focus{};
+    check(first->get_CurrentHasKeyboardFocus(&old_focus), "Read outgoing page focus");
+    require(old_focus == FALSE && !IsWindowVisible(first_host), "The old page loses native input ownership immediately");
+    auto second = field(L"Second page field");
+    require(second != nullptr, "The new logical page exposes its native editor");
+    const auto second_host = handle(automation, second.Get());
+    focus(second.Get(), "Focus the new page during entry");
+    SendMessageW(second_host, WM_CHAR, L'Q', 1);
+    require(text(second.Get()) == L"Q", "The new page accepts native typing during entry");
+    std::vector<LONG> positions;
+    require(eventually([&] {
+        RECT native{}, current_slot{};
+        require(GetWindowRect(second_host, &native) != FALSE, "Read the moving native page editor");
+        positions.push_back(native.left);
+        check(entry->get_CurrentBoundingRectangle(&current_slot), "Read fixed page slot during entry");
+        require(EqualRect(&slot, &current_slot), "Page entry does not move neighboring layout");
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Incoming page entry terminates");
+    RECT end{};
+    require(GetWindowRect(second_host, &end) != FALSE, "Read the page endpoint");
+    require(!motion || std::any_of(positions.begin(), positions.end(), [&](LONG x) { return x > end.left; }),
+        "The incoming native editor visibly travels from the right");
+    switch_page();
+    require(!IsWindowVisible(second_host), "Switching back revokes the second page input owner");
+    auto restored = field(L"First page field");
+    require(restored && handle(automation, restored.Get()) == first_host && text(restored.Get()) == first_text &&
+        SendMessageW(first_host, EM_GETSEL, 0, 0) == MAKELONG(2, 7) && SendMessageW(first_host, EM_CANUNDO, 0, 0) != 0,
+        "Page switching retains native identity, text, selection, and undo");
+    positions.clear();
+    require(eventually([&] {
+        RECT native{};
+        require(GetWindowRect(first_host, &native) != FALSE, "Read reverse-direction native entry");
+        positions.push_back(native.left);
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Returning page entry terminates");
+    require(GetWindowRect(first_host, &end) != FALSE, "Read the restored page endpoint");
+    require(!motion || std::any_of(positions.begin(), positions.end(), [&](LONG x) { return x < end.left; }),
+        "Returning to the first page visibly travels from the left");
+    switch_page(); switch_page();
+    idle();
+    require(IsWindowVisible(first_host) && !IsWindowVisible(second_host), "Rapid switching leaves only the final native page active");
+    choose_combo(automation, root, L"gallery-page-duration", L"Immediate: 0 ms");
+    switch_page();
+    require(IsWindowVisible(second_host) && !IsWindowVisible(first_host) && SendMessageW(window, WM_APP + 60, 33, 0) == 0,
+        "Immediate mode switches page ownership without animation");
+    require(handle(automation, field(L"Second page field").Get()) == second_host,
+        "Repeated activation retains the second native editor");
+}
+void navigation_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    auto workspace = identified(automation, root, L"gallery-navigation-view");
+    require(workspace != nullptr, "Find the real NavigationView demo");
+    const auto item = [&](const wchar_t* id) { return identified(automation, workspace.Get(), id); };
+    const auto bounds = [](IUIAutomationElement* element) {
+        RECT rect{};
+        check(element->get_CurrentBoundingRectangle(&rect), "Read navigation presentation bounds");
+        return rect;
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+            "Navigation group motion releases the shared clock");
+    };
+    auto reports = item(L"2:1"), weekly = item(L"3:1"), notes = item(L"5:1");
+    auto header = item(L"101:1"), footer = item(L"102:1");
+    auto search = named(automation, workspace.Get(), L"Filter workspace", UIA_EditControlTypeId);
+    require(reports && weekly && notes && header && footer && search, "Find nested, surviving, pinned, and native search content");
+    auto disclosure = pattern<IUIAutomationExpandCollapsePattern>(reports.Get(), UIA_ExpandCollapsePatternId);
+    auto search_value = pattern<IUIAutomationValuePattern>(search.Get(), UIA_ValuePatternId);
+    const auto search_host = handle(automation, search.Get());
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE,
+        "Read navigation motion policy independently");
+    choose_combo(automation, root, L"gallery-navigation-duration", L"Slow: 1200 ms");
+    check(pattern<IUIAutomationScrollItemPattern>(item(L"1:1").Get(), UIA_ScrollItemPatternId)->ScrollIntoView(),
+        "Start group geometry acceptance at the first logical row");
+    focus(weekly.Get(), "Focus the child before logical group collapse");
+    SendMessageW(window, WM_APP + 12, 0, 0);
+    const auto header_start = bounds(header.Get()), footer_start = bounds(footer.Get());
+    const auto notes_start = bounds(notes.Get());
+    const auto workspace_start = bounds(workspace.Get());
+    check(disclosure->Collapse(), "Collapse the real nested Reports group");
+    SendMessageW(window, WM_APP + 12, 0, 0);
+    require(!item(L"3:1") && !item(L"4:1"), "Outgoing rows leave logical UIA membership before exit completes");
+    BOOL ancestor_focused{};
+    check(reports->get_CurrentHasKeyboardFocus(&ancestor_focused), "Read collapsed ancestor focus");
+    require(ancestor_focused != FALSE, "Collapse repairs descendant focus to its surviving ancestor");
+    require((SendMessageW(window, WM_APP + 60, 33, 0) != 0) == (motion != FALSE),
+        "Real group collapse follows the independently read motion policy");
+    std::vector<LONG> positions;
+    require(eventually([&] {
+        positions.push_back(bounds(notes.Get()).top);
+        const auto header_now = bounds(header.Get()), footer_now = bounds(footer.Get());
+        if (!EqualRect(&header_start, &header_now) || !EqualRect(&footer_start, &footer_now))
+            std::cerr << "Navigation pinned bounds: header=" << header_start.top << ',' << header_start.bottom
+                << " -> " << header_now.top << ',' << header_now.bottom << "; footer="
+                << footer_start.top << ',' << footer_start.bottom << " -> " << footer_now.top << ',' << footer_now.bottom << '\n';
+        require(EqualRect(&header_start, &header_now) && EqualRect(&footer_start, &footer_now),
+            "Group rows move without moving pinned navigation sections");
+        require(handle(automation, search.Get()) == search_host, "Group motion retains the native search editor");
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Group collapse reaches its endpoint");
+    const auto collapsed = bounds(notes.Get());
+    require(collapsed.top < notes_start.top, "Surviving rows close the collapsed group gap");
+    require(!motion || std::any_of(positions.begin(), positions.end(), [&](LONG y) {
+        return y > collapsed.top && y < notes_start.top;
+    }), "Group collapse exposes intermediate accessible row positions");
+
+    check(disclosure->Expand(), "Expand after collapse");
+    check(disclosure->Collapse(), "Reverse active expansion");
+    check(disclosure->Expand(), "Finish reversal expanded");
+    require(item(L"3:1") != nullptr, "Expansion restores logical descendants immediately");
+    idle();
+    if (bounds(notes.Get()).top != notes_start.top)
+        std::cerr << "Navigation reversal geometry: notes=" << notes_start.top << " -> " << bounds(notes.Get()).top
+            << "; collapsed=" << collapsed.top << "; workspace=" << workspace_start.top << " -> " << bounds(workspace.Get()).top
+            << "; header=" << header_start.top << " -> " << bounds(header.Get()).top
+            << "; footer=" << footer_start.top << " -> " << bounds(footer.Get()).top << '\n';
+    require(bounds(notes.Get()).top == notes_start.top, "Rapid reversal restores final row geometry");
+    auto restored_weekly = item(L"3:1");
+    BOOL selected{};
+    check(pattern<IUIAutomationSelectionItemPattern>(restored_weekly.Get(), UIA_SelectionItemPatternId)->
+        get_CurrentIsSelected(&selected), "Read restored selection");
+    require(selected != FALSE, "Collapse and expansion preserve selected document identity");
+
+    check(disclosure->Collapse(), "Start motion before native filtering");
+    set_value(search_value.Get(), L"summary");
+    SendMessageW(window, WM_APP + 12, 0, 0);
+    require(eventually([&] { return item(L"3:1") && !item(L"5:1"); }),
+        "Native search publishes matching descendants and their ancestors");
+    require(SendMessageW(window, WM_APP + 60, 33, 0) == 0,
+        "Filtering retires incompatible group presentation instead of animating stale rows");
+    require(item(L"101:1") && item(L"102:1") && handle(automation, search.Get()) == search_host,
+        "Filtering preserves pinned rows and native search identity");
+    set_value(search_value.Get(), L"");
+    check(disclosure->Expand(), "Restore Reports after filtering");
+    idle();
+    notes = item(L"5:1");
+    require(notes != nullptr, "Reacquire the logical row removed by filtering");
+    choose_combo(automation, root, L"gallery-navigation-duration", L"Immediate: 0 ms");
+    check(pattern<IUIAutomationScrollItemPattern>(item(L"1:1").Get(), UIA_ScrollItemPatternId)->ScrollIntoView(),
+        "Restore the first-row viewport after filtering and duration choice");
+    const auto immediate_start = bounds(notes.Get());
+    check(disclosure->Collapse(), "Collapse in immediate mode");
+    SendMessageW(window, WM_APP + 12, 0, 0);
+    require(!item(L"3:1") && bounds(notes.Get()).top == immediate_start.top - (notes_start.top - collapsed.top)
+        && SendMessageW(window, WM_APP + 60, 33, 0) == 0,
+        "Immediate mode changes logical and displayed rows without a clock");
+    check(disclosure->Expand(), "Restore the navigation demo");
+    idle();
+}
+void tab_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    const auto invoke = [&](const wchar_t* id) {
+        auto action = identified(automation, root, id);
+        check(pattern<IUIAutomationInvokePattern>(action.Get(), UIA_InvokePatternId)->Invoke(), "Change gallery tabs");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+            "Tab changes stop their shared clock");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+    };
+    auto tabs = identified(automation, root, L"gallery-motion-tabs");
+    const auto host = handle(automation, tabs.Get());
+    auto notes = named(automation, tabs.Get(), L"Notes", UIA_TabItemControlTypeId);
+    auto preview = named(automation, tabs.Get(), L"Preview", UIA_TabItemControlTypeId);
+    require(notes && preview && host, "Find both stable document tabs and their native host");
+    choose_combo(automation, root, L"gallery-tabs-duration", L"Slow: 1200 ms");
+    RECT start{}, target{};
+    check(notes->get_CurrentBoundingRectangle(&start), "Read initial Notes position");
+    check(preview->get_CurrentBoundingRectangle(&target), "Read initial Preview position");
+    const auto final_left = target.right - (start.right - start.left);
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read tab motion policy");
+    invoke(L"gallery-tabs-reverse");
+    bool intermediate{};
+    RECT current{};
+    require(eventually([&] {
+        SendMessageW(window, WM_APP + 12, 0, 0);
+        check(notes->get_CurrentBoundingRectangle(&current), "Read moving Notes bounds");
+        intermediate |= current.left > start.left && current.left < final_left;
+        BOOL selected{};
+        check(pattern<IUIAutomationSelectionItemPattern>(notes.Get(), UIA_SelectionItemPatternId)->get_CurrentIsSelected(&selected),
+            "Read logical selection during reorder");
+        require(selected != FALSE, "Reordering preserves selected document identity");
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Document reorder completes");
+    require(current.left == final_left && (!motion || intermediate), "Reorder moves actual accessible tab bounds through intermediate positions");
+    BOOL same{};
+    auto retained = named(automation, tabs.Get(), L"Notes", UIA_TabItemControlTypeId);
+    check(automation->CompareElements(notes.Get(), retained.Get(), &same), "Compare reordered tab identity");
+    require(same != FALSE && handle(automation, tabs.Get()) == host, "Reorder retains the accessible item and native strip");
+    invoke(L"gallery-tabs-reverse");
+    invoke(L"gallery-tabs-reverse");
+    idle();
+    check(notes->get_CurrentBoundingRectangle(&current), "Read interrupted reorder endpoint");
+    require(current.left == final_left, "Rapid reverse returns to the last logical order");
+    invoke(L"gallery-tabs-add");
+    idle();
+    auto added = named(automation, tabs.Get(), L"Document 3", UIA_TabItemControlTypeId);
+    require(added != nullptr, "Insertion remains reachable after reorder");
+    invoke(L"gallery-tabs-close");
+    require(!named(automation, tabs.Get(), L"Document 3", UIA_TabItemControlTypeId),
+        "Close removes logical identity before survivor motion completes");
+    idle();
+    choose_combo(automation, root, L"gallery-tabs-duration", L"Immediate: 0 ms");
+    invoke(L"gallery-tabs-reverse");
+    check(notes->get_CurrentBoundingRectangle(&current), "Read immediate reorder endpoint");
+    require(current.left == start.left && SendMessageW(window, WM_APP + 60, 33, 0) == 0,
+        "Immediate mode changes order without a clock");
+    invoke(L"gallery-tabs-fill");
+    idle();
+    auto last = named(automation, tabs.Get(), L"Document 13", UIA_TabItemControlTypeId);
+    auto new_button = identified(automation, root, L"gallery-tabs-new");
+    require(last && new_button, "Overflow retains offscreen tab identities and the New button");
+    RECT button_start{};
+    check(new_button->get_CurrentBoundingRectangle(&button_start), "Read fixed overflow New button position");
+    choose_combo(automation, root, L"gallery-tabs-duration", L"Slow: 1200 ms");
+    invoke(L"gallery-tabs-last");
+    BOOL selected{};
+    check(pattern<IUIAutomationSelectionItemPattern>(last.Get(), UIA_SelectionItemPatternId)->get_CurrentIsSelected(&selected),
+        "Read selected overflow target");
+    require(selected != FALSE, "Overflow publishes logical selection before the viewport reaches it");
+    LONG first_width{};
+    bool changing_width{};
+    require(eventually([&] {
+        RECT rect{}, button_rect{};
+        check(last->get_CurrentBoundingRectangle(&rect), "Read overflow reveal bounds");
+        check(new_button->get_CurrentBoundingRectangle(&button_rect), "Read New button during overflow");
+        require(EqualRect(&button_rect, &button_start) != FALSE, "Overflow keeps the New button stationary");
+        const auto width = rect.right - rect.left;
+        if (width > 0) {
+            if (!first_width) first_width = width;
+            else changing_width |= width != first_width;
+            require(rect.right <= button_rect.left, "Overflow tab bounds cannot cover the New button");
+        }
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Overflow selected-tab reveal terminates");
+    require(!motion || changing_width, "Overflow exposes intermediate accessible geometry, not a delayed snap");
+    check(last->get_CurrentBoundingRectangle(&current), "Read revealed overflow endpoint");
+    require(current.right > current.left, "The selected final document reaches the visible viewport");
+    invoke(L"gallery-tabs-first");
+    invoke(L"gallery-tabs-last");
+    idle();
+    check(last->get_CurrentBoundingRectangle(&current), "Read reversed overflow endpoint");
+    require(current.right > current.left && handle(automation, tabs.Get()) == host,
+        "Overflow reversal reaches the final target without replacing the native strip");
+    choose_combo(automation, root, L"gallery-tabs-duration", L"Immediate: 0 ms");
+    invoke(L"gallery-tabs-first");
+    check(notes->get_CurrentBoundingRectangle(&current), "Read immediate overflow endpoint");
+    require(current.right > current.left && SendMessageW(window, WM_APP + 60, 33, 0) == 0,
+        "Zero-duration overflow reveals selection without a clock");
+}
+void document_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    auto plain = named(automation, root, L"Moving plain document");
+    auto rich = named(automation, root, L"Moving rich document");
+    auto toggle = identified(automation, root, L"gallery-documents-toggle");
+    require(plain && rich && toggle, "Find native document motion controls");
+    const auto editor = handle(automation, plain.Get()), rich_editor = handle(automation, rich.Get());
+    const auto text = [](IUIAutomationElement* element) {
+        auto document = pattern<IUIAutomationTextPattern>(element, UIA_TextPatternId);
+        ComPtr<IUIAutomationTextRange> range;
+        check(document->get_DocumentRange(&range), "Read native document range");
+        BSTR value{};
+        check(range->GetText(-1, &value), "Read native document text");
+        const std::wstring result = value ? value : L"";
+        SysFreeString(value);
+        return result;
+    };
+    const auto readonly = [](IUIAutomationElement* element) {
+        auto document = pattern<IUIAutomationTextPattern>(element, UIA_TextPatternId);
+        ComPtr<IUIAutomationTextRange> range;
+        check(document->get_DocumentRange(&range), "Read rich document range");
+        VARIANT value{};
+        check(range->GetAttributeValue(UIA_IsReadOnlyAttributeId, &value), "Read native document edit policy");
+        require(value.vt == VT_BOOL, "Document exposes a definite read-only attribute");
+        const bool result = value.boolVal != VARIANT_FALSE;
+        VariantClear(&value);
+        return result;
+    };
+    const auto change = [&] {
+        check(pattern<IUIAutomationInvokePattern>(toggle.Get(), UIA_InvokePatternId)->Invoke(), "Toggle document pane");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+            "Document motion stops its shared clock");
+    };
+    require(readonly(rich.Get()) && !readonly(plain.Get()), "Native edit policies match the initial sample");
+    choose_combo(automation, root, L"gallery-documents-duration", L"Slow: 1200 ms");
+    focus(plain.Get(), "Focus the native multiline document");
+    SendMessageW(editor, EM_SETSEL, static_cast<WPARAM>(-1), -1);
+    SendMessageW(editor, WM_CHAR, L'!', 0);
+    const auto before_text = text(plain.Get()), before_rich = text(rich.Get());
+    require(before_text.find(L'!') != std::wstring::npos && SendMessageW(editor, EM_CANUNDO, 0, 0),
+        "Native document edit establishes undo before motion");
+    DWORD before_start{}, before_end{};
+    SendMessageW(editor, EM_GETSEL, reinterpret_cast<WPARAM>(&before_start), reinterpret_cast<LPARAM>(&before_end));
+    RECT before{};
+    require(GetWindowRect(editor, &before) != FALSE, "Read native document bounds");
+    change();
+    require(!IsWindowEnabled(editor) && !IsWindowEnabled(rich_editor), "Closing excludes both native documents immediately");
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read document motion policy");
+    if (motion) require(eventually([&] {
+        RECT current{};
+        require(GetWindowRect(editor, &current) != FALSE, "Read moving document bounds");
+        return current.top < before.top && SendMessageW(window, WM_APP + 60, 33, 0) != 0;
+    }), "Top expansion moves the real native document before exit completes");
+    change();
+    idle();
+    require(handle(automation, plain.Get()) == editor && handle(automation, rich.Get()) == rich_editor &&
+        IsWindowEnabled(editor) && IsWindowEnabled(rich_editor), "Reversal retains and re-enables both native documents");
+    DWORD after_start{}, after_end{};
+    SendMessageW(editor, EM_GETSEL, reinterpret_cast<WPARAM>(&after_start), reinterpret_cast<LPARAM>(&after_end));
+    require(text(plain.Get()) == before_text && text(rich.Get()) == before_rich &&
+        before_start == after_start && before_end == after_end && SendMessageW(editor, EM_CANUNDO, 0, 0),
+        "Document motion retains native text, selection, and undo");
+    require(readonly(rich.Get()), "Reversal does not alter the rich document edit policy");
+    auto editable = identified(automation, root, L"gallery-documents-editable");
+    check(pattern<IUIAutomationTogglePattern>(editable.Get(), UIA_TogglePatternId)->Toggle(), "Enable rich document editing");
+    require(!readonly(rich.Get()), "The native rich document accepts the explicit edit-policy change");
+    choose_combo(automation, root, L"gallery-documents-duration", L"Immediate: 0 ms");
+    change();
+    require(SendMessageW(window, WM_APP + 60, 33, 0) == 0 && !IsWindowEnabled(editor),
+        "Immediate document closure starts no animation clock");
+    change();
+    require(SendMessageW(window, WM_APP + 60, 33, 0) == 0 && IsWindowEnabled(editor),
+        "Immediate document reopening retains the native editor without motion");
+}
+void content_motion_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    const auto invoke = [&](const wchar_t* id) {
+        auto action = identified(automation, root, id);
+        check(pattern<IUIAutomationInvokePattern>(action.Get(), UIA_InvokePatternId)->Invoke(), "Change content state");
+    };
+    const auto choose = [&](const wchar_t* text) {
+        choose_combo(automation, root, L"gallery-content-duration", text);
+    };
+    const auto idle = [&] {
+        require(eventually([&] { return SendMessageW(window, WM_APP + 60, 33, 0) == 0; }),
+            "Content transitions stop their shared clock");
+        SendMessageW(window, WM_APP + 12, 0, 0);
+    };
+    auto query = identified(automation, root, L"gallery-content-query");
+    choose(L"Slow: 1200 ms");
+    focus(query.Get(), "Focus query outside the state slot");
+    key(handle(automation, query.Get()), VK_RETURN);
+    ComPtr<IUIAutomationElement> note;
+    require(eventually([&] {
+        note = identified(automation, root, L"gallery-content-note");
+        return note && enabled(note.Get());
+    }), "Results expose the retained native editor");
+    require(focused(query.Get()), "New result content does not steal native query focus");
+    focus(note.Get(), "Focus incoming result note");
+    const auto editor = handle(automation, note.Get());
+    set_value(pattern<IUIAutomationValuePattern>(note.Get(), UIA_ValuePatternId).Get(), L"Retained");
+    SendMessageW(editor, EM_SETSEL, 8, 8);
+    SendMessageW(editor, WM_CHAR, L'!', 0);
+    require(SendMessageW(editor, EM_CANUNDO, 0, 0) != 0, "Result note has native undo before switching states");
+    std::vector<LONG> positions;
+    require(eventually([&] {
+        SendMessageW(window, WM_APP + 12, 0, 0);
+        RECT current{};
+        require(GetWindowRect(editor, &current) != FALSE, "Read the moving native result editor");
+        positions.push_back(current.left);
+        return SendMessageW(window, WM_APP + 60, 33, 0) == 0;
+    }), "Result entry completes");
+    BOOL motion{};
+    require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0) != FALSE, "Read content motion policy");
+    if (motion) require(positions.size() > 1 && positions.front() > positions.back(),
+        "Result entry moves its native editor rather than switching only logical state");
+    idle();
+    RECT query_before{};
+    check(query->get_CurrentBoundingRectangle(&query_before), "Read query bounds before state changes");
+    key(editor, VK_RETURN);
+    require(eventually([&] { return !enabled(note.Get()) && focused(query.Get()); }),
+        "Loading disables outgoing result input and returns its focus to the query");
+    invoke(L"gallery-content-empty");
+    focus(query.Get(), "Return to query before simulated results arrive");
+    key(handle(automation, query.Get()), VK_RETURN);
+    require(eventually([&] { return enabled(note.Get()); }), "Results become interactive after the query submits");
+    idle();
+    auto retained = identified(automation, root, L"gallery-content-note");
+    require(retained && enabled(retained.Get()) && handle(automation, retained.Get()) == editor,
+        "Rapid state reversal retains native result identity");
+    BSTR text{};
+    check(pattern<IUIAutomationValuePattern>(retained.Get(), UIA_ValuePatternId)->get_CurrentValue(&text),
+        "Read retained result text");
+    const bool same_text = text && std::wstring_view(text) == L"Retained!";
+    SysFreeString(text);
+    require(same_text && SendMessageW(editor, EM_CANUNDO, 0, 0) != 0,
+        "State reversal preserves native text and undo history");
+    RECT query_after{};
+    check(query->get_CurrentBoundingRectangle(&query_after), "Read query bounds after state changes");
+    require(EqualRect(&query_before, &query_after) && focused(query.Get()),
+        "The fixed state slot does not move or refocus the query");
+    choose(L"Immediate: 0 ms");
+    invoke(L"gallery-content-empty");
+    idle();
+    require(!enabled(retained.Get()), "Immediate state changes also disable hidden result input");
+    invoke(L"gallery-content-results");
+    idle();
+    require(enabled(retained.Get()) && handle(automation, retained.Get()) == editor,
+        "Immediate mode retains the same result editor");
+}
+void choose_gallery_page(IUIAutomation* automation, IUIAutomationElement* root, std::size_t index) {
+    auto catalog = identified(automation, root, L"gallery-catalog");
+    auto item = identified(automation, catalog.Get(), std::to_wstring(index + 1) + L":1");
+    check(pattern<IUIAutomationVirtualizedItemPattern>(item.Get(), UIA_VirtualizedItemPatternId)->Realize(),
+        "Realize new control gallery page");
+    check(pattern<IUIAutomationSelectionItemPattern>(item.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Select new control gallery page");
+    require(eventually([&] {
+        return identified(automation, root, L"gallery-page-" + std::wstring(gallery::entries[index].id)) != nullptr;
+    }), "New control gallery page materialized");
+}
+void winui_controls_smoke(IUIAutomation* automation, IUIAutomationElement* root, HWND window) {
+    const auto choose = [&](std::size_t index) { choose_gallery_page(automation, root, index); };
+    for (const auto index : {52u, 53u}) {
+        choose(index);
+        const bool is_switch = index == 52;
+        auto control = identified(automation, root, is_switch ? L"gallery-toggle-switch" : L"gallery-toggle-button");
+        auto toggle = pattern<IUIAutomationTogglePattern>(control.Get(), UIA_TogglePatternId);
+        ToggleState state{};
+        check(toggle->get_CurrentToggleState(&state), "Read new toggle initial state");
+        require(state == ToggleState_On, "New gallery toggle starts checked");
+        check(toggle->Toggle(), "Change new gallery toggle");
+        check(toggle->get_CurrentToggleState(&state), "Read changed gallery toggle");
+        require(state == ToggleState_Off, "New gallery toggle changed");
+        require(eventually([&] {
+            return named(automation, root, is_switch ? L"Events: notifications off." : L"Events: preview unpinned.") != nullptr;
+        }), "New gallery toggle reports its event");
+        auto enable = named(automation, root, is_switch ? L"Enable switch" : L"Enable pin action");
+        auto enable_toggle = pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId);
+        check(enable_toggle->Toggle(), "Disable new gallery toggle");
+        require(!enabled(control.Get()) && toggle->Toggle() == UIA_E_ELEMENTNOTENABLED,
+            "Disabled gallery toggles reject changes");
+        check(enable_toggle->Toggle(), "Enable new gallery toggle");
+    }
+    for (const auto index : {25u, 54u}) {
+        choose(index);
+        auto progress = identified(automation, root, index == 54 ? L"gallery-progress-ring" : L"foundation-progress");
+        require(progress != nullptr, "Gallery exposes real progress control");
+        check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Advance").Get(), UIA_InvokePatternId)->Invoke(),
+            "Set determinate progress");
+        auto range = pattern<IUIAutomationRangeValuePattern>(progress.Get(), UIA_RangeValuePatternId);
+        double value{}; check(range->get_CurrentValue(&value), "Read progress value");
+        require(value == 50, "Progress example advances its real value");
+        BOOL read_only{}; check(range->get_CurrentIsReadOnly(&read_only), "Read progress permissions");
+        require(read_only, "Progress is read-only");
+        check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Indeterminate").Get(), UIA_InvokePatternId)->Invoke(),
+            "Set indeterminate progress");
+        auto visibility = pattern<IUIAutomationTogglePattern>(
+            named(automation, root, L"Show indicator").Get(), UIA_TogglePatternId);
+        check(visibility->Toggle(), "Hide progress indicator");
+        require(eventually([&] {
+            return !identified(automation, root, index == 54 ? L"gallery-progress-ring" : L"foundation-progress");
+        }), "Hidden progress indicator leaves the accessible tree");
+        check(visibility->Toggle(), "Restore progress indicator");
+        require(eventually([&] {
+            return identified(automation, root, index == 54 ? L"gallery-progress-ring" : L"foundation-progress") != nullptr;
+        }), "Restored progress indicator returns to the accessible tree");
+    }
+    choose(52);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    const auto paints = SendMessageW(window, WM_APP + 60, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    require(SendMessageW(window, WM_APP + 60, 0, 0) == paints, "Hidden progress gallery pages do not repaint");
+}
+void parity_controls_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
+    choose_gallery_page(automation, root, 55);
+    auto checkbox = identified(automation, root, L"gallery-checkbox");
+    auto toggle = pattern<IUIAutomationTogglePattern>(checkbox.Get(), UIA_TogglePatternId);
+    ToggleState state{};
+    check(toggle->get_CurrentToggleState(&state), "Read mixed checkbox state");
+    require(state == ToggleState_Indeterminate, "Gallery checkbox starts mixed");
+    for (int i = 0; i < 3; ++i) check(toggle->Toggle(), "Cycle three-state checkbox");
+    check(toggle->get_CurrentToggleState(&state), "Read cycled checkbox state");
+    require(state == ToggleState_Indeterminate, "Three-state cycle returns to mixed");
+    auto enable_check = pattern<IUIAutomationTogglePattern>(
+        named(automation, root, L"Enable checkbox").Get(), UIA_TogglePatternId);
+    check(enable_check->Toggle(), "Disable checkbox");
+    require(toggle->Toggle() == UIA_E_ELEMENTNOTENABLED, "Disabled mixed checkbox rejects changes");
+    check(enable_check->Toggle(), "Restore checkbox");
+
+    choose_gallery_page(automation, root, 56);
+    auto link = identified(automation, root, L"gallery-hyperlink-button");
+    CONTROLTYPEID role{};
+    check(link->get_CurrentControlType(&role), "Read hyperlink role");
+    require(role == UIA_HyperlinkControlTypeId, "Hyperlink has link semantics, not button semantics");
+    auto invoke = pattern<IUIAutomationInvokePattern>(link.Get(), UIA_InvokePatternId);
+    check(invoke->Invoke(), "Activate callback-only hyperlink");
+    require(eventually([&] {
+        return named(automation, root, L"Events: help requested. No browser was opened.") != nullptr;
+    }), "Hyperlink invokes the application callback");
+    auto enable_link = pattern<IUIAutomationTogglePattern>(
+        named(automation, root, L"Enable help link").Get(), UIA_TogglePatternId);
+    check(enable_link->Toggle(), "Disable hyperlink");
+    require(invoke->Invoke() == UIA_E_ELEMENTNOTENABLED, "Disabled hyperlink rejects activation");
+    check(enable_link->Toggle(), "Restore hyperlink");
+
+    choose_gallery_page(automation, root, 57);
+    auto selector = identified(automation, root, L"gallery-selector-bar");
+    auto selection = pattern<IUIAutomationSelectionPattern>(selector.Get(), UIA_SelectionPatternId);
+    BOOL multiple{};
+    check(selection->get_CurrentCanSelectMultiple(&multiple), "Read selector selection mode");
+    require(!multiple, "Selector bar is exclusive");
+    auto active = named(automation, selector.Get(), L"Active");
+    check(pattern<IUIAutomationSelectionItemPattern>(active.Get(), UIA_SelectionItemPatternId)->Select(),
+        "Select a gallery filter");
+    require(eventually([&] { return named(automation, root, L"Events: task filter ID 2") != nullptr; }),
+        "Selector emits stable choice identity");
+    auto archived = named(automation, selector.Get(), L"Archived");
+    require(!enabled(archived.Get()) &&
+        pattern<IUIAutomationSelectionItemPattern>(archived.Get(), UIA_SelectionItemPatternId)->Select() == UIA_E_ELEMENTNOTENABLED,
+        "Disabled selector item cannot become selected");
+
+    choose_gallery_page(automation, root, 58);
+    auto badge = identified(automation, root, L"gallery-info-badge");
+    BOOL focusable{};
+    check(badge->get_CurrentIsKeyboardFocusable(&focusable), "Read badge focus policy");
+    require(!focusable, "InfoBadge is not a keyboard target");
+    ComPtr<IUnknown> badge_action;
+    check(badge->GetCurrentPattern(UIA_InvokePatternId, &badge_action), "Read badge action policy");
+    require(!badge_action, "InfoBadge has no command action");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Add notification").Get(),
+        UIA_InvokePatternId)->Invoke(), "Update badge count");
+    require(eventually([&] { return named(automation, root, L"Events: notification count 8") != nullptr; }),
+        "Gallery updates the real badge count");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Show dot").Get(),
+        UIA_InvokePatternId)->Invoke(), "Show dot badge");
+    check(pattern<IUIAutomationInvokePattern>(named(automation, root, L"Show icon").Get(),
+        UIA_InvokePatternId)->Invoke(), "Show icon badge");
+
+    choose_gallery_page(automation, root, 59);
+    auto menu = identified(automation, root, L"gallery-menu-bar");
+    check(menu->get_CurrentControlType(&role), "Read menu bar role");
+    require(role == UIA_MenuBarControlTypeId, "MenuBar has menu semantics");
+    auto file = named(automation, menu.Get(), L"File");
+    check(pattern<IUIAutomationExpandCollapsePattern>(file.Get(), UIA_ExpandCollapsePatternId)->Expand(),
+        "Open File menu");
+    ComPtr<IUIAutomationElement> save;
+    require(eventually([&] { save = named(automation, root, L"Save sample"); return save != nullptr; }),
+        "MenuBar opens its retained command menu");
+    check(pattern<IUIAutomationInvokePattern>(save.Get(), UIA_InvokePatternId)->Invoke(), "Invoke File command");
+    require(eventually([&] { return named(automation, root, L"Events: Sample saved in memory.") != nullptr; }),
+        "MenuBar invokes its command snapshot callback");
+    auto publish = named(automation, menu.Get(), L"Publish");
+    require(publish && !enabled(publish.Get()), "Disabled menu heading is exposed as disabled");
+}
 std::wstring normalized_code(std::wstring text) {
     for (std::size_t pos = 0; pos < text.size(); ++pos) {
         if (text[pos] != L'\r') continue;
@@ -699,6 +1608,7 @@ void reference_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
             check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100), "Reveal code after language selection");
             ComPtr<IUIAutomationElement> code;
             const bool updated = eventually([&] {
+                check(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100), "Reveal code after deferred layout");
                 const auto code_name = std::wstring(entry.title) + L" " + names[selected] + L" code";
                 code = named(automation, root, code_name.c_str());
                 return code != nullptr;
@@ -725,6 +1635,12 @@ void reference_smoke(IUIAutomation* automation, IUIAutomationElement* root) {
             if (!expected.empty()) {
                 check(pattern<IUIAutomationInvokePattern>(copy.Get(), UIA_InvokePatternId)->Invoke(), "Copy selected language");
                 const auto copied = clipboard_text();
+                if (copied != expected && copied != expected + L"\n") {
+                    const auto status = identified(automation, root, L"gallery-reference-status-" + suffix);
+                    std::wcerr << entry.id << L" " << names[selected] << L": copy status: " <<
+                        (status ? name(status.Get()) : L"(not exposed)") <<
+                        L"; expected " << expected.size() << L" characters, received " << copied.size() << std::endl;
+                }
                 require(copied == expected || copied == expected + L"\n", "Copy uses the selected language");
             }
         }
@@ -764,9 +1680,28 @@ int wmain(int argc, wchar_t** argv) {
     const bool winui_only = argc == 3 && std::wstring_view(argv[2]) == L"--winui";
     const bool winui_catalog = argc == 3 && std::wstring_view(argv[2]) == L"--winui-catalog";
     const bool miller_only = argc == 3 && std::wstring_view(argv[2]) == L"--miller-only";
+    const bool animations_only = argc == 3 && std::wstring_view(argv[2]) == L"--animations-only";
+    const bool feedback_only = argc == 3 && std::wstring_view(argv[2]) == L"--feedback-only";
+    const bool popup_motion_only = argc == 3 && std::wstring_view(argv[2]) == L"--popup-motion-only";
+    const bool progress_motion_only = argc == 3 && std::wstring_view(argv[2]) == L"--progress-motion-only";
+    const bool content_motion_only = argc == 3 && std::wstring_view(argv[2]) == L"--content-motion-only";
+    const bool tab_motion_only = argc == 3 && std::wstring_view(argv[2]) == L"--tab-motion-only";
+    const bool navigation_motion_only = argc == 3 && std::wstring_view(argv[2]) == L"--navigation-motion-only";
+    const bool page_motion_winui = argc == 3 && std::wstring_view(argv[2]) == L"--page-motion-winui";
+    const bool page_motion_only = page_motion_winui ||
+        (argc == 3 && std::wstring_view(argv[2]) == L"--page-motion-only");
+    const bool document_motion_winui = argc == 3 && std::wstring_view(argv[2]) == L"--document-motion-winui";
+    const bool document_motion_only = document_motion_winui ||
+        (argc == 3 && std::wstring_view(argv[2]) == L"--document-motion-only");
+    const bool controls_only = argc == 3 && std::wstring_view(argv[2]) == L"--controls-only";
+    const bool parity_only = argc == 3 && (std::wstring_view(argv[2]) == L"--parity-only" ||
+        std::wstring_view(argv[2]) == L"--parity-classic");
     const bool reference_only = argc == 3 && std::wstring_view(argv[2]) == L"--reference-only";
-    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog && !miller_only && !reference_only) {
-        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only | --reference-only]\n";
+    if (argc != 2 && !global_focus_events && !search_only && !palette_only && !winui_only && !winui_catalog &&
+        !animations_only && !feedback_only && !popup_motion_only && !progress_motion_only && !content_motion_only &&
+        !tab_motion_only && !navigation_motion_only && !page_motion_only && !document_motion_only &&
+        !miller_only && !controls_only && !parity_only && !reference_only) {
+        std::cerr << "Supply xui_gallery.exe [--focus-events | --search-disclosure | --palette | --winui | --winui-catalog | --miller-only | --animations-only | --feedback-only | --popup-motion-only | --progress-motion-only | --content-motion-only | --tab-motion-only | --navigation-motion-only | --page-motion-only | --page-motion-winui | --document-motion-only | --document-motion-winui | --controls-only | --parity-only | --parity-classic | --reference-only]\n";
         return 1;
     }
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -778,8 +1713,22 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring command = L"\"" + std::wstring(argv[1]) + L"\"";
         if (palette_only) command += L" --page commands";
         if (miller_only) command += L" --page miller-columns";
+        if (animations_only) command += L" --page animations";
+        if (feedback_only) command += L" --page feedback-motion";
+        if (popup_motion_only) command += L" --page popup";
+        if (progress_motion_only) command += L" --page progress";
+        if (content_motion_only) command += L" --page content-motion";
+        if (tab_motion_only) command += L" --page tabs";
+        if (navigation_motion_only) command += L" --page navigation-view";
+        if (page_motion_only) command += L" --page pages";
+        if (document_motion_only) command += L" --page document-motion";
+        if (controls_only) command += L" --winui-catalog --page toggle-switch";
+        if (parity_only) {
+            command += L" --page checkbox";
+            if (std::wstring_view(argv[2]) == L"--parity-only") command += L" --winui-catalog";
+        }
         if (winui_only) command += L" --winui";
-        if (winui_catalog) command += L" --winui-catalog";
+        if (winui_catalog || document_motion_winui || page_motion_winui) command += L" --winui-catalog";
         STARTUPINFOW startup{sizeof(startup)};
         require(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr,
             nullptr, &startup, &process.info) != 0, "Start gallery");
@@ -787,13 +1736,79 @@ int wmain(int argc, wchar_t** argv) {
             EnumWindows(find_window, reinterpret_cast<LPARAM>(&process));
             return process.window && IsWindowVisible(process.window);
         }), "Find gallery window");
-        if (!search_only && !miller_only && !reference_only) require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
-            SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
+        if (!search_only && !miller_only && !animations_only && !feedback_only && !popup_motion_only &&
+            !progress_motion_only && !content_motion_only && !tab_motion_only && !navigation_motion_only &&
+            !page_motion_only && !document_motion_only && !controls_only && !parity_only && !reference_only)
+            require(SetWindowPos(process.window, HWND_TOPMOST, 40, 40, 0, 0,
+                SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Protect the owned test window from unrelated occlusion");
         ComPtr<IUIAutomation> automation;
         check(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(&automation)), "Create automation");
         ComPtr<IUIAutomationElement> root;
         check(automation->ElementFromHandle(process.window, &root), "Read gallery root");
+        if (page_motion_only) {
+            if (page_motion_winui) {
+                auto style = identified(automation.Get(), root.Get(), L"gallery-style");
+                require(style && name(style.Get()) == L"Style: WinUI", "Page entry runs with the WinUI presentation");
+            }
+            page_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Retained page entry, native movement/input/undo, immediate ownership, interruption, and zero duration passed\n";
+            return 0;
+        }
+        if (navigation_motion_only) {
+            navigation_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Navigation group geometry, logical retirement, focus repair, search identity, reversal, and immediate mode passed\n";
+            return 0;
+        }
+        if (document_motion_only) {
+            if (document_motion_winui) {
+                auto style = identified(automation.Get(), root.Get(), L"gallery-style");
+                require(style && name(style.Get()) == L"Style: WinUI", "Document motion runs with the WinUI presentation");
+            }
+            document_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Native document motion, selection/undo/identity, read-only policy, reversal, and immediate mode passed\n";
+            return 0;
+        }
+        if (tab_motion_only) {
+            tab_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Tab reorder, interruption, native/UIA identity, insertion/removal, and immediate mode passed\n";
+            return 0;
+        }
+        if (content_motion_only) {
+            content_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Content states, native focus/undo/identity, rapid reversal, fixed slot, and immediate mode passed\n";
+            return 0;
+        }
+        if (progress_motion_only) {
+            progress_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Progress logical values, retargeting, mode changes, native identity, and idle work passed\n";
+            return 0;
+        }
+        if (popup_motion_only) {
+            popup_motion_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Popup and modal entry, validation, nested dismissal, replay, native input, and idle clock passed\n";
+            return 0;
+        }
+        if (feedback_only) {
+            feedback_smoke(automation.Get(), root.Get(), process.window, process.info.dwProcessId);
+            std::cout << "Feedback gallery native editing, logical announcements, and motion lifecycle passed\n";
+            return 0;
+        }
+        if (animations_only) {
+            animation_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "Animation gallery replay, reversal, modes, native retention, panes, and timer checks passed\n";
+            return 0;
+        }
+        if (parity_only) {
+            parity_controls_smoke(automation.Get(), root.Get());
+            std::cout << "CheckBox, HyperlinkButton, SelectorBar, InfoBadge and MenuBar gallery checks passed\n";
+            return 0;
+        }
+        if (controls_only) {
+            winui_controls_smoke(automation.Get(), root.Get(), process.window);
+            std::cout << "ToggleSwitch, ToggleButton, ProgressRing and progress gallery checks passed\n";
+            return 0;
+        }
         if (reference_only) {
             reference_smoke(automation.Get(), root.Get());
             std::cout << "Gallery reference language, code copy, and documentation checks passed\n";
@@ -1336,6 +2351,44 @@ int wmain(int argc, wchar_t** argv) {
                     auto range = pattern<IUIAutomationRangeValuePattern>(capacity.Get(), UIA_RangeValuePatternId);
                     double capacity_value{}; check(range->get_CurrentValue(&capacity_value), "Gallery capacity value");
                     require(capacity_value == 48, "Gallery uses real capacity API");
+                }
+                if (!round && (i == 52 || i == 53)) {
+                    const bool is_switch = i == 52;
+                    auto control = identified(automation.Get(), root.Get(),
+                        is_switch ? L"gallery-toggle-switch" : L"gallery-toggle-button");
+                    auto gallery_toggle = pattern<IUIAutomationTogglePattern>(control.Get(), UIA_TogglePatternId);
+                    ToggleState gallery_state{};
+                    check(gallery_toggle->get_CurrentToggleState(&gallery_state), "Read gallery toggle initial state");
+                    require(gallery_state == ToggleState_On, "New gallery toggles start checked");
+                    check(gallery_toggle->Toggle(), "Change new gallery toggle");
+                    require(eventually([&] {
+                        return named(automation.Get(), root.Get(),
+                            is_switch ? L"Events: notifications off." : L"Events: preview unpinned.") != nullptr;
+                    }), "New gallery toggles report accepted state changes");
+                    auto enable = named(automation.Get(), root.Get(), is_switch ? L"Enable switch" : L"Enable pin action");
+                    check(pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId)->Toggle(), "Disable new gallery toggle");
+                    require(!enabled(control.Get()) && gallery_toggle->Toggle() == UIA_E_ELEMENTNOTENABLED,
+                        "Disabled gallery toggles reject automation changes");
+                    check(pattern<IUIAutomationTogglePattern>(enable.Get(), UIA_TogglePatternId)->Toggle(), "Restore new gallery toggle");
+                }
+                if (!round && i == 54) {
+                    auto ring = identified(automation.Get(), root.Get(), L"gallery-progress-ring");
+                    require(ring != nullptr, "Gallery exposes progress ring");
+                    check(pattern<IUIAutomationInvokePattern>(named(automation.Get(), root.Get(), L"Advance").Get(),
+                        UIA_InvokePatternId)->Invoke(), "Advance ring to determinate progress");
+                    auto range = pattern<IUIAutomationRangeValuePattern>(ring.Get(), UIA_RangeValuePatternId);
+                    double ring_value{}; check(range->get_CurrentValue(&ring_value), "Read progress ring value");
+                    require(ring_value == 50, "Ring and bar share the range model");
+                    BOOL read_only{}; check(range->get_CurrentIsReadOnly(&read_only), "Read ring range permissions");
+                    require(read_only, "Progress ring is read-only");
+                    check(pattern<IUIAutomationInvokePattern>(named(automation.Get(), root.Get(), L"Indeterminate").Get(),
+                        UIA_InvokePatternId)->Invoke(), "Restore indeterminate ring");
+                    auto visible = pattern<IUIAutomationTogglePattern>(
+                        named(automation.Get(), root.Get(), L"Show indicator").Get(), UIA_TogglePatternId);
+                    check(visible->Toggle(), "Hide ring through the gallery");
+                    require(eventually([&] { return !identified(automation.Get(), root.Get(), L"gallery-progress-ring"); }),
+                        "Hidden ring leaves the accessible tree");
+                    check(visible->Toggle(), "Show ring through the gallery");
                 }
                 if (!round && i == 26) {
                     auto items = named(automation.Get(), root.Get(), L"Synthetic items", UIA_ListControlTypeId);

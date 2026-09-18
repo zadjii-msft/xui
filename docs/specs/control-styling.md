@@ -68,6 +68,7 @@ A single inset value applies to all four edges.
 An absent property is unset.
 Black, zero padding, zero border width, and a zero radius are explicit values.
 Zero radius produces square corners.
+Equal-width borders form a continuous outline around rounded corners and remain inside the surface bounds.
 A `(3, 0, 0, 0)` border occupies only the left edge.
 Unequal borders use four edge regions clipped to the outer rounded silhouette.
 Their inner corners are rectangular rather than independently rounded.
@@ -186,6 +187,9 @@ Theme and style changes preserve native text, selection, and ownership.
 No native IME, undo, or input implementation changes are part of this stage.
 
 NavigationView lists accept a `NavigationList` style through their retained child accessors.
+In WinUI light and dark themes, the system focus outline follows the resolved `row` or `group_header` corner radius.
+Its two-DIP outer stroke and one-DIP inner stroke fit within the full row bounds.
+Authored focus markers cannot remove this outline. Ancestor viewport clips still apply.
 Root `rowHeight` sets row geometry. Root `fontSize` supplies inherited text size.
 The `icon.size` property sets a square slot in DIPs for vector icons and Shell images.
 It accepts finite values from zero through 32768, including state rules.
@@ -222,6 +226,16 @@ The current generic schema also supports root/label typography and alignment.
 The inventory and exported catalog describe the complete current coverage.
 
 Toggle uses `ControlStyle`, not `ButtonStyle`.
+`ToggleSwitch` reuses the `toggle` target, parts, and checked-state rules.
+Its indicator has a switch pill and thumb instead of a checkbox mark.
+`ToggleButton` reuses the `button` target.
+`ProgressRing` reuses the `progress` target.
+These presentations add no style catalog targets.
+CheckBox also uses `toggle`, with the `mark` part for checked and mixed-state marks.
+HyperlinkButton uses `button`. SelectorBar uses `choice_list`.
+InfoBadge uses `inline_status`, with `root`, `message`, and `icon` parts.
+MenuBar uses `command_bar`, with Button styles on its retained headings.
+These aliases preserve the existing style IDs and do not add unrelated behavior from the target family.
 The generic engine stores sparse per-part state rules instead of every possible state combination.
 The state mask has 64 bits.
 The pilot accepts `focused`, `checked`, `hovered`, `pressed`, and `disabled`, in that precedence order.
@@ -302,6 +316,12 @@ The [binding contract](bindings.md#generic-control-styles) defines current recor
 `TextInput`, `MultilineText`, `RichText`, `PasswordInput`, and `DateTimePicker` have distinct style targets.
 Each target exposes only properties that its owned frame or native editor supports.
 The native editor retains text input, selection, IME composition, undo, and ownership.
+
+In WinUI light and dark themes, authored field focus outlines use the surface corner radius.
+The renderer clamps that radius to half the smaller field dimension.
+This applies to TextInput, document and password roots, and the field part of NumericInput and editable ComboBox.
+Unstyled fields retain their accent underline. Classic and high contrast retain their existing focus outlines.
+This does not add a keyboard target or change native editor geometry.
 
 Date/time styles can change the owned frame surface and native text typography.
 The adapter uses `WM_SETFONT` for native date/time typography.

@@ -18,6 +18,51 @@
     ],
     "description": "Counter component with state, a view, and a C# handler"
   },
+  "CheckBox": {
+    "prefix": "checkbox",
+    "body": "CheckBox(\"${1:Check}\", checkState: ${2:global::Xui.CheckState.Unchecked}, threeState: ${3:false}, change: ${4:OnChanged});",
+    "description": "Check box with a typed check-state event"
+  },
+  "HyperlinkButton": {
+    "prefix": "hyperlinkbutton",
+    "body": "HyperlinkButton(\"${1:Open}\", click: ${2:OnClick});",
+    "description": "Callback-only hyperlink button"
+  },
+  "SelectorBar": {
+    "prefix": "selectorbar",
+    "body": "SelectorBar(\"${1:Pages}\", items: ${2:Items}, selected: ${3:Selected}, change: ${4:OnSelected});",
+    "description": "Horizontal single-selection control"
+  },
+  "InfoBadge": {
+    "prefix": "infobadge",
+    "body": "InfoBadge(\"${1:Notifications}\", count: ${2:Count});",
+    "description": "Count badge; omit count for a dot"
+  },
+  "MenuBar": {
+    "prefix": "menubar",
+    "body": "MenuBar(\"${1:Menu}\", commands: ${2:Commands}, invoke: ${3:OnInvoked});",
+    "description": "Menu bar with root submenu groups"
+  },
+  "ToggleSwitch": {
+    "prefix": "toggleswitch",
+    "body": "ToggleSwitch(\"${1:Enabled}\", checked: ${2:IsEnabled}, change: ${3:OnChanged});",
+    "description": "Switch with checked state and a change handler"
+  },
+  "ToggleButton": {
+    "prefix": "togglebutton",
+    "body": "ToggleButton(\"${1:Bold}\", checked: ${2:IsBold}, change: ${3:OnChanged});",
+    "description": "Toggle button with checked state and a change handler"
+  },
+  "ProgressRing": {
+    "prefix": "progressring",
+    "body": "ProgressRing(\"${1:Loading}\", preferredSize: (${2:32}, ${3:32}));",
+    "description": "Indeterminate circular progress indicator"
+  },
+  "Determinate ProgressRing": {
+    "prefix": "progressringdeterminate",
+    "body": "ProgressRing(\"${1:Progress}\", range: new global::Xui.NumericRange(0, 100), currentValue: ${2:50}, progressState: global::Xui.ProgressState.Determinate);",
+    "description": "Circular progress indicator with a range and value"
+  },
   "Namespace": {
     "prefix": "namespace",
     "body": ["namespace ${1:Demo};", "$0"],

@@ -164,8 +164,112 @@ void popup_disclosure_progress_actions() {
     rejects([&] { toggle.set_repeat_timing(0, 1); });
     rejects([&] { toggle.set_tooltip_delay(0); });
 }
+void switch_button_ring() {
+    using namespace xui;
+    Toggle checkbox(L"Setting");
+    ToggleSwitch toggle(L"Setting");
+    ToggleButton action(L"Action");
+    require(!checkbox.switch_presentation() && toggle.switch_presentation(), "Checkbox and switch retain separate presentation");
+    require(toggle.role() == ControlRole::toggle && action.role() == ControlRole::button &&
+        action.behavior() == ButtonBehavior::toggle, "New controls reuse native input and accessibility roles");
+    int changes{}, toggles{}, clicks{};
+    toggle.on_change([&](bool) { ++changes; });
+    action.on_toggle([&](bool) { ++toggles; });
+    action.on_click([&] { ++clicks; });
+    toggle.set_checked(true); action.set_checked(true);
+    require(!changes && !toggles && !clicks, "Checked property updates remain silent");
+    toggle.set_focused(true); action.set_focused(true);
+    require(!toggle.key_down(ActivationKey::enter), "Switch Enter follows checkbox semantics");
+    toggle.key_down(ActivationKey::space); toggle.cancel(); toggle.key_up(ActivationKey::space);
+    require(toggle.checked() && !changes, "Cancelled switch key input does not toggle");
+    toggle.key_down(ActivationKey::space); toggle.key_up(ActivationKey::space);
+    require(!toggle.checked() && changes == 1, "Switch Space toggles once");
+    action.key_down(ActivationKey::enter);
+    require(!action.checked() && toggles == 1 && clicks == 0, "ToggleButton Enter invokes only the inherited toggle callback");
+    toggle.pointer_down(); toggle.pointer_up(false);
+    require(!toggle.checked() && changes == 1, "Switch pointer release outside cancels");
+    action.pointer_down(); action.set_enabled(false); action.pointer_up(true);
+    require(!action.checked() && toggles == 1, "Disable cancels a ToggleButton press");
+    for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
+        toggle.set_visual_style(visual);
+        toggle.set_text_measurer([](auto, auto) { return Size{60, 20}; });
+        const auto size = toggle.measure({500, 100});
+        if (visual == VisualStyle::winui)
+            require(size.width == 112 && size.height == 40,
+                "Natural WinUI switches reserve the track, twelve-DIP label gap, and forty-DIP height without trailing padding");
+        const Rect bounds{0, 0, size.width, size.height};
+        const auto pill = toggle.indicator_bounds(bounds), off = toggle.mark_bounds(bounds);
+        require(pill.width == 2 * pill.height && off.width == off.height &&
+            toggle.label_bounds(bounds).x > pill.x + pill.width, "Switch reserves a pill, circular thumb, and separate label");
+        toggle.set_checked(true); const auto on = toggle.mark_bounds(bounds); toggle.set_checked(false);
+        require(on.x > off.x && on.x + on.width <= pill.x + pill.width, "Checked switch thumb moves inside its track");
+        const auto tiny = toggle.indicator_bounds({0, 0, 1, 1});
+        require(tiny.width == 0 || tiny.width <= 1, "Switch geometry clips in constrained bounds");
+    }
+    toggle.set_visual_style(VisualStyle::winui);
+    for (const bool checked : {false, true}) {
+        toggle.set_checked(checked);
+        toggle.cancel();
+        toggle.pointer_move(false);
+        const auto idle = toggle.mark_bounds({0, 0, 100, 32});
+        require(idle.x == (checked ? 23.5f : 3.5f) && idle.y == 10 && idle.width == 12 && idle.height == 12,
+            "WinUI switch idle thumb matches its twelve-DIP template size and half-DIP alignment");
+        toggle.pointer_move(true);
+        const auto hover = toggle.mark_bounds({0, 0, 100, 32});
+        require(hover.x == (checked ? 22.5f : 2.5f) && hover.y == 9 && hover.width == 14 && hover.height == 14,
+            "WinUI switch hover grows around the fixed thumb center");
+        toggle.pointer_down();
+        const auto press = toggle.mark_bounds({0, 0, 100, 32});
+        require(press.x == (checked ? 20.0f : 3.0f) && press.y == 9 && press.width == 17 && press.height == 14,
+            "WinUI switch press stretches the thumb from a three-DIP outer-edge inset");
+        const auto disabled = toggle.mark_bounds({0, 0, 100, 32}, false);
+        require(disabled.x == idle.x && disabled.y == idle.y && disabled.width == idle.width && disabled.height == idle.height,
+            "Effective ancestor disable suppresses hover and press thumb growth");
+        toggle.cancel();
+        toggle.pointer_move(false);
+    }
+    toggle.set_checked(false);
+    PartStyleValues padding;
+    padding.padding = Insets{3, 4, 5, 6};
+    toggle.set_control_style_values(StylePart::root, padding);
+    const auto padded = toggle.measure({500, 100});
+    require(padded.width == 120 && padded.height == 30,
+        "Explicit switch padding remains authoritative instead of adding implicit trailing or vertical padding");
+    toggle.set_control_style_values(StylePart::root, {});
+    PartStyleValues indicator; indicator.size = 30.0f;
+    toggle.set_style(ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}}, {}));
+    require(toggle.indicator_bounds({0, 0, 200, 80}).width == 60, "Toggle styles size the switch track");
+    require(toggle.mark_bounds({0, 0, 200, 80}).width == 18, "Authored switch track size scales the WinUI thumb proportionally");
+    indicator.border_thickness = Insets{3, 4, 5, 6};
+    toggle.set_control_style_values(StylePart::indicator, indicator);
+    for (const auto area : {Rect{0, 0, 200, 80}, Rect{0, 0, 38, 18}, Rect{0, 0, 12, 18}}) {
+        const auto track = toggle.indicator_bounds(area), thumb = toggle.mark_bounds(area);
+        require(thumb.width >= 0 && thumb.height >= 0 && thumb.width <= track.width && thumb.height <= track.height,
+            "Styled switch thumbs remain bounded when borders and layout constrain their track");
+        require(thumb.width == 0 || thumb.height == 0 ||
+            (thumb.x >= track.x && thumb.y >= track.y &&
+                thumb.x + thumb.width <= track.x + track.width && thumb.y + thumb.height <= track.y + track.height),
+            "A visible switch thumb stays inside the authored track");
+    }
+    Progress progress;
+    ProgressRing ring;
+    require(!progress.ring_presentation() && progress.state() == ProgressState::determinate &&
+        ring.ring_presentation() && ring.state() == ProgressState::indeterminate && !ring.focusable(),
+        "Ring defaults to read-only circular indeterminate; linear progress stays determinate");
+    ring.set_range(-10, 10); ring.set_value(5); ring.set_state(ProgressState::paused);
+    require(ring.value() == 5 && ring.range().minimum == -10 && ring.state() == ProgressState::paused,
+        "Ring retains Progress range, value, and status contracts");
+    rejects([&] { ring.set_value(11); });
+    rejects([&] { ring.set_range(1, 1); });
+    rejects([&] { ring.set_state(static_cast<ProgressState>(99)); });
+    ring.set_capacity(3, 4, L"GB");
+    require(ring.state() == ProgressState::determinate && ring.value_text() == L"3 / 4 GB",
+        "Ring capacity preserves read-only static state");
+    PartStyleValues track; track.thickness = 6.0f;
+    ring.set_control_style(ControlStyle::create(StyleTarget::progress, {{StylePart::track, track}}, {}));
+}
 }
 int main() {
-    try { ranges(); choices(); numeric(); popup_disclosure_progress_actions(); std::cout << "Foundation core contracts passed\n"; }
+    try { ranges(); choices(); numeric(); popup_disclosure_progress_actions(); switch_button_ring(); std::cout << "Foundation core contracts passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -21,6 +21,22 @@ if ($existing -and !$existing.isDraft) { throw 'Refusing to change a published r
 if (!$existing) {
     Invoke-Checked { gh release create $Tag --repo $Repository --verify-tag --draft --title "XUI $version" --generate-notes }
 }
-Invoke-Checked { gh release upload $Tag --repo $Repository @assets --clobber }
+# Handle native exit codes explicitly so PowerShell cannot terminate before a retry.
+$PSNativeCommandUseErrorActionPreference = $false
+$maximumAttempts = 5
+foreach ($asset in $assets) {
+    for ($attempt = 1; $attempt -le $maximumAttempts; $attempt++) {
+        Write-Host "Uploading $asset (attempt $attempt/$maximumAttempts)."
+        gh release upload $Tag --repo $Repository $asset --clobber
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) { break }
+        if ($attempt -eq $maximumAttempts) {
+            throw "Release asset upload failed for '$asset' after $maximumAttempts attempts (exit code $exitCode)."
+        }
+        $delay = 5 * [Math]::Pow(2, $attempt - 1)
+        Write-Warning "Upload failed for '$asset' (exit code $exitCode). Retry in $delay seconds."
+        Start-Sleep -Seconds $delay
+    }
+}
 $release = gh release view $Tag --repo $Repository --json isDraft | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or !$release.isDraft) { throw 'Release must remain a draft.' }

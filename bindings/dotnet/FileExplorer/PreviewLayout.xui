@@ -3,10 +3,13 @@ namespace Xui.FileExplorer;
 component PreviewLayout {
     param global::Xui.Element Body;
     param global::Xui.Element Status;
+    state bool EntryOpen = false;
 
     view {
         VStack(padding: 12, spacing: 8) {
-            Content(Body, flex: 1);
+            Reveal("Preview content entry", open: EntryOpen, duration: 180, flex: 1, ref: EntryReveal) {
+                Content(Body);
+            }
             Content(Status);
         }
     }

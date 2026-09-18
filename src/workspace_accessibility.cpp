@@ -67,7 +67,7 @@ public:
             if (!root_ && (s.role == ControlRole::split_view || s.role == ControlRole::range_input ||
                 s.role == ControlRole::numeric_input || (s.role == ControlRole::progress && !s.invalid)) && id == UIA_RangeValuePatternId)
                 *value = static_cast<IRangeValueProvider*>(this);
-            if (!root_ && (s.role == ControlRole::expander || s.role == ControlRole::combo_box) && id == UIA_ExpandCollapsePatternId)
+            if (!root_ && (s.role == ControlRole::expander || s.role == ControlRole::combo_box || s.menu_heading) && id == UIA_ExpandCollapsePatternId)
                 *value = static_cast<IExpandCollapseProvider*>(this);
             if (!root_ && s.role == ControlRole::numeric_input && id == UIA_ValuePatternId)
                 *value = static_cast<IValueProvider*>(this);
@@ -91,7 +91,8 @@ public:
             }
             if (id == UIA_ControlTypePropertyId) {
                 value->vt = VT_I4;
-                value->lVal = root_ ? (s.role == ControlRole::radio_group ? UIA_RadioButtonControlTypeId :
+                value->lVal = s.menu_bar ? UIA_MenuBarControlTypeId : s.menu_heading ? UIA_MenuItemControlTypeId :
+                    root_ ? (s.role == ControlRole::radio_group ? UIA_RadioButtonControlTypeId :
                     s.role == ControlRole::tab_strip ? UIA_TabItemControlTypeId : UIA_ListItemControlTypeId) :
                     s.role == ControlRole::tab_strip ? UIA_TabControlTypeId :
                     s.role == ControlRole::radio_group || s.role == ControlRole::expander ? UIA_GroupControlTypeId :
@@ -104,6 +105,10 @@ public:
                     s.role == ControlRole::color_picker || s.role == ControlRole::vector_canvas || s.role == ControlRole::map_view ||
                     s.role == ControlRole::media_playback || s.role == ControlRole::web_content ? UIA_GroupControlTypeId :
                     s.role == ControlRole::popup ? (s.dialog_surface ? UIA_WindowControlTypeId : UIA_PaneControlTypeId) : UIA_ThumbControlTypeId;
+            } else if (id == UIA_AccessKeyPropertyId && s.menu_heading) {
+                value->vt = VT_BSTR;
+                value->bstrVal = SysAllocString(s.access_key.c_str());
+                return value->bstrVal ? S_OK : E_OUTOFMEMORY;
             } else if (id == UIA_LiveSettingPropertyId && s.role == ControlRole::inline_status) {
                 value->vt = VT_I4; value->lVal = s.invalid ? Assertive : Polite;
             } else if (id == UIA_IsDialogPropertyId && s.dialog_surface) {
@@ -121,7 +126,7 @@ public:
                     id == UIA_IsOffscreenPropertyId ? rect.width <= 0 || rect.height <= 0 :
                     id == UIA_IsEnabledPropertyId ? item_enabled : id == UIA_IsKeyboardFocusablePropertyId ?
                         item_enabled && s.role != ControlRole::popup && s.role != ControlRole::progress &&
-                        s.role != ControlRole::inline_status && s.role != ControlRole::color_picker : true;
+                        s.role != ControlRole::inline_status && s.role != ControlRole::color_picker && !s.menu_bar : true;
                 value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
             return S_OK;
@@ -182,6 +187,10 @@ public:
                     rect.bottom = rect.top + static_cast<LONG>(std::lround(s.tab_edges[2 * i + 1] * scale));
                     rect.top += static_cast<LONG>(std::lround(s.tab_edges[2 * i] * scale));
                 } else {
+                    if (s.selector_bar) {
+                        rect.bottom = rect.top + static_cast<LONG>(std::lround((s.choice_top + s.choice_height) * scale));
+                        rect.top += static_cast<LONG>(std::lround(s.choice_top * scale));
+                    }
                     rect.right = rect.left + static_cast<LONG>(std::lround(s.tab_edges[2 * i + 1] * scale));
                     rect.left += static_cast<LONG>(std::lround(s.tab_edges[2 * i] * scale));
                 }

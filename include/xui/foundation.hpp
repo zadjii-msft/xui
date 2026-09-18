@@ -60,7 +60,7 @@ struct ChoiceItem {
 };
 
 // One native peer; accessible children use stable IDs, not retained row controls.
-class RadioGroup final : public Control {
+class RadioGroup : public Control {
 public:
     explicit RadioGroup(std::wstring name = L"Choices", bool list_presentation = false);
     const std::vector<ChoiceItem>& items() const { return items_; }
@@ -77,6 +77,8 @@ public:
     Rect item_bounds(std::size_t index) const;
     std::optional<Rect> selected_item_bounds() const;
     std::optional<std::size_t> hit_test(float y) const;
+    std::optional<std::size_t> hit_test(Point point) const;
+    bool horizontal_presentation() const { return horizontal_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     float effective_row_height() const;
@@ -90,17 +92,26 @@ public:
     Rect label_bounds(std::size_t index, bool hovered = false, bool pressed = false) const;
     static constexpr float row_height = 34;
 protected:
+    RadioGroup(std::wstring name, bool list_presentation, bool horizontal);
     std::optional<StyleTarget> control_style_target() const override {
         return role() == ControlRole::choice_list ? StyleTarget::choice_list : StyleTarget::radio_group;
     }
     void presentation_changed() override;
 private:
     void reveal_selected();
+    std::size_t horizontal_slots() const;
+    float horizontal_gap() const;
     std::vector<ChoiceItem> items_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
     float item_height_{31};
+    bool horizontal_{};
     std::function<void(std::uint64_t)> change_, accept_;
+};
+
+class SelectorBar final : public RadioGroup {
+public:
+    explicit SelectorBar(std::wstring name = L"Selection") : RadioGroup(std::move(name), true, true) {}
 };
 
 enum class PopupPlacement { below, above, right, left, center };
@@ -231,13 +242,21 @@ private:
     std::function<void(double)> change_;
 };
 
-class Expander final : public Control {
+class Expander final : public Control, public Animation {
 public:
     Expander(std::wstring header, std::shared_ptr<Element> content);
     const std::shared_ptr<Element>& content() const { return children_[0]; }
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     bool expanded() const { return expanded_; }
     void set_expanded(bool value);
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    float progress() const { return transition_.value(); }
+    bool animating() const override { return transition_.animating(); }
+    void advance(Clock::time_point now) override;
+    void settle() override;
+    bool body_presented() const { return expanded_ || animating() || progress() > 0; }
+    bool allows_empty_clip() const override { return expanded_ && animating(); }
     void on_change(std::function<void(bool)> callback) { change_ = std::move(callback); }
     void arrange(Rect bounds) override;
     Size measure(Size available) override;
@@ -256,20 +275,36 @@ protected:
     }
 private:
     void activate() override;
+    Size measure_state(Size available, bool expanded);
+    Size expanded_size(Size available);
+    Rect body_surface(Rect bounds) const;
+    Rect body_content(Rect bounds) const;
+    Rect full_content_bounds() const;
     std::vector<std::shared_ptr<Element>> children_;
     bool expanded_{true};
     float measured_header_height_{48};
+    float full_height_{};
+    unsigned duration_{};
+    ScalarTransition transition_{1};
     std::function<void(bool)> change_;
 };
 
 enum class ProgressState { determinate, indeterminate, paused, error, unknown };
-class Progress final : public Control {
+class Progress : public Control, public Animation {
 public:
     explicit Progress(std::wstring name = L"Progress");
+    bool ring_presentation() const { return ring_; }
     void set_range(double minimum, double maximum);
     const NumericRange& range() const { return range_; }
     void set_value(double value);
     double value() const { return value_; }
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    double presented_value() const;
+    double presented_fraction() const;
+    bool animating() const override { return transition_.animating(); }
+    void advance(Clock::time_point now) override;
+    void settle() override;
     void set_state(ProgressState value);
     ProgressState state() const { return state_; }
     // Capacity is read-only and never starts an animation.
@@ -277,13 +312,23 @@ public:
     const std::wstring& value_text() const { return text_; }
     Rect content_bounds() const;
 protected:
+    Progress(std::wstring name, bool ring);
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::progress; }
     StyleStateMask control_style_state_bits() const override;
 private:
     NumericRange range_;
     double value_{};
     ProgressState state_{ProgressState::determinate};
+    bool ring_{};
     std::wstring text_;
+    unsigned duration_{};
+    double presented_{}, start_{};
+    ScalarTransition transition_{1};
+};
+
+class ProgressRing final : public Progress {
+public:
+    explicit ProgressRing(std::wstring name = L"Progress") : Progress(std::move(name), true) {}
 };
 
 // Composition retains two independent keyboard/UIA Button targets.

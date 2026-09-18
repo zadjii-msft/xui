@@ -16,9 +16,10 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 ## Implementation context
 
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
-- [Native architecture](architecture.md): Window hosting, drawing, accessibility, lists, and worker ownership.
-- [Test coverage and protocols](testing.md): Regression scope, release-package checks, fixture behavior, and measurement methods.
-- [WinUI maintainer handoff](winui-maintainer-handoff.md): Source ownership, fidelity gaps, and regression procedures.
+- [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
+- [Test coverage and protocols](testing.md): Regression scope, sample and Designer release checks, fixture behavior, and measurement methods.
+- [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.

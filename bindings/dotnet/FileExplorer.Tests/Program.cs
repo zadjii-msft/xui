@@ -19,6 +19,7 @@ internal static class Program
             ColumnTests(fixture);
             PaneTests(fixture);
             TabCommandTests(fixture);
+            assertions += TabDragTests.Run(fixture);
             StateTests(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
             return 0;

@@ -4,8 +4,9 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal sealed class ExplorerApplication : IDisposable
+internal sealed partial class ExplorerApplication : IDisposable
 {
+    private readonly ExplorerWindows windows;
     private readonly AppStateStore store;
     private readonly Label notification;
     private readonly SplitView split;
@@ -18,62 +19,82 @@ internal sealed class ExplorerApplication : IDisposable
     private bool disposed;
     private string? iconPath;
 
-    public ExplorerApplication(Application application, PreviewController preview, string initialPath, bool smoke = false)
+    public ExplorerApplication(ExplorerWindows windows, Application application, PreviewController preview, string initialPath, bool smoke = false)
     {
+        this.windows = windows;
         Application = application;
         Preview = preview;
         this.smoke = smoke;
         initialPath = FileSystemService.ResolvePath(initialPath, Environment.CurrentDirectory);
         Window = application.CreateWindow("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
-        Work = new(Window);
-        Files = new();
-        store = smoke ? new(Path.Combine(Environment.CurrentDirectory, ".file-explorer-smoke-state", "state.json")) : new();
-        string startupMessage = "";
         try
         {
-            State = store.Load();
-            stateWritable = true;
+            Work = new(Window);
+            Files = new();
+            store = smoke ? new(Path.Combine(Environment.CurrentDirectory, ".file-explorer-smoke-state", "state.json")) : new();
+            string startupMessage = "";
+            try
+            {
+                State = store.Load();
+                stateWritable = true;
+            }
+            catch (Exception error) when (UiWork.IsExpected(error))
+            {
+                State = new();
+                startupMessage = $"Saved state was not loaded: {error.Message} Bookmarks will not be saved until you repair state.json and restart.";
+            }
+            Left = new(this, 1, initialPath, Window.TitlebarTabs);
+            Right = new(this, 2, initialPath, Window.TitlebarSecondaryTabs);
+            active = Left;
+            Sidebar = new(this);
+            Palettes = new(this);
+            var layout = new ExplorerLayout(Window, Sidebar.Presentation, Left.Root, Right.Root, startupMessage);
+            notification = layout.Notification;
+            Window.IconErrorHandler = error => Report($"Cannot load the folder window icon: {error}");
+            split = layout.Panes;
+            split.Event += e =>
+            {
+                if (e.Kind != EventKind.View) return;
+                Window.TitlebarSecondaryTabs.Enabled = e.Value != 0;
+                if (e.Value == 0 && ReferenceEquals(Active, Right) && Left.Model.Tabs.Count != 0) Left.Focus();
+            };
+            Window.TitlebarSecondaryTabs.Visible(true).SetEnabled(false);
+            Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
+                .Help("Show or collapse navigation");
+            Window.TitlebarLeading.SetStyle(ExplorerStyles.IconButton);
+            Window.TitlebarLeading.Click += Sidebar.Toggle;
+            Window.SetTitlebarLayout(Left.Root, Right.Root);
+            Commands = CreateCommands();
+            Transfers = new(this);
+            Transfers.Bind(Left);
+            Transfers.Bind(Right);
+            Window.KeyHandler = HandleKey;
+            Window.NavigationHandler = HandleNavigation;
+            Window.TabDragHandler = HandleTabDrag;
+            Window.Closed += _ =>
+            {
+                CloseRequested = true;
+                drag = null;
+                Left.Cancel();
+                Right.Cancel();
+                Work.Dispose();
+                if (!Application.Post(Dispose))
+                    throw new InvalidOperationException("The application rejected Explorer retirement.");
+            };
+            Sidebar.Refresh();
+            UpdateTitle();
         }
-        catch (Exception error) when (UiWork.IsExpected(error))
+        catch
         {
-            State = new();
-            startupMessage = $"Saved state was not loaded: {error.Message} Bookmarks will not be saved until you repair state.json and restart.";
+            Work?.Dispose();
+            Sidebar?.Dispose();
+            Left?.Cancel();
+            Right?.Cancel();
+            Left?.DisposeSources();
+            Right?.DisposeSources();
+            Window.Dispose();
+            throw;
         }
-        Left = new(this, 1, initialPath, Window.TitlebarTabs);
-        Right = new(this, 2, initialPath, Window.TitlebarSecondaryTabs);
-        active = Left;
-        Sidebar = new(this);
-        Palettes = new(this);
-        var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
-        notification = layout.Notification;
-        Window.IconErrorHandler = error => Report($"Cannot load the folder window icon: {error}");
-        split = layout.Panes;
-        split.Event += e =>
-        {
-            if (e.Kind != EventKind.View) return;
-            Window.TitlebarSecondaryTabs.Visible = e.Value != 0;
-            if (e.Value == 0 && ReferenceEquals(Active, Right)) Left.Focus();
-        };
-        Window.TitlebarSecondaryTabs.Visible(false);
-        Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
-            .Help("Show or collapse navigation");
-        Window.TitlebarLeading.SetStyle(ExplorerStyles.IconButton);
-        Window.TitlebarLeading.Click += Sidebar.Toggle;
-        Window.SetTitlebarLayout(Left.Root, Right.Root);
-        Commands = CreateCommands();
-        Transfers = new(this);
-        Transfers.Bind(Left);
-        Transfers.Bind(Right);
-        Window.KeyHandler = HandleKey;
-        Window.NavigationHandler = HandleNavigation;
-        Window.Closed += _ =>
-        {
-            Work.Dispose();
-            if (!Application.Post(Dispose))
-                throw new InvalidOperationException("The application rejected Explorer retirement.");
-        };
-        Sidebar.Refresh();
-        UpdateTitle();
     }
 
     public Window Window { get; }
@@ -90,16 +111,17 @@ internal sealed class ExplorerApplication : IDisposable
     public IReadOnlyList<ExplorerCommand> Commands { get; }
     public FileTransfers Transfers { get; }
     public bool SecondPaneVisible => split.Expanded;
+    internal SplitView Panes => split;
     internal Label Notification => notification;
     internal int FileOpenCount { get; private set; }
     internal string? NewWindowPath { get; private set; }
     internal bool CloseRequested { get; private set; }
     internal bool IsDisposed => disposed;
 
-    public void Run()
+    public void Run(ExplorerSmokeMode smokeMode = ExplorerSmokeMode.Full)
     {
         Left.Navigate(Left.Model.Active.Path);
-        Task? smokeTask = smoke ? ExplorerSmoke.Start(this) : null;
+        Task? smokeTask = smoke ? ExplorerSmoke.Start(this, smokeMode) : null;
         try { Application.Show(Window); Application.Run(); }
         finally
         {
@@ -110,6 +132,7 @@ internal sealed class ExplorerApplication : IDisposable
 
     public void Activate(FilePaneView pane)
     {
+        if (pane.Model.Tabs.Count == 0) return;
         if (ReferenceEquals(active, pane)) return;
         active = pane;
         Sidebar.Refresh();
@@ -148,8 +171,9 @@ internal sealed class ExplorerApplication : IDisposable
     public void ToggleSplit()
     {
         splitOpen = !splitOpen;
+        if (splitOpen) Window.TitlebarSecondaryTabs.Visible(true);
         split.SecondVisible = splitOpen;
-        Window.TitlebarSecondaryTabs.Visible(splitOpen);
+        Window.TitlebarSecondaryTabs.Enabled = splitOpen;
         if (splitOpen)
         {
             InitializeRight();
@@ -167,6 +191,7 @@ internal sealed class ExplorerApplication : IDisposable
     {
         if (rightInitialized) { Right.Refresh(); return; }
         rightInitialized = true;
+        if (Right.Model.Tabs.Count == 0) Right.ResetTabs(Active.Model.Active.Path);
         Right.Navigate(Active.Model.Active.Path);
     }
 
@@ -182,8 +207,9 @@ internal sealed class ExplorerApplication : IDisposable
         if (!splitOpen)
         {
             splitOpen = true;
-            split.SecondVisible = true;
             Window.TitlebarSecondaryTabs.Visible(true);
+            split.SecondVisible = true;
+            Window.TitlebarSecondaryTabs.Enabled = true;
         }
         if (!rightInitialized && ReferenceEquals(destination, Right))
         {
@@ -208,27 +234,23 @@ internal sealed class ExplorerApplication : IDisposable
         splitOpen = false;
         rightInitialized = false;
         split.SecondVisible = false;
-        Window.TitlebarSecondaryTabs.Visible(false);
+        Window.TitlebarSecondaryTabs.Enabled = false;
         Left.Focus();
     }
 
     public void NewWindow(string path)
     {
         NewWindowPath = path;
-        if (smoke) return;
+        ExplorerApplication? created = null;
         try
         {
-            string executable = Environment.ProcessPath ??
-                throw new InvalidOperationException("The explorer executable path is unavailable.");
-            var start = new ProcessStartInfo(executable) { UseShellExecute = false };
-            if (string.Equals(Path.GetFileNameWithoutExtension(executable), "dotnet", StringComparison.OrdinalIgnoreCase))
-                start.ArgumentList.Add(Environment.GetCommandLineArgs()[0]);
-            start.ArgumentList.Add(path);
-            using var process = Process.Start(start) ??
-                throw new InvalidOperationException("The explorer process did not start.");
+            created = windows.Create(path);
+            created.Left.Navigate(created.Left.Model.Active.Path);
+            Application.Show(created.Window);
         }
-        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
+        catch (Exception error) when (error is XuiException or InvalidOperationException || UiWork.IsExpected(error))
         {
+            if (created is not null) RetireWindow(created);
             Report($"Cannot open another explorer window: {error.Message}");
         }
     }
@@ -238,8 +260,9 @@ internal sealed class ExplorerApplication : IDisposable
         if (show && !splitOpen)
         {
             splitOpen = true;
-            split.SecondVisible = true;
             Window.TitlebarSecondaryTabs.Visible(true);
+            split.SecondVisible = true;
+            Window.TitlebarSecondaryTabs.Enabled = true;
             InitializeRight();
         }
         if (!split.Expanded)
@@ -339,10 +362,13 @@ internal sealed class ExplorerApplication : IDisposable
         var pane = Active;
         if (navigation.Position is { } point)
         {
-            if (split.Expanded && (Contains(Right.Root.GetBounds(), point) || Contains(Right.Tabs.GetBounds(), point))) pane = Right;
-            else if (Contains(Left.Root.GetBounds(), point) || Contains(Left.Tabs.GetBounds(), point)) pane = Left;
+            if (Right.Model.Tabs.Count != 0 && split.Expanded
+                && (Contains(Right.Root.GetBounds(), point) || Contains(Right.Tabs.GetBounds(), point))) pane = Right;
+            else if (Left.Model.Tabs.Count != 0
+                && (Contains(Left.Root.GetBounds(), point) || Contains(Left.Tabs.GetBounds(), point))) pane = Left;
         }
-        if (ReferenceEquals(pane, Right) && !split.Expanded) pane = Left;
+        if (ReferenceEquals(pane, Right) && !split.Expanded && Left.Model.Tabs.Count != 0) pane = Left;
+        if (pane.Model.Tabs.Count == 0) return true;
         Activate(pane);
         pane.MoveHistory(navigation.Direction == NavigationDirection.Back ? -1 : 1);
         return true;
@@ -354,6 +380,7 @@ internal sealed class ExplorerApplication : IDisposable
 
     private bool HandleKey(UiKeyEvent key)
     {
+        if (Active.Model.Tabs.Count == 0) return false;
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
@@ -456,5 +483,7 @@ internal sealed class ExplorerApplication : IDisposable
         Right.DisposeSources();
         Window.Dispose();
         disposed = true;
+        drag = null;
+        windows.Forget(this);
     }
 }

@@ -99,6 +99,10 @@ int main() {
         token(document, L"Name", SyntaxKind::other);
         token(document, L"change", SyntaxKind::variable);
         token(document, L": Rename", SyntaxKind::other);
+        document.set_text(L"Reveal(\"Find\", open: FindOpen, duration: 180) { TextInput(\"Query\"); }");
+        token(document, L"Reveal", SyntaxKind::type);
+        token(document, L"open", SyntaxKind::variable);
+        token(document, L"duration", SyntaxKind::variable);
         document.set_text(L"theme(light: 0x005FB8, dark: 0x60CDFF);"
             L" theme(light: 0xFFFFFF, dark: 0x001A26);"
             L" theme(light: 0x004E99, dark: 0x98E0FF);"

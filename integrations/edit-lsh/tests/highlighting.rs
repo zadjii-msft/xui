@@ -73,6 +73,19 @@ fn expect(source: &str, checks: &[(usize, &str, &str)]) {
 }
 
 #[test]
+fn reveal_node_and_arguments() {
+    expect(
+        "view {\nReveal(\"Find\", open: FindOpen, duration: 180) {\nHStack() { TextInput(\"Find\"); }\n}\n}",
+        &[
+            (1, "Reveal", "storage.type"),
+            (1, "open", "variable"),
+            (1, "duration", "variable"),
+            (2, "TextInput", "storage.type"),
+        ],
+    );
+}
+
+#[test]
 fn standalone_registration_and_builtin_compatibility() {
     init();
     let arena = scratch_arena(None);
@@ -170,6 +183,30 @@ component Counter {
             (11, "global", "other"),
         ],
     );
+}
+
+#[test]
+fn winui_parity_controls() {
+    for control in [
+        "ToggleSwitch",
+        "ToggleButton",
+        "ProgressRing",
+        "CheckBox",
+        "HyperlinkButton",
+        "SelectorBar",
+        "InfoBadge",
+        "MenuBar",
+    ] {
+        for indent in ["", "    "] {
+            let source = format!(
+                "component Example {{\n{indent}view {{ VStack() {{\n{indent}{control}(\"Example\");\n{indent}}} }}\n}}"
+            );
+            expect(
+                &source,
+                &[(2, control, "storage.type"), (2, "Example", "string")],
+            );
+        }
+    }
 }
 
 #[test]

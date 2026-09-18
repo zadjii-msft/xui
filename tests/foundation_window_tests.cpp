@@ -4,6 +4,8 @@
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <psapi.h>
+#include <commctrl.h>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -14,6 +16,73 @@ namespace {
 using namespace xui;
 using Microsoft::WRL::ComPtr;
 constexpr UINT metrics = WM_APP + 60, update = WM_APP + 12;
+constexpr UINT trace_message = WM_APP + 61;
+constexpr UINT settle_message = WM_APP + 62;
+HWND automation_host{};
+struct WindowTrace {
+    struct Event { ULONGLONG time; HWND window; UINT message; WPARAM parameter; };
+    std::array<Event, 256> events{};
+    std::size_t count{};
+    LRESULT issued{}, completed{};
+    static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) {
+        auto& trace = *reinterpret_cast<WindowTrace*>(data);
+        if (message == settle_message) {
+            if (wparam == 0) return ++trace.issued;
+            if (wparam == 2) return trace.completed >= lparam;
+            UpdateWindow(hwnd);
+            MSG queued{};
+            if (PeekMessageW(&queued, hwnd, update, update, PM_NOREMOVE)) {
+                if (!PostMessageW(hwnd, settle_message, 1, lparam))
+                    std::cerr << "Could not continue the window queue fence\n";
+            } else trace.completed = lparam;
+            return 0;
+        }
+        if (message == WM_PAINT || message == update || message == WM_ERASEBKGND ||
+            message == WM_WINDOWPOSCHANGED || message == WM_DISPLAYCHANGE || message == WM_TIMER ||
+            message == WM_SIZE || message == WM_DPICHANGED ||
+            message == WM_SHOWWINDOW || message == WM_SETFOCUS || message == WM_KILLFOCUS ||
+            message == WM_MOUSEMOVE || message == WM_MOUSELEAVE || message == WM_ACTIVATE) {
+            trace.events[trace.count++ % trace.events.size()] = {GetTickCount64(), hwnd, message, wparam};
+        }
+        if (message == trace_message) {
+            if (wparam == 2) {
+                MSG queued{};
+                const bool pending = PeekMessageW(&queued, hwnd, update, update, PM_NOREMOVE) != FALSE;
+                trace.events[trace.count++ % trace.events.size()] = {GetTickCount64(), hwnd, trace_message, pending};
+                return 0;
+            }
+            std::cerr << "Host=" << hwnd << " visible=" << IsWindowVisible(hwnd) << " iconic=" << IsIconic(hwnd)
+                << " paints=" << SendMessageW(hwnd, metrics, 0, 0) << " layouts=" << SendMessageW(hwnd, metrics, 2, 0)
+                << " tooltip=" << SendMessageW(hwnd, metrics, 25, 0) << " animation=" << SendMessageW(hwnd, metrics, 37, 0)
+                << " frames=" << SendMessageW(hwnd, metrics, 38, 0) << '\n';
+            const auto first = trace.count > 40 ? trace.count - 40 : 0;
+            for (auto i = first; i < trace.count; ++i) {
+                const auto event = trace.events[i % trace.events.size()];
+                wchar_t name[128]{}; GetWindowTextW(event.window, name, 128);
+                std::wcerr << event.time << L" hwnd=" << event.window << L" name=" << name << L" msg="
+                    << std::hex << event.message << std::dec << L" param=" << event.parameter << L'\n';
+            }
+            return 0;
+        }
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, procedure, id);
+        return DefSubclassProc(hwnd, message, wparam, lparam);
+    }
+    void attach(HWND hwnd) {
+        if (!SetWindowSubclass(hwnd, procedure, 99, reinterpret_cast<DWORD_PTR>(this)))
+            throw std::runtime_error("Attach owned-window trace");
+    }
+};
+bool settle(HWND hwnd) {
+    // Sent messages and UIA calls can overtake posted updates. Fence the queue, then present its final paint.
+    const auto ticket = SendMessageW(hwnd, settle_message, 0, 0);
+    if (!ticket || !PostMessageW(hwnd, settle_message, 1, ticket)) return false;
+    const auto deadline = GetTickCount64() + 15000;
+    while (IsWindow(hwnd) && GetTickCount64() < deadline) {
+        if (SendMessageW(hwnd, settle_message, 2, ticket)) return true;
+        Sleep(10);
+    }
+    return false;
+}
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
 void success(HRESULT value, const char* message) {
     if (FAILED(value)) throw std::runtime_error(std::string(message) + " HRESULT=" + std::to_string(value));
@@ -39,11 +108,44 @@ ComPtr<IUIAutomationElement> element(IUIAutomation* uia, IUIAutomationElement* r
     const auto hr = uia->CreatePropertyCondition(UIA_AutomationIdPropertyId, value, &condition); VariantClear(&value);
     success(hr, "Create UIA ID condition");
     ComPtr<IUIAutomationElement> result; success(root->FindFirst(TreeScope_Subtree, condition.Get(), &result), "Find UIA element");
-    require(result != nullptr, "UIA ID exists"); return result;
+    if (!result) {
+        std::wcerr << L"Missing UIA ID: " << id << L'\n';
+        ComPtr<IUIAutomationCondition> all;
+        success(uia->CreateTrueCondition(&all), "Create diagnostic UIA condition");
+        ComPtr<IUIAutomationElementArray> nodes;
+        success(root->FindAll(TreeScope_Subtree, all.Get(), &nodes), "Read diagnostic UIA subtree");
+        int length{}; success(nodes->get_Length(&length), "Read diagnostic UIA element count");
+        for (int i = 0; i < length && i < 60; ++i) {
+            ComPtr<IUIAutomationElement> node;
+            success(nodes->GetElement(i, &node), "Read diagnostic UIA element");
+            require(node != nullptr, "Diagnostic UIA element exists");
+            BSTR name{}, automation_id{}; CONTROLTYPEID type{};
+            node->get_CurrentName(&name); node->get_CurrentAutomationId(&automation_id); node->get_CurrentControlType(&type);
+            std::wcerr << L"  UIA name=" << (name ? name : L"") << L" id=" << (automation_id ? automation_id : L"") << L" type=" << type << L'\n';
+            SysFreeString(name); SysFreeString(automation_id);
+        }
+        EnumChildWindows(automation_host, [](HWND child, LPARAM) -> BOOL {
+            wchar_t name[128]{}; GetWindowTextW(child, name, 128);
+            std::wcerr << L"  HWND=" << child << L" name=" << name << L" visible=" << IsWindowVisible(child) << L'\n';
+            return TRUE;
+        }, 0);
+        SendMessageW(automation_host, trace_message, 0, 0);
+        throw std::runtime_error("UIA ID exists");
+    }
+    return result;
 }
 void run_window(ThemeMode theme, UINT dpi) {
+    WindowTrace trace;
     Window window({L"XUI foundation contracts", {740, 700}, theme});
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_spacing(4); root->set_padding({10, 10, 10, 10});
+    auto additions = std::make_shared<Stack>(Axis::horizontal); additions->set_spacing(12);
+    auto toggle_switch = std::make_shared<ToggleSwitch>(L"Switch"); toggle_switch->set_automation_id(L"switch");
+    auto toggle_button = std::make_shared<ToggleButton>(L"Toggle button"); toggle_button->set_automation_id(L"toggle-button");
+    auto ring = std::make_shared<ProgressRing>(L"Ring"); ring->set_automation_id(L"ring"); ring->set_fixed_size({48, 48});
+    auto unknown_ring = std::make_shared<ProgressRing>(L"Unknown ring"); unknown_ring->set_automation_id(L"unknown-ring");
+    unknown_ring->set_state(ProgressState::unknown); unknown_ring->set_fixed_size({48, 48});
+    additions->add(toggle_switch); additions->add(toggle_button); additions->add(ring); additions->add(unknown_ring);
+    root->add(additions);
     auto radio = std::make_shared<RadioGroup>(L"Radio"); radio->set_automation_id(L"radio"); radio->set_preferred_size({320, 102});
     radio->set_items({{10, L"Alpha"}, {20, L"Disabled", false}, {30, L"Beta"}}, 10); root->add(radio);
     auto combo = std::make_shared<ComboBox>(L"Combo"); combo->set_automation_id(L"combo");
@@ -62,7 +164,9 @@ void run_window(ThemeMode theme, UINT dpi) {
     window.set_content(root);
     std::atomic<bool> native_done{}, driver_done{};
     std::wstring driver_error;
-    int repeat_count{}, commits{};
+    int repeat_count{}, commits{}, switch_changes{}, button_toggles{};
+    toggle_switch->on_change([&](bool) { ++switch_changes; });
+    toggle_button->on_toggle([&](bool) { ++button_toggles; });
     repeat->on_click([&] { ++repeat_count; });
     range->on_change([&](double) { ++commits; });
     window.on_key([&](const KeyEvent& key) {
@@ -75,6 +179,62 @@ void run_window(ThemeMode theme, UINT dpi) {
         rect.right = rect.left + MulDiv(rect.right - rect.left, dpi, actual_dpi);
         rect.bottom = rect.top + MulDiv(rect.bottom - rect.top, dpi, actual_dpi);
         SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect)); flush(hwnd);
+        const auto switch_hwnd = native(hwnd, L"Switch"), toggle_hwnd = native(hwnd, L"Toggle button");
+        require(window.focus(*toggle_switch), "Switch receives native keyboard focus");
+        SendMessageW(switch_hwnd, WM_KEYDOWN, VK_SPACE, 0);
+        SendMessageW(switch_hwnd, WM_KEYUP, VK_SPACE, 0);
+        require(toggle_switch->checked() && switch_changes == 1, "Native switch Space changes checked once");
+        SendMessageW(switch_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
+        require(GetCapture() == switch_hwnd, "Switch owns native pointer capture");
+        SendMessageW(switch_hwnd, WM_CANCELMODE, 0, 0);
+        SendMessageW(switch_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
+        require(toggle_switch->checked() && switch_changes == 1 && GetCapture() != switch_hwnd,
+            "Cancelled switch capture does not change checked");
+        window.focus(*toggle_button);
+        SendMessageW(toggle_hwnd, WM_KEYDOWN, VK_RETURN, 0);
+        require(toggle_button->checked() && button_toggles == 1, "Native ToggleButton Enter toggles once");
+        toggle_button->set_enabled(false); flush(hwnd);
+        SendMessageW(toggle_hwnd, WM_KEYDOWN, VK_RETURN, 0);
+        require(button_toggles == 1 && !window.focus(*toggle_button), "Disabled ToggleButton rejects native input and focus");
+        toggle_button->set_enabled(true);
+        require(!window.focus(*ring), "ProgressRing is not a keyboard target");
+        BOOL animation{};
+        require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) != FALSE, "Read system animation policy");
+        flush(hwnd);
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Ring scheduler follows system reduced animation policy");
+        const auto frames = SendMessageW(hwnd, metrics, 38, 0);
+        Sleep(30); SendMessageW(hwnd, WM_TIMER, 44, 0); UpdateWindow(hwnd);
+        require(SendMessageW(hwnd, metrics, 38, 0) == frames + (animation ? 1 : 0),
+            "Visible ring advances only when system animation is enabled");
+        ring->set_visible(false);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Hiding the last active ring immediately stops its timer");
+        ring->set_visible(true); flush(hwnd);
+        ring->set_enabled(false);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabling a ring immediately stops its timer");
+        ring->set_enabled(true); flush(hwnd);
+        ring->set_state(ProgressState::paused);
+        auto transient_ring = std::make_shared<ProgressRing>(L"Transient ring");
+        auto ring_popup = std::make_shared<Popup>(transient_ring);
+        window.show_popup(ring_popup, *toggle_switch); flush(hwnd);
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Attached popup ring participates in animation");
+        ring_popup->set_enabled(false); flush(hwnd);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabled ring ancestor stops animation");
+        window.dismiss_popup(*ring_popup); flush(hwnd);
+        transient_ring->set_value(10);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Detached retained rings have no scheduled animation");
+        ring->set_state(ProgressState::indeterminate); flush(hwnd);
+        ShowWindow(hwnd, SW_HIDE);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Hidden owner stops progress animation");
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE); flush(hwnd);
+        EnableWindow(hwnd, FALSE);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabled owner stops progress animation");
+        EnableWindow(hwnd, TRUE); flush(hwnd);
+        ShowWindow(hwnd, SW_MINIMIZE);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Minimized owner stops progress animation");
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE); flush(hwnd);
+        ring->set_state(ProgressState::paused);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Paused ring has no timer");
+        ring->set_state(ProgressState::determinate); ring->set_value(50); flush(hwnd);
         const auto radio_hwnd = native(hwnd, L"Radio"), range_hwnd = native(hwnd, L"Range");
         require(window.focus(*radio), "Radio receives keyboard focus");
         SendMessageW(radio_hwnd, WM_KEYDOWN, VK_DOWN, 0);
@@ -195,10 +355,12 @@ void run_window(ThemeMode theme, UINT dpi) {
         SendMessageW(repeat_hwnd, WM_TIMER, 42, 0);
         require(repeat_count == 2, "Release has no extra repeat");
         progress->set_state(ProgressState::indeterminate); flush(hwnd);
-        const auto paints = SendMessageW(hwnd, metrics, 0, 0);
-        Sleep(150); flush(hwnd);
-        // flush deliberately requests a paint; the posted updates must settle afterward.
-        require(SendMessageW(hwnd, metrics, 0, 0) <= paints + 1, "Static indeterminate has no animation loop");
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Linear indeterminate uses the same owned timer");
+        progress->set_state(ProgressState::unknown); flush(hwnd);
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Unknown progress and rings remain static");
+        const auto idle_frames = SendMessageW(hwnd, metrics, 38, 0);
+        SendMessageW(hwnd, WM_TIMER, 44, 0);
+        require(SendMessageW(hwnd, metrics, 38, 0) == idle_frames, "Late timer delivery cannot advance static progress");
         SendMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0);
         // A recreated target can itself be lost before presentation. Check recovery on subsequent frames.
         for (int attempt = 0; attempt < 3 && Drawing::live_targets() != 1; ++attempt) {
@@ -207,6 +369,10 @@ void run_window(ThemeMode theme, UINT dpi) {
         }
         require(Drawing::live_targets() == 1, "Foundation controls survive target recreation");
         progress->set_state(ProgressState::determinate);
+        trace.attach(hwnd);
+        EnumChildWindows(hwnd, [](HWND child, LPARAM data) -> BOOL {
+            reinterpret_cast<WindowTrace*>(data)->attach(child); return TRUE;
+        }, reinterpret_cast<LPARAM>(&trace));
         native_done = true; return true;
     });
     std::jthread driver([&] {
@@ -221,6 +387,7 @@ void run_window(ThemeMode theme, UINT dpi) {
         PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0);
         while (!native_done && IsWindow(hwnd) && GetTickCount64() < deadline) Sleep(10);
         if (!native_done) { driver_error = L"Native phase failed"; PostMessageW(hwnd, WM_CLOSE, 0, 0); return; }
+        if (!settle(hwnd)) { driver_error = L"Native queue did not settle"; PostMessageW(hwnd, WM_CLOSE, 0, 0); return; }
         wchar_t executable[32768]{}; GetModuleFileNameW(nullptr, executable, 32768);
         std::wstring command = L"\"" + std::wstring(executable) + L"\" --automation " +
             std::to_wstring(reinterpret_cast<std::uintptr_t>(hwnd)) + L" " +
@@ -242,6 +409,7 @@ void run_window(ThemeMode theme, UINT dpi) {
     require(result == 0 && driver_done, "Native foundation window and UIA contracts pass");
 }
 void automation(HWND hwnd, ThemeMode theme, UINT dpi) {
+    automation_host = hwnd;
     success(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Initialize automation client");
     struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
             ComPtr<IUIAutomation> uia; success(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&uia)), "Create automation");
@@ -284,12 +452,40 @@ void automation(HWND hwnd, ThemeMode theme, UINT dpi) {
             success(capacity->GetCurrentPatternAs(UIA_RangeValuePatternId, IID_PPV_ARGS(&capacity_value)), "Capacity exposes value");
             BOOL read_only{}; capacity_value->get_CurrentIsReadOnly(&read_only);
             require(read_only && FAILED(capacity_value->SetValue(30)), "Capacity is read-only");
-            Sleep(150);
+            for (const auto* id : {L"switch", L"toggle-button"}) {
+                auto control = element(uia.Get(), host.Get(), id);
+                ComPtr<IUIAutomationTogglePattern> toggle;
+                success(control->GetCurrentPatternAs(UIA_TogglePatternId, IID_PPV_ARGS(&toggle)), "New toggles expose UIA Toggle");
+                ToggleState before{}, after{};
+                success(toggle->get_CurrentToggleState(&before), "Read UIA checked state");
+                success(toggle->Toggle(), "Invoke UIA Toggle action");
+                success(toggle->get_CurrentToggleState(&after), "Read changed UIA checked state");
+                require(before != after, "UIA action changes checked state");
+            }
+            auto ring_element = element(uia.Get(), host.Get(), L"ring");
+            ComPtr<IUIAutomationRangeValuePattern> ring_value;
+            success(ring_element->GetCurrentPatternAs(UIA_RangeValuePatternId, IID_PPV_ARGS(&ring_value)), "Determinate ring exposes RangeValue");
+            double current{}; ring_value->get_CurrentValue(&current); ring_value->get_CurrentIsReadOnly(&read_only);
+            require(read_only && current == 50 && FAILED(ring_value->SetValue(30)), "Ring range is read-only and reports its value");
+            auto unknown_element = element(uia.Get(), host.Get(), L"unknown-ring");
+            ComPtr<IUIAutomationRangeValuePattern> unknown_value;
+            require(FAILED(unknown_element->GetCurrentPatternAs(UIA_RangeValuePatternId, IID_PPV_ARGS(&unknown_value))) || !unknown_value,
+                "Unknown ring does not expose a fabricated range value");
+            require(settle(hwnd), "UIA action queue settles before measuring idle paints");
+            SendMessageW(hwnd, trace_message, 2, 0);
+            require(!SendMessageW(hwnd, metrics, 37, 0), "Static controls have no animation timer during UIA idle");
+            const auto idle_frames = SendMessageW(hwnd, metrics, 38, 0);
             const auto settled = SendMessageW(hwnd, metrics, 0, 0);
             Sleep(250);
-            require(SendMessageW(hwnd, metrics, 0, 0) == settled, "Idle controls issue no paints");
+            const auto idle = SendMessageW(hwnd, metrics, 0, 0);
+            if (idle != settled) {
+                std::cerr << "Idle paint change " << settled << " -> " << idle << '\n';
+                SendMessageW(hwnd, trace_message, 0, 0);
+            }
+            require(idle == settled, "Idle controls issue no paints");
+            require(SendMessageW(hwnd, metrics, 38, 0) == idle_frames, "Static controls advance no animation frames");
             const auto peers = SendMessageW(hwnd, metrics, 14, 0);
-            require(peers < 30 && SendMessageW(hwnd, metrics, 24, 0) == 0, "Dismissed peers are reclaimed");
+            require(peers < 36 && SendMessageW(hwnd, metrics, 24, 0) == 0, "Dismissed peers are reclaimed");
             DWORD process_id{}; GetWindowThreadProcessId(hwnd, &process_id);
             const auto process = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, process_id);
             std::cout << "Theme=" << static_cast<int>(theme) << " DPI=" << dpi << " settled peers=" << peers

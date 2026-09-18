@@ -1,6 +1,247 @@
 use super::*;
 use std::cell::Cell;
 #[test]
+fn tab_animation_duration() -> Result<()> {
+    let window = Window::with_titlebar("Tab motion", 400., 300.)?;
+    let tabs = window.tab_strip("Tabs")?;
+    assert_eq!(tabs.duration()?, 0);
+    let button = tabs.new_tab_button()?;
+    tabs.set_new_tab_button_visible(true)?;
+    for value in [0, 180, 10000] {
+        tabs.set_duration(value)?;
+        assert_eq!(tabs.duration()?, value);
+    }
+    for value in [10001, u32::MAX] {
+        assert_eq!(tabs.set_duration(value).unwrap_err().status, 1);
+        assert_eq!(tabs.duration()?, 10000);
+    }
+    tabs.set_duration(180)?;
+    let choices = [
+        Choice { id: 11, text: "First".into(), enabled: true, version: 0 },
+        Choice { id: 22, text: "Inserted".into(), enabled: true, version: 0 },
+    ];
+    tabs.set_items(&choices[..1], Some(11))?;
+    tabs.set_items(&choices, Some(22))?;
+    tabs.set_items(&[choices[1].clone(), choices[0].clone()], Some(22))?;
+    tabs.set_items(&choices, Some(22))?;
+    assert_eq!(tabs.new_tab_button()?.handle, button.handle);
+    tabs.set_items(&choices[..1], Some(11))?;
+    assert_eq!(tabs.duration()?, 180);
+    unsafe {
+        assert_eq!(sys::xui_tab_get_duration(tabs.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_tab_set_duration(button.handle, 180), 0);
+        let mut value = 0;
+        assert_ne!(sys::xui_tab_get_duration(button.handle, &mut value), 0);
+        assert_ne!(sys::xui_tab_set_duration(0, 180), 0);
+    }
+    Ok(())
+}
+#[test]
+fn reveal_contract() -> Result<()> {
+    let window = Window::new("Reveal", 300., 300.)?;
+    let child = window.stack(Axis::Horizontal)?;
+    let input = window.text_input("Find")?;
+    child.add(&input, 1.)?;
+    let host = window.reveal(&child, "Find host")?;
+    assert!(!host.open()? && !host.animating()?);
+    assert_eq!(host.duration()?, 0);
+    assert_eq!(host.progress()?, 0.);
+    assert_eq!(host.layout()?, RevealLayout::Fixed);
+    assert_eq!(host.direction()?, RevealDirection::Bottom);
+    host.set_open(true)?;
+    assert!(host.open()? && !host.animating()?);
+    assert_eq!(host.progress()?, 1.);
+    host.set_open(false)?;
+    assert_eq!(host.progress()?, 0.);
+    for duration in [0, 180, 10000] {
+        host.set_duration(duration)?;
+        assert_eq!(host.duration()?, duration);
+    }
+    for duration in [10001, u32::MAX] {
+        assert_eq!(host.set_duration(duration).unwrap_err().status, 1);
+        assert_eq!(host.duration()?, 10000);
+    }
+    for layout in [RevealLayout::Fixed, RevealLayout::Expand] {
+        host.set_layout(layout)?;
+        assert_eq!(host.layout()?, layout);
+    }
+    for direction in [RevealDirection::Bottom, RevealDirection::Top, RevealDirection::Left, RevealDirection::Right] {
+        host.set_direction(direction)?;
+        assert_eq!(host.direction()?, direction);
+    }
+    host.set_open(true)?;
+    assert!(host.animating()?);
+    unsafe {
+        for layout in [2, u32::MAX] {
+            assert_eq!(sys::xui_reveal_set_layout(host.handle, layout), 1);
+            assert_eq!(host.layout()?, RevealLayout::Expand);
+        }
+        for direction in [4, u32::MAX] {
+            assert_eq!(sys::xui_reveal_set_direction(host.handle, direction), 1);
+            assert_eq!(host.direction()?, RevealDirection::Right);
+        }
+    }
+    assert!(host.animating()?);
+    assert_eq!(host.progress()?, 0.);
+    host.set_layout(RevealLayout::Fixed)?;
+    assert!(!host.animating()?);
+    assert_eq!(host.progress()?, 1.);
+    host.set_open(false)?;
+    host.set_direction(RevealDirection::Bottom)?;
+    assert!(!host.animating()?);
+    assert_eq!(host.progress()?, 0.);
+    assert!(window.reveal(&child, "Duplicate").is_err());
+    let other = Window::new("Other", 300., 300.)?;
+    assert!(other.reveal(&host, "Foreign").is_err());
+    let root = window.stack(Axis::Vertical)?;
+    root.add(&host, 0.)?;
+    assert!(root.add(&child, 0.).is_err());
+    assert!(host.weak().upgrade().is_some());
+    unsafe {
+        assert_eq!(sys::xui_reveal_set_open(host.handle, 2), 1);
+        assert_eq!(sys::xui_reveal_get_open(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_duration(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_progress(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_animating(host.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_reveal_set_open(input.handle, 1), 0);
+        assert_ne!(sys::xui_reveal_set_duration(input.handle, 180), 0);
+        assert_eq!(sys::xui_reveal_get_layout(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_direction(host.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_reveal_set_layout(input.handle, 1), 0);
+        assert_ne!(sys::xui_reveal_set_direction(input.handle, 1), 0);
+        let mut handle = u64::MAX;
+        assert_eq!(sys::xui_reveal_create(window.0.handle, other.stack(Axis::Vertical)?.handle,
+            text("Foreign")?, &mut handle), 1);
+        assert_eq!(handle, 0);
+        assert_eq!(sys::xui_reveal_create(window.0.handle, child.handle,
+            text("Missing output")?, std::ptr::null_mut()), 1);
+        let candidate = window.stack(Axis::Vertical)?;
+        assert_eq!(sys::xui_reveal_create(window.0.handle, candidate.handle,
+            sys::Text { data: std::ptr::null(), length: 1, reserved: 0 }, &mut handle), 1);
+        assert_eq!(handle, 0);
+        window.reveal(&candidate, "After invalid name")?;
+    }
+    Ok(())
+}
+
+#[test]
+fn parity_controls() -> Result<()> {
+    let window = Window::new("Parity controls", 400., 300.)?;
+    let check = window.check_box("Check")?;
+    let link = window.hyperlink_button("Open")?;
+    let selector = window.selector_bar("Pages")?;
+    let badge = window.info_badge("Notifications")?;
+    let menu = window.menu_bar("Menu")?;
+    assert_eq!(check.state()?, CheckState::Unchecked);
+    assert!(!check.three_state()?);
+    assert_eq!(selector.selected()?, None);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Dot);
+    assert_eq!(badge.count()?, 0);
+    assert_eq!(badge.icon()?, ButtonIcon::None);
+    let changes = Rc::new(Cell::new(0));
+    let observed = changes.clone();
+    check.on_change(move |value| { assert_eq!(value, CheckState::Checked); observed.set(observed.get() + 1); Ok(()) })?;
+    check.set_three_state(true)?;
+    check.set_state(CheckState::Indeterminate)?;
+    assert_eq!(check.state()?, CheckState::Indeterminate);
+    assert_eq!(changes.get(), 0);
+    check.set_state(CheckState::Unchecked)?; check.invoke()?;
+    assert_eq!(changes.get(), 1);
+    let clicks = Rc::new(Cell::new(0));
+    let observed = clicks.clone();
+    link.on_click(move || { observed.set(observed.get() + 1); Ok(()) })?;
+    link.invoke()?; assert_eq!(clicks.get(), 1);
+    link.set_icon(ButtonIcon::Open)?; assert_eq!(link.icon()?, ButtonIcon::Open);
+    let items = [
+        Choice { id: 1, text: "First".into(), enabled: true, version: 0 },
+        Choice { id: 2, text: "Second".into(), enabled: true, version: 0 },
+        Choice { id: 3, text: "Disabled".into(), enabled: false, version: 0 },
+    ];
+    let selections = Rc::new(Cell::new(0));
+    let observed = selections.clone();
+    selector.on_change(move |id| { assert_eq!(id, 1); observed.set(observed.get() + 1); Ok(()) })?;
+    selector.set_items(&items, Some(2))?;
+    assert_eq!(selector.selected()?, Some(2));
+    assert!(selector.set_items(&items, Some(3)).is_err());
+    assert!(selector.set_selected(99).is_err());
+    assert_eq!(selector.selected()?, Some(2));
+    selector.set_items(&items, None)?; assert_eq!(selector.selected()?, Some(2));
+    selector.select(1)?; assert_eq!(selector.selected()?, Some(1));
+    selector.set_items(&[], None)?; assert_eq!(selector.selected()?, None);
+    selector.set_items(&items, Some(2))?;
+    assert_eq!(selections.get(), 1);
+    badge.set_count(u32::MAX)?; assert_eq!(badge.count()?, u32::MAX);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Count);
+    badge.set_icon(ButtonIcon::Open)?; assert_eq!(badge.icon()?, ButtonIcon::Open);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Icon);
+    badge.set_dot()?; assert_eq!(badge.kind()?, InfoBadgeKind::Dot);
+    let mut commands = vec![
+        Command { id: 1, parent: 0, label: "File".into(), kind: CommandKind::Submenu,
+            enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+        Command { id: 2, parent: 1, label: "Open".into(), kind: CommandKind::Action,
+            enabled: true, checked: None, shortcut_hint: "Ctrl+O".into(), pin_label: "Pin".into() },
+    ];
+    let invokes = Rc::new(Cell::new(0));
+    let observed = invokes.clone();
+    menu.on_invoke(move |id| { assert_eq!(id, 2); observed.set(observed.get() + 1); Ok(()) })?;
+    menu.set_commands(&commands)?; menu.invoke(2, false)?;
+    assert_eq!(invokes.get(), 1);
+    commands[1].parent = 99; assert!(menu.set_commands(&commands).is_err());
+    menu.invoke(2, false)?; assert_eq!(invokes.get(), 2);
+    let pins = Rc::new(Cell::new(0));
+    let observed = pins.clone();
+    menu.on_pin(move |id| { assert_eq!(id, 2); observed.set(observed.get() + 1); Ok(()) })?;
+    menu.invoke(2, true)?; assert_eq!(pins.get(), 1);
+    menu.bind(2, b'O' as u32, KeyModifiers { control: true, ..Default::default() })?;
+    check.unsubscribe()?; link.unsubscribe()?; selector.unsubscribe()?; menu.unsubscribe()?;
+    check.invoke()?; link.invoke()?; selector.select(1)?; menu.invoke(2, false)?;
+    assert_eq!(changes.get(), 1); assert_eq!(clicks.get(), 1);
+    assert_eq!(selections.get(), 1); assert_eq!(invokes.get(), 2);
+    menu.set_commands(&[])?; assert!(menu.invoke(2, false).is_err());
+    Ok(())
+}
+
+#[test]
+fn toggle_controls() -> Result<()> {
+    let window = Window::new("Toggle controls", 400., 300.)?;
+    let toggle = window.toggle_switch("Enabled")?;
+    let button = window.toggle_button("Bold")?;
+    let ring = window.progress_ring("Loading")?;
+    assert!(!toggle.checked()? && !button.checked()?);
+    assert_eq!(ring.state()?, ProgressState::Indeterminate);
+    assert_eq!(window.progress("Progress")?.state()?, ProgressState::Determinate);
+    let changes = Rc::new(Cell::new(0));
+    let observed = changes.clone();
+    toggle.on_change(move |value| { assert!(!value); observed.set(observed.get() + 1); Ok(()) })?;
+    let toggles = Rc::new(Cell::new(0));
+    let observed = toggles.clone();
+    button.on_toggle(move |value| { assert!(!value); observed.set(observed.get() + 1); Ok(()) })?;
+    toggle.set_checked(true)?; button.set_checked(true)?;
+    assert_eq!(changes.get(), 0); assert_eq!(toggles.get(), 0);
+    toggle.invoke()?; button.invoke()?;
+    assert!(!toggle.checked()? && !button.checked()?);
+    assert_eq!(changes.get(), 1); assert_eq!(toggles.get(), 1);
+    toggle.unsubscribe()?; button.unsubscribe()?;
+    toggle.invoke()?; button.invoke()?;
+    assert!(toggle.checked()? && button.checked()?);
+    assert_eq!(changes.get(), 1); assert_eq!(toggles.get(), 1);
+    button.set_icon(ButtonIcon::Open)?;
+    assert_eq!(button.icon()?, ButtonIcon::Open);
+    for (control, target) in [(&*toggle, StyleTarget::Toggle), (&*button, StyleTarget::Button), (&*ring, StyleTarget::Progress)] {
+        let style = ControlStyle::new(target, &[], &[], None)?;
+        control.set_control_style(Some(&style))?;
+    }
+    ring.set_range(NumericRange { minimum: 100., maximum: 200., small_step: 1., large_step: 10. })?;
+    ring.set_value(150.)?; ring.set_state(ProgressState::Paused)?;
+    assert_eq!(ring.value()?, 150.); assert_eq!(ring.state()?, ProgressState::Paused);
+    ring.set_capacity(25., 80., "items")?;
+    assert_eq!(ring.value()?, 25.); assert_eq!(ring.range()?.maximum, 80.);
+    assert_eq!(ring.state()?, ProgressState::Determinate);
+    assert!(ring.set_capacity(81., 80., "").is_err());
+    assert_eq!(ring.value()?, 25.);
+    Ok(())
+}
+#[test]
 fn shell_image_and_open_icon() -> Result<()> {
     let window = Window::new("Shell image", 300., 300.)?;
     let image = window.image("Preview")?;

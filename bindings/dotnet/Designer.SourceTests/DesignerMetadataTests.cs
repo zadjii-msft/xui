@@ -33,6 +33,14 @@ internal static class DesignerMetadataTests
                     ItemsView("items", ref: Items);
                     RangeInput("range", ref: Range);
                     Progress("progress", ref: Progress);
+                    ToggleSwitch("switch", checked: false, ref: Switch);
+                    ToggleButton("toggle button", checked: true, ref: ToggleButton);
+                    ProgressRing("ring", ref: Ring);
+                    CheckBox("check", checkState: global::Xui.CheckState.Checked, ref: Check);
+                    HyperlinkButton("link", ref: Link);
+                    SelectorBar("selector", ref: Selector);
+                    InfoBadge("badge", ref: Badge);
+                    MenuBar("menu", ref: Menu);
                 }
             }
         }

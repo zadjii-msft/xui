@@ -132,7 +132,7 @@ jobs:
         with:
           name: release-assets
           path: build/assets
-      - name: Check package consumers and sample archive
+      - name: Check package consumers, sample archives, and Designer
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
@@ -140,6 +140,7 @@ jobs:
         run: |
           .\tests\packages.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
           .\tests\release-samples.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets
+          .\tests\release-designer.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
       - name: Check NativeAOT explorer state and models
         shell: pwsh
         env:

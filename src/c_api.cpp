@@ -9,7 +9,9 @@
 #include "xui/runtime_hosts.hpp"
 #include "xui/data_grid.hpp"
 #include "xui/titlebar.hpp"
+#include "xui/menu_bar.hpp"
 #include "xui/styling.hpp"
+#include "xui/reveal.hpp"
 #include "abi_callbacks.hpp"
 #include <bit>
 #include <atomic>
@@ -100,6 +102,7 @@ struct State {
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
     bool file_dialog_active{};
+    bool tab_drag_dispatching{};
     unsigned callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
@@ -285,7 +288,7 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
 void wire(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     if (!n->input_callbacks_captured) {
-        if (n->kind == XUI_BUTTON && !n->navigation_owned_button)
+        if ((n->kind == XUI_BUTTON || n->kind == XUI_TOGGLE_BUTTON || n->kind == XUI_HYPERLINK_BUTTON) && !n->navigation_owned_button)
             n->prior_callbacks.capture(as<xui::Button>(n).click_callback());
         else if (n->kind == XUI_TEXT_INPUT) {
             const auto& input = as<xui::TextInput>(n);
@@ -324,14 +327,17 @@ void wire(const std::shared_ptr<Node>& n) {
                 (static_cast<uint64_t>(e.alt) << 34));
             return false;
         }); break;
-    case XUI_BUTTON:
+    case XUI_BUTTON: case XUI_TOGGLE_BUTTON: case XUI_HYPERLINK_BUTTON:
         if (n->navigation_owned_button) break;
+        if (n->kind == XUI_TOGGLE_BUTTON)
+            as<xui::Button>(n).on_toggle([weak](bool value) { dispatch(weak, XUI_CHANGE, value); });
         as<xui::Button>(n).on_click([weak] {
         if (auto node = weak.lock())
             if (const auto* prior = node->prior_callbacks.get<callbacks::Action>()) (*prior)();
         dispatch(weak, XUI_CLICK);
     }); break;
-    case XUI_TOGGLE: as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
+    case XUI_TOGGLE: case XUI_TOGGLE_SWITCH:
+        as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
     case XUI_TEXT_INPUT:
         as<xui::TextInput>(n).on_change([weak](const std::wstring& text) {
             if (auto node = weak.lock())
@@ -604,6 +610,132 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
         if (child) child->attached = true;
     });
 }
+namespace { constexpr uint32_t reveal_kind = 106; }
+xui_status XUI_CALL xui_expander_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_EXPANDER);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Invalid expander duration.");
+        as<xui::Expander>(node).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_expander_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::Expander>(get(target, XUI_EXPANDER)).duration();
+    });
+}
+xui_status XUI_CALL xui_expander_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::Expander>(get(target, XUI_EXPANDER)).progress();
+    });
+}
+xui_status XUI_CALL xui_expander_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::Expander>(get(target, XUI_EXPANDER)).animating() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_split_view_set_transition_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_SPLIT_VIEW);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Invalid split transition duration.");
+        as<xui::SplitView>(node).set_transition_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_split_view_get_transition_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).transition_duration();
+    });
+}
+xui_status XUI_CALL xui_split_view_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).progress();
+    });
+}
+xui_status XUI_CALL xui_split_view_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).animating() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_reveal_create(xui_handle window, xui_handle content, xui_string name, xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing output handle."); *result = 0;
+        auto n = get(window, XUI_WINDOW); topology(n->owner);
+        auto child = get(content); same(n, child); content_topology(child);
+        require(child->element && !child->attached, XUI_INVALID_ARGUMENT, "Content must be an unattached element.");
+        auto element = std::make_shared<xui::Reveal>(child->element, decode(name));
+        *result = insert(n->owner, reveal_kind, std::move(element));
+        child->attached = true;
+    });
+}
+xui_status XUI_CALL xui_reveal_set_open(xui_handle target, uint32_t open) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(open <= 1, XUI_INVALID_ARGUMENT, "Open must be zero or one.");
+        as<xui::Reveal>(n).set_open(open != 0);
+    });
+}
+xui_status XUI_CALL xui_reveal_get_open(xui_handle target, uint32_t* open) noexcept {
+    return boundary([&] {
+        require(open, XUI_INVALID_ARGUMENT, "Missing open output.");
+        *open = as<xui::Reveal>(get(target, reveal_kind)).open() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_reveal_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Duration must be between 0 and 10000 milliseconds.");
+        as<xui::Reveal>(n).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_reveal_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::Reveal>(get(target, reveal_kind)).duration();
+    });
+}
+xui_status XUI_CALL xui_reveal_set_layout(xui_handle target, uint32_t layout) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(layout <= XUI_REVEAL_LAYOUT_EXPAND, XUI_INVALID_ARGUMENT, "Invalid Reveal layout.");
+        as<xui::Reveal>(n).set_layout(static_cast<xui::RevealLayout>(layout));
+    });
+}
+xui_status XUI_CALL xui_reveal_get_layout(xui_handle target, uint32_t* layout) noexcept {
+    return boundary([&] {
+        require(layout, XUI_INVALID_ARGUMENT, "Missing layout output.");
+        *layout = static_cast<uint32_t>(as<xui::Reveal>(get(target, reveal_kind)).layout());
+    });
+}
+xui_status XUI_CALL xui_reveal_set_direction(xui_handle target, uint32_t direction) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(direction <= XUI_REVEAL_DIRECTION_RIGHT, XUI_INVALID_ARGUMENT, "Invalid Reveal direction.");
+        as<xui::Reveal>(n).set_direction(static_cast<xui::RevealDirection>(direction));
+    });
+}
+xui_status XUI_CALL xui_reveal_get_direction(xui_handle target, uint32_t* direction) noexcept {
+    return boundary([&] {
+        require(direction, XUI_INVALID_ARGUMENT, "Missing direction output.");
+        *direction = static_cast<uint32_t>(as<xui::Reveal>(get(target, reveal_kind)).direction());
+    });
+}
+xui_status XUI_CALL xui_reveal_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::Reveal>(get(target, reveal_kind)).progress();
+    });
+}
+xui_status XUI_CALL xui_reveal_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::Reveal>(get(target, reveal_kind)).animating() ? 1u : 0u;
+    });
+}
 xui_status XUI_CALL xui_stack_add(xui_handle stack, xui_handle child, float flex) noexcept {
     return boundary([&] {
         auto n = get(stack, XUI_STACK); auto c = get(child); same(n, c); content_topology(n);
@@ -642,7 +774,8 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
             case XUI_AUTO_SIZE:
                 require(n->element && p.integer <= 1, XUI_INVALID_ARGUMENT, "Expected a boolean element property."); break;
             case XUI_CHECKED:
-                require(n->kind == XUI_TOGGLE, XUI_WRONG_KIND, "Checked requires Toggle.");
+                require(n->kind == XUI_TOGGLE || n->kind == XUI_TOGGLE_SWITCH || n->kind == XUI_TOGGLE_BUTTON,
+                    XUI_WRONG_KIND, "Checked requires a toggle control.");
                 require(p.integer <= 1, XUI_INVALID_ARGUMENT, "Expected a boolean."); break;
             case XUI_FIXED_SIZE: case XUI_PREFERRED_SIZE: case XUI_MIN_SIZE: case XUI_MAX_SIZE:
                 require(n->element && std::isfinite(p.a) && std::isfinite(p.b) && p.a >= 0 && p.b >= 0,
@@ -672,7 +805,10 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
             case XUI_NAME: control(n).set_name(std::move(entry.text)); break;
             case XUI_AUTOMATION_ID: control(n).set_automation_id(std::move(entry.text)); break;
             case XUI_ENABLED: control(n).set_enabled(p.integer != 0); break;
-            case XUI_CHECKED: as<xui::Toggle>(n).set_checked(p.integer != 0); break;
+            case XUI_CHECKED:
+                if (n->kind == XUI_TOGGLE_BUTTON) as<xui::Button>(n).set_checked(p.integer != 0);
+                else as<xui::Toggle>(n).set_checked(p.integer != 0);
+                break;
             case XUI_AUTO_SIZE: n->element->set_auto_size(p.integer != 0); break;
             case XUI_FIXED_SIZE: n->element->set_fixed_size({p.a, p.b}); break;
             case XUI_PREFERRED_SIZE: n->element->set_preferred_size({p.a, p.b}); break;
@@ -719,7 +855,9 @@ xui_status XUI_CALL xui_focus(xui_handle target, uint32_t select_all) noexcept {
 xui_status XUI_CALL xui_invoke(xui_handle target) noexcept {
     return boundary([&] {
         auto n = get(target); editable(n->owner);
-        require(n->kind == XUI_BUTTON || n->kind == XUI_TOGGLE, XUI_WRONG_KIND, "Invoke requires Button or Toggle.");
+        require(n->kind == XUI_BUTTON || n->kind == XUI_TOGGLE || n->kind == XUI_TOGGLE_SWITCH || n->kind == XUI_TOGGLE_BUTTON ||
+            n->kind == XUI_CHECK_BOX || n->kind == XUI_HYPERLINK_BUTTON,
+            XUI_WRONG_KIND, "Invoke requires a button or toggle control.");
         require(control(n).invoke(), XUI_INVALID_ARGUMENT, "The control is disabled.");
         callback_result(n->owner);
     });
@@ -792,6 +930,7 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
+#include "c_api_navigation_animation.inc"
 #include "c_api_text.inc"
 #include "c_api_document_editing.inc"
 
@@ -938,7 +1077,7 @@ xui_status XUI_CALL xui_button_try_set_style(xui_handle button,
     xui_handle identity, uint32_t* applied) noexcept {
     return boundary([&] {
         require(applied, XUI_INVALID_ARGUMENT, "Missing style application result."); *applied = 0;
-        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        auto n = get(button); feature<xui::Button>(n); editable(n->owner);
         if (!n->owner->button_styles) return;
         const auto found = n->owner->button_styles->find(identity);
         if (found == n->owner->button_styles->end()) return;
@@ -950,7 +1089,7 @@ xui_status XUI_CALL xui_button_try_set_style(xui_handle button,
 }
 xui_status XUI_CALL xui_button_set_style(xui_handle button, xui_handle style) noexcept {
     return boundary([&] {
-        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        auto n = get(button); feature<xui::Button>(n); editable(n->owner);
         std::shared_ptr<const xui::ButtonStyle> definition;
         xui_handle identity{};
         if (style) {
@@ -964,14 +1103,14 @@ xui_status XUI_CALL xui_button_set_style(xui_handle button, xui_handle style) no
 }
 xui_status XUI_CALL xui_button_set_style_values(xui_handle button, const xui_button_style_values* values) noexcept {
     return boundary([&] {
-        auto n = get(button, XUI_BUTTON); editable(n->owner);
+        auto n = get(button); feature<xui::Button>(n); editable(n->owner);
         auto prepared = read_style_values(values);
         as<xui::Button>(n).set_style_values(std::move(prepared));
     });
 }
 xui_status XUI_CALL xui_button_get_style_values(xui_handle button, uint32_t effective, xui_button_style_values* values) noexcept {
     return boundary([&] {
-        auto n = get(button, XUI_BUTTON); style_record(values);
+        auto n = get(button); feature<xui::Button>(n); style_record(values);
         require(effective <= 1, XUI_INVALID_ARGUMENT, "Invalid Button style value selector.");
         const auto& button_value = as<xui::Button>(n);
         const auto* selected = effective ? button_value.effective_style_values() : &button_value.style_values();
@@ -1323,3 +1462,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 #include "c_api_file_transfer.inc"
 #include "c_api_content.inc"
 #include "c_api_file_dialog.inc"
+#include "c_api_window_drag.inc"

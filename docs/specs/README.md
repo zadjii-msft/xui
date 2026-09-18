@@ -24,7 +24,7 @@ No hosted site is required to read these pages.
 
 ## Start here
 
-- [Packages and deployment](packages.md): NuGet, Cargo, native-only C++ integration, sample archives, and local DLL selection.
+- [Packages and deployment](packages.md): NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, project integration, hot reload, and VS Code or Microsoft Edit syntax support.
 - [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
@@ -34,10 +34,10 @@ No hosted site is required to read these pages.
 
 ## Control contracts
 
-- [Foundation controls](foundation-controls.md): Choices, ranges, numeric inputs, popups, and progress.
+- [Foundation controls](foundation-controls.md): Binary and tri-state choices, selectors, badges, ranges, numeric inputs, popups, and animated progress.
 - [Collections and asynchronous data](collections.md): Virtual lists, grids, trees, Miller columns, selection, and worker delivery.
-- [Context menus, tabs, and input](menus-and-input.md): Native menus, split panes, folder suggestions, and keyboard behavior.
-- [Commands and navigation](commands-and-navigation.md): Command surfaces, palettes, breadcrumbs, Shell commands, and title bars.
+- [Context menus, tabs, and input](menus-and-input.md): Native menus, tab dragging between windows, split panes, folder suggestions, and keyboard behavior.
+- [Commands and navigation](commands-and-navigation.md): Menu bars, command surfaces, palettes, breadcrumbs, Shell commands, and title bars.
 - [Images and thumbnails](images.md): Decode limits, caching, cancellation, and Shell icons.
 - [Documents, dialogs, and color](documents.md): Native editors, syntax highlighting, password access, modal content, and form controls.
 - [Scenes and native hosts](scenes-and-hosts.md): Vector shapes, offline maps, media, and optional web content.
@@ -58,6 +58,7 @@ Public headers and binding source define the available symbols.
 ## Design and technical reports
 
 - [Styles and templates](styling-and-templates-design.md): Application-authored presentation, staged delivery, native-host boundaries, and performance acceptance.
+- [Opt-in animations](animations.md): Four-edge reveals, coordinated layout, split panes, and the animation demo catalog.
 - [WinUI-style design proposal](winui-design-plan.md): Visual targets, implementation stages, and acceptance gates.
 - [Windows GUI memory report](windows-gui-memory.md): Measurement methods, graphics allocations, and the limits of the recorded evidence.
 

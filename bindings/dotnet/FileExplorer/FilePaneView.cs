@@ -25,6 +25,7 @@ internal sealed class FilePaneView
     private readonly List<ColumnPresentation> columnViews = [];
     private bool focusColumnsAfterRender;
     private ExplorerColumn? findColumn;
+    private bool viewEntryPending;
 
     private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
         FileRows Rows, ImmutableSource Source);
@@ -37,10 +38,12 @@ internal sealed class FilePaneView
         Tabs = tabs;
         Tabs.SetAutomationId($"pane-{number}-tabs");
         Tabs.NewTabButtonVisible = true;
+        Tabs.Duration = 180;
         Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         layout = new(window, number, path, attach: false);
+        layout.ViewReveal.Duration = 180;
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
@@ -133,7 +136,7 @@ internal sealed class FilePaneView
         UpdateTabs();
     }
 
-    public ExplorerPane Model { get; }
+    public ExplorerPane Model { get; private set; }
     public Grid Root { get; }
     public TabStrip Tabs { get; }
     internal TabContextMenu TabMenu { get; }
@@ -155,7 +158,10 @@ internal sealed class FilePaneView
     public FileContextMenu ContextMenu { get; }
     public TextInput FindInput => find;
     public Button CloseFindButton => closeFind;
-    public ElementBounds FindBounds => findHost.GetBounds();
+    public Reveal FindReveal => layout.FindReveal;
+    internal Reveal ViewReveal => layout.ViewReveal;
+    public ElementBounds FindBounds => FindReveal.GetBounds();
+    public ElementBounds FindContentBounds => findHost.GetBounds();
     public bool IsLoading { get; private set; }
     public bool IsFiltering { get; private set; }
     public string? Error => error;
@@ -202,6 +208,7 @@ internal sealed class FilePaneView
     public void Activate() => app.Activate(this);
     public void Focus()
     {
+        if (Model.Tabs.Count == 0) return;
         Activate();
         if (IsColumns && Columns.ColumnCount != 0) Columns.FocusColumn(Columns.ActiveColumn);
         else if (!IsColumns) Grid.Focus();
@@ -226,10 +233,33 @@ internal sealed class FilePaneView
         Cancel();
         error = null;
         Model.Active.SetViewMode(mode);
+        viewEntryPending = Model.Active.HasSnapshot;
         focusColumnsAfterRender = mode == ExplorerViewMode.Columns;
         Render();
         if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
         Focus();
+    }
+
+    private void StartViewEntry()
+    {
+        if (!viewEntryPending) return;
+        viewEntryPending = false;
+        bool restoreFocus = FilesFocused;
+        uint duration = ViewReveal.Duration;
+        ViewReveal.Duration = 0;
+        ViewReveal.Open = false;
+        ViewReveal.Direction = IsColumns ? RevealDirection.Right : RevealDirection.Left;
+        ViewReveal.Duration = duration;
+        ViewReveal.Open = true;
+        if (restoreFocus) Focus();
+    }
+
+    private void SettleViewEntry()
+    {
+        if (!ViewReveal.Animating) return;
+        uint duration = ViewReveal.Duration;
+        ViewReveal.Duration = 0;
+        ViewReveal.Duration = duration;
     }
 
     private void ShowViewMenu()
@@ -309,6 +339,8 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        viewEntryPending = false;
+        SettleViewEntry();
         SaveViewport();
         navigation.Cancel();
         navigation.Dispose();
@@ -395,6 +427,45 @@ internal sealed class FilePaneView
 
     internal void CaptureViewport() => SaveViewport();
 
+    internal void SetTransferredModel(ExplorerPane model)
+    {
+        CancelForTransfer();
+        ClearColumns();
+        Model = model;
+        displayedTab = 0;
+        error = null;
+    }
+
+    internal void CancelForTransfer()
+    {
+        Cancel();
+        feedback.Cancel();
+        layout.Feedback.Text = "";
+    }
+
+    internal void RenderTransferredModel()
+    {
+        bool visible = Model.Tabs.Count != 0;
+        SetPaneControlsVisible(visible);
+        if (!visible)
+        {
+            Grid.Visible(false);
+            Columns.Visible(false);
+            SetFindVisible(false);
+            UpdateTabs();
+            return;
+        }
+        Render();
+        if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
+    }
+
+    private void SetPaneControlsVisible(bool visible)
+    {
+        foreach (var control in new Control[] { back, forward, up, Address, layout.Refresh,
+            layout.Commands, layout.ViewMode, layout.Feedback, status })
+            control.Visible(visible);
+    }
+
     internal void ReplaceTabsFrom(FilePaneView source)
     {
         source.SaveViewport();
@@ -408,6 +479,7 @@ internal sealed class FilePaneView
         Cancel();
         ClearColumns();
         Model.ResetTabs(path);
+        SetPaneControlsVisible(true);
         UpdateTabs();
     }
 
@@ -427,6 +499,7 @@ internal sealed class FilePaneView
 
     private void SwitchTab()
     {
+        SetPaneControlsVisible(true);
         bool filesHadFocus = Grid.Focused || Enumerable.Range(0, columnViews.Count)
             .Any(i => Columns.Column((uint)i).Focused);
         Cancel();
@@ -539,6 +612,7 @@ internal sealed class FilePaneView
 
     private void SaveViewport()
     {
+        if (Model.Tabs.Count == 0) return;
         if (displayedTab != Model.Active.Id) return;
         if (IsColumns)
         {
@@ -619,6 +693,7 @@ internal sealed class FilePaneView
 
     private void ApplyFilter()
     {
+        SettleViewEntry();
         if (IsColumns) { ApplyColumnFilter(); return; }
         filtering.Cancel();
         filtering.Dispose();
@@ -650,10 +725,12 @@ internal sealed class FilePaneView
                 Grid.Offset = tab.ScrollOffset;
             }
             finally { rendering = false; }
+            StartViewEntry();
             UpdateStatus(result.Count, entries.Count, query);
         }, failure =>
         {
             IsFiltering = false;
+            viewEntryPending = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
         });
     }
@@ -736,10 +813,12 @@ internal sealed class FilePaneView
                 throw;
             }
             finally { rendering = false; }
+            StartViewEntry();
             UpdateColumnStatus();
         }, failure =>
         {
             IsFiltering = false;
+            viewEntryPending = false;
             error = $"Cannot filter this folder: {failure.Message}";
             status.Text = error;
         });
@@ -768,7 +847,7 @@ internal sealed class FilePaneView
         try
         {
             Tabs.SetTabItems(Model.Tabs.Select(t => new TabEntry(t.Id, TabName(t.Path),
-                ButtonIcon.Folder, t.Path)).ToArray(), Model.Active.Id);
+                ButtonIcon.Folder, t.Path)).ToArray(), Model.Tabs.Count == 0 ? null : Model.Active.Id);
         }
         finally { rendering = prior; }
     }
@@ -791,6 +870,8 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        viewEntryPending = false;
+        SettleViewEntry();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();

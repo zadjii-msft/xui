@@ -72,7 +72,7 @@ inline constexpr std::array entries{
         L"auto range = std::make_shared<RangeInput>(L\"Scale\");\nrange->set_range({0, 100, 5, 20});\nrange->set_orientation(Axis::vertical);\nrange->on_change(apply_scale);"},
     Entry{L"disclosure", L"Layout", L"Collapsible content", L"Collapse optional detail fields while preserving their values and preventing hidden input.",
         L"auto group = std::make_shared<Expander>(L\"Details\", content);\ngroup->set_expanded(false);\ngroup->on_change(handle_disclosure);"},
-    Entry{L"progress", L"Appearance", L"Progress and capacity", L"Show task progress, unknown work, or used capacity without editable controls.",
+    Entry{L"progress", L"Appearance", L"Progress and capacity", L"Read-only task values, animated indeterminate progress, and static capacity meters.",
         L"auto progress = std::make_shared<Progress>(L\"Task\");\nprogress->set_value(40);\nprogress->set_state(ProgressState::indeterminate);\ncapacity->set_capacity(48, 128, L\"GB\");"},
     Entry{L"items", L"Collections", L"Virtual items", L"Browse and select 100,000 items as a list, tiles, or groups.",
         L"auto items = std::make_shared<ItemsView>(L\"Items\");\nitems->set_items(source, full_source);\nitems->set_presentation(ItemsPresentation::tiles);\nitems->set_select_all_scope(SelectAllScope::filtered);\nitems->on_action(handle_inline_action);"},
@@ -131,7 +131,54 @@ inline constexpr std::array entries{
         L"    view->set_columns(std::move(next));\n"
         L"});\n"
         L"view->on_activate(show_activation);\n"
-        L"// Sources expose folder arrows through hierarchy().expandable."}
+        L"// Sources expose folder arrows through hierarchy().expandable."},
+    Entry{L"animations", L"Layout", L"Motion", L"Replay opt-in animations: four reveal directions and coordinated panes with retained native editors.",
+        L"auto editor = std::make_shared<TextInput>(L\"Notes\");\n"
+        L"auto reveal = std::make_shared<Reveal>(editor);\n"
+        L"reveal->set_layout(RevealLayout::expand);\n"
+        L"reveal->set_direction(RevealDirection::bottom);\n"
+        L"reveal->set_duration(180);\n"
+        L"// Mount the reveal, then change its target from an action.\n"
+        L"// reveal->set_open(true);"},
+    Entry{L"feedback-motion", L"Documents", L"Animated feedback", L"Show notices and field validation without replacing the native editor or delaying logical state.",
+        L"auto input = std::make_shared<TextInput>(L\"Name\");\n"
+        L"auto message = std::make_shared<InlineStatus>(L\"Enter a name.\");\n"
+        L"auto validation = std::make_shared<Reveal>(message);\n"
+        L"validation->set_layout(RevealLayout::expand);\n"
+        L"validation->set_duration(180);\n"
+        L"input->on_change([validation](const std::wstring& text) {\n"
+        L"    validation->set_open(text.empty());\n"
+        L"});"},
+    Entry{L"content-motion", L"Layout", L"Animated content states", L"Switch loading, empty, and result content without replacing the native editor.",
+        L"auto note = std::make_shared<TextInput>(L\"Result note\");\n"
+        L"auto results = std::make_shared<Reveal>(note);\n"
+        L"results->set_direction(RevealDirection::right);\n"
+        L"results->set_duration(180);\n"
+        L"// Mount state reveals in the same fixed Grid cell.\n"
+        L"// Close the old state's reveal before opening the new state."},
+    Entry{L"document-motion", L"Documents", L"Animated native documents", L"Move retained plain and rich documents without replacing native editing.",
+        L"auto notes = std::make_shared<MultilineText>(L\"Notes\");\n"
+        L"auto reveal = std::make_shared<Reveal>(notes);\n"
+        L"reveal->set_layout(RevealLayout::expand);\n"
+        L"reveal->set_direction(RevealDirection::top);\n"
+        L"reveal->set_duration(180);\n"
+        L"// Mount once. Change open state without replacing the document."},
+    Entry{L"toggle-switch", L"Input", L"Toggle switch", L"An immediate on/off preference with a switch track and thumb, not a checkbox.",
+        L"auto notifications = std::make_shared<ToggleSwitch>(L\"Send notifications\");\nnotifications->set_checked(true);\nnotifications->on_change(apply_notifications);"},
+    Entry{L"toggle-button", L"Input", L"Toggle button", L"A persistent on/off action with button presentation and accessible checked state.",
+        L"auto pin = std::make_shared<ToggleButton>(L\"Pin preview\");\npin->set_checked(true);\npin->on_toggle(update_pinned);"},
+    Entry{L"progress-ring", L"Appearance", L"Progress ring", L"Circular determinate or indeterminate progress. Hidden indicators stop animation.",
+        L"auto ring = std::make_shared<ProgressRing>(L\"Load preview\");\nring->set_fixed_size({48, 48});\n// The default state is indeterminate.\nring->set_state(ProgressState::determinate);\nring->set_value(40);"},
+    Entry{L"checkbox", L"Input", L"Tri-state checkbox", L"Represent unchecked, checked, and mixed preferences without changing binary toggles.",
+        L"auto check = std::make_shared<CheckBox>(L\"Include attachments\");\ncheck->set_three_state(true);\ncheck->set_state(CheckState::indeterminate);\ncheck->on_change(apply_state);"},
+    Entry{L"hyperlink-button", L"Input", L"Hyperlink button", L"An accessible link invokes an explicit application callback. It never navigates automatically.",
+        L"auto help = std::make_shared<HyperlinkButton>(L\"Learn more\");\nhelp->on_click(show_help);\n// The application decides whether to open a URI."},
+    Entry{L"selector-bar", L"Input", L"Selector bar", L"Compact exclusive choices share stable identities and horizontal keyboard navigation.",
+        L"auto filter = std::make_shared<SelectorBar>(L\"Task filter\");\nfilter->set_items({{1, L\"All\"}, {2, L\"Active\"}, {3, L\"Completed\"}}, 1);\nfilter->on_change(apply_filter);"},
+    Entry{L"info-badge", L"Appearance", L"Info badge", L"Display a dot, count, or icon without adding a keyboard focus stop.",
+        L"auto badge = std::make_shared<InfoBadge>(L\"Unread notifications\");\nbadge->set_count(7);\n// Other presentations:\nbadge->set_dot();\nbadge->set_icon(ButtonIcon::bookmark);"},
+    Entry{L"menu-bar", L"Commands", L"Menu bar", L"Top-level menus share nested command records, access keys, and focus restoration.",
+        L"auto menu = std::make_shared<MenuBar>(L\"Document menu\");\nmenu->set_commands(commands);\n// Root records are submenus; child records are actions.\n// The window owns opening, navigation, and dismissal."}
 };
 inline std::wstring fold(std::wstring text) {
     std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });

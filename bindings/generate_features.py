@@ -150,7 +150,7 @@ for name, kind, category in manifest["controls"]:
         if name not in types:
             continue
         ct = {"range": "NumericRange", "selection": "TextSelection", "color": "RgbaColor"}.get(shape, shape)
-        rt = {"double": "f64", "ulong": "u64", "range": "NumericRange", "selection": "TextSelection",
+        rt = {"double": "f64", "ulong": "u64", "uint": "u32", "range": "NumericRange", "selection": "TextSelection",
               "color": "RgbaColor", "string": "&str"}.get(shape, shape)
         cexpr, rexpr = "", ""
         cg, rg = "", ""
@@ -160,6 +160,9 @@ for name, kind, category in manifest["controls"]:
             cexpr, rexpr, cg, rg = "first: value ? 1u : 0u", "first: value as u64", "v.First != 0", "v.first != 0"
         elif shape == "ulong":
             cexpr, rexpr, cg, rg = "first: value", "first: value", "v.First", "v.first"
+        elif shape == "uint":
+            cexpr, rexpr, cg = "first: value", "first: value as u64", "checked((uint)v.First)"
+            rg = 'u32::try_from(v.first).map_err(|_| invalid("Invalid unsigned integer."))?'
         elif shape == "string":
             cexpr, rexpr = "text: value", "text: text(value)?"
         elif shape == "range":

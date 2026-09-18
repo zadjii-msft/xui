@@ -164,6 +164,7 @@ public:
         if (!commands_.emplace(id, std::move(command)).second)
             throw std::invalid_argument("Duplicate command ID");
     }
+
     const Command& get(unsigned id) const { return commands_.at(id); }
     bool invoke(unsigned id) const {
         const auto& command = get(id);
@@ -176,3 +177,5 @@ private:
 };
 
 }
+
+#include "xui/menu_bar.hpp"

@@ -23,9 +23,9 @@
 ## Choose a control
 
 * [All controls](controls/README.md)
-  * [Basic controls and windows](controls/basic.md)
+  * [Basic controls and toggles](controls/basic.md)
   * [Layout and containers](controls/layout.md)
-  * [Choices and values](controls/choices.md)
+  * [Choices, values, and progress](controls/choices.md)
   * [Collections and data](controls/collections.md)
   * [Commands and menus](controls/commands.md)
   * [Navigation](controls/navigation.md)
@@ -41,6 +41,7 @@
 * [Control styles and resources](control-styling.md)
 * [Control styling inventory](control-styling-inventory.md)
 * [Classic and WinUI appearance](winui-style.md)
+* [Opt-in animations](animations.md)
 * [Foundation controls](foundation-controls.md)
 * [Collections and asynchronous data](collections.md)
 * [Menus, tabs, and input](menus-and-input.md)

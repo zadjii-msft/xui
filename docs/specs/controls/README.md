@@ -216,7 +216,12 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `Element`, `Control` base APIs | [Common properties](basic.md#common-properties) | Base wrappers, no factory | Base wrappers, no factory |
 | `Label` | [Label](basic.md#label) | `Label` | `label` |
 | `Button` and behavior variants | [Button](basic.md#button) | `Button` | `button` |
+| `HyperlinkButton` | [HyperlinkButton](basic.md#hyperlinkbutton) | `HyperlinkButton` | `hyperlink_button` |
 | `Toggle` | [Toggle](basic.md#toggle) | `Toggle` | `toggle` |
+| `CheckBox` | [CheckBox](basic.md#checkbox) | `CheckBox` | `check_box` |
+| `InfoBadge` | [InfoBadge](basic.md#infobadge) | `InfoBadge` | `info_badge` |
+| `ToggleSwitch` | [ToggleSwitch](basic.md#toggleswitch) | `ToggleSwitch` | `toggle_switch` |
+| `ToggleButton` | [ToggleButton](basic.md#togglebutton) | `ToggleButton` | `toggle_button` |
 | `TextInput` and search variant | [TextInput](basic.md#textinput) | `TextInput` | `text_input` |
 | `NativeEditBridge` backend boundary | [NativeEditBridge](basic.md#nativeeditbridge) | No factory | No factory |
 | `Stack` | [Stack](layout.md#stack) | `Stack` | `stack` |
@@ -225,16 +230,19 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `Wrap` | [Wrap](layout.md#wrap) | `Wrap` | `wrap` |
 | `AdaptiveLayout` | [AdaptiveLayout](layout.md#adaptivelayout) | `AdaptiveLayout` | `adaptive_layout` |
 | `ContentView` | [ContentView](layout.md#contentview) | No standalone factory | No standalone factory |
+| `Reveal` | [Reveal](layout.md#reveal) | `Reveal` | `reveal` |
 | `ScrollView` | [ScrollView](layout.md#scrollview) | `ScrollView` | `scroll_view` |
 | `SplitView` | [SplitView](layout.md#splitview) | `SplitView` | `split_view` |
 | `PageView` | [PageView](layout.md#pageview) | `PageView` | `page_view` |
 | `TabStrip` | [TabStrip](layout.md#tabstrip) | `TabStrip` | `tab_strip` |
 | `RadioGroup` | [RadioGroup](choices.md#radiogroup) | `RadioGroup` | `radio_group` |
+| `SelectorBar` | [SelectorBar](choices.md#selectorbar) | `SelectorBar` | `selector_bar` |
 | `ChoiceList` presentation | [ChoiceList](choices.md#choicelist) | Borrowed `ComboBox.Choices` | Borrowed `ComboBox::choices` |
 | `ComboBox` | [ComboBox](choices.md#combobox) | `ComboBox` | `combo_box` |
 | `NumericInput` | [NumericInput](choices.md#numericinput) | `NumericInput` | `numeric_input` |
 | `RangeInput` | [RangeInput](choices.md#rangeinput) | `RangeInput` | `range_input` |
 | `Progress` | [Progress](choices.md#progress) | `Progress` | `progress` |
+| `ProgressRing` | [ProgressRing](choices.md#progressring) | `ProgressRing` | `progress_ring` |
 | `Expander` | [Expander](choices.md#expander) | `Expander` | `expander` |
 | `SplitButton` | [SplitButton](choices.md#splitbutton) | `SplitButton` | `split_button` |
 | `Popup` | [Popup](choices.md#popup) | `Popup` | `popup` |
@@ -260,6 +268,7 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `ViewPicker` facade | [ViewPicker](navigation.md#viewpicker) | `ViewPicker` | `view_picker` |
 | `CommandMenu` | [CommandMenu](commands.md#commandmenu) | Borrowed `CommandSurface.Menu`, no factory | Borrowed `CommandSurface::menu`, no factory |
 | `CommandBar` | [CommandBar](commands.md#commandbar) | `CommandBar` | `command_bar` |
+| `MenuBar` | [MenuBar](commands.md#menubar) | `MenuBar` | `menu_bar` |
 | `CommandSurface` facade | [CommandSurface](commands.md#commandsurface) | `CommandSurface` | `command_surface` |
 | Native context menus and Shell services | [Native menus](commands.md#native-menus) | [Binding contracts](../bindings.md) | [Binding contracts](../bindings.md) |
 | `CustomShellMenu` facade | [CustomShellMenu](commands.md#customshellmenu) | No standalone factory | No standalone factory |
@@ -288,8 +297,10 @@ The linked contracts describe those companion APIs.
 
 ## Language and styling boundaries
 
-The declarative language has 14 built-in nodes:
-`VStack`, `HStack`, `Text`, `Button`, `Toggle`, `TextInput`, `Grid`, `DataGrid`, `NavigationView`, `ItemsView`, `ScrollView`, `Popup`, `SplitView`, and `Content`.
+The declarative language has 25 built-in nodes.
+Layout and composition use `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, `Reveal`, and `Content`.
+Basic controls use `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
+Other forms are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
 `Content` mounts an existing element. It does not add a new native control class.
 Other bound controls require C# creation and explicit composition.
 The [language guide](../xui-language.md) defines that workflow.
@@ -298,6 +309,8 @@ The style catalog contains **46 targets and 223 target-part entries**.
 These numbers do not count public constructors or declarative nodes.
 Some targets describe retained children or presentations.
 Other public facades use the Popup target instead of a facade target.
+ToggleSwitch, ToggleButton, and ProgressRing reuse the Toggle, Button, and Progress targets.
+CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar reuse Toggle, Button, ChoiceList, InlineStatus, and CommandBar targets, respectively.
 
 Styles change supported properties and named parts.
 They do not replace retained children or native behavior.

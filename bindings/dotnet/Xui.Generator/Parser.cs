@@ -182,16 +182,23 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
             "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
-            "Toggle" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
+            "Toggle" or "ToggleSwitch" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
+            "ToggleButton" => ["value", "checked", "change", "icon"],
+            "CheckBox" => ["value", "checkState", "threeState", "change"],
+            "HyperlinkButton" => ["value", "click", "icon"],
+            "SelectorBar" => ["value", "items", "selected", "change"],
+            "InfoBadge" => ["value", "count", "icon"],
+            "MenuBar" => ["value", "commands", "invoke", "pin"],
             "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],
             "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
-            "Progress" => ["value", "range", "currentValue", "progressState"],
-            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp"],
+            "Progress" or "ProgressRing" => ["value", "range", "currentValue", "progressState"],
+            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp", "duration"],
             "ItemsView" or "ScrollView" => ["value"],
+            "Reveal" => ["value", "open", "duration", "layout", "direction"],
             "Popup" => ["value", "placement", "windowBackground"],
-            "SplitView" => ["value", "secondVisible"],
+            "SplitView" => ["value", "secondVisible", "duration"],
             "Content" => ["value"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
@@ -201,7 +208,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         else if (kind == "Button" || StyleCatalog.TargetExists(styleTarget))
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
-        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView";
+        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal";
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
         if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
@@ -259,7 +266,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             while (!Is("}")) children.Add(ParseNode(depth + 1));
             bodySpan = new(bodyStart, Offset - bodyStart);
             Expect("}");
-            int required = kind is "ScrollView" or "Popup" ? 1 : kind == "SplitView" ? 2 : -1;
+            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind == "SplitView" ? 2 : -1;
             if (required >= 0 && children.Count != required)
                 throw new ParseError($"{kind} requires exactly {required} content children.", start);
         }
