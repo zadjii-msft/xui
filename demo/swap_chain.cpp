@@ -34,7 +34,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         editor->set_placeholder(L"Type here: this is an ordinary native XUI text input.");
         root->add(editor);
         auto pause = std::make_shared<Button>(L"Pause rotation");
-        root->add(pause);
+        auto show_overlay = std::make_shared<Button>(L"Show overlay");
+        auto actions = std::make_shared<Stack>(Axis::horizontal);
+        actions->set_spacing(12);
+        actions->add(pause, 1);
+        actions->add(show_overlay, 1);
+        root->add(actions);
         auto panel = std::make_shared<SwapChainPanel>(L"Spinning rainbow triangle");
         root->add(panel, 1);
         auto status = std::make_shared<Label>(L"Preparing graphics...");
@@ -43,6 +48,31 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         hint->set_wrapping(true);
         hint->set_caption(true);
         root->add(hint);
+
+        auto overlay_content = std::make_shared<Stack>(Axis::vertical);
+        overlay_content->set_padding({16, 16, 16, 16});
+        overlay_content->set_spacing(12);
+        auto overlay_label = std::make_shared<Label>(L"The triangle continues to rotate while this popup is open.");
+        overlay_label->set_wrapping(true);
+        overlay_content->add(overlay_label);
+        auto overlay_editor = std::make_shared<TextInput>(L"Native input above graphics");
+        overlay_editor->set_placeholder(L"This editor is above the swap chain.");
+        overlay_content->add(overlay_editor);
+        auto close_overlay = std::make_shared<Button>(L"Close overlay");
+        overlay_content->add(close_overlay);
+        auto overlay = std::make_shared<Popup>(overlay_content, L"Live triangle overlay");
+        overlay->set_preferred_size({420, 220});
+        overlay->set_placement(PopupPlacement::center);
+        const auto set_overlay = [&](bool open) {
+            const auto before = panel->metrics();
+            const auto host = panel->native_window();
+            if (open) window.show_popup(overlay, *show_overlay, overlay_editor.get());
+            else window.dismiss_popup(*overlay);
+            if (panel->metrics() != before || panel->native_window() != host || !panel->has_content())
+                throw std::runtime_error("The overlay changed the live producer host");
+        };
+        show_overlay->on_click([&] { set_overlay(true); });
+        close_overlay->on_click([&] { set_overlay(false); });
 
         std::unique_ptr<swap_chain_sample::Renderer> producer;
         bool paused{}, failed{}, advancing{};
@@ -89,6 +119,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                         L" pixels | Scale " + std::to_wstring(metrics.rasterization_scale));
                 }
                 set_ticking(!paused);
+                if (smoke && producer->presents() == 15) set_overlay(true);
+                if (smoke && producer->presents() == 45) set_overlay(false);
                 if (smoke && producer->presents() >= 60) window.close();
             } catch (const std::exception& error) {
                 failed = true;
@@ -97,6 +129,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 status->set_tone(TextTone::error);
                 status->set_text(std::wstring(message.begin(), message.end()));
                 pause->set_enabled(false);
+                show_overlay->set_enabled(false);
                 if (smoke) window.close();
             }
         };

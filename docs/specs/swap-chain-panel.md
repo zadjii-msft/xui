@@ -49,6 +49,7 @@ Content can attach before the native peer exists.
 An unattached panel retains its content until explicit detachment or destruction.
 The complete [sample](../../demo/swap_chain.cpp) creates its renderer in the first visible metrics callback.
 It displays a rainbow triangle that rotates around its Y axis, with perspective, interpolated vertex colors, and a Pause button.
+The Show overlay button opens a `Popup` with a native text input above the live triangle.
 Its frame scheduler permits at most one pending UI callback and stops while the panel is hidden.
 
 ## Size and visibility

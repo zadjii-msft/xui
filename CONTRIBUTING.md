@@ -103,9 +103,11 @@ cmake --build $build --config Release --target xui_swap_chain_sample
 
 The sample displays a rainbow triangle that rotates around its Y axis, with perspective, beside ordinary XUI controls.
 The Pause button stops rotation. Hidden panels stop frame delivery.
+The Show overlay button opens a popup with a native text input above the live triangle.
 The triangle keeps its proportions after a resize or DPI change.
 `--handle` selects the composition-handle path. `--warp` selects software rendering.
 `--smoke` closes the sample after 60 presented frames.
+The smoke run opens the overlay at frame 15 and closes it at frame 45 without changing producer geometry.
 The [swap chain contract](docs/specs/swap-chain-panel.md) describes the renderer boundary and Windows Terminal integration limits.
 
 Build and run the native regression fixture:
