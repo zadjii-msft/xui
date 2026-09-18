@@ -79,6 +79,17 @@ The test does not inject desktop-wide input or prove terminal text composition.
 `tests\swap_chain_abi_tests.cpp` checks graphics-host handles, metrics, callback errors, owner-thread guards, and teardown.
 `tests\swap_chain_panel_tests.cpp` checks the native compositor with owned-window pixel capture.
 
+`tests\swap_chain_overlay_tests.cpp` is the acceptance fixture for popup pixels above live swap chains.
+One producer uses a DXGI pointer, and the other uses an imported composition handle.
+The fixture captures both producers before the popup opens.
+It then requires opaque popup pixels over both surfaces while the visible producer colors change.
+Dismissal must reveal the current producer pixels, without stale popup pixels.
+
+The fixture also requires unchanged HWNDs, physical bounds, metrics, buffer dimensions, and resize counts.
+Every metrics notification must preserve visibility and dimensions, including transient notifications.
+The fixture requires unchanged foreground ownership and releases the producers before COM shutdown.
+These checks do not prove native keyboard routing, installed IME behavior, or screen-reader compatibility.
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.

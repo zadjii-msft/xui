@@ -118,6 +118,17 @@ ctest --test-dir $build -C Release -R "^xui_swap_chain_panel_tests$" --output-on
 The fixture requires a Windows desktop with DirectComposition and Windows Graphics Capture.
 It inspects real compositor frames, not `WM_PRINT` output.
 
+Build and run the live-overlay acceptance fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_overlay_tests
+ctest --test-dir $build -C Release -R "^xui_swap_chain_overlay_tests$" --output-on-failure
+```
+
+This fixture requires popup pixels above two live producers, without changes to their geometry or visibility.
+It captures only its own window and requires the foreground window to stay unchanged.
+It has no capture-disabled mode.
+
 ### Use XUI in a C++ application
 
 Link the executable to `xui_windows`.
