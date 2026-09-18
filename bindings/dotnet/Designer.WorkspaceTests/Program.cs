@@ -1,13 +1,15 @@
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main()
     {
         try
         {
+            RunHierarchySearch(VisualStyle.Classic);
+            RunHierarchySearch(VisualStyle.WinUI);
             using var window = new Window("Designer workspace smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("XUI source").SetMaximumLength(65536);
             var diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true);

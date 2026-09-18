@@ -177,6 +177,27 @@ internal sealed partial class DesignerApplication
             await Until(() => !commandPalette.IsOpen);
             await Ui(() => Require(sourceSearch.Layout.FindOpen && sourceSearch.Layout.ReplaceOpen,
                 "Escape dismisses the command palette without closing the underlying Find panel."));
+            await Ui(view.Commands.Invoke);
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusHierarchySearch));
+            await Until(() => !commandPalette.IsOpen && workspace.Hierarchy.Layout.Query.Focused);
+            await Ui(() =>
+            {
+                var button = workspace.Document!.Root!.Children[1];
+                var key = workspace.Hierarchy.Key(button);
+                workspace.Hierarchy.Layout.Query.Text = "button Caption";
+                workspace.Hierarchy.RefreshSearch();
+                workspace.Hierarchy.Layout.NextMatch.Invoke();
+                Require(workspace.Hierarchy.Selection?.Id == buttonId &&
+                    editor.Selection == new TextSelection((ulong)button.Span.Start, (ulong)button.Span.End) &&
+                    workspace.Hierarchy.Tree.Selection.Focused == key,
+                    "Hierarchy search selects exact source and the existing native tree row through the command palette.");
+                Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Hierarchy search preserves the live preview version and authored state.");
+                Require(window.KeyHandler!(new(0x1B, KeyModifiers.None, workspace.Hierarchy.Layout.Query.Id)) &&
+                    workspace.Hierarchy.Layout.Query.Text == "" && sourceSearch.Layout.FindOpen && sourceSearch.Layout.ReplaceOpen,
+                    "Escape in hierarchy search clears only that query instead of closing source Find.");
+            });
             await Ui(() => view.Pick.Invoke());
             await Until(() => pickControls);
             await Ui(view.GoToLine.Invoke);

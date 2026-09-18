@@ -304,6 +304,7 @@ It also covers real native Open and Save As results, cancellation, file shortcut
 The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
 It covers pane bounds, pane order, native selection, and source preservation across theme changes.
 The workspace suite runs the same builder smoke against production controllers without the preview host.
+It also covers hierarchy search in both visual styles, native queries, match navigation, collapsed ancestors, revision guards, invalid source, and undo preservation.
 It compiles source transformations but does not execute authored preview code.
 The discard UI test covers native cancel and undo preservation, deferred approval, and rejection of stale source or revision snapshots.
 

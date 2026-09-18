@@ -67,6 +67,7 @@ internal sealed class DesignerWorkspace : IDisposable
         current = false;
         version++;
         Hierarchy.Tree.Enabled = false;
+        Hierarchy.SetSearchCurrent(false);
         Hierarchy.Layout.FromCaret.Enabled = false;
         Hierarchy.Layout.Status.Text = Document is null ? "Reading source..." : "Stale hierarchy - read-only. Reading source...";
         Hierarchy.Layout.Status.Visible(true);
@@ -127,6 +128,7 @@ internal sealed class DesignerWorkspace : IDisposable
         current = true;
         Hierarchy.Tree.Enabled = true;
         Hierarchy.SetDocument(document);
+        Hierarchy.SetSearchCurrent(true);
         Hierarchy.Layout.FromCaret.Enabled = true;
         Hierarchy.Layout.Status.Visible(false);
         var selected = document.FindNode(checked((int)editor.Selection.Start)) ?? document.Root;

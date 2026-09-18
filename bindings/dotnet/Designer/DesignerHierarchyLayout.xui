@@ -8,6 +8,19 @@ component DesignerHierarchyLayout {
             Text("Hierarchy", fontSize: 20, fontWeight: 600);
             Text("Reading source...", ref: Status, id: "designer-hierarchy-status", wrapping: true);
             Button("Select from caret", ref: FromCaret, id: "designer-select-caret", help: "Select the control at the source caret (Ctrl+Shift+L)");
+            HStack(spacing: 4) {
+                TextInput("Find in hierarchy", ref: Query, id: "designer-hierarchy-query", captionVisible: false,
+                    placeholder: "Type, text, id...", preferredSize: (140, 36), flex: 1);
+                Button("Clear hierarchy search", ref: ClearSearch, id: "designer-hierarchy-clear",
+                    icon: global::Xui.ButtonIcon.Close, size: (32, 32), help: "Clear the hierarchy query (Escape in the query)");
+            }
+            HStack(spacing: 4) {
+                Button("Previous matching control", ref: PreviousMatch, id: "designer-hierarchy-previous", enabled: false,
+                    icon: global::Xui.ButtonIcon.ChevronUp, size: (32, 32), help: "Previous match (Shift+Enter in the query)");
+                Button("Next matching control", ref: NextMatch, id: "designer-hierarchy-next", enabled: false,
+                    icon: global::Xui.ButtonIcon.ChevronDown, size: (32, 32), help: "Next match (Enter in the query)");
+                Text("Enter a query.", ref: SearchStatus, id: "designer-hierarchy-search-status", wrapping: true, flex: 1);
+            }
             Content(Tree, flex: 1);
         }
     }

@@ -149,6 +149,24 @@ Hierarchy identities belong to one exact source revision.
 A new source revision resets tree expansion and selects the control at the current caret.
 It does not reuse identities from an older document.
 
+**Find in hierarchy** searches control types and full authored argument names and values.
+The search is case-insensitive. Every whitespace-separated term must match the same control.
+For example, `button Save` finds buttons with `Save` in an argument.
+Queries can also include an `id`, a `ref`, or text beyond a row's shortened label.
+The search reads source text and does not evaluate expressions.
+
+Enter in the query selects the next match. Shift+Enter selects the previous match.
+The arrow buttons provide the same actions, with wraparound in source order.
+Match navigation expands the required ancestors and selects the control's exact source range.
+The tree keeps its complete structure and revision-scoped identities.
+Typing a query does not move selection. Escape or the clear button clears only the hierarchy query.
+
+**Hierarchy: Find controls** in the command palette focuses the query.
+Queries remain available across source changes.
+During parsing or invalid source, search navigation is disabled and its status explains the restriction.
+A valid source revision rematches the retained query against the new controls.
+Search does not change source, native undo, or preview state.
+
 **Pick controls** selects an authored control through a primary-pointer click in the current preview.
 The click selects its full source range, hierarchy node, and inspector.
 The mode consumes the pointer action instead of running its authored handler.

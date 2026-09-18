@@ -45,6 +45,9 @@ internal static class Program
                         Require(editor.GetBounds().Width >= 150, "Source editor width");
                         Require(!searchLayout.FindOpen && !layout.OutputExpanded, "Find and output start collapsed");
                         Require(tree.GetBounds().Width >= 100 && tree.GetBounds().Height >= 150, "Native tree bounds");
+                        Require(hierarchy.Query.GetBounds().Width >= 100 && hierarchy.ClearSearch.GetBounds().Width == 32 &&
+                            hierarchy.NextMatch.GetBounds().Y + hierarchy.NextMatch.GetBounds().Height <= tree.GetBounds().Y,
+                            "Hierarchy search fits above the tree with a usable query and native navigation actions");
                         Require(value.GetBounds().Width >= 100 && value.GetBounds().Height >= 60, "Native inspector bounds");
                         Require(tree.GetBounds().X < editor.GetBounds().X &&
                             editor.GetBounds().X < preview.GetBounds().X &&

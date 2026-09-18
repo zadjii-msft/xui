@@ -56,6 +56,14 @@ It parses exact native editor snapshots and applies edits with the native range-
 It rejects stale source or revision results before the native call.
 `DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
 It applies 28-DIP rows, 16-DIP indentation, and reduced row padding through local style values.
+Its native query searches complete node kinds and authored argument names/values with ordinal, case-insensitive terms.
+`RefreshSearch` orders matches by source span without replacing the tree source or its keys.
+`MoveSearch` uses the existing ancestor expansion and selection path, then publishes one selection event.
+`SetSearchCurrent` disables navigation as soon as the workspace observes a source change.
+Publication rematches the retained query against new node instances and revision-scoped keys.
+The query's Enter/Shift+Enter/Escape route precedes source Find, without taking keys from other fields or an open command palette.
+`Designer.WorkspaceTests/Program.HierarchySearch.cs` covers native query input, collapsed ancestors, matching, focus, revisions, invalid source, and undo in both styles.
+The application selection smoke covers the focus command, exact source selection, independent Escape handling, and retained preview state.
 `DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
 It also filters the control palette by enum name and a short template description.
 `FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.

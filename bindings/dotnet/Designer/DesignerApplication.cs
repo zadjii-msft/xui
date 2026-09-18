@@ -107,6 +107,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
                 { workspace.SelectFromCaret(); return true; }
                 if (diagnosticNavigator.HandleKey(key)) return true;
+                if (workspace.Hierarchy.HandleSearchKey(key)) return true;
                 if (sourceSearch.HandleKey(key)) return true;
                 if (sourceIndentation.HandleKey(key)) return true;
                 if (sourceComments.HandleKey(key)) return true;
