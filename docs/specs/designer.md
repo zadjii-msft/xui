@@ -213,6 +213,22 @@ Expressions, event handlers, references, and style names remain read-only in the
 The source editor accepts these expressions directly.
 Compiler errors appear without changing the document.
 
+**Find a property** filters the property selector by name, without changing the active editor.
+Search is case-insensitive. Every whitespace-separated term must match the same property name.
+For example, `font si` matches `fontSize`.
+**Authored only** limits matches to arguments explicitly set on the selected control, including expressions.
+The clear button clears both filters and returns focus to the query.
+
+The active property stays in the selector even when it does not match the filters.
+Its entry then includes **(current)**, and the **Editing:** label identifies the active editor.
+The match count excludes this retained entry.
+Filtering, clearing, and reselecting the current property preserve raw and structured drafts.
+Selecting a different property retains the existing behavior: its source value replaces the previous draft.
+
+**Properties: Find a property** in the command palette focuses the query.
+Filters remain available across selection and source changes, including parsing and invalid source.
+They do not change source, native undo, preview state, or read-only restrictions.
+
 **Edit as text** decodes an existing string literal into the native property editor.
 This mode accepts ordinary, verbatim, and raw strings, without quotes or escape sequences in the editor.
 Apply encodes changed text as a quoted C# literal and converts paragraph breaks to LF in the string value.

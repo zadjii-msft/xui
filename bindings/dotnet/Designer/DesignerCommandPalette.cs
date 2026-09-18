@@ -5,7 +5,7 @@ internal enum DesignerCommandId
     New = 1, Open, Save, SaveAs, Recovery,
     Undo, Redo, Find, Replace, SelectFromCaret, FocusSource, FocusHierarchy, FocusPalette, FocusProperty,
     Render, LivePreview, PickControls, Fit, Compact, Medium, Wide,
-    Output, VisualStyle, Theme, GoToLine, ToggleComment, FocusHierarchySearch
+    Output, VisualStyle, Theme, GoToLine, ToggleComment, FocusHierarchySearch, FocusPropertySearch
 }
 
 internal sealed record DesignerCommand(

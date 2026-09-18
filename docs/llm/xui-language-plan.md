@@ -65,7 +65,15 @@ The query's Enter/Shift+Enter/Escape route precedes source Find, without taking 
 `Designer.WorkspaceTests/Program.HierarchySearch.cs` covers native query input, collapsed ancestors, matching, focus, revisions, invalid source, and undo in both styles.
 The application selection smoke covers the focus command, exact source selection, independent Escape handling, and retained preview state.
 `DesignerInspector.cs` connects the declarative inspector to supported literal arguments and explicit expression limits.
-It also filters the control palette by enum name and a short template description.
+`FindArguments` matches every query term against one property name and can restrict results to authored arguments.
+`FilterArguments` retains keys from the complete sorted name list rather than assigning result-index keys.
+It keeps the active property as a marked current entry outside the results, without calling `ShowArgument`.
+An explicit different-property selection resets the editor through the existing path.
+Reselecting the active property preserves its draft.
+The clear action clears the query and authored-only state, while selection and source changes retain both filters.
+`Designer.WorkspaceTests/Program.PropertySearch.cs` covers native input, stable keys, all draft modes, authored expressions, revisions, and undo in both styles.
+The application selection smoke checks the property-search command, visible native query, retained dimension draft, and unchanged preview geometry.
+The inspector also filters the control palette by enum name and a short template description.
 `FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.
 Filtered choices retain enum-based native keys instead of result indices.
 An empty result clears the selected template, and the workspace rejects insertion without a template.

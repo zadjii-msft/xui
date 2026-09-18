@@ -20,6 +20,7 @@ internal sealed class DesignerInspector
     private bool insetsMode;
     private string insetsExpression = "";
     private bool updatingPalette;
+    private bool authoredOnly;
     private ControlTemplate[] matchingTemplates = [];
 
     internal DesignerInspectorLayout Layout { get; }
@@ -54,6 +55,16 @@ internal sealed class DesignerInspector
             FilterPalette();
             Layout.PaletteFilter.Focus();
         };
+        Layout.ArgumentFilter.Event += e => { if (e.Kind == EventKind.Change) FilterArguments(); };
+        Layout.AuthoredOnly.Changed += value => { authoredOnly = value; FilterArguments(); };
+        Layout.ClearArgumentFilter.Click += () =>
+        {
+            Layout.ArgumentFilter.Text = "";
+            authoredOnly = false;
+            Layout.AuthoredOnly.Checked = false;
+            FilterArguments();
+            Layout.ArgumentFilter.Focus();
+        };
         palette.Event += e =>
         {
             if (updatingPalette || e.Kind != EventKind.Selection) return;
@@ -64,8 +75,11 @@ internal sealed class DesignerInspector
         arguments.Event += e =>
         {
             if (resetting || e.Kind != EventKind.Selection) return;
-            argumentIndex = checked((int)e.Value - 1);
+            int index = checked((int)e.Value - 1);
+            if (index == argumentIndex) return;
+            argumentIndex = index;
             ShowArgument();
+            FilterArguments();
         };
         FilterPalette();
         Show(null, null, false);
@@ -79,16 +93,11 @@ internal sealed class DesignerInspector
         editable = canEdit;
         validationPending = validating;
         Layout.Selected.Text = selected is null ? "Select a control" : $"{selected.Kind} at UTF-16 {selected.Span.Start}..{selected.Span.End}";
-        names = selected is null ? [] : selected.Arguments.Select(a => a.Name)
-            .Concat(selected.SupportedArguments).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        names = FindArguments(selected, "", false);
         preferred ??= selected?.Arguments.FirstOrDefault()?.Name;
         argumentIndex = preferred is null ? -1 : Array.IndexOf(names, preferred);
         if (argumentIndex < 0 && names.Length > 0) argumentIndex = 0;
-        resetting = true;
-        try { arguments.SetItems(names.Select((name, i) => new Choice((ulong)i + 1, name)).ToArray(),
-            argumentIndex >= 0 ? (ulong)argumentIndex + 1 : null); }
-        finally { resetting = false; }
-        arguments.Enabled = selected is not null && canEdit;
+        FilterArguments();
         bool siblings = parent?.Kind is "VStack" or "HStack" or "Grid";
         bool movable = siblings || parent?.Kind == "SplitView";
         int index = selected is null || parent is null ? -1 : parent.Children.ToList().FindIndex(n => n.Id == selected.Id);
@@ -115,6 +124,34 @@ internal sealed class DesignerInspector
             : parent.Kind == "Grid" ? "Grid duplicates need an empty cell. Placement and overlap checks run before Apply."
             : "Move changes sibling order. Duplicate rejects shared IDs and Content references.";
         ShowArgument();
+    }
+
+    internal static string[] FindArguments(XuiSourceNode? selected, string query, bool authoredOnly)
+    {
+        if (selected is null) return [];
+        string[] terms = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var authored = selected.Arguments.Select(argument => argument.Name).ToHashSet(StringComparer.Ordinal);
+        return authored.Concat(selected.SupportedArguments).Distinct(StringComparer.Ordinal)
+            .Where(name => (!authoredOnly || authored.Contains(name)) &&
+                terms.All(term => name.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .Order(StringComparer.Ordinal).ToArray();
+    }
+
+    internal void FilterArguments()
+    {
+        var matches = FindArguments(node, Layout.ArgumentFilter.Text, authoredOnly).ToHashSet(StringComparer.Ordinal);
+        var choices = names.Select((name, index) => (name, index))
+            .Where(item => matches.Contains(item.name) || item.name == Argument)
+            .Select(item => new Choice((ulong)item.index + 1,
+                matches.Contains(item.name) ? item.name : item.name + " (current)")).ToArray();
+        resetting = true;
+        try { arguments.SetItems(choices, argumentIndex >= 0 ? (ulong)argumentIndex + 1 : null); }
+        finally { resetting = false; }
+        arguments.Enabled = editable && choices.Length > 0;
+        Layout.ArgumentLabel.Text = Argument is { } argument ? $"Editing: {argument}" : "No property selected";
+        Layout.ArgumentFilterStatus.Text = node is null ? "Select a control to find properties."
+            : (matches.Count == 0 ? "No properties match." : matches.Count == 1 ? "1 matching property." : $"{matches.Count} matching properties.") +
+                (Argument is not null && !matches.Contains(Argument) ? " The current property stays available." : "");
     }
 
     internal void FilterPalette()
@@ -185,6 +222,7 @@ internal sealed class DesignerInspector
         int index = Array.IndexOf(names, name);
         if (index < 0) throw new ArgumentException($"The selected control has no supported argument '{name}'.", nameof(name));
         argumentIndex = index;
+        FilterArguments();
         arguments.Select((ulong)index + 1);
         ShowArgument();
     }

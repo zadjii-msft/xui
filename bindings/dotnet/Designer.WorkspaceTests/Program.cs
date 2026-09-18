@@ -14,6 +14,8 @@ internal static partial class Program
             RunSiblingInsertion(VisualStyle.WinUI);
             RunGridCellSearch(VisualStyle.Classic);
             RunGridCellSearch(VisualStyle.WinUI);
+            RunPropertySearch(VisualStyle.Classic);
+            RunPropertySearch(VisualStyle.WinUI);
             using var window = new Window("Designer workspace smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("XUI source").SetMaximumLength(65536);
             var diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true);

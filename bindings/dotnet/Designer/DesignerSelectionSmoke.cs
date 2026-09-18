@@ -298,6 +298,29 @@ internal sealed partial class DesignerApplication
                 view.Commands.Invoke();
             });
             await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusPropertySearch));
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.ArgumentFilter.Focused);
+            await Ui(() =>
+            {
+                var field = workspace.Inspector.Layout.ArgumentFilter.GetBounds();
+                var panel = view.InspectorPanel.GetBounds();
+                Require(field.Width >= 100 && field.Y >= panel.Y && field.Y + field.Height <= panel.Y + panel.Height,
+                    "The property-search command focuses and reveals its native field inside the inspector.");
+                workspace.Inspector.Layout.DimensionWidth.Text = "200";
+                workspace.Inspector.Layout.ArgumentFilter.Text = "enabled";
+                workspace.Inspector.FilterArguments();
+                Require(workspace.Inspector.IsDimensionMode && workspace.Inspector.Argument == "size" &&
+                    workspace.Inspector.Layout.DimensionWidth.Text == "200" &&
+                    workspace.Inspector.Layout.ArgumentLabel.Text == "Editing: size" &&
+                    editor.Text == source && preview.TryReadNode(version, buttonId, out var untouched) &&
+                    untouched.Bounds.Width == 180,
+                    "Property filtering retains the current dimension draft without changing source or preview layout.");
+                workspace.Inspector.Layout.ClearArgumentFilter.Invoke();
+                Require(workspace.Inspector.IsDimensionMode && workspace.Inspector.Layout.DimensionWidth.Text == "200",
+                    "Clearing property filters retains the active draft in the complete application.");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
             await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusProperty));
             await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.DimensionWidth.Focused);
             await Ui(() =>
