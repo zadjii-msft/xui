@@ -8,6 +8,8 @@ component DesignerInspectorLayout {
     state bool DimensionArgument = false;
     state bool BooleanOpen = false;
     state bool BooleanArgument = false;
+    state bool InsetsOpen = false;
+    state bool InsetsArgument = false;
 
     view {
         ScrollView("Properties and control palette") {
@@ -25,10 +27,14 @@ component DesignerInspectorLayout {
                 Toggle("Edit boolean", ref: BooleanMode, id: "designer-property-boolean-mode", enabled: false,
                     preferredSize: (240, BooleanArgument ? 32 : 0), visible: BooleanArgument,
                     help: "Edit a true or false literal with a native toggle");
-                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : BooleanOpen ? 36 : 80),
-                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen || BooleanOpen ? 0 : 80),
+                Toggle("Edit insets", ref: InsetsMode, id: "designer-property-insets-mode", enabled: false,
+                    preferredSize: (240, InsetsArgument ? 32 : 0), visible: InsetsArgument,
+                    help: "Edit padding or border thickness as left, top, right, and bottom values");
+                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : BooleanOpen ? 36 : InsetsOpen ? 126 : 80),
+                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen || BooleanOpen || InsetsOpen ? 0 : 80),
                         new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 60 : 0),
-                        new(global::Xui.TrackSizing.Fixed, BooleanOpen ? 36 : 0)]) {
+                        new(global::Xui.TrackSizing.Fixed, BooleanOpen ? 36 : 0),
+                        new(global::Xui.TrackSizing.Fixed, InsetsOpen ? 126 : 0)]) {
                     Content(ValueEditor);
                     HStack(spacing: 6, row: 1) {
                         TextInput("Width", ref: DimensionWidth, id: "designer-property-width", visible: DimensionsOpen,
@@ -38,6 +44,20 @@ component DesignerInspectorLayout {
                     }
                     Toggle("Value: false", ref: BooleanValue, id: "designer-property-boolean-value", row: 2,
                         visible: BooleanOpen, help: "Choose true or false. Apply property commits the draft.");
+                    VStack(spacing: 6, row: 3) {
+                        HStack(spacing: 6) {
+                            TextInput("Left", ref: InsetLeft, id: "designer-property-inset-left", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                            TextInput("Top", ref: InsetTop, id: "designer-property-inset-top", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                        }
+                        HStack(spacing: 6) {
+                            TextInput("Right", ref: InsetRight, id: "designer-property-inset-right", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                            TextInput("Bottom", ref: InsetBottom, id: "designer-property-inset-bottom", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                        }
+                    }
                 }
                 Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
                 HStack(spacing: 6) {

@@ -250,6 +250,20 @@ Failed conversion preserves the raw draft and shows an error.
 Reset uses the existing guarded removal of named arguments.
 Selection or source changes clear boolean mode, and property-focus commands target the active toggle.
 
+**Edit insets** provides native **Left**, **Top**, **Right**, and **Bottom** fields for existing literal `padding` and `borderThickness` arguments.
+Each field accepts a C# numeric literal from 0 through 32768 device-independent pixels, without a sign.
+A uniform scalar populates all four fields.
+Stack `padding` remains a uniform structural value and cannot use this mode.
+
+Unchanged fields preserve the exact original source.
+A scalar becomes a four-value tuple when the edge spellings differ. Equal edge spellings retain scalar syntax.
+An existing tuple stays a tuple, with its whitespace and unchanged numeric spelling intact.
+Named tuples, comments within the value, expressions, and unset arguments cannot use inset mode.
+
+Mode changes preserve unapplied drafts. Invalid fields keep the draft visible and identify the rejected field.
+**Apply property** and **Reset** retain their compilation, revision, and native undo checks.
+Selection or source changes clear inset mode, and property-focus commands target **Left**.
+
 **Reset** removes an authored named literal argument so the control can use its default.
 Reset compiles the candidate and creates one native undo operation.
 It does not remove positional operands, expressions, references, or comments inside the argument.

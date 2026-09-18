@@ -53,6 +53,7 @@ internal static partial class Program
             TestWrapping();
             TestLiteralCodec();
             TestDimensionCodec();
+            TestInsetsCodec();
             TestBooleanCodec();
             TestRemoveArgument();
             TestPaletteExpansion();

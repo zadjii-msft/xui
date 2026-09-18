@@ -7,6 +7,73 @@ namespace Xui.Designer;
 
 public static class DesignerLiteralCodec
 {
+    public static bool TryDecodeInsets(string? expression, out string left, out string top, out string right,
+        out string bottom, out string? error)
+    {
+        left = top = right = bottom = "";
+        error = "Insets require one numeric literal or four unnamed tuple values between 0 and 32768 DIPs. Comments, signs, and expressions require source editing.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax)) return false;
+        if (IsInset(syntax))
+            left = top = right = bottom = syntax.ToString();
+        else if (syntax is TupleExpressionSyntax tuple && tuple.Arguments.Count == 4 &&
+            tuple.Arguments.All(argument => argument.NameColon is null && IsInset(argument.Expression)))
+        {
+            left = tuple.Arguments[0].Expression.ToString();
+            top = tuple.Arguments[1].Expression.ToString();
+            right = tuple.Arguments[2].Expression.ToString();
+            bottom = tuple.Arguments[3].Expression.ToString();
+        }
+        else return false;
+        error = null;
+        return true;
+    }
+
+    public static string EncodeInsets(string originalExpression, string left, string top, string right, string bottom)
+    {
+        if (!TryDecodeInsets(originalExpression, out string oldLeft, out string oldTop, out string oldRight,
+            out string oldBottom, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        ExpressionSyntax[] values = [ParseInset(left, nameof(left)), ParseInset(top, nameof(top)),
+            ParseInset(right, nameof(right)), ParseInset(bottom, nameof(bottom))];
+        string[] spellings = values.Select(value => value.ToString()).ToArray();
+        if (spellings.SequenceEqual(new[] { oldLeft, oldTop, oldRight, oldBottom })) return originalExpression;
+        var syntax = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded;
+        if (syntax is TupleExpressionSyntax tuple)
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                var previous = tuple.Arguments[i].Expression;
+                tuple = tuple.ReplaceNode(previous, values[i].WithTriviaFrom(previous));
+            }
+            encoded = tuple.ToFullString();
+        }
+        else
+        {
+            string replacement = spellings.All(value => value == spellings[0])
+                ? spellings[0] : "(" + string.Join(", ", spellings) + ")";
+            encoded = SyntaxFactory.ParseExpression(replacement).WithTriviaFrom(syntax).ToFullString();
+        }
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded insets exceed the source length limit.", nameof(left));
+        return encoded;
+    }
+
+    private static bool IsInset(ExpressionSyntax expression) =>
+        expression is LiteralExpressionSyntax && IsDimension(expression, 32768);
+
+    private static ExpressionSyntax ParseInset(string text, string parameter)
+    {
+        if (text is not null && text.Length <= XuiSourceParser.MaximumSourceLength)
+        {
+            var syntax = SyntaxFactory.ParseExpression(text.Trim());
+            if (!syntax.ContainsDiagnostics && HasOnlyWhitespaceTrivia(syntax) && IsInset(syntax)) return syntax;
+        }
+        throw new ArgumentException("Enter one numeric literal between 0 and 32768 DIPs, without a sign.", parameter);
+    }
+
     public static bool TryDecodeBoolean(string? expression, out bool value, out string? error)
     {
         value = false;
@@ -79,7 +146,7 @@ public static class DesignerLiteralCodec
     private static bool HasOnlyWhitespaceTrivia(SyntaxNode syntax) => syntax.DescendantTrivia(descendIntoTrivia: true)
         .All(trivia => trivia.IsKind(SyntaxKind.WhitespaceTrivia) || trivia.IsKind(SyntaxKind.EndOfLineTrivia));
 
-    private static bool IsDimension(ExpressionSyntax expression)
+    private static bool IsDimension(ExpressionSyntax expression, double maximum = float.MaxValue)
     {
         bool negative = false;
         if (expression is PrefixUnaryExpressionSyntax unary &&
@@ -101,7 +168,7 @@ public static class DesignerLiteralCodec
             _ => null
         };
         if (negative) number = -number;
-        return number is { } dimension && double.IsFinite(dimension) && dimension >= 0 && dimension <= float.MaxValue;
+        return number is { } dimension && double.IsFinite(dimension) && dimension >= 0 && dimension <= maximum;
     }
 
     public static bool TryDecodeText(string? expression, out string nativeText, out string? error)

@@ -12,7 +12,7 @@ internal sealed partial class DesignerApplication
                 state string Caption = "Do not execute";
                 view {
                     VStack(spacing: 8) {
-                        Text("Find target");
+                        Text("Find target", padding: 4);
                         Button(Caption, size: (180, 40), enabled: true, click: Activate);
                         TextInput("Preview input", text: "Preview text");
                     }
@@ -349,6 +349,42 @@ internal sealed partial class DesignerApplication
             await Ready();
             await Ui(() => Require(editor.Text == source && SelectionNative.Enabled("Do not execute"),
                 "One native source undo restores the enabled preview button."));
+            float labelHeight = 0;
+            await Ui(() =>
+            {
+                var label = workspace.Document!.Root!.Children[0];
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(label));
+                Require(preview.TryReadNode(version, label.Id, out var before), "The authored label has a native preview node.");
+                labelHeight = before.Bounds.Height;
+                workspace.Inspector.ChooseArgument("padding");
+                workspace.Inspector.Layout.InsetsMode.Invoke();
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusProperty));
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.InsetLeft.Focused);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.IsInsetsMode, "Property navigation preserves inset mode and focuses its Left field.");
+                workspace.Inspector.Layout.InsetTop.Text = "20";
+                workspace.Inspector.Layout.InsetBottom.Text = "24";
+                Require(editor.Text == source, "Inset drafts do not change source before Apply.");
+                workspace.Inspector.Layout.Apply.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                var label = workspace.Document!.Root!.Children[0];
+                Require(preview.TryReadNode(version, label.Id, out var padded) &&
+                    Math.Abs(padded.Bounds.Height - labelHeight - 36) < 0.1f &&
+                    editor.Text.Contains("padding: (4, 20, 4, 24)", StringComparison.Ordinal),
+                    "Structured padding changes the actual native label height by the two edited edge deltas.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source &&
+                preview.TryReadNode(version, workspace.Document!.Root!.Children[0].Id, out var restoredLabel) &&
+                restoredLabel.Bounds.Height == labelHeight, "One source undo restores native label padding and layout."));
             await Ui(() =>
             {
                 var button = workspace.Document!.Root!.Children[1];

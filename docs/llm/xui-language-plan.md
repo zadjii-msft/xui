@@ -196,13 +196,21 @@ They reject expressions, comments, directives, and named tuples instead of rewri
 `TryDecodeBoolean` accepts only true/false literals with whitespace trivia.
 `EncodeBoolean` preserves exact no-ops and surrounding whitespace, and rejects output beyond the source limit.
 `Designer.SourceTests/Program.BooleanCodec.cs` covers rejected syntax, length limits, and compiled argument edits.
+`TryDecodeInsets` accepts scalar or four-sided style literals from 0 through 32768 DIPs, matching the style compiler.
+It rejects signed literals, expressions, named tuples, and comments rather than changing their meaning.
+`EncodeInsets` preserves no-ops, tuple whitespace, and scalar syntax when all edge spellings remain equal.
+`Designer.SourceTests/Program.InsetsCodec.cs` covers conversions, field errors, cultures, source limits, and compiled edits across control kinds.
 
 `DesignerInspector.cs` exposes string conversion through an opt-in text-mode toggle.
 Its dimension-mode toggle replaces the raw value area with two native text fields.
 Its boolean-mode toggle replaces that area with a native value toggle.
+Its inset-mode toggle provides four native fields in two rows for padding and border thickness.
+Stack padding stays outside inset mode because it uses a uniform structural setter.
 The controller retains the boolean draft from native change events because the managed checked property is write-only.
 Mode changes do not commit source. Argument and source changes clear each structured mode.
 `FocusValue` selects the active field rather than the hidden raw editor.
+`Designer.TextModeTests/Program.Insets.cs` covers inset drafts, native geometry, no-ops, errors, reset, stale source, and undo in both styles.
+The application selection smoke checks property focus and the actual label height after a padding edit and source undo.
 `Designer.TextModeTests/Program.Dimensions.cs` covers drafts, validation, mode changes, native source undo, resets, and stale-source rejection.
 The application selection smoke checks actual preview bounds after size edits and undo.
 `Designer.TextModeTests/Program.Booleans.cs` covers boolean drafts, no-ops, focus, undo/redo, reset, and stale-source rejection in both visual styles.

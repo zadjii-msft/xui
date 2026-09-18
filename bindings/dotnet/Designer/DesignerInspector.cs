@@ -17,6 +17,8 @@ internal sealed class DesignerInspector
     private string dimensionExpression = "";
     private bool booleanMode, booleanValue;
     private string booleanExpression = "";
+    private bool insetsMode;
+    private string insetsExpression = "";
     private bool updatingPalette;
     private ControlTemplate[] matchingTemplates = [];
 
@@ -27,6 +29,7 @@ internal sealed class DesignerInspector
     internal bool IsTextMode => textMode;
     internal bool IsDimensionMode => dimensionMode;
     internal bool IsBooleanMode => booleanMode;
+    internal bool IsInsetsMode => insetsMode;
 
     internal DesignerInspector(Window window)
     {
@@ -38,6 +41,7 @@ internal sealed class DesignerInspector
         Layout.TextMode.Changed += ChangeTextMode;
         Layout.DimensionMode.Changed += ChangeDimensionMode;
         Layout.BooleanMode.Changed += ChangeBooleanMode;
+        Layout.InsetsMode.Changed += ChangeInsetsMode;
         Layout.BooleanValue.Changed += value =>
         {
             booleanValue = value;
@@ -189,6 +193,7 @@ internal sealed class DesignerInspector
     {
         if (dimensionMode) Layout.DimensionWidth.Focus();
         else if (booleanMode) Layout.BooleanValue.Focus();
+        else if (insetsMode) Layout.InsetLeft.Focus();
         else Value.Focus();
     }
 
@@ -205,6 +210,16 @@ internal sealed class DesignerInspector
         booleanMode = false;
         Layout.BooleanMode.Checked = false;
         Layout.BooleanOpen = false;
+        insetsMode = false;
+        Layout.InsetsMode.Checked = false;
+        Layout.InsetsOpen = false;
+        Layout.InsetsArgument = Argument == "borderThickness" ||
+            Argument == "padding" && node?.Kind is not ("VStack" or "HStack");
+        string? insetsError = null;
+        bool supportsInsets = Layout.InsetsArgument && argument is not null &&
+            DesignerLiteralCodec.TryDecodeInsets(argument.Value, out _, out _, out _, out _, out insetsError);
+        Layout.InsetsMode.Enabled = writable && supportsInsets;
+        Layout.InsetLeft.Enabled = Layout.InsetTop.Enabled = Layout.InsetRight.Enabled = Layout.InsetBottom.Enabled = writable;
         Layout.BooleanArgument = argument?.ValueKind == XuiValueKind.Boolean;
         string? booleanError = null;
         bool supportsBoolean = Layout.BooleanArgument &&
@@ -237,14 +252,25 @@ internal sealed class DesignerInspector
         if (writable && textError is not null) Layout.ArgumentHelp.Text += " Text mode unavailable: " + textError;
         if (writable && dimensionError is not null) Layout.ArgumentHelp.Text += " Dimension mode unavailable: " + dimensionError;
         if (writable && booleanError is not null) Layout.ArgumentHelp.Text += " Boolean mode unavailable: " + booleanError;
+        if (writable && insetsError is not null) Layout.ArgumentHelp.Text += " Insets mode unavailable: " + insetsError;
         Value.Help(Layout.ArgumentHelp.Text);
-        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null || booleanError is not null);
+        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null || booleanError is not null || insetsError is not null);
     }
 
     internal bool TryReadLiteral(out string value, out string? error)
     {
         value = Value.Text;
         error = null;
+        if (insetsMode)
+        {
+            try
+            {
+                value = DesignerLiteralCodec.EncodeInsets(insetsExpression, Layout.InsetLeft.Text, Layout.InsetTop.Text,
+                    Layout.InsetRight.Text, Layout.InsetBottom.Text);
+                return true;
+            }
+            catch (ArgumentException exception) { error = exception.Message; return false; }
+        }
         if (booleanMode)
         {
             try { value = DesignerLiteralCodec.EncodeBoolean(booleanExpression, booleanValue); return true; }
@@ -262,6 +288,52 @@ internal sealed class DesignerInspector
         if (!textMode) return true;
         try { value = DesignerLiteralCodec.EncodeText(textExpression, value); return true; }
         catch (ArgumentException exception) { error = exception.Message; return false; }
+    }
+
+    private void ChangeInsetsMode(bool enabled)
+    {
+        if (enabled == insetsMode) return;
+        if (!editable || !Layout.InsetsArgument || (!insetsMode && Value.ReadOnly))
+        {
+            Layout.InsetsMode.Checked = insetsMode;
+            Layout.Feedback.Text = "Insets mode requires editable padding or border thickness in the current source.";
+            return;
+        }
+        if (enabled)
+        {
+            string expression = Value.Text;
+            if (!DesignerLiteralCodec.TryDecodeInsets(expression, out string left, out string top, out string right,
+                out string bottom, out string? error))
+            {
+                Layout.InsetsMode.Checked = false;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            insetsExpression = expression;
+            Layout.InsetLeft.Text = left;
+            Layout.InsetTop.Text = top;
+            Layout.InsetRight.Text = right;
+            Layout.InsetBottom.Text = bottom;
+        }
+        else
+        {
+            if (!TryReadLiteral(out string expression, out string? error))
+            {
+                Layout.InsetsMode.Checked = true;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            Value.Text = expression;
+        }
+        insetsMode = enabled;
+        Layout.InsetsOpen = enabled;
+        Value.ReadOnly = enabled;
+        Value.Visible(!enabled);
+        Layout.ValueLabel.Text = enabled ? "Insets (device-independent pixels)" : "Literal source value (include quotes for text)";
+        Layout.ArgumentHelp.Text = enabled
+            ? "Enter numeric literals from 0 through 32768. Apply validates the complete component."
+            : "Insets literal. Apply validates the complete component.";
+        Layout.ArgumentHelp.Visible(false);
     }
 
     private void ChangeBooleanMode(bool enabled)
