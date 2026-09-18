@@ -22,6 +22,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly DesignerSourceComments sourceComments;
     private readonly DesignerCommandPalette commandPalette;
     private readonly DesignerGoTo sourceGoTo;
+    private readonly DesignerColorEditor colorEditor;
     private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
@@ -75,6 +76,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 ReplacedDocument, SetFileStatus, ReportFileError);
             commandPalette = new DesignerCommandPalette(window, view.Commands, DesignerCommands, ShowError);
             sourceGoTo = new DesignerGoTo(window, editor, () => version, workspace.SelectFromCaret, ReportNavigation);
+            colorEditor = new DesignerColorEditor(window, workspace, ShowError);
             SetFileStatus(document.FilePath is { } path ? $"Opened {path}" : "Untitled example. Choose a file path before saving.");
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
@@ -120,6 +122,7 @@ internal sealed partial class DesignerApplication : IDisposable
             lifetime.Cancel();
             commandPalette?.Dispose();
             sourceGoTo?.Dispose();
+            colorEditor?.Dispose();
             workspace?.Dispose();
             viewport?.Dispose();
             preview?.Dispose();
@@ -192,6 +195,7 @@ internal sealed partial class DesignerApplication : IDisposable
         revision?.Cancel();
         version++;
         sourceGoTo.Refresh();
+        colorEditor.Refresh();
         diagnosticNavigator.Invalidate();
         preview.Supersede(version);
         view.OutlineStatus = "Outline cleared. Waiting for the current preview.";
@@ -451,6 +455,7 @@ internal sealed partial class DesignerApplication : IDisposable
         compiler.GetAwaiter().GetResult();
         commandPalette.Dispose();
         sourceGoTo.Dispose();
+        colorEditor.Dispose();
         workspace.Dispose();
         viewport.Dispose();
         preview.Dispose();

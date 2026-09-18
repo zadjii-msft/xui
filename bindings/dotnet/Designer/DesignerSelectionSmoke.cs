@@ -12,7 +12,7 @@ internal sealed partial class DesignerApplication
                 state string Caption = "Do not execute";
                 view {
                     VStack(spacing: 8) {
-                        Text("Find target", padding: 4);
+                        Text("Find target", padding: 4, foreground: 0x112233);
                         Button(Caption, size: (180, 40), enabled: true, click: Activate);
                         TextInput("Preview input", text: "Preview text");
                     }
@@ -513,6 +513,53 @@ internal sealed partial class DesignerApplication
             await Ui(() => Require(editor.Text == source &&
                 preview.TryReadNode(version, workspace.Document!.Root!.Children[0].Id, out var restoredLabel) &&
                 restoredLabel.Bounds.Height == labelHeight, "One source undo restores native label padding and layout."));
+            long colorVersion = 0;
+            ulong? colorControl = null;
+            await Ui(() =>
+            {
+                var label = workspace.Document!.Root!.Children[0];
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(label));
+                workspace.Inspector.ChooseArgument("foreground");
+                Require(colorEditor.CanShow && preview.TryReadNodeStyle(version, label.Id, StylePart.Root, out var style) &&
+                    style?.Foreground == new ThemeColor(0x112233), "The selected literal color matches the actual native preview style.");
+                Require(preview.TryReadNode(version, label.Id, out var node), "The color edit has a current native preview node.");
+                colorControl = node.ControlId;
+                colorVersion = version;
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.ChooseColor));
+            await Until(() => !commandPalette.IsOpen && colorEditor.IsPending);
+            await Ui(() =>
+            {
+                Require(colorEditor.Picker.Value == new RgbaColor(0x11, 0x22, 0x33) &&
+                    colorEditor.Picker.Channel(0).GetBounds().Width > 0, "The palette opens the native color picker with the authored RGB channels.");
+                colorEditor.Picker.Channel(0).IncreaseButton.Invoke();
+                colorEditor.View.Primary.Invoke();
+            });
+            await Until(() => !colorEditor.IsPending && workspace.Inspector.Value.Focused);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.Value.Text == "0x122233" && editor.Text == source &&
+                    version == colorVersion && preview.AppliedVersion == colorVersion &&
+                    preview.TryReadNode(version, workspace.Document!.Root!.Children[0].Id, out var node) && node.ControlId == colorControl,
+                    "Use color changes only the property draft without replacing preview ownership.");
+                workspace.Inspector.Layout.Apply.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(editor.Text.Contains("foreground: 0x122233", StringComparison.Ordinal) &&
+                    preview.TryReadNodeStyle(version, workspace.Document!.Root!.Children[0].Id, StylePart.Root, out var style) &&
+                    style?.Foreground == new ThemeColor(0x122233), "Apply compiles the color draft into the actual native preview style.");
+                Require(!preview.TryReadNodeStyle(colorVersion, 0, StylePart.Root, out _),
+                    "Style snapshots reject retired preview versions without exposing scoped controls.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source &&
+                preview.TryReadNodeStyle(version, workspace.Document!.Root!.Children[0].Id, StylePart.Root, out var style) &&
+                style?.Foreground == new ThemeColor(0x112233), "One native undo restores both authored source and native preview color."));
             await Ui(() =>
             {
                 var button = workspace.Document!.Root!.Children[1];

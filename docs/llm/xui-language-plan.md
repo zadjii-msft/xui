@@ -237,6 +237,19 @@ It rejects signed literals, expressions, named tuples, and comments rather than 
 `EncodeInsets` preserves no-ops, tuple whitespace, and scalar syntax when all edge spellings remain equal.
 `Designer.SourceTests/Program.InsetsCodec.cs` covers conversions, field errors, cultures, source limits, and compiled edits across control kinds.
 
+`TryDecodeRgbColor` accepts RGB24 integer literals with whitespace trivia.
+`EncodeRgbColor` preserves exact no-ops and emits changed colors as six hexadecimal digits without evaluating expressions.
+`Designer.SourceTests/Program.RgbColorCodec.cs` covers spelling, invalid syntax, source limits, and compiled color edits.
+`DesignerColorEditor.cs` hosts a native `ColorPicker` in `DesignerColorLayout.xui` and a `ContentDialog`.
+The command palette opens it for existing literal color arguments without adding inspector controls.
+It disables alpha, captures the source revision, selected node, property, and draft, and checks them again after deferred dismissal.
+Channel text events trigger validation, including invalid numeric drafts that leave the native picker's last valid color unchanged.
+Use color changes only the raw draft. Existing Apply, Reset, and Revert actions retain their contracts.
+Disposal cancels queued actions and disconnects controller events before workspace and window disposal.
+`Designer.WorkspaceTests/Program.ColorEditor.cs` covers native channels, cancellation, no-ops, stale drafts/source/selection, compiled Apply, undo, and disposal in both styles.
+`PreviewHost.TryReadNodeStyle` returns native style values for a matching preview version without exposing scoped elements.
+The application selection smoke checks palette dispatch, retained preview identity before Apply, actual native foreground values, and source undo.
+
 `DesignerInspector.cs` exposes string conversion through an opt-in text-mode toggle.
 Its dimension-mode toggle replaces the raw value area with two native text fields.
 Its boolean-mode toggle replaces that area with a native value toggle.

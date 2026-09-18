@@ -7,6 +7,35 @@ namespace Xui.Designer;
 
 public static class DesignerLiteralCodec
 {
+    public static bool TryDecodeRgbColor(string? expression, out uint value, out string? error)
+    {
+        value = 0;
+        error = "Color editing requires an RGB24 integer literal from 0x000000 through 0xFFFFFF, without comments, signs, or expressions.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax) || syntax is not LiteralExpressionSyntax literal ||
+            literal.Token.Value is not (byte or ushort or uint or ulong or sbyte or short or int or long)) return false;
+        decimal number = Convert.ToDecimal(literal.Token.Value, System.Globalization.CultureInfo.InvariantCulture);
+        if (number < 0 || number > 0xFFFFFF) return false;
+        value = (uint)number;
+        error = null;
+        return true;
+    }
+
+    public static string EncodeRgbColor(string originalExpression, uint value)
+    {
+        if (!TryDecodeRgbColor(originalExpression, out uint previous, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        if (value > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(value), "Color must fit RGB24.");
+        if (previous == value) return originalExpression;
+        var original = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded = SyntaxFactory.ParseExpression("0x" + value.ToString("X6", System.Globalization.CultureInfo.InvariantCulture))
+            .WithTriviaFrom(original).ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded color exceeds the source length limit.", nameof(value));
+        return encoded;
+    }
+
     public static bool TryDecodeInsets(string? expression, out string left, out string top, out string right,
         out string bottom, out string? error)
     {

@@ -75,6 +75,15 @@ internal sealed class PreviewHost : IDisposable
         return true;
     }
 
+    internal bool TryReadNodeStyle(long expectedVersion, int nodeId, StylePart part, out PartStyleValues? values)
+    {
+        window.VerifyAccess();
+        values = null;
+        if (current is not { } candidate || candidate.Version != expectedVersion) return false;
+        values = candidate.ReadNodeStyle(nodeId, part);
+        return true;
+    }
+
     internal void Supersede(long value)
     {
         lock (gate)
@@ -280,6 +289,13 @@ internal sealed class PreviewHost : IDisposable
             ObjectDisposedException.ThrowIf(disposed, this);
             var element = getNode!(component!, nodeId);
             return new(Version, nodeId, element.GetType().Name, element.GetBounds(), (element as Control)?.Id);
+        }
+
+        internal PartStyleValues ReadNodeStyle(int nodeId, StylePart part)
+        {
+            if ((uint)nodeId >= (uint)NodeCount) throw new ArgumentOutOfRangeException(nameof(nodeId));
+            ObjectDisposedException.ThrowIf(disposed, this);
+            return getNode!(component!, nodeId).GetControlStyleValues(part, effective: true);
         }
 
         public void Dispose()

@@ -1,0 +1,12 @@
+namespace Xui.Designer;
+
+component DesignerColorLayout {
+    param global::Xui.Element Picker;
+    view {
+        VStack(spacing: 12, preferredSize: (380, 340)) {
+            Text("", ref: Summary, id: "designer-color-summary", wrapping: true);
+            Content(Picker, flex: 1);
+            Text("Use color updates the property draft. Apply validates the source. Style colors are opaque RGB values.", wrapping: true);
+        }
+    }
+}

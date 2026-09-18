@@ -38,6 +38,9 @@ internal sealed class DesignerInspector
     internal bool CanMoveDown { get; private set; }
     internal bool CanWrap { get; private set; }
     internal bool CanUnwrap { get; private set; }
+    internal bool CanChooseColor => editable && !validationPending && !Value.ReadOnly &&
+        Argument is "background" or "foreground" or "borderBrush" &&
+        node?.Arguments.FirstOrDefault(argument => argument.Name == Argument)?.ValueKind == XuiValueKind.Number;
 
     internal DesignerInspector(Window window)
     {

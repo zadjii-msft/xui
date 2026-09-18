@@ -52,6 +52,8 @@ internal sealed partial class DesignerApplication
             CanExecute: () => workspace.CanRevertPropertyDraft),
         new(DesignerCommandId.RevealPropertySource, "Properties: Reveal value in source", workspace.RevealPropertySource,
             CanExecute: () => workspace.CanRevealPropertySource),
+        new(DesignerCommandId.ChooseColor, "Properties: Choose literal color", () => colorEditor.Show(view.Commands),
+            CanExecute: () => colorEditor.CanShow),
         new(DesignerCommandId.DuplicateControl, "Control: Duplicate selected control", workspace.Duplicate, "Ctrl+D in hierarchy",
             () => workspace.CanEditSelection && workspace.Inspector.CanDeleteOrDuplicate),
         new(DesignerCommandId.DeleteControl, "Control: Delete selected control", workspace.DeleteSelection, "Delete in hierarchy",

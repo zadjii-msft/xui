@@ -224,6 +224,23 @@ Expressions, event handlers, references, and style names remain read-only in the
 The source editor accepts these expressions directly.
 Compiler errors appear without changing the document.
 
+**Properties: Choose literal color** opens a native color picker for an existing `foreground`, `background`, or `borderBrush` integer literal.
+The picker reads the active property draft, not a computed preview color.
+Native RGB fields and swatches provide color choices.
+The alpha field is disabled because style colors are opaque.
+Invalid channel text disables **Use color** instead of accepting the previous channel value.
+
+**Use color** updates the property draft and returns focus to its editor.
+**Apply property** remains a separate compiled source edit with native undo.
+Cancel or Escape leaves the property draft unchanged.
+An unchanged color retains its exact source spelling, including decimal or hexadecimal notation.
+A changed color uses six hexadecimal digits, such as `0x12ABCD`, and retains surrounding whitespace.
+
+Theme colors, resource references, expressions, unset properties, and non-color arguments remain outside this picker.
+Invalid drafts report an error without opening the dialog.
+Source, selection, or draft changes invalidate an open dialog and prevent stale results from replacing a newer draft.
+Opening or accepting the picker does not replace the preview or create a source undo entry.
+
 **Properties: Reveal value in source** in the command palette selects the active property's exact authored value and focuses the native source editor.
 It works for literals, expressions, event-handler names, and references.
 The selection excludes the argument name, separators, and comments before the value.

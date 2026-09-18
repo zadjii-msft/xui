@@ -301,6 +301,9 @@ Draft reversion checks cover raw and structured modes, invalid fields, retained 
 The application selection smoke checks its command-palette entry, disabled expression actions, and unchanged preview dimensions.
 The source suite checks exact formatting, cultures, rejected syntax, source limits, and compiled inset changes across control kinds.
 The application selection smoke checks the actual native label height after a padding edit and source undo.
+Color codec checks cover RGB24 literals, exact no-ops, whitespace, rejected expressions, source limits, and compilation across color properties.
+Native color checks cover channels, invalid-input recovery, opaque alpha, Escape/cancel, draft updates, stale source/selection/drafts, disposal, and source undo in both styles.
+The application selection smoke checks palette dispatch, unchanged preview ownership before Apply, and native foreground values after Apply and undo.
 Comment checks cover palette and shortcut routing, native preview removal/restoration, and separate undo operations through the complete source pipeline.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
