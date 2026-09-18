@@ -17,7 +17,7 @@ component Composition {
                     ScrollView("Files", ref: Scroller) {
                         Content(Body, ref: Embedded, preferredSize: (200, 160));
                     }
-                    Popup("Details", ref: Flyout, placement: global::Xui.PopupPlacement.Right, windowBackground: true) {
+                    Popup("Details", ref: Flyout, placement: global::Xui.PopupPlacement.BelowViewportCenter, windowBackground: true) {
                         HStack() {
                             Button("Refresh", ref: RefreshButton, icon: global::Xui.ButtonIcon.Refresh);
                             Text(Title);

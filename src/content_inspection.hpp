@@ -155,6 +155,7 @@ inline void supported_node(const std::shared_ptr<Element>& element, const Conten
         case ControlRole::popup:
         case ControlRole::media_playback:
         case ControlRole::web_content:
+        case ControlRole::swap_chain_panel:
         case ControlRole::vector_canvas:
         case ControlRole::map_view:
             throw std::invalid_argument("Pointer picking does not support this native or popup surface");

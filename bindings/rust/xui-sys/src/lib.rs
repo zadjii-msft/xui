@@ -146,6 +146,8 @@ unsafe extern "C" {
     pub fn xui_tab_get_new_button(tabs: Handle, visible: *mut u32) -> Status;
     pub fn xui_split_set_first_visible(split: Handle, visible: u32) -> Status;
     pub fn xui_split_get_first_visible(split: Handle, visible: *mut u32) -> Status;
+    pub fn xui_split_set_layout(split: Handle, axis: u32, minimum_extent: f32) -> Status;
+    pub fn xui_split_get_layout(split: Handle, axis: *mut u32, minimum_extent: *mut f32) -> Status;
     pub fn xui_abi_version() -> u32;
     pub fn xui_error_copy(
         buffer: *mut u8,

@@ -92,6 +92,65 @@ ctest --test-dir $build -C Release -R "^xui_gallery_catalog_tests$" --output-on-
 The last command opens a desktop window.
 It checks shared language selection, native code text, copy actions, handbook URLs, and navigation links without opening a browser.
 
+### Swap chain sample
+
+Build and run the DirectComposition sample:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_sample
+& ".\$build\Release\xui_swap_chain_sample.exe"
+```
+
+The sample displays a rainbow triangle that rotates around its Y axis, with perspective, beside ordinary XUI controls.
+The Pause button stops rotation. Hidden panels stop frame delivery.
+The Show overlay button opens a popup with a native text input above the live triangle.
+The triangle keeps its proportions after a resize or DPI change.
+`--handle` selects the composition-handle path. `--warp` selects software rendering.
+`--smoke` closes the sample after 60 presented frames.
+The smoke run opens the overlay at frame 15 and closes it at frame 45 without changing producer geometry.
+The [swap chain contract](docs/specs/swap-chain-panel.md) describes the renderer boundary and Windows Terminal integration limits.
+
+Build and run the native regression fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_panel_tests
+ctest --test-dir $build -C Release -R "^xui_swap_chain_panel_tests$" --output-on-failure
+```
+
+The fixture requires a Windows desktop with DirectComposition and Windows Graphics Capture.
+It inspects real compositor frames, not `WM_PRINT` output.
+
+Build and run the live-overlay acceptance fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_swap_chain_overlay_tests
+ctest --test-dir $build -C Release -R "^xui_swap_chain_overlay_tests$" --output-on-failure
+```
+
+This fixture requires popup pixels above two live producers, without changes to their geometry or visibility.
+It captures only its own window and requires the foreground window to stay unchanged.
+It has no capture-disabled mode.
+
+### Native foreground acceptance
+
+Run the fixed batch without clicking, typing, or switching desktop windows:
+
+```powershell
+cmake --build $build --config Release --target xui_split_animation_tests xui_control_tests xui_style_layouts_tests xui_foundation_tests xui_swap_chain_panel_tests xui_swap_chain_overlay_tests xui_swap_chain_abi_tests xui_swap_chain_input_tests xui_swap_chain_popup_input_tests xui_content_host_window_tests xui_split_axis_window_tests xui_explorer_tests
+ctest --test-dir $build -C Release -R "^xui_(split_animation|control|style_layouts|foundation|swap_chain_panel|swap_chain_overlay|swap_chain_abi|swap_chain_input|swap_chain_popup_input|content_host_window|split_axis_window|explorer)_tests$" --output-on-failure
+```
+
+Four fixtures use a thread-local CBT observer: swap-chain panels, live overlays, popup input/lifetime, and native ContentHost replacement.
+They reject focus or activation requests on the observed UI thread, including transient requests between existing assertions.
+They also reject sampled foreground changes and diagnostic buffer overflow.
+The observer never blocks an operation or injects input.
+Its diagnostics contain operation names, numeric HWNDs, process IDs, and timestamps, not external window titles or content.
+
+If a fixture fails, preserve `Testing\Temporary\LastTest.log` before another CTest run.
+Read the operation and HWND records before attributing the failure to XUI or external desktop activity.
+An unchanged foreground at a later assertion does not cancel an observed focus request.
+A later passing run does not explain an earlier failure.
+
 ### Use XUI in a C++ application
 
 Link the executable to `xui_windows`.

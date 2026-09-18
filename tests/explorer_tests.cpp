@@ -241,6 +241,29 @@ void control_tests() {
     split.set_primary_visible(true); split.arrange({10, 20, 1000, 400});
     require(split.expanded() && a->bounds().width > 0 && split.divider().width > 0,
         "Restoring the primary pane restores its divider and saved ratio");
+    int ratio_changes{};
+    split.on_ratio_changed([&](float ratio) { ++ratio_changes; require(ratio == split.ratio(), "Ratio callback observes committed state"); });
+    split.set_layout(Axis::vertical, 40);
+    split.set_ratio(0.5f);
+    split.arrange({10, 20, 200, 310});
+    require(split.expanded() && a->bounds().height == 150 && b->bounds().height == 150 &&
+        b->bounds().y == 180 && split.divider().width == 200 && split.divider().height == 10,
+        "Vertical split uses height, not width, for its panes and divider");
+    split.set_ratio(0.5f);
+    require(ratio_changes == 1, "An unchanged ratio does not publish another change");
+    split.set_ratio(0.9f); split.arrange(split.bounds());
+    require(b->bounds().height == 40, "Vertical split enforces its configured minimum");
+    split.arrange({10, 20, 200, 89});
+    require(!split.expanded() && a->bounds().height == 89 && b->bounds().height == 0, "Vertical collapse uses the height threshold");
+    split.set_primary_visible(false); split.arrange(split.bounds());
+    require(split.expanded() && b->bounds().width == 200 && b->bounds().height == 89 && split.divider().width == 0,
+        "Vertical secondary-only mode removes the divider");
+    for (const auto minimum : {0.0f, -1.0f, 65537.0f}) {
+        bool rejected{};
+        try { split.set_layout(Axis::horizontal, minimum); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected && split.axis() == Axis::vertical && split.minimum_pane_extent() == 40, "Invalid layout preserves the previous configuration");
+    }
     TextInput address(L"Address");
     address.set_maximum_length(32767);
     address.set_text(std::wstring(2000, L'a'));

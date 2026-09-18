@@ -725,7 +725,7 @@ void Drawing::symbol(Symbol value, Rect bounds, D2D1_COLOR_F color, float size) 
     target_->SetTextAntialiasMode(antialias);
 }
 
-bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background) {
+bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset) {
     RECT client{};
     win32_require(GetClientRect(window, &client) != 0, "Read window size");
     const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
@@ -739,13 +739,14 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background) {
         const HRESULT result = target_->Resize(size);
         if (result == D2DERR_RECREATE_TARGET) {
             discard();
-            return begin(window, dpi, background);
+            return begin(window, dpi, background, offset);
         }
         hr_require(result, "Resize graphics target");
     }
     target_->SetDpi(dpi, dpi);
     target_->BeginDraw();
-    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    offset_ = offset;
+    origin(0, 0);
     target_->Clear(background);
     for (auto& scene : scenes_) scene.used = false;
     return true;
@@ -831,12 +832,16 @@ bool Drawing::native_windows(std::span<const NativeWindow> windows) {
     }
     float dpi_x{}, dpi_y{};
     target_->GetDpi(&dpi_x, &dpi_y);
+    D2D1_MATRIX_3X2_F transform{};
+    target_->GetTransform(&transform);
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
     for (const auto& bitmap : native_bitmaps_) {
         const auto& bounds = bitmap.bounds;
         target_->DrawBitmap(bitmap.bitmap.Get(), D2D1::RectF(bounds.left * 96.0f / dpi_x,
             bounds.top * 96.0f / dpi_y, bounds.right * 96.0f / dpi_x, bounds.bottom * 96.0f / dpi_y),
             1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     }
+    target_->SetTransform(transform);
     return true;
 }
 
@@ -844,6 +849,9 @@ void Drawing::present_native(std::span<const HWND> windows) {
     if (!target_) return;
     float dpi_x{}, dpi_y{};
     target_->GetDpi(&dpi_x, &dpi_y);
+    D2D1_MATRIX_3X2_F transform{};
+    target_->GetTransform(&transform);
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
     for (const auto& bitmap : native_bitmaps_) {
         if (std::find(windows.begin(), windows.end(), bitmap.window) == windows.end()) continue;
         const auto& bounds = bitmap.bounds;
@@ -851,6 +859,7 @@ void Drawing::present_native(std::span<const HWND> windows) {
             bounds.top * 96.0f / dpi_y, bounds.right * 96.0f / dpi_x, bounds.bottom * 96.0f / dpi_y),
             1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
     }
+    target_->SetTransform(transform);
 }
 bool Drawing::end() {
     HRESULT result = target_->EndDraw();
@@ -2093,7 +2102,7 @@ bool Drawing::push_rounded_clip(Rect bounds, float radius) {
 void Drawing::pop_rounded_clip() { target_->PopLayer(); }
 void Drawing::pop_clip() { target_->PopAxisAlignedClip(); }
 void Drawing::origin(float x, float y) {
-    target_->SetTransform(D2D1::Matrix3x2F::Translation(x, y));
+    target_->SetTransform(D2D1::Matrix3x2F::Translation(x + offset_.x, y + offset_.y));
 }
 
 }

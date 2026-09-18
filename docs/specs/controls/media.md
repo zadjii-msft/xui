@@ -16,6 +16,13 @@ The Rust fragments require `use xui::*;` and the fallible function context from 
 Rust callbacks retain weak handles and upgrade them only for the callback.
 The binding tabs retain the same native runtime, ownership, and cancellation requirements as C++.
 
+## Swap chain panel
+
+`SwapChainPanel` hosts application-owned DirectX output through DirectComposition.
+It accepts a composition swap chain or a composition surface handle.
+This control is available only in Windows C++, not in the binding tabs.
+The [swap chain contract](../swap-chain-panel.md) describes ownership, DPI, clipping, and the future Windows Terminal adapter boundary.
+
 ## Image
 
 Use `Image` for asynchronous file decoding with a bounded display size.

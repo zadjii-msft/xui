@@ -49,6 +49,7 @@
 * [Images and thumbnails](images.md)
 * [Documents, dialogs, and color](documents.md)
 * [Scenes and native hosts](scenes-and-hosts.md)
+* [Swap chain panel](swap-chain-panel.md)
 
 ## Samples
 

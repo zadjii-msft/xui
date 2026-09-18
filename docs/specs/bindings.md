@@ -4,6 +4,10 @@ Build and test commands are in [CONTRIBUTING](../../CONTRIBUTING.md).
 See the [reference index](README.md) for related APIs.
 Examples in this reference use C++ unless stated otherwise.
 
+`SwapChainPanel` supplies a [Windows-only graphics host](swap-chain-panel.md) in C++, the C ABI, C#, and declarative `.xui`.
+Its additive `VisiblePixelBounds` query exposes the compositor's panel-local physical clip without changing the existing native metrics structure.
+Rust has no typed wrapper. The host does not implement terminal input or terminal text accessibility.
+
 ## Feature bindings (1.1 extension)
 
 ### Independent windows
@@ -101,6 +105,11 @@ Application models can move between windows. Native controls cannot.
 The FileExplorer sample demonstrates this protocol without P/Invoke or window-procedure code.
 `SplitView.FirstVisible` can hide the primary pane while the secondary pane keeps its control identities and receives the full width.
 The C functions are `xui_split_set_first_visible` and `xui_split_get_first_visible` in `xui_layout.h`.
+`SplitView.SetLayout(Axis.Vertical, 48)` selects top/bottom panes with a 48-DIP minimum.
+`SplitView.Layout` returns the axis and minimum. The default is horizontal with a 300-DIP minimum.
+The C functions are `xui_split_set_layout` and `xui_split_get_layout`.
+Ratio changes post `EventKind.Change` (`XUI_CHANGE`) on the owner thread. Read the current `Ratio` in the handler.
+Rapid changes can supersede queued intermediate values. Retired controls and closed windows do not receive these events.
 
 ### Scoped content replacement
 
@@ -151,6 +160,15 @@ Replacement must occur outside native input callbacks.
 The host preserves native peers outside its content.
 This includes editor selection, undo history, and focus outside the replaced subtree.
 Replacement does not take foreground activation.
+
+A host can also belong to an open popup in the same window.
+Show the popup before committing or clearing its host content.
+Closed and foreign popup hosts are not valid replacement targets.
+Dispose a committed popup `ContentUpdate` before dismissing the popup.
+To keep results for reopening, retain the scope until replacement or window closure.
+Replacement preserves native controls outside the host, including the popup search editor.
+It dismisses nested popups whose anchors belong to the retired content.
+Content inspection, pointer picking, and highlight registration remain unsupported inside popup hosts.
 
 `ContentUpdate.CallbackFailed` opts into scoped managed event-error reporting.
 The scope stops further managed callbacks after the first exception.

@@ -63,6 +63,122 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### Framework consolidation gate
+
+The September 18, 2026 consolidation merged `origin/main` at `972d144` through `15a81e2`.
+Commit `c83411b` added the Terminal branch's split-axis APIs while preserving upstream split animations.
+The ARM64 Release build included the framework DLL, native regression fixtures, and the triangle sample.
+
+The initial fixed CTest batch passed nine of twelve groups.
+Split animation, split-axis input, controls, layout styles, foundation, explorer, swap-chain hosting, swap-chain ABI, and native key routing passed.
+Three groups failed their existing focus or foreground assertions: live swap-chain overlays, popup input/lifetime, and native ContentHost replacement.
+The overlay fixture reached visible two-producer occlusion before its foreground assertion failed during subsequent operations.
+These failures remain unclassified. They do not establish whether the framework or external desktop activity changed focus.
+
+One diagnostic ContentHost run passed after the fixture gained numeric HWND diagnostics.
+That result is a non-reproduction, not a correction of the failed batch.
+The overlay and popup fixtures also gained failure-only HWND diagnostics without weaker assertions.
+The original failed batch remains in the parent session's `files/framework-integration-c83411b-ctest.log`.
+
+The follow-up added `tests/native_focus_diagnostics.hpp`, a thread-local CBT observer.
+It records focus and activation notifications synchronously, with bounded storage and operation labels.
+An initial diagnostic batch passed all three previously failed groups, without observed focus requests, activation requests, or foreground changes.
+The original test order then passed eleven groups and failed the panel fixture's existing foreground assertion.
+The panel fixture did not yet have the CBT observer during that failure.
+An instrumented panel run subsequently passed, without observed requests or foreground changes.
+
+The final fixed batch added strict passive-focus checks to all four affected fixtures.
+Those checks reject transient focus or activation requests, sampled foreground changes, and diagnostic overflow.
+All twelve groups passed in 20.64 seconds on September 18, 2026.
+All eight instrumented cases reported zero activation requests, focus requests, sampled foreground changes, and dropped records.
+The final log is `files/focus-final-acceptance-20260918.log` in the parent session.
+The diagnostic and ordered-batch logs remain beside it.
+
+This final batch passes the current ARM64 acceptance checks with stronger assertions and unchanged production code.
+The earlier foreground failures remain unclassified, not corrected or proven external.
+The observer covers the fixture UI thread, not every application on the desktop.
+Review must distinguish the current passing checks from a root-cause explanation of the earlier failures.
+
+Separate checks passed for native split ABI, managed split visibility and animation, and the generator.
+Non-activating label backgrounds, expander surfaces, and range focus checks passed.
+Both triangle smoke paths passed: the default swap-chain pointer and the imported-handle WARP renderer.
+Documentation checks passed. Foreground-dependent animation and inspection fixtures were not run.
+
+The consolidation does not import Terminal application code, packages, or runtime evidence into XUI.
+The separate Terminal output timeouts and earlier UIA event-cache failure remain unresolved.
+The passing framework batch does not resolve those separate application failures.
+
+### Hidden scroll views
+
+The terminal palette exposed a hidden `ScrollView` that still reserved its preferred height.
+`xui_control_tests` reproduced the failure before the visibility guard in `ScrollView::measure`.
+The regression covers normal and passthrough scroll hosts, plus restored visible content.
+
+### Split axes and divider input
+
+`xui_split_axis_window_tests` uses an owned, non-activating window.
+It sends pointer messages to both divider orientations and checks nested pane geometry, arrow keys, Home, callbacks, and capture cancellation.
+It also checks that layout changes and hidden panes release capture without another pointer movement.
+The fixture never calls `SetFocus` or changes the foreground window.
+`xui_explorer_tests` covers axis-specific minima and pane layout.
+`xui_split_animation_tests` covers both axes with custom minima, animated surface geometry, drag takeover, and layout changes during animation.
+`xui_abi_features_tests --split-first-visible` covers layout arguments, handle kinds, thread affinity, and closed handles.
+The managed `--split-first-visible` mode covers layout round trips and deferred ratio events.
+
+On September 18, 2026, these ARM64 checks and `xui_style_layouts_tests` passed.
+The x64 native package counterpart compiled but was not executed.
+These checks do not prove application terminal output, installed IME input, or screen-reader behavior.
+
+### Swap chain host input
+
+`tests\swap_chain_input_tests.cpp` uses a fixture-owned HWND and its normal XUI message loop.
+It checks native Tab, Shift+Tab, and PageDown delivery after the explicit input opt-in.
+Application F6 and Shift+F6 handlers move focus out of and back into the panel.
+With the opt-in disabled, ordinary Tab traversal skips the panel.
+Modifier changes affect only the fixture thread's keyboard state and are restored after the test.
+The test does not inject desktop-wide input or prove terminal text composition.
+
+`tests\swap_chain_abi_tests.cpp` checks graphics-host handles, metrics, callback errors, owner-thread guards, and teardown.
+`tests\swap_chain_panel_tests.cpp` checks the native compositor with owned-window pixel capture.
+
+`tests\swap_chain_overlay_tests.cpp` is the acceptance fixture for popup pixels above live swap chains.
+One producer uses a DXGI pointer, and the other uses an imported composition handle.
+Both direct HWND siblings and producers inside separate `ContentHost` ancestors use the same assertions.
+With a narrow, left-aligned anchor, `below_viewport_center` must center the popup on the physical client area.
+The fixture captures both producers before the popup opens.
+It then requires opaque popup pixels over both surfaces while the visible producer colors change.
+Repeated `ContentHost` replacement must show each new result color above both producers and remove the previous result pixels.
+Empty results must leave an opaque popup, without stale result pixels or producer leakage.
+Dismissal must reveal the current producer pixels, without stale popup pixels.
+
+The fixture also requires unchanged HWNDs, physical bounds, metrics, buffer dimensions, and resize counts.
+Every metrics notification must preserve visibility and dimensions, including transient notifications.
+The fixture requires unchanged foreground ownership and releases the producers before COM shutdown.
+These checks do not prove native keyboard routing, installed IME behavior, or screen-reader compatibility.
+
+An independent Win32 probe on September 18, 2026 isolated the native clipping requirement.
+A higher-Z-order Direct2D child surface did not cover a sibling DirectComposition producer without `WS_CLIPSIBLINGS`.
+The producer remained live throughout the probe.
+After both peers received the style, the overlay covered the same sampled region.
+An unclipped native ancestor reproduced the failure with the same producer HWND.
+The ancestor also required sibling clipping.
+
+`tests\swap_chain_popup_input_tests.cpp` checks the independent popup input and drawing targets.
+It covers native EDIT text, rounded bounds, nested popups, Escape, outside dismissal, and modal input ownership.
+Modal presentation disables producer input without hiding its surface or changing its metrics.
+The fixture also covers resize, synthetic DPI, target recreation, reentrant dismissal, and owner closure during presentation.
+An injected rendering failure must remain explicit, and all drawing targets must release.
+These ARM64 checks passed without foreground activation. They do not exercise an installed IME.
+The fixture also covers popup-host replacement, empty results, native editor identity, and nested-popup retirement.
+Closed and foreign hosts remain invalid replacement targets.
+
+On September 18, 2026, the packaged terminal palette exposed a missing mounted-popup ownership path.
+The parent compositor fixture reproduced the rejection after successful static-overlay captures.
+The correction passed the compositor, popup-input, content-host, content-inspection, and ABI-feature fixtures on ARM64.
+The compositor checks included repeated and empty results over both direct and nested live producers.
+The content-host fixture only attempts editor focus and pointer capture when its owner is already active.
+Background runs do not prove those active-input paths.
+
 ### PR 32 integration with main
 
 The merge with `2a5f769` preserves the animation demos, tab tear-out, new controls, and the scroll-copy correction.

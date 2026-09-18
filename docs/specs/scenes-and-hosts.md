@@ -6,6 +6,9 @@ Examples in this reference use C++ unless stated otherwise.
 For C# and Rust coverage, use the [binding reference](bindings.md).
 See [CONTRIBUTING](../../CONTRIBUTING.md#optional-webview2) for the optional WebView2 build.
 
+For application-owned DirectX surfaces, use the [swap chain panel](swap-chain-panel.md).
+It accepts composition swap chains and composition surface handles through a Windows-only C++ API.
+
 ## Vector scenes and offline maps
 
 `include\xui\vector_canvas.hpp` defines the public retained scene API.

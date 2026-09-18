@@ -42,6 +42,7 @@ Fields belong in `state` declarations.
 Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, and `Reveal`.
 Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
+`SwapChainPanel` is a Windows-only graphics leaf. Its generated reference exposes the [native graphics contract](swap-chain-panel.md).
 `Content` embeds an existing element.
 Stacks have no positional argument.
 Each other native node requires a string argument.
@@ -56,6 +57,7 @@ Names that start with `__xui` are reserved.
 
 Stacks support `spacing` and uniform `padding`.
 Controls support `id`, `enabled`, `visible`, and `help`.
+Hidden `ScrollView` controls reserve no desired layout space, including passthrough hosts.
 The `id` argument supplies the automation ID.
 `help` supplies native help text.
 `Stack`, `Grid`, and `Content` are elements, not controls, so they do not support those four arguments.

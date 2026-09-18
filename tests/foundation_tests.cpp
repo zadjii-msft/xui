@@ -142,7 +142,22 @@ void popup_disclosure_progress_actions() {
         require(small.x == 10 && small.y == 20 && small.width == 300 && small.height == 200,
             "Centered popups fit narrow and offset viewports");
     }
-    rejects([&] { popup.set_placement(static_cast<PopupPlacement>(5)); });
+    popup.set_placement(PopupPlacement::below_center);
+    const auto below_center = place_popup({100, 20, 600, 40}, {300, 200}, {0, 0, 800, 600}, PopupPlacement::below_center);
+    require(below_center.x == 250 && below_center.y == 60, "Centered-below placement retains the anchor's lower edge");
+    const auto flipped_center = place_popup({100, 500, 600, 40}, {300, 200}, {0, 0, 800, 600}, PopupPlacement::below_center);
+    require(flipped_center.x == 250 && flipped_center.y == 300, "Centered-below placement flips above the anchor");
+    popup.set_placement(PopupPlacement::below_viewport_center);
+    for (const auto anchor : {Rect{0, 20, 100, 40}, Rect{600, 20, 180, 40}}) {
+        const auto centered = place_popup(anchor, {300, 200}, {10, 20, 800, 600}, PopupPlacement::below_viewport_center);
+        require(centered.x == 260 && centered.y == 60, "Viewport-below placement ignores anchor horizontal center");
+        const auto narrow = place_popup(anchor, {300, 200}, {10, 20, 120, 80}, PopupPlacement::below_viewport_center);
+        require(narrow.x == 10 && narrow.y == 20 && narrow.width == 120 && narrow.height == 80,
+            "Viewport-below placement clamps to a narrow offset viewport");
+    }
+    const auto flipped_viewport = place_popup({0, 500, 100, 40}, {300, 200}, {10, 20, 800, 600}, PopupPlacement::below_viewport_center);
+    require(flipped_viewport.x == 260 && flipped_viewport.y == 300, "Viewport-below placement flips above without losing centering");
+    rejects([&] { popup.set_placement(static_cast<PopupPlacement>(7)); });
     auto content = std::make_shared<Stack>(Axis::vertical);
     auto button = std::make_shared<Button>(L"Details action"); content->add(button);
     Expander expander(L"Details", content);

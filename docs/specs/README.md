@@ -41,6 +41,7 @@ No hosted site is required to read these pages.
 - [Images and thumbnails](images.md): Decode limits, caching, cancellation, and Shell icons.
 - [Documents, dialogs, and color](documents.md): Native editors, syntax highlighting, password access, modal content, and form controls.
 - [Scenes and native hosts](scenes-and-hosts.md): Vector shapes, offline maps, media, and optional web content.
+- [Swap chain panel](swap-chain-panel.md): Composition surfaces, physical sizing and visible bounds, C/C# bindings, and the terminal adapter boundary.
 
 The control references describe the C++ API unless stated otherwise.
 The [binding reference](bindings.md) takes precedence for C# and Rust coverage.

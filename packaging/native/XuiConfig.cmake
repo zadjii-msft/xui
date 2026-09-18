@@ -17,7 +17,7 @@ if(NOT TARGET Xui::Core)
     add_library(Xui::Windows STATIC IMPORTED)
     set_target_properties(Xui::Windows PROPERTIES
         IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/lib/${_xui_arch}/xui_windows.lib"
-        INTERFACE_LINK_LIBRARIES "Xui::Core;d2d1;dwrite;dwmapi;uiautomationcore;ole32;oleaut32;comctl32;shell32;user32;gdi32;windowscodecs;uxtheme;mfuuid"
+        INTERFACE_LINK_LIBRARIES "Xui::Core;d2d1;dwrite;dwmapi;dcomp;uiautomationcore;ole32;oleaut32;comctl32;shell32;user32;gdi32;windowscodecs;uxtheme;mfuuid"
         INTERFACE_COMPILE_DEFINITIONS "UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;_WIN32_WINNT=0x0A00")
     add_library(Xui::CAbi SHARED IMPORTED)
     set_target_properties(Xui::CAbi PROPERTIES
