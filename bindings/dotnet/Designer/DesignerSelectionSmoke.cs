@@ -707,6 +707,57 @@ internal sealed partial class DesignerApplication
                 "The preceding palette comment has its own native undo operation."));
             await Ui(() =>
             {
+                var text = workspace.Document!.Root!.Children[0];
+                editor.Selection = new((ulong)text.Span.Start, (ulong)text.Span.End);
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                Require(!window.KeyHandler!(new(0x28, KeyModifiers.Shift | KeyModifiers.Alt, commandPalette.Surface.Editor.Id)),
+                    "The source duplication shortcut does not intercept command palette input.");
+                commandPalette.Surface.Invoke((ulong)DesignerCommandId.DuplicateSourceLines);
+            });
+            await Ready();
+            string duplicatedSource = "";
+            await Ui(() =>
+            {
+                var children = workspace.Document!.Root!.Children;
+                Require(!commandPalette.IsOpen && editor.Focused && children.Count == 4 &&
+                    children[0].Kind == "Text" && children[1].Kind == "Text" &&
+                    NativeLabel(children[0].Id) && NativeLabel(children[1].Id),
+                    "Palette line duplication compiles a second native label through the ordinary source pipeline.");
+                Require(editor.Selection == new TextSelection((ulong)children[1].Span.Start, (ulong)children[1].Span.End),
+                    "The selected source characters move into the duplicated control.");
+                duplicatedSource = editor.Text;
+                workspace.Hierarchy.Layout.Query.Focus();
+                Require(!window.KeyHandler!(new(0x28, KeyModifiers.Shift | KeyModifiers.Alt, workspace.Hierarchy.Layout.Query.Id)) &&
+                    editor.Text == duplicatedSource, "Shift+Alt+Down does not duplicate source from another input.");
+                editor.Focus();
+                Require(window.KeyHandler!(new(0x28, KeyModifiers.Shift | KeyModifiers.Alt, editor.Id)),
+                    "Shift+Alt+Down duplicates the selected lines from the source editor.");
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                var children = workspace.Document!.Root!.Children;
+                Require(children.Count == 5 && NativeLabel(children[2].Id),
+                    "The source shortcut compiles the repeated duplicate into a third native label.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(editor.Text == duplicatedSource && workspace.Document!.Root!.Children.Count == 4,
+                    "One native undo removes only the shortcut duplication.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3 &&
+                NativeLabel(workspace.Document.Root.Children[0].Id),
+                "A second native undo restores the exact source and preview before palette duplication."));
+            await Ui(() =>
+            {
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
                 workspace.Inspector.Layout.PaletteFilter.Text = "button";
                 workspace.Inspector.FilterPalette();

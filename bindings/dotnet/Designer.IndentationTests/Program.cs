@@ -15,7 +15,9 @@ internal static partial class Program
             RunKeyboardRouting();
             RunComments(VisualStyle.Classic);
             RunComments(VisualStyle.WinUI);
-            Console.WriteLine($"Designer source indentation and comment assertions: {assertions} passed.");
+            RunDuplication(VisualStyle.Classic);
+            RunDuplication(VisualStyle.WinUI);
+            Console.WriteLine($"Designer source indentation, comment, and duplication assertions: {assertions} passed.");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

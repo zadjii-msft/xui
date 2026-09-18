@@ -59,6 +59,14 @@ It checks the configured source limit before replacement and reports native refu
 `Designer.IndentationTests/Program.Comments.cs` covers both visual styles, mixed comments, Unicode, selection boundaries, no-ops, undo/redo, focus, and length limits.
 The application selection smoke covers palette dispatch, source shortcuts, compiler updates, native preview removal/restoration, and successive undo operations.
 
+`DesignerSourceLines.cs` handles source-only Shift+Alt+Down and the palette's Duplicate selected lines action.
+It shares the native CR line-boundary helper with `DesignerSourceComments`.
+Duplication inserts complete lines after the original block and maps the original selection into the copy.
+A final unterminated line receives a separator before its copy.
+The controller uses one snapshot-checked replacement and refuses read-only source or excessive result length.
+`Designer.IndentationTests/Program.Duplication.cs` covers both styles, exact text and selections, empty lines, Unicode, limits, focus routing, and successive undo/redo.
+The application selection smoke covers palette and shortcut dispatch, actual native preview labels, selection mapping, and exact source undo.
+
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.

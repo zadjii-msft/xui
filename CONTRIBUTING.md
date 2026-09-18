@@ -281,6 +281,7 @@ The command UI test uses the native CommandSurface in Classic and WinUI.
 It covers native query input, Enter, Escape, focus, disabled commands, changed availability, duplicate invocation, cancellation, and source undo.
 The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
 It also covers line comments in both visual styles, selected-line boundaries, Unicode, blank lines, mixed prefixes, read-only source, and atomic length refusals.
+Source-line duplication coverage includes both styles, exact text and selections, trailing empty lines, Unicode, one-action undo/redo, focus routing, and length limits.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.

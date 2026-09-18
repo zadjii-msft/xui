@@ -20,6 +20,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly DesignerSourceSearch sourceSearch;
     private readonly DesignerSourceIndentation sourceIndentation;
     private readonly DesignerSourceComments sourceComments;
+    private readonly DesignerSourceLines sourceLines;
     private readonly DesignerCommandPalette commandPalette;
     private readonly DesignerGoTo sourceGoTo;
     private readonly DesignerColorEditor colorEditor;
@@ -56,6 +57,7 @@ internal sealed partial class DesignerApplication : IDisposable
             sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret, ShowError, MaximumLength);
             sourceIndentation = new DesignerSourceIndentation(editor, ShowError);
             sourceComments = new DesignerSourceComments(editor, ReportNavigation, MaximumLength);
+            sourceLines = new DesignerSourceLines(editor, ReportNavigation, MaximumLength);
             templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
@@ -113,6 +115,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 if (sourceSearch.HandleKey(key)) return true;
                 if (sourceIndentation.HandleKey(key)) return true;
                 if (sourceComments.HandleKey(key)) return true;
+                if (sourceLines.HandleKey(key)) return true;
                 return workspace.HandleHierarchyKey(key);
             };
             compiler = Task.Run(CompileEdits);

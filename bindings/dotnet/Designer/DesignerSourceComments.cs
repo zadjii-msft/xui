@@ -23,9 +23,7 @@ internal sealed class DesignerSourceComments(MultilineText editor, Action<string
         string source = editor.Text;
         var selection = editor.Selection;
         int start = checked((int)selection.Start), end = checked((int)selection.End);
-        int first = start == 0 ? 0 : source.LastIndexOf('\r', start - 1) + 1;
-        int last = source.IndexOf('\r', end > start ? end - 1 : end);
-        if (last < 0) last = source.Length;
+        var (first, last) = DesignerSourceLines.SelectedLineBounds(source, selection);
         var prefixes = new List<int>();
         bool uncomment = true;
         for (int line = first; line <= last;)

@@ -61,6 +61,20 @@ Line comments are text edits, not syntax-aware refactoring.
 The action can introduce syntax errors inside strings or incomplete control declarations.
 The ordinary source pipeline updates the hierarchy and preview, and invalid source retains the last valid preview.
 
+**Source: Duplicate selected lines** copies the selected source lines immediately after the original lines.
+Shift+Alt+Down runs this action only when the source editor has focus.
+With no selection, the action copies the caret's line.
+A selection that ends at the next line's start excludes that next line.
+The action preserves indentation, blank lines, and native line endings.
+The caret or selected characters move into the copy.
+
+Each duplication creates one native undo operation.
+A final line without a line ending receives a separator before its copy.
+An empty document or a final empty line receives one new line.
+Read-only source and excessive result length produce explicit errors without partial changes.
+This action copies text, not control identities. Duplicate IDs or declarations can cause compiler errors.
+The ordinary source pipeline retains the last valid preview when the copied text is invalid.
+
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
 New, open, save, recovery, undo, redo, and render use compact icon buttons.

@@ -34,6 +34,8 @@ internal sealed partial class DesignerApplication
         new(DesignerCommandId.GoToLine, "Source: Go to line and column", ShowGoTo, "Ctrl+G in source"),
         new(DesignerCommandId.ToggleComment, "Source: Toggle line comments", sourceComments.Toggle, "Ctrl+/ in source",
             () => !editor.ReadOnly),
+        new(DesignerCommandId.DuplicateSourceLines, "Source: Duplicate selected lines", sourceLines.Duplicate, "Shift+Alt+Down in source",
+            () => !editor.ReadOnly),
         new(DesignerCommandId.SelectFromCaret, "Selection: Select control from source caret", workspace.SelectFromCaret, "Ctrl+Shift+L",
             () => workspace.IsCurrent),
         new(DesignerCommandId.SelectParent, "Selection: Select parent control", () => workspace.SelectRelative(DesignerSelectionTarget.Parent),
