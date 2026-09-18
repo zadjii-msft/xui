@@ -149,6 +149,17 @@ Hierarchy identities belong to one exact source revision.
 A new source revision resets tree expansion and selects the control at the current caret.
 It does not reuse identities from an older document.
 
+The command palette includes **Selection:** actions for the parent, first child, previous sibling, next sibling, and root.
+These actions use the current hierarchy selection, not the source caret.
+They expand the required ancestors, select the exact source range, and focus the hierarchy.
+The inspector shows the target control, and the preview outline follows selection.
+
+Sibling navigation stays within the immediate parent and does not wrap at either boundary.
+Unavailable directions are disabled, including parent and root navigation when the root is already selected.
+Stale source and pending visual edits disable these actions.
+Navigation does not change source, native undo, or preview state.
+Native text fields keep their existing keyboard shortcuts.
+
 **Find in hierarchy** searches control types and full authored argument names and values.
 The search is case-insensitive. Every whitespace-separated term must match the same control.
 For example, `button Save` finds buttons with `Save` in an argument.

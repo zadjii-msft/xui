@@ -2,6 +2,8 @@ using Xui.Generator;
 
 namespace Xui.Designer;
 
+internal enum DesignerSelectionTarget { Parent, FirstChild, PreviousSibling, NextSibling, Root }
+
 internal sealed class DesignerHierarchy
 {
     private readonly Window window;
@@ -144,6 +146,32 @@ internal sealed class DesignerHierarchy
 
     internal XuiSourceNode? Parent(XuiSourceNode node) =>
         parents.TryGetValue(node.Id, out var id) ? nodes[id] : null;
+
+    internal XuiSourceNode? SelectionTarget(DesignerSelectionTarget target)
+    {
+        if (Selection is not { } selected) return null;
+        var parent = Parent(selected);
+        switch (target)
+        {
+            case DesignerSelectionTarget.Parent: return parent;
+            case DesignerSelectionTarget.FirstChild: return selected.Children.FirstOrDefault();
+            case DesignerSelectionTarget.Root:
+                if (parent is null) return null;
+                while (Parent(parent) is { } ancestor) parent = ancestor;
+                return parent;
+            case DesignerSelectionTarget.PreviousSibling:
+            case DesignerSelectionTarget.NextSibling:
+                if (parent is null) return null;
+                for (int index = 0; index < parent.Children.Count; index++)
+                {
+                    if (!ReferenceEquals(parent.Children[index], selected)) continue;
+                    int next = index + (target == DesignerSelectionTarget.PreviousSibling ? -1 : 1);
+                    return next >= 0 && next < parent.Children.Count ? parent.Children[next] : null;
+                }
+                return null;
+            default: throw new ArgumentOutOfRangeException(nameof(target));
+        }
+    }
 
     internal void Select(XuiSourceNode node)
     {

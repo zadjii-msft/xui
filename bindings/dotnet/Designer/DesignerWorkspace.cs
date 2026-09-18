@@ -173,6 +173,27 @@ internal sealed class DesignerWorkspace : IDisposable
         SelectionChanged?.Invoke();
     }
 
+    internal bool CanSelectRelative(DesignerSelectionTarget target) =>
+        CanEditSelection && Hierarchy.SelectionTarget(target) is not null;
+
+    internal void SelectRelative(DesignerSelectionTarget target)
+    {
+        if (disposed) return;
+        if (!CanEditSelection)
+        {
+            Inspector.Layout.Feedback.Text = "Selection navigation needs current source and no pending visual edit.";
+            return;
+        }
+        if (Hierarchy.SelectionTarget(target) is not { } node)
+        {
+            Inspector.Layout.Feedback.Text = "There is no control in that selection direction.";
+            return;
+        }
+        SelectNode(node, revealSource: true);
+        Hierarchy.Tree.Focus();
+        Inspector.Layout.Feedback.Text = $"Selected {node.Kind} in the hierarchy.";
+    }
+
     internal bool SelectFromPreview(string expectedSource, int nodeId)
     {
         if (!current || Document is not { } document || document.Source != expectedSource || editor.Text != expectedSource)

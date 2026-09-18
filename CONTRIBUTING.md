@@ -289,6 +289,7 @@ Viewport checks cover exact Compact dimensions, retained preview versions and st
 Command checks cover shortcut routing, pointer-mode exit, native dismissal, discard protection, and focus inside the scrollable inspector.
 Structural command checks cover duplicate, delete, movement, each wrapper, and unwrap through the native palette.
 They check live preview text, arranged order, selected nodes, disabled root actions, and exact source undo.
+Relative selection checks cover parent, first-child, sibling, and root commands through the native palette without replacing the live preview.
 Go to checks cover the header action, command palette, source-only shortcut, exact caret, hierarchy synchronization, and retained preview state.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
@@ -320,6 +321,8 @@ It also checks property-source command availability, exact source selection, and
 Sibling insertion checks cover before/after buttons, filtered templates, nested parents, Grid cells, structural refusals, native undo/redo, and cancellation by source typing.
 Structural availability checks compare shared capabilities with native buttons for variable-child parents, fixed-child parents, roots, and movement boundaries.
 They also cover busy/stale states, Grid duplication, and native undo in both styles.
+Relative selection workspace checks cover nested parents, collapsed ancestors, boundaries, UTF-16 ranges, focus, filters, and one notification per selection.
+They check exact-snapshot mismatches, pending edits, invalid source, disposal, recovery, and retained source undo in both styles.
 Empty-cell checks cover native Grid coordinates, nested target selection, read-only discovery, explicit refusals, busy/stale guards, and insertion undo in both styles.
 The source suite covers occupancy combinations, spans, large track arrays, unknown tracks, invalid placement, revisions, cancellation, and compiled insertion.
 It compiles source transformations but does not execute authored preview code.

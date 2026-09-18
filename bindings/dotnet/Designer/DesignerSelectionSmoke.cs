@@ -198,6 +198,49 @@ internal sealed partial class DesignerApplication
                     workspace.Hierarchy.Layout.Query.Text == "" && sourceSearch.Layout.FindOpen && sourceSearch.Layout.ReplaceOpen,
                     "Escape in hierarchy search clears only that query instead of closing source Find.");
             });
+            ulong? navigationControl = null;
+            await Ui(() =>
+            {
+                Require(preview.TryReadNode(version, buttonId, out var node), "Selection navigation starts from a current native preview.");
+                navigationControl = node.ControlId;
+            });
+            foreach (var (id, expectedId) in new[]
+            {
+                (DesignerCommandId.SelectParent, 0), (DesignerCommandId.SelectFirstChild, 1),
+                (DesignerCommandId.SelectNextSibling, buttonId), (DesignerCommandId.SelectPreviousSibling, 1),
+                (DesignerCommandId.SelectRoot, 0)
+            })
+            {
+                await Ui(view.Commands.Invoke);
+                await Until(() => commandPalette.IsOpen);
+                await Ui(() => commandPalette.Surface.Invoke((ulong)id));
+                await Until(() => !commandPalette.IsOpen && workspace.Hierarchy.Tree.Focused);
+                await Ui(() =>
+                {
+                    var node = workspace.Hierarchy.Selection!;
+                    Require(node.Id == expectedId && editor.Selection ==
+                        new TextSelection((ulong)node.Span.Start, (ulong)node.Span.End),
+                        $"Palette action {id} selects the expected hierarchy node and exact source range.");
+                    Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated" &&
+                        preview.TryReadNode(version, buttonId, out var button) && button.ControlId == navigationControl,
+                        "Relative selection retains the native preview identity and authored state.");
+                });
+            }
+            await Ui(view.Commands.Invoke);
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                foreach (var id in new[] { DesignerCommandId.SelectParent, DesignerCommandId.SelectRoot,
+                    DesignerCommandId.SelectPreviousSibling, DesignerCommandId.SelectNextSibling })
+                {
+                    bool refused = false;
+                    try { commandPalette.Surface.Invoke((ulong)id); }
+                    catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                    Require(refused && commandPalette.IsOpen, $"The native palette disables {id} at the root.");
+                }
+                commandPalette.Surface.CloseButton.Invoke();
+            });
+            await Until(() => !commandPalette.IsOpen);
             await Ui(() => view.Pick.Invoke());
             await Until(() => pickControls);
             await Ui(view.GoToLine.Invoke);

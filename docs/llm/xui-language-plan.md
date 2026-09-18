@@ -64,7 +64,14 @@ It parses exact native editor snapshots and applies edits with the native range-
 It rejects stale source or revision results before the native call.
 `DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
 It applies 28-DIP rows, 16-DIP indentation, and reduced row padding through local style values.
-Its native query searches complete node kinds and authored argument names/values with ordinal, case-insensitive terms.
+`SelectionTarget` resolves parent, first-child, sibling, and root targets against the current hierarchy objects.
+`DesignerWorkspace.SelectRelative` checks the exact source snapshot and pending edits before using the existing `SelectNode` path.
+It focuses the hierarchy after source selection and emits one outline notification.
+Boundary refusals leave selection intact and show an explicit inspector message.
+`Designer.WorkspaceTests/Program.RelativeSelection.cs` covers nested and fixed-child parents, collapsed ancestors, UTF-16 ranges, filters, busy/stale guards, disposal, and native undo.
+Both visual styles use real native controls.
+The application selection smoke covers every palette action, disabled root directions, and retained native preview identity and authored state.
+The hierarchy's native query searches complete node kinds and authored argument names/values with ordinal, case-insensitive terms.
 `RefreshSearch` orders matches by source span without replacing the tree source or its keys.
 `MoveSearch` uses the existing ancestor expansion and selection path, then publishes one selection event.
 `SetSearchCurrent` disables navigation as soon as the workspace observes a source change.

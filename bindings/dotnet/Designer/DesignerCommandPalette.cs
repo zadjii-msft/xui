@@ -7,7 +7,8 @@ internal enum DesignerCommandId
     Render, LivePreview, PickControls, Fit, Compact, Medium, Wide,
     Output, VisualStyle, Theme, GoToLine, ToggleComment, FocusHierarchySearch, FocusPropertySearch, RevertPropertyDraft,
     RevealPropertySource, DeleteControl, DuplicateControl, MoveControlUp, MoveControlDown,
-    WrapVertical, WrapHorizontal, WrapScroll, UnwrapControl
+    WrapVertical, WrapHorizontal, WrapScroll, UnwrapControl,
+    SelectParent, SelectFirstChild, SelectPreviousSibling, SelectNextSibling, SelectRoot
 }
 
 internal sealed record DesignerCommand(
