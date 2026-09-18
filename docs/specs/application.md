@@ -107,7 +107,9 @@ Retained controls remain valid after window destruction.
 Enabled state and checked state request paint updates.
 Text and typography changes request layout for automatic sizes, or paint for preferred sizes.
 Size limits, spacing, and padding request layout and paint updates.
-The host combines pending updates. It has no animation timer or continuous render loop.
+The host combines pending updates.
+Opt-in [reveal animations](animations.md) use one window timer only during an active transition.
+The host has no continuous render loop or idle animation timer.
 Text stays on one line unless the text contains an explicit line break.
 An ellipsis marks text that exceeds the available width. The accessible name retains the full text.
 

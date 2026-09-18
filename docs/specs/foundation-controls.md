@@ -65,5 +65,6 @@ Content controls retain their own background rules.
 For example, Classic `ItemsView` uses the window background, while WinUI `ItemsView` uses the popup background unless an inner Stack selects a surface.
 
 Tooltips use one pending one-shot timer and no extra HWND or target. Hidden tooltips have no timer.
-Indeterminate progress is deliberately static. This batch has no progress ring or progress animation.
+Indeterminate progress is deliberately static. There is no progress ring or periodic indeterminate animation.
+Determinate progress supports an explicit duration. The [animation contract](animations.md) describes its logical and displayed values.
 Capacity meters show used/total text without implying an active task.

@@ -25,6 +25,8 @@ public class Window
     public NavigationView NavigationView(string name) => Add(new NavigationView());
     public ScrollView ScrollView(Element content, string name)
     { var result = Add(new ScrollView()); result.AddContent(content); return result; }
+    public Reveal Reveal(Element content, string name = "Reveal")
+    { var result = Add(new Reveal { Name = name }); result.AddContent(content); return result; }
     public Popup Popup(string name, Element content)
     { var result = Add(new Popup()); result.AddContent(content); return result; }
     public SplitView SplitView(string name, Element first, Element second)
@@ -85,6 +87,39 @@ public abstract class Control : Element
     public bool IsVisible = true;
 }
 public sealed class Label : Control;
+public enum RevealLayout : uint { Fixed = 0, Expand = 1 }
+public enum RevealDirection : uint { Bottom = 0, Top = 1, Left = 2, Right = 3 }
+public sealed class Reveal : ContentControl
+{
+    public bool Open { get; private set; }
+    public uint Duration { get; private set; }
+    public RevealLayout Layout { get; private set; }
+    public RevealDirection Direction { get; private set; }
+    public int OpenSets, DurationSets, LayoutSets, DirectionSets;
+    public uint DurationAtOpen;
+    public RevealLayout LayoutAtOpen;
+    public RevealDirection DirectionAtOpen;
+    public Reveal SetOpen(bool value)
+    {
+        Open = value; OpenSets++; DurationAtOpen = Duration;
+        LayoutAtOpen = Layout; DirectionAtOpen = Direction; return this;
+    }
+    public Reveal SetLayout(RevealLayout value)
+    {
+        if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        Layout = value; LayoutSets++; return this;
+    }
+    public Reveal SetDirection(RevealDirection value)
+    {
+        if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        Direction = value; DirectionSets++; return this;
+    }
+    public Reveal SetDuration(uint value)
+    {
+        if (value > 10000) throw new ArgumentOutOfRangeException(nameof(value));
+        Duration = value; DurationSets++; return this;
+    }
+}
 public sealed class Button : Control
 {
     private ButtonStyle? style;
@@ -211,6 +246,15 @@ public sealed class DataGrid : Control
 }
 public sealed class NavigationView : Control
 {
+    public uint Duration;
+    public int DurationSets;
+    public NavigationView SetDuration(uint value)
+    {
+        if (value > 10000) throw new ArgumentOutOfRangeException(nameof(value));
+        Duration = value;
+        DurationSets++;
+        return this;
+    }
     private TextInput? search;
     public TextInput Search => search ??= Owner.TextInput("Search");
     public bool HeaderVisible = true;
@@ -274,5 +318,7 @@ public sealed class Popup : ContentControl
 public sealed class SplitView : ContentControl
 {
     public bool SecondVisible = true;
-    public SplitView SetSecondVisible(bool value) { SecondVisible = value; return this; }
+    public uint TransitionDuration, DurationAtVisibilityChange;
+    public SplitView SetTransitionDuration(uint value) { TransitionDuration = value; return this; }
+    public SplitView SetSecondVisible(bool value) { SecondVisible = value; DurationAtVisibilityChange = TransitionDuration; return this; }
 }

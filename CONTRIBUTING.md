@@ -146,6 +146,96 @@ The post-build command places the matching DLL beside the console executable.
 For a separately built DLL, supply its `xui.lib`, the `include` directory, and the same manifest instead.
 Keep the C executable and native library on the same architecture.
 
+## Reveal animation checks
+
+After the native configuration, run the focused reveal checks:
+
+```powershell
+cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
+cmake --build $build --config Release --target xui_reveal_tests xui_reveal_window_tests xui_split_animation_tests xui_tab_animation_tests xui_tab_animation_window_tests xui_expander_animation_tests xui_expander_animation_window_tests xui_progress_animation_tests xui_progress_animation_window_tests xui_document_animation_window_tests --parallel 1
+ctest --test-dir $build -C Release -R "^xui_(reveal(_window)?|split_animation|tab_animation(_window)?|expander_animation(_window)?|progress_animation(_window)?|document_animation_window)_tests$" --output-on-failure -j 1
+```
+
+The window fixture requires a Windows desktop and owned-window graphics capture.
+It reads the system motion preference without changing it.
+It covers fixed and expanding layout, all entry edges, native input, nested scroll content, resize, and synthetic DPI messages.
+It reports update-and-paint intervals and root-layout counts for a small bounded fixture.
+Timing output is diagnostic, not a frame-rate acceptance threshold.
+The [test notes](docs/llm/testing.md#reveal-animation-checks) describe its coverage and limits.
+
+The collection presentation foundation has separate model and native fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_collection_presentation_tests xui_collection_presentation_window_tests --parallel 1
+ctest --test-dir $build -C Release -R "^xui_collection_presentation(_window)?_tests$" --output-on-failure -j 1
+```
+
+The native fixture also requires `XUI_DESKTOP_TESTS=ON` and runs serially.
+These fixtures exercise internal presentation geometry. They do not enable NavigationView animation.
+
+For the opt-in navigation producer and gallery, run:
+
+```powershell
+cmake --build $build --config Release --target xui_navigation_animation_tests xui_navigation_animation_window_tests xui_gallery xui_gallery_smoke --parallel 1
+ctest --test-dir $build -C Release -R "^xui_(navigation_animation(_window)?_tests|navigation_motion_gallery_smoke)$" --output-on-failure -j 1
+dotnet run --project bindings\dotnet\Tests -- --navigation-animation
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui navigation_animation_contract
+```
+
+The window and gallery registrations require `XUI_DESKTOP_TESTS=ON`.
+
+For the replayable animation gallery, run:
+
+```powershell
+cmake --build $build --config Release --target xui_gallery xui_gallery_smoke --parallel 1
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --animations-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --feedback-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --popup-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --progress-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --content-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --page-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --page-motion-winui
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --tab-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --document-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --document-motion-winui
+& ".\$build\Release\xui_gallery.exe" --page animations
+```
+
+For bounded concurrent-motion observations, use the native stress fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_animation_stress_window_tests --parallel 1
+& ".\$build\Release\xui_animation_stress_window_tests.exe"
+```
+
+The fixture compares fixed and expanding Reveal with concurrent Progress updates and retained native editors.
+Its CPU observations include the test observer and native rendering, not only the animation scheduler.
+Run it separately from other desktop tests.
+
+The gallery check covers duration choices, reversal, layout modes, retained native input, panes, and timer shutdown.
+The feedback check covers field validation, caret and undo retention, and one live announcement per message state.
+The progress check covers immediate logical values, retargeting, mode changes, and no periodic indeterminate paint.
+The content-state check covers real native editor movement, focus return, retained undo, a fixed slot, and immediate mode.
+The page checks cover directional native movement, immediate input ownership, retained selection and undo, rapid switching, and immediate mode.
+The managed runtime fixtures use `--reveal`, `--split-animation`, `--tab-animation`, `--expander-animation`, and `--progress-animation` in the binding test runner.
+FileExplorer `--smoke` covers the actual navigation, tab, pane, and Find composition.
+FileExplorer `--view-entry-smoke` isolates Details/Columns entry, native ownership, selection, scrolling, cancellation, and immediate mode.
+FileExplorer `--pane-animation-smoke` isolates split entry and reports observer timing and native clock delivery.
+These modes create temporary fixtures and close their own window.
+
+For animation delivery during sustained posted updates, run:
+
+```powershell
+cmake --build $build --config Release --target xui_animation_queue_window_tests
+ctest --test-dir $build -C Release -R "^xui_animation_queue_window_tests$" --output-on-failure -j 1
+```
+
+The desktop fixture covers both application entry points, intermediate painting, terminal settlement, immediate mode, and idle work.
+It also closes one active window while another window continues its own animation and posted updates.
+Its child-timer case checks native timer delivery during posted traffic.
+Its shutdown case posts a nonzero quit code after a real animation update and requires normal loop exit.
+The traffic observer does not force animation clocks or paints.
+
 ## C# and declarative samples
 
 After the native build, run a sample:

@@ -14,7 +14,7 @@ public:
     Runtime(const Runtime&) = delete;
     Runtime& operator=(const Runtime&) = delete;
     int run(const std::function<bool(MSG&)>& translate, HANDLE ready = nullptr,
-        const std::function<void()>& accept = {});
+        const std::function<void()>& accept = {}, const std::function<void()>& present = {});
 };
 
 COLORREF native_color(D2D1_COLOR_F color);

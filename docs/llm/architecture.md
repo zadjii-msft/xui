@@ -71,6 +71,56 @@ These tests need a Windows desktop. Static checks do not establish a passing nat
 
 ## Performance design
 
+### Opt-in reveal
+
+`include\xui\reveal.hpp` and `src\reveal.cpp` define the retained four-edge reveal.
+The model owns one child, an open target, a duration, and the current presentation.
+It has no platform timer or worker.
+The public contract and future phases are in [the animation roadmap](../specs/animations.md).
+
+`Window::Impl::sync_animations` supplies clock updates and the Windows motion preference.
+It uses one window timer while any reveal remains active.
+`Window::Impl::present_animation_frame` gives active animation timers a bounded opportunity between message dispatches and worker deliveries.
+The ordinary update path does not advance animation clocks.
+The service retrieves real due `WM_TIMER` messages, dispatches queued geometry updates, and paints their frames.
+Filtered retrieval preserves `WM_QUIT` for the outer loop, including its exit code.
+A window filter includes native child messages. The service dispatches those messages instead of discarding them.
+The service also presents a terminal frame after the last animation stops.
+Posted traffic cannot indefinitely suppress that work through the normal low-priority timer and paint ordering.
+Both application entry points use the same service. There is no extra thread, timer, or idle wakeup.
+Private metric 34 counts actual animation timer dispatches. Metric 33 reports whether the shared timer remains active.
+Metrics 35 and 36 count successful paints with intermediate SplitView and Reveal presentation, respectively.
+These counters separate actual frame delivery from delayed managed observations.
+The service applies pending geometry and paint before it retrieves another timer.
+This order prevents another timer callback from observing a new progress value with stale native bounds.
+`include\xui\animation.hpp` defines the participant interface for that scheduler.
+Reveal and SplitView implement the same clock, settlement, and active-state operations.
+Applications configure the control-specific duration rather than driving the interface from a managed timer.
+`Invalidation::placement` arranges reveal subtrees and updates native peer geometry without a complete root layout.
+The ordinary update path still handles peer state, accessibility, and painting.
+Entry and completed exit use ordinary layout to reserve or release the row.
+`RevealLayout::expand` instead invalidates root layout on each sampled frame.
+The model measures its child without a constraint along the animation axis, then multiplies that natural extent by progress.
+Repeated parent measurement does not multiply the available slot by progress again.
+Arrangement retains the full child extent and clips it to the animated slot.
+Unbounded natural content requires an authored size.
+The focus and visibility paths permit zero-extent opening clips without changing pointer clipping or the UIA offscreen calculation.
+
+Reveal uses the existing `content_view` role and retained-child traversal.
+Its native parent supplies clipping for the editor and button.
+The closing target disables interaction before the exit ends.
+SplitView also rejects interaction in its outgoing secondary ContentView.
+Its secondary content retains the complete target width and moves inside the split viewport.
+The surface painter clips pane backgrounds before recursive child painting.
+Content retirement and window closure settle the model before the native peers disappear.
+
+The renderer still captures visible native pixels on each frame.
+Partial native clips can resize its composition buffers.
+This stage does not add a compositor, a bitmap snapshot animation, or damage tracking.
+The [test notes](testing.md#reveal-animation-checks) describe the current evidence.
+
+### Collections and background work
+
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.
 A cancellable length pass reserves this buffer once. The snapshot does not retain geometric growth capacity.
 A sorted array of 32-bit row indices provides the shared ID lookup.

@@ -349,7 +349,7 @@
       "patterns": [
         { "include": "#comments" },
         {
-          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Content)\\b",
+          "match": "\\b(?:VStack|HStack|Text|Button|Toggle|TextInput|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Reveal|Content)\\b",
           "name": "support.class.node.xui"
         },
         { "include": "#keywords" },

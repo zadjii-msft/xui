@@ -69,6 +69,32 @@ pub struct FileItem {
 }
 pub type Callback = Option<unsafe extern "C" fn(*mut c_void, *const Event) -> Status>;
 unsafe extern "C" {
+    pub fn xui_navigation_view_set_duration(target: Handle, milliseconds: u32) -> Status;
+    pub fn xui_navigation_view_get_duration(target: Handle, milliseconds: *mut u32) -> Status;
+    pub fn xui_navigation_view_get_animating(target: Handle, animating: *mut u32) -> Status;
+    pub fn xui_progress_set_duration(target: Handle, milliseconds: u32) -> Status;
+    pub fn xui_progress_get_duration(target: Handle, milliseconds: *mut u32) -> Status;
+    pub fn xui_progress_get_presented_value(target: Handle, value: *mut f64) -> Status;
+    pub fn xui_progress_get_animating(target: Handle, animating: *mut u32) -> Status;
+    pub fn xui_expander_set_duration(target: Handle, milliseconds: u32) -> Status;
+    pub fn xui_expander_get_duration(target: Handle, milliseconds: *mut u32) -> Status;
+    pub fn xui_expander_get_progress(target: Handle, progress: *mut f32) -> Status;
+    pub fn xui_expander_get_animating(target: Handle, animating: *mut u32) -> Status;
+    pub fn xui_split_view_set_transition_duration(target: Handle, milliseconds: u32) -> Status;
+    pub fn xui_split_view_get_transition_duration(target: Handle, milliseconds: *mut u32) -> Status;
+    pub fn xui_split_view_get_progress(target: Handle, progress: *mut f32) -> Status;
+    pub fn xui_split_view_get_animating(target: Handle, animating: *mut u32) -> Status;
+    pub fn xui_reveal_create(window: Handle, content: Handle, name: Text, result: *mut Handle) -> Status;
+    pub fn xui_reveal_set_open(target: Handle, open: u32) -> Status;
+    pub fn xui_reveal_get_open(target: Handle, open: *mut u32) -> Status;
+    pub fn xui_reveal_set_duration(target: Handle, milliseconds: u32) -> Status;
+    pub fn xui_reveal_get_duration(target: Handle, milliseconds: *mut u32) -> Status;
+    pub fn xui_reveal_set_layout(target: Handle, layout: u32) -> Status;
+    pub fn xui_reveal_get_layout(target: Handle, layout: *mut u32) -> Status;
+    pub fn xui_reveal_set_direction(target: Handle, direction: u32) -> Status;
+    pub fn xui_reveal_get_direction(target: Handle, direction: *mut u32) -> Status;
+    pub fn xui_reveal_get_progress(target: Handle, progress: *mut f32) -> Status;
+    pub fn xui_reveal_get_animating(target: Handle, animating: *mut u32) -> Status;
     pub fn xui_application_create(application: *mut Handle) -> Status;
     pub fn xui_application_window_create(application: Handle, options: *const Options, custom_titlebar: u32, window: *mut Handle) -> Status;
     pub fn xui_application_show(application: Handle, window: Handle) -> Status;
@@ -82,6 +108,8 @@ unsafe extern "C" {
     pub fn xui_tab_set_colors(tabs: Handle, colors: *const TabColors) -> Status;
     pub fn xui_tab_get_colors(tabs: Handle, colors: *mut TabColors) -> Status;
     pub fn xui_tab_set_new_button(tabs: Handle, visible: u32) -> Status;
+    pub fn xui_tab_set_duration(tabs: Handle, milliseconds: u32) -> Status;
+    pub fn xui_tab_get_duration(tabs: Handle, milliseconds: *mut u32) -> Status;
     pub fn xui_tab_get_new_button(tabs: Handle, visible: *mut u32) -> Status;
     pub fn xui_abi_version() -> u32;
     pub fn xui_error_copy(

@@ -66,7 +66,8 @@ Buttons and selection indicators use translucent template brushes, including sep
 Dark accent text and selected marks use black. Radio dots remain geometry, not font characters.
 Navigation uses a 14-DIP semibold pane title and an unframed menu button.
 Catalog-wide paint coverage does not establish pixel or behavior parity with WinUI.
-It does not implement Mica, acrylic, animation, automatic system accent selection, or WinUI API compatibility.
+It does not implement Mica, acrylic, default control animations, automatic system accent selection, or WinUI API compatibility.
+Applications can select [reveal animations](animations.md) independently of the visual style.
 Indeterminate progress uses a static segment, not an animation timer.
 Date/time controls, native suggestion lists, native editor scrollbars, disabled RichEdit backgrounds, and third-party Shell menus retain platform-owned visuals.
 The C ABI exposes window style selection through `xui_window_visual_style_set` and `xui_window_visual_style_get` in `xui_layout.h`.

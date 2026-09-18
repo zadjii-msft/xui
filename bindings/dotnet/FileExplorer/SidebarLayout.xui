@@ -1,8 +1,12 @@
 namespace Xui.FileExplorer;
 
 component SidebarLayout {
+    state bool NavigationOpen = true;
     view {
-        NavigationView("Explorer navigation", id: "explorer-navigation", headerVisible: false,
-            searchId: "navigation-filter", searchHelp: "Filter navigation (Alt+F)");
+        Reveal("Navigation pane", open: NavigationOpen, duration: 180,
+            layout: global::Xui.RevealLayout.Expand, direction: global::Xui.RevealDirection.Left) {
+            NavigationView("Explorer navigation", ref: Navigation, id: "explorer-navigation", headerVisible: false, duration: 180,
+                searchId: "navigation-filter", searchHelp: "Filter navigation (Alt+F)");
+        }
     }
 }

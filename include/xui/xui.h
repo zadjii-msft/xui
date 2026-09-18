@@ -121,6 +121,55 @@ XUI_API xui_status XUI_CALL xui_window_callback_error(xui_handle window,
     xui_status* callback_status) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind,
     xui_string name, xui_handle content, xui_handle* result) XUI_NOEXCEPT;
+/* Tab insertion motion: 0..10000 milliseconds, default zero. Initial population is immediate.
+   Deletion, reorder, overflow, and geometry changes settle instead of animating incompatible slots. */
+XUI_API xui_status XUI_CALL xui_tab_set_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_tab_get_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+/* Reveal retains one unattached child from the same window and active content scope.
+   Defaults: closed, duration zero. Duration is 0..10000 ms; zero disables motion.
+   Closing disables interaction immediately. Fixed layout retains the full slot until closing completes;
+   expand layout measures the child's natural extent times progress on the direction axis. */
+typedef enum xui_reveal_layout {
+    XUI_REVEAL_LAYOUT_FIXED = 0, XUI_REVEAL_LAYOUT_EXPAND = 1
+} xui_reveal_layout;
+typedef enum xui_reveal_direction {
+    XUI_REVEAL_DIRECTION_BOTTOM = 0, XUI_REVEAL_DIRECTION_TOP = 1,
+    XUI_REVEAL_DIRECTION_LEFT = 2, XUI_REVEAL_DIRECTION_RIGHT = 3
+} xui_reveal_direction;
+XUI_API xui_status XUI_CALL xui_reveal_create(xui_handle window, xui_handle content,
+    xui_string name, xui_handle* result) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_set_open(xui_handle target, uint32_t open) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_get_open(xui_handle target, uint32_t* open) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_set_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_get_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+/* Defaults: fixed layout, bottom direction. Changing either settles active motion. */
+XUI_API xui_status XUI_CALL xui_reveal_set_layout(xui_handle target, uint32_t layout) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_get_layout(xui_handle target, uint32_t* layout) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_set_direction(xui_handle target, uint32_t direction) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_get_direction(xui_handle target, uint32_t* direction) XUI_NOEXCEPT;
+/* Progress is 0..1. Boolean values are zero or one. */
+XUI_API xui_status XUI_CALL xui_reveal_get_progress(xui_handle target, float* progress) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_reveal_get_animating(xui_handle target, uint32_t* animating) XUI_NOEXCEPT;
+/* Expander body motion: 0..10000 milliseconds, default zero. */
+XUI_API xui_status XUI_CALL xui_expander_set_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_expander_get_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_expander_get_progress(xui_handle target, float* progress) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_expander_get_animating(xui_handle target, uint32_t* animating) XUI_NOEXCEPT;
+/* Determinate progress motion: 0..10000 milliseconds, default zero. */
+XUI_API xui_status XUI_CALL xui_progress_set_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_progress_get_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_progress_get_presented_value(xui_handle target, double* value) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_progress_get_animating(xui_handle target, uint32_t* animating) XUI_NOEXCEPT;
+/* Navigation main-branch disclosure motion: 0..10000 milliseconds, default zero. */
+XUI_API xui_status XUI_CALL xui_navigation_view_set_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_navigation_view_get_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_navigation_view_get_animating(xui_handle target, uint32_t* animating) XUI_NOEXCEPT;
+/* Split motion is opt-in: 0..10000 milliseconds, default zero.
+   Logical visibility changes immediately; progress reports retained presentation. */
+XUI_API xui_status XUI_CALL xui_split_view_set_transition_duration(xui_handle target, uint32_t milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_view_get_transition_duration(xui_handle target, uint32_t* milliseconds) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_view_get_progress(xui_handle target, float* progress) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_split_view_get_animating(xui_handle target, uint32_t* animating) XUI_NOEXCEPT;
 /* Topology is immutable after run starts. Axis: zero horizontal, one vertical. */
 XUI_API xui_status XUI_CALL xui_stack_create(xui_handle window, uint32_t axis,
     xui_handle* result) XUI_NOEXCEPT;

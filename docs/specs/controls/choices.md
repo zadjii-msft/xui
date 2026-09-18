@@ -637,8 +637,12 @@ root->add(capacity);
 {% endtabs %}
 
 `paused`, `error`, `unknown`, and `indeterminate` describe other states.
-Indeterminate progress is static. It has no progress animation or ring.
+Indeterminate progress is static. It has no periodic animation or ring.
 Capacity text describes used and total values without an active-task claim.
+
+Determinate progress can interpolate its displayed value with an explicit duration.
+The default duration is zero. Logical and accessible values change immediately.
+See the [animation contract](../animations.md) for duration, interruption, and presentation APIs.
 
 The style target is `progress`.
 Caption, track, and fill styles do not alter the value.

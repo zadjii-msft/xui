@@ -1,6 +1,7 @@
 #pragma once
 #include "xui/commands.hpp"
 #include "xui/adaptive_layout.hpp"
+#include "xui/animation.hpp"
 
 namespace xui {
 enum class NavigationSection { header, main, footer };
@@ -17,8 +18,12 @@ struct NavigationItem {
 
 class NavigationView;
 // Virtual rows use the existing tree input and accessibility adapters.
-class NavigationList final : public VirtualCollection {
+class NavigationList final : public VirtualCollection, public Animation {
 public:
+    ~NavigationList() override;
+    bool animating() const override;
+    void advance(Clock::time_point now) override;
+    void settle() override;
     bool multiple_selection() const override { return false; }
     void select_all() override {}
     bool select(ItemKey key, SelectionGesture gesture = SelectionGesture::replace) override;
@@ -45,7 +50,13 @@ private:
     std::uint64_t hover_revision_{};
     bool hover_requested_{};
     bool reveal_focus_{};
-    void replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected);
+    void replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected,
+        std::optional<ItemKey> transition = {});
+    void collection_presentation_retired() override;
+    struct Motion;
+    std::unique_ptr<Motion> motion_;
+    std::uint64_t presentation_version_{};
+    std::shared_ptr<const detail::CollectionPresentation> motion_frame();
 };
 
 class NavigationView final : public Control {
@@ -59,6 +70,9 @@ public:
     bool expanded() const { return expanded_; }
     void set_expanded(bool value);
     void set_pane_widths(float expanded, float collapsed);
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    bool animating() const;
     bool item_expanded(ItemKey key) const;
     bool set_item_expanded(ItemKey key, bool value);
     const std::wstring& filter() const { return filter_; }
@@ -98,7 +112,8 @@ private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_view; }
     StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;
-    void rebuild();
+    void rebuild(std::optional<ItemKey> transition = {});
+    void settle_motion();
     bool effective_enabled(ItemKey key) const;
     bool has_children(ItemKey key) const;
     bool expanded_state(const NavigationItem& item) const;
@@ -111,6 +126,7 @@ private:
     std::optional<ItemKey> selected_;
     std::wstring filter_;
     std::size_t matches_{};
+    unsigned duration_{};
     float expanded_width_{280}, collapsed_width_{64};
     bool expanded_{true}, search_visible_{true}, header_visible_{true};
     std::shared_ptr<Button> toggle_;

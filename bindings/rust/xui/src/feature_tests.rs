@@ -1,6 +1,129 @@
 use super::*;
 use std::cell::Cell;
 #[test]
+fn tab_animation_duration() -> Result<()> {
+    let window = Window::with_titlebar("Tab motion", 400., 300.)?;
+    let tabs = window.tab_strip("Tabs")?;
+    assert_eq!(tabs.duration()?, 0);
+    let button = tabs.new_tab_button()?;
+    tabs.set_new_tab_button_visible(true)?;
+    for value in [0, 180, 10000] {
+        tabs.set_duration(value)?;
+        assert_eq!(tabs.duration()?, value);
+    }
+    for value in [10001, u32::MAX] {
+        assert_eq!(tabs.set_duration(value).unwrap_err().status, 1);
+        assert_eq!(tabs.duration()?, 10000);
+    }
+    tabs.set_duration(180)?;
+    let choices = [
+        Choice { id: 11, text: "First".into(), enabled: true, version: 0 },
+        Choice { id: 22, text: "Inserted".into(), enabled: true, version: 0 },
+    ];
+    tabs.set_items(&choices[..1], Some(11))?;
+    tabs.set_items(&choices, Some(22))?;
+    tabs.set_items(&[choices[1].clone(), choices[0].clone()], Some(22))?;
+    tabs.set_items(&choices, Some(22))?;
+    assert_eq!(tabs.new_tab_button()?.handle, button.handle);
+    tabs.set_items(&choices[..1], Some(11))?;
+    assert_eq!(tabs.duration()?, 180);
+    unsafe {
+        assert_eq!(sys::xui_tab_get_duration(tabs.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_tab_set_duration(button.handle, 180), 0);
+        let mut value = 0;
+        assert_ne!(sys::xui_tab_get_duration(button.handle, &mut value), 0);
+        assert_ne!(sys::xui_tab_set_duration(0, 180), 0);
+    }
+    Ok(())
+}
+#[test]
+fn reveal_contract() -> Result<()> {
+    let window = Window::new("Reveal", 300., 300.)?;
+    let child = window.stack(Axis::Horizontal)?;
+    let input = window.text_input("Find")?;
+    child.add(&input, 1.)?;
+    let host = window.reveal(&child, "Find host")?;
+    assert!(!host.open()? && !host.animating()?);
+    assert_eq!(host.duration()?, 0);
+    assert_eq!(host.progress()?, 0.);
+    assert_eq!(host.layout()?, RevealLayout::Fixed);
+    assert_eq!(host.direction()?, RevealDirection::Bottom);
+    host.set_open(true)?;
+    assert!(host.open()? && !host.animating()?);
+    assert_eq!(host.progress()?, 1.);
+    host.set_open(false)?;
+    assert_eq!(host.progress()?, 0.);
+    for duration in [0, 180, 10000] {
+        host.set_duration(duration)?;
+        assert_eq!(host.duration()?, duration);
+    }
+    for duration in [10001, u32::MAX] {
+        assert_eq!(host.set_duration(duration).unwrap_err().status, 1);
+        assert_eq!(host.duration()?, 10000);
+    }
+    for layout in [RevealLayout::Fixed, RevealLayout::Expand] {
+        host.set_layout(layout)?;
+        assert_eq!(host.layout()?, layout);
+    }
+    for direction in [RevealDirection::Bottom, RevealDirection::Top, RevealDirection::Left, RevealDirection::Right] {
+        host.set_direction(direction)?;
+        assert_eq!(host.direction()?, direction);
+    }
+    host.set_open(true)?;
+    assert!(host.animating()?);
+    unsafe {
+        for layout in [2, u32::MAX] {
+            assert_eq!(sys::xui_reveal_set_layout(host.handle, layout), 1);
+            assert_eq!(host.layout()?, RevealLayout::Expand);
+        }
+        for direction in [4, u32::MAX] {
+            assert_eq!(sys::xui_reveal_set_direction(host.handle, direction), 1);
+            assert_eq!(host.direction()?, RevealDirection::Right);
+        }
+    }
+    assert!(host.animating()?);
+    assert_eq!(host.progress()?, 0.);
+    host.set_layout(RevealLayout::Fixed)?;
+    assert!(!host.animating()?);
+    assert_eq!(host.progress()?, 1.);
+    host.set_open(false)?;
+    host.set_direction(RevealDirection::Bottom)?;
+    assert!(!host.animating()?);
+    assert_eq!(host.progress()?, 0.);
+    assert!(window.reveal(&child, "Duplicate").is_err());
+    let other = Window::new("Other", 300., 300.)?;
+    assert!(other.reveal(&host, "Foreign").is_err());
+    let root = window.stack(Axis::Vertical)?;
+    root.add(&host, 0.)?;
+    assert!(root.add(&child, 0.).is_err());
+    assert!(host.weak().upgrade().is_some());
+    unsafe {
+        assert_eq!(sys::xui_reveal_set_open(host.handle, 2), 1);
+        assert_eq!(sys::xui_reveal_get_open(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_duration(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_progress(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_animating(host.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_reveal_set_open(input.handle, 1), 0);
+        assert_ne!(sys::xui_reveal_set_duration(input.handle, 180), 0);
+        assert_eq!(sys::xui_reveal_get_layout(host.handle, std::ptr::null_mut()), 1);
+        assert_eq!(sys::xui_reveal_get_direction(host.handle, std::ptr::null_mut()), 1);
+        assert_ne!(sys::xui_reveal_set_layout(input.handle, 1), 0);
+        assert_ne!(sys::xui_reveal_set_direction(input.handle, 1), 0);
+        let mut handle = u64::MAX;
+        assert_eq!(sys::xui_reveal_create(window.0.handle, other.stack(Axis::Vertical)?.handle,
+            text("Foreign")?, &mut handle), 1);
+        assert_eq!(handle, 0);
+        assert_eq!(sys::xui_reveal_create(window.0.handle, child.handle,
+            text("Missing output")?, std::ptr::null_mut()), 1);
+        let candidate = window.stack(Axis::Vertical)?;
+        assert_eq!(sys::xui_reveal_create(window.0.handle, candidate.handle,
+            sys::Text { data: std::ptr::null(), length: 1, reserved: 0 }, &mut handle), 1);
+        assert_eq!(handle, 0);
+        window.reveal(&candidate, "After invalid name")?;
+    }
+    Ok(())
+}
+#[test]
 fn shell_image_and_open_icon() -> Result<()> {
     let window = Window::new("Shell image", 300., 300.)?;
     let image = window.image("Preview")?;

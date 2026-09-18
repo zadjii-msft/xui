@@ -1,6 +1,46 @@
 #include "xui/xui_layout.h"
 #include "xui/titlebar.hpp"
 
+xui_status XUI_CALL xui_progress_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_PROGRESS); editable(n->owner);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Progress duration must be between 0 and 10000 milliseconds.");
+        as<xui::Progress>(n).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_progress_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing progress duration output.");
+        *milliseconds = as<xui::Progress>(get(target, XUI_PROGRESS)).duration();
+    });
+}
+xui_status XUI_CALL xui_progress_get_presented_value(xui_handle target, double* value) noexcept {
+    return boundary([&] {
+        require(value, XUI_INVALID_ARGUMENT, "Missing presented progress output.");
+        *value = as<xui::Progress>(get(target, XUI_PROGRESS)).presented_value();
+    });
+}
+xui_status XUI_CALL xui_progress_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing progress animation output.");
+        *animating = as<xui::Progress>(get(target, XUI_PROGRESS)).animating() ? 1 : 0;
+    });
+}
+
+xui_status XUI_CALL xui_tab_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_TAB_STRIP); editable(n->owner);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Tab duration must be between 0 and 10000 milliseconds.");
+        as<xui::TabStrip>(n).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_tab_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing tab duration output.");
+        *milliseconds = as<xui::TabStrip>(get(target, XUI_TAB_STRIP)).duration();
+    });
+}
+
 xui_status XUI_CALL xui_tab_set_new_button(xui_handle target, uint32_t visible) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_TAB_STRIP); editable(n->owner);

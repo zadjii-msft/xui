@@ -21,6 +21,7 @@
 #include "xui/titlebar.hpp"
 #include "xui/navigation.hpp"
 #include "xui/map_view.hpp"
+#include "xui/reveal.hpp"
 #include <dwmapi.h>
 #include "grid_accessibility.hpp"
 #include <UIAutomation.h>
@@ -36,7 +37,7 @@ namespace xui {
 namespace {
 constexpr UINT update_message = WM_APP + 12;
 constexpr UINT metrics_message = WM_APP + 60;
-constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42;
+constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42, animation_timer = 43;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 thread_local bool running{};
@@ -195,6 +196,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     HBRUSH background{}, field{};
     HFONT font{};
     bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{}, replacing{};
+    bool placement_pending{}, animation_timer_running{};
+    std::uint64_t animation_tick_count{};
+    std::uint64_t split_intermediate_paints{};
+    std::uint64_t reveal_intermediate_paints{};
+    bool animation_frame_pending{};
+    Animation::Clock::time_point animation_frame_due{};
     ContentHost* replacement_host{};
     std::shared_ptr<NativeFileDialog> native_file_dialog;
     bool file_dialog_teardown_pending{};
@@ -272,6 +279,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (destroying) return;
         destroying = true;
         closing = true;
+        sync_animations(true);
         window_icon.set_source({}, window, dpi, wake);
         ImageResources::clear_unused();
         close_posts();
@@ -292,6 +300,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         destroying = false;
     }
     void detach_peer(Peer& peer) {
+        if (auto* animation = dynamic_cast<Animation*>(peer.control.get())) animation->settle();
         peer.control->set_text_measurer({});
         if (auto label = std::dynamic_pointer_cast<Label>(peer.control)) label->set_wrapped_text_measurer({});
         if (auto* columns = dynamic_cast<MillerColumns*>(peer.control.get())) columns->on_focus_column({});
@@ -398,11 +407,86 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void invalidate(Invalidation kind) {
         layout_pending = layout_pending || kind == Invalidation::layout;
+        placement_pending = placement_pending || kind == Invalidation::placement;
         if (!window || !ready) return;
         if (!pending) {
             pending = true;
             win32_require(PostMessageW(window, update_message, 0, 0) != 0, "Schedule control update");
         }
+    }
+    void sync_animations(bool settle = false, bool tick = false) {
+        bool active{};
+        const bool showing = window && IsWindowVisible(window) && !IsIconic(window);
+        std::optional<bool> allowed;
+        const auto now = Animation::Clock::now();
+        for (const auto& peer : peers) {
+            auto* animation = dynamic_cast<Animation*>(peer->control.get());
+            if (!animation || !animation->animating()) continue;
+            bool ancestors_visible = true;
+            for (auto* parent = peer->parent; parent; parent = parent->parent) {
+                const auto* expander = dynamic_cast<Expander*>(parent->control.get());
+                if (!visible(*parent, !layout_pending) || !enabled(*parent, true, !layout_pending) ||
+                    (expander && !expander->expanded())) {
+                    ancestors_visible = false; break;
+                }
+            }
+            if (settle || !showing || !peer->control->visible() || !peer->control->enabled() || !ancestors_visible ||
+                (!layout_pending && !opening_reveal(*peer) &&
+                    (peer->control->bounds().width <= 0 || peer->control->bounds().height <= 0))) {
+                animation->settle();
+                continue;
+            }
+            if (!allowed) {
+                BOOL value{};
+                win32_require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &value, 0) != FALSE,
+                    "Read system animation preference");
+                allowed = value != FALSE;
+            }
+            if (!*allowed) animation->settle();
+            else if (tick) animation->advance(now);
+            active = active || animation->animating();
+        }
+        if (active && !animation_timer_running) {
+            win32_require(SetTimer(window, animation_timer, 16, nullptr) != 0, "Start window animation");
+            animation_timer_running = true;
+            animation_frame_due = now + std::chrono::milliseconds(16);
+        } else if (!active && animation_timer_running) {
+            win32_require(KillTimer(window, animation_timer) != 0, "Stop window animation");
+            animation_timer_running = false;
+        }
+    }
+    void present_animation_frame() {
+        if (!ready || closing || !window || (!animation_timer_running && !animation_frame_pending)) return;
+        const auto now = Animation::Clock::now();
+        if (!animation_frame_pending && animation_timer_running && now >= animation_frame_due) {
+            animation_frame_due = now + std::chrono::milliseconds(16);
+            // Posted traffic outranks generated WM_TIMER and WM_PAINT messages.
+            MSG timer{};
+            const auto owner = window;
+            if (PeekMessageW(&timer, owner, WM_TIMER, WM_TIMER, PM_REMOVE)) {
+                if (timer.message == WM_QUIT) {
+                    PostQuitMessage(static_cast<int>(timer.wParam));
+                    return;
+                }
+                // The window filter also retrieves messages for native children.
+                if (ready && !closing && window == owner)
+                    DispatchMessageW(&timer);
+            }
+        }
+        if (!animation_frame_pending || !ready || closing || !window) return;
+        animation_frame_pending = false;
+        MSG update{};
+        const auto owner = window;
+        if (PeekMessageW(&update, owner, update_message, update_message, PM_REMOVE)) {
+            if (update.message == WM_QUIT) {
+                PostQuitMessage(static_cast<int>(update.wParam));
+                return;
+            }
+            if (ready && !closing && window == owner)
+                DispatchMessageW(&update);
+        }
+        if (ready && !closing && window)
+            win32_require(UpdateWindow(window) != FALSE, "Present scheduled animation frame");
     }
     static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         auto* self = reinterpret_cast<Impl*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -1433,6 +1517,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             collect(entry.popup, !entry.popup->window_background());
         }
         if (peers.size() != before) apply_theme();
+        sync_animations();
+        const bool arrange_layout = layout_pending;
         if (layout_pending) {
             layout_pending = false;
             RECT client{};
@@ -1495,6 +1581,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 else entry.popup->arrange({});
             }
+            ++layouts;
+        }
+        if (arrange_layout || placement_pending) {
+            if (!arrange_layout) {
+                for (const auto& peer : peers)
+                    if (dynamic_cast<Animation*>(peer->control.get()))
+                        peer->control->arrange(peer->control->bounds());
+            }
+            placement_pending = false;
             struct Batch {
                 struct Group { HWND parent; HDWP handle; };
                 std::vector<Group> groups;
@@ -1583,7 +1678,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
                     }
                     peer->edit->arrange(bounds);
-                } else if (has_images) {
+                } else if (has_images || animation_timer_running || !arrange_layout) {
                     const float scale = dpi / 96.0f;
                     RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
                         static_cast<LONG>(std::lround(bounds.y * scale)),
@@ -1598,7 +1693,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         win32_require(group != nullptr, "Place image control");
                         peer->placed_bounds = target; peer->placed = true;
                     }
-                } else platform::place(peer->window, bounds, dpi);
+                } else {
+                    platform::place(peer->window, bounds, dpi);
+                    peer->placed = false;
+                }
                 ShowWindow(peer->window, visible(*peer) ? SW_SHOWNA : SW_HIDE);
             }
             batch.finish();
@@ -1607,8 +1705,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 win32_require(SetWindowPos(find_peer(entry.popup.get())->window, HWND_TOP, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW) != 0, "Raise popup input surface");
             update_paint_bounds();
-            ++layouts;
         }
+        if (arrange_layout) sync_animations();
         focus_targets.clear();
         sync_images();
         HWND disabled_focus{};
@@ -1894,7 +1992,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 enabled(*peers[index]) && in_top_popup(*peers[index]) && focus(*peers[index], false)) return;
         }
     }
-    bool enabled(const Peer& peer, bool respect_modal = true) const {
+    bool enabled(const Peer& peer, bool respect_modal = true, bool respect_geometry = true) const {
         const auto owner = popup_owner(&peer);
         bool modal_scope = true;
         for (auto it = popups.rbegin(); it != popups.rend(); ++it) {
@@ -1904,10 +2002,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (respect_modal && !modal_scope) return false;
         for (const auto& entry : popups) if (entry.popup->id() == owner && !command_popup_current(entry)) return false;
         for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
-            if (!ancestor->control->enabled() || (ancestor->control->role() == ControlRole::content_view &&
+            if (!ancestor->control->enabled() || (respect_geometry && ancestor->control->role() == ControlRole::content_view &&
+                !opening_reveal(*ancestor) &&
                 (ancestor->control->bounds().width <= 0 || ancestor->control->bounds().height <= 0))) return false;
         for (auto* parent = peer.parent; parent; parent = parent->parent)
             if (auto* expander = dynamic_cast<Expander*>(parent->control.get()); expander && !expander->expanded()) return false;
+        for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
+            if (auto* reveal = dynamic_cast<Reveal*>(ancestor->control.get()); reveal && !reveal->open()) return false;
+        for (auto* ancestor = &peer; ancestor && ancestor->parent; ancestor = ancestor->parent)
+            if (auto* split = dynamic_cast<SplitView*>(ancestor->parent->control.get());
+                split && ancestor->control == split->second() && !split->expanded()) return false;
         return true;
     }
     bool command_popup_current(const PopupEntry& entry) const {
@@ -1924,6 +2028,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto popup = dynamic_cast<Popup*>(peer.control.get())) return popup->content_bounds();
         return peer.control->bounds();
     }
+    static bool opening_reveal(const Peer& peer) {
+        if (const auto* expander = dynamic_cast<Expander*>(peer.control.get()))
+            return expander->allows_empty_clip() && expander->bounds().width > 0;
+        const auto* reveal = dynamic_cast<Reveal*>(peer.control.get());
+        if (!reveal || !reveal->opening_from_zero()) return false;
+        const auto bounds = reveal->bounds();
+        return reveal->vertical() ? bounds.width > 0 : bounds.height > 0;
+    }
     bool onscreen(const Peer& peer) const {
         if (!visible(peer)) return false;
         auto result = peer.control->bounds();
@@ -1937,14 +2049,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto* parent = peer.parent; parent; parent = parent->parent) intersect(viewport(*parent));
         return result.width > 0 && result.height > 0;
     }
-    bool visible(const Peer& peer) const {
+    bool visible(const Peer& peer, bool respect_geometry = true) const {
         for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent) {
             if (!ancestor->control->visible()) return false;
             if (auto* popup = dynamic_cast<Popup*>(ancestor->control.get()); popup && !popup->is_open()) return false;
             if (ancestor != &peer)
-                if (auto* expander = dynamic_cast<Expander*>(ancestor->control.get()); expander && !expander->expanded()) return false;
+                if (auto* expander = dynamic_cast<Expander*>(ancestor->control.get()); expander && !expander->body_presented()) return false;
             const auto rect = ancestor == &peer ? ancestor->control->bounds() : viewport(*ancestor);
-            if (rect.width <= 0 || rect.height <= 0) return false;
+            if (respect_geometry && (rect.width <= 0 || rect.height <= 0) && !opening_reveal(*ancestor)) return false;
         }
         return true;
     }
@@ -2046,18 +2158,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             paint_content_surface(content->content());
             drawing.pop_clip();
         } else if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
+            drawing.push_clip(split->bounds());
             if (const auto* style = split->effective_control_style_values(StylePart::root))
                 drawing.styled_surface(split->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             const auto area = split->pane_area(), divider = split->divider();
             if (const auto* style = split->effective_control_style_values(StylePart::first_pane))
-                drawing.styled_surface({area.x, area.y, split->expanded() ? divider.x - area.x : area.width, area.height},
+                drawing.styled_surface({area.x, area.y, divider.width > 0 ? divider.x - area.x : area.width, area.height},
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-            if (split->expanded()) if (const auto* style = split->effective_control_style_values(StylePart::second_pane))
+            if (divider.width > 0) if (const auto* style = split->effective_control_style_values(StylePart::second_pane))
                 drawing.styled_surface({divider.x + divider.width, area.y,
                     std::max(0.0f, area.x + area.width - divider.x - divider.width), area.height},
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             paint_content_surface(split->first());
             paint_content_surface(split->second());
+            drawing.pop_clip();
         } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
             drawing.push_clip(control->bounds());
             if (control->visible() && (dynamic_cast<NavigationView*>(control.get()) || dynamic_cast<NavigationPane*>(control.get()) ||
@@ -2076,16 +2190,23 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto expander = std::dynamic_pointer_cast<Expander>(control); expander && expander->has_control_styling()) {
                 if (const auto* style = expander->effective_control_style_values(StylePart::root))
                     drawing.styled_surface(expander->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                if (expander->expanded()) if (const auto* style = expander->effective_control_style_values(StylePart::content))
+                if (expander->body_presented()) if (const auto* style = expander->effective_control_style_values(StylePart::content))
                     drawing.styled_surface(expander->content_surface_bounds(), palette, *style, palette.surface, palette.border, 0, {});
             }
             if (auto expander = std::dynamic_pointer_cast<Expander>(control);
-                expander && !expander->has_control_styling() && expander->expanded() && palette.style == VisualStyle::winui) {
-                const auto bounds = expander->bounds();
+                expander && !expander->has_control_styling() && expander->body_presented() && palette.style == VisualStyle::winui) {
+                auto bounds = expander->bounds();
+                if (expander->duration()) {
+                    const auto body = expander->content_surface_bounds();
+                    bounds.height = body.y + body.height - bounds.y;
+                }
                 drawing.rounded({bounds.x + 0.5f, bounds.y + 0.5f,
                     std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)}, palette.surface, 4);
             }
+            const auto* expander = dynamic_cast<Expander*>(control.get());
+            if (expander) drawing.push_clip(expander->content_bounds());
             for (const auto& child : control->retained_children()) paint_content_surface(child);
+            if (expander) drawing.pop_clip();
             drawing.pop_clip();
         }
     }
@@ -2104,11 +2225,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         PAINTSTRUCT paint{};
         BeginPaint(window, &paint);
         bool redraw{};
+        bool split_middle{};
+        bool reveal_middle{};
         try {
             if (drawing.begin(window, static_cast<float>(dpi), palette.background)) {
                 paint_surfaces(*root);
                 const auto paint_peer = [&](const auto& peer) {
                     if (!visible(*peer)) return;
+                    if (const auto* split = dynamic_cast<SplitView*>(peer->control.get()))
+                        split_middle |= split->progress() > 0 && split->progress() < 1;
+                    if (const auto* reveal = dynamic_cast<Reveal*>(peer->control.get()))
+                        reveal_middle |= reveal->progress() > 0 && reveal->progress() < 1;
                     for (auto* parent = peer->parent; parent; parent = parent->parent)
                         drawing.push_clip(viewport(*parent));
                     std::size_t host_clips{};
@@ -2298,6 +2425,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 redraw = !composed || !drawing.end();
                 ++paints;
+                if (!redraw && split_middle) ++split_intermediate_paints;
+                if (!redraw && reveal_middle) ++reveal_intermediate_paints;
                 // Transparent custom HWNDs retain input and UIA, but not targets.
                 // WS_CLIPCHILDREN protects opaque native EDIT pixels.
                 for (const auto& peer : peers) {
@@ -2360,7 +2489,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     source = collection->source();
                     for (const auto& row : collection->visible_content()) {
                         if (rows.size() == RowImages::maximum_rows) break;
-                        const auto b = row.bounds;
+                        const auto b = detail::CollectionPresentationAccess::get(*collection) ?
+                            detail::CollectionPresentationAccess::clip(*collection, row.index) : row.bounds;
                         if (b.y + b.height <= rect.y || b.y >= rect.y + rect.height ||
                             b.x + b.width <= rect.x || b.x >= rect.x + rect.width) continue;
                         auto visual = collection->source()->visual(row.index);
@@ -2369,6 +2499,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none)
                             visual.icon = ButtonIcon::folder;
                         rows.push_back({row.key, std::move(visual), row.navigation});
+                    }
+                    if (const auto& frame = detail::CollectionPresentationAccess::get(*collection)) {
+                        const auto viewport = collection->content_viewport();
+                        for (const auto& exit : frame->outgoing()) {
+                            if (rows.size() == RowImages::maximum_rows) break;
+                            const auto painted = exit.bounds.intersect(exit.clip).intersect(
+                                {0, collection->offset(), viewport.width, viewport.height});
+                            if (painted.width <= 0 || painted.height <= 0) continue;
+                            const auto b = painted.in_view(viewport, collection->offset());
+                            if (b.y + b.height <= rect.y || b.y >= rect.y + rect.height ||
+                                b.x + b.width <= rect.x || b.x >= rect.x + rect.width) continue;
+                            const auto& frozen = *exit.frozen;
+                            rows.push_back({frozen.row.key, frozen.visual, frozen.row.navigation});
+                        }
                     }
                 } else if (auto* grid = dynamic_cast<DataGrid*>(peer->control.get())) {
                     source = grid->source();
@@ -2384,7 +2528,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         }
                     }
                 }
-                const bool retain_on_source_change = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr;
+                const auto* collection = dynamic_cast<VirtualCollection*>(peer->control.get());
+                const bool retain_on_source_change = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr ||
+                    (collection && detail::CollectionPresentationAccess::get(*collection));
                 changed = peer->row_images->sync(std::move(source), std::move(rows), dpi, wake, retained, remaining,
                     retain_on_source_change) || changed;
                 has_images = has_images || peer->row_images->count() != 0;
@@ -2769,6 +2915,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     collection->resolve_control_style_part(StylePart::root, 0), collection_background, palette.border, 0, {});
             else canvas.fill({0, 0, bounds.width, bounds.height}, collection_background);
             const auto viewport = collection->content_viewport();
+            const auto& presentation = detail::CollectionPresentationAccess::get(*collection);
             canvas.push_clip(viewport);
             for (auto row : collection->visible_content()) {
                 if (peer.command_pointer) row.hovered = row.content.enabled && enabled(peer) && hovered_key == row.key;
@@ -2777,12 +2924,30 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     row.content.icon = visual.icon;
                     row.content.image_path = visual.image_path;
                 }
+                if (presentation) canvas.push_clip(detail::CollectionPresentationAccess::clip(*collection, row.index));
                 canvas.collection_row(row, collection->selection().contains(row.key),
                     control.focused() && collection->selection().focused() == row.key, enabled(peer), palette,
                     row.content.enabled && enabled(peer) && hovered_key == row.key,
                     peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands, collection);
+                if (presentation) canvas.pop_clip();
             }
-            if (!collection->source() || !collection->source()->size())
+            bool outgoing_visible{};
+            if (presentation) for (const auto& exit : presentation->outgoing()) {
+                const auto painted = exit.bounds.intersect(exit.clip).intersect(
+                    {0, collection->offset(), viewport.width, viewport.height});
+                if (painted.width <= 0 || painted.height <= 0) continue;
+                outgoing_visible = true;
+                const auto& frozen = *exit.frozen;
+                auto row = frozen.row;
+                row.bounds = exit.bounds.in_view(viewport, collection->offset());
+                row.content.icon = frozen.visual.icon; row.content.image_path = frozen.visual.image_path;
+                canvas.push_clip(painted.in_view(viewport, collection->offset()));
+                canvas.collection_row(row, frozen.selected, false, enabled(peer), palette, false,
+                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands, collection);
+                canvas.pop_clip();
+            }
+            if ((!collection->source() || !collection->source()->size()) &&
+                !outgoing_visible)
                 if (collection->has_control_styling()) {
                     const auto values = collection->resolve_control_style_part(StylePart::empty, 0);
                     canvas.styled_text(commands ? L"No matching commands" : L"No matching items",
@@ -2982,12 +3147,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto fill = control.pressed() && fluent ? palette.selection :
                 control.hovered() ? palette.hover : palette.surface;
             if (fluent) {
-                const Rect frame = expander->expanded() ? Rect{edge, edge, header.width, std::max(0.0f, bounds.height - 1)} : header;
+                const auto body = expander->content_surface_bounds();
+                const float height_with_body = expander->duration() ? body.y + body.height - control.bounds().y : bounds.height;
+                const Rect frame = expander->body_presented() ?
+                    Rect{edge, edge, header.width, std::max(0.0f, height_with_body - 1)} : header;
                 canvas.push_clip({0, 0, bounds.width, height});
                 canvas.rounded(frame, fill, 4);
                 canvas.pop_clip();
                 canvas.rounded(frame, palette.border, 4, true);
-                if (expander->expanded() && bounds.height > height)
+                if (expander->body_presented() && height_with_body > height)
                     canvas.line(edge, height - edge, bounds.width - edge, height - edge, palette.border);
                 canvas.symbol(expander->expanded() ? Symbol::chevron_up : Symbol::chevron_down,
                     {std::max(0.0f, bounds.width - 41), 0, 32, height}, foundation_text, 12);
@@ -3080,7 +3248,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     else for (int i = 0; i < 5; ++i) segment({track.x + track.width * (i + 1) / 6 - 3, track.y, 6, thickness});
                 }
             } else {
-                const auto fraction = (progress->value() - progress->range().minimum) / (progress->range().maximum - progress->range().minimum);
+                const auto fraction = progress->presented_fraction();
                 if (fraction > 0)
                     segment({track.x, track.y, track.width * static_cast<float>(fraction), track.height});
                 if (text.empty()) text = std::to_wstring(static_cast<int>(fraction * 100)) + L"%";
@@ -3726,7 +3894,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (peer.control->bounds().width <= 0 || peer.control->bounds().height <= 0) return false;
         for (auto* parent = peer.parent; parent; parent = parent->parent) {
             const auto view = viewport(*parent);
-            if (view.width <= 0 || view.height <= 0) return false;
+            if ((view.width <= 0 || view.height <= 0) && !opening_reveal(*parent)) return false;
         }
         reveal(peer);
         EnableWindow(peer.window, TRUE);
@@ -4801,6 +4969,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto result = navigation_message(hwnd, message, wparam, lparam)) return *result;
         switch (message) {
         case WM_TIMER:
+            if (wparam == animation_timer) {
+                if (animation_timer_running && ready) {
+                    ++animation_tick_count;
+                    animation_frame_pending = true;
+                    sync_animations(false, true);
+                }
+                return 0;
+            }
             if (wparam == tooltip_timer) {
                 KillTimer(hwnd, tooltip_timer);
                 if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) { hide_tooltip(); return 0; }
@@ -4864,6 +5040,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (titlebar) titlebar->set_maximized(wparam == SIZE_MAXIMIZED);
             hide_tooltip();
             if (wparam == SIZE_MINIMIZED) {
+                sync_animations(true);
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
@@ -4879,6 +5056,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_SHOWWINDOW:
             if (!wparam && ready) sync_images(false);
             if (!wparam) {
+                sync_animations(true);
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
@@ -5021,6 +5199,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             focus_edit_at(hwnd, lparam);
             return 0;
         case metrics_message:
+            if (wparam == 36) return static_cast<LRESULT>(reveal_intermediate_paints);
+            if (wparam == 35) return static_cast<LRESULT>(split_intermediate_paints);
+            if (wparam == 34) return static_cast<LRESULT>(animation_tick_count);
+            if (wparam == 33) return animation_timer_running;
             if (wparam == 30) return static_cast<LRESULT>(drawing.native_buffer_bytes());
             if (wparam == 31) return static_cast<LRESULT>(drawing.native_bitmap_bytes());
             if (wparam == 32) return static_cast<LRESULT>(drawing.scene_paths());
@@ -5080,6 +5262,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_CLOSE: destroy(); return 0;
         case WM_DESTROY:
             closing = true;
+            sync_animations(true);
             close_posts();
             window_icon.set_source({}, window, dpi, wake);
             ImageResources::clear_unused();
@@ -5707,7 +5890,16 @@ int Application::run() {
                 }
             }
             return false;
-        }, self->wake->event, [&] { self->accept(); });
+        }, self->wake->event, [&] { self->accept(); }, [&] {
+            if (std::none_of(self->windows.begin(), self->windows.end(), [](const auto& window) {
+                return window->animation_timer_running || window->animation_frame_pending;
+            })) return;
+            const auto snapshot = self->windows;
+            for (const auto& window : snapshot) {
+                try { window->present_animation_frame(); }
+                catch (...) { window->fail(); }
+            }
+        });
     } catch (const std::exception& failure) { self->record(exception_message(failure)); result = 1; }
     self->finished = true;
     self->stop();
@@ -5766,6 +5958,9 @@ int Application::run(Window& window) {
                             task->deliver();
                         }
                     } catch (...) { impl->fail(); }
+                }, [&] {
+                    try { impl->present_animation_frame(); }
+                    catch (...) { impl->fail(); }
                 });
             impl->quit_posted = false;
             impl->teardown();

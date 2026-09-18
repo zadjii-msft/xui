@@ -18,13 +18,14 @@ Runtime::Runtime() {
 }
 Runtime::~Runtime() { OleUninitialize(); }
 int Runtime::run(const std::function<bool(MSG&)>& translate, HANDLE ready,
-    const std::function<void()>& accept) {
+    const std::function<void()>& accept, const std::function<void()>& present) {
     for (;;) {
         const DWORD count = ready ? 1 : 0;
         const DWORD wait = MsgWaitForMultipleObjectsEx(count, ready ? &ready : nullptr,
             INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         win32_require(wait != WAIT_FAILED, "Wait for Windows messages");
         if (ready && wait == WAIT_OBJECT_0) accept();
+        if (present) present();
         MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
             if (message.message == WM_QUIT) return static_cast<int>(message.wParam);
@@ -32,6 +33,7 @@ int Runtime::run(const std::function<bool(MSG&)>& translate, HANDLE ready,
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
+            if (present) present();
         }
     }
 }

@@ -44,17 +44,17 @@ internal sealed class ExplorerApplication : IDisposable
         active = Left;
         Sidebar = new(this);
         Palettes = new(this);
-        var layout = new ExplorerLayout(Window, Sidebar.View, Left.Root, Right.Root, startupMessage);
+        var layout = new ExplorerLayout(Window, Sidebar.Presentation, Left.Root, Right.Root, startupMessage);
         notification = layout.Notification;
         Window.IconErrorHandler = error => Report($"Cannot load the folder window icon: {error}");
         split = layout.Panes;
         split.Event += e =>
         {
             if (e.Kind != EventKind.View) return;
-            Window.TitlebarSecondaryTabs.Visible = e.Value != 0;
+            Window.TitlebarSecondaryTabs.Enabled = e.Value != 0;
             if (e.Value == 0 && ReferenceEquals(Active, Right)) Left.Focus();
         };
-        Window.TitlebarSecondaryTabs.Visible(false);
+        Window.TitlebarSecondaryTabs.Visible(true).SetEnabled(false);
         Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
             .Help("Show or collapse navigation");
         Window.TitlebarLeading.SetStyle(ExplorerStyles.IconButton);
@@ -90,16 +90,17 @@ internal sealed class ExplorerApplication : IDisposable
     public IReadOnlyList<ExplorerCommand> Commands { get; }
     public FileTransfers Transfers { get; }
     public bool SecondPaneVisible => split.Expanded;
+    internal SplitView Panes => split;
     internal Label Notification => notification;
     internal int FileOpenCount { get; private set; }
     internal string? NewWindowPath { get; private set; }
     internal bool CloseRequested { get; private set; }
     internal bool IsDisposed => disposed;
 
-    public void Run()
+    public void Run(ExplorerSmokeMode smokeMode = ExplorerSmokeMode.Full)
     {
         Left.Navigate(Left.Model.Active.Path);
-        Task? smokeTask = smoke ? ExplorerSmoke.Start(this) : null;
+        Task? smokeTask = smoke ? ExplorerSmoke.Start(this, smokeMode) : null;
         try { Application.Show(Window); Application.Run(); }
         finally
         {
@@ -149,7 +150,7 @@ internal sealed class ExplorerApplication : IDisposable
     {
         splitOpen = !splitOpen;
         split.SecondVisible = splitOpen;
-        Window.TitlebarSecondaryTabs.Visible(splitOpen);
+        Window.TitlebarSecondaryTabs.Enabled = splitOpen;
         if (splitOpen)
         {
             InitializeRight();
@@ -183,7 +184,7 @@ internal sealed class ExplorerApplication : IDisposable
         {
             splitOpen = true;
             split.SecondVisible = true;
-            Window.TitlebarSecondaryTabs.Visible(true);
+            Window.TitlebarSecondaryTabs.Enabled = true;
         }
         if (!rightInitialized && ReferenceEquals(destination, Right))
         {
@@ -208,7 +209,7 @@ internal sealed class ExplorerApplication : IDisposable
         splitOpen = false;
         rightInitialized = false;
         split.SecondVisible = false;
-        Window.TitlebarSecondaryTabs.Visible(false);
+        Window.TitlebarSecondaryTabs.Enabled = false;
         Left.Focus();
     }
 
@@ -239,7 +240,7 @@ internal sealed class ExplorerApplication : IDisposable
         {
             splitOpen = true;
             split.SecondVisible = true;
-            Window.TitlebarSecondaryTabs.Visible(true);
+            Window.TitlebarSecondaryTabs.Enabled = true;
             InitializeRight();
         }
         if (!split.Expanded)

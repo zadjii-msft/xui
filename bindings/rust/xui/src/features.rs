@@ -517,6 +517,14 @@ pub struct TabColors {
     pub border: Option<u32>,
 }
 impl TabStrip {
+    pub fn set_duration(&self, milliseconds: u32) -> Result<()> {
+        self.owner.check(unsafe { sys::xui_tab_set_duration(self.handle, milliseconds) })
+    }
+    pub fn duration(&self) -> Result<u32> {
+        let mut milliseconds = 0;
+        self.owner.check(unsafe { sys::xui_tab_get_duration(self.handle, &mut milliseconds) })?;
+        Ok(milliseconds)
+    }
     pub fn new_tab_button(&self) -> Result<Button> { self.feature_child(0).map(Button) }
     pub fn set_new_tab_button_visible(&self, visible: bool) -> Result<()> {
         self.owner

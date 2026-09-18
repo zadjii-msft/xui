@@ -23,7 +23,7 @@ struct Point { float x{}, y{}; };
 struct Rect { float x{}, y{}, width{}, height{}; };
 struct Insets { float left{}, top{}, right{}, bottom{}; };
 
-enum class Invalidation { paint, layout };
+enum class Invalidation { paint, layout, placement };
 enum class StyleTarget : uint32_t;
 enum class StylePart : uint32_t;
 using StyleStateMask = std::uint64_t;
