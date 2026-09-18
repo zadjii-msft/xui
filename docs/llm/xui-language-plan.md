@@ -787,6 +787,16 @@ Its deployed native DLLs and license matched the build outputs.
 Configuration checks accepted the explicit optional opt-out and rejected both the required opt-out and an invalid extracted-package directory.
 The final configuration retained enabled, required LSH.
 
+The combined toolbar and native-editor changes passed the packaged LSH checks and the Designer selection smoke.
+Three final selection-smoke runs passed all 183 assertions with the packaged runtime.
+These runs included the normal `dotnet run` path and a direct apphost process.
+The standard and alternate Designer outputs include matching native DLLs and the LSH license.
+
+An earlier direct-process smoke timed out during the size-to-palette transition before the package-enabled rebuild.
+The cause remains unknown.
+The final direct-process repetition passed without runtime workarounds or weaker assertions.
+This result does not establish the cause of the original editor-feel report.
+
 ## VS Code package
 
 The extension registers the `.xui` file association.
