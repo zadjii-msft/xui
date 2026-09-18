@@ -98,6 +98,13 @@ After both peers received the style, the overlay covered the same sampled region
 An unclipped native ancestor reproduced the failure with the same producer HWND.
 The ancestor also required sibling clipping.
 
+`tests\swap_chain_popup_input_tests.cpp` checks the independent popup input and drawing targets.
+It covers native EDIT text, rounded bounds, nested popups, Escape, outside dismissal, and modal input ownership.
+Modal presentation disables producer input without hiding its surface or changing its metrics.
+The fixture also covers resize, synthetic DPI, target recreation, reentrant dismissal, and owner closure during presentation.
+An injected rendering failure must remain explicit, and all drawing targets must release.
+These ARM64 checks passed without foreground activation. They do not exercise an installed IME.
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.
