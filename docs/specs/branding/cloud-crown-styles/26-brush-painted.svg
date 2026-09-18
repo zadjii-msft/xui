@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g26-title g26-desc">
+  <title id="g26-title">G26 — Brush-painted</title>
+  <desc id="g26-desc">A lion made from confident solid paint strokes. Six touching crown colors retain brush-shaped edges, while gestural eyes, a broad painted nose, and lively cream cheek strokes define the face.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#ED6B79" stroke="#ED6B79" stroke-width="0.8" d="M128 145 25 115C12 128 17 145 29 151L23 160 27 160 24 170C34 186 49 188 61 181L63 186C88 188 112 166 128 145Z"/><path fill="#BE4D62" d="m27 167 12 10 16 1-11 4-12-6Z"/><path fill="#F49CA4" d="m23 128 8-5 21 17-21-7Z"/></g>
+    <g id="segment-2"><path fill="#F1A355" stroke="#F1A355" stroke-width="0.8" d="M128 145 54 47C36 33 26 52 31 73L27 77 22 78 25 82C11 91 16 106 25 115Z"/><path fill="#C48442" d="m18 99 9 6 31 10-26-2Z"/><path fill="#F8C58A" d="m38 49 7-2 17 27-9-5Z"/></g>
+    <g id="segment-3"><path fill="#F0D260" stroke="#F0D260" stroke-width="0.8" d="M128 145V20L119 15 114 18C103 15 100 21 94 24 74 12 53 23 54 47Z"/><path fill="#FAEAA5" d="m68 30 13-6 10 9 26-11-3 9-23 9-11-8Z"/></g>
+    <g id="segment-4"><path fill="#75BA94" stroke="#75BA94" stroke-width="0.8" d="M128 145 202 47C205 25 184 14 164 25L157 19 154 22C144 13 133 15 128 20Z"/><path fill="#B3D9AD" d="m140 23 19 12 25-10-4 10-21 6-19-10Z"/></g>
+    <g id="segment-5"><path fill="#75AED7" stroke="#75AED7" stroke-width="0.8" d="M128 145 233 115C241 103 244 90 229 82L232 78 225 75C230 53 219 34 202 47Z"/><path fill="#B4D8EB" d="m211 48 7 8-5 23-9 9 5-22Z"/><path fill="#508DAF" d="m235 100-5 9-33 13 26-15Z"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" stroke="#AB8AC9" stroke-width="0.8" d="M128 145C145 167 169 188 192 186L196 181C210 190 225 183 233 171L231 164 235 162 227 151C240 143 245 128 233 115Z"/><path fill="#8163A6" d="m214 176 14-10-6 12-15 5-10-5Z"/><path fill="#D2B7DF" d="m230 125 3 8-26 9 9-10Z"/></g>
+  </g>
+  <g id="face">
+    <path fill="#C79657" d="M89 119C60 134 48 107 62 96L67 94 65 99Q83 93 89 119ZM167 121Q189 134 201 115L199 102 195 105Q182 86 169 104Z"/>
+    <path fill="#75563D" d="m64 106 9-3 10 15-10-1ZM182 109l10-6-1 12-13 4Z"/>
+    <path fill="#EBC177" d="M126 99 136 94 140 102C163 100 173 117 173 136L182 159 177 159 184 179 179 183 180 191C168 217 151 232 128 231L118 229 112 231C94 225 75 205 73 185L77 176 74 170 84 145C81 119 99 99 120 102Z"/>
+    <path fill="#D19C5A" d="m79 188 16 18 24 13 28-5 23-20-8 20-24 16-16 1-20-10-17-14Z"/>
+    <path fill="#F7D79B" d="m95 120 21-14 22 5-13 3-7 22-9-13-16 7Z"/>
+    <path fill="#564B42" d="M89 141Q100 127 114 140L113 145 105 140 95 143 89 146ZM141 138Q157 125 168 141L162 144Q154 137 145 145L140 146Z"/>
+    <path fill="#FFF0CB" d="M90 174Q101 153 121 169L128 175Q153 154 168 175L169 184 165 182Q165 205 142 205L129 198 118 207 115 204Q90 204 87 183L91 185Z"/>
+    <path fill="#57483F" d="M111 161Q127 149 146 161L143 170 139 170 129 183 121 179 110 166Z"/>
+    <path fill="#A67E60" d="m118 161 13-4 8 5-18 2Z"/>
+    <path fill="#57483F" d="m127 180 4 1-1 11q10 8 20-3l-4 10-10 1-8-4-9 6-11-6-2-7q8 9 19 3Z"/>
+    <path fill="#D58572" d="m85 159 12 4-4 7-13-5ZM165 161l10-4 3 8-12 5Z"/>
+    <path fill="#806B50" d="m91 181 6 1-4 3Zm65-1 6-2-2 4ZM87 175l-20-4 14 6Zm77 0 24-6-18 9Z"/>
+  </g>
+</svg>

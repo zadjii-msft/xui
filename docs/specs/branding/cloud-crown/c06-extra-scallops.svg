@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Softling - Extra scallops - Enamel mane colors</title>
+  <desc id="desc">The unchanged front-facing Softling face inside a six-color cloud mane. More small, rounded scallops make the outline fluffier. The color joins still touch. The mane uses the six solid Enamel colors, without its outlines or highlights. All segments touch, without gaps or divider lines. The chin stays clear.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 76 207 50 196C33 201 21 187 26 175C11 179 9 157 18 151C7 145 10 130 17 124C7 111 12 98 25 96C17 86 22 68 36 70C32 54 47 44 57 53C48 38 59 23 76 30C73 17 90 11 102 23C111 11 124 12 128 20C132 12 145 11 154 23C166 11 183 17 180 30C197 23 208 38 199 53C209 44 224 54 220 70C234 68 239 86 231 96C244 98 249 111 239 124C246 130 249 145 238 151C247 157 245 179 230 175C235 187 223 201 206 196C180 207 138 163 128 148Z" />
+    </clipPath>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 76 207 50 196C33 201 21 187 26 175C11 179 9 157 18 151C7 145 10 130 17 124C7 111 12 98 25 96C17 86 22 68 36 70C32 54 47 44 57 53C48 38 59 23 76 30C73 17 90 11 102 23C111 11 124 12 128 20C132 12 145 11 154 23C166 11 183 17 180 30C197 23 208 38 199 53C209 44 224 54 220 70C234 68 239 86 231 96C244 98 249 111 239 124C246 130 249 145 238 151C247 157 245 179 230 175C235 187 223 201 206 196C180 207 138 163 128 148Z" fill="#ED6B79" />
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 76 207 50 196C33 201 21 187 26 175C11 179 9 157 18 151C7 145 10 130 17 124C54 132 91 140 128 148Z" fill="#ED6B79" stroke="#ED6B79" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-2" d="M128 148C91 140 54 132 17 124C7 111 12 98 25 96C17 86 22 68 36 70C32 54 47 44 57 53C80.667 84.667 104.333 116.333 128 148Z" fill="#F1A355" stroke="#F1A355" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-3" d="M128 148C104.333 116.333 80.667 84.667 57 53C48 38 59 23 76 30C73 17 90 11 102 23C111 11 124 12 128 20C128 62.667 128 105.333 128 148Z" fill="#F0D260" stroke="#F0D260" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-4" d="M128 148C128 105.333 128 62.667 128 20C132 12 145 11 154 23C166 11 183 17 180 30C197 23 208 38 199 53C175.333 84.667 151.667 116.333 128 148Z" fill="#75BA94" stroke="#75BA94" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-5" d="M128 148C151.667 116.333 175.333 84.667 199 53C209 44 224 54 220 70C234 68 239 86 231 96C244 98 249 111 239 124C202 132 165 140 128 148Z" fill="#75AED7" stroke="#75AED7" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-6" d="M128 148C165 140 202 132 239 124C246 130 249 145 238 151C247 157 245 179 230 175C235 187 223 201 206 196C180 207 138 163 128 148Z" fill="#AB8AC9" stroke="#AB8AC9" stroke-width="0.8" stroke-linejoin="round" />
+    </g>
+  </g>
+  <g id="face">
+    <circle cx="76" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="180" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="76" cy="114" r="12" fill="#C88C45" />
+    <circle cx="180" cy="114" r="12" fill="#C88C45" />
+    <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z" />
+    <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148" />
+    <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9" />
+    <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C" />
+    <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185" />
+    <circle cx="90" cy="169" r="5" fill="#E9AB72" />
+    <circle cx="166" cy="169" r="5" fill="#E9AB72" />
+  </g>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-31-title lion-31-desc">
+  <title id="lion-31-title">Rook lion head</title>
+  <desc id="lion-31-desc">A front-facing lion head. A three-step crown joins the thick curved mane. Square ears and a narrow vertical snout give the head a carved chess-piece character.</desc>
+<path d="M82 26v22h28V20h36v28h28V26h26v53c44 42 43 98 7 126-23 18-48 29-79 29s-56-11-79-29C13 177 12 121 56 79V26Z" fill="#293943"/>
+  <path d="M49 122q-15 51 27 76m131-76q15 51-27 76" fill="none" stroke="#69838A" stroke-width="11" stroke-linecap="round"/>
+  <path d="M67 79h32v19h58V79h32v31h-19v42q0 51-42 58-42-7-42-58v-42H67Z" fill="#E4D8BA"/>
+  <path d="M100 84h56v49l-14 17h-28l-14-17Z" fill="#C3B28E"/>
+  <path d="M94 116h19v9H94Zm49 0h19v9h-19Z" fill="#293943"/>
+  <path d="M107 150h42v31h-42Z" fill="#FFF3D8"/>
+  <path d="m114 143 28 0-5 17h-18Zm10 17h8v18h-8ZM112 182h32v6h-32Z" fill="#293943"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Facet lion</title>
+  <desc id="desc">A front-facing angular lion built from violet and periwinkle polygon facets.</desc>
+  <path fill="#4943A2" d="m128 12 68 25 39 63-10 76-50 52-47 17-47-17-50-52-10-76 39-63Z"/>
+  <path fill="#7770D6" d="m128 12-40 63-28-38Zm0 0 40 63 28-38ZM21 100l49 16-39 60Zm214 0-49 16 39 60Z"/>
+  <path fill="#302B73" d="m31 176 53-16 44 85-47-17Zm194 0-53-16-44 85 47-17Z"/>
+  <path fill="#A5A0F5" d="m57 62 37 13 34-17 34 17 37-13-13 54-14 44-44 43-44-43-14-44Z"/>
+  <path fill="#D4D1FF" d="m128 58-34 17 13 48 21 19 21-19 13-48Z"/>
+  <path fill="#837BE0" d="m70 116 24-41 13 48-23 37Zm116 0-24-41-13 48 23 37Z"/>
+  <path fill="#302B73" d="m65 73 20 8-11 18Zm126 0-20 8 11 18ZM86 109l24 7-7 9-17-5Zm84 0-24 7 7 9 17-5Z"/>
+  <path fill="#EEECFF" d="m107 133 21 9 21-9 14 24-35 25-35-25Z"/>
+  <path fill="#302B73" d="m115 137 13-4 13 4-13 15Z"/>
+  <path fill="none" stroke="#302B73" stroke-width="4" stroke-linejoin="miter" d="M128 150v14l-13-5m13 5 13-5"/>
+</svg>

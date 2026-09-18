@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g21-title g21-desc">
+  <title id="g21-title">G21 — Plush toy</title>
+  <desc id="g21-desc">A front-facing stuffed lion with six touching Enamel cloth panels, sewn seams, button eyes, a padded two-lobed muzzle, and a soft chin below its cloud crown.</desc>
+  <g id="mane" stroke="#805A63" stroke-width="2" stroke-linejoin="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M128 141 24 116C12 128 17 148 28 153 18 174 42 189 60 182 76 196 112 172 128 141Z"/><path fill="none" stroke="#B9495C" stroke-width="4" d="M25 159Q23 180 52 180"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M128 141 55 45C33 36 24 57 31 77 14 83 14 107 24 116Z"/><path fill="none" stroke="#C58144" stroke-width="4" d="M29 84Q17 99 27 110"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M128 141V19C113 10 100 18 92 25 73 12 51 26 55 45Z"/><path fill="none" stroke="#FAE9A1" stroke-width="6" stroke-linecap="round" d="M67 35Q75 23 90 32"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M128 141 201 45C205 26 183 12 164 25 156 18 143 10 128 19Z"/><path fill="none" stroke="#A8D3B4" stroke-width="6" stroke-linecap="round" d="M146 25Q156 23 164 34"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M128 141 232 116C242 107 242 83 225 77 232 57 223 36 201 45Z"/><path fill="none" stroke="#ABCFE7" stroke-width="6" stroke-linecap="round" d="M213 55Q223 57 219 73"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M128 141C144 172 180 196 196 182 214 189 238 174 228 153 239 148 244 128 232 116Z"/><path fill="none" stroke="#8A68AC" stroke-width="4" d="M232 159Q233 178 206 180"/></g>
+  </g>
+  <path fill="none" stroke="#745966" stroke-width="1.4" stroke-dasharray="2 5" stroke-linecap="round" d="M30 120 69 131M58 51 90 92M132 24V86M198 51 166 92M226 120 187 131"/>
+  <g id="face">
+    <path fill="#D8A46D" stroke="#A97E59" stroke-width="2" d="M83 121C52 132 48 99 63 93 79 85 94 105 83 121ZM173 121C204 132 208 99 193 93 177 85 162 105 173 121Z"/>
+    <path fill="#B78660" d="M76 113Q58 116 64 102 73 98 76 113ZM180 113Q198 116 192 102 183 98 180 113Z"/>
+    <path fill="#EDC696" stroke="#A97E59" stroke-width="2.5" d="M128 94C101 92 87 105 83 133 80 150 66 164 74 185 82 214 110 233 128 233 146 233 174 214 182 185 190 164 176 150 173 133 169 105 155 92 128 94Z"/>
+    <path fill="#DAB182" d="M77 181C86 207 108 222 128 222 148 222 170 207 179 181 179 211 148 233 128 233 108 233 77 211 77 181Z"/>
+    <path fill="none" stroke="#B98E65" stroke-width="1.5" stroke-dasharray="2 4" d="M128 100V133M99 213Q128 239 157 213"/>
+    <g fill="#534751" stroke="#352D36" stroke-width="2"><circle cx="102" cy="147" r="9"/><circle cx="154" cy="147" r="9"/></g>
+    <path fill="none" stroke="#D6B9A0" stroke-width="2" stroke-linecap="round" d="m99 144 6 6m-6 0 6-6m46 0 6 6m-6 0 6-6"/>
+    <path fill="#C89979" d="M92 181C86 169 108 160 128 173 148 160 170 169 164 181 170 207 142 218 128 205 114 218 86 207 92 181Z"/>
+    <path fill="#FFF0D6" d="M128 177C105 155 85 170 92 190 97 208 116 210 128 198 140 210 159 208 164 190 171 170 151 155 128 177Z"/>
+    <path fill="#735260" d="M117 164Q128 159 139 164L137 177Q128 185 119 177Z"/>
+    <path fill="none" stroke="#513D49" stroke-width="2" stroke-linecap="round" d="m120 166 3 10m5-12v14m5-12-2 11M128 183V195Q119 202 113 195M128 195Q137 202 143 195"/>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-65 desc-65">
+  <title id="title-65">Sly Apricot lion</title>
+  <desc id="desc-65">A mischievous forward-facing lion with uneven eyebrow heights, a crooked smile, a long tapered jaw, and a swept apricot mane.</desc>
+  <path fill="#9b4051" d="M123 22q31-18 56 3l-6 24q43-6 50 30l-17 16q38 29 22 58l-22 1q10 43-22 57l-24-7-32 32-31-27-30 8q-29-16-17-53l-25-12q-11-34 20-56L31 71q12-32 44-25L97 18Z"/>
+  <path fill="#df7359" d="m110 30 21 40 36-32-9 41 45-10-30 37 42 8-35 33 21 33-42-3-31 48-24-49-45 22 19-45-37-25 41-17-35-32 47 4Z"/>
+  <path fill="#fac282" d="M90 111Q51 94 64 63l32 17 37-6 31 6 30-18q14 31-25 47Z"/>
+  <path fill="#bd7757" d="m72 77 17 11-10 10Zm114-1-18 13 10 10Z"/>
+  <path fill="#f3b471" d="M96 80q40-26 66 4l10 48-17 52-27 31-24-30-20-50Z"/>
+  <path fill="#ffd598" d="m108 89-6 50 16 21 12-79Z"/>
+  <path fill="#fff0c7" d="M128 153q-26-24-36-3-4 19 18 24l18-5 18 5q22-5 18-24-10-21-36 3Z"/>
+  <path fill="none" stroke="#733a42" stroke-width="5" stroke-linecap="round" d="M92 104q9-4 21 4m26-13q10-9 21-3"/>
+  <path fill="#733a42" d="m93 120 22 3-6 13-13-3Zm47-1q12-11 23 0l-5 14-13 1Zm-25 26 27-2-13 17Z"/>
+  <g fill="#fff0c7"><circle cx="104" cy="126" r="2.5"/><circle cx="151" cy="123" r="2.5"/></g>
+  <path fill="none" stroke="#733a42" stroke-width="3.5" stroke-linecap="round" d="M129 160v13q15 3 22-8m-37 13q8 1 15-5"/>
+</svg>

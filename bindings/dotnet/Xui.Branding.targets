@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <ApplicationIcon>$(MSBuildThisFileDirectory)..\..\assets\branding\generated\zoey.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(ApplicationIcon)" Link="zoey.ico" CopyToOutputDirectory="IfDifferent" CopyToPublishDirectory="IfDifferent" />
+  </ItemGroup>
+</Project>

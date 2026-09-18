@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="s10-title s10-desc">
+  <title id="s10-title">S10 — Stained-glass lion</title>
+  <desc id="s10-desc">Six jewel-glass fan panels surround a frontal lion built from ivory, honey and sea-green panes. Dark leading defines pointed eyes, a long nose bridge and a faceted muzzle above an exposed shield-shaped chin.</desc>
+  <g id="mane" stroke="#293b43" stroke-width="4" stroke-linejoin="round">
+    <g id="segment-1">
+      <path fill="#c85767" d="M14 115 73 113 109 151 85 177 40 163Z"/>
+      <path fill="#e48c83" d="m14 115 55 23-29 25Z"/>
+      <path fill="#9e425c" d="m69 138 40 13-24 26Z"/>
+      <path stroke="#f5c5a8" stroke-width="2" d="m24 121 28 11"/>
+    </g>
+    <g id="segment-2">
+      <path fill="#dd8e47" d="m24 76 31-36 51 75-27 29Z"/>
+      <path fill="#f5b85c" d="m55 40 18 67 33 8Z"/>
+      <path fill="#bc6e3d" d="m24 76 49 31 6 37Z"/>
+      <path stroke="#ffdfa0" stroke-width="2" d="m36 74 16-20"/>
+    </g>
+    <g id="segment-3">
+      <path fill="#e6cc64" d="m75 26 49-12v103l-20 10Z"/>
+      <path fill="#faf0a4" d="m75 26 49 38V14Z"/>
+      <path fill="#c8a54d" d="m75 26 29 101 8-58Z"/>
+      <path stroke="#fff8da" stroke-width="2" d="m87 29 27-7"/>
+    </g>
+    <g id="segment-4">
+      <path fill="#579f83" d="m132 14 49 12-29 101-20-10Z"/>
+      <path fill="#92c4a3" d="m132 14 49 12-49 38Z"/>
+      <path fill="#337b70" d="m181 26-29 101-8-58Z"/>
+      <path stroke="#d6e9b7" stroke-width="2" d="m142 22 27 7"/>
+    </g>
+    <g id="segment-5">
+      <path fill="#458ba9" d="m150 115 51-75 31 36-55 68Z"/>
+      <path fill="#8dc8d6" d="m150 115 33-8 18-67Z"/>
+      <path fill="#286b8a" d="m183 107 49-31-55 68Z"/>
+      <path stroke="#d9e9dc" stroke-width="2" d="m204 54 16 20"/>
+    </g>
+    <g id="segment-6">
+      <path fill="#8b72b0" d="m147 151 36-38h59l-26 48-45 16Z"/>
+      <path fill="#bea0cf" d="m242 115-55 23 29 23Z"/>
+      <path fill="#685687" d="m147 151 40-13-16 39Z"/>
+      <path stroke="#e9cfde" stroke-width="2" d="m204 132 28-11"/>
+    </g>
+  </g>
+  <g id="face" stroke="#293b43" stroke-width="4" stroke-linejoin="round">
+    <path fill="#c19355" d="M84 100 59 87l1-23 23 3 13 23Zm76-10 13-23 23-3 1 23-25 13Z"/>
+    <path fill="#f9e4aa" d="m64 70 18 3 6 16-20-6Zm104 19 6-16 18-3-4 13Z"/>
+    <path fill="#f7e8bc" d="m128 78 45 21 8 55-17 45-36 26-36-26-17-45 8-55Z"/>
+    <path fill="#dbb66e" d="m128 78-25 47-28 29 8-55Zm0 0 45 21 8 55-28-29Z"/>
+    <path fill="#89b0a1" d="m83 99 20 26-14 29-14 0Zm90 0-20 26 14 29h14Z"/>
+    <path fill="#fdf5d7" d="m128 78-25 47 25 33 25-33Z"/>
+    <path fill="#c99b58" d="m118 123 10-19 10 19-10 35Z"/>
+    <path fill="#fcf7df" d="m84 129 16-6 15 10-16 6Zm57 4 15-10 16 6-15 10Z"/>
+    <path fill="#293b43" stroke="none" d="m97 126 5 1 2 7-7 1Zm55 1 5-1v9l-7-1Z"/>
+    <path fill="#fff9e5" d="m97 151 31 7-4 24-21 10-18-17Zm62 0-31 7 4 24 21 10 18-17Z"/>
+    <path fill="#516f6c" d="m115 152 13-6 13 6-13 15Z"/>
+    <path fill="#ddb77a" d="m103 192 25-10 25 10-25 33Z"/>
+    <path fill="none" d="m128 167 0 15m-13-1 13 5 13-5"/>
+    <path stroke="#fff" stroke-width="2" opacity=".6" d="m94 104 18-11m36 105-15 12"/>
+  </g>
+</svg>

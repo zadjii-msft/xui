@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-33-title lion-33-desc">
+  <title id="lion-33-title">Raindrop lion head</title>
+  <desc id="lion-33-desc">A front-facing lion head. A smooth mane narrows into one long droplet below the chin. Tiny round ears and an oval nose soften the short face.</desc>
+<path d="M128 21c61 0 99 42 99 94 0 53-46 66-66 91l-33 33-33-33c-20-25-66-38-66-91 0-52 38-94 99-94Z" fill="#568878"/>
+  <path d="M48 125q3 37 40 49m120-49q-3 37-40 49" fill="none" stroke="#346452" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="83" cy="76" r="19" fill="#E5D9B0"/>
+  <circle cx="173" cy="76" r="19" fill="#E5D9B0"/>
+  <circle cx="83" cy="76" r="8" fill="#346452"/>
+  <circle cx="173" cy="76" r="8" fill="#346452"/>
+  <path d="M128 63c33 0 48 21 48 49v21c0 30-22 50-48 50s-48-20-48-50v-21c0-28 15-49 48-49Z" fill="#E5D9B0"/>
+  <ellipse cx="104" cy="116" rx="6" ry="5" fill="#23443D"/>
+  <ellipse cx="152" cy="116" rx="6" ry="5" fill="#23443D"/>
+  <ellipse cx="128" cy="149" rx="32" ry="19" fill="#FFF4D9"/>
+  <ellipse cx="128" cy="138" rx="12" ry="7" fill="#23443D"/>
+  <path d="M128 144v13m-12 0q12 8 24 0" fill="none" stroke="#23443D" stroke-width="5" stroke-linecap="round"/>
+  <path d="M128 185q-19 18 0 36 19-18 0-36Z" fill="#B3CCAD"/>
+</svg>

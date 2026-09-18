@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="s11-title s11-desc">
+  <title id="s11-title">S11 — Carved wood lion</title>
+  <desc id="s11-desc">An upright frontal lion with a long carved nose, squared ears and small watchful eyes. Six broad rainbow woodcut blocks carry pale gouge marks; the tan wood face ends below the mane in a rounded, bare chin.</desc>
+  <g id="mane">
+    <g id="segment-1">
+      <path fill="#ab4c42" d="M13 114q40-5 87 28l-10 35q-50 0-77-63Z"/>
+      <path fill="#ead5a8" d="m22 122 55 28-49-18Zm11 26 42 17-34-6Zm37-13 16 9 1 9Z"/>
+      <path stroke="#612d2d" stroke-width="2" fill="none" d="m24 117 35 10m-8 37 26 8"/>
+    </g>
+    <g id="segment-2">
+      <path fill="#bd7938" d="m24 72 31-30q34 24 57 78l-27 27Q45 118 24 72Z"/>
+      <path fill="#ead5a8" d="m36 72 49 55-39-29Zm18-18 36 53-26-27Zm-7 42 33 37-17-10Z"/>
+      <path stroke="#704726" stroke-width="2" d="m33 66 8-10m53 62 8 15"/>
+    </g>
+    <g id="segment-3">
+      <path fill="#c1a441" d="m74 29 48-13 2 107-23 4Q81 81 74 29Z"/>
+      <path fill="#f0dfb7" d="m86 36 19 64-9-9Zm21-10 7 2 2 65-5-24Zm-7 78 13 16-8-1Z"/>
+      <path stroke="#846b2c" stroke-width="2" d="m82 41 5 21m29 39 1 13"/>
+    </g>
+    <g id="segment-4">
+      <path fill="#628868" d="m134 16 47 13q-7 52-27 98l-22-4Z"/>
+      <path fill="#e4d9b0" d="m148 26-6 67 6-24 5-41Zm22 10-19 64 9-9Zm-27 84 13-16-5 15Z"/>
+      <path stroke="#355748" stroke-width="2" d="m172 41-5 21m-28 39-1 13"/>
+    </g>
+    <g id="segment-5">
+      <path fill="#527d88" d="m201 42 31 30q-21 46-61 75l-27-27q23-54 57-78Z"/>
+      <path fill="#ead5a8" d="m220 72-49 55 39-29Zm-18-18-36 53 26-27Zm11 42-37 37 17-10Z"/>
+      <path stroke="#344d58" stroke-width="2" d="m223 66-8-10m-53 62-8 15"/>
+    </g>
+    <g id="segment-6">
+      <path fill="#856180" d="M243 114q-40-5-87 28l10 35q50 0 77-63Z"/>
+      <path fill="#ead5a8" d="m234 122-55 28 49-18Zm-11 26-42 17 34-6Zm-37-13-16 9-1 9Z"/>
+      <path stroke="#563e58" stroke-width="2" fill="none" d="m232 117-35 10m8 37-26 8"/>
+    </g>
+  </g>
+  <g id="face">
+    <path fill="#392e28" d="m83 85-23-5-3 21 23 19Zm90 0 23-5 3 21-23 19Z"/>
+    <path fill="#d6b47d" d="m78 89-13-2 1 12 13 10Zm100 0 13-2-1 12-13 10Z"/>
+    <path fill="#392e28" d="M82 97q19-18 46-18t46 18l-2 78q-5 34-44 55-39-21-44-55Z"/>
+    <path fill="#d8b67e" d="M91 101q16-13 37-13t37 13l-2 73q-5 27-35 47-30-20-35-47Z"/>
+    <path fill="#efdab0" d="m126 95-6 51-13 16-7 26 18 15 10 10 10-10 18-15-7-26-13-16-6-51Z"/>
+    <path fill="#392e28" d="m94 119 20 5-3 9-17-5Zm48 5 20-5v9l-17 5Z"/>
+    <path fill="#efdab0" d="m95 122 12 3-10 2Zm54 3 12-3-2 5Z"/>
+    <path fill="#392e28" d="m101 124 6 1-1 8-6-1Zm48 1 6-1 1 8-6 1Z"/>
+    <path fill="#a77c48" d="m117 112-3 37-7 13 11-5 7-43Zm22 0 3 37 7 13-11-5-7-43Z"/>
+    <path fill="#392e28" d="M112 164q16-6 32 0l-5 10-11 7-11-7Z"/>
+    <path fill="none" stroke="#392e28" stroke-width="3" stroke-linecap="round" d="M128 180v14m-17-2 17 7 17-7"/>
+    <path fill="#392e28" d="m99 174 5 1-1 3-4-1Zm6 9 5 2-2 3-4-2Zm52-9-5 1 1 3 4-1Zm-6 9-5 2 2 3 4-2Z"/>
+    <path stroke="#f0dfb7" stroke-width="2" fill="none" d="m95 140 2 19m-1-52 9-4m48 0 8 5m-2 34-2 17"/>
+    <path stroke="#a77c48" stroke-width="2" fill="none" d="m101 102 5 10m-5 81 5 10m47-102-5 11m7 80-6 11m-27 7 7 6"/>
+  </g>
+</svg>

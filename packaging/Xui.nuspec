@@ -9,6 +9,7 @@
     <projectUrl>https://github.com/zadjii-msft/xui</projectUrl>
     <repository type="git" url="https://github.com/zadjii-msft/xui" />
     <readme>README.md</readme>
+    <icon>zoey-256.png</icon>
     <dependencies>
       <group targetFramework="net10.0" />
       <group targetFramework="native0.0" />
@@ -17,6 +18,7 @@
   <files>
     <file src="LICENSE" target="LICENSE" />
     <file src="packaging\README.md" target="" />
+    <file src="assets\branding\generated\zoey-256.png" target="" />
     <file src="$managedRoot$\Xui\Xui.Managed.dll" target="lib\net10.0" />
     <file src="$managedRoot$\Xui.Generator\Xui.Generator.dll" target="analyzers\dotnet\cs" />
     <file src="$managedRoot$\Xui.Development\Xui.Development.dll" target="tools\net10.0" />

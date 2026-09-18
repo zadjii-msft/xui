@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g28-title g28-desc">
+  <title id="g28-title">G28 — Neon tube</title>
+  <desc id="g28-desc">A daylight-readable neon lion on transparency. Six filled Enamel crown panels meet beneath dark seams and inset light tubes. Warm luminous facial lines sit on a charcoal lion head, with no background or glow filter.</desc>
+  <g id="mane" stroke="#293149" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M128 141 24 115C12 128 17 145 28 153 20 173 38 187 59 181 82 194 111 169 128 141Z"/><path fill="none" stroke="#FFE0DD" stroke-width="2" d="M25 129Q22 139 35 151 26 170 44 175L60 173"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M128 141 55 46C35 35 23 55 32 77 13 84 15 104 24 115Z"/><path fill="none" stroke="#FFF0CB" stroke-width="2" d="M48 51Q33 48 38 75L41 81Q20 89 29 104"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M128 141V19C114 10 102 17 94 25 74 12 52 26 55 46Z"/><path fill="none" stroke="#FFFFD5" stroke-width="2" d="M64 41Q60 24 80 26L95 34Q111 20 120 26"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M128 141 201 46C204 26 182 12 162 25 154 17 142 10 128 19Z"/><path fill="none" stroke="#DDFFD9" stroke-width="2" d="M136 26Q145 20 161 34L176 26Q196 24 192 41"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M128 141 232 115C241 104 243 84 224 77 233 55 221 35 201 46Z"/><path fill="none" stroke="#DEFAFF" stroke-width="2" d="M208 51Q223 48 218 75L215 81Q236 89 227 104"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M128 141C145 169 174 194 197 181 218 187 236 173 228 153 239 145 244 128 232 115Z"/><path fill="none" stroke="#F8DCFF" stroke-width="2" d="M231 129Q234 139 221 151 230 170 212 175L196 173"/></g>
+  </g>
+  <g id="face" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#30354B" stroke="#F4BB78" stroke-width="5" d="M86 118C62 129 52 110 62 100 71 91 83 103 87 110 104 97 150 97 169 110 173 103 185 91 194 100 204 110 194 129 170 118L174 160C194 194 161 229 128 230 95 229 62 194 82 160Z"/>
+    <path fill="none" stroke="#FFF0C1" stroke-width="1.5" d="M86 118C62 129 52 110 62 100 71 91 83 103 87 110 104 97 150 97 169 110 173 103 185 91 194 100 204 110 194 129 170 118L174 160C194 194 161 229 128 230 95 229 62 194 82 160Z"/>
+    <path fill="none" stroke="#AC785F" stroke-width="8" d="M92 146C92 133 108 132 111 143M145 143C148 132 164 133 164 146M107 180Q103 165 115 164L128 171 141 164Q153 165 149 180M98 186Q104 201 119 195L128 188 137 195Q152 201 158 186"/>
+    <path fill="none" stroke="#FFDD9F" stroke-width="3" d="M92 146C92 133 108 132 111 143M145 143C148 132 164 133 164 146M107 180Q103 165 115 164L128 171 141 164Q153 165 149 180M98 186Q104 201 119 195L128 188 137 195Q152 201 158 186"/>
+    <path fill="none" stroke="#F5A7AA" stroke-width="5" d="M120 161H136L128 170Z"/>
+    <path fill="none" stroke="#FFE4DB" stroke-width="1.5" d="M120 161H136L128 170Z"/>
+    <path fill="none" stroke="#E8B780" stroke-width="3" d="M128 172V188M112 210Q128 217 144 210"/>
+    <path fill="none" stroke="#ED8A9D" stroke-width="3" d="m87 164 8 2m66 0 8-2"/>
+    <path fill="none" stroke="#BC9CD5" stroke-width="2" d="M69 105Q65 113 76 113M187 105Q191 113 180 113"/>
+  </g>
+</svg>

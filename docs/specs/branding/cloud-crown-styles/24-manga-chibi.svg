@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g24-title g24-desc">
+  <title id="g24-title">G24 — Manga chibi</title>
+  <desc id="g24-desc">A front-facing chibi lion with oversized shining eyes, tiny round muzzle, blush hatching, and crisp cel-shaded rainbow cloud hair. All six crown colors touch.</desc>
+  <g id="mane" stroke="#61495E" stroke-width="2.5" stroke-linejoin="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M128 137 23 114Q10 131 28 151 16 174 43 181L62 180Q76 193 98 174Z"/><path fill="#D95370" stroke="none" d="M29 161 45 170 65 168 88 155 99 167 62 180 43 181Z"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M128 137 55 45Q32 31 29 56L32 77Q13 80 18 100L23 114Z"/><path fill="#FFD198" stroke="none" d="M40 49 46 48 71 87 57 78Z"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M128 137V18Q113 9 94 24 76 11 62 25 51 34 55 45Z"/><path fill="#FFF0AD" stroke="none" d="m73 28 17 5 23-10 3 10-25 11-16-5Z"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M128 137 201 45Q205 34 194 25 180 11 162 24 143 9 128 18Z"/><path fill="#B2DEB8" stroke="none" d="m139 25 22 10 17-6 6 10-24 7-19-11Z"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M128 137 233 114 238 100Q243 80 224 77L227 56Q224 31 201 45Z"/><path fill="#BCDFF4" stroke="none" d="m214 50 4 9-8 22-13 8Z"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M128 137 158 174Q180 193 194 180L213 181Q240 174 228 151 246 131 233 114Z"/><path fill="#8A6BAC" stroke="none" d="m228 162-17 10-25-5-18-13-12 14 38 12 19 1Z"/></g>
+  </g>
+  <g id="face" stroke="#61495E" stroke-width="2.5" stroke-linejoin="round">
+    <path fill="#EAB579" d="M86 123Q54 136 54 112 57 86 81 102ZM170 123Q202 136 202 112 199 86 175 102Z"/>
+    <path fill="#D18D79" stroke="none" d="M74 120Q59 119 64 108L74 111ZM182 120Q197 119 192 108L182 111Z"/>
+    <path fill="#FFDA9B" d="M82 133Q79 107 105 101L119 108 128 99 138 108 152 101Q177 108 174 133L182 176Q190 218 128 232 66 218 74 176Z"/>
+    <path fill="#E6AE74" stroke="none" d="M76 193Q126 236 180 193 169 222 128 232 89 224 76 193Z"/>
+    <path fill="#FFF7E3" d="M87 150Q87 128 104 129 123 130 120 154L116 169Q98 178 87 163ZM169 150Q169 128 152 129 133 130 136 154L140 169Q158 178 169 163Z"/>
+    <g stroke="none"><ellipse cx="105" cy="151" rx="12" ry="19" fill="#755084"/><ellipse cx="151" cy="151" rx="12" ry="19" fill="#755084"/><path fill="#BE8EC3" d="M95 156Q104 165 115 156L113 165Q105 174 98 165ZM141 156Q150 165 161 156L159 165Q151 174 144 165Z"/><ellipse cx="105" cy="146" rx="7" ry="12" fill="#352F4B"/><ellipse cx="151" cy="146" rx="7" ry="12" fill="#352F4B"/><ellipse cx="101" cy="139" rx="5" ry="7" fill="#FFFFFF"/><ellipse cx="147" cy="139" rx="5" ry="7" fill="#FFFFFF"/><circle cx="111" cy="157" r="3" fill="#FFFFFF"/><circle cx="157" cy="157" r="3" fill="#FFFFFF"/></g>
+    <path fill="none" stroke="#483748" stroke-width="4" stroke-linecap="round" d="M85 140Q90 121 108 128M171 140Q166 121 148 128"/>
+    <path fill="none" stroke-width="2" stroke-linecap="round" d="M94 119 107 117M149 117 162 119"/>
+    <ellipse cx="89" cy="180" rx="12" ry="7" fill="#F0A395" stroke="none"/><ellipse cx="167" cy="180" rx="12" ry="7" fill="#F0A395" stroke="none"/>
+    <path fill="none" stroke="#CE857D" stroke-width="1.5" d="m83 178-1 4m6-4-1 4m6-4-1 4m70-4-1 4m6-4-1 4m6-4-1 4"/>
+    <path fill="#FFF2D8" stroke="none" d="M128 178C107 169 108 198 128 200 148 198 149 169 128 178Z"/>
+    <path fill="#61495E" stroke="none" d="m123 178 10 0q2 2-5 7-7-5-5-7Z"/>
+    <path fill="none" stroke-width="2" stroke-linecap="round" d="M128 184V189Q123 194 120 190M128 189Q133 194 136 190"/>
+  </g>
+</svg>

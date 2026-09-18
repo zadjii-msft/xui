@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-79 desc-79">
+  <title id="title-79">Buoyant lion</title>
+  <desc id="desc-79">A forward-facing balloon-sculpture lion head with long inflated mane lobes, narrow cheeks, shiny oval eyes, and a rounded split muzzle.</desc>
+  <g stroke="#ad526a" stroke-width="4">
+    <ellipse cx="128" cy="64" rx="32" ry="49" fill="#f1a3ab"/>
+    <ellipse cx="181" cy="79" rx="31" ry="47" transform="rotate(43 181 79)" fill="#ec879b"/>
+    <ellipse cx="200" cy="135" rx="43" ry="31" fill="#de6c88"/>
+    <ellipse cx="175" cy="189" rx="31" ry="47" transform="rotate(-42 175 189)" fill="#ec879b"/>
+    <ellipse cx="128" cy="205" rx="31" ry="36" fill="#de6c88"/>
+    <ellipse cx="78" cy="188" rx="31" ry="47" transform="rotate(42 78 188)" fill="#f1a3ab"/>
+    <ellipse cx="56" cy="135" rx="43" ry="31" fill="#ec879b"/>
+    <ellipse cx="75" cy="79" rx="31" ry="47" transform="rotate(-43 75 79)" fill="#de6c88"/>
+  </g>
+  <path fill="none" stroke="#ffd4cf" stroke-width="7" stroke-linecap="round" d="M117 35q-10 8-9 23m74-8q-12 0-21 9m59 64q-8-9-19-8m-5 73q-1-12-9-19m-73 38q-1 9 6 15m-54-42q-9-10-8-18m-27-35q8-9 19-9m12-58q7 8 16 12"/>
+  <g fill="#f5c19b" stroke="#ad526a" stroke-width="4"><ellipse cx="79" cy="100" rx="20" ry="23"/><ellipse cx="177" cy="100" rx="20" ry="23"/></g>
+  <g fill="#dd937f"><ellipse cx="79" cy="100" rx="9" ry="12"/><ellipse cx="177" cy="100" rx="9" ry="12"/></g>
+  <path fill="#ffd9ad" stroke="#ad526a" stroke-width="4" d="M128 72q42 0 44 44l-12 60q-6 24-32 24t-32-24l-12-60q2-44 44-44Z"/>
+  <g fill="#624356"><ellipse cx="107" cy="126" rx="7" ry="12"/><ellipse cx="149" cy="126" rx="7" ry="12"/></g>
+  <g fill="#fff5df"><ellipse cx="105" cy="122" rx="2.5" ry="4"/><ellipse cx="147" cy="122" rx="2.5" ry="4"/><ellipse cx="108" cy="164" rx="23" ry="18"/><ellipse cx="148" cy="164" rx="23" ry="18"/></g>
+  <ellipse cx="128" cy="151" rx="14" ry="10" fill="#a55d70"/>
+  <path fill="none" stroke="#a55d70" stroke-width="3.5" stroke-linecap="round" d="M128 160v12m-12 1q12 10 24 0"/>
+</svg>

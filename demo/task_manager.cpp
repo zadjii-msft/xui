@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "xui/data_grid.hpp"
 #include "processes.hpp"
+#include "branding.hpp"
 #include <windows.h>
 #include <shellapi.h>
 #include <filesystem>
@@ -57,6 +58,7 @@ struct TaskManager {
     std::wstring sampling_error;
 
     TaskManager() {
+        xui::demo::set_application_icon(window);
         auto root = stack(Axis::vertical, 10);
         root->set_padding({22, 18, 22, 16});
         auto title_row = stack(Axis::horizontal);

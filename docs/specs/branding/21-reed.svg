@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-21-title lion-21-desc">
+  <title id="lion-21-title">Reed lion head</title>
+  <desc id="lion-21-desc">A front-facing lion head. Seven vertical ribs form a long oval mane. An oval face has recessed ears, level eyes, and a narrow white muzzle.</desc>
+<g fill="none" stroke="#496B52" stroke-width="13" stroke-linecap="round">
+    <path d="M43 86v86m27-116v149m29-171v191m29-202v211m29-200v191m29-169v149m27-119v86"/>
+  </g>
+  <path d="M79 92c-21-30-31-7-13 17l15 7m96-24c21-30 31-7 13 17l-15 7" fill="#C9D4A0"/>
+  <ellipse cx="128" cy="130" rx="49" ry="75" fill="#C9D4A0"/>
+  <path d="m92 108 17 4m38 0 17-4" fill="none" stroke="#253E32" stroke-width="7" stroke-linecap="round"/>
+  <path d="M128 125c-26 12-27 34-12 47l12 9 12-9c15-13 14-35-12-47Z" fill="#F6F0CC"/>
+  <path d="m117 140 11-6 11 6-11 13Z" fill="#253E32"/>
+  <path d="M128 153v12m-8 0 8 5 8-5" fill="none" stroke="#253E32" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -57,6 +57,8 @@ Public headers and binding source define the available symbols.
 
 ## Design and technical reports
 
+- [Zoey the XUI Lion](branding/zoey.md): The XUI mascot, canonical artwork, and reusable icons.
+- [Lion identity studies](branding/README.md): Starting concepts, Solar proportions, D2 styles, Softling refinements, and Cloud Crown shape and illustration-style studies.
 - [Styles and templates](styling-and-templates-design.md): Application-authored presentation, staged delivery, native-host boundaries, and performance acceptance.
 - [WinUI-style design proposal](winui-design-plan.md): Visual targets, implementation stages, and acceptance gates.
 - [Windows GUI memory report](windows-gui-memory.md): Measurement methods, graphics allocations, and the limits of the recorded evidence.

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-25-title lion-25-desc">
+  <title id="lion-25-title">Triad lion head</title>
+  <desc id="lion-25-desc">A front-facing lion head. Large triangles form an open six-part mane. A flat-topped face and two triangular muzzle planes keep every edge straight.</desc>
+<path d="m128 17-42 57h84ZM76 41 24 111l55 5Zm104 0 52 70-55 5ZM22 126l29 81 29-79Zm212 0-29 81-29-79ZM58 212l62 27-35-68Zm140 0-62 27 35-68Z" fill="#276774"/>
+  <path d="m82 59 10 34-32-15Zm92 0-10 34 32-15Z" fill="#E9A166"/>
+  <path d="m99 77 58 0 24 46-22 59-31 34-31-34-22-59Z" fill="#E9A166"/>
+  <path d="m99 77 29 64 29-64Z" fill="#F6C58E"/>
+  <path d="m85 112 28 9-12 9Zm86 0-28 9 12 9Z" fill="#183D4E"/>
+  <path d="m103 137 25 14-20 32-19-24Zm50 0-25 14 20 32 19-24Z" fill="#FFE8BA"/>
+  <path d="m114 140 14-7 14 7-14 17Zm14 17 13 19h-26Z" fill="#183D4E"/>
+</svg>

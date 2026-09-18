@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-48-title lion-48-desc">
+  <title id="lion-48-title">Frond lion head</title>
+  <desc id="lion-48-desc">A front-facing lion head. Ten pointed leaves form the mane around a rounded face. A long curved brow and broad twin muzzle contrast with the leaf tips.</desc>
+<g fill="#456750">
+    <path d="M128 68Q80 59 95 18q43 4 33 50Z"/>
+    <path d="M128 68q48-9 33-50-43 4-33 50Z"/>
+    <path d="M83 91Q34 96 25 47q49-8 58 44Z"/>
+    <path d="M173 91q49 5 58-44-49-8-58 44Z"/>
+    <path d="M72 140Q28 163 17 111q43-22 55 29Z"/>
+    <path d="M184 140q44 23 55-29-43-22-55 29Z"/>
+    <path d="M89 181q-42 44-65-3 31-36 65 3Z"/>
+    <path d="M167 181q42 44 65-3-31-36-65 3Z"/>
+    <path d="M128 203q-10 42-49 30-8-42 49-30Z"/>
+    <path d="M128 203q10 42 49 30 8-42-49-30Z"/>
+  </g>
+  <path d="M89 90q-24-34-32-11 0 20 25 27m85-16q24-34 32-11 0 20-25 27" fill="#D9C68A"/>
+  <path d="M128 64c31 0 51 25 51 58l-11 40q-9 33-40 40-31-7-40-40l-11-40c0-33 20-58 51-58Z" fill="#D9C68A" stroke="#294D3E" stroke-width="5"/>
+  <path d="M92 110q10-5 21 2m30 0q11-7 21-2" fill="none" stroke="#294D3E" stroke-width="7" stroke-linecap="round"/>
+  <path d="M128 147c-38-23-48 14-27 25 12 6 20 0 27-3 7 3 15 9 27 3 21-11 11-48-27-25Z" fill="#FFF0CA"/>
+  <path d="M114 137q14-7 28 0l-14 17Z" fill="#294D3E"/>
+  <path d="M128 154v16m-12 3q12 8 24 0" fill="none" stroke="#294D3E" stroke-width="5" stroke-linecap="round"/>
+</svg>

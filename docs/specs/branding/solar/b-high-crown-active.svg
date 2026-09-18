@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Solar High crown - Active</title>
+  <desc id="desc">The original front-facing Solar lion face with six gently wavy mane segments above and beside the head, leaving the chin clear. Blue palette.</desc>
+  <g transform="translate(0 12)">
+    <g id="mane">
+      <path d="M32 113C19 126 23 140 35 147C35 164 50 176 68 168L79 149C70 141 67 133 65 124Z" fill="#3784D8" id="segment-1" />
+      <path d="M31 103C19 85 29 67 43 63C41 44 55 32 71 40L82 79C72 91 67 105 65 115Z" fill="#3784D8" id="segment-2" />
+      <path d="M80 46C73 28 85 14 101 17C113 5 126 12 125 27L125 66C111 64 99 69 89 77Z" fill="#3784D8" id="segment-3" />
+      <path d="M80 46C73 28 85 14 101 17C113 5 126 12 125 27L125 66C111 64 99 69 89 77Z" fill="#3784D8" id="segment-4" transform="translate(256 0) scale(-1 1)" />
+      <path d="M31 103C19 85 29 67 43 63C41 44 55 32 71 40L82 79C72 91 67 105 65 115Z" fill="#3784D8" id="segment-5" transform="translate(256 0) scale(-1 1)" />
+      <path d="M32 113C19 126 23 140 35 147C35 164 50 176 68 168L79 149C70 141 67 133 65 124Z" fill="#3784D8" id="segment-6" transform="translate(256 0) scale(-1 1)" />
+    </g>
+    <g id="face">
+      <path fill="#78B2E9" d="M64 93C45 72 65 53 85 69L128 57l43 12c20-16 40 3 21 24l-11 66-53 48-53-48Z" />
+      <path fill="#C6E2FA" d="M87 78q41-20 82 0l8 54q0 45-49 65-49-20-49-65Z" />
+      <path fill="#24609B" d="M65 77q10-6 18 3l-8 14Zm126 0q-10-6-18 3l8 14Z" />
+      <path fill="none" stroke="#133D6B" stroke-width="8" stroke-linecap="round" d="m91 112 15 3m44 0 15-3" />
+      <path fill="#E9F5FF" d="M128 143c-32-23-56 15-29 29 13 7 22 0 29-4 7 4 16 11 29 4 27-14 3-52-29-29Z" />
+      <path fill="#133D6B" d="M114 139q14-7 28 0l-14 15Z" />
+      <path fill="none" stroke="#133D6B" stroke-width="5" stroke-linecap="round" d="M128 151v12m-17 1q17 15 34 0" />
+    </g>
+  </g>
+</svg>

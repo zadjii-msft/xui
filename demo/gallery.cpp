@@ -1,4 +1,5 @@
 #include "xui/application.hpp"
+#include "branding.hpp"
 #include "xui/documents.hpp"
 #include "xui/syntax_highlighting.hpp"
 #include "xui/image.hpp"
@@ -1278,6 +1279,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         LocalFree(argv);
     }
     Window window(options);
+    xui::demo::set_application_icon(window);
     if (experiment) {
         auto gallery = winui_gallery::compose(window);
         return Application::run(window);

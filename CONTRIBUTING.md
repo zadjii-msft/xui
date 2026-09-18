@@ -1153,6 +1153,203 @@ The tutorial sample does not ship in the release sample ZIPs.
 The sample stores task state only in memory.
 Do not describe Apply as persistent storage or reload replacement as state preservation.
 
+### Zoey brand assets
+
+The [Zoey brand kit](docs/specs/branding/zoey.md) contains the canonical mascot and six status palettes.
+Normal native and managed builds use the checked-in assets and do not need an SVG renderer.
+Asset regeneration requires Node.js 22 or later and npm.
+The pinned renderer works on Windows, Linux, and macOS without a browser or system fonts.
+
+Install the repository dependencies:
+
+```powershell
+npm ci
+```
+
+Edit `assets\branding\zoey.svg`, then regenerate the assets:
+
+```powershell
+npm run branding:generate
+npm run branding:check
+npm run branding:test
+```
+
+To promote an edited copy instead, supply its path:
+
+```powershell
+npm run branding:generate -- --source path\to\updated-zoey.svg
+```
+
+The script validates the SVG before it writes assets.
+It replaces the canonical source, regenerates all palette exports, and updates the VS Code package icon.
+No historical study file is an input after promotion.
+Unchanged output files keep their timestamps.
+The check command reports missing or stale assets without writing files.
+
+The editable source must retain its named layers and six solid-color mane paths.
+These include `segments`, `segment-1` through `segment-6`, `face`, `face-border`, `border-colors`, and `border-segment-1` through `border-segment-6`.
+It also retains `mane`, `mane-backing`, `outer-mane-border`, `border-backing`, `title`, and `desc`.
+Internal mask and clip references must remain valid.
+External images, fonts, scripts, CSS, and file references are not supported.
+The square viewBox controls the export size; path edits can change the artwork within it.
+
+Edit `assets\branding\palettes.json` to change palette names, status labels, or single-hue colors.
+If a canonical face color changes, update its `sourceFace` entry too.
+The canonical rainbow palette comes from the source SVG.
+Each status version uses a single mane hue, coordinated face tones, and a darker outer border.
+
+Outputs live in `assets\branding\generated`.
+They include seven SVGs, seven multi-resolution ICOs, fourteen PNG sizes per palette, a web manifest, and a palette preview.
+`manifest.json` records file hashes and the pinned renderer version.
+The generated `integrations\vscode-xui\images\zoey.png` is the same as the canonical 256-pixel PNG.
+Do not edit generated files by hand.
+If a palette is removed, delete only its obsolete generated exports before regeneration.
+
+Open `assets\branding\generated\index.html` to inspect every palette on light and dark artboards.
+After regeneration, rebuild the applications to refresh their embedded icons.
+Run `npm run docs:build` to refresh the staged documentation assets.
+Commit the canonical SVG, palette configuration, and generated assets together.
+
+Native samples embed Zoey through `demo\zoey.rc` and load their window icons from their own executables.
+They do not need a separate icon file at runtime.
+The shared `demo\xui.rc` remains manifest-only.
+Managed sample apphosts embed Zoey and copy `zoey.ico` into build and publish outputs.
+Keep this file beside the managed executable when you distribute the application.
+File Explorer retains its folder and file icons at runtime.
+The NuGet package icon does not change icons in consumer applications.
+
+### Solar branding assets
+
+The [Solar studies](docs/specs/branding/README.md#solar-round-two) use the original Solar face with six new mane silhouettes.
+The generator defines the mane paths and palette colors in `tools/branding/generate_solar.py`.
+It copies the face paths from `docs/specs/branding/01-solar.svg`.
+The generator requires Python 3.10 or later and no extra packages.
+
+After a shape or palette change, regenerate the standalone SVGs and gallery metadata:
+
+```powershell
+python tools\branding\generate_solar.py
+```
+
+Check the generated files and face-preservation contracts:
+
+```powershell
+python tools\branding\generate_solar.py --check
+python -m unittest discover -s tests -p test_solar_branding.py
+```
+
+Open `docs\specs\branding\solar\index.html` in a browser.
+The page works without a server.
+Inspect the six silhouettes, each status palette, and the small previews on both backgrounds.
+Keep status labels beside status colors in application interfaces.
+
+The [round-three study](docs/specs/branding/README.md#solar-round-three) varies both mane shape and face proportions.
+Its generator reuses the original Solar renderer and palettes.
+It writes 48 geometry options in seven palettes to `docs\specs\branding\solar-explorations`.
+The earlier studies remain unchanged.
+
+Regenerate and check the broader study:
+
+```powershell
+python tools\branding\generate_solar_explorations.py
+python tools\branding\generate_solar_explorations.py --check
+python -m unittest discover -s tests -p test_solar_branding.py
+```
+
+Open `docs\specs\branding\solar-explorations\index.html` to compare the shape-and-proportion combinations.
+Inspect each option for visible segments, a clear chin, and contrast at small sizes.
+
+The [D2 style board](docs/specs/branding/README.md#d2-style-explorations) contains 24 individually authored drawings.
+Edit these SVGs directly in `docs\specs\branding\solar-d2-styles`.
+Update the matching entry in `styles-graphic.js`, `styles-craft.js`, or `styles-playful.js`.
+Do not regenerate this folder with the earlier Solar scripts.
+
+Check the style assets:
+
+```powershell
+python -m unittest discover -s tests -p test_d2_styles.py
+```
+
+Open `docs\specs\branding\solar-d2-styles\index.html` in a browser.
+Compare the new drawings with the original D2 in the inspection dialog.
+
+The [Softling study](docs/specs/branding/README.md#softling-fuller-manes) varies the outer mane contour and segment joins.
+Its generator copies the S06 face and colors without changes.
+The joined variants share exact boundaries.
+The narrow-gap variants cut transparent channels with an SVG mask.
+
+Regenerate and check the Softling study:
+
+```powershell
+python tools\branding\generate_softling.py
+python tools\branding\generate_softling.py --check
+python -m unittest discover -s tests -p test_softling_branding.py
+```
+
+Open `docs\specs\branding\softling\index.html` to compare the sixteen versions.
+Inspect gaps and joins on both light and dark backgrounds.
+The joined and lined treatments must not show transparent cracks between segments.
+
+The [Cloud Crown study](docs/specs/branding/README.md#cloud-crown-in-enamel-colors) keeps touching colors and copies the six solid Enamel mane fills.
+C01 preserves the M10 geometry exactly.
+The other five options change the outer contour.
+All six keep the original Softling face.
+
+Regenerate and check the Cloud Crown study:
+
+```powershell
+python tools\branding\generate_cloud_crown.py
+python tools\branding\generate_cloud_crown.py --check
+python -m unittest discover -s tests -p test_cloud_crown.py
+```
+
+Open `docs\specs\branding\cloud-crown\index.html` to compare the six options.
+Inspect the contours against C01 and the palette against Enamel.
+
+The [Cloud Crown lab](docs/specs/branding/README.md#cloud-crown-brainstorming-lab) contains thirty individually defined outlines.
+It includes angular contours, asymmetric halves, and deliberate changes to face scale or tilt.
+The shared renderer still uses six touching Enamel colors.
+
+Regenerate and check the lab:
+
+```powershell
+python tools\branding\generate_cloud_crown_lab.py
+python tools\branding\generate_cloud_crown_lab.py --check
+python -m unittest discover -s tests -p test_cloud_crown_lab.py
+```
+
+Open `docs\specs\branding\cloud-crown-lab\index.html` to compare the concepts with High Crown.
+Inspect all six visible color regions, the clear chin, and the transparent artboard margins.
+The face transforms are intentional, but the face paths and feature colors must remain unchanged.
+
+The [Cloud Crown illustration styles](docs/specs/branding/README.md#cloud-crown-illustration-styles) use independently drawn faces and different illustration methods.
+These thirty SVGs are hand-authored, not outputs from a silhouette generator.
+Each has six touching mane regions in Enamel colors.
+The face geometry, feature colors, linework, and material treatments can change.
+
+Run the structural checks:
+
+```powershell
+python -m unittest discover -s tests -p test_cloud_crown_styles.py
+```
+
+Open `docs\specs\branding\cloud-crown-styles\index.html` to compare the drawings.
+Inspect the six visible color regions, transparent margins, and light and dark backgrounds.
+Compare the facial construction and illustration method, not only the silhouette.
+
+The [Happy High Crown finishes](docs/specs/branding/README.md#happy-high-crown) add happy eyes and optional perimeter outlines to C03.
+The source C03 stays unchanged.
+
+```powershell
+python tools\branding\generate_high_crown_finish.py
+python tools\branding\generate_high_crown_finish.py --check
+python -m unittest discover -s tests -p test_high_crown_finish.py
+```
+
+Open `docs\specs\branding\high-crown-finish\index.html` to compare both finishes with C03.
+Inspect the upward eye arches and the color-matched border on both backgrounds.
+The mane joins must remain free of divider lines.
+
 ### Document scope
 
 Keep each document focused on its reader:

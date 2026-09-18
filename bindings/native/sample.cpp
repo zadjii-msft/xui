@@ -1,4 +1,5 @@
 #include "xui/xui.h"
+#include "../../demo/branding.hpp"
 #include <windows.h>
 #include <chrono>
 #include <iostream>
@@ -59,6 +60,12 @@ int wmain(int argc, wchar_t** argv) {
         const std::string title = "XUI bindings";
         xui_window_options options{sizeof(options), XUI_ABI_VERSION, text(title), 600, 720};
         check(xui_window_create(&options, &a.window));
+        const auto icon = xui::demo::utf8(xui::demo::application_icon_source());
+        check(xui_window_on_icon_error(a.window, [](void*, const char* error, uint32_t length) -> xui_status {
+            std::cerr.write(error, length);
+            return XUI_CALLBACK_FAILED;
+        }, nullptr));
+        check(xui_window_set_icon_source(a.window, text(icon)));
         a.root = a.stack(); a.property(a.root, XUI_PADDING, {}, 20); a.property(a.root, XUI_SPACING, {}, 10);
         a.label = a.create(XUI_LABEL, "Ready — 日本語 😀 — a long Unicode label with native retained layout");
         a.property(a.label, XUI_AUTOMATION_ID, "status");

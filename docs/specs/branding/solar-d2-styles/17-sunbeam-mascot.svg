@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Sunbeam mascot</title>
+  <desc id="desc">A cheerful midcentury lion with a pear-shaped face, oval eyes, a wide smile and six rounded rainbow fan blades. The bare chin hangs below the fan.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#e96359" d="M87 111 20 106Q9 107 16 122L39 158Q43 164 52 163L94 153Z"/></g>
+    <g id="segment-2"><path fill="#f39a42" d="M102 107 66 40Q61 29 51 36L24 60Q18 66 27 76L83 126Z"/></g>
+    <g id="segment-3"><path fill="#f3d454" d="M120 108 120 24Q120 14 109 16L80 21Q71 23 77 35L105 112Z"/></g>
+    <g id="segment-4"><path fill="#7dab72" d="M136 108 136 24Q136 14 147 16L176 21Q185 23 179 35L151 112Z"/></g>
+    <g id="segment-5"><path fill="#5f9ebe" d="M154 107 190 40Q195 29 205 36L232 60Q238 66 229 76L173 126Z"/></g>
+    <g id="segment-6"><path fill="#a180b6" d="M169 111 236 106Q247 107 240 122L217 158Q213 164 204 163L162 153Z"/></g>
+  </g>
+  <g id="face">
+    <ellipse cx="74" cy="108" rx="22" ry="25" fill="#d48737"/>
+    <ellipse cx="182" cy="108" rx="22" ry="25" fill="#d48737"/>
+    <ellipse cx="74" cy="108" rx="11" ry="13" fill="#643e30"/>
+    <ellipse cx="182" cy="108" rx="11" ry="13" fill="#643e30"/>
+    <path fill="#ecae50" d="M89 99Q95 76 128 77T167 99L182 174Q190 218 128 237 66 218 74 174Z"/>
+    <path fill="#f9d899" d="M128 95Q109 97 112 143L94 173Q78 203 128 221 178 203 162 173L144 143Q147 97 128 95Z"/>
+    <ellipse cx="101" cy="135" rx="7" ry="15" fill="#49352d"/>
+    <ellipse cx="155" cy="135" rx="7" ry="15" fill="#49352d"/>
+    <path fill="#49352d" d="M112 162Q128 153 144 162L128 178Z"/>
+    <path fill="#49352d" d="M92 186Q128 205 164 186 157 219 128 219T92 186Z"/>
+    <path fill="#fff1d3" d="M98 190Q128 202 158 190L151 201Q128 208 105 201Z"/>
+    <path d="M128 176V190M91 122Q101 117 110 121M146 121Q155 117 165 122" fill="none" stroke="#49352d" stroke-width="4" stroke-linecap="round"/>
+    <ellipse cx="88" cy="168" rx="9" ry="6" fill="#d87954"/>
+    <ellipse cx="168" cy="168" rx="9" ry="6" fill="#d87954"/>
+  </g>
+</svg>

@@ -1,4 +1,5 @@
 #include "xui/xui.h"
+#include "../../demo/branding.hpp"
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -36,6 +37,12 @@ int main(int argc,char** argv) {
     try {
         xui_window_options options{sizeof(options),XUI_ABI_VERSION,text("XUI feature bindings"),700,800};
         check(xui_window_create(&options,&app.window));
+        const auto icon = xui::demo::utf8(xui::demo::application_icon_source());
+        check(xui_window_on_icon_error(app.window, [](void*, const char* error, uint32_t length) -> xui_status {
+            std::cerr.write(error, length);
+            return XUI_CALLBACK_FAILED;
+        }, nullptr));
+        check(xui_window_set_icon_source(app.window, text(icon.c_str())));
         xui_handle root{},heading{},button{};check(xui_stack_create(app.window,1,&root));
         check(xui_create(app.window,XUI_LABEL,text("F6: dialog. Escape: cancel. F8: range. F12: close."),0,&heading));
         auto combo=create(app.window,XUI_COMBO_BOX,"Choices");

@@ -14,5 +14,19 @@ internal static class Program
         window.Run();
 #endif
     }
-    private static Window CreateWindow() => new("XUI Declarative", 480, 360);
+    private static Window CreateWindow()
+    {
+        var window = new Window("XUI Declarative", 480, 360);
+        try
+        {
+            window.IconErrorHandler = error => throw new InvalidOperationException($"Cannot load the application icon: {error}");
+            window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
+            return window;
+        }
+        catch
+        {
+            window.Dispose();
+            throw;
+        }
+    }
 }

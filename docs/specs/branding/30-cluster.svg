@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-30-title lion-30-desc">
+  <title id="lion-30-title">Cluster lion head</title>
+  <desc id="lion-30-desc">A front-facing lion head. Overlapping circles produce a soft, uneven mane. A sharply tapered face contrasts with round ears and a wide capsule muzzle.</desc>
+<g fill="#AD593E">
+    <circle cx="96" cy="59" r="36"/><circle cx="156" cy="55" r="34"/>
+    <circle cx="58" cy="105" r="39"/><circle cx="198" cy="101" r="37"/>
+    <circle cx="56" cy="163" r="35"/><circle cx="195" cy="159" r="40"/>
+    <circle cx="94" cy="200" r="34"/><circle cx="153" cy="201" r="34"/>
+  </g>
+  <g fill="#CE7D53">
+    <circle cx="84" cy="91" r="35"/><circle cx="172" cy="91" r="35"/>
+    <circle cx="78" cy="151" r="35"/><circle cx="178" cy="151" r="35"/>
+    <circle cx="128" cy="188" r="37"/>
+  </g>
+  <circle cx="79" cy="77" r="18" fill="#F3C58A"/>
+  <circle cx="177" cy="77" r="18" fill="#F3C58A"/>
+  <circle cx="79" cy="77" r="8" fill="#6C3B2D"/>
+  <circle cx="177" cy="77" r="8" fill="#6C3B2D"/>
+  <path d="m128 60 44 37 9 51-53 51-53-51 9-51Z" fill="#F3C58A"/>
+  <path d="m91 111 20 6m34 0 20-6" fill="none" stroke="#6C3B2D" stroke-width="7" stroke-linecap="round"/>
+  <rect x="88" y="144" width="80" height="31" rx="15" fill="#FFF1D4"/>
+  <path d="m115 139 13-6 13 6-13 14Z" fill="#6C3B2D"/>
+  <path d="M128 153v13m-13-1 13 7 13-7" fill="none" stroke="#6C3B2D" stroke-width="4" stroke-linecap="round"/>
+</svg>

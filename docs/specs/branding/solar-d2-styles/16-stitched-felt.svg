@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="s16-title s16-desc">
+  <title id="s16-title">S16 — Stitched-felt lion</title>
+  <desc id="s16-desc">A teal felt lion with stitched round ears, sewn button eyes and separate cream cheek patches. Six blanket-stitched rainbow fabric panels fan upward; a burgundy embroidered nose and small woven chin patch complete the frontal head.</desc>
+  <defs>
+    <pattern id="s16-fibres" width="9" height="9" patternUnits="userSpaceOnUse">
+      <path d="m1 2 2 1m3 3 2-1M3 7l1 1" fill="none" stroke="#fff6d4" stroke-width=".7" opacity=".25"/>
+    </pattern>
+  </defs>
+  <g id="mane" stroke-linejoin="round">
+    <g id="segment-1">
+      <path fill="#c76e77" stroke="#954757" stroke-width="3" d="M17 116q33-5 77 22l12 24-18 13q-49 3-71-40Z"/>
+      <path fill="url(#s16-fibres)" d="M17 116q33-5 77 22l12 24-18 13q-49 3-71-40Z"/>
+      <path fill="none" stroke="#f3c5ae" stroke-width="2" stroke-dasharray="2 5" d="M24 122q31 0 65 21l9 17-13 9q-40 1-61-36Z"/>
+    </g>
+    <g id="segment-2">
+      <path fill="#d89750" stroke="#ab743b" stroke-width="3" d="M28 73q3-21 29-30 24 14 53 74l-25 24Q48 117 28 73Z"/>
+      <path fill="url(#s16-fibres)" d="M28 73q3-21 29-30 24 14 53 74l-25 24Q48 117 28 73Z"/>
+      <path fill="none" stroke="#ffe0a4" stroke-width="2" stroke-dasharray="2 5" d="M35 72q4-13 21-21 23 18 46 64l-18 17Q52 110 35 72Z"/>
+    </g>
+    <g id="segment-3">
+      <path fill="#d9be59" stroke="#a69544" stroke-width="3" d="M77 29q18-13 45-10l1 103-23 5Q82 82 77 29Z"/>
+      <path fill="url(#s16-fibres)" d="M77 29q18-13 45-10l1 103-23 5Q82 82 77 29Z"/>
+      <path fill="none" stroke="#fff1b0" stroke-width="2" stroke-dasharray="2 5" d="M84 32q14-8 31-7l1 92-12 3Q89 76 84 32Z"/>
+    </g>
+    <g id="segment-4">
+      <path fill="#78a27a" stroke="#547a63" stroke-width="3" d="M134 19q27-3 45 10-5 53-23 98l-23-5Z"/>
+      <path fill="url(#s16-fibres)" d="M134 19q27-3 45 10-5 53-23 98l-23-5Z"/>
+      <path fill="none" stroke="#dae7ab" stroke-width="2" stroke-dasharray="2 5" d="M141 25q17-1 31 7-5 44-20 88l-12-3Z"/>
+    </g>
+    <g id="segment-5">
+      <path fill="#6b9cb6" stroke="#50708f" stroke-width="3" d="M199 43q26 9 29 30-20 44-57 68l-25-24q29-60 53-74Z"/>
+      <path fill="url(#s16-fibres)" d="M199 43q26 9 29 30-20 44-57 68l-25-24q29-60 53-74Z"/>
+      <path fill="none" stroke="#c4e1dd" stroke-width="2" stroke-dasharray="2 5" d="M200 51q17 8 21 21-17 38-49 60l-18-17q23-46 46-64Z"/>
+    </g>
+    <g id="segment-6">
+      <path fill="#a389b5" stroke="#795f8b" stroke-width="3" d="M239 116v19q-22 43-71 40l-18-13 12-24q44-27 77-22Z"/>
+      <path fill="url(#s16-fibres)" d="M239 116v19q-22 43-71 40l-18-13 12-24q44-27 77-22Z"/>
+      <path fill="none" stroke="#e4cce0" stroke-width="2" stroke-dasharray="2 5" d="M232 122v11q-21 37-61 36l-13-9 9-17q34-21 65-21Z"/>
+    </g>
+  </g>
+  <g id="face">
+    <circle cx="75" cy="104" r="22" fill="#518481" stroke="#335d61" stroke-width="3"/>
+    <circle cx="181" cy="104" r="22" fill="#518481" stroke="#335d61" stroke-width="3"/>
+    <circle cx="75" cy="104" r="12" fill="#d1b28d" stroke="#ede0b9" stroke-width="2" stroke-dasharray="2 4"/>
+    <circle cx="181" cy="104" r="12" fill="#d1b28d" stroke="#ede0b9" stroke-width="2" stroke-dasharray="2 4"/>
+    <path fill="#63918b" stroke="#335d61" stroke-width="3" d="M128 91c-31 0-56 18-56 48v36c0 28 24 47 56 47s56-19 56-47v-36c0-30-25-48-56-48Z"/>
+    <path fill="url(#s16-fibres)" d="M128 91c-31 0-56 18-56 48v36c0 28 24 47 56 47s56-19 56-47v-36c0-30-25-48-56-48Z"/>
+    <path fill="none" stroke="#c1d4af" stroke-width="2" stroke-dasharray="2 5" d="M128 98c-28 0-49 16-49 42v34c0 24 21 41 49 41s49-17 49-41v-34c0-26-21-42-49-42Z"/>
+    <path fill="none" stroke="#334f54" stroke-width="3" stroke-linecap="round" d="m90 126 16-1m44 0 16 1"/>
+    <circle cx="100" cy="138" r="8" fill="#293f48" stroke="#1f333b" stroke-width="2"/>
+    <circle cx="156" cy="138" r="8" fill="#293f48" stroke="#1f333b" stroke-width="2"/>
+    <path fill="none" stroke="#b8c8b4" stroke-width="1.7" d="m97 135 6 6m0-6-6 6m56-6 6 6m0-6-6 6"/>
+    <path fill="#ece0b9" stroke="#c4b38c" stroke-width="2" d="M126 164c-15-17-35-11-35 7 0 18 20 26 35 15Zm4 0c15-17 35-11 35 7 0 18-20 26-35 15Z"/>
+    <path fill="none" stroke="#a99570" stroke-width="1.5" stroke-dasharray="2 4" d="M121 165c-11-10-24-7-24 6 0 13 13 19 24 12Zm14 0c11-10 24-7 24 6 0 13-13 19-24 12Z"/>
+    <path fill="#764452" stroke="#55353f" stroke-width="2" d="M114 157q14-7 28 0l-5 10-9 7-9-7Z"/>
+    <path fill="none" stroke="#b77b84" stroke-width="1.5" d="m117 158 21 1m-19 3 17 1m-14 3 11 1"/>
+    <path fill="none" stroke="#493e42" stroke-width="2.5" stroke-linecap="round" d="M128 174v13m-9-1 9 4 9-4"/>
+    <path fill="#c6d3b4" d="M115 200q13 7 26 0l-3 8h-20Z"/>
+    <path fill="none" stroke="#65928a" stroke-width="1.3" d="m119 202 1 4m4-2v3m4-3v3m4-3v3m4-5-1 4"/>
+  </g>
+</svg>

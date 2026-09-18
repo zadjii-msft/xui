@@ -1,0 +1,12 @@
+.lab-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.lab-grid .inspect .artboard { min-height: 260px; }
+.lab-grid .inspect img { width: 240px; height: 240px; max-width: 100%; object-fit: contain; }
+.lab-grid .card p { line-height: 1.5; }
+@media (max-width: 1150px) { .lab-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 850px) { .lab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .lab-grid { grid-template-columns: 1fr; } }
+@media print {
+  .lab-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .family-row { break-inside: auto; }
+  .card { break-inside: avoid; }
+}

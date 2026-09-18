@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Softling - Rolling wave / Wavy joins</title>
+  <desc id="desc">The original front-facing Softling face and pastel rainbow palette, with a fuller rolling wave mane. Continuous mane with flowing S-shaped color boundaries. Six colored segments surround the upper face. The chin stays clear.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 74 205 48 194C26 199 13 182 22 168C28 157 8 153 11 141C12 132 20 133 15 123C7 109 27 102 22 91C12 77 22 60 38 65C47 68 42 55 53 53C60 48 61 32 78 35C85 37 79 18 98 18C111 20 116 7 128 18C140 7 145 20 158 18C177 18 171 37 178 35C195 32 196 48 203 53C214 55 209 68 218 65C234 60 244 77 234 91C229 102 249 109 241 123C236 133 244 132 245 141C248 153 228 157 234 168C243 182 230 199 208 194C182 205 138 163 128 148Z" />
+    </clipPath>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 74 205 48 194C26 199 13 182 22 168C28 157 8 153 11 141C12 132 20 133 15 123C7 109 27 102 22 91C12 77 22 60 38 65C47 68 42 55 53 53C60 48 61 32 78 35C85 37 79 18 98 18C111 20 116 7 128 18C140 7 145 20 158 18C177 18 171 37 178 35C195 32 196 48 203 53C214 55 209 68 218 65C234 60 244 77 234 91C229 102 249 109 241 123C236 133 244 132 245 141C248 153 228 157 234 168C243 182 230 199 208 194C182 205 138 163 128 148Z" fill="#EFA0A4" />
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 74 205 48 194C26 199 13 182 22 168C28 157 8 153 11 141C12 132 20 133 15 123C47.482 154.767 95.518 116.233 128 148Z" fill="#EFA0A4" stroke="#EFA0A4" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-2" d="M128 148C95.518 116.233 47.482 154.767 15 123C7 109 27 102 22 91C12 77 22 60 38 65C47 68 42 55 53 53C59.163 99.538 121.837 101.462 128 148Z" fill="#F2BB82" stroke="#F2BB82" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-3" d="M128 148C121.837 101.462 59.163 99.538 53 53C60 48 61 32 78 35C85 37 79 18 98 18C111 20 116 7 128 18C104 61.333 152 104.667 128 148Z" fill="#EED980" stroke="#EED980" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-4" d="M128 148C152 104.667 104 61.333 128 18C140 7 145 20 158 18C177 18 171 37 178 35C195 32 196 48 203 53C196.837 99.538 134.163 101.462 128 148Z" fill="#9BCBA5" stroke="#9BCBA5" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-5" d="M128 148C134.163 101.462 196.837 99.538 203 53C214 55 209 68 218 65C234 60 244 77 234 91C229 102 249 109 241 123C208.518 154.767 160.482 116.233 128 148Z" fill="#9BBFDA" stroke="#9BBFDA" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-6" d="M128 148C160.482 116.233 208.518 154.767 241 123C236 133 244 132 245 141C248 153 228 157 234 168C243 182 230 199 208 194C182 205 138 163 128 148Z" fill="#BDA9D6" stroke="#BDA9D6" stroke-width="0.8" stroke-linejoin="round" />
+    </g>
+  </g>
+  <g id="face">
+    <circle cx="76" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="180" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="76" cy="114" r="12" fill="#C88C45" />
+    <circle cx="180" cy="114" r="12" fill="#C88C45" />
+    <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z" />
+    <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148" />
+    <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9" />
+    <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C" />
+    <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185" />
+    <circle cx="90" cy="169" r="5" fill="#E9AB72" />
+    <circle cx="166" cy="169" r="5" fill="#E9AB72" />
+  </g>
+</svg>

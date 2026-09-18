@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">D2 — Enamel</title>
+  <desc id="desc">A thick navy-outlined lion with rounded enamel fan panels, heavy eyelids, a cream double muzzle, and an exposed round chin.</desc>
+  <g id="mane" stroke="#27354A" stroke-width="7" stroke-linejoin="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M85 127 24 115Q13 113 17 128L36 157Q47 173 80 169L102 157Z"/><path fill="none" stroke="#FFB0B3" stroke-width="4" stroke-linecap="round" d="M28 127 44 149"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M97 124 35 99Q25 94 29 80L45 53Q51 44 59 54L113 109Z"/><path fill="none" stroke="#FFCF90" stroke-width="4" stroke-linecap="round" d="M41 84 51 66"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M112 112 74 39Q69 29 81 25L109 19Q122 16 122 30V108Z"/><path fill="none" stroke="#FFF0AB" stroke-width="4" stroke-linecap="round" d="M86 37 107 31"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M144 112 182 39Q187 29 175 25L147 19Q134 16 134 30V108Z"/><path fill="none" stroke="#B7E9C5" stroke-width="4" stroke-linecap="round" d="M149 31 170 37"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M159 124 221 99Q231 94 227 80L211 53Q205 44 197 54L143 109Z"/><path fill="none" stroke="#C1E2F7" stroke-width="4" stroke-linecap="round" d="M205 66 215 84"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M171 127 232 115Q243 113 239 128L220 157Q209 173 176 169L154 157Z"/><path fill="none" stroke="#DCC4ED" stroke-width="4" stroke-linecap="round" d="M228 127 212 149"/></g>
+  </g>
+  <g id="face" stroke="#27354A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="77" cy="108" r="19" fill="#E9AD45"/><circle cx="179" cy="108" r="19" fill="#E9AD45"/>
+    <circle cx="77" cy="108" r="7" fill="#B97941" stroke="none"/><circle cx="179" cy="108" r="7" fill="#B97941" stroke="none"/>
+    <path fill="#F8C963" d="M79 139C79 86 177 86 177 139V174C177 200 154 225 128 225S79 200 79 174Z"/>
+    <path fill="none" d="M94 142Q103 149 113 144M143 144Q153 149 162 142"/>
+    <path fill="#FFF0C4" d="M128 171C111 150 88 165 94 185 98 201 117 203 128 193 139 203 158 201 162 185 168 165 145 150 128 171Z"/>
+    <path fill="#27354A" stroke="none" d="M116 162Q128 156 140 162Q144 168 128 180 112 168 116 162Z"/>
+    <path fill="none" stroke-width="5" d="M128 179V192"/>
+  </g>
+</svg>

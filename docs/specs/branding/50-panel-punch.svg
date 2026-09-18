@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-50 desc-50">
+  <title id="title-50">Panel Punch lion</title>
+  <desc id="desc-50">A frontal comic lion with a jagged red mane, giant squared muzzle, thick black ink, and confident forward-looking eyes.</desc>
+  <g stroke="#251f29" stroke-width="8" stroke-linejoin="round">
+    <path fill="#de5046" d="m128 18 24 22 34-10 5 32 37 9-12 33 23 26-26 22 11 39-38 2-14 37-35-15-27 21-24-26-38 6-3-38-25-17 16-33-17-27 31-21 2-31 35 1 17-27Z"/>
+    <path fill="#ffb849" d="M83 99C44 96 49 53 74 57L99 74h58l25-17c26-4 31 39-9 42Z"/>
+    <path fill="#ffca63" d="m84 79 44-16 44 16 15 46-8 57-51 31-51-31-8-57Z"/>
+    <path fill="#fff0c8" d="M128 149 97 139Q74 137 73 160l5 27 50 15 50-15 5-27q-1-23-24-21Z"/>
+  </g>
+  <path fill="#251f29" d="m79 101 39 8-4 10-32-6Zm60 8 38-8-3 12-31 6Z"/>
+  <path fill="#fff" d="m85 120 31 3-5 14-23-2Zm55 3 31-3-3 15-23 2Z"/>
+  <path fill="#251f29" d="M97 123h11v12H97Zm51 0h11v12h-11Zm-36 25h32l-5 16-11 6-11-6Z"/>
+  <path fill="none" stroke="#251f29" stroke-width="5" stroke-linecap="round" d="M128 167v13m-21-3q21 17 42 0m-59-16h9m58 0h9"/>
+  <path fill="#a72b3a" d="m42 117 20 14-11 21Zm161 0-10 16 10 21Zm-89-70 14-18 11 21Z"/>
+</svg>

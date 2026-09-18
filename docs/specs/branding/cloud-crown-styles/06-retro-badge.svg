@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g06-title g06-desc">
+  <title id="g06-title">G06 — Retro badge</title>
+  <desc id="g06-desc">A front-facing lion drawn like a vintage illustrated badge, with six joined rounded cloud panels, dark brown outlines, inline accents, sleepy eyelids, a curled smile, and a bare chin. No lettering.</desc>
+  <g id="mane" stroke="#594735" stroke-width="3" stroke-linejoin="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M128 140 22 112Q12 130 25 146Q15 172 41 182Q60 190 81 177Z"/><path fill="none" stroke="#F6CCB2" stroke-width="2" d="M28 129Q27 139 34 143Q25 164 45 173"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M128 140 61 47Q36 31 27 58Q24 69 30 81Q11 89 22 112Z"/><path fill="none" stroke="#F9D7A5" stroke-width="2" d="M43 49Q30 58 41 84Q23 91 30 102"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M128 140V27Q117 10 99 25Q70 13 61 47Z"/><path fill="none" stroke="#FFF0B3" stroke-width="2" d="M73 42Q79 24 101 35Q112 22 120 31"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M128 140 195 47Q186 13 157 25Q139 10 128 27Z"/><path fill="none" stroke="#D0E5B4" stroke-width="2" d="M136 31Q144 22 155 35Q177 24 183 42"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M128 140 234 112Q245 89 226 81Q232 69 229 58Q220 31 195 47Z"/><path fill="none" stroke="#CCE3DF" stroke-width="2" d="M213 49Q226 58 215 84Q233 91 226 102"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M128 140 175 177Q196 190 215 182Q241 172 231 146Q244 130 234 112Z"/><path fill="none" stroke="#E2C8D2" stroke-width="2" d="M226 129Q229 139 222 143Q231 164 211 173"/></g>
+  </g>
+  <g id="face" stroke="#594735" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#D7A057" d="M88 117Q73 94 61 108Q57 123 82 135ZM168 117Q183 94 195 108Q199 123 174 135Z"/>
+    <path fill="#EFBE6E" d="M128 102Q153 99 166 119L173 158Q182 172 174 189L152 213Q143 226 128 226Q113 226 104 213L82 189Q74 172 83 158L90 119Q103 99 128 102Z"/>
+    <path fill="none" stroke="#FFE0A1" stroke-width="2" d="M101 122Q106 112 120 111M90 180Q88 187 99 196M157 196Q168 187 166 180"/>
+    <path fill="#FAE5B9" d="M96 143Q105 130 115 143V154H96ZM141 143Q151 130 160 143V154H141Z"/>
+    <path fill="#594735" stroke="none" d="M103 145H109V154H103ZM147 145H153V154H147Z"/>
+    <path fill="none" d="M96 145H115M141 145H160"/>
+    <path fill="#FAE5B9" d="M106 166Q114 160 128 170Q142 160 150 166Q165 177 151 191Q141 198 128 192Q115 198 105 191Q91 177 106 166Z"/>
+    <path fill="#594735" stroke="none" d="M117 162Q128 155 139 162L136 173H120Z"/>
+    <path fill="none" d="M128 173V184Q117 190 113 182M128 184Q139 190 143 182"/>
+    <path fill="none" stroke-width="2" d="M116 210Q128 217 140 210"/>
+  </g>
+</svg>

@@ -1,0 +1,101 @@
+{
+  "sourceFace": {
+    "ear": "#E5AC54",
+    "innerEar": "#C88C45",
+    "face": "#F5C875",
+    "ink": "#73503C",
+    "muzzle": "#FFF0C9",
+    "blush": "#E9AB72"
+  },
+  "variants": [
+    {
+      "id": "rainbow",
+      "name": "Rainbow",
+      "status": "Canonical"
+    },
+    {
+      "id": "idle",
+      "name": "Slate",
+      "status": "Idle",
+      "mane": "#64748B",
+      "face": {
+        "ear": "#94A3B8",
+        "innerEar": "#475569",
+        "face": "#D4DCE5",
+        "ink": "#243246",
+        "muzzle": "#F1F5F9",
+        "blush": "#94A3B8"
+      }
+    },
+    {
+      "id": "active",
+      "name": "Blue",
+      "status": "Active",
+      "mane": "#3784D8",
+      "face": {
+        "ear": "#78B2E9",
+        "innerEar": "#24609B",
+        "face": "#C6E2FA",
+        "ink": "#133D6B",
+        "muzzle": "#E9F5FF",
+        "blush": "#78B2E9"
+      }
+    },
+    {
+      "id": "success",
+      "name": "Green",
+      "status": "Success",
+      "mane": "#309A72",
+      "face": {
+        "ear": "#79BF9D",
+        "innerEar": "#257556",
+        "face": "#CBE9D5",
+        "ink": "#154D39",
+        "muzzle": "#EFFAF1",
+        "blush": "#79BF9D"
+      }
+    },
+    {
+      "id": "warning",
+      "name": "Amber",
+      "status": "Warning",
+      "mane": "#D49A23",
+      "face": {
+        "ear": "#E3B958",
+        "innerEar": "#936715",
+        "face": "#F4DDA3",
+        "ink": "#614514",
+        "muzzle": "#FFF5D8",
+        "blush": "#E3B958"
+      }
+    },
+    {
+      "id": "error",
+      "name": "Red",
+      "status": "Error",
+      "mane": "#D75C66",
+      "face": {
+        "ear": "#EC9BA0",
+        "innerEar": "#AB424B",
+        "face": "#F6CED1",
+        "ink": "#732D36",
+        "muzzle": "#FFF0F1",
+        "blush": "#EC9BA0"
+      }
+    },
+    {
+      "id": "paused",
+      "name": "Violet",
+      "status": "Paused",
+      "mane": "#8B69C9",
+      "face": {
+        "ear": "#B49BDE",
+        "innerEar": "#6D4CA5",
+        "face": "#E0D5F3",
+        "ink": "#48336B",
+        "muzzle": "#F5EFFF",
+        "blush": "#B49BDE"
+      }
+    }
+  ]
+}

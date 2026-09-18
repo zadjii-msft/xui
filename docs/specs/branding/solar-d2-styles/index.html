@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>XUI / D2 style explorations</title>
+  <link rel="stylesheet" href="gallery.css">
+  <script src="styles-graphic.js" defer></script>
+  <script src="styles-craft.js" defer></script>
+  <script src="styles-playful.js" defer></script>
+  <script src="gallery.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <a href="../solar-explorations/index.html">XUI / Back to the 48-shape study</a>
+      <span class="eyebrow">D2 / Style exploration / Round four</span>
+    </header>
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Same starting point. Different visual languages.</p>
+        <h1 id="page-title">Take D2<br>somewhere new.</h1>
+        <p class="lede">Twenty-four individually drawn interpretations, not another size or color matrix.
+          New faces, new linework, new materials. The broad six-part fan and open chin keep a connection to D2.</p>
+        <p class="note">This is still brainstorming. Some directions favor a compact logo; others favor a more expressive mascot.</p>
+        <p><a href="../softling/index.html">New: fuller Softling manes with smaller gaps, joined colors, divider lines, and waves.</a></p>
+      </div>
+      <aside class="reference">
+        <div class="artboard"><img src="../solar-explorations/d2-fan-balanced-rainbow.svg" width="190" height="190" alt="D2: the selected flat-color lion with a six-part fan mane"></div>
+        <div><strong>D2 / The starting point</strong><p>Fan mane, balanced face. Kept here unchanged.</p></div>
+      </aside>
+    </section>
+    <p class="error" id="load-error" role="alert" hidden></p>
+    <p class="error" id="image-error" role="alert" hidden></p>
+    <noscript><p class="error">This gallery needs JavaScript. <a href="../README.md#d2-style-explorations">The static index links to each SVG.</a></p></noscript>
+    <fieldset id="controls" disabled>
+      <legend class="sr-only">Style comparison controls</legend>
+      <div class="field search-field"><label for="search">Find a style</label><input id="search" type="search" placeholder="Name, technique, or S01..." autocomplete="off"></div>
+      <div class="field"><label for="family">Style family</label><select id="family"><option value="">All 24 styles</option><option>Graphic &amp; minimal</option><option>Material &amp; craft</option><option>Expressive &amp; playful</option></select></div>
+      <div class="buttons">
+        <button id="background" type="button" aria-pressed="false">Dark artboards</button>
+        <button id="shortlist-only" type="button" aria-pressed="false">Shortlist only</button>
+        <button id="reset" type="button">Reset filters</button>
+      </div>
+    </fieldset>
+    <div class="shortlist-bar">
+      <div><strong>Your shortlist</strong><p id="shortlist-summary" aria-live="polite">No selections. Shortlists last until reload.</p></div>
+      <button id="clear-shortlist" type="button" disabled>Clear shortlist</button>
+    </div>
+    <div class="section-heading"><h2>The style board</h2><p id="results" role="status">Loading drawings...</p></div>
+    <div id="gallery" class="grid"></div>
+    <p class="empty" id="empty" hidden>No styles match these filters. Use "Reset filters" to see all drawings.</p>
+    <footer>
+      <p>Each drawing has its own face construction and palette. Status recolors can follow after a direction emerges.</p>
+      <a href="../README.md#d2-style-explorations">Design notes and SVG index</a>
+    </footer>
+  </main>
+  <dialog id="inspector" aria-labelledby="inspect-title" aria-describedby="inspect-note">
+    <div class="dialog-heading"><div><p class="eyebrow">Side by side with the anchor</p><h2 id="inspect-title"></h2></div><form method="dialog"><button autofocus>Close preview</button></form></div>
+    <div class="comparison">
+      <figure><div class="artboard"><img src="../solar-explorations/d2-fan-balanced-rainbow.svg" width="280" height="280" alt="Original D2 fan lion for comparison"></div><figcaption>D2 / Starting point</figcaption></figure>
+      <figure><div id="large-preview" class="artboard"></div><figcaption id="inspect-caption"></figcaption></figure>
+    </div>
+    <p id="inspect-note"></p>
+    <div class="inspection-bottom">
+      <div class="samples" aria-label="Actual-size previews"><div><div id="sample-24"></div><span>24px</span></div><div><div id="sample-48"></div><span>48px</span></div></div>
+      <div class="buttons"><button id="inspect-shortlist" type="button" aria-pressed="false">Shortlist</button><a id="download" class="button primary" download>Download SVG</a></div>
+    </div>
+    <p class="note">These are exploratory drawings. Fine textures and thin lines can need simplification for small app icons.</p>
+  </dialog>
+</body>
+</html>

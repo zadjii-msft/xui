@@ -10,6 +10,7 @@
     <ApplicationManifest>..\..\..\demo\xui.manifest</ApplicationManifest>
   </PropertyGroup>
   <Import Project="..\Xui.Native.targets" />
+  <Import Project="..\Xui.Branding.targets" />
   <Import Project="..\Xui.Declarative.Common.targets" />
   <ItemGroup>
     <ProjectReference Include="..\Xui\Xui.csproj" />

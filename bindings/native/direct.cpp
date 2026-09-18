@@ -1,5 +1,6 @@
 #include "xui/application.hpp"
 #include "xui/image.hpp"
+#include "../../demo/branding.hpp"
 #include <windows.h>
 #include <chrono>
 #include <iostream>
@@ -7,6 +8,7 @@
 int wmain(int argc, wchar_t** argv) {
     try {
         xui::Window window({L"XUI bindings", {600, 720}});
+        xui::demo::set_application_icon(window);
         auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
         root->set_padding({20, 20, 20, 20}); root->set_spacing(10);
         auto label = std::make_shared<xui::Label>(L"Ready — 日本語 😀 — a long Unicode label with native retained layout");

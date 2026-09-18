@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-69 desc-69">
+  <title id="title-69">Pom Sun lion</title>
+  <desc id="desc-69">A frontal lion with a ring of individual plush pompom locks, a circular ochre face, wide-set small eyes, and a low round muzzle.</desc>
+  <g stroke="#916048" stroke-width="4">
+    <circle cx="128" cy="43" r="27" fill="#c88959"/>
+    <circle cx="172" cy="54" r="27" fill="#e3a963"/>
+    <circle cx="205" cy="86" r="27" fill="#d89a60"/>
+    <circle cx="216" cy="130" r="27" fill="#c88959"/>
+    <circle cx="202" cy="174" r="27" fill="#e3a963"/>
+    <circle cx="171" cy="207" r="27" fill="#d89a60"/>
+    <circle cx="127" cy="216" r="27" fill="#c88959"/>
+    <circle cx="83" cy="207" r="27" fill="#e3a963"/>
+    <circle cx="51" cy="175" r="27" fill="#d89a60"/>
+    <circle cx="40" cy="131" r="27" fill="#c88959"/>
+    <circle cx="50" cy="87" r="27" fill="#e3a963"/>
+    <circle cx="82" cy="55" r="27" fill="#d89a60"/>
+  </g>
+  <g fill="none" stroke="#f5ca80" stroke-width="4" stroke-linecap="round"><path d="M119 31q9-4 16 1m31 13q8-4 14 4m18 31q9-2 13 4m-4 41q9 1 11 8m-24 31q8 0 12 7m-44 26q8-2 14 3m-58 9q9-3 16 1m-59-12q9-3 15 1m-47-30q9-4 15 1m-25-45q9-4 15 0m-4-43q9-4 15 1m16-34q9-4 15 1"/></g>
+  <g fill="#ffdaa0" stroke="#916048" stroke-width="4"><circle cx="76" cy="93" r="20"/><circle cx="180" cy="93" r="20"/><circle cx="128" cy="135" r="63"/></g>
+  <g fill="#bf855c"><circle cx="76" cy="93" r="9"/><circle cx="180" cy="93" r="9"/></g>
+  <path fill="#ffdaa0" d="M80 104h96v30H80Z"/>
+  <g fill="#5b4334"><circle cx="94" cy="135" r="6"/><circle cx="162" cy="135" r="6"/></g>
+  <ellipse cx="128" cy="168" rx="37" ry="23" fill="#fff0cc"/>
+  <path fill="#8d5b47" d="M115 155q13-8 26 0-2 12-13 13-11-1-13-13Z"/>
+  <path fill="none" stroke="#8d5b47" stroke-width="3.5" stroke-linecap="round" d="M128 167v9m-12 0q12 10 24 0"/>
+</svg>

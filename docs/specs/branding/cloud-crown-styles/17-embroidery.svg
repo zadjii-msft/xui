@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g17-title g17-desc">
+  <title id="g17-title">G17 — Embroidery</title>
+  <desc id="g17-desc">A densely embroidered lion. Six joined satin-stitch fields make the cloud crown. Directional thread strokes, twisted edge cords, embroidered eyelids, a woven nose, and radiating muzzle stitches build the face above an exposed chin.</desc>
+  <g id="mane" stroke-linejoin="round">
+    <g id="segment-1">
+      <path fill="#ED6B79" stroke="#ED6B79" stroke-width="1" d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118L128 148Z"/>
+      <path fill="none" stroke="#F8ADB1" stroke-width="1.6" d="M25 130L53 155M23 139L55 164M25 149L59 172M31 160L64 177M32 169L65 183M42 178L57 184M37 126L69 157M46 129L73 155M57 132L78 152"/>
+      <path fill="none" stroke="#BA4F66" stroke-width="1.8" d="M28 130L57 155M25 139L59 164M29 151L64 173M35 163L69 180M48 129L77 155"/>
+      <path fill="none" stroke="#FFD4C6" stroke-width="2" stroke-dasharray="1 3" d="M27 125Q19 146 30 156Q24 178 45 182L58 183Q76 191 95 175"/>
+    </g>
+    <g id="segment-2">
+      <path fill="#F1A355" stroke="#F1A355" stroke-width="1" d="M128 148L23 118C11 103 17 83 32 79C23 55 36 35 53 46L128 148Z"/>
+      <path fill="none" stroke="#FFD49A" stroke-width="1.6" d="M39 50L56 59M35 57L61 67M34 65L66 76M35 74L71 85M29 86L74 94M25 94L72 101M23 102L65 108M26 110L67 117M39 117L72 122"/>
+      <path fill="none" stroke="#BD7846" stroke-width="1.6" d="M35 59L63 70M35 69L68 81M31 87L75 97M26 100L67 106M30 113L71 120"/>
+      <path fill="none" stroke="#FFE6B4" stroke-width="2" stroke-dasharray="1 3" d="M25 115Q14 93 36 81Q27 56 44 48L51 50"/>
+    </g>
+    <g id="segment-3">
+      <path fill="#F0D260" stroke="#F0D260" stroke-width="1" d="M128 148L53 46C51 23 77 12 94 23C110 8 123 8 128 14V148Z"/>
+      <path fill="none" stroke="#FFF1AF" stroke-width="1.6" d="M62 33L62 53M68 28L69 63M76 24L78 73M84 24L87 84M92 29L96 87M100 25L104 91M108 19L112 92M116 16L120 93"/>
+      <path fill="none" stroke="#C0A24B" stroke-width="1.4" d="M66 29L67 60M74 25L76 69M83 28L87 78M94 28L99 87M104 23L109 92M115 19L117 91"/>
+      <path fill="none" stroke="#FFF4D0" stroke-width="2" stroke-dasharray="1 3" d="M58 43Q57 20 82 24L94 27Q111 12 123 16V91"/>
+    </g>
+    <g id="segment-4">
+      <path fill="#75BA94" stroke="#75BA94" stroke-width="1" d="M128 148V14C133 8 146 8 162 23C179 12 205 23 203 46L128 148Z"/>
+      <path fill="none" stroke="#BFE1BE" stroke-width="1.6" d="M135 19L134 92M143 18L142 91M151 23L150 90M159 29L158 87M167 25L166 83M175 23L174 76M183 25L182 66M191 29L190 57M198 36L197 47"/>
+      <path fill="none" stroke="#478969" stroke-width="1.4" d="M138 19L138 91M147 23L146 88M156 30L154 87M169 28L168 80M180 28L178 70M191 34L188 56"/>
+      <path fill="none" stroke="#D4EAC9" stroke-width="2" stroke-dasharray="1 3" d="M134 16Q145 13 161 27 181 15 197 33L199 44"/>
+    </g>
+    <g id="segment-5">
+      <path fill="#75AED7" stroke="#75AED7" stroke-width="1" d="M128 148L203 46C220 35 233 55 224 79C239 83 245 103 233 118L128 148Z"/>
+      <path fill="none" stroke="#BFDEED" stroke-width="1.6" d="M205 52L220 55M199 61L223 64M193 69L221 73M187 78L219 82M181 87L229 91M186 97L234 100M192 108L232 108M194 117L229 115"/>
+      <path fill="none" stroke="#4D81AE" stroke-width="1.4" d="M203 57L222 61M196 67L220 69M190 76L218 80M184 88L230 94M189 100L234 103M194 113L230 112"/>
+      <path fill="none" stroke="#D9ECEC" stroke-width="2" stroke-dasharray="1 3" d="M206 48Q229 41 220 81 240 85 235 108L231 114"/>
+    </g>
+    <g id="segment-6">
+      <path fill="#AB8AC9" stroke="#AB8AC9" stroke-width="1" d="M128 148L233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z"/>
+      <path fill="none" stroke="#D9BEE8" stroke-width="1.6" d="M231 127L205 147M233 135L203 157M232 144L199 164M226 156L195 175M225 167L196 181M216 178L205 184M219 124L197 142M209 128L192 142M198 132L188 141"/>
+      <path fill="none" stroke="#785C9B" stroke-width="1.4" d="M232 132L205 153M232 142L202 162M226 159L195 178M222 175L210 182M218 128L200 142"/>
+      <path fill="none" stroke="#E5CEE8" stroke-width="2" stroke-dasharray="1 3" d="M231 123Q244 144 227 158 236 180 214 184L198 183Q182 191 166 176"/>
+    </g>
+  </g>
+  <g id="face">
+    <path fill="#B28451" d="M83 104Q69 85 59 99 48 119 78 132L89 121Z M174 104Q187 84 198 101 207 120 177 132L166 120Z"/>
+    <path fill="none" stroke="#F7D79D" stroke-width="2" d="M64 100L78 115M60 105L77 120M61 113L76 125M192 100L178 115M196 105L179 120M195 113L181 125"/>
+    <path fill="#E5B873" d="M128 100Q94 98 84 125L79 157Q67 180 90 202L114 219Q128 227 143 217L165 203Q188 181 177 157L174 129Q167 99 128 100Z"/>
+    <path fill="none" stroke="#F8D798" stroke-width="2" d="M94 119L113 111M91 125L117 115M89 132L119 120M88 139L121 125M89 147L113 138M92 154L108 149M142 111L163 119M139 116L167 126M136 122L169 133M135 129L169 140M147 140L167 147M152 150L164 154M82 168L96 163M81 176L95 171M86 186L99 178M93 195L104 183M101 204L110 191M111 214L118 197M120 220L124 201M130 221L130 202M140 216L138 200M150 209L144 196M160 200L150 191M169 189L155 183M175 178L160 175M174 167L161 166"/>
+    <path fill="none" stroke="#A77C4B" stroke-width="2.5" stroke-dasharray="1 3" d="M128 104Q96 102 88 126L83 158Q71 179 94 200L116 215Q128 223 141 213L162 200Q184 179 173 158L170 130Q163 103 128 104Z"/>
+    <path fill="none" stroke="#5F473B" stroke-width="5" stroke-linecap="round" d="M93 145Q102 136 113 144M145 144Q155 135 165 144"/>
+    <path fill="none" stroke="#9E7956" stroke-width="1.5" stroke-dasharray="1 2" d="M93 145Q102 136 113 144M145 144Q155 135 165 144"/>
+    <path fill="#E3CBA2" d="M129 171C116 156 94 159 89 175 83 195 115 207 128 192 144 208 174 194 167 175 162 159 142 156 129 171Z"/>
+    <path fill="none" stroke="#FFF1C9" stroke-width="2.4" d="M122 174L100 162M121 178L93 167M120 182L90 175M120 186L92 182M120 190L100 190M120 193L110 198M136 173L154 161M137 177L162 166M138 181L166 173M137 185L165 181M137 190L158 190M136 193L147 198"/>
+    <path fill="#624B3F" d="M116 159Q129 153 142 159L138 173 128 180 118 171Z"/>
+    <path fill="none" stroke="#A6845C" stroke-width="1.5" d="M119 160L139 163M119 164L137 167M121 169L134 172M126 174L130 175"/>
+    <path fill="none" stroke="#624B3F" stroke-width="3" stroke-linecap="round" d="M128 179V187Q122 194 115 188M128 187Q135 195 142 188"/>
+  </g>
+</svg>

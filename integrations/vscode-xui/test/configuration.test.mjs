@@ -32,6 +32,13 @@ test("manifest associates .xui files without activation code", () => {
   assert.equal(manifest.contributes.grammars[0].scopeName, "source.xui");
 });
 
+test("extension icon is the generated canonical Zoey PNG", async () => {
+  assert.equal(manifest.icon, "images/zoey.png");
+  const icon = await readFile(new URL("../images/zoey.png", import.meta.url));
+  const canonical = await readFile(new URL("../../../assets/branding/generated/zoey-256.png", import.meta.url));
+  assert.ok(icon.equals(canonical));
+});
+
 test("language configuration supplies brackets, comments, closing pairs, indentation and folding", () => {
   assert.deepEqual(config.comments, { lineComment: "//", blockComment: ["/*", "*/"] });
   assert.deepEqual(config.brackets, [["{", "}"], ["[", "]"], ["(", ")"]]);

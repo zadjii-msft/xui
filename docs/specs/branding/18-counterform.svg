@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-18-title lion-18-desc">
+  <title id="lion-18-title">Counterform lion head</title>
+  <desc id="lion-18-desc">A front-facing lion head. A black mane has deep white cuts at the temples. Two white cheek crescents frame a black nose bridge and a flat chin.</desc>
+<path d="M128 19c31 0 60 12 75 36l-8 13 26 6 16 39-19 15 15 24-23 49-29-1-15 31H90l-15-31-29 1-23-49 15-24-19-15 16-39 26-6-8-13c15-24 44-36 75-36Z" fill="#18191B"/>
+  <path d="M67 74q-14-15-18 3l13 27 15-14Zm122 0q14-15 18 3l-13 27-15-14Z" fill="#FFFFFF"/>
+  <path d="M88 68h80l16 33-23 40 10 35-26 29h-34l-26-29 10-35-23-40Z" fill="#FFFFFF"/>
+  <path d="m93 104 24 8 11-23 11 23 24-8-6 17-15 5-3 19h-22l-3-19-15-5Z" fill="#18191B"/>
+  <path d="M109 146h38l-19 21Zm19 20v17m-18-1h36" fill="none" stroke="#18191B" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M48 131 73 151 57 171Zm160 0-25 20 16 20Z" fill="#FFFFFF"/>
+</svg>

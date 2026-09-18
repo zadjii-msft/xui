@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-43-title lion-43-desc">
+  <title id="lion-43-title">Curl lion head</title>
+  <desc id="lion-43-desc">A front-facing lion head. Four broad spiral curls frame a pointed face. Curved brow marks and a rounded nose echo the rolled mane.</desc>
+<g fill="none" stroke="#4E718C" stroke-width="17" stroke-linecap="round">
+    <path d="M123 35C90 9 45 25 36 61c-9 38 14 61 37 51 20-9 17-31 3-32"/>
+    <path d="M133 35c33-26 78-10 87 26 9 38-14 61-37 51-20-9-17-31-3-32"/>
+    <path d="M40 132c-22 33-1 84 35 85 36 1 42-34 23-43-11-5-20 2-18 12"/>
+    <path d="M216 132c22 33 1 84-35 85-36 1-42-34-23-43 11-5 20 2 18 12"/>
+    <path d="M104 225q24 21 48 0"/>
+  </g>
+  <path d="M84 90q-25-26-28-6 3 18 25 24m91-18q25-26 28-6-3 18-25 24" fill="#DEC7A0"/>
+  <path d="M128 60q48 0 48 51l-16 53-32 39-32-39-16-53q0-51 48-51Z" fill="#DEC7A0"/>
+  <path d="M94 113q9-5 18 0m32 0q9-5 18 0" fill="none" stroke="#30485C" stroke-width="7" stroke-linecap="round"/>
+  <path d="M128 146q-27-19-33 9t33 19q39 9 33-19t-33-9Z" fill="#FFF1D4"/>
+  <rect x="115" y="136" width="26" height="14" rx="7" fill="#30485C"/>
+  <path d="M128 150v17m-11 0q11 9 22 0" fill="none" stroke="#30485C" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>XUI / Solar, round two</title>
+  <style>
+    :root { font-family: "Segoe UI", system-ui, sans-serif; color: #253b3b; background: #f4f2ed; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1480px; margin: auto; padding: 32px 36px; }
+    a { color: #355e53; text-underline-offset: 4px; }
+    button { font: inherit; cursor: pointer; }
+    :focus-visible { outline: 3px solid #b25024; outline-offset: 4px; }
+    .masthead { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 22px; border-bottom: 1px solid #cdd4cd; font-size: 12px; }
+    .eyebrow { text-transform: uppercase; font-size: 11px; letter-spacing: .14em; color: #63766d; }
+    h1 { font-size: clamp(34px, 4.5vw, 60px); line-height: 1.1; font-weight: 550; letter-spacing: -.05em; margin: 28px 0 12px; }
+    .intro { max-width: 750px; font-size: 16px; line-height: 1.65; color: #596964; margin: 0 0 24px; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .toolbar button, .save { border: 1px solid #bbc9c0; border-radius: 7px; padding: 9px 13px; background: transparent; color: #355e53; font-size: 13px; }
+    .toolbar button[aria-pressed="true"] { background: #355e53; color: #fff; }
+    .toolbar p { margin: 0; color: #63766d; font-size: 12px; }
+    .feature { display: grid; grid-template-columns: 1fr 2fr; gap: 18px; }
+    .panel, .shape-card, .status-card { background: #fffefb; border: 1px solid #d1d7d0; border-radius: 12px; overflow: hidden; }
+    .panel { display: flex; flex-direction: column; }
+    .artboard { background: #faf9f5; color: #253b3b; }
+    .dark .artboard { background: #17252e; color: #edf1e9; }
+    .original { padding: 20px; display: grid; justify-items: center; flex: 1; align-content: center; }
+    .original img { width: 200px; height: 200px; max-width: 100%; }
+    .current { display: flex; justify-content: center; align-items: center; gap: 30px; padding: 15px 26px; min-height: 275px; }
+    #featured { width: 270px; height: 270px; max-width: 60%; object-fit: contain; }
+    .pairing { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+    .wordmark { display: flex; align-items: center; gap: 12px; font-size: 40px; font-weight: 750; letter-spacing: -.06em; }
+    .wordmark img { width: 56px; height: 56px; }
+    .sizes { display: flex; align-items: flex-end; gap: 20px; }
+    .sample { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .sample span { font-size: 10px; opacity: .65; }
+    .panel-note { padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid #d1d7d0; }
+    .panel-note strong { display: block; font-size: 17px; font-weight: 600; }
+    .panel-note p { font-size: 12px; color: #63766d; margin: 5px 0 0; line-height: 1.5; }
+    .save { display: inline-block; text-decoration: none; white-space: nowrap; }
+    .save:hover { background: #e7ece6; }
+    .section-heading { margin: 32px 0 16px; }
+    h2 { font-size: 25px; letter-spacing: -.035em; font-weight: 600; margin: 0 0 7px; }
+    .section-heading p { color: #596964; font-size: 14px; line-height: 1.6; max-width: 850px; margin: 0; }
+    .shapes, .statuses { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+    .shape-card.selected { border-color: #355e53; box-shadow: 0 0 0 2px #355e53; }
+    .shape-choice { display: flex; flex-direction: column; width: 100%; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; }
+    .shape-choice .artboard { width: 100%; padding: 6px; display: flex; justify-content: center; }
+    .shape-choice img { width: 176px; height: 176px; max-width: 100%; }
+    .shape-caption { padding: 12px 14px 16px; }
+    .shape-caption strong { font-weight: 600; display: block; font-size: 15px; }
+    .shape-caption span { display: block; font-size: 12px; line-height: 1.55; color: #63766d; margin-top: 6px; }
+    .status-card .artboard { display: flex; flex-direction: column; align-items: center; padding: 12px; gap: 6px; }
+    .status-hero { width: 146px; height: 146px; max-width: 100%; }
+    .status-mini { display: flex; gap: 16px; align-items: flex-end; }
+    .status-caption { padding: 14px; }
+    h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+    .status-caption p { font-size: 12px; color: #63766d; margin: 0 0 12px; }
+    .status-caption a { font-size: 12px; }
+    .note { color: #63766d; font-size: 12px; line-height: 1.65; margin: 16px 0 0; }
+    footer { border-top: 1px solid #cdd4cd; margin-top: 32px; padding-top: 20px; font-size: 12px; display: flex; justify-content: space-between; gap: 18px; color: #63766d; }
+    #load-error { color: #963d24; font-weight: 600; }
+    [hidden] { display: none !important; }
+    @media (max-width: 1100px) { .shapes, .statuses { grid-template-columns: repeat(3, minmax(0, 1fr)); } .current { gap: 10px; padding: 15px; } .wordmark { font-size: 32px; } }
+    @media (max-width: 700px) {
+      main { padding: 22px 18px; }
+      .feature { grid-template-columns: 1fr; }
+      .original { padding: 12px; }
+      .original img { width: 140px; height: 140px; }
+      .current { min-height: 240px; gap: 8px; }
+      #featured { width: 220px; height: 220px; }
+      .pairing { gap: 18px; }
+      .wordmark { font-size: 30px; gap: 6px; }
+      .wordmark img { width: 40px; height: 40px; }
+      .shapes, .statuses { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .toolbar, .panel-note, footer { flex-wrap: wrap; }
+      .shape-caption { padding: 12px; }
+      .shape-choice img { height: auto; aspect-ratio: 1; }
+    }
+    @media print { .toolbar, .save, footer { display: none; } main { padding: 0; } .shapes, .statuses { grid-template-columns: repeat(3, minmax(0, 1fr)); } .shape-card, .status-card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <a href="../index.html">XUI / All 120 explorations</a>
+      <span class="eyebrow">Solar / round two</span>
+    </header>
+    <h1>Same face. A lighter mane.</h1>
+    <p><a href="../solar-explorations/index.html">New: 48 bolder shape-and-proportion variations in Solar round three.</a></p>
+    <p class="intro">Solar's calm expression, with six wavy segments above and around the head.
+      No heavy mane under the chin. Rainbow is the main identity; one-hue variants carry the status colors.</p>
+    <div class="toolbar">
+      <button id="background" type="button" aria-pressed="false">Dark artboards</button>
+      <p>Six silhouettes. Seven palettes each. Every version is a standalone SVG.</p>
+    </div>
+    <p id="load-error" role="alert" hidden></p>
+    <section class="feature" aria-label="Original and revised Solar">
+      <article class="panel">
+        <div class="artboard original"><img src="../01-solar.svg" width="200" height="200" alt="Original Solar lion with its full sunburst mane"></div>
+        <div class="panel-note"><div><strong>Original / Solar</strong><p>The face and expression to preserve.</p></div></div>
+      </article>
+      <article class="panel">
+        <div class="artboard current">
+          <img id="featured" src="a-soft-arc-rainbow.svg" width="270" height="270" alt="Solar Soft arc with a six-segment rainbow mane">
+          <div class="pairing">
+            <div class="wordmark"><img class="current-rainbow" src="a-soft-arc-rainbow.svg" width="56" height="56" alt=""><span>XUI</span></div>
+            <div class="sizes">
+              <div class="sample"><img class="current-rainbow" src="a-soft-arc-rainbow.svg" width="24" height="24" alt=""><span>24px</span></div>
+              <div class="sample"><img class="current-rainbow" src="a-soft-arc-rainbow.svg" width="48" height="48" alt=""><span>48px</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel-note">
+          <div><strong id="current-name" aria-live="polite">A / Soft arc</strong><p>Rainbow / original golden face</p></div>
+          <a class="save" id="rainbow-download" href="a-soft-arc-rainbow.svg" download>Save rainbow SVG</a>
+        </div>
+      </article>
+    </section>
+    <section aria-labelledby="shape-heading">
+      <div class="section-heading">
+        <h2 id="shape-heading">Six ways to shape the mane</h2>
+        <p>Select a silhouette to see its large preview and status family. The face geometry stays identical in every drawing.</p>
+      </div>
+      <div class="shapes" id="shapes"></div>
+    </section>
+    <section aria-labelledby="status-heading">
+      <div class="section-heading">
+        <h2 id="status-heading">One face, different states</h2>
+        <p>Each state uses one hue throughout: a solid-color mane, a lighter face, and darker features.
+          Segment gaps stay visible even without rainbow colors.</p>
+      </div>
+      <div class="statuses" id="statuses"></div>
+      <p class="note">These status names are examples, not application behavior. In a product, pair the color with a status label or symbol.
+        The icons do not use animation. Small previews show 24px and 48px versions.</p>
+    </section>
+    <noscript><p>The shape controls need JavaScript. <a href="../README.md#solar-round-two">Open the static Solar index</a> for SVG links.</p></noscript>
+    <footer><span>Original face paths. Six separate mane paths. Transparent backgrounds.</span><a href="../README.md#solar-round-two">Design notes and source files</a></footer>
+  </main>
+  <script src="studies.js"></script>
+  <script>
+    const loadError = document.querySelector("#load-error");
+    function showError(message) {
+      loadError.hidden = false;
+      loadError.textContent = message;
+    }
+    document.addEventListener("error", event => {
+      if (event.target instanceof HTMLImageElement) {
+        showError(`Cannot load ${event.target.getAttribute("src")}. Keep the SVG files beside this page, then reload.`);
+      }
+    }, true);
+    const studies = window.solarStudies;
+    if (!studies || studies.shapes.length !== 6 || studies.palettes.length !== 7) {
+      showError("Cannot load the Solar studies. Keep studies.js beside this page, then reload.");
+      throw new Error("Expected six Solar shapes and seven palettes.");
+    }
+    let selected = studies.shapes[0];
+    const fileFor = (shape, palette) => `${shape.id}-${palette.id}.svg`;
+
+    function updateShape(shape) {
+      selected = shape;
+      const file = fileFor(shape, studies.palettes[0]);
+      document.querySelector("#featured").src = file;
+      document.querySelector("#featured").alt = `Solar ${shape.name} with a six-segment rainbow mane`;
+      for (const image of document.querySelectorAll(".current-rainbow")) image.src = file;
+      document.querySelector("#rainbow-download").href = file;
+      document.querySelector("#current-name").textContent = `${shape.letter} / ${shape.name}`;
+      for (const card of document.querySelectorAll(".shape-card")) {
+        const active = card.dataset.shape === shape.id;
+        card.classList.toggle("selected", active);
+        card.querySelector("button").setAttribute("aria-pressed", String(active));
+      }
+      for (const card of document.querySelectorAll(".status-card")) {
+        const palette = studies.palettes.find(item => item.id === card.dataset.palette);
+        const statusFile = fileFor(shape, palette);
+        for (const image of card.querySelectorAll("img")) image.src = statusFile;
+        card.querySelector(".status-hero").alt = `Solar ${shape.name}, ${palette.label}, ${palette.name} palette`;
+        for (const link of card.querySelectorAll("a")) link.href = statusFile;
+      }
+    }
+
+    for (const shape of studies.shapes) {
+      const card = document.createElement("article");
+      card.className = "shape-card";
+      card.dataset.shape = shape.id;
+      card.innerHTML = `
+        <button class="shape-choice" type="button" aria-pressed="false" aria-label="Select ${shape.letter} / ${shape.name}">
+          <span class="artboard"><img src="${fileFor(shape, studies.palettes[0])}" width="176" height="176" alt=""></span>
+          <span class="shape-caption"><strong>${shape.letter} / ${shape.name}</strong><span>${shape.note}</span></span>
+        </button>`;
+      card.querySelector("button").addEventListener("click", () => updateShape(shape));
+      document.querySelector("#shapes").append(card);
+    }
+    for (const palette of studies.palettes.slice(1)) {
+      const file = fileFor(selected, palette);
+      const card = document.createElement("article");
+      card.className = "status-card";
+      card.dataset.palette = palette.id;
+      card.innerHTML = `
+        <div class="artboard">
+          <img class="status-hero" src="${file}" width="146" height="146" alt="">
+          <div class="status-mini">
+            <div class="sample"><img src="${file}" width="24" height="24" alt=""><span>24px</span></div>
+            <div class="sample"><img src="${file}" width="48" height="48" alt=""><span>48px</span></div>
+          </div>
+        </div>
+        <div class="status-caption"><h3>${palette.label}</h3><p>${palette.name} / single hue</p><a href="${file}" download>Save ${palette.name.toLowerCase()} SVG</a></div>`;
+      document.querySelector("#statuses").append(card);
+    }
+    document.querySelector("#background").addEventListener("click", event => {
+      event.currentTarget.setAttribute("aria-pressed", String(document.body.classList.toggle("dark")));
+    });
+    updateShape(selected);
+    for (const image of document.images) {
+      if (image.complete && image.naturalWidth === 0) {
+        showError(`Cannot load ${image.getAttribute("src")}. Keep the SVG files beside this page, then reload.`);
+      }
+    }
+  </script>
+</body>
+</html>

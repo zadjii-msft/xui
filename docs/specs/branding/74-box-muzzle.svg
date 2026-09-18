@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-74 desc-74">
+  <title id="title-74">Box Muzzle lion</title>
+  <desc id="desc-74">A frontal lion with a huge rectangular whisker muzzle, small high-set eyes, and a geometric mane made from broad trapezoid locks.</desc>
+  <path fill="#385b63" d="m83 24 45 16 45-16 25 36 32 12-9 53 15 46-39 25-21 38-48-15-48 15-21-38-39-25 15-46-9-53 32-12Z"/>
+  <path fill="#58838a" d="m91 37 37 26 37-26 13 51 35-6-21 48 29 32-49 7 10 40-54-22-54 22 10-40-49-7 29-32-21-48 35 6Z"/>
+  <path fill="#e5ac72" stroke="#385b63" stroke-width="5" stroke-linejoin="round" d="m69 69 29 11 30-10 30 10 29-11 15 24-28 25H82L54 93Z"/>
+  <path fill="#bf865c" d="m69 79 20 10-10 14Zm118 0-20 10 10 14Z"/>
+  <path fill="#efc68b" d="m95 79 66 0 23 52 10 47-66 32-66-32 10-47Z"/>
+  <g fill="#3c4745"><ellipse cx="101" cy="119" rx="5" ry="8"/><ellipse cx="155" cy="119" rx="5" ry="8"/></g>
+  <path fill="#fff0c7" stroke="#956d4e" stroke-width="4" stroke-linejoin="round" d="M69 140h118v46l-16 11H85l-16-11Z"/>
+  <path fill="#e4cca0" d="M128 143h6v39l-6 7Z"/>
+  <path fill="#5b5144" d="M110 140h36v15l-18 12-18-12Z"/>
+  <path fill="none" stroke="#5b5144" stroke-width="4" stroke-linecap="round" d="M128 165v15m-25 0q25 13 50 0"/>
+  <g fill="#a78963"><circle cx="86" cy="157" r="3"/><circle cx="96" cy="166" r="3"/><circle cx="86" cy="175" r="3"/><circle cx="170" cy="157" r="3"/><circle cx="160" cy="166" r="3"/><circle cx="170" cy="175" r="3"/></g>
+</svg>
