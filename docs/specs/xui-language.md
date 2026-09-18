@@ -57,6 +57,7 @@ Names that start with `__xui` are reserved.
 
 Stacks support `spacing` and uniform `padding`.
 Controls support `id`, `enabled`, `visible`, and `help`.
+Hidden `ScrollView` controls reserve no desired layout space, including passthrough hosts.
 The `id` argument supplies the automation ID.
 `help` supplies native help text.
 `Stack`, `Grid`, and `Content` are elements, not controls, so they do not support those four arguments.

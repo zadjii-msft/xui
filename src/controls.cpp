@@ -218,6 +218,7 @@ ScrollView::ScrollView(std::shared_ptr<Element> content, std::wstring name)
     adopt(content_);
 }
 Size ScrollView::measure(Size available) {
+    if (!visible()) return {};
     if (passthrough_) {
         const auto p = layout_style::insets(effective_control_style_values(StylePart::root));
         return constrain(layout_style::outer(content_->measure(layout_style::inner(available, p)), p), available);

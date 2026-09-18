@@ -61,6 +61,12 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### Hidden scroll views
+
+The terminal palette exposed a hidden `ScrollView` that still reserved its preferred height.
+`xui_control_tests` reproduced the failure before the visibility guard in `ScrollView::measure`.
+The regression covers normal and passthrough scroll hosts, plus restored visible content.
+
 ### Swap chain host input
 
 `tests\swap_chain_input_tests.cpp` uses a fixture-owned HWND and its normal XUI message loop.
