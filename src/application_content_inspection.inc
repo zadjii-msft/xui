@@ -306,6 +306,7 @@
     void prune_inspection_hosts() {
         std::set<std::uint64_t> live;
         content_ids(root, live);
+        for (const auto& entry : popups) content_ids(entry.popup, live);
         std::erase_if(content_picking, [&](const auto& entry) {
             return entry.second.host.expired() || !live.contains(entry.first);
         });

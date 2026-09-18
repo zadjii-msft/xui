@@ -115,6 +115,13 @@ The host preserves native peers outside its content.
 This includes editor selection, undo history, and focus outside the replaced subtree.
 Replacement does not take foreground activation.
 
+A host can also belong to an open popup in the same window.
+Show the popup before committing or clearing its host content.
+Closed and foreign popup hosts are not valid replacement targets.
+Replacement preserves native controls outside the host, including the popup search editor.
+It dismisses nested popups whose anchors belong to the retired content.
+Content inspection, pointer picking, and highlight registration remain unsupported inside popup hosts.
+
 `ContentUpdate.CallbackFailed` opts into scoped managed event-error reporting.
 The scope stops further managed callbacks after the first exception.
 The error handler runs later on the UI thread and must clear or replace the failed content.

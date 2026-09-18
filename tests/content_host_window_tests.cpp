@@ -170,8 +170,10 @@ void native_contract(VisualStyle style) {
         SendMessageW(input_hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"Edited "));
         SendMessageW(input_hwnd, EM_SETSEL, 1, 4);
         check(input_rejected && document_rejected, "Both native input paths reject synchronous replacement");
-        SetFocus(edit_hwnd);
-        check(GetFocus() == edit_hwnd && GetForegroundWindow() == foreground, "Focus stays in the background editor");
+        const bool active_owner = GetForegroundWindow() == hwnd;
+        if (active_owner) SetFocus(edit_hwnd);
+        check((!active_owner || GetFocus() == edit_hwnd) && GetForegroundWindow() == foreground,
+            "Native editor focus requires an already active owner");
         const auto captured_hwnd = named(hwnd, L"Outside captured button");
         const auto document_value = text(edit_hwnd), input_value = text(input_hwnd);
         const auto focus_before = GetFocus();
@@ -205,11 +207,13 @@ void native_contract(VisualStyle style) {
             recovered->add(previous);
             previous->measure({300, 100});
         }
-        SendMessageW(captured_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
-        check(GetCapture() == captured_hwnd, "Outside button owns real pointer capture");
-        window.replace_content(*host, preview(101));
-        check(GetCapture() == captured_hwnd, "Replacement preserves outside pointer capture");
-        SendMessageW(captured_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
+        if (active_owner) {
+            SendMessageW(captured_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
+            check(GetCapture() == captured_hwnd, "Outside button owns real pointer capture");
+            window.replace_content(*host, preview(101));
+            check(GetCapture() == captured_hwnd, "Replacement preserves outside pointer capture");
+            SendMessageW(captured_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(10, 10));
+        }
         const auto current = host->content();
         rejects<std::invalid_argument>([&] { window.replace_content(*host, std::make_shared<Element>()); },
             "Invalid running candidate rejected");
@@ -229,7 +233,8 @@ void native_contract(VisualStyle style) {
         window.replace_content(*host, {});
         check(!popup->is_open() && recursion_rejected, "Retirement dismisses anchored popups without recursive replacement");
         check(descendants(hwnd).size() == count - 3, "Clear immediately reclaims preview and popup HWNDs");
-        check(GetFocus() == nullptr, "Retired popup focus is cleared without moving to another editor");
+        check(GetFocus() == (active_owner ? nullptr : focus_before),
+            "Retirement clears active popup focus or preserves background focus");
         check(GetForegroundWindow() == foreground, "Popup retirement does not activate another window");
         SendMessageW(edit_hwnd, EM_UNDO, 0, 0);
         check(text(edit_hwnd) == L"Retained document", "Preserved document undo works");

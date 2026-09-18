@@ -5409,6 +5409,7 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         throw std::logic_error("Post content replacement outside native input callbacks");
     std::set<std::uint64_t> existing;
     Impl::content_ids(impl->root, existing);
+    for (const auto& entry : impl->popups) Impl::content_ids(entry.popup, existing);
     if (!existing.contains(host.id()))
         throw std::invalid_argument("ContentHost must belong to this window");
     {
@@ -5420,7 +5421,15 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         }
     }
     auto registration = inspection::Registration::prepare(content, std::move(targets), std::move(picked));
-    const auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    auto path = inspection::host_path(impl->root, host, impl->root->bounds(), false);
+    if (!path) {
+        for (const auto& entry : impl->popups) {
+            path = inspection::host_path(entry.popup, host, impl->root->bounds(), false);
+            if (path) break;
+        }
+        if (path && !registration.targets.empty())
+            throw std::invalid_argument("Content inspection is not supported inside popups");
+    }
     if (!path) throw std::invalid_argument("ContentHost must have a stable retained path in this window");
     const auto previous_state = impl->content_picking.find(host.id());
     if (previous_state != impl->content_picking.end() && previous_state->second.enabled) {
@@ -5430,7 +5439,6 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
     const bool same_content = host.content() == content;
     if (content && !same_content) {
         host.validate_adoption(content);
-        for (const auto& entry : impl->popups) Impl::content_ids(entry.popup, existing);
         std::set<std::uint64_t> candidate;
         Impl::content_ids(content, candidate, true);
         for (const auto id : candidate) if (existing.contains(id))

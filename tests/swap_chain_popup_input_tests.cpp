@@ -82,7 +82,8 @@ void run(bool paint_failure) {
     auto content = std::make_shared<Stack>(Axis::vertical);
     auto search = std::make_shared<TextInput>(L"Overlay native search");
     auto nested_anchor = std::make_shared<Button>(L"Nested overlay anchor");
-    content->add(search); content->add(nested_anchor);
+    auto results = std::make_shared<ContentHost>();
+    content->add(search); content->add(nested_anchor); content->add(results, 1);
     auto popup = std::make_shared<Popup>(content, L"Input overlay");
     popup->set_fixed_size({420, 250});
     popup->set_placement(PopupPlacement::below_center);
@@ -110,6 +111,26 @@ void run(bool paint_failure) {
                 producer->render(panel->metrics(), false);
                 const auto metrics = panel->metrics();
                 window.show_popup(popup, *anchor, search.get()); flush(hwnd);
+                const auto original_editor = editor(child(hwnd, L"Input overlay"));
+                const auto first_result = std::make_shared<Button>(L"First scoped result");
+                window.replace_content(*results, first_result); flush(hwnd);
+                require(child(hwnd, L"First scoped result"), "Popup accepts owned ContentHost replacement");
+                window.show_popup(nested, *first_result); flush(hwnd);
+                window.replace_content(*results, std::make_shared<Button>(L"Second scoped result")); flush(hwnd);
+                require(!nested->is_open(), "Replacing a result dismisses its anchored nested popup");
+                require(child(hwnd, L"Second scoped result"), "Popup result replacement retains its independent surface");
+                window.replace_content(*results, {}); flush(hwnd);
+                require(!results->content() && editor(child(hwnd, L"Input overlay")) == original_editor,
+                    "Empty result replacement preserves the native search editor");
+                Window foreign(options);
+                auto foreign_root = std::make_shared<Stack>(Axis::vertical);
+                auto foreign_host = std::make_shared<ContentHost>();
+                foreign_root->add(foreign_host);
+                foreign.set_content(foreign_root);
+                bool foreign_rejected{};
+                try { window.replace_content(*foreign_host, std::make_shared<Label>(L"Foreign result")); }
+                catch (const std::invalid_argument&) { foreign_rejected = true; }
+                require(foreign_rejected, "Popup support does not permit foreign hosts");
                 auto popup_hwnd = child(hwnd, L"Input overlay");
                 const auto edit = editor(popup_hwnd);
                 require(panel->metrics() == metrics && panel->native_window() == host, "Popup preserves producer identity and metrics");
@@ -130,6 +151,10 @@ void run(bool paint_failure) {
                 if (!paint_failure) {
                     SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(0, 0)); flush(hwnd);
                     require(!popup->is_open() && GetForegroundWindow() == foreground, "Outside dismissal does not activate background owner");
+                    bool detached_rejected{};
+                    try { window.replace_content(*results, std::make_shared<Label>(L"Detached result")); }
+                    catch (const std::invalid_argument&) { detached_rejected = true; }
+                    require(detached_rejected, "Closed popup content is not a mounted replacement target");
                     auto dialog = std::make_shared<ContentDialog>(L"Owned modal overlay", std::make_shared<Label>(L"Modal input boundary"));
                     window.show_dialog(dialog, *anchor); flush(hwnd);
                     require(!IsWindowEnabled(host) && panel->metrics() == metrics && panel->has_content(),
@@ -139,6 +164,8 @@ void run(bool paint_failure) {
                     dialog->cancel(); flush(hwnd);
                     require(IsWindowEnabled(host) && !dialog->popup()->is_open(), "Modal dismissal restores producer input");
                     window.show_popup(popup, *anchor, search.get()); flush(hwnd);
+                    window.replace_content(*results, std::make_shared<Button>(L"Reopened scoped result")); flush(hwnd);
+                    require(child(hwnd, L"Reopened scoped result"), "Reopened popup accepts new owned results");
                     popup_hwnd = child(hwnd, L"Input overlay");
                     window.show_popup(nested, *nested_anchor); flush(hwnd);
                     auto nested_hwnd = child(hwnd, L"Nested overlay");

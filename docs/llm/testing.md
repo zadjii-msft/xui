@@ -106,6 +106,8 @@ Modal presentation disables producer input without hiding its surface or changin
 The fixture also covers resize, synthetic DPI, target recreation, reentrant dismissal, and owner closure during presentation.
 An injected rendering failure must remain explicit, and all drawing targets must release.
 These ARM64 checks passed without foreground activation. They do not exercise an installed IME.
+The fixture also covers popup-host replacement, empty results, native editor identity, and nested-popup retirement.
+Closed and foreign hosts remain invalid replacement targets.
 
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
