@@ -40,6 +40,8 @@ internal sealed partial class DesignerApplication
             () => sourceLines.CanMove(down: false)),
         new(DesignerCommandId.MoveSourceLinesDown, "Source: Move selected lines down", () => sourceLines.Move(down: true), "Alt+Down in source",
             () => sourceLines.CanMove(down: true)),
+        new(DesignerCommandId.DeleteSourceLines, "Source: Delete selected lines", sourceLines.Delete, "Ctrl+Shift+K in source",
+            () => sourceLines.CanDelete),
         new(DesignerCommandId.SelectFromCaret, "Selection: Select control from source caret", workspace.SelectFromCaret, "Ctrl+Shift+L",
             () => workspace.IsCurrent),
         new(DesignerCommandId.SelectParent, "Selection: Select parent control", () => workspace.SelectRelative(DesignerSelectionTarget.Parent),

@@ -9,6 +9,8 @@ internal sealed class DesignerSourceLines(MultilineText editor, Action<string> r
         { Duplicate(); return true; }
         if (key.VirtualKey is 0x26 or 0x28 && key.Modifiers == KeyModifiers.Alt)
         { Move(down: key.VirtualKey == 0x28); return true; }
+        if (key.VirtualKey == 'K' && key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        { Delete(); return true; }
         return false;
     }
 
@@ -56,6 +58,33 @@ internal sealed class DesignerSourceLines(MultilineText editor, Action<string> r
         string source = editor.Text;
         var (first, last) = SelectedLineBounds(source, editor.Selection);
         return down ? last < source.Length : first > 0;
+    }
+
+    internal bool CanDelete => !editor.ReadOnly && editor.Text.Length > 0;
+
+    internal void Delete()
+    {
+        if (editor.ReadOnly)
+        {
+            report("Source is read-only. No lines were deleted.");
+            return;
+        }
+        string source = editor.Text;
+        if (source.Length == 0)
+        {
+            report("Source is empty. No lines were deleted.");
+            return;
+        }
+        var (first, last) = SelectedLineBounds(source, editor.Selection);
+        if (last < source.Length) last++;
+        else if (first > 0) first--;
+        try
+        {
+            editor.ReplaceRange(new((ulong)first, (ulong)last), source, "");
+            editor.Selection = new((ulong)first, (ulong)first);
+            editor.Focus();
+        }
+        catch (XuiException error) { report($"Native editor rejected the line deletion: {error.Message}"); }
     }
 
     internal void Move(bool down)

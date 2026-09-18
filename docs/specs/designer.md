@@ -93,6 +93,18 @@ Line movement is a text edit, not syntax-aware control movement.
 The action can move declarations outside their container or introduce compiler errors.
 Invalid source retains the last valid preview.
 
+**Source: Delete selected lines** deletes each line touched by the source selection without changing the clipboard.
+Ctrl+Shift+K runs this action only when the source editor has focus.
+With no selection, the action deletes the caret's line.
+A selection that ends at the next line's start excludes that next line.
+The caret moves to the start of the following line.
+If no line follows the deleted block, the action removes the preceding separator and places the caret at the previous line's end.
+
+Each deletion creates one native undo operation.
+Read-only or empty source disables the palette action. Direct shortcuts report an explicit refusal or no-op.
+This action deletes text, not a parsed control. It can remove required syntax and cause compiler errors.
+Invalid source retains the last valid preview.
+
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
 New, open, save, recovery, undo, redo, and render use compact icon buttons.

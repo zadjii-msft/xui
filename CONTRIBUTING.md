@@ -283,6 +283,7 @@ The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Ta
 It also covers line comments in both visual styles, selected-line boundaries, Unicode, blank lines, mixed prefixes, read-only source, and atomic length refusals.
 Source-line duplication coverage includes both styles, exact text and selections, trailing empty lines, Unicode, one-action undo/redo, focus routing, and length limits.
 Source-line movement coverage includes both styles, multiline selections, final and empty lines, Unicode, maximum-length source, boundary refusals, and native undo/redo.
+Source-line deletion coverage includes both styles, selection boundaries, final separators, Unicode, maximum-length source, read-only refusals, focus routing, and native undo/redo.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.

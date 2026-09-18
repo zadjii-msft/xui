@@ -19,6 +19,8 @@ internal static partial class Program
             RunDuplication(VisualStyle.WinUI);
             RunLineMovement(VisualStyle.Classic);
             RunLineMovement(VisualStyle.WinUI);
+            RunLineDeletion(VisualStyle.Classic);
+            RunLineDeletion(VisualStyle.WinUI);
             Console.WriteLine($"Designer source indentation and line-editing assertions: {assertions} passed.");
             return 0;
         }

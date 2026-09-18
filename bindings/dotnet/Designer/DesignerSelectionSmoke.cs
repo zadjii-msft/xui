@@ -812,6 +812,51 @@ internal sealed partial class DesignerApplication
                 await Ui(() => Require(editor.Text == source && NativeLabel(workspace.Document!.Root!.Children[0].Id),
                     "A second native undo restores the source and preview before line movement."));
             }
+            foreach (bool usePalette in new[] { true, false })
+            {
+                await Ui(() =>
+                {
+                    var button = workspace.Document!.Root!.Children[1];
+                    editor.Selection = new((ulong)button.Span.Start, (ulong)button.Span.End);
+                    workspace.Hierarchy.Layout.Query.Focus();
+                    Require(!window.KeyHandler!(new('K', KeyModifiers.Control | KeyModifiers.Shift, workspace.Hierarchy.Layout.Query.Id)),
+                        "Ctrl+Shift+K leaves other native inputs unchanged.");
+                    editor.Focus();
+                });
+                if (usePalette)
+                {
+                    await Ui(view.Commands.Invoke);
+                    await Until(() => commandPalette.IsOpen);
+                    await Ui(() =>
+                    {
+                        Require(!window.KeyHandler!(new('K', KeyModifiers.Control | KeyModifiers.Shift, commandPalette.Surface.Editor.Id)),
+                            "Line deletion does not intercept command palette input.");
+                        commandPalette.Surface.Invoke((ulong)DesignerCommandId.DeleteSourceLines);
+                    });
+                }
+                else
+                {
+                    await Ui(() => Require(window.KeyHandler!(new('K', KeyModifiers.Control | KeyModifiers.Shift, editor.Id)),
+                        "Ctrl+Shift+K deletes selected lines from the source editor."));
+                }
+                await Ready();
+                await Ui(() =>
+                {
+                    var children = workspace.Document!.Root!.Children;
+                    Require(!commandPalette.IsOpen && editor.Focused && children.Count == 2 &&
+                        children[0].Kind == "Text" && children[1].Kind == "TextInput" && NativeLabel(children[0].Id) &&
+                        SelectionNative.PeerCount("Do not execute") == 0,
+                        "Source line deletion removes the selected control from the hierarchy and actual native preview.");
+                    Require(editor.Selection.Start == editor.Selection.End &&
+                        editor.Selection.Start < (ulong)children[1].Span.Start,
+                        "The deletion caret rests at the start of the following source line before its indentation.");
+                    editor.Command(TextCommand.Undo);
+                });
+                await Ready();
+                await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3 &&
+                    SelectionNative.PeerCount("Do not execute") == 1,
+                    "One source undo restores the exact deleted line and its native preview control."));
+            }
             await Ui(() =>
             {
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
