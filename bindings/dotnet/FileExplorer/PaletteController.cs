@@ -31,7 +31,12 @@ internal sealed class PaletteController
         message = layout.Message;
         statusHost = layout.StatusHost;
         popup = layout.Root;
-        popup.Event += e => { if (e.Kind == EventKind.Dismiss) suggestions.Cancel(); };
+        popup.Event += e =>
+        {
+            if (e.Kind != EventKind.Dismiss) return;
+            suggestions.Cancel();
+            pending = false;
+        };
         editor.Changed += _ => { if (!updating) Query(); };
         editor.Submitted += () => Accept(false);
         results.Event += e =>
@@ -55,6 +60,8 @@ internal sealed class PaletteController
     public ElementBounds Bounds => popup.GetBounds();
     public float StatusHeight => statusHost.GetBounds().Height;
     internal int SelectedIndex => selected;
+    internal ElementBounds QueryBounds => editor.GetBounds();
+    internal ElementBounds ResultsBounds => results.GetBounds();
     public void EditQuery(string text) => SetQuery(text, remember: false);
 
     public void ShowNavigation(FilePaneView target)
@@ -171,7 +178,9 @@ internal sealed class PaletteController
 
         pending = true;
         selected = -1;
-        // Keep the last complete view until its replacement is ready, but do not activate stale rows.
+        entries = [];
+        files = new(entries, Identify, suggestions: true);
+        SetSource(files);
         results.Enabled = false;
         ShowStatus("Loading...");
         app.Work.Start(token => app.Files.SuggestAsync(text, basePath, token),

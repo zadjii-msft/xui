@@ -52,16 +52,21 @@ void layout_and_viewport() {
     const auto retained = view.retained_children().size();
     auto source = std::make_shared<Rows>();
     view.set_columns(fixture(source));
+    view.set_active_column(0);
     view.arrange({20, 30, 500, 400});
-    require(view.role() == ControlRole::content_view && retained == 2 + 2 * MillerColumns::maximum_columns,
+    require(view.role() == ControlRole::content_view && retained == 2 * MillerColumns::maximum_columns,
         "A fixed retained composite hosts one virtual list and header per column");
     require(view.column_list(0)->bounds().width == 239 && view.column_width() == 240,
         "Column slots reserve a separator outside the list and scrollbar");
     const auto separator = view.separator_bounds(0);
-    require(separator.x == 239 && separator.width == 1 && separator.y == 32 &&
+    require(separator.x == 239 && separator.width == 1 && separator.y == 0 &&
         separator.y + separator.height == view.horizontal_track().y &&
         view.column_list(0)->bounds().x + view.column_list(0)->bounds().width == view.bounds().x + separator.x,
-        "The separator joins header and list without covering rows, scrollbars or the toolbar");
+        "The separator joins header and list without covering rows or scrollbars");
+    require(view.retained_children().front()->bounds().y == 30 && view.column_list(0)->bounds().y == 62,
+        "Headers start at the top edge with no navigation toolbar");
+    for (const auto& element : view.retained_children())
+        require(!std::dynamic_pointer_cast<Button>(element), "Miller columns do not retain navigation buttons");
     require(view.separator_bounds(2).width == 0 && view.separator_bounds(100).width == 0,
         "Only adjacent columns have a separator");
     const auto first = view.column_list(0), child = view.column_list(2);
@@ -77,11 +82,12 @@ void layout_and_viewport() {
     require(view.column_width() == 240 && child->bounds().width == 60 && view.horizontal_offset() == 120,
         "A narrow viewport fits and reveals one column without changing the preferred width");
     require(child->bounds().x == 20 && !first->visible(), "Hidden columns do not receive clipped pointer input");
-    view.previous_button()->invoke();
-    require(view.active_column() == 1 && focus_requests == 1, "Accessible Previous action moves focus to the preceding column");
-    view.next_button()->invoke();
-    require(view.active_column() == 2 && focus_requests == 2, "Accessible Next action moves focus to the following column");
-    require(!view.next_button()->enabled(), "Next is disabled at the final column");
+    view.move_active(false);
+    require(view.active_column() == 1 && focus_requests == 1, "Previous navigation moves focus to the preceding column");
+    view.move_active(true);
+    require(view.active_column() == 2 && focus_requests == 2, "Next navigation moves focus to the following column");
+    view.move_active(true);
+    require(view.active_column() == 2 && focus_requests == 2, "Next navigation stops at the final column");
     view.set_column_width(180);
     view.arrange({0, 0, 720, 400});
     require(view.maximum_horizontal() == 0 && view.horizontal_offset() == 0, "Widening the viewport removes obsolete scroll offsets");
@@ -137,7 +143,92 @@ void horizontal_scrolling() {
     rejects([&] { view.scroll_horizontal(std::numeric_limits<double>::infinity()); });
     view.arrange({0, 0, 1000, 350});
     require(view.maximum_horizontal() == 0 && view.horizontal_offset() == 0 && view.horizontal_track().width == 0 &&
-        first->bounds().height == 286, "A fitting path hides the scrollbar and returns its space to the lists");
+        first->bounds().height == 318, "A fitting path hides the scrollbar and returns its space to the lists");
+}
+void appended_columns_reveal() {
+    for (float width : {60.0f, 300.0f, 500.0f, 1000.0f}) {
+        MillerColumns view;
+        auto source = std::make_shared<Rows>();
+        auto columns = fixture(source);
+        columns.resize(1);
+        view.set_columns(columns);
+        view.arrange({20, 30, width, 400});
+        auto first = view.column_list(0);
+        first->set_offset(800);
+        int callbacks{};
+        view.on_selection([&](std::size_t, ItemKey) { ++callbacks; });
+        view.on_activate([&](std::size_t, ItemKey) { ++callbacks; });
+        view.on_focus_column([&](const std::shared_ptr<VirtualCollection>&) { ++callbacks; });
+        const auto fully_visible = [&](std::size_t index) {
+            const auto list = view.column_list(index);
+            const auto b = list->bounds();
+            require(list->visible() && b.x >= view.bounds().x &&
+                b.x + b.width <= view.bounds().x + view.bounds().width,
+                "The appended column is fully inside the viewport");
+        };
+        for (std::size_t count = 2; count <= 6; ++count) {
+            columns.push_back({L"Child", source, {}});
+            view.set_columns(columns);
+            view.arrange(view.bounds());
+            fully_visible(count - 1);
+            require(view.active_column() == 0 && first->selection().contains({1, 1}) &&
+                first->offset() == 800 && callbacks == 0,
+                "Appending reveals the child without moving active focus, selection or vertical offsets");
+        }
+        view.set_horizontal_offset(0);
+        view.set_columns(columns);
+        require(view.horizontal_offset() == 0, "Refreshing the path preserves manual horizontal scrolling");
+        columns.resize(2); view.set_columns(columns);
+        columns.push_back({L"Replacement child", {}, {}});
+        view.set_columns(columns);
+        fully_visible(2);
+        require(!view.column_list(2)->source(), "Loading columns are revealed before their source arrives");
+        columns[2].source = source;
+        view.set_columns(columns);
+        fully_visible(2);
+    }
+    MillerColumns deferred;
+    deferred.set_columns(fixture(std::make_shared<Rows>()));
+    deferred.arrange({0, 0, 0, 400});
+    deferred.arrange({0, 0, 300, 400});
+    require(deferred.horizontal_offset() == deferred.maximum_horizontal() && deferred.active_column() == 0,
+        "A path populated before layout reveals its final column when the viewport becomes available");
+    deferred.set_columns({});
+    deferred.arrange({0, 0, 200, 400});
+    require(deferred.horizontal_offset() == 0, "An empty path cancels deferred reveal");
+    auto source = std::make_shared<Rows>();
+    MillerColumns pending;
+    pending.set_columns(fixture(source));
+    pending.set_columns({});
+    pending.arrange({0, 0, 300, 400});
+    require(pending.horizontal_offset() == 0 && pending.columns().empty(),
+        "Clearing the path before layout cancels a pending reveal");
+    pending.arrange({0, 0, 0, 400});
+    pending.set_columns(fixture(source));
+    pending.set_active_column(1);
+    pending.arrange({0, 0, 300, 400});
+    require(pending.active_column() == 1 && pending.horizontal_offset() == 180,
+        "Explicit activation overrides an appended-column reveal before layout");
+    pending.arrange({0, 0, 0, 400});
+    pending.set_columns({});
+    pending.set_columns(fixture(source));
+    pending.set_columns({{L"Remaining", source, {}}});
+    pending.arrange({0, 0, 300, 400});
+    require(pending.horizontal_offset() == 0,
+        "A shortened pending path never reveals a removed column");
+    MillerColumns focused;
+    focused.set_columns({{L"Root", source, ItemKey{1, 1}}});
+    focused.arrange({0, 0, 240, 400});
+    auto parent = focused.column_list(0);
+    parent->set_focused(true);
+    focused.set_columns(fixture(source));
+    require(parent->focused() && parent->visible() &&
+        parent->bounds().x + parent->bounds().width <= focused.bounds().x &&
+        focused.horizontal_offset() == focused.maximum_horizontal(),
+        "A focused ancestor stays natively visible but clipped outside the viewport during reveal");
+    focused.set_columns({});
+    require(!parent->visible() && !parent->source() && !parent->select({1, 1}),
+        "Removing a focused column still hides its peer and rejects input");
 }
 void selection_and_keyboard() {
     MillerColumns view;
@@ -197,6 +288,66 @@ void selection_and_keyboard() {
     root->horizontal(true, SelectionGesture::replace);
     root->activate_item({2, 1});
     require(!root->select({2, 1}) && activations == 1, "Disabled composites reject child input");
+}
+void pointer_column_focus() {
+    MillerColumns view;
+    auto source = std::make_shared<Rows>(2);
+    auto columns = fixture(source);
+    view.set_columns(columns); view.arrange({20, 30, 720, 400});
+    auto first = view.column_list(0), second = view.column_list(1);
+    auto header = std::dynamic_pointer_cast<Label>(view.retained_children()[0]);
+    int selections{}, activations{}, requests{};
+    view.on_selection([&](std::size_t, ItemKey) { ++selections; });
+    view.on_activate([&](std::size_t, ItemKey) { ++activations; });
+    view.on_focus_column([&](const std::shared_ptr<VirtualCollection>& target) {
+        ++requests;
+        require(target == view.column_list(view.active_column()), "Pointer focus identifies the active native list");
+    });
+    first->select({2, 1}, SelectionGesture::focus_only);
+    view.set_active_column(2);
+    require(header && header->text() == L"Root" && view.focus_pointer(*header, {12, 12}) &&
+        view.active_column() == 0 && requests == 1,
+        "A retained named label requests focus in its sibling list");
+    require(first->selection().focused() == ItemKey{2, 1} && first->selection().contains({1, 1}) &&
+        view.columns()[0].selected == ItemKey{1, 1} && view.columns().size() == 3 && !selections && !activations,
+        "Header focus preserves item focus, selected identity and descendants without row events");
+    require(view.focus_pointer(*second, {20, 180}) && view.active_column() == 1 && requests == 2 &&
+        second->selection().contains({2, 1}) && view.columns().size() == 3 && !selections && !activations,
+        "Whitespace below rows focuses its column without changing its path");
+    require(view.focus_pointer(*second, {20, 180}) && requests == 3,
+        "Repeated blank clicks request focus even when the active column did not change");
+    require(!view.focus_pointer(*first, {20, 12}) && !view.focus_pointer(*first, {-1, 180}) &&
+        !view.focus_pointer(*first, {20, first->bounds().height}) && requests == 3,
+        "Rows and coordinates outside the list remain outside focus-only handling");
+    Label unrelated(L"Root"); unrelated.arrange(header->bounds());
+    require(!view.focus_pointer(unrelated, {12, 12}), "Only retained column targets can request focus");
+    view.set_enabled(false);
+    require(!view.focus_pointer(*header, {12, 12}), "Disabled composites reject header input");
+    view.set_enabled(true); first->set_enabled(false);
+    require(!view.focus_pointer(*header, {12, 12}), "Headers cannot focus disabled native lists");
+    first->set_enabled(true);
+    columns[1].source = std::make_shared<Rows>(1); columns[1].selected = ItemKey{1, 1};
+    view.set_columns(columns);
+    require(requests == 3 && !selections && !activations && second->selection().contains({1, 1}),
+        "Filtering by source replacement updates rows without requesting native focus");
+    columns[1] = {L"Empty", {}, {}};
+    view.set_columns(columns);
+    require(view.focus_pointer(*second, {20, 12}) && requests == 4 && !second->source() &&
+        second->selection().empty() && view.columns().size() == 3,
+        "An empty or loading column remains a focus target without selecting a row");
+    columns[0].source = std::make_shared<Rows>(100);
+    view.set_columns(columns);
+    const auto viewport = first->content_viewport();
+    require(!view.focus_pointer(*first, {viewport.x + viewport.width + 1, 12}) && requests == 4,
+        "Vertical scrollbar input is not a focus-only pointer action");
+    view.set_active_column(0); first->set_focused(true);
+    view.arrange({20, 30, 240, 400}); view.set_active_column(2);
+    require(first->visible() && !view.focus_pointer(*first, {20, 180}),
+        "A clipped focused list does not expose pointer targets outside the composite viewport");
+    view.set_columns({});
+    require(!view.focus_pointer(*header, {12, 12}) && !view.focus_pointer(*second, {20, 12}),
+        "Dormant headers and lists reject focus-only pointer input");
+    rejects([&] { view.focus_pointer(*header, {std::numeric_limits<float>::quiet_NaN(), 0}); });
 }
 void replacement_and_virtualization() {
     MillerColumns view;
@@ -369,8 +520,8 @@ void validation_and_lifetime() {
 }
 int main() {
     try {
-        layout_and_viewport(); horizontal_scrolling(); selection_and_keyboard(); replacement_and_virtualization();
-        context_menu_selection(); programmatic_selection_keeps_external_focus(); pointer_hover(); validation_and_lifetime();
+        layout_and_viewport(); horizontal_scrolling(); appended_columns_reveal(); selection_and_keyboard(); replacement_and_virtualization();
+        pointer_column_focus(); context_menu_selection(); programmatic_selection_keeps_external_focus(); pointer_hover(); validation_and_lifetime();
         std::cout << checks << " Miller columns checks passed\n";
         return 0;
     } catch (const std::exception& error) {

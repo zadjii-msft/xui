@@ -15,9 +15,17 @@ Provider actions include the control identity and item identity. A recycled HWND
 `src\async.cpp` supplies reusable task delivery and cleanup.
 Each window owns one Direct2D target, brush, DirectWrite factory, and set of immutable text formats.
 The host draws labels, images, buttons, toggles, viewports, and visible list rows in one frame.
-Transparent child HWNDs retain input and UIA behavior. Native EDIT and caption HWNDs supply current pixels through `WM_PRINTCLIENT`.
+Transparent child HWNDs retain input and UIA behavior. Native EDIT and document HWNDs supply current pixels through `WM_PRINTCLIENT`.
+The host draws captions in the retained frame. Their STATIC HWNDs supply accessible names.
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
+
+During host synchronization, `navigation_procedure` adds `SWP_NOREDRAW | SWP_NOCOPYBITS` to each peer's `WM_WINDOWPOSCHANGING` flags.
+This shared subclass covers custom controls, native fields, captions, and deferred image placement.
+Without these flags, Windows copies old child pixels during layout, before the root presents the new positions.
+Transparent input HWNDs do not own independent visual frames, so those copies corrupt the visible shared frame.
+The host invalidates the root after synchronization and composes native field pixels before presentation.
+Standalone native edit bridges retain their normal placement behavior.
 
 `demo\browser.cpp` builds the tabs, panes, address fields, lists, status labels, shortcuts, and menus through public APIs.
 `demo\explorer_state.hpp` contains bounded history and tab state without a window dependency.
@@ -41,7 +49,19 @@ Tab data can change without these tree operations.
 `include\xui\miller_columns.hpp` and `src\miller_columns.cpp` supply the retained Miller columns composition.
 Applications supply a path of immutable sibling sources, not filesystem callbacks.
 Column lists reuse virtual collection drawing, input, image resources, and accessibility.
+`RowImages` in `src\images.cpp` retains image state for every current visible row, including deferred requests.
+`try_request_image` pauses admission at the row queue threshold, with headroom for explicit images and native window icons.
+The image service stores one weak wake reference per waiting window.
+Queue removal and cancellation wake these owners to admit the next visible requests.
+Completed row images do not consume an admission allowance. Actual decode failures stay terminal for the current row image.
+`Drawing::image` evicts its least-recently drawn bitmap at the cache entry limit and uploads retained pixels again when needed.
 The native child tree stays fixed while the source path changes.
+The child tree contains only column headers and lists, without navigation buttons or a toolbar.
+`set_columns` reveals the final column when the path grows, without changing the active column.
+Zero-width layouts retain a pending reveal until the viewport has a width.
+Focused offscreen lists keep their native peers visible but clipped, so host focus repair cannot undo the reveal.
+Collection accessibility uses the shared clipped bounds for list and row visibility.
+The FileExplorer restores this horizontal position after it restores parent focus.
 `MillerColumnList` stores a local hover point and resolves the current visible row without changing collection selection.
 The host clears hover during capture and cancellation. Source replacement also clears hover.
 `MillerColumns::separator_bounds` describes the reserved space between columns.
@@ -50,7 +70,14 @@ This keeps fractional scrolling and DPI changes from covering a row or scrollbar
 `src\c_api_features.inc` preserves the composition callbacks when bindings subscribe to borrowed column lists.
 `bindings\dotnet\Xui\MillerColumns.cs` supplies typed path records, events, and borrowed child access.
 The FileExplorer controller owns asynchronous directory scans and rejects obsolete results.
-`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, and layout.
+`ExplorerColumn.Filter` owns each column's query. `ExplorerTab.Filter` retains the Details query.
+`FilePaneView` binds its shared native Find field to a column object, not a reusable slot index.
+Column focus changes restore the query and footer counts without moving focus into the editor.
+Filter jobs capture every column's query and reuse unchanged `ColumnPresentation` sources.
+Cancellation and identity checks reject results for obsolete paths or queries.
+`SaveViewport` retains a selected path when its row is absent from the filtered source.
+Filtering therefore preserves descendants without exposing hidden rows as selected command targets.
+`tests\miller_columns_tests.cpp` covers the source path, bounded virtualization, selection, layout, and appended-column visibility.
 `tests\collections_window_tests.cpp --miller-only` covers native focus, context selection, horizontal reveal, and window closure.
 The binding tests cover borrowed peers, source ownership, and callback errors.
 FileExplorer `--smoke` covers view changes, folder selection, tabs, Find, and cancellation.
@@ -128,6 +155,69 @@ These fixtures do not prove physical pointer continuity or mixed-monitor behavio
 Those checks require a desktop interaction with FileExplorer.
 
 ## Performance design
+
+### Opt-in reveal
+
+`include\xui\reveal.hpp` and `src\reveal.cpp` define the retained four-edge reveal.
+The model owns one child, an open target, a duration, and the current presentation.
+It has no platform timer or worker.
+The public contract and future phases are in [the animation roadmap](../specs/animations.md).
+
+`Window::Impl::sync_animations` supplies clock updates and the Windows motion preference.
+It uses shared transition timer 43 while any opt-in transition remains active.
+`Window::Impl::present_animation_frame` gives active animation timers a bounded opportunity between message dispatches and worker deliveries.
+The ordinary update path does not advance animation clocks.
+The service retrieves real due `WM_TIMER` messages, dispatches queued geometry updates, and paints their frames.
+Filtered retrieval preserves `WM_QUIT` for the outer loop, including its exit code.
+A window filter includes native child messages. The service dispatches those messages instead of discarding them.
+The service also presents a terminal frame after the last animation stops.
+Posted traffic cannot indefinitely suppress that work through the normal low-priority timer and paint ordering.
+Both application entry points use the same service.
+This transition service adds no worker thread or idle wakeup.
+Private metric 34 counts actual animation timer dispatches. Metric 33 reports whether the shared timer remains active.
+Metrics 35 and 36 count successful paints with intermediate SplitView and Reveal presentation, respectively.
+These counters separate actual frame delivery from delayed managed observations.
+The service applies pending geometry and paint before it retrieves another timer.
+This order prevents another timer callback from observing a new progress value with stale native bounds.
+`include\xui\animation.hpp` defines the participant interface for that scheduler.
+Reveal, SplitView, TabStrip, NavigationView, Expander, and determinate Progress implement the same clock, settlement, and active-state operations.
+Applications configure the control-specific duration rather than driving the interface from a managed timer.
+`Invalidation::placement` arranges reveal subtrees and updates native peer geometry without a complete root layout.
+The ordinary update path still handles peer state, accessibility, and painting.
+Entry and completed exit use ordinary layout to reserve or release the row.
+`RevealLayout::expand` instead invalidates root layout on each sampled frame.
+The model measures its child without a constraint along the animation axis, then multiplies that natural extent by progress.
+Repeated parent measurement does not multiply the available slot by progress again.
+Arrangement retains the full child extent and clips it to the animated slot.
+Unbounded natural content requires an authored size.
+The focus and visibility paths permit zero-extent opening clips without changing pointer clipping or the UIA offscreen calculation.
+
+Reveal uses the existing `content_view` role and retained-child traversal.
+Its native parent supplies clipping for the editor and button.
+The closing target disables interaction before the exit ends.
+SplitView also rejects interaction in its outgoing secondary ContentView.
+Its secondary content retains the complete target width and moves inside the split viewport.
+The surface painter clips pane backgrounds before recursive child painting.
+Content retirement and window closure settle the model before the native peers disappear.
+
+The renderer still captures visible native pixels on each frame.
+Partial native clips can resize its composition buffers.
+This stage does not add a compositor, a bitmap snapshot animation, or damage tracking.
+The [test notes](testing.md#reveal-animation-checks) describe the current evidence.
+
+### Indeterminate progress animation
+
+`Window::Impl::sync_progress_animation` owns separate native timer 44 for eligible indeterminate Progress and ProgressRing controls.
+Eligibility does not depend on Classic or WinUI style. Unknown progress remains static.
+This timer does not use the opt-in duration or the shared transition participant interface.
+Private metrics 37 and 38 report its active state and timer dispatch count.
+The timer requests periodic paint while eligible indicators remain visible and effectively enabled.
+Hidden or minimized windows, content retirement, disabled ancestors, and window closure remove affected controls from eligibility.
+The Windows client-area animation preference suppresses motion without changing the logical progress state.
+When no eligible indicator remains, the timer stops.
+Zero-duration determinate transitions do not disable this automatic indeterminate presentation.
+
+### Collections and background work
 
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.
 A cancellable length pass reserves this buffer once. The snapshot does not retain geometric growth capacity.

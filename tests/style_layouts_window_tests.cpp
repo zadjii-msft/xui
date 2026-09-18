@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <atomic>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <chrono>
 #include <iostream>
@@ -62,12 +63,21 @@ PartStyleValues surface(uint32_t color) {
 void apply(Element& element, StyleTarget target, uint32_t color) {
     element.set_control_style(ControlStyle::create(target, {{StylePart::root, surface(color)}}, {}));
 }
-void check_pixel(HWND host, const owned_window_capture::Pixels& image, Point point, uint32_t expected) {
+bool same_color(uint32_t actual, uint32_t expected, int tolerance) {
+    return std::abs(int(actual & 255) - int(expected & 255)) <= tolerance &&
+        std::abs(int((actual >> 8) & 255) - int((expected >> 8) & 255)) <= tolerance &&
+        std::abs(int((actual >> 16) & 255) - int((expected >> 16) & 255)) <= tolerance;
+}
+void check_pixel(HWND host, const owned_window_capture::Pixels& image, Point point, uint32_t expected, int tolerance = 0) {
     const auto scale = GetDpiForWindow(host) / 96.0f;
     const auto x = int(point.x * scale), y = int(point.y * scale);
     require(x >= 0 && x < image.width && y >= 0 && y < image.height, "Layout pixel is inside owned capture");
     const auto actual = image.data[std::size_t(y) * image.width + x] & 0xffffff;
-    require(actual == expected, "Application layout surface did not paint its authored color");
+    const bool matches = same_color(actual, expected, tolerance);
+    if (!matches)
+        std::cerr << "Layout pixel at " << x << ',' << y << ": actual=0x" << std::hex << actual <<
+            " expected=0x" << expected << std::dec << '\n';
+    require(matches, "Application layout surface did not paint its authored color");
 }
 struct Runner {
     static inline Runner* active{};
@@ -227,6 +237,578 @@ void label_backgrounds() {
     const auto result = Application::run(window);
     if (runner.failure) std::rethrow_exception(runner.failure);
     require(runner.ran && result == 0 && window.error().empty(), "Label background integration completes");
+}
+void expander_surfaces() {
+    Application application;
+    WindowOptions options{title, {580, 300}, ThemeMode::light};
+    options.visual_style = VisualStyle::winui;
+    options.show_activated = false;
+    auto owned_window = application.create_window(options);
+    auto& window = *owned_window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(20);
+    auto row = std::make_shared<Stack>(Axis::horizontal);
+    row->set_spacing(20);
+    root->add(row);
+    PartStyleValues backdrop;
+    backdrop.background = ThemeColor{0x315579};
+    root->set_control_style_values(StylePart::root, backdrop);
+    std::array<std::shared_ptr<Expander>, 3> expanders;
+    for (auto& expander : expanders) {
+        expander = std::make_shared<Expander>(L"Details", blank());
+        expander->set_fixed_size({160, 100});
+        row->add(expander);
+    }
+    PartStyleValues text;
+    text.font_size = 14.0f;
+    expanders[1]->set_control_style_values(StylePart::text, text);
+    PartStyleValues rounded;
+    rounded.corner_radius = 16.0f;
+    expanders[2]->set_control_style_values(StylePart::header, rounded);
+    auto clipped = std::make_shared<Expander>(L"Clipped details", blank());
+    clipped->set_fixed_size({160, 100});
+    auto viewport = std::make_shared<ScrollView>(clipped, L"Expander focus viewport");
+    viewport->set_fixed_size({180, 100});
+    root->add(viewport);
+    window.set_content(root);
+    application.show(window);
+    const auto host = find_host();
+    require(host != nullptr, "Nonactivating Expander fixture owns its window");
+    const auto run = [&] {
+        flush(host);
+        const auto original = peers(host);
+        const owned_window_capture::Device capture_device;
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+            window.set_theme(mode);
+            const auto palette = Palette::system(mode, VisualStyle::winui);
+            for (const bool expanded : {false, true}) {
+                for (const auto& expander : expanders) expander->set_expanded(expanded);
+                clipped->set_expanded(expanded);
+                flush(host);
+                const auto image = owned_window_capture::capture(host, capture_device);
+                const float scale = GetDpiForWindow(host) / 96.0f;
+                const auto pixel = [&](const Expander& expander, int x, int y) {
+                    const auto b = expander.bounds();
+                    return image.data[std::size_t(std::lround(b.y * scale) + y) * image.width +
+                        std::lround(b.x * scale) + x] & 0xffffff;
+                };
+                const auto header = expanders[0]->header_bounds();
+                for (int y = 0; y < std::lround(expanders[0]->bounds().height * scale); ++y)
+                    for (int x = 0; x < std::lround(header.width * scale); ++x)
+                        require(pixel(*expanders[0], x, y) == pixel(*expanders[1], x, y),
+                            "A text-only Expander style preserves default header and body surfaces");
+                clipped->set_focused(true);
+                flush(host);
+                const auto clipped_focus = owned_window_capture::capture(host, capture_device);
+                const auto clipped_header = clipped->header_bounds();
+                const auto clip_y = int((clipped_header.y + clipped_header.height / 2) * scale);
+                const auto outside_x = int((clipped_header.x - 2) * scale);
+                const auto inside_x = int((clipped_header.x + clipped_header.width + 2) * scale);
+                require(clipped_focus.data[std::size_t(clip_y) * clipped_focus.width + outside_x] ==
+                    image.data[std::size_t(clip_y) * image.width + outside_x],
+                    "External Expander focus respects its ancestor viewport clip");
+                require(clipped_focus.data[std::size_t(clip_y) * clipped_focus.width + inside_x] !=
+                    image.data[std::size_t(clip_y) * image.width + inside_x],
+                    "Clipped Expander focus retains its visible external right edge");
+                clipped->set_focused(false);
+                flush(host);
+                require(owned_window_capture::capture(host, capture_device).data == image.data,
+                    "Clipped Expander blur restores the complete frame");
+                if (!palette.high_contrast) {
+                    const auto b = expanders[2]->bounds();
+                    const auto h = expanders[2]->header_bounds();
+                    expanders[0]->set_focused(true);
+                    flush(host);
+                    const auto plain_focus = owned_window_capture::capture(host, capture_device);
+                    expanders[0]->set_focused(false);
+                    expanders[2]->set_focused(true);
+                    flush(host);
+                    const auto focused = owned_window_capture::capture(host, capture_device);
+                    check_pixel(host, focused, {h.x + 1, h.y + 1}, backdrop.background->light);
+                    const auto center_x = int((h.x + h.width / 2) * scale);
+                    const auto top_y = int((h.y - 2) * scale);
+                    require(focused.data[std::size_t(top_y) * focused.width + center_x] !=
+                        image.data[std::size_t(top_y) * image.width + center_x],
+                        "Expander keyboard focus extends outside the header peer");
+                    const auto plain = expanders[0]->header_bounds();
+                    const auto plain_x = int((plain.x + plain.width / 2) * scale);
+                    require(plain_focus.data[std::size_t(top_y) * plain_focus.width + plain_x] !=
+                        image.data[std::size_t(top_y) * image.width + plain_x],
+                        "Default Expander focus also extends outside the header peer");
+                    if (!expanded)
+                        check_pixel(host, focused, {h.x + 1, h.y + h.height - 2}, backdrop.background->light);
+                    else {
+                        for (int y = int((h.y + h.height - 3) * scale); y < int((h.y + h.height + 3) * scale); ++y)
+                            for (int x = -int(3 * scale); x < int((h.width + 3) * scale); ++x) {
+                                const auto actual = focused.data[std::size_t(y) * focused.width + int(h.x * scale) + x];
+                                const auto expected = plain_focus.data[std::size_t(y) * plain_focus.width + int(plain.x * scale) + x];
+                                const bool matches = same_color(actual, expected, 1);
+                                if (!matches)
+                                    std::cerr << "Joined focus at " << x << ',' << y << ": actual=0x" << std::hex <<
+                                        actual << " expected=0x" << expected << std::dec << '\n';
+                                require(matches,
+                                    "Expanded header focus has square joining corners for every authored radius");
+                            }
+                    }
+                    expanders[2]->set_focused(false);
+                    flush(host);
+                    require(owned_window_capture::capture(host, capture_device).data == image.data,
+                        "Expander blur restores the complete frame without a retained external outline");
+                    const uint32_t surface = composite_argb_on_rgb(
+                        mode == ThemeMode::light ? 0xb3ffffff : 0x0dffffff, backdrop.background->light);
+                    const uint32_t body_fill = composite_argb_on_rgb(
+                        mode == ThemeMode::light ? 0x80f6f6f6 : 0x08ffffff, backdrop.background->light);
+                    check_pixel(host, image, {h.x + 2, h.y + h.height - 3},
+                        expanded ? surface : backdrop.background->light, 1);
+                    if (expanded) {
+                        check_pixel(host, image, {b.x + b.width / 2, b.y + b.height - 8}, body_fill, 1);
+                        const uint32_t body_border = composite_argb_on_rgb(
+                            mode == ThemeMode::light ? 0x0f000000 : 0x19000000, body_fill);
+                        check_pixel(host, image, {b.x, b.y + 70}, body_border, 1);
+                        require(pixel(*expanders[2], 0, int(70 * scale)) ==
+                            pixel(*expanders[0], 0, int(70 * scale)), "Header-only styling retains the default body border");
+                    }
+                }
+            }
+        }
+        window.set_theme(ThemeMode::light);
+        if (!Palette::system(ThemeMode::light, VisualStyle::winui).high_contrast) {
+            PartStyleValues body;
+            body.background = ThemeColor{0x2468ac};
+            body.border_brush = ThemeColor{0xfedcba};
+            body.border_thickness = Insets{3, 2, 4, 5};
+            body.corner_radius = 12.0f;
+            expanders[2]->set_control_style_values(StylePart::content, body);
+            flush(host);
+            const auto image = owned_window_capture::capture(host, capture_device);
+            const auto b = expanders[2]->content_surface_bounds();
+            check_pixel(host, image, {b.x + b.width / 2, b.y + 10}, 0x2468ac);
+            check_pixel(host, image, {b.x + b.width / 2, b.y + b.height - 2}, 0xfedcba);
+            check_pixel(host, image, {b.x + 1, b.y + 3}, 0xfedcba);
+        }
+        require(peers(host) == original, "Expander state and surface styles preserve all retained peers");
+    };
+    bool ran{};
+    std::exception_ptr failure;
+    window.on_key([&](const KeyEvent&) {
+        ran = true;
+        try { run(); } catch (...) { failure = std::current_exception(); }
+        window.close();
+        return true;
+    });
+    require(PostMessageW(host, WM_KEYDOWN, VK_SHIFT, 0) != FALSE, "Queue Expander fixture keyboard modality");
+    const auto result = application.run();
+    if (failure) std::rethrow_exception(failure);
+    require(ran && result == 0 && window.error().empty(), "Expander surface integration completes");
+}
+void combo_focus(bool layers_only = false) {
+    Application application;
+    WindowOptions options{title, {340, 320}, ThemeMode::light};
+    options.visual_style = VisualStyle::winui;
+    options.show_activated = false;
+    auto owned_window = application.create_window(options);
+    auto& window = *owned_window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(20);
+    std::array<std::shared_ptr<ComboBox>, 3> combos;
+    for (std::size_t i = 0; i < combos.size(); ++i) {
+        combos[i] = std::make_shared<ComboBox>(L"Format");
+        combos[i]->set_items({{1, L"Text"}, {2, L"Markdown"}}, 1);
+        combos[i]->set_fixed_size({180, i == 1 ? 60.0f : 32.0f});
+        if (i < 2) root->add(combos[i]);
+    }
+    PartStyleValues header, field;
+    header.header_height = 28.0f;
+    field.corner_radius = 16.0f;
+    combos[1]->set_control_style_values(StylePart::header, header);
+    combos[1]->set_control_style_values(StylePart::field, field);
+    auto scroll = std::make_shared<ScrollView>(combos[2], L"Combo focus viewport");
+    scroll->set_fixed_size({200, 32});
+    root->add(scroll);
+    auto editable = std::make_shared<ComboBox>(L"Editable format", true);
+    editable->set_items({{1, L"Text"}, {2, L"Markdown"}}, 1);
+    editable->set_fixed_size({180, 32});
+    editable->editor()->set_text(L"Draft");
+    root->add(editable);
+    auto content = std::make_shared<ContentHost>(root);
+    window.set_content(content);
+    application.show(window);
+    const auto host = find_host();
+    require(host != nullptr, "Nonactivating ComboBox fixture owns its window");
+    const auto run = [&] {
+        flush(host);
+        const auto original = peers(host);
+        const auto editor = editable->editor();
+        const owned_window_capture::Device device;
+        const auto capture = [&] { flush(host); return owned_window_capture::capture(host, device); };
+        const float scale = GetDpiForWindow(host) / 96.0f;
+        const auto pixel = [&](const owned_window_capture::Pixels& image, float x, float y) {
+            const int px = int(x * scale), py = int(y * scale);
+            require(px >= 0 && px < image.width && py >= 0 && py < image.height, "Combo pixel is inside owned capture");
+            return image.data[std::size_t(py) * image.width + px];
+        };
+        if (!layers_only) for (const auto visual : {VisualStyle::winui, VisualStyle::classic}) {
+            window.set_visual_style(visual);
+            for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+                window.set_theme(mode);
+                const auto baseline = capture();
+                const auto palette = Palette::system(mode, visual);
+                const bool external = visual == VisualStyle::winui && !palette.high_contrast;
+                for (std::size_t i = 0; i < combos.size(); ++i) {
+                    auto& combo = *combos[i];
+                    const auto b = combo.field_bounds();
+                    const float mid = b.y + b.height / 2;
+                    combo.set_focused(true);
+                    const auto focused = capture();
+                    require((pixel(focused, b.x + b.width + 3, mid) != pixel(baseline, b.x + b.width + 3, mid)) == external,
+                        "Closed WinUI ComboBox focus extends four DIPs outside its field");
+                    require((pixel(focused, b.x - 3, mid) != pixel(baseline, b.x - 3, mid)) == (external && i < 2),
+                        "ComboBox focus respects ancestor viewport clips");
+                    if (external) {
+                        check_pixel(host, focused, {b.x + 2, mid}, winui_control_colors(mode).accent);
+                        if (i == 1) {
+                            const auto h = combo.header_bounds();
+                            require(pixel(focused, h.x + h.width / 2, h.y - 3) ==
+                                pixel(baseline, h.x + h.width / 2, h.y - 3), "ComboBox focus excludes its header");
+                        }
+                        combo.popup()->opened();
+                        const auto open = capture();
+                        require(pixel(open, b.x + b.width + 3, mid) == pixel(baseline, b.x + b.width + 3, mid),
+                            "Open ComboBox does not retain its closed-field highlight");
+                        combo.popup()->closed(PopupDismissReason::cancel);
+                        require(combo.selected() == 1, "Focus painting and popup cancellation preserve committed identity");
+                    }
+                    combo.set_focused(false);
+                }
+                require(capture().data == baseline.data, "Clearing ComboBox focus restores the complete baseline frame");
+                editable->set_focused(true);
+                const auto focused_editor = capture();
+                const auto b = editable->field_bounds();
+                require(pixel(focused_editor, b.x - 3, b.y + b.height / 2) ==
+                    pixel(baseline, b.x - 3, b.y + b.height / 2), "Editable ComboBox retains its separate field focus treatment");
+                editable->set_focused(false);
+                if (external) {
+                    combos[0]->set_enabled(false);
+                    const auto disabled = capture();
+                    combos[0]->set_focused(true);
+                    require(capture().data == disabled.data, "Disabled ComboBox does not paint keyboard focus");
+                    combos[0]->set_focused(false);
+                    combos[0]->set_enabled(true);
+                }
+                require(editable->editor() == editor && editor->text() == L"Draft",
+                    "ComboBox focus and themes retain native editor identity and draft text");
+            }
+        }
+        require(peers(host) == original, "ComboBox focus and style changes retain native peers");
+        if (!layers_only) return;
+        window.set_visual_style(VisualStyle::winui);
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark}) {
+            window.set_theme(mode);
+            if (Palette::system(mode, VisualStyle::winui).high_contrast) continue;
+            for (int layer = 0; layer < 3; ++layer) {
+                auto combo = std::make_shared<ComboBox>(L"Layered format");
+                combo->set_items({{1, L"Text"}}, 1);
+                combo->set_fixed_size({160, 32});
+                auto navigation = std::make_shared<Stack>(Axis::vertical);
+                navigation->set_padding({12, 12, 12, 12});
+                navigation->add(combo);
+                std::shared_ptr<Element> layer_content = navigation;
+                if (layer != 0) {
+                    auto layout = std::make_shared<AdaptiveLayout>(navigation, blank());
+                    layout->set_breakpoint(1000);
+                    layout->set_compact_navigation(CompactNavigation::overlay);
+                    layout->set_navigation_extent(200);
+                    layer_content = layout;
+                }
+                std::shared_ptr<Popup> popup;
+                if (layer == 1) window.replace_content(*content, layer_content);
+                else {
+                    if (content->content() != root) window.replace_content(*content, root);
+                    popup = std::make_shared<Popup>(layer_content);
+                    popup->set_preferred_size({240, 100});
+                    window.show_popup(popup, *combos[0]);
+                }
+                combo->set_focused(false);
+                const auto baseline = capture();
+                combo->set_focused(true);
+                const auto focused = capture();
+                const auto b = combo->field_bounds();
+                require(pixel(focused, b.x + b.width / 2, b.y - 3) != pixel(baseline, b.x + b.width / 2, b.y - 3),
+                    "ComboBox background survives popup and adaptive overlay composition");
+                check_pixel(host, focused, {b.x + 2, b.y + b.height / 2}, winui_control_colors(mode).accent);
+                combo->set_focused(false);
+                require(capture().data == baseline.data, "Layered ComboBox blur restores the complete frame");
+                if (popup) window.dismiss_popup(*popup);
+            }
+        }
+    };
+    bool ran{};
+    std::exception_ptr failure;
+    window.on_key([&](const KeyEvent&) {
+        require(window.post([&] {
+            ran = true;
+            try { run(); } catch (...) { failure = std::current_exception(); }
+            window.close();
+        }), "Queue ComboBox checks outside native input");
+        return true;
+    });
+    require(PostMessageW(host, WM_KEYDOWN, VK_SHIFT, 0) != FALSE, "Queue ComboBox fixture keyboard modality");
+    const auto result = application.run();
+    if (failure) std::rethrow_exception(failure);
+    require(ran && result == 0 && window.error().empty(), "ComboBox focus integration completes");
+}
+void range_focus() {
+    Application application;
+    WindowOptions options{title, {480, 260}, ThemeMode::light};
+    options.visual_style = VisualStyle::winui;
+    options.show_activated = false;
+    auto owned_window = application.create_window(options);
+    auto& window = *owned_window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(20);
+    auto first = std::make_shared<Stack>(Axis::horizontal);
+    auto second = std::make_shared<Stack>(Axis::horizontal);
+    first->set_spacing(20); second->set_spacing(20);
+    root->add(first); root->add(second);
+    std::array<std::shared_ptr<RangeInput>, 4> ranges;
+    for (std::size_t i = 0; i < ranges.size(); ++i) {
+        ranges[i] = std::make_shared<RangeInput>(L"Scale");
+        ranges[i]->set_value(40);
+        ranges[i]->set_fixed_size(i == 2 ? Size{100, 100} : Size{180, 42});
+        if (i < 2) first->add(ranges[i]);
+        else if (i == 2) second->add(ranges[i]);
+    }
+    PartStyleValues padded;
+    padded.padding = Insets{12, 6, 8, 4};
+    padded.background = ThemeColor{0x315579};
+    ranges[1]->set_control_style_values(StylePart::root, padded);
+    ranges[2]->set_orientation(Axis::vertical);
+    ranges[2]->set_reversed(true);
+    auto scroll = std::make_shared<ScrollView>(ranges[3], L"Range focus viewport");
+    scroll->set_fixed_size({200, 60});
+    second->add(scroll);
+    window.set_content(root);
+    application.show(window);
+    const auto host = find_host();
+    require(host != nullptr, "Nonactivating range fixture owns its window");
+    {
+        const owned_window_capture::Device device;
+        flush(host);
+        const auto baseline = owned_window_capture::capture(host, device);
+        for (std::size_t i = 0; i < 2; ++i) {
+            ranges[i]->set_focused(true);
+            flush(host);
+            require(owned_window_capture::capture(host, device).data == baseline.data,
+                "WinUI range focus stays hidden without keyboard modality");
+            ranges[i]->set_focused(false);
+        }
+    }
+    const auto run = [&] {
+        flush(host);
+        const auto original = peers(host);
+        const owned_window_capture::Device device;
+        const auto capture = [&] { flush(host); return owned_window_capture::capture(host, device); };
+        const float scale = GetDpiForWindow(host) / 96.0f;
+        const auto pixel = [&](const owned_window_capture::Pixels& image, float x, float y) {
+            const int px = int(x * scale), py = int(y * scale);
+            require(px >= 0 && px < image.width && py >= 0 && py < image.height, "Range pixel is inside owned capture");
+            return image.data[std::size_t(py) * image.width + px];
+        };
+        for (const auto visual : {VisualStyle::winui, VisualStyle::classic}) {
+            window.set_visual_style(visual);
+            for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+                window.set_theme(mode);
+                const auto baseline = capture();
+                if (visual == VisualStyle::winui && !Palette::system(mode, visual).high_contrast) {
+                    const auto b = ranges[2]->bounds(), thumb = ranges[2]->slider_geometry().thumb;
+                    check_pixel(host, baseline, {b.x + 16, b.y + thumb.y + thumb.height / 2},
+                        winui_control_colors(mode).accent);
+                    check_pixel(host, baseline, {b.x + 50, b.y + thumb.y + thumb.height / 2},
+                        theme_colors(mode, visual).background);
+                }
+                if (visual == VisualStyle::winui && !Palette::system(mode, visual).high_contrast)
+                    for (std::size_t i = 0; i < 2; ++i) {
+                        const auto b = ranges[i]->bounds(), thumb = ranges[i]->slider_geometry().thumb;
+                        check_pixel(host, baseline, {b.x + thumb.x + thumb.width / 2, b.y + thumb.y + 2},
+                            mode == ThemeMode::light ? 0xffffff : 0x454545);
+                        const auto track = ranges[i]->slider_geometry().track;
+                        const auto track_color = composite_argb_on_rgb(mode == ThemeMode::light ? 0x72000000u : 0x8bffffffu,
+                            i == 1 ? 0x315579 : theme_colors(mode, visual).background);
+                        check_pixel(host, baseline, {b.x + track.x + track.width * .8f, b.y + track.y + track.height / 2},
+                            track_color, 1);
+                        check_pixel(host, baseline, {b.x + b.width - (i == 1 ? 10.0f : 2.0f), b.y + track.y + track.height / 2},
+                            track_color, 1);
+                    }
+                for (std::size_t i = 0; i < ranges.size(); ++i) {
+                    auto& range = *ranges[i];
+                    auto b = range.bounds();
+                    if (i == 1 && visual == VisualStyle::winui) { b.x += 12; b.y += 6; b.width -= 20; b.height -= 10; }
+                    const float mid = b.y + b.height / 2;
+                    range.set_focused(true);
+                    const auto focused = capture();
+                    const bool external = visual == VisualStyle::winui;
+                    require((pixel(focused, b.x + b.width + 6, mid) != pixel(baseline, b.x + b.width + 6, mid)) == external,
+                        "WinUI range focus extends seven horizontal DIPs beyond its content");
+                    require((pixel(focused, b.x - 6, mid) != pixel(baseline, b.x - 6, mid)) == (external && i != 3),
+                        "Range focus preserves its external left stroke within ancestor clips");
+                    require(pixel(focused, b.x + b.width / 2, b.y - 1) == pixel(baseline, b.x + b.width / 2, b.y - 1),
+                        "Range focus has no external vertical margin");
+                    range.set_focused(false);
+                    require(range.value() == 40 && !range.dragging(), "Range focus does not change value or drag state");
+                }
+                require(capture().data == baseline.data, "Range blur restores the complete frame");
+                if (visual == VisualStyle::winui && !Palette::system(mode, visual).high_contrast) {
+                    PartStyleValues thumb_style;
+                    thumb_style.background = ThemeColor{0x2468ac};
+                    ranges[0]->set_control_style_values(StylePart::thumb, thumb_style);
+                    const auto authored = capture();
+                    const auto b = ranges[0]->bounds(), thumb = ranges[0]->slider_geometry().thumb;
+                    check_pixel(host, authored, {b.x + thumb.x + thumb.width / 2, b.y + thumb.y + thumb.height / 2}, 0x2468ac);
+                    ranges[0]->set_control_style_values(StylePart::thumb, {});
+                    require(capture().data == baseline.data, "Clearing authored thumb paint restores the native default thumb");
+                    for (const auto i : {0u, 2u, 3u}) {
+                        ranges[i]->set_value(0);
+                        const auto endpoint = capture();
+                        const auto endpoint_bounds = ranges[i]->bounds();
+                        const bool vertical = i == 2;
+                        const Point outset{endpoint_bounds.x + (vertical ? 16 : -1),
+                            endpoint_bounds.y + (vertical ? -1 : 16)};
+                        const Point beyond{endpoint_bounds.x + (vertical ? 16 : -3),
+                            endpoint_bounds.y + (vertical ? -3 : 16)};
+                        if (i != 3)
+                            check_pixel(host, endpoint, outset,
+                                mode == ThemeMode::light ? 0xffffff : 0x454545);
+                        else require(pixel(endpoint, outset.x, outset.y) == pixel(baseline, outset.x, outset.y),
+                            "Ancestor viewport clips the native endpoint thumb outset");
+                        require(pixel(endpoint, beyond.x, beyond.y) == pixel(baseline, beyond.x, beyond.y),
+                            "Default thumb paint stays within its two-DIP layout outset");
+                        ranges[i]->set_value(40);
+                        require(capture().data == baseline.data, "Moving the thumb clears old pixels outside its control bounds");
+                    }
+                }
+                if (visual == VisualStyle::winui) {
+                    ranges[0]->set_enabled(false);
+                    const auto disabled = capture();
+                    if (!Palette::system(mode, visual).high_contrast) {
+                        const auto b = ranges[0]->bounds(), track = ranges[0]->slider_geometry().track;
+                        const auto track_color = composite_argb_on_rgb(mode == ThemeMode::light ? 0x51000000u : 0x3fffffffu,
+                            theme_colors(mode, visual).background);
+                        check_pixel(host, disabled, {b.x + track.x + track.width * .8f, b.y + track.y + track.height / 2},
+                            track_color, 1);
+                        const auto thumb = ranges[0]->slider_geometry().thumb;
+                        const auto mark_color = composite_argb_on_rgb(mode == ThemeMode::light ? 0x37000000u : 0x28ffffffu,
+                            mode == ThemeMode::light ? 0xffffff : 0x454545);
+                        check_pixel(host, disabled, {b.x + thumb.x + thumb.width / 2, b.y + thumb.y + thumb.height / 2},
+                            mark_color, 1);
+                    }
+                    ranges[0]->set_focused(true);
+                    require(capture().data == disabled.data, "Disabled range does not paint focus");
+                    ranges[0]->set_focused(false);
+                    ranges[0]->set_enabled(true);
+                }
+            }
+        }
+        require(peers(host) == original, "Range focus and theme changes retain native peers");
+    };
+    bool ran{};
+    std::exception_ptr failure;
+    window.on_key([&](const KeyEvent&) {
+        ran = true;
+        try { run(); } catch (...) { failure = std::current_exception(); }
+        window.close();
+        return true;
+    });
+    require(PostMessageW(host, WM_KEYDOWN, VK_SHIFT, 0) != FALSE, "Queue range fixture keyboard modality");
+    const auto result = application.run();
+    if (failure) std::rethrow_exception(failure);
+    require(ran && result == 0 && window.error().empty(), "Range focus integration completes");
+}
+void switch_focus() {
+    Application application;
+    WindowOptions options{title, {300, 240}, ThemeMode::light};
+    options.visual_style = VisualStyle::winui;
+    options.show_activated = false;
+    auto owned_window = application.create_window(options);
+    auto& window = *owned_window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(16);
+    std::array<std::shared_ptr<ToggleSwitch>, 3> switches;
+    for (std::size_t i = 0; i < switches.size(); ++i) {
+        switches[i] = std::make_shared<ToggleSwitch>(L"Off");
+        switches[i]->set_automation_id(L"focus-switch-" + std::to_wstring(i));
+        switches[i]->set_fixed_size({180, 40});
+        if (i < 2) root->add(switches[i]);
+    }
+    PartStyleValues square, rounded;
+    square.corner_radius = 0.0f;
+    rounded.corner_radius = 16.0f;
+    switches[0]->set_control_style_values(StylePart::root, square);
+    switches[1]->set_control_style_values(StylePart::root, rounded);
+    auto scroll = std::make_shared<ScrollView>(switches[2], L"Switch viewport");
+    scroll->set_fixed_size({180, 40});
+    root->add(scroll);
+    window.set_content(root);
+    application.show(window);
+    const auto host = find_host();
+    require(host != nullptr, "Nonactivating switch fixture owns its window");
+    const auto run = [&] {
+        flush(host);
+        const auto original = peers(host);
+        const owned_window_capture::Device device;
+        const auto capture = [&] { flush(host); return owned_window_capture::capture(host, device); };
+        const float scale = GetDpiForWindow(host) / 96.0f;
+        const auto pixel = [&](const owned_window_capture::Pixels& image, float x, float y) {
+            const int px = int(x * scale), py = int(y * scale);
+            require(px >= 0 && px < image.width && py >= 0 && py < image.height, "Switch pixel is inside owned capture");
+            return image.data[std::size_t(py) * image.width + px];
+        };
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+            window.set_theme(mode);
+            const auto baseline = capture();
+            const auto layouts = Drawing::created_text_layouts();
+            for (std::size_t i = 0; i < switches.size(); ++i) {
+                auto& control = *switches[i];
+                const auto b = control.bounds();
+                const auto center_y = b.y + b.height / 2;
+                const auto natural_width = 52 + control.measured_text().width;
+                require(natural_width < b.width - 10, "Switch fixture leaves unused row space after its label");
+                control.set_focused(true);
+                const auto focused = capture();
+                if (i < 2)
+                    require(pixel(focused, b.x - 7, center_y) != pixel(baseline, b.x - 7, center_y) &&
+                        pixel(focused, b.x - 6, center_y) != pixel(baseline, b.x - 6, center_y),
+                        "Switch focus retains both outer stroke DIPs outside its own peer");
+                else
+                    require(pixel(focused, b.x - 7, center_y) == pixel(baseline, b.x - 7, center_y),
+                        "Switch focus respects its ancestor viewport clip");
+                require(pixel(focused, b.x + natural_width + 6, center_y) !=
+                    pixel(baseline, b.x + natural_width + 6, center_y),
+                    "Switch focus surrounds its label rather than the stretched row");
+                require(pixel(focused, b.x + b.width - 1, center_y) == pixel(baseline, b.x + b.width - 1, center_y),
+                    "Switch focus does not leave a second outline at the row edge");
+                control.set_focused(false);
+            }
+            require(capture().data == baseline.data, "Clearing switch focus restores the complete baseline frame");
+            require(Drawing::created_text_layouts() == layouts, "Switch focus uses retained native text layouts");
+        }
+        require(peers(host) == original, "Switch focus and theme changes retain native peers");
+    };
+    bool ran{};
+    std::exception_ptr failure;
+    window.on_key([&](const KeyEvent&) {
+        ran = true;
+        try { run(); } catch (...) { failure = std::current_exception(); }
+        window.close();
+        return true;
+    });
+    require(PostMessageW(host, WM_KEYDOWN, VK_SHIFT, 0) != FALSE, "Queue switch fixture keyboard modality");
+    const auto result = application.run();
+    if (failure) std::rethrow_exception(failure);
+    require(ran && result == 0 && window.error().empty(), "Switch focus integration completes");
 }
 void run() {
     Window window({title, {1000, 900}, ThemeMode::light});
@@ -442,6 +1024,11 @@ void run() {
 int main(int argc, char** argv) {
     try {
         if (argc > 1 && std::string_view(argv[1]) == "--label-backgrounds") label_backgrounds();
+        else if (argc > 1 && std::string_view(argv[1]) == "--expander-surfaces") expander_surfaces();
+        else if (argc > 1 && std::string_view(argv[1]) == "--switch-focus") switch_focus();
+        else if (argc > 1 && std::string_view(argv[1]) == "--combo-focus") combo_focus();
+        else if (argc > 1 && std::string_view(argv[1]) == "--combo-focus-layers") combo_focus(true);
+        else if (argc > 1 && std::string_view(argv[1]) == "--range-focus") range_focus();
         else run();
         std::cout << "Layout style window tests passed\n";
         return 0;

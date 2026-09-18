@@ -60,6 +60,24 @@ struct InputStrokeColors {
     uint32_t outline, elevation;
 };
 
+struct FocusStrokeColors {
+    uint32_t outer, inner;
+};
+
+struct WinUICardBrushes {
+    uint32_t fill, secondary_fill, stroke;
+};
+
+constexpr WinUICardBrushes winui_card_brushes(ThemeMode mode) {
+    return mode == ThemeMode::light ? WinUICardBrushes{0xb3ffffff, 0x80f6f6f6, 0x0f000000} :
+        WinUICardBrushes{0x0dffffff, 0x08ffffff, 0x19000000};
+}
+
+constexpr FocusStrokeColors winui_focus_strokes(ThemeMode mode) {
+    return mode == ThemeMode::light ? FocusStrokeColors{0xe4000000, 0xb3ffffff} :
+        FocusStrokeColors{0xffffffff, 0xb3000000};
+}
+
 constexpr InputStrokeColors winui_input_strokes(ThemeMode mode) {
     return mode == ThemeMode::light ? InputStrokeColors{0x0f000000, 0x72000000} :
         InputStrokeColors{0x12ffffff, 0x8bffffff};
@@ -95,16 +113,21 @@ constexpr StyleMetrics style_metrics(VisualStyle style) {
         StyleMetrics{6, 6, 6, 36, 44, 24, 0, 14};
 }
 
+inline constexpr float winui_slider_thumb_layout_size = 18.0f;
+inline constexpr float winui_slider_thumb_outset = 2.0f;
+
 struct SliderVisual {
     Rect track, filled, thumb;
+    float travel_inset{};
     double pointer_fraction(Point point, Axis orientation) const {
         if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
             (orientation != Axis::horizontal && orientation != Axis::vertical))
             throw std::invalid_argument("Invalid slider pointer geometry");
         const bool vertical = orientation == Axis::vertical;
-        const float length = vertical ? track.height : track.width;
+        const float length = (vertical ? track.height : track.width) - 2 * travel_inset;
         if (length <= 0) return 0;
-        const double value = vertical ? 1.0 - (point.y - track.y) / length : (point.x - track.x) / length;
+        const double value = vertical ? 1.0 - (point.y - track.y - travel_inset) / length :
+            (point.x - track.x - travel_inset) / length;
         return std::clamp(value, 0.0, 1.0);
     }
 };
@@ -118,20 +141,28 @@ inline SliderVisual slider_visual(Size bounds, Axis orientation, bool reversed, 
         (orientation != Axis::horizontal && orientation != Axis::vertical))
         throw std::invalid_argument("Invalid slider geometry");
     const bool vertical = orientation == Axis::vertical;
+    const bool winui = style == VisualStyle::winui;
     if (reversed) fraction = 1 - fraction;
-    const float radius = thumb_size ? *thumb_size / 2 : style == VisualStyle::winui ? 10.0f : 8.0f;
-    const float inset = std::min(std::max(12.0f, radius), std::max(0.0f, vertical ? bounds.height : bounds.width) / 2);
-    const float length = std::max(0.0f, (vertical ? bounds.height : bounds.width) - 2 * inset);
+    const float layout_radius = thumb_size ? *thumb_size / 2 : winui ? winui_slider_thumb_layout_size / 2 : 8.0f;
+    const float radius = layout_radius + (winui && !thumb_size ? winui_slider_thumb_outset : 0);
+    const float extent = vertical ? bounds.height : bounds.width;
+    const float inset = std::min(winui ? layout_radius : std::max(12.0f, radius), extent / 2);
+    const float length = std::max(0.0f, extent - 2 * inset);
     const float position = inset + static_cast<float>(vertical ? 1 - fraction : fraction) * length;
-    const Rect track = vertical ? Rect{(bounds.width - thickness) / 2, inset, thickness, length} :
-        Rect{inset, (bounds.height - thickness) / 2, length, thickness};
-    const float start = vertical == reversed ? inset : inset + length;
-    const float filled = std::abs(position - start);
-    const Rect fill = vertical ? Rect{track.x, std::min(start, position), thickness, filled} :
-        Rect{std::min(start, position), track.y, filled, thickness};
-    const Rect thumb = vertical ? Rect{bounds.width / 2 - radius, position - radius, 2 * radius, 2 * radius} :
-        Rect{position - radius, bounds.height / 2 - radius, 2 * radius, 2 * radius};
-    return {track, fill, thumb};
+    const float cross_extent = vertical ? bounds.width : bounds.height;
+    const float cross = winui ?
+        std::min(cross_extent / 2, std::max(14 + thickness / 2, radius)) : cross_extent / 2;
+    const float track_start = winui ? 0 : inset, track_length = winui ? extent : length;
+    const Rect track = vertical ? Rect{cross - thickness / 2, track_start, thickness, track_length} :
+        Rect{track_start, cross - thickness / 2, track_length, thickness};
+    const float start = vertical == reversed ? track_start : track_start + track_length;
+    const float end = position + (winui ? (vertical == reversed ? -inset : inset) : 0);
+    const float filled = std::abs(end - start);
+    const Rect fill = vertical ? Rect{track.x, std::min(start, end), thickness, filled} :
+        Rect{std::min(start, end), track.y, filled, thickness};
+    const Rect thumb = vertical ? Rect{cross - radius, position - radius, 2 * radius, 2 * radius} :
+        Rect{position - radius, cross - radius, 2 * radius, 2 * radius};
+    return {track, fill, thumb, winui ? inset : 0};
 }
 
 constexpr uint32_t winui_text_brush(ThemeMode mode, bool enabled, bool pressed = false, bool on_accent = false) {
@@ -168,15 +199,32 @@ constexpr float winui_radio_dot(bool enabled, bool hovered, bool pressed) {
     return !enabled ? 14.0f : pressed ? 10.0f : hovered ? 14.0f : 12.0f;
 }
 
+constexpr IndicatorBrushes winui_switch_brushes(ThemeMode mode, bool checked, bool enabled, bool hovered, bool pressed) {
+    auto brushes = winui_indicator_brushes(mode, checked, enabled, hovered, pressed);
+    brushes.stroke = checked ? 0 : winui_indicator_brushes(mode, false, enabled, false, false).stroke;
+    brushes.mark = winui_text_brush(mode, enabled, !checked, checked);
+    return brushes;
+}
+
 struct ButtonBrushes {
     uint32_t fill, text, stroke, elevation;
     bool accent{}, elevated{};
 };
 
+struct SliderBrushes {
+    uint32_t track, value, thumb;
+};
+
+constexpr SliderBrushes winui_slider_brushes(ThemeMode mode, bool enabled, bool hovered, bool pressed) {
+    const bool light = mode == ThemeMode::light;
+    return {enabled ? (light ? 0x72000000u : 0x8bffffffu) : (light ? 0x51000000u : 0x3fffffffu),
+        winui_accent_brush(mode, enabled, hovered, pressed), light ? 0xffffffffu : 0xff454545u};
+}
+
 constexpr ButtonBrushes winui_button_brushes(ThemeMode mode, ButtonAppearance appearance,
     bool enabled, bool hovered, bool pressed, bool checked) {
     const bool light = mode == ThemeMode::light;
-    const bool accent = appearance == ButtonAppearance::accent || (enabled && checked);
+    const bool accent = appearance == ButtonAppearance::accent || checked;
     const auto text = winui_text_brush(mode, enabled, pressed, accent);
     if (accent)
         return {winui_accent_brush(mode, enabled, hovered, pressed), text,

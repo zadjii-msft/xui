@@ -205,13 +205,15 @@ Size MenuBar::measure(Size available_size) {
     if (!auto_size()) return Element::measure(available_size);
     const auto insets = layout_style::insets(effective_control_style_values(StylePart::root));
     const auto inner = layout_style::inner(available_size, insets);
+    const float margin = visual_style() == VisualStyle::winui ? 4.0f : 0.0f;
+    const auto heading_available = layout_style::inner(inner, {margin, margin, margin, margin});
     Size desired{0, 40};
     for (const auto& child : children_) {
         const auto button = std::static_pointer_cast<Heading>(child);
         if (!button->visible()) continue;
-        const auto size = button->measure(inner);
-        desired.width += size.width;
-        desired.height = std::max(desired.height, size.height);
+        const auto size = button->measure(heading_available);
+        desired.width += size.width + 2 * margin;
+        desired.height = std::max(desired.height, size.height + 2 * margin);
     }
     return constrain(layout_style::outer(desired, insets), available_size);
 }
@@ -219,17 +221,20 @@ void MenuBar::arrange(Rect bounds) {
     Element::arrange(bounds);
     const auto content = layout_style::content(*this, this->bounds());
     synchronize_headings();
+    const float margin = visual_style() == VisualStyle::winui ? 4.0f : 0.0f;
+    const auto heading_available = layout_style::inner({content.width, content.height}, {margin, margin, margin, margin});
     float desired{};
     for (const auto& child : children_)
         if (std::static_pointer_cast<Heading>(child)->visible())
-            desired += child->measure({content.width, content.height}).width;
+            desired += child->measure(heading_available).width + 2 * margin;
     const float scale = desired > content.width && desired > 0 ? content.width / desired : 1;
     float x = content.x;
     for (const auto& child : children_) {
         if (!std::static_pointer_cast<Heading>(child)->visible()) { child->arrange({}); continue; }
         const float width = std::min(std::max(0.0f, content.x + content.width - x),
-            child->measure({content.width, content.height}).width * scale);
-        child->arrange({x, content.y, width, content.height});
+            (child->measure(heading_available).width + 2 * margin) * scale);
+        child->arrange(layout_style::inset({x, content.y, width, content.height},
+            {margin, margin, margin, margin}));
         x += width;
     }
 }

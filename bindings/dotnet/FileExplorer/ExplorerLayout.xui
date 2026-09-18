@@ -11,7 +11,7 @@ component ExplorerLayout {
             Grid("Explorer workspace", flex: 1,
                 columns: [new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Star)]) {
                 Content(Navigation);
-                SplitView("File panes", ref: Panes, secondVisible: false, column: 1) {
+                SplitView("File panes", ref: Panes, secondVisible: false, duration: 180, column: 1) {
                     Content(LeftPane);
                     Content(RightPane);
                 }

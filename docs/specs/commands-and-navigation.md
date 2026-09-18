@@ -118,6 +118,12 @@ Disabling the bar or replacing its source cancels its open menu.
 UIA exposes a MenuBar root and MenuItem headings with ExpandCollapse.
 Action descendants retain the existing Invoke behavior.
 
+WinUI headings reserve four DIPs on each side within their layout slots.
+These margins keep the external focus outline inside the bar.
+Authored root padding remains outside the heading margins.
+Hidden headings reserve no space. Constrained slots clamp their content to nonnegative bounds.
+Classic heading layout remains unchanged.
+
 ## Optional Shell and caption integration
 
 `xui/shell_commands.hpp` separates discovery from invocation.

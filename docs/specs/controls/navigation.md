@@ -13,6 +13,8 @@ Navigation actions request application changes. They do not perform filesystem I
 ## NavigationView
 
 Use `NavigationView` for application sections with shared selection, search, and an expandable pane.
+The optional [group duration](../animations.md#navigation-group-transitions) animates main-section disclosure.
+Its default is zero. Logical state, focus repair, and accessibility do not wait for motion.
 Use TreeView for lazy general-purpose hierarchies.
 
 {% tabs %}

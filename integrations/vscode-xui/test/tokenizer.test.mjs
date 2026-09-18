@@ -77,6 +77,22 @@ const counter = await readFile(new URL("./fixtures/counter.xui", import.meta.url
 const nested = await readFile(new URL("./fixtures/nested.xui", import.meta.url), "utf8");
 const catalog = JSON.parse(await readFile(new URL("./fixtures/style-catalog.json", import.meta.url), "utf8"));
 
+test("Reveal is a native node with ordinary reactive arguments", () => {
+  const doc = tokenize(`component FindBar {
+    state bool FindOpen = false;
+    view {
+      Reveal("Find", open: FindOpen, duration: 180) {
+        HStack() { TextInput("Find"); }
+      }
+    }
+  }`);
+  has(doc, "Reveal", "support.class.node.xui");
+  has(doc, "open:", "variable.parameter.named.xui");
+  has(doc, "duration:", "variable.parameter.named.xui");
+  has(doc, "180", "constant.numeric");
+  closed(doc);
+});
+
 test("named style declarations retain XUI scopes and return to view and C# contexts", async () => {
   const source = await readFile(new URL("../../../bindings/dotnet/GeneratorTests/Fixtures/Styling.xui", import.meta.url), "utf8");
   const doc = tokenize(source);

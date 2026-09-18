@@ -15,6 +15,12 @@ internal static class Tests
             if (args is ["--window-icons"]) { WindowIconTests.Run(); return 0; }
             if (args is ["--document-editing"]) { DocumentEditingTests.Run(); return 0; }
             if (args is ["--file-dialogs"]) { FileDialogTests.Run(); return 0; }
+            if (args is ["--reveal"]) { RevealTests.Run(); return 0; }
+            if (args is ["--split-animation"]) { SplitAnimationTests.Run(); return 0; }
+            if (args is ["--expander-animation"]) { ExpanderAnimationTests.Run(); return 0; }
+            if (args is ["--progress-animation"]) { ProgressAnimationTests.Run(); return 0; }
+            if (args is ["--navigation-animation"]) { NavigationAnimationTests.Run(); return 0; }
+            if (args is ["--tab-animation"]) { TabAnimationTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
             if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }
@@ -22,7 +28,7 @@ internal static class Tests
             if (args is ["--styling-definitions"]) return 0;
             if (args is ["--styling"]) { StylingTests.Native(); return 0; }
             if (args is ["--visual-primitives"]) { Run(); return 0; }
-            if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); StylingTests.Native(); }
+            if (args is not ["--text-only"]) { Run(); FeatureTests.Run(); StylingTests.Native(); RevealTests.Run(); TabAnimationTests.Run(); }
             ExplorerTextTests.Run();
             if (args is not ["--text-only"]) MultiWindowTests.Run();
             if (args is not ["--text-only"]) WindowDragTests.Run();

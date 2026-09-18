@@ -145,12 +145,15 @@ public:
                 child ? key_ : s.collection->hierarchy(*index).parent;
             if (key_ && child && s.role != ControlRole::tree_view) return S_OK;
             std::set<std::size_t> realized;
-            const auto first = s.collection_columns == 1 ? s.collection->row_at(s.collection_offset, s.collection_item_height) :
+            std::vector<std::size_t> presented;
+            if (s.collection_presentation)
+                presented = s.collection_presentation->visible(s.collection_offset, s.collection_height);
+            const auto first = s.collection_presentation ? 0 : s.collection_columns == 1 ? s.collection->row_at(s.collection_offset, s.collection_item_height) :
                 std::min(s.collection->size(), static_cast<std::size_t>(s.collection_offset / s.collection_item_height) * s.collection_columns);
-            const auto end = std::min(s.collection->size(), s.collection_columns == 1 ?
+            const auto end = s.collection_presentation ? 0 : std::min(s.collection->size(), s.collection_columns == 1 ?
                 s.collection->row_at(s.collection_offset + s.collection_height, s.collection_item_height) + 1 :
                 first + (static_cast<std::size_t>(std::ceil(s.collection_height / s.collection_item_height)) + 1) * s.collection_columns);
-            for (auto i = first; i < end; ++i) {
+            const auto realize = [&](std::size_t i) {
                 realized.insert(i);
                 if (s.role == ControlRole::tree_view) {
                     auto ancestor = s.collection->hierarchy(i).parent;
@@ -159,7 +162,9 @@ public:
                         realized.insert(*row); ancestor = s.collection->hierarchy(*row).parent;
                     }
                 }
-            }
+            };
+            if (s.collection_presentation) for (auto i : presented) realize(i);
+            else for (auto i = first; i < end; ++i) realize(i);
             std::optional<std::size_t> target;
             for (auto i : realized) {
                 if (s.role == ControlRole::tree_view && s.collection->hierarchy(i).parent != parent) continue;
@@ -187,15 +192,31 @@ public:
     void bounds(const ControlSnapshot& s, UiaRect& value) const {
         value = {}; RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
+        const auto clip = clipped_bounds(s.window);
+        if (IsRectEmpty(&clip)) return;
         const auto scale = GetDpiForWindow(s.window) / 96.0;
         double x{}, y{}, width = s.collection_width, height = s.collection_height;
         if (!key_) {
-            value = {static_cast<double>(window.left), static_cast<double>(window.top),
-                static_cast<double>(window.right - window.left), static_cast<double>(window.bottom - window.top)};
+            value = {static_cast<double>(clip.left), static_cast<double>(clip.top),
+                static_cast<double>(clip.right - clip.left), static_cast<double>(clip.bottom - clip.top)};
             return;
         }
         if (key_) {
             const auto row = *s.collection->find(*key_);
+            if (s.collection_presentation) {
+                auto box = s.collection_presentation->bounds(row);
+                if (action_) {
+                    if (box.width < 160) return;
+                    box.x += box.width - 74; box.width = 74;
+                }
+                box = box.intersect(s.collection_presentation->clip(row)).intersect(
+                    {0, s.collection_offset, s.collection_width, s.collection_height});
+                if (box.width <= 0 || box.height <= 0) return;
+                value = {window.left + (s.collection_viewport_x + box.x) * scale,
+                    window.top + (s.collection_viewport_y + box.y - s.collection_offset) * scale,
+                    box.width * scale, box.height * scale};
+                return;
+            }
             width /= s.collection_columns;
             x = (row % s.collection_columns) * width; y = (row / s.collection_columns) * s.collection_item_height - s.collection_offset;
             height = s.collection_item_height;
@@ -209,8 +230,12 @@ public:
         const auto left = std::max(0.0, x), right = std::min(s.collection_width, x + width);
         const auto top = std::max(0.0, y), bottom = std::min(s.collection_height, y + height);
         if (right <= left || bottom <= top) return;
-        value = {window.left + (s.collection_viewport_x + left) * scale,
-            window.top + (s.collection_viewport_y + top) * scale, (right - left) * scale, (bottom - top) * scale};
+        const auto screen_left = std::max(double(clip.left), window.left + (s.collection_viewport_x + left) * scale);
+        const auto screen_top = std::max(double(clip.top), window.top + (s.collection_viewport_y + top) * scale);
+        const auto screen_right = std::min(double(clip.right), window.left + (s.collection_viewport_x + right) * scale);
+        const auto screen_bottom = std::min(double(clip.bottom), window.top + (s.collection_viewport_y + bottom) * scale);
+        if (screen_right <= screen_left || screen_bottom <= screen_top) return;
+        value = {screen_left, screen_top, screen_right - screen_left, screen_bottom - screen_top};
     }
     HRESULT STDMETHODCALLTYPE get_BoundingRectangle(UiaRect* value) override {
         if (!value) return E_POINTER; *value = {}; return with([&](const auto& s) { bounds(s, *value); return S_OK; });
@@ -292,6 +317,17 @@ public:
             if (x < window.left || y < window.top || x >= window.right || y >= window.bottom) return S_OK;
             x = (x - window.left) / scale - s.collection_viewport_x;
             y = (y - window.top) / scale - s.collection_viewport_y;
+            if (s.collection_presentation) {
+                const auto row = x >= 0 && x < s.collection_width && y >= 0 && y < s.collection_height ?
+                    s.collection_presentation->hit(x, y + s.collection_offset) : std::nullopt;
+                if (row) {
+                    const auto box = s.collection_presentation->bounds(*row);
+                    const auto item = s.collection->item(*row);
+                    *value = make(s.collection->key(*row), box.width >= 160 && !item.action.empty() &&
+                        x >= box.x + box.width - 74);
+                } else { *value = this; AddRef(); }
+                return S_OK;
+            }
             const auto width = s.collection_width / s.collection_columns;
             if (s.collection && width > 0 && x >= 0 && y >= 0 && y < s.collection_height && x < width * s.collection_columns) {
                 const auto row = s.collection_columns == 1 ? s.collection->row_at(y + s.collection_offset, s.collection_item_height) :
@@ -337,6 +373,7 @@ public:
         });
     }
     static double maximum(const ControlSnapshot& s) {
+        if (s.collection_presentation) return std::max(0.0, s.collection_presentation->extent() - s.collection_height);
         return std::max(0.0, (s.collection ? s.collection_columns == 1 ?
             s.collection->row_start(s.collection->size(), s.collection_item_height) :
             std::ceil(double(s.collection->size()) / s.collection_columns) * s.collection_item_height : 0) - s.collection_height);
@@ -374,7 +411,7 @@ void raise_collection_changes(IRawElementProviderSimple* provider, const Control
     if (before.collection_columns != after.collection_columns || before.collection_item_height != after.collection_item_height ||
         before.collection_width != after.collection_width || before.collection_height != after.collection_height ||
         before.collection_viewport_x != after.collection_viewport_x || before.collection_viewport_y != after.collection_viewport_y ||
-        before.collection_offset != after.collection_offset)
+        before.collection_offset != after.collection_offset || before.collection_presentation != after.collection_presentation)
         UiaRaiseAutomationEvent(provider, UIA_LayoutInvalidatedEventId);
     if (before.collection != after.collection) UiaRaiseStructureChangedEvent(provider, StructureChangeType_ChildrenInvalidated, nullptr, 0);
     if (!(before.selection == after.selection)) UiaRaiseAutomationEvent(provider, UIA_Selection_InvalidatedEventId);

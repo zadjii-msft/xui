@@ -242,13 +242,21 @@ private:
     std::function<void(double)> change_;
 };
 
-class Expander final : public Control {
+class Expander final : public Control, public Animation {
 public:
     Expander(std::wstring header, std::shared_ptr<Element> content);
     const std::shared_ptr<Element>& content() const { return children_[0]; }
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
     bool expanded() const { return expanded_; }
     void set_expanded(bool value);
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    float progress() const { return transition_.value(); }
+    bool animating() const override { return transition_.animating(); }
+    void advance(Clock::time_point now) override;
+    void settle() override;
+    bool body_presented() const { return expanded_ || animating() || progress() > 0; }
+    bool allows_empty_clip() const override { return expanded_ && animating(); }
     void on_change(std::function<void(bool)> callback) { change_ = std::move(callback); }
     void arrange(Rect bounds) override;
     Size measure(Size available) override;
@@ -267,14 +275,22 @@ protected:
     }
 private:
     void activate() override;
+    Size measure_state(Size available, bool expanded);
+    Size expanded_size(Size available);
+    Rect body_surface(Rect bounds) const;
+    Rect body_content(Rect bounds) const;
+    Rect full_content_bounds() const;
     std::vector<std::shared_ptr<Element>> children_;
     bool expanded_{true};
     float measured_header_height_{48};
+    float full_height_{};
+    unsigned duration_{};
+    ScalarTransition transition_{1};
     std::function<void(bool)> change_;
 };
 
 enum class ProgressState { determinate, indeterminate, paused, error, unknown };
-class Progress : public Control {
+class Progress : public Control, public Animation {
 public:
     explicit Progress(std::wstring name = L"Progress");
     bool ring_presentation() const { return ring_; }
@@ -282,6 +298,13 @@ public:
     const NumericRange& range() const { return range_; }
     void set_value(double value);
     double value() const { return value_; }
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    double presented_value() const;
+    double presented_fraction() const;
+    bool animating() const override { return transition_.animating(); }
+    void advance(Clock::time_point now) override;
+    void settle() override;
     void set_state(ProgressState value);
     ProgressState state() const { return state_; }
     // Capacity is read-only and never starts an animation.
@@ -298,6 +321,9 @@ private:
     ProgressState state_{ProgressState::determinate};
     bool ring_{};
     std::wstring text_;
+    unsigned duration_{};
+    double presented_{}, start_{};
+    ScalarTransition transition_{1};
 };
 
 class ProgressRing final : public Progress {

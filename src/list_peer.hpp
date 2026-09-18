@@ -42,6 +42,7 @@ private:
     LRESULT message(HWND, UINT, WPARAM, LPARAM);
     void invalidate();
     void viewport();
+    VisibleRange thumbnail_range(Rect clip) const;
     void changed();
     bool select_at(int x, int y);
     void pointer_down(LPARAM);

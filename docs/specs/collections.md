@@ -178,6 +178,9 @@ Each column contains siblings. A selected branch identifies the next column.
 The control is independent of the filesystem.
 
 `set_columns` replaces the complete path without selection or activation callbacks.
+When the path grows, the control scrolls to show the entire final column without changing the active column or keyboard focus.
+If the viewport has no width, the control defers this scroll until layout supplies a width.
+Replacement at the same depth preserves the horizontal position, within the new scroll range.
 Each descriptor supplies a title, an immutable `ItemsSource`, and an optional selected `ItemKey`.
 A null C++ source displays an empty column.
 `ItemsSource::hierarchy` supplies the `expandable` flag for branch indicators.
@@ -190,7 +193,9 @@ Scrollbar space does not highlight rows.
 A thin separator divides adjacent columns from the header through the list.
 Each column reserves separator space outside its rows and vertical scrollbar.
 The separator follows horizontal scrolling and uses the theme border color.
-The toolbar and horizontal scrollbar remain outside the separator.
+The horizontal scrollbar remains outside the separator.
+Column headers start at the top of the control. There is no built-in navigation toolbar.
+The C++ `previous_button` and `next_button` accessors are no longer available.
 
 `on_selection` reports the column index and the complete item key.
 The application loads children and replaces descendants after successful delivery.
@@ -200,7 +205,10 @@ Applications must cancel obsolete work and reject obsolete results before they c
 Source methods must not perform filesystem or network work.
 
 `set_active_column` reveals a column horizontally.
+Applications can supply their own navigation buttons. C++ `move_active` also requests focus in the target column.
+C# applications can use `FocusColumn` for this action.
 Left and Right move between existing columns. Up and Down move within a column.
+Clicking a column header or empty list space focuses that column without selection or activation callbacks.
 Horizontal wheel input and Shift+wheel scroll the path without changing selection or the active column.
 A bottom scrollbar supports thumb dragging and track paging when the path exceeds the viewport.
 Ordinary wheel input scrolls the current list vertically.
