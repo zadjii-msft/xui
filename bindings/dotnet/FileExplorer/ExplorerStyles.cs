@@ -16,6 +16,11 @@ internal static class ExplorerStyles
         new(StylePart.Root, new() { Background = Background, BorderThickness = new(0), CornerRadius = 0 })
     ]);
 
+    internal static readonly ControlStyle NavigationFilter = new(StyleTarget.TextInput,
+    [
+        new(StylePart.Root, new() { Background = Background, BorderThickness = new(0,0,0,1), CornerRadius = 0 })
+    ]);
+
     internal static readonly ControlStyle NavigationItems = new(StyleTarget.NavigationList,
     [
         new(StylePart.Root, new() { RowHeight = 28, FontSize = 12, Indentation = 12 }),

@@ -54,6 +54,8 @@ Revisiting a folder moves it to the top without creating a duplicate.
 Older saved lists are trimmed on load. Bookmarks are unchanged.
 It has no title header.
 Its filter searches item names and paths.
+The `ExplorerStyles.NavigationFilter` style matches the sidebar background in both themes, with only a thin bottom border.
+The filter retains native text input and keyboard focus feedback.
 The shared `ExplorerStyles.NavigationItems` style gives navigation lists compact rows, smaller text, and smaller icons.
 It uses 28-DIP rows, 12-DIP text, 16-DIP icons, and no extra row padding.
 The folder tree shows the ancestors and immediate child folders of the active location.
