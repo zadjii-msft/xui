@@ -26,5 +26,6 @@
     <AdditionalFiles Include="..\Designer\DesignerLayout.xui" />
     <AdditionalFiles Include="..\Designer\DesignerHierarchyLayout.xui" />
     <AdditionalFiles Include="..\Designer\DesignerInspectorLayout.xui" />
+    <AdditionalFiles Include="..\Designer\DesignerControlPaletteLayout.xui" />
   </ItemGroup>
 </Project>

@@ -263,15 +263,21 @@ Later layout changes can hide an outline that was initially visible.
 
 ### Preview sizes
 
-The preview size selector provides **Fit**, **Compact**, **Medium**, **Wide**, and **Custom**.
+The preview size button beside **Commands** opens a native, anchored flyout.
+The size settings do not occupy the live-preview pane.
+The selector provides **Fit**, **Compact**, **Medium**, **Wide**, and **Custom**.
 Fit fills the available preview pane.
 Compact requests a 360-by-640-DIP viewport.
 Medium requests 768 by 1024 DIP. Wide requests 1280 by 800 DIP.
 
+In Fit, the toolbar button shows the actual live-preview extent and updates after a resize.
+For a preset or custom size, the button shows the requested dimensions, such as **Wide - 1280x800**.
+**Reset cropping** restores Fit and the top scroll position.
+
 The width and height fields specify custom dimensions in device-independent pixels.
 Each custom dimension accepts whole numbers from 1 through 4096, without spaces, signs, or fractions.
-**Apply** changes the viewport without compiling source or resetting authored control state.
-The dimension label shows the actual arranged size.
+**Set** changes the viewport without compiling source or resetting authored control state.
+The dimension label inside the flyout shows the actual arranged size.
 Invalid custom dimensions leave the current viewport unchanged and show an error.
 The fields retain invalid text for correction.
 
@@ -281,6 +287,8 @@ If the requested width exceeds the pane width, the viewport fits the pane and sh
 The source-preview divider can provide more width.
 The presets change layout constraints, not display scaling or device emulation.
 Preview picking and source outlines retain their existing version checks.
+Escape or an outside click closes the flyout without changing the viewport.
+Opening either toolbar flyout turns off **Pick controls** and leaves normal native input available.
 
 ### Properties and structure
 
@@ -401,6 +409,11 @@ Reset compiles the candidate and creates one native undo operation.
 It does not remove positional operands, expressions, references, or comments inside the argument.
 Required arguments and unsafe Grid changes produce an error without changing source.
 
+**Add control...** in the toolbar opens the control palette in a native, anchored flyout.
+The inspector retains its property and structure controls without an always-visible palette.
+**Focus: Search control palette** in Commands opens the same flyout and focuses its search field.
+Escape or an outside click closes the flyout. The query and Grid coordinates remain available on reopening.
+
 The palette filters controls by name and description.
 **Find a control** accepts case-insensitive terms such as `button`, `slider`, `table`, or `layout`.
 Multiple terms must all match the control name or description.
@@ -413,6 +426,8 @@ The filter remains available during source errors and pending edits, without cha
 **Insert before** and **Insert after** add a sibling beside the selected control.
 Sibling insertion requires a VStack, HStack, or Grid parent.
 The new control becomes the hierarchy and source selection after compilation.
+A successful insertion closes the flyout before it focuses the source editor.
+Validation errors remain visible in the flyout and inspector.
 The root cannot gain siblings, and fixed-child containers retain their required child counts.
 Grid insertion and duplication require an empty, valid row and column.
 For Grid siblings, before/after changes source order. The row and column fields determine visual placement.

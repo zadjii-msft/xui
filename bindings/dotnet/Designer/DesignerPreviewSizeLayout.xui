@@ -1,0 +1,30 @@
+namespace Xui.Designer;
+
+component DesignerPreviewSizeLayout {
+    param global::Xui.Element Presets;
+
+    view {
+        Popup("Preview size and cropping", id: "designer-viewport-flyout", preferredSize: (340, 260),
+            placement: global::Xui.PopupPlacement.Below, windowBackground: true) {
+            ScrollView("Preview size settings") {
+                VStack(padding: 12, spacing: 8) {
+                    Text("Preview size and cropping", fontSize: 18, fontWeight: 600);
+                    Content(Presets, preferredSize: (300, 36));
+                    HStack(spacing: 6) {
+                        TextInput("Viewport width in DIP", ref: Width, id: "designer-viewport-width",
+                            captionVisible: false, placeholder: "Width", preferredSize: (90, 32), flex: 1);
+                        TextInput("Viewport height in DIP", ref: Height, id: "designer-viewport-height",
+                            captionVisible: false, placeholder: "Height", preferredSize: (90, 32), flex: 1);
+                        Button("Set", ref: Apply, id: "designer-viewport-apply", size: (44, 32),
+                            help: "Apply custom dimensions, from 1 to 4096 DIP. Width cannot exceed the preview pane.");
+                    }
+                    Text("Fit", ref: Dimensions, id: "designer-viewport-dimensions", fontSize: 12);
+                    Text("", ref: Status, id: "designer-viewport-status", fontSize: 12, wrapping: true,
+                        preferredSize: (300, 32));
+                    Button("Reset cropping", ref: Reset, id: "designer-viewport-reset",
+                        help: "Restore Fit to fill the available live preview pane");
+                }
+            }
+        }
+    }
+}

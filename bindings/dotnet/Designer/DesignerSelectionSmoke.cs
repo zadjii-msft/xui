@@ -145,13 +145,44 @@ internal sealed partial class DesignerApplication
                 Require(ButtonText() == "Activated" && editor.Selection.Start ==
                     (ulong)workspace.Document!.Root!.Children[1].Span.Start,
                     "Native pointer picking remains source-aligned inside a fixed-size viewport.");
-                viewport.SelectPreset(DesignerViewportPreset.Fit);
+                view.PreviewSize.Invoke();
+            });
+            await Until(() => viewport.IsOpen && !pickControls);
+            await Ui(() =>
+            {
+                Require(!window.KeyHandler!(new('S', KeyModifiers.Control, viewport.Settings.Width.Id)) &&
+                    !window.KeyHandler!(new(0x0D, KeyModifiers.Control, viewport.Settings.Width.Id)),
+                    "Source and file shortcuts leave native size-flyout input alone.");
+                viewport.SelectPreset(DesignerViewportPreset.Wide);
+                Require(view.PreviewSize.Text == "Wide - 1280x800",
+                    "The shell reports requested Wide dimensions rather than the pane-capped width.");
+                viewport.Settings.Reset.Invoke();
             });
             await Until(() => viewport.Preset == DesignerViewportPreset.Fit);
             await Ui(() =>
             {
                 Require(version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
                     "Returning to Fit retains the same live preview and authored state.");
+                view.AddControl.Invoke();
+            });
+            await Until(() => workspace.Inspector.IsPaletteOpen && !viewport.IsOpen);
+            await Ui(() =>
+            {
+                Require(!window.KeyHandler!(new('S', KeyModifiers.Control, workspace.Inspector.PaletteLayout.PaletteFilter.Id)) &&
+                    !window.KeyHandler!(new('F', KeyModifiers.Control, workspace.Inspector.PaletteLayout.PaletteFilter.Id)),
+                    "Source and file shortcuts leave native Add control input alone.");
+                Require(version == styledVersion && ButtonText() == "Activated",
+                    "Switching toolbar flyouts preserves the native preview and authored state.");
+                workspace.Inspector.DismissPalette();
+                view.Pick.Invoke();
+            });
+            await Until(() => pickControls);
+            await Ui(view.AddControl.Invoke);
+            await Until(() => workspace.Inspector.IsPaletteOpen && !pickControls);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.PaletteLayout.PaletteFilter.Focused,
+                    "Add control leaves pointer-pick mode before opening and focusing native input.");
                 view.Commands.Invoke();
             });
             await Until(() => commandPalette.IsOpen && !pickControls);
@@ -428,14 +459,14 @@ internal sealed partial class DesignerApplication
             await Ui(view.Commands.Invoke);
             await Until(() => commandPalette.IsOpen);
             await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusPalette));
-            await Until(() => !commandPalette.IsOpen);
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.IsPaletteOpen);
             await Ui(() =>
             {
-                var field = workspace.Inspector.Layout.PaletteFilter.GetBounds();
-                var panel = view.InspectorPanel.GetBounds();
-                Require(workspace.Inspector.Layout.PaletteFilter.Focused &&
+                var field = workspace.Inspector.PaletteLayout.PaletteFilter.GetBounds();
+                var panel = workspace.Inspector.PaletteLayout.Root.GetBounds();
+                Require(workspace.Inspector.PaletteLayout.PaletteFilter.Focused &&
                     field.Y >= panel.Y && field.Y + field.Height <= panel.Y + panel.Height,
-                    "The control-palette focus command reveals its native field inside the inspector.");
+                    "The control-palette focus command opens and focuses the anchored native flyout.");
             });
             await Ui(() =>
             {
@@ -860,19 +891,21 @@ internal sealed partial class DesignerApplication
             await Ui(() =>
             {
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
-                workspace.Inspector.Layout.PaletteFilter.Text = "button";
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "button";
                 workspace.Inspector.FilterPalette();
-                workspace.Inspector.Layout.InsertBefore.Focus();
+                view.AddControl.Invoke();
             });
+            await Until(() => workspace.Inspector.IsPaletteOpen);
+            await Ui(() => workspace.Inspector.PaletteLayout.InsertBefore.Focus());
             await Ui(() =>
             {
-                var before = workspace.Inspector.Layout.InsertBefore.GetBounds();
-                var after = workspace.Inspector.Layout.InsertAfter.GetBounds();
-                var panel = view.InspectorPanel.GetBounds();
+                var before = workspace.Inspector.PaletteLayout.InsertBefore.GetBounds();
+                var after = workspace.Inspector.PaletteLayout.InsertAfter.GetBounds();
+                var panel = workspace.Inspector.PaletteLayout.Root.GetBounds();
                 Require(before.Width >= 80 && after.Width >= 80 && before.Y >= panel.Y &&
                     after.Y + after.Height <= panel.Y + panel.Height && after.X + after.Width <= panel.X + panel.Width,
-                    "Both sibling insertion actions are visible and usable inside the narrow scrollable inspector.");
-                workspace.Inspector.Layout.InsertBefore.Invoke();
+                    "Both sibling insertion actions are visible and usable inside the control palette flyout.");
+                workspace.Inspector.PaletteLayout.InsertBefore.Invoke();
             });
             await Ready();
             await Ui(() =>
@@ -894,10 +927,10 @@ internal sealed partial class DesignerApplication
                 var root = workspace.Document!.Root!;
                 editor.Selection = new((ulong)root.Span.Start, (ulong)root.Span.Start);
                 workspace.SelectFromCaret();
-                workspace.Inspector.Layout.PaletteFilter.Text = "Grid";
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "Grid";
                 workspace.Inspector.FilterPalette();
                 Require(workspace.Inspector.Template == ControlTemplate.Grid, "The Grid palette template is available.");
-                workspace.Inspector.Layout.Insert.Invoke();
+                workspace.Inspector.PaletteLayout.Insert.Invoke();
             });
             await Ready();
             await Ui(() =>
@@ -906,13 +939,13 @@ internal sealed partial class DesignerApplication
                 Require(grid.Kind == "Grid" && ReferenceEquals(workspace.Hierarchy.Selection, grid),
                     "The new empty Grid becomes the current selection.");
                 string before = editor.Text;
-                workspace.Inspector.Layout.FindCell.Invoke();
-                Require(workspace.Inspector.Layout.Row.Text == "0" && workspace.Inspector.Layout.Column.Text == "0" &&
+                workspace.Inspector.PaletteLayout.FindCell.Invoke();
+                Require(workspace.Inspector.PaletteLayout.Row.Text == "0" && workspace.Inspector.PaletteLayout.Column.Text == "0" &&
                     editor.Text == before && preview.AppliedVersion == version,
                     "Finding an empty cell preserves the live preview and source.");
-                workspace.Inspector.Layout.PaletteFilter.Text = "button";
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "button";
                 workspace.Inspector.FilterPalette();
-                workspace.Inspector.Layout.Insert.Invoke();
+                workspace.Inspector.PaletteLayout.Insert.Invoke();
             });
             await Ready();
             await Ui(() =>

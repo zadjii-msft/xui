@@ -82,8 +82,8 @@ internal static partial class Program
                 {
                     Require(editor.Text == initial, "The structural move retains one native source undo operation.");
                     Check(workspace.Document!.Root!.Children[4].Children[0], true, false, false, false);
-                    inspector.Layout.Row.Text = "0";
-                    inspector.Layout.Column.Text = "1";
+                    inspector.PaletteLayout.Row.Text = "0";
+                    inspector.PaletteLayout.Column.Text = "1";
                     workspace.Duplicate();
                 });
                 await Ready();

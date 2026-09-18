@@ -36,7 +36,7 @@ internal sealed partial class DesignerApplication
         if (disposed || !pickControls || picked.Version != version || preview.AppliedVersion != picked.Version ||
             previewSource is not { } source || source.Version != picked.Version) return;
         workspace.SelectFromPreview(source.Source, picked.NodeId);
-        ReportPicking(workspace.Inspector.Layout.Feedback.Text);
+        ReportPicking(workspace.Inspector.Feedback);
     }
 
     private void ReportPicking(string message, bool error = false)

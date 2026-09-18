@@ -63,6 +63,7 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, viewport.View, templates, window);
+            viewport.SetToolbarButton(view.PreviewSize);
             preview.Picked += OnPreviewPicked;
             view.Pick.Changed += RequestPicking;
             workspace.SelectionChanged += RequestHighlight;
@@ -93,12 +94,14 @@ internal sealed partial class DesignerApplication : IDisposable
             view.Live.Changed += value => { live = value; Schedule(); };
             view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); Schedule(immediate: true); };
             view.Commands.Click += ShowCommands;
+            view.PreviewSize.Click += ShowPreviewSize;
+            view.AddControl.Click += ShowControlPalette;
             view.GoToLine.Click += ShowGoTo;
             window.KeyHandler = key =>
             {
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'P')
                 { ShowCommands(); return true; }
-                if (commandPalette.IsOpen) return false;
+                if (commandPalette.IsOpen || viewport.IsOpen || workspace.Inspector.IsPaletteOpen) return false;
                 if (editor.Focused && key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'G')
                 { ShowGoTo(); return true; }
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'S') { Save(); return true; }

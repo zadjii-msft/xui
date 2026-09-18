@@ -50,10 +50,10 @@ internal static partial class Program
                 {
                     initial = editor.Text;
                     Select(workspace.Document!.Root!.Children[1]);
-                    inspector.Layout.PaletteFilter.Text = "label";
+                    inspector.PaletteLayout.PaletteFilter.Text = "label";
                     inspector.FilterPalette();
                     Require(inspector.Template == ControlTemplate.Text, "Sibling actions use the filtered palette selection.");
-                    inspector.Layout.InsertBefore.Invoke();
+                    inspector.PaletteLayout.InsertBefore.Invoke();
                 });
                 await Ready();
                 await Ui(() =>
@@ -84,7 +84,7 @@ internal static partial class Program
                 await Ui(() =>
                 {
                     Select(workspace.Document!.Root!.Children[1]);
-                    inspector.Layout.InsertAfter.Invoke();
+                    inspector.PaletteLayout.InsertAfter.Invoke();
                 });
                 await Ready();
                 await Ui(() =>
@@ -100,7 +100,7 @@ internal static partial class Program
                 await Ui(() =>
                 {
                     Select(workspace.Document!.Root!.Children[5].Children[0]);
-                    inspector.Layout.InsertAfter.Invoke();
+                    inspector.PaletteLayout.InsertAfter.Invoke();
                 });
                 await Ready();
                 await Ui(() =>
@@ -113,9 +113,9 @@ internal static partial class Program
                 await Ui(() =>
                 {
                     Select(workspace.Document!.Root!.Children[3].Children[0]);
-                    inspector.Layout.Row.Text = "0";
-                    inspector.Layout.Column.Text = "1";
-                    inspector.Layout.InsertBefore.Invoke();
+                    inspector.PaletteLayout.Row.Text = "0";
+                    inspector.PaletteLayout.Column.Text = "1";
+                    inspector.PaletteLayout.InsertBefore.Invoke();
                 });
                 await Ready();
                 await Ui(() =>
@@ -129,22 +129,22 @@ internal static partial class Program
                 await Ui(() =>
                 {
                     Select(workspace.Document!.Root!.Children[3].Children[0]);
-                    inspector.Layout.Column.Text = "0";
-                    inspector.Layout.InsertAfter.Invoke();
+                    inspector.PaletteLayout.Column.Text = "0";
+                    inspector.PaletteLayout.InsertAfter.Invoke();
                 });
                 await Ready();
                 await Ui(() =>
                 {
                     Require(editor.Text == initial && inspector.Layout.Feedback.Text.Contains("overlaps", StringComparison.Ordinal),
                         "An occupied Grid cell refuses insertion without a source change.");
-                    inspector.Layout.Column.Text = "-1";
-                    inspector.Layout.InsertBefore.Invoke();
+                    inspector.PaletteLayout.Column.Text = "-1";
+                    inspector.PaletteLayout.InsertBefore.Invoke();
                     Require(!workspace.IsBusy && editor.Text == initial &&
                         inspector.Layout.Feedback.Text.Contains("non-negative", StringComparison.Ordinal),
                         "Invalid Grid coordinates are rejected before compilation.");
                     Select(workspace.Document!.Root!);
-                    Disabled(inspector.Layout.InsertBefore);
-                    Disabled(inspector.Layout.InsertAfter);
+                    Disabled(inspector.PaletteLayout.InsertBefore);
+                    Disabled(inspector.PaletteLayout.InsertAfter);
                     workspace.InsertSibling(after: false);
                 });
                 await Ready();
@@ -153,7 +153,7 @@ internal static partial class Program
                     Require(editor.Text == initial && inspector.Layout.Feedback.Text.Contains("root", StringComparison.Ordinal),
                         "A direct sibling command also refuses the component root.");
                     Select(workspace.Document!.Root!.Children[4].Children[0]);
-                    Disabled(inspector.Layout.InsertBefore);
+                    Disabled(inspector.PaletteLayout.InsertBefore);
                     workspace.InsertSibling(after: true);
                 });
                 await Ready();
@@ -162,17 +162,17 @@ internal static partial class Program
                     Require(editor.Text == initial && inspector.Layout.Feedback.Text.Contains("exactly", StringComparison.Ordinal),
                         "A fixed-child container refuses extra siblings through the model.");
                     Select(workspace.Document!.Root!.Children[1]);
-                    inspector.Layout.PaletteFilter.Text = "no-such-template";
+                    inspector.PaletteLayout.PaletteFilter.Text = "no-such-template";
                     inspector.FilterPalette();
-                    Disabled(inspector.Layout.InsertBefore);
-                    Disabled(inspector.Layout.InsertAfter);
+                    Disabled(inspector.PaletteLayout.InsertBefore);
+                    Disabled(inspector.PaletteLayout.InsertAfter);
                     workspace.InsertSibling(after: true);
                     Require(!workspace.IsBusy && editor.Text == initial &&
                         inspector.Layout.Feedback.Text.Contains("Choose a control", StringComparison.Ordinal),
                         "Empty palette results cannot silently insert a default template.");
-                    inspector.Layout.PaletteFilter.Text = "label";
+                    inspector.PaletteLayout.PaletteFilter.Text = "label";
                     inspector.FilterPalette();
-                    inspector.Layout.InsertBefore.Invoke();
+                    inspector.PaletteLayout.InsertBefore.Invoke();
                     editor.ReplaceRange(new(0, 0), editor.Text, "// concurrent typing\r");
                 });
                 await Ready();

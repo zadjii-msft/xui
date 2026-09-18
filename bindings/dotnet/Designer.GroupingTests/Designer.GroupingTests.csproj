@@ -19,6 +19,7 @@
     <Compile Include="..\Designer\DesignerLiteralCodec.cs" Link="DesignerLiteralCodec.cs" />
     <AdditionalFiles Include="..\Designer\DesignerHierarchyLayout.xui" />
     <AdditionalFiles Include="..\Designer\DesignerInspectorLayout.xui" />
+    <AdditionalFiles Include="..\Designer\DesignerControlPaletteLayout.xui" />
     <ProjectReference Include="..\Xui\Xui.csproj" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
     <Analyzer Include="..\Xui.Generator\bin\$(Configuration)\net10.0\Xui.Generator.dll" />

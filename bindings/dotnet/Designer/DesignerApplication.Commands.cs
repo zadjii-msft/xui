@@ -5,7 +5,23 @@ internal sealed partial class DesignerApplication
     private void ShowCommands()
     {
         RequestPicking(false);
+        viewport.Dismiss();
+        workspace.Inspector.DismissPalette();
         commandPalette.Show();
+    }
+
+    private void ShowPreviewSize()
+    {
+        RequestPicking(false);
+        workspace.Inspector.DismissPalette();
+        viewport.Show(view.PreviewSize);
+    }
+
+    private void ShowControlPalette()
+    {
+        RequestPicking(false);
+        viewport.Dismiss();
+        workspace.Inspector.ShowPalette(view.AddControl);
     }
 
     private void ShowGoTo()
@@ -64,7 +80,7 @@ internal sealed partial class DesignerApplication
             CanExecute: () => workspace.CanCollapseHierarchy),
         new(DesignerCommandId.CancelHierarchyExpansion, "Hierarchy: Cancel expansion", workspace.CancelHierarchyExpansion,
             CanExecute: () => workspace.IsExpandingHierarchy),
-        new(DesignerCommandId.FocusPalette, "Focus: Search control palette", () => workspace.Inspector.Layout.PaletteFilter.Focus()),
+        new(DesignerCommandId.FocusPalette, "Focus: Search control palette", ShowControlPalette),
         new(DesignerCommandId.FocusPropertySearch, "Properties: Find a property", () => workspace.Inspector.Layout.ArgumentFilter.Focus()),
         new(DesignerCommandId.FocusProperty, "Focus: Property value", workspace.Inspector.FocusValue,
             CanExecute: () => workspace.IsCurrent && workspace.Hierarchy.Selection is not null),

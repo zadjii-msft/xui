@@ -367,7 +367,11 @@ The navigation UI test covers diagnostic buttons, F8 routing, exact native selec
 It also covers the native Go to dialog in Classic and WinUI, Unicode boundaries, Enter/Escape, revision guards, cancellation, and undo.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
 It also covers Unicode word boundaries, single and bulk replacement, no-op edits, native undo and redo, and atomic length-limit errors.
-The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, retained preview state, and controls inside a narrow pane.
+The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, and retained preview state.
+It also covers the anchored size flyout, Reset cropping, requested versus actual dimensions, native Escape, and a narrow preview pane.
+The workspace UI test covers the Add control flyout in both styles, native query input, focus restoration, source guards, cancellation, and disposal.
+The layout UI test checks toolbar spacing at the default width and at 980 DIP.
+Run native UI suites sequentially because they share desktop focus.
 The command UI test uses the native CommandSurface in Classic and WinUI.
 It covers native query input, Enter, Escape, focus, disabled commands, changed availability, duplicate invocation, cancellation, and source undo.
 The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.

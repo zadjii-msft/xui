@@ -2,37 +2,11 @@ namespace Xui.Designer;
 
 component DesignerPreviewViewportLayout {
     param global::Xui.Element Preview;
-    param global::Xui.Element Presets;
-
-    style Toolbar for Stack {
-        padding: 6;
-        spacing: 4;
-        background: theme(light: 0xF3F3F3, dark: 0x272727);
-        borderBrush: theme(light: 0xCCCCCC, dark: 0x454545);
-        borderThickness: 1;
-        cornerRadius: 4;
-    }
 
     view {
-        VStack(spacing: 4) {
-            VStack(style: Toolbar, ref: ToolbarHost) {
-                Content(Presets, preferredSize: (180, 32));
-                HStack(spacing: 4) {
-                    TextInput("Viewport width in DIP", ref: Width, id: "designer-viewport-width",
-                        captionVisible: false, placeholder: "Width", preferredSize: (70, 32), flex: 1);
-                    TextInput("Viewport height in DIP", ref: Height, id: "designer-viewport-height",
-                        captionVisible: false, placeholder: "Height", preferredSize: (70, 32), flex: 1);
-                    Button("Set", ref: Apply, id: "designer-viewport-apply", size: (44, 32),
-                        help: "Apply custom dimensions, from 1 to 4096 DIP. Width cannot exceed the preview pane.");
-                }
-                Text("Fit", ref: Dimensions, id: "designer-viewport-dimensions", fontSize: 12);
-                Text("", ref: Status, id: "designer-viewport-status", fontSize: 12, wrapping: true,
-                    preferredSize: (180, 32));
-            }
-            ScrollView("Preview viewport. Vertical scrolling.", ref: Scroll, id: "designer-viewport-scroll", flex: 1) {
-                VStack(ref: Surface, preferredSize: (0, 0)) {
-                    Content(Preview, flex: 1);
-                }
+        ScrollView("Preview viewport. Vertical scrolling.", ref: Scroll, id: "designer-viewport-scroll") {
+            VStack(ref: Surface, preferredSize: (0, 0)) {
+                Content(Preview, flex: 1);
             }
         }
     }

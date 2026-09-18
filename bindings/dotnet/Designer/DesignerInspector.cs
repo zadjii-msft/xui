@@ -2,8 +2,11 @@ using Xui.Generator;
 
 namespace Xui.Designer;
 
-internal sealed class DesignerInspector
+internal sealed class DesignerInspector : IDisposable
 {
+    private readonly Window window;
+    private bool disposed;
+    private long paletteRequest;
     private readonly ComboBox arguments;
     private readonly ComboBox palette;
     private XuiSourceNode? node;
@@ -24,6 +27,13 @@ internal sealed class DesignerInspector
     private ControlTemplate[] matchingTemplates = [];
 
     internal DesignerInspectorLayout Layout { get; }
+    internal DesignerControlPaletteLayout PaletteLayout { get; }
+    internal bool IsPaletteOpen => !disposed && PaletteLayout.Root.IsOpen;
+    internal string Feedback
+    {
+        get => Layout.Feedback.Text;
+        set { Layout.Feedback.Text = value; PaletteLayout.Feedback.Text = value; }
+    }
     internal MultilineText Value { get; }
     internal string? Argument => argumentIndex >= 0 && argumentIndex < names.Length ? names[argumentIndex] : null;
     internal ControlTemplate? Template { get; private set; } = ControlTemplate.Text;
@@ -44,11 +54,14 @@ internal sealed class DesignerInspector
 
     internal DesignerInspector(Window window)
     {
+        this.window = window;
         arguments = window.ComboBox("Selected control argument", false).SetAutomationId("designer-arguments");
         palette = window.ComboBox("Control insertion template", false).SetAutomationId("designer-control-palette");
         Value = window.MultilineText("Argument value").SetMaximumLength(65536).SetAutomationId("designer-property-value");
         Value.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 13 });
-        Layout = new DesignerInspectorLayout(window, arguments, Value, palette, attach: false);
+        Layout = new DesignerInspectorLayout(window, arguments, Value, attach: false);
+        PaletteLayout = new DesignerControlPaletteLayout(window, palette, attach: false);
+        window.Closed += OnClosed;
         Layout.TextMode.Changed += ChangeTextMode;
         Layout.DimensionMode.Changed += ChangeDimensionMode;
         Layout.BooleanMode.Changed += ChangeBooleanMode;
@@ -58,12 +71,12 @@ internal sealed class DesignerInspector
             booleanValue = value;
             Layout.BooleanValue.Text = value ? "Value: true" : "Value: false";
         };
-        Layout.PaletteFilter.Event += e => { if (e.Kind == EventKind.Change) FilterPalette(); };
-        Layout.ClearPaletteFilter.Click += () =>
+        PaletteLayout.PaletteFilter.Event += e => { if (e.Kind == EventKind.Change) FilterPalette(); };
+        PaletteLayout.ClearPaletteFilter.Click += () =>
         {
-            Layout.PaletteFilter.Text = "";
+            PaletteLayout.PaletteFilter.Text = "";
             FilterPalette();
-            Layout.PaletteFilter.Focus();
+            PaletteLayout.PaletteFilter.Focus();
         };
         Layout.ArgumentFilter.Event += e => { if (e.Kind == EventKind.Change) FilterArguments(); };
         Layout.AuthoredOnly.Changed += value => { authoredOnly = value; FilterArguments(); };
@@ -95,6 +108,37 @@ internal sealed class DesignerInspector
         Show(null, null, false);
     }
 
+    internal void ShowPalette(Control anchor)
+    {
+        window.VerifyAccess();
+        ObjectDisposedException.ThrowIf(disposed, this);
+        long request = ++paletteRequest;
+        if (!window.Post(() =>
+        {
+            if (disposed || request != paletteRequest) return;
+            if (!PaletteLayout.Root.IsOpen) PaletteLayout.Root.Show(anchor);
+            PaletteLayout.PaletteFilter.Focus();
+        })) throw new InvalidOperationException("The window rejected the control palette request.");
+    }
+
+    internal void DismissPalette()
+    {
+        window.VerifyAccess();
+        paletteRequest++;
+        if (IsPaletteOpen) PaletteLayout.Root.Dismiss();
+    }
+
+    private void OnClosed(WindowClosedEventArgs _) => Dispose();
+
+    public void Dispose()
+    {
+        window.VerifyAccess();
+        if (disposed) return;
+        DismissPalette();
+        disposed = true;
+        window.Closed -= OnClosed;
+    }
+
     internal void Show(XuiSourceNode? selected, XuiSourceNode? parent, bool canEdit, bool validating = false)
     {
         string? preferred = ReferenceEquals(node, selected) ? Argument : selected?.Arguments.FirstOrDefault(a => a.IsPositional)?.Name;
@@ -121,10 +165,10 @@ internal sealed class DesignerInspector
         Layout.Unwrap.Enabled = CanUnwrap = canEdit && selected?.BodySpan is not null && selected.Children.Count == 1;
         UpdatePaletteState();
         bool grid = selected?.Kind == "Grid" || parent?.Kind == "Grid";
-        Layout.Row.Enabled = canEdit && grid;
-        Layout.Column.Enabled = canEdit && grid;
-        Layout.FindCell.Enabled = canEdit && grid;
-        Layout.FindCell.Help(selected?.Kind == "Grid"
+        PaletteLayout.Row.Enabled = canEdit && grid;
+        PaletteLayout.Column.Enabled = canEdit && grid;
+        PaletteLayout.FindCell.Enabled = canEdit && grid;
+        PaletteLayout.FindCell.Help(selected?.Kind == "Grid"
             ? "Find the first empty one-cell position in the selected Grid"
             : "Find the first empty one-cell position in the selected control's parent Grid");
         Layout.StructureHelp.Text = selected is null ? "Select a control to change its structure."
@@ -166,7 +210,7 @@ internal sealed class DesignerInspector
 
     internal void FilterPalette()
     {
-        matchingTemplates = FindTemplates(Layout.PaletteFilter.Text);
+        matchingTemplates = FindTemplates(PaletteLayout.PaletteFilter.Text);
         if (Template is not { } selected || !matchingTemplates.Contains(selected))
             Template = matchingTemplates.Length == 0 ? null : matchingTemplates[0];
         updatingPalette = true;
@@ -181,12 +225,12 @@ internal sealed class DesignerInspector
 
     private void UpdatePaletteState()
     {
-        Layout.Insert.Enabled = editable && (node?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
-        Layout.InsertBefore.Enabled = Layout.InsertAfter.Enabled = editable && node is not null &&
+        PaletteLayout.Insert.Enabled = editable && (node?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
+        PaletteLayout.InsertBefore.Enabled = PaletteLayout.InsertAfter.Enabled = editable && node is not null &&
             (parent?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
         palette.Enabled = matchingTemplates.Length > 0;
         string count = matchingTemplates.Length == 1 ? "1 control." : $"{matchingTemplates.Length} controls.";
-        Layout.PaletteHelp.Text = Template is { } template
+        PaletteLayout.PaletteHelp.Text = Template is { } template
             ? $"{count} {DescribeTemplate(template)}"
             : matchingTemplates.Length == 0 ? "No controls match. Change or clear the filter." : "Choose a control from the palette.";
     }
@@ -249,7 +293,7 @@ internal sealed class DesignerInspector
     {
         if (!CanRevertDraft)
         {
-            Layout.Feedback.Text = "Select an editable literal property before reverting its draft.";
+            Feedback = "Select an editable literal property before reverting its draft.";
             return;
         }
         bool restoreText = textMode, restoreDimensions = dimensionMode, restoreBoolean = booleanMode, restoreInsets = insetsMode;
@@ -258,7 +302,7 @@ internal sealed class DesignerInspector
         else if (restoreDimensions) { Layout.DimensionMode.Checked = true; ChangeDimensionMode(true); }
         else if (restoreBoolean) { Layout.BooleanMode.Checked = true; ChangeBooleanMode(true); }
         else if (restoreInsets) { Layout.InsetsMode.Checked = true; ChangeInsetsMode(true); }
-        Layout.Feedback.Text = node!.Arguments.Any(argument => argument.Name == Argument)
+        Feedback = node!.Arguments.Any(argument => argument.Name == Argument)
             ? "Draft restored from source. No source edit was applied."
             : "Draft cleared. This property is not set in source.";
         FocusValue();
@@ -364,7 +408,7 @@ internal sealed class DesignerInspector
         if (!editable || !Layout.InsetsArgument || (!insetsMode && Value.ReadOnly))
         {
             Layout.InsetsMode.Checked = insetsMode;
-            Layout.Feedback.Text = "Insets mode requires editable padding or border thickness in the current source.";
+            Feedback = "Insets mode requires editable padding or border thickness in the current source.";
             return;
         }
         if (enabled)
@@ -374,7 +418,7 @@ internal sealed class DesignerInspector
                 out string bottom, out string? error))
             {
                 Layout.InsetsMode.Checked = false;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             insetsExpression = expression;
@@ -388,7 +432,7 @@ internal sealed class DesignerInspector
             if (!TryReadLiteral(out string expression, out string? error))
             {
                 Layout.InsetsMode.Checked = true;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             Value.Text = expression;
@@ -410,7 +454,7 @@ internal sealed class DesignerInspector
         if (!editable || !Layout.BooleanArgument || (!booleanMode && Value.ReadOnly))
         {
             Layout.BooleanMode.Checked = booleanMode;
-            Layout.Feedback.Text = "Boolean mode requires an editable true or false literal in the current source.";
+            Feedback = "Boolean mode requires an editable true or false literal in the current source.";
             return;
         }
         if (enabled)
@@ -419,7 +463,7 @@ internal sealed class DesignerInspector
             if (!DesignerLiteralCodec.TryDecodeBoolean(expression, out bool value, out string? error))
             {
                 Layout.BooleanMode.Checked = false;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             booleanExpression = expression;
@@ -432,7 +476,7 @@ internal sealed class DesignerInspector
             if (!TryReadLiteral(out string expression, out string? error))
             {
                 Layout.BooleanMode.Checked = true;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             Value.Text = expression;
@@ -454,7 +498,7 @@ internal sealed class DesignerInspector
         if (!editable || !Layout.DimensionArgument || (!dimensionMode && Value.ReadOnly))
         {
             Layout.DimensionMode.Checked = dimensionMode;
-            Layout.Feedback.Text = "Dimension mode requires an editable literal size in the current source.";
+            Feedback = "Dimension mode requires an editable literal size in the current source.";
             return;
         }
         if (enabled)
@@ -463,7 +507,7 @@ internal sealed class DesignerInspector
             if (!DesignerLiteralCodec.TryDecodeDimensions(expression, out string width, out string height, out string? error))
             {
                 Layout.DimensionMode.Checked = false;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             dimensionExpression = expression;
@@ -475,7 +519,7 @@ internal sealed class DesignerInspector
             if (!TryReadLiteral(out string expression, out string? error))
             {
                 Layout.DimensionMode.Checked = true;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             Value.Text = expression;
@@ -497,7 +541,7 @@ internal sealed class DesignerInspector
         if (!editable || Value.ReadOnly)
         {
             Layout.TextMode.Checked = textMode;
-            Layout.Feedback.Text = "Text mode requires an editable string literal in the current source.";
+            Feedback = "Text mode requires an editable string literal in the current source.";
             return;
         }
         if (enabled)
@@ -506,7 +550,7 @@ internal sealed class DesignerInspector
             if (!DesignerLiteralCodec.TryDecodeText(expression, out string text, out string? error))
             {
                 Layout.TextMode.Checked = false;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             textExpression = expression;
@@ -518,7 +562,7 @@ internal sealed class DesignerInspector
             if (!TryReadLiteral(out string expression, out string? error))
             {
                 Layout.TextMode.Checked = true;
-                Layout.Feedback.Text = error!;
+                Feedback = error!;
                 return;
             }
             textMode = false;

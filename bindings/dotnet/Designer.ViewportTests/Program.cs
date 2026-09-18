@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Xui;
 using Xui.Designer;
 
@@ -11,7 +12,8 @@ internal static class Program
     {
         try
         {
-            Run();
+            Run(VisualStyle.Classic);
+            Run(VisualStyle.WinUI);
             RunCloseLifetime();
             Console.WriteLine($"Designer viewport native assertions: {assertions} passed.");
             return 0;
@@ -29,10 +31,12 @@ internal static class Program
         Throws<ArgumentNullException>(() => new DesignerPreviewViewport(window, null!),
             "A null preview is rejected.");
         using var viewport = new DesignerPreviewViewport(window, preview);
-        window.SetContent(window.Stack().Add(viewport.View, 1));
+        var anchor = window.Button("Size");
+        window.SetContent(window.Stack().Add(anchor).Add(viewport.View, 1));
         window.Post(() =>
         {
-            viewport.Layout.Apply.Invoke();
+            viewport.Show(anchor);
+            viewport.Settings.Apply.Invoke();
             window.Close();
         });
         window.Run();
@@ -40,13 +44,15 @@ internal static class Program
             "Closing the window disposes the viewport and cancels posted sizing work.");
     }
 
-    private static void Run()
+    private static void Run(VisualStyle style)
     {
-        using var window = new Window("Designer viewport regression", 1700, 900, visualStyle: VisualStyle.WinUI);
+        using var window = new Window("Designer viewport regression", 1700, 900, visualStyle: style);
         window.SetShowActivated(false);
         var host = window.CreateContentHost();
         using var viewport = new DesignerPreviewViewport(window, host);
-        var frame = window.Stack().Add(viewport.View, 1).MaximumSize(1400, 720);
+        var anchor = window.Button("Size");
+        viewport.SetToolbarButton(anchor);
+        var frame = window.Stack().Add(anchor).Add(viewport.View, 1).MaximumSize(1400, 620);
         window.SetContent(frame);
         using var candidate = host.BeginUpdate();
         var previewRoot = window.Stack().Spacing(4);
@@ -74,6 +80,8 @@ internal static class Program
                     if (!ready) await Task.Delay(30);
                 }
                 float fitWidth = 0, fitHeight = 0;
+                await Ui(() => viewport.Show(anchor));
+                await Settle();
                 await Ui(() =>
                 {
                     Require(viewport.Preset == DesignerViewportPreset.Fit && viewport.RequestedSize is null,
@@ -84,14 +92,46 @@ internal static class Program
                     Require(fitHeight == viewport.Layout.Scroll.GetBounds().Height,
                         "Fit uses the scroll viewport height, not the preview's preferred height.");
                     viewport.RefreshDimensions();
-                    Require(viewport.Layout.Dimensions.Text.Contains($"{fitWidth:0.#} × {fitHeight:0.#}", StringComparison.Ordinal),
+                    Require(viewport.Settings.Dimensions.Text.Contains($"{fitWidth:0.#} × {fitHeight:0.#}", StringComparison.Ordinal),
                         "Fit reports the actual arranged dimensions.");
-                    Require(viewport.Layout.Apply.Text == "Set" && viewport.Layout.Width.GetBounds().Width > 30,
-                        "The native custom-dimension controls have usable bounds.");
-                    var style = viewport.Layout.ToolbarHost.GetControlStyleValues(StylePart.Root, effective: true);
-                    Require(style.Background == new ThemeColor(0xF3F3F3, 0x272727) &&
-                        style.BorderBrush == new ThemeColor(0xCCCCCC, 0x454545),
-                        "The viewport toolbar uses theme-aware colors.");
+                    Require(viewport.IsOpen && viewport.Settings.Apply.Text == "Set" &&
+                        viewport.Settings.Width.GetBounds().Width > 30 && viewport.Settings.Root.GetBounds().Y >=
+                        anchor.GetBounds().Y + anchor.GetBounds().Height,
+                        "The custom-dimension controls open in a native flyout below their anchor.");
+                    Require(anchor.Text == $"Fit - {fitWidth:0.#}x{fitHeight:0.#}",
+                        "The toolbar reports the actual Fit extent.");
+                    viewport.Settings.Width.Focus();
+                    Require(PostMessageW(GetFocus(), 0x0100, 0x1B, 0), "Post native Escape to the size field.");
+                });
+                await Settle();
+                await Ui(() =>
+                {
+                    Require(!viewport.IsOpen, "Escape closes the size flyout.");
+                    viewport.Show(anchor);
+                });
+                await Settle();
+                await Ui(() =>
+                {
+                    viewport.Presets.Popup.Show(viewport.Presets);
+                    viewport.Presets.Choices.Focus();
+                    Require(viewport.IsOpen && viewport.Presets.Popup.IsOpen,
+                        "The preset ComboBox opens its native popup inside the size flyout.");
+                    Require(PostMessageW(GetFocus(), 0x0100, 0x1B, 0), "Post native Escape to the preset choices.");
+                });
+                await Settle();
+                await Ui(() =>
+                {
+                    Require(viewport.IsOpen && !viewport.Presets.Popup.IsOpen,
+                        "The first Escape dismisses only the nested preset popup.");
+                    viewport.Settings.Width.Focus();
+                    Require(PostMessageW(GetFocus(), 0x0100, 0x1B, 0), "Post Escape to the parent flyout.");
+                });
+                await Settle();
+                await Ui(() =>
+                {
+                    Require(!viewport.IsOpen && !viewport.Settings.Width.Focused &&
+                        host.GetBounds().Width == fitWidth && host.GetBounds().Height == fitHeight,
+                        "Escape closes the native flyout without reserving preview space or leaving hidden focus.");
                     counter.Invoke();
                     input.Text = "State survives sizing";
                     input.Selection = new(2, 6);
@@ -126,7 +166,8 @@ internal static class Program
                 {
                     Size(Math.Min(1280, fitWidth), 800, "Wide");
                     Require(viewport.RequestedSize == (1280, 800), "Wide retains the requested dimensions.");
-                    viewport.SelectPreset(DesignerViewportPreset.Fit);
+                    Require(anchor.Text == "Wide - 1280x800", "Wide reports requested dimensions in the toolbar.");
+                    viewport.Settings.Reset.Invoke();
                 });
                 await Settle();
                 await Ui(() =>
@@ -141,9 +182,9 @@ internal static class Program
                     Require(candidate.Highlight(1) == ContentHighlightResult.Applied,
                         "The retained candidate still accepts an outline.");
                     candidate.Highlight(null);
-                    viewport.Layout.Width.Text = "240";
-                    viewport.Layout.Height.Text = "900";
-                    viewport.Layout.Apply.Invoke();
+                    viewport.Settings.Width.Text = "240";
+                    viewport.Settings.Height.Text = "900";
+                    viewport.Settings.Apply.Invoke();
                     Require(viewport.Preset == DesignerViewportPreset.Fit,
                         "The custom-size button defers layout changes until native dispatch returns.");
                 });
@@ -154,27 +195,27 @@ internal static class Program
                     Size(240, 900, "Custom");
                     foreach (string invalid in new[] { "", "0", "-1", "4097", "NaN", "Infinity", "1.5", " 20", "2147483648" })
                     {
-                        viewport.Layout.Width.Text = invalid;
-                        viewport.Layout.Height.Text = "800";
+                        viewport.Settings.Width.Text = invalid;
+                        viewport.Settings.Height.Text = "800";
                         Require(!viewport.ApplyCustom(), $"Invalid width '{invalid}' is rejected.");
                         Size(240, 900, "Invalid width preserves the last viewport");
-                        Require(viewport.Layout.Status.Text == "Enter whole dimensions from 1 to 4096 DIP.",
+                        Require(viewport.Settings.Status.Text == "Enter whole dimensions from 1 to 4096 DIP.",
                             "Invalid dimensions show a visible error.");
                     }
-                    viewport.Layout.Width.Text = "300";
-                    viewport.Layout.Height.Text = "0";
+                    viewport.Settings.Width.Text = "300";
+                    viewport.Settings.Height.Text = "0";
                     Require(!viewport.ApplyCustom() && viewport.RequestedSize == (240, 900),
                         "An invalid height does not partially apply a valid width.");
-                    viewport.Layout.Width.Text = "1";
-                    viewport.Layout.Height.Text = "1";
+                    viewport.Settings.Width.Text = "1";
+                    viewport.Settings.Height.Text = "1";
                     Require(viewport.ApplyCustom(), "The lower custom limit is accepted.");
                 });
                 await Settle();
                 await Ui(() =>
                 {
                     Size(1, 1, "Minimum custom size");
-                    viewport.Layout.Width.Text = "4096";
-                    viewport.Layout.Height.Text = "4096";
+                    viewport.Settings.Width.Text = "4096";
+                    viewport.Settings.Height.Text = "4096";
                     Require(viewport.ApplyCustom(), "The upper custom limit is accepted.");
                 });
                 await Settle();
@@ -182,27 +223,29 @@ internal static class Program
                 {
                     Size(fitWidth, 4096, "Maximum custom size caps width to the pane");
                     viewport.RefreshDimensions();
-                    Require(viewport.Layout.Status.Text.Contains("Width limited", StringComparison.Ordinal),
+                    Require(viewport.Settings.Status.Text.Contains("Width limited", StringComparison.Ordinal),
                         "A requested width beyond the pane has an explicit limitation.");
                     Throws<ArgumentOutOfRangeException>(() => viewport.SelectPreset((DesignerViewportPreset)99),
                         "An unknown preset is rejected.");
                     viewport.SelectPreset(DesignerViewportPreset.Compact);
                     frame.MaximumSize(438, 500);
+                    viewport.Show(anchor);
                 });
                 await Settle();
                 await Ui(() =>
                 {
                     Size(360, 640, "Compact in the default Designer pane");
-                    var toolbar = viewport.Layout.ToolbarHost.GetBounds();
-                    var width = viewport.Layout.Width.GetBounds();
-                    var height = viewport.Layout.Height.GetBounds();
-                    var apply = viewport.Layout.Apply.GetBounds();
-                    Require(toolbar.Width == 438 && width.Width >= 70 && height.Width >= 70 && apply.Width == 44,
-                        "The dimension controls remain usable in a 438-DIP Designer pane.");
+                    var toolbar = viewport.Settings.Root.GetBounds();
+                    var width = viewport.Settings.Width.GetBounds();
+                    var height = viewport.Settings.Height.GetBounds();
+                    var apply = viewport.Settings.Apply.GetBounds();
+                    Require(toolbar.Width == 340 && width.Width >= 70 && height.Width >= 70 && apply.Width == 44,
+                        "The size flyout has usable dimensions independent of the 438-DIP preview pane.");
                     Require(width.X + width.Width <= height.X && height.X + height.Width <= apply.X &&
                         apply.X + apply.Width <= toolbar.X + toolbar.Width &&
                         viewport.Presets.GetBounds().Width <= toolbar.Width,
-                        "The viewport selector and dimension controls stay inside the default Designer pane.");
+                        "The viewport selector and dimension controls stay inside the anchored flyout.");
+                    viewport.Dismiss();
                     frame.MaximumSize(240, 500);
                 });
                 await Task.Delay(600);
@@ -210,18 +253,23 @@ internal static class Program
                 {
                     var narrow = host.GetBounds();
                     Require(narrow.Width < 240 && narrow.Height == 640, "A narrow pane reflows width and retains the fixed height.");
-                    Require(viewport.Layout.Dimensions.Text.Contains($"{narrow.Width:0.#} × 640", StringComparison.Ordinal),
+                    Require(viewport.Settings.Dimensions.Text.Contains($"{narrow.Width:0.#} × 640", StringComparison.Ordinal),
                         "The dimension label follows a pane resize without an explicit refresh.");
-                    Require(viewport.Layout.Status.Text.Contains("Width limited", StringComparison.Ordinal),
+                    Require(viewport.Settings.Status.Text.Contains("Width limited", StringComparison.Ordinal),
                         "The resize reports the missing native horizontal-scroll support.");
+                    Require(anchor.Text == "Compact - 360x640",
+                        "A capped preview width does not replace the requested size in the toolbar.");
                     viewport.SelectPreset(DesignerViewportPreset.Fit);
                 });
-                await Settle();
+                await Task.Delay(600);
                 await Ui(() =>
                 {
                     Require(host.GetBounds().Height == viewport.Layout.Scroll.GetBounds().Height &&
                         host.GetBounds().Height < fitHeight, "Fit follows the resized pane.");
-                    frame.MaximumSize(1400, 720);
+                    var fit = host.GetBounds();
+                    Require(anchor.Text == $"Fit - {fit.Width:0.#}x{fit.Height:0.#}",
+                        "The dimension sampler updates the Fit toolbar label after pane resizing without an explicit refresh.");
+                    frame.MaximumSize(1400, 620);
                     window.SetTheme(Theme.Light);
                     window.SetVisualStyle(VisualStyle.Classic);
                     viewport.SelectPreset(DesignerViewportPreset.Compact);
@@ -230,7 +278,7 @@ internal static class Program
                 await Ui(() =>
                 {
                     Size(360, 640, "Classic compact");
-                    window.SetVisualStyle(VisualStyle.WinUI);
+                    window.SetVisualStyle(style);
                     viewport.SelectPreset(DesignerViewportPreset.Fit);
                 });
                 await Settle();
@@ -243,6 +291,9 @@ internal static class Program
                         "Theme, style, scrolling, and dimensions preserve the content and its callbacks.");
                     editor.Command(TextCommand.Undo);
                     Require(editor.Text == "Original", "Sizing preserves native preview undo history.");
+                    viewport.RefreshDimensions();
+                    Require(anchor.Text == $"Fit - {fitWidth:0.#}x{fitHeight:0.#}",
+                        "Reset cropping restores the current actual extent in the toolbar.");
                     viewport.Presets.Select((ulong)DesignerViewportPreset.Medium);
                     Require(viewport.Preset == DesignerViewportPreset.Fit, "Preset selection defers the layout change.");
                 });
@@ -297,4 +348,7 @@ internal static class Program
         catch (T) { assertions++; return; }
         throw new InvalidOperationException(message);
     }
+
+    [DllImport("user32.dll")] private static extern nint GetFocus();
+    [DllImport("user32.dll")] private static extern bool PostMessageW(nint window, uint message, nuint first, nint second);
 }

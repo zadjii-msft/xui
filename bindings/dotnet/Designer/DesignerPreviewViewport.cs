@@ -11,6 +11,8 @@ internal sealed class DesignerPreviewViewport : IDisposable
     private int disposed, refreshPending;
     private bool selecting;
     private string? error;
+    private Button? toolbarButton;
+    private long flyoutRequest;
 
     internal DesignerPreviewViewport(Window window, Element preview)
     {
@@ -27,13 +29,15 @@ internal sealed class DesignerPreviewViewport : IDisposable
             new(4, "Wide · 1280 × 800"),
             new(5, "Custom")
         ], 1);
-        Layout = new(window, preview, Presets, attach: false);
-        Layout.Width.Text = "360";
-        Layout.Height.Text = "640";
+        Layout = new(window, preview, attach: false);
+        Settings = new(window, Presets, attach: false);
+        Settings.Width.Text = "360";
+        Settings.Height.Text = "640";
         Presets.Event += OnPreset;
-        Layout.Apply.Click += QueueCustom;
-        Layout.Width.Submitted += QueueCustom;
-        Layout.Height.Submitted += QueueCustom;
+        Settings.Apply.Click += QueueCustom;
+        Settings.Width.Submitted += QueueCustom;
+        Settings.Height.Submitted += QueueCustom;
+        Settings.Reset.Click += QueueReset;
         window.Closed += OnClosed;
         // The binding has no layout notification. Sample bounds without changing sizing or preview ownership.
         dimensionsTimer = new Timer(_ => QueueDimensions(), null, 250, 250);
@@ -41,9 +45,38 @@ internal sealed class DesignerPreviewViewport : IDisposable
 
     internal Element View => Layout.Root;
     internal DesignerPreviewViewportLayout Layout { get; }
+    internal DesignerPreviewSizeLayout Settings { get; }
+    internal bool IsOpen => Volatile.Read(ref disposed) == 0 && Settings.Root.IsOpen;
     internal ComboBox Presets { get; }
     internal DesignerViewportPreset Preset { get; private set; } = DesignerViewportPreset.Fit;
     internal (int Width, int Height)? RequestedSize { get; private set; }
+
+    internal void SetToolbarButton(Button button)
+    {
+        Guard();
+        toolbarButton = button;
+        RefreshDimensions();
+    }
+
+    internal void Show(Control anchor)
+    {
+        Guard();
+        long request = ++flyoutRequest;
+        Queue(() =>
+        {
+            if (request != flyoutRequest) return;
+            RefreshDimensions();
+            if (!Settings.Root.IsOpen) Settings.Root.Show(anchor);
+            Presets.Focus();
+        });
+    }
+
+    internal void Dismiss()
+    {
+        Guard();
+        flyoutRequest++;
+        if (Settings.Root.IsOpen) Settings.Root.Dismiss();
+    }
 
     internal void SelectPreset(DesignerViewportPreset preset)
     {
@@ -71,7 +104,7 @@ internal sealed class DesignerPreviewViewport : IDisposable
     internal bool ApplyCustom()
     {
         Guard();
-        if (!TryDimension(Layout.Width.Text, out int width) || !TryDimension(Layout.Height.Text, out int height))
+        if (!TryDimension(Settings.Width.Text, out int width) || !TryDimension(Settings.Height.Text, out int height))
         {
             error = "Enter whole dimensions from 1 to 4096 DIP.";
             SynchronizeSelection();
@@ -90,8 +123,8 @@ internal sealed class DesignerPreviewViewport : IDisposable
     {
         Layout.Surface.FixedSize(width, height);
         RequestedSize = (width, height);
-        Layout.Width.Text = width.ToString(CultureInfo.InvariantCulture);
-        Layout.Height.Text = height.ToString(CultureInfo.InvariantCulture);
+        Settings.Width.Text = width.ToString(CultureInfo.InvariantCulture);
+        Settings.Height.Text = height.ToString(CultureInfo.InvariantCulture);
     }
 
     private void CompleteSelection(DesignerViewportPreset preset)
@@ -118,6 +151,7 @@ internal sealed class DesignerPreviewViewport : IDisposable
     }
 
     private void QueueCustom() => Queue(() => ApplyCustom());
+    private void QueueReset() => Queue(() => SelectPreset(DesignerViewportPreset.Fit));
 
     private void Queue(Action action)
     {
@@ -136,8 +170,15 @@ internal sealed class DesignerPreviewViewport : IDisposable
         string status = error ?? (RequestedSize is { } requested && bounds.Width < requested.Width
             ? $"Width limited to the pane. Requested: {requested.Width} DIP."
             : "Vertical scrolling. Width fits the pane.");
-        if (Layout.Dimensions.Text != dimensions) Layout.Dimensions.Text = dimensions;
-        if (Layout.Status.Text != status) Layout.Status.Text = status;
+        if (Settings.Dimensions.Text != dimensions) Settings.Dimensions.Text = dimensions;
+        if (Settings.Status.Text != status) Settings.Status.Text = status;
+        if (toolbarButton is not null)
+        {
+            string text = RequestedSize is { } size
+                ? $"{Preset} - {size.Width}x{size.Height}"
+                : string.Create(CultureInfo.InvariantCulture, $"Fit - {bounds.Width:0.#}x{bounds.Height:0.#}");
+            if (toolbarButton.Text != text) toolbarButton.Text = text;
+        }
     }
 
     private void QueueDimensions()
@@ -163,10 +204,14 @@ internal sealed class DesignerPreviewViewport : IDisposable
         window.VerifyAccess();
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         dimensionsTimer.Dispose();
+        flyoutRequest++;
+        if (Settings.Root.IsOpen) Settings.Root.Dismiss();
         window.Closed -= OnClosed;
         Presets.Event -= OnPreset;
-        Layout.Apply.Click -= QueueCustom;
-        Layout.Width.Submitted -= QueueCustom;
-        Layout.Height.Submitted -= QueueCustom;
+        Settings.Apply.Click -= QueueCustom;
+        Settings.Width.Submitted -= QueueCustom;
+        Settings.Height.Submitted -= QueueCustom;
+        Settings.Reset.Click -= QueueReset;
+        toolbarButton = null;
     }
 }

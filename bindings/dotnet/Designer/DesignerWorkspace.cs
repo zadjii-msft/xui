@@ -60,10 +60,10 @@ internal sealed class DesignerWorkspace : IDisposable
         Inspector.Layout.Duplicate.Click += Duplicate;
         Inspector.Layout.Up.Click += () => Move(-1);
         Inspector.Layout.Down.Click += () => Move(1);
-        Inspector.Layout.Insert.Click += Insert;
-        Inspector.Layout.InsertBefore.Click += () => InsertSibling(after: false);
-        Inspector.Layout.InsertAfter.Click += () => InsertSibling(after: true);
-        Inspector.Layout.FindCell.Click += FindEmptyGridCell;
+        Inspector.PaletteLayout.Insert.Click += Insert;
+        Inspector.PaletteLayout.InsertBefore.Click += () => InsertSibling(after: false);
+        Inspector.PaletteLayout.InsertAfter.Click += () => InsertSibling(after: true);
+        Inspector.PaletteLayout.FindCell.Click += FindEmptyGridCell;
         Inspector.Layout.WrapVertical.Click += () => Wrap(ControlTemplate.VStack);
         Inspector.Layout.WrapHorizontal.Click += () => Wrap(ControlTemplate.HStack);
         Inspector.Layout.WrapScroll.Click += () => Wrap(ControlTemplate.ScrollView);
@@ -87,7 +87,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Hierarchy.Layout.Status.Text = Document is null ? "Reading source..." : "Stale hierarchy - read-only. Reading source...";
         Hierarchy.Layout.Status.Visible(true);
         Inspector.Show(Hierarchy.Selection, Hierarchy.Selection is { } selected ? Hierarchy.Parent(selected) : null, false);
-        Inspector.Layout.Feedback.Text = "Visual edits wait for a matching source hierarchy.";
+        Inspector.Feedback = "Visual edits wait for a matching source hierarchy.";
         if (!snapshots.Writer.TryWrite((version, source))) throw new InvalidOperationException("The hierarchy queue is closed.");
     }
 
@@ -135,7 +135,7 @@ internal sealed class DesignerWorkspace : IDisposable
         if (!document.Success)
         {
             Hierarchy.Layout.Status.Text = "Invalid source - stale hierarchy is read-only.";
-            Inspector.Layout.Feedback.Text = document.Diagnostics.FirstOrDefault()?.Message ?? "Source is not a valid component.";
+            Inspector.Feedback = document.Diagnostics.FirstOrDefault()?.Message ?? "Source is not a valid component.";
             Changed?.Invoke();
             return;
         }
@@ -149,7 +149,7 @@ internal sealed class DesignerWorkspace : IDisposable
         var selected = document.FindNode(checked((int)editor.Selection.Start)) ?? document.Root;
         if (selected is not null) SelectNode(selected, revealSource: false);
         else Inspector.Show(null, null, false);
-        Inspector.Layout.Feedback.Text = busy ? "Validating visual edit..." : "Ready. Visual changes must compile before they are applied.";
+        Inspector.Feedback = busy ? "Validating visual edit..." : "Ready. Visual changes must compile before they are applied.";
         Changed?.Invoke();
     }
 
@@ -157,17 +157,17 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (!current || Document is null)
         {
-            Inspector.Layout.Feedback.Text = "Cannot select from a stale hierarchy. Correct the source first.";
+            Inspector.Feedback = "Cannot select from a stale hierarchy. Correct the source first.";
             return;
         }
         var node = Document.FindNode(checked((int)editor.Selection.Start));
         if (node is null)
         {
-            Inspector.Layout.Feedback.Text = "The caret is outside the component's visual controls.";
+            Inspector.Feedback = "The caret is outside the component's visual controls.";
             return;
         }
         SelectNode(node, revealSource: false);
-        Inspector.Layout.Feedback.Text = $"Selected {node.Kind} from the source caret.";
+        Inspector.Feedback = $"Selected {node.Kind} from the source caret.";
     }
 
     private void SelectNode(XuiSourceNode node, bool revealSource, bool selectHierarchy = true)
@@ -187,24 +187,24 @@ internal sealed class DesignerWorkspace : IDisposable
         if (disposed) return;
         if (!CanEditSelection)
         {
-            Inspector.Layout.Feedback.Text = "Selection navigation needs current source and no pending visual edit.";
+            Inspector.Feedback = "Selection navigation needs current source and no pending visual edit.";
             return;
         }
         if (Hierarchy.SelectionTarget(target) is not { } node)
         {
-            Inspector.Layout.Feedback.Text = "There is no control in that selection direction.";
+            Inspector.Feedback = "There is no control in that selection direction.";
             return;
         }
         SelectNode(node, revealSource: true);
         Hierarchy.Tree.Focus();
-        Inspector.Layout.Feedback.Text = $"Selected {node.Kind} in the hierarchy.";
+        Inspector.Feedback = $"Selected {node.Kind} in the hierarchy.";
     }
 
     internal void ExpandHierarchy()
     {
         if (!CanExpandHierarchy)
         {
-            if (!disposed) Inspector.Layout.Feedback.Text = "Select a current container with children and wait for pending edits or expansion.";
+            if (!disposed) Inspector.Feedback = "Select a current container with children and wait for pending edits or expansion.";
             return;
         }
         var selected = Hierarchy.Selection!;
@@ -214,7 +214,7 @@ internal sealed class DesignerWorkspace : IDisposable
         long request = ++hierarchyExpansion;
         IsExpandingHierarchy = true;
         Hierarchy.Tree.Focus();
-        Inspector.Layout.Feedback.Text = "Expanding the selected subtree. Source editing remains available.";
+        Inspector.Feedback = "Expanding the selected subtree. Source editing remains available.";
         PostBatch();
 
         void PostBatch()
@@ -245,14 +245,14 @@ internal sealed class DesignerWorkspace : IDisposable
                 else
                 {
                     IsExpandingHierarchy = false;
-                    Inspector.Layout.Feedback.Text = "Selected subtree expanded. Source and property drafts are unchanged.";
+                    Inspector.Feedback = "Selected subtree expanded. Source and property drafts are unchanged.";
                 }
             }
             catch (XuiException error)
             {
                 StopHierarchyExpansion();
-                Inspector.Layout.Feedback.Text = $"Hierarchy expansion stopped: {error.Message}. Completed branches remain open.";
-                report(Inspector.Layout.Feedback.Text);
+                Inspector.Feedback = $"Hierarchy expansion stopped: {error.Message}. Completed branches remain open.";
+                report(Inspector.Feedback);
             }
         }
     }
@@ -261,20 +261,20 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (!CanCollapseHierarchy)
         {
-            if (!disposed) Inspector.Layout.Feedback.Text = "Select a current container with children before collapsing its branch.";
+            if (!disposed) Inspector.Feedback = "Select a current container with children before collapsing its branch.";
             return;
         }
         StopHierarchyExpansion();
         Hierarchy.Tree.Expand(Hierarchy.Key(Hierarchy.Selection!), expanded: false);
         Hierarchy.Tree.Focus();
-        Inspector.Layout.Feedback.Text = "Selected branch collapsed. Nested expansion choices are retained.";
+        Inspector.Feedback = "Selected branch collapsed. Nested expansion choices are retained.";
     }
 
     internal void CancelHierarchyExpansion()
     {
         if (disposed || !IsExpandingHierarchy) return;
         StopHierarchyExpansion();
-        Inspector.Layout.Feedback.Text = "Hierarchy expansion canceled. Completed branches remain open.";
+        Inspector.Feedback = "Hierarchy expansion canceled. Completed branches remain open.";
     }
 
     private void StopHierarchyExpansion()
@@ -288,18 +288,18 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (!current || Document is not { } document || document.Source != expectedSource || editor.Text != expectedSource)
         {
-            Inspector.Layout.Feedback.Text = "The preview does not match the current source hierarchy.";
+            Inspector.Feedback = "The preview does not match the current source hierarchy.";
             return false;
         }
         var node = Find(document.Root);
         if (node is null)
         {
-            Inspector.Layout.Feedback.Text = "The preview control has no matching authored source node.";
+            Inspector.Feedback = "The preview control has no matching authored source node.";
             return false;
         }
         SelectNode(node, revealSource: true);
         editor.Focus();
-        Inspector.Layout.Feedback.Text = $"Selected {node.Kind} from the preview.";
+        Inspector.Feedback = $"Selected {node.Kind} from the preview.";
         return true;
 
         XuiSourceNode? Find(XuiSourceNode? candidate)
@@ -314,16 +314,16 @@ internal sealed class DesignerWorkspace : IDisposable
     internal void ApplyProperty()
     {
         string? name = Inspector.Argument;
-        if (name is null) { Inspector.Layout.Feedback.Text = "Select an argument first."; return; }
+        if (name is null) { Inspector.Feedback = "Select an argument first."; return; }
         if (!Inspector.TryReadLiteral(out string value, out string? error))
         {
-            Inspector.Layout.Feedback.Text = error!;
+            Inspector.Feedback = error!;
             return;
         }
         if (!busy && current && Document?.Source == editor.Text &&
             Hierarchy.Selection?.Arguments.FirstOrDefault(argument => argument.Name == name)?.Value == value)
         {
-            Inspector.Layout.Feedback.Text = "The value is unchanged. No source edit was applied.";
+            Inspector.Feedback = "The value is unchanged. No source edit was applied.";
             return;
         }
         Edit((document, node, token) =>
@@ -345,36 +345,36 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (busy)
         {
-            Inspector.Layout.Feedback.Text = "Wait for the current visual edit before showing property source.";
+            Inspector.Feedback = "Wait for the current visual edit before showing property source.";
             return;
         }
         if (!current || Document is null || Document.Source != editor.Text || Hierarchy.Selection is not { } selected)
         {
-            Inspector.Layout.Feedback.Text = "Cannot show a property from a stale hierarchy. Select a property in the current source.";
+            Inspector.Feedback = "Cannot show a property from a stale hierarchy. Select a property in the current source.";
             return;
         }
         var argument = selected.Arguments.FirstOrDefault(value => value.Name == Inspector.Argument);
         if (argument is null)
         {
-            Inspector.Layout.Feedback.Text = "This property is not set in source. Apply a value before showing its source.";
+            Inspector.Feedback = "This property is not set in source. Apply a value before showing its source.";
             return;
         }
         editor.Selection = new((ulong)argument.ValueSpan.Start, (ulong)argument.ValueSpan.End);
         editor.Focus();
         SelectionChanged?.Invoke();
-        Inspector.Layout.Feedback.Text = $"Selected the authored {argument.Name} value in source. Property drafts remain unapplied.";
+        Inspector.Feedback = $"Selected the authored {argument.Name} value in source. Property drafts remain unapplied.";
     }
 
     internal void RevertPropertyDraft()
     {
         if (busy)
         {
-            Inspector.Layout.Feedback.Text = "Wait for the current visual edit before reverting a property draft.";
+            Inspector.Feedback = "Wait for the current visual edit before reverting a property draft.";
             return;
         }
         if (!current || Document is null || Document.Source != editor.Text || Hierarchy.Selection is null)
         {
-            Inspector.Layout.Feedback.Text = "Cannot revert a draft from a stale hierarchy. Select a property in the current source.";
+            Inspector.Feedback = "Cannot revert a draft from a stale hierarchy. Select a property in the current source.";
             return;
         }
         Inspector.RevertDraft();
@@ -384,15 +384,15 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         string? name = Inspector.Argument;
         var argument = Hierarchy.Selection?.Arguments.FirstOrDefault(value => value.Name == name);
-        if (argument is null) { Inspector.Layout.Feedback.Text = "This argument is not set in source."; return; }
+        if (argument is null) { Inspector.Feedback = "This argument is not set in source."; return; }
         if (argument.IsPositional)
         {
-            Inspector.Layout.Feedback.Text = "Positional arguments cannot be reset. Edit the value instead.";
+            Inspector.Feedback = "Positional arguments cannot be reset. Edit the value instead.";
             return;
         }
         if (argument.ValueKind == XuiValueKind.Expression)
         {
-            Inspector.Layout.Feedback.Text = "Expressions are read-only here. Remove this argument in the source editor.";
+            Inspector.Feedback = "Expressions are read-only here. Remove this argument in the source editor.";
             return;
         }
         Edit((document, node, token) => document.RemoveArgument(document.Revision, node.Id, argument.Name, token));
@@ -405,7 +405,7 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (Inspector.Template is not { } template)
         {
-            Inspector.Layout.Feedback.Text = "Choose a control from the palette before insertion.";
+            Inspector.Feedback = "Choose a control from the palette before insertion.";
             return;
         }
         GridPlacement? placement = null;
@@ -421,7 +421,7 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (Inspector.Template is not { } template)
         {
-            Inspector.Layout.Feedback.Text = "Choose a control from the palette before insertion.";
+            Inspector.Feedback = "Choose a control from the palette before insertion.";
             return;
         }
         GridPlacement? placement = null;
@@ -435,35 +435,35 @@ internal sealed class DesignerWorkspace : IDisposable
 
     internal void FindEmptyGridCell()
     {
-        if (busy) { Inspector.Layout.Feedback.Text = "Wait for the current visual edit before choosing a Grid cell."; return; }
+        if (busy) { Inspector.Feedback = "Wait for the current visual edit before choosing a Grid cell."; return; }
         if (!current || Document is not { } document || Hierarchy.Selection is not { } selected || document.Source != editor.Text)
         {
-            Inspector.Layout.Feedback.Text = "Cannot choose a cell from a stale hierarchy. Select a control in the current source.";
+            Inspector.Feedback = "Cannot choose a cell from a stale hierarchy. Select a control in the current source.";
             return;
         }
         var grid = selected.Kind == "Grid" ? selected : Hierarchy.Parent(selected);
         if (grid?.Kind != "Grid")
         {
-            Inspector.Layout.Feedback.Text = "Select a Grid or one of its direct children.";
+            Inspector.Feedback = "Select a Grid or one of its direct children.";
             return;
         }
         if (!document.TryFindEmptyGridCell(document.Revision, grid.Id, out var placement, out var error, lifetime.Token))
         {
-            Inspector.Layout.Feedback.Text = error!;
+            Inspector.Feedback = error!;
             return;
         }
-        Inspector.Layout.Row.Text = placement.Row.ToString(CultureInfo.InvariantCulture);
-        Inspector.Layout.Column.Text = placement.Column.ToString(CultureInfo.InvariantCulture);
+        Inspector.PaletteLayout.Row.Text = placement.Row.ToString(CultureInfo.InvariantCulture);
+        Inspector.PaletteLayout.Column.Text = placement.Column.ToString(CultureInfo.InvariantCulture);
         string target = selected.Kind == "Grid" ? "selected" : "parent";
-        Inspector.Layout.Feedback.Text = $"Empty cell in the {target} Grid: row {placement.Row}, column {placement.Column}. Insert or duplicate to apply.";
+        Inspector.Feedback = $"Empty cell in the {target} Grid: row {placement.Row}, column {placement.Column}. Insert or duplicate to apply.";
     }
 
     private GridPlacement? ReadGridPlacement()
     {
-        if (int.TryParse(Inspector.Layout.Row.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int row) &&
-            int.TryParse(Inspector.Layout.Column.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int column))
+        if (int.TryParse(Inspector.PaletteLayout.Row.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int row) &&
+            int.TryParse(Inspector.PaletteLayout.Column.Text, NumberStyles.None, CultureInfo.InvariantCulture, out int column))
             return new(row, column);
-        Inspector.Layout.Feedback.Text = "Enter non-negative whole numbers for the grid row and column.";
+        Inspector.Feedback = "Enter non-negative whole numbers for the grid row and column.";
         return null;
     }
 
@@ -493,10 +493,10 @@ internal sealed class DesignerWorkspace : IDisposable
 
     private void Edit(Func<VisualDocument, XuiSourceNode, CancellationToken, VisualEditResult> operation)
     {
-        if (busy) { Inspector.Layout.Feedback.Text = "A visual edit is already being validated."; return; }
+        if (busy) { Inspector.Feedback = "A visual edit is already being validated."; return; }
         if (!current || Document is not { } document || Hierarchy.Selection is not { } node || document.Source != editor.Text)
         {
-            Inspector.Layout.Feedback.Text = "Cannot edit a stale hierarchy. Select a control in the current source.";
+            Inspector.Feedback = "Cannot edit a stale hierarchy. Select a control in the current source.";
             return;
         }
         StopHierarchyExpansion();
@@ -504,7 +504,7 @@ internal sealed class DesignerWorkspace : IDisposable
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         editCancellation = cancellation;
         Inspector.Show(node, Hierarchy.Parent(node), false, validating: true);
-        Inspector.Layout.Feedback.Text = "Validating visual edit... Source editing remains available.";
+        Inspector.Feedback = "Validating visual edit... Source editing remains available.";
         editing = Task.Run(() =>
         {
             VisualEditResult? result = null;
@@ -519,29 +519,30 @@ internal sealed class DesignerWorkspace : IDisposable
                 {
                     if (cancellation.IsCancellationRequested || !current || Document?.Revision != document.Revision || editor.Text != document.Source)
                     {
-                        Inspector.Layout.Feedback.Text = "Visual edit cancelled because the source changed. No edit was applied.";
+                        Inspector.Feedback = "Visual edit cancelled because the source changed. No edit was applied.";
                         return;
                     }
                     if (failure is not null)
                     {
                         report($"Visual edit failed: {failure.Message}");
-                        Inspector.Layout.Feedback.Text = $"Visual edit failed: {failure.Message}";
+                        Inspector.Feedback = $"Visual edit failed: {failure.Message}";
                         return;
                     }
                     if (result?.Edit is not { } edit)
                     {
-                        Inspector.Layout.Feedback.Text = result?.Error ?? "Visual edit did not produce a source change.";
+                        Inspector.Feedback = result?.Error ?? "Visual edit did not produce a source change.";
                         return;
                     }
                     editor.ReplaceRange(new((ulong)edit.Range.Start, (ulong)edit.Range.End), edit.ExpectedSource, edit.Replacement);
                     editor.Selection = new((ulong)edit.Selection.Start, (ulong)edit.Selection.End);
+                    Inspector.DismissPalette();
                     editor.Focus();
-                    Inspector.Layout.Feedback.Text = "Visual edit applied. Use Undo to restore the previous source.";
+                    Inspector.Feedback = "Visual edit applied. Use Undo to restore the previous source.";
                 }
                 catch (XuiException error)
                 {
-                    Inspector.Layout.Feedback.Text = $"Native editor rejected the visual edit: {error.Message}";
-                    report(Inspector.Layout.Feedback.Text);
+                    Inspector.Feedback = $"Native editor rejected the visual edit: {error.Message}";
+                    report(Inspector.Feedback);
                 }
                 finally
                 {
@@ -559,6 +560,7 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (disposed) return;
         disposed = true;
+        Inspector.Dispose();
         StopHierarchyExpansion();
         lifetime.Cancel();
         snapshots.Writer.TryComplete();

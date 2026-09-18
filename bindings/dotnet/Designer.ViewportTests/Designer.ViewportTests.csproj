@@ -14,5 +14,6 @@
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <Compile Include="..\Designer\DesignerPreviewViewport.cs" Link="DesignerPreviewViewport.cs" />
     <AdditionalFiles Include="..\Designer\DesignerPreviewViewportLayout.xui" />
+    <AdditionalFiles Include="..\Designer\DesignerPreviewSizeLayout.xui" />
   </ItemGroup>
 </Project>

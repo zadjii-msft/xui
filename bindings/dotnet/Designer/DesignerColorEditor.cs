@@ -142,7 +142,7 @@ internal sealed class DesignerColorEditor : IDisposable
             try
             {
                 if (value != draft) workspace.Inspector.Value.Text = value;
-                workspace.Inspector.Layout.Feedback.Text = value == draft
+                workspace.Inspector.Feedback = value == draft
                     ? "The color is unchanged. No source edit was applied."
                     : "Color draft updated. Choose Apply to validate and update source.";
                 workspace.Inspector.FocusValue();
@@ -153,7 +153,7 @@ internal sealed class DesignerColorEditor : IDisposable
 
     private void Report(string message)
     {
-        workspace.Inspector.Layout.Feedback.Text = message;
+        workspace.Inspector.Feedback = message;
         report(message);
     }
 

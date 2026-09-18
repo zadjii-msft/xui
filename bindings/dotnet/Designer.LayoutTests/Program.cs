@@ -17,10 +17,9 @@ internal static class Program
             var tree = window.TreeView("Hierarchy");
             var arguments = window.ComboBox("Arguments", false);
             var value = window.MultilineText("Literal value");
-            var palette = window.ComboBox("Palette", false);
             var templates = window.ComboBox("Templates", false);
             var hierarchy = new DesignerHierarchyLayout(window, tree, attach: false);
-            var inspector = new DesignerInspectorLayout(window, arguments, value, palette, attach: false);
+            var inspector = new DesignerInspectorLayout(window, arguments, value, attach: false);
             var preview = window.Label("Layout fixture preview");
             var layout = new DesignerLayout(window, searchLayout.Root, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates, window);
             editor.Text = "Native editor layout fixture";
@@ -162,6 +161,29 @@ internal static class Program
                             "Switching back to WinUI restores the original layout");
                         editor.Command(TextCommand.Undo);
                         Require(editor.Text == "Native editor layout fixture", "Panel and style changes preserve native editor undo");
+                        layout.Root.MaximumSize(980, 850);
+                        layout.PreviewSize.Text = "Custom - 4096x4096";
+                    });
+                    await Task.Delay(80);
+                    await Ui(() =>
+                    {
+                        var toolbar = layout.ToolbarHost.GetBounds();
+                        var buttons = new[] { layout.Commands, layout.PreviewSize, layout.AddControl, layout.StyleToggle };
+                        for (int index = 0; index < buttons.Length; index++)
+                        {
+                            var bounds = buttons[index].GetBounds();
+                            Require(bounds.Width >= 80 && bounds.X >= toolbar.X &&
+                                bounds.X + bounds.Width <= toolbar.X + toolbar.Width,
+                                "Flyout and style actions remain inside the toolbar at 980 DIP.");
+                            if (index > 0)
+                            {
+                                var previous = buttons[index - 1].GetBounds();
+                                Require(previous.Y == bounds.Y && previous.X + previous.Width <= bounds.X,
+                                    "The flyout buttons have separate, non-overlapping toolbar bounds.");
+                            }
+                        }
+                        Require(layout.AddControl.Text == "Add control..." && layout.PreviewSize.GetBounds().Width == 210,
+                            "The toolbar exposes Add control and a stable width for current preview dimensions.");
                     });
                 }
                 catch (Exception error) { failure = error; }

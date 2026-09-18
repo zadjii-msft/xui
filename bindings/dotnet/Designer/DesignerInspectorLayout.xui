@@ -3,7 +3,6 @@ namespace Xui.Designer;
 component DesignerInspectorLayout {
     param global::Xui.Element Arguments;
     param global::Xui.Element ValueEditor;
-    param global::Xui.Element Palette;
     state bool DimensionsOpen = false;
     state bool DimensionArgument = false;
     state bool BooleanOpen = false;
@@ -12,7 +11,7 @@ component DesignerInspectorLayout {
     state bool InsetsArgument = false;
 
     view {
-        ScrollView("Properties and control palette") {
+        ScrollView("Properties and structure") {
             VStack(padding: 10, spacing: 8) {
                 Text("Properties", fontSize: 20, fontWeight: 600);
                 Text("Select a control", ref: Selected, id: "designer-selected-node", wrapping: true);
@@ -94,29 +93,6 @@ component DesignerInspectorLayout {
                 }
                 Button("Unwrap one child", ref: Unwrap, id: "designer-unwrap", help: "Remove a safe one-child wrapper (Ctrl+Shift+G in hierarchy)");
                 Text("Unwrap needs one child and refuses to discard wrapper properties, identities, or comments.", wrapping: true);
-                Text("Control palette", fontSize: 18, fontWeight: 600);
-                HStack(spacing: 6) {
-                    TextInput("Find a control", ref: PaletteFilter, id: "designer-palette-filter", captionVisible: false,
-                        placeholder: "Find: button, slider, layout", preferredSize: (190, 36), flex: 1);
-                    Button("Clear control filter", ref: ClearPaletteFilter, id: "designer-palette-filter-clear",
-                        icon: global::Xui.ButtonIcon.Close, size: (32, 32), help: "Show all controls");
-                }
-                Content(Palette, preferredSize: (240, 36));
-                Text("", ref: PaletteHelp, id: "designer-palette-help", wrapping: true);
-                Text("Insert control adds a child at the end. Insert before/after adds a sibling. Grid actions use the cell below.", wrapping: true);
-                HStack(spacing: 6) {
-                    TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));
-                    TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (106, 60));
-                }
-                Button("Find empty cell", ref: FindCell, id: "designer-find-grid-cell", enabled: false,
-                    help: "Fill row and column from the selected Grid, or the parent Grid of a non-Grid selection");
-                Button("Insert control", ref: Insert, id: "designer-insert-control");
-                HStack(spacing: 6) {
-                    Button("Insert before", ref: InsertBefore, id: "designer-insert-before",
-                        help: "Insert the palette control before the selected sibling");
-                    Button("Insert after", ref: InsertAfter, id: "designer-insert-after",
-                        help: "Insert the palette control after the selected sibling");
-                }
                 Text("Ready", ref: Feedback, id: "designer-builder-feedback", wrapping: true);
             }
         }

@@ -140,7 +140,16 @@ The command-only source-navigation interface remains unchanged.
 The pre-fix ARM64 Release run failed with `0xC0000005` in WinUI after Classic passed.
 After the native rebuild, both styles passed, along with property editing, draft reversion, and the full application selection smoke.
 
-The inspector also filters the control palette by enum name and a short template description.
+`DesignerControlPaletteLayout.xui` defines the detached native popup for the toolbar's Add control action.
+`DesignerInspector.ShowPalette` posts popup creation and focus until the native input callback returns.
+Dismissal invalidates pending openings. Window closure and workspace disposal close the popup without releasing the inspector's controls separately.
+The native window owns those controls.
+`DesignerInspector.Feedback` mirrors edit feedback in the inspector and flyout.
+A successful compiler edit closes the palette before source focus changes.
+The shell leaves pointer picking before opening either toolbar flyout and leaves popup keys to the native router.
+`Designer.WorkspaceTests/Program.PaletteFlyout.cs` covers native search, anchoring, Escape, outside dismissal, focus restoration, cancellation, source guards, and disposal in both styles.
+
+The inspector filters the control palette by enum name and a short template description.
 `FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.
 Filtered choices retain enum-based native keys instead of result indices.
 An empty result clears the selected template, and the workspace rejects insertion without a template.
@@ -176,12 +185,15 @@ It does not execute authored code during compilation.
 
 `PreviewHost.cs` owns a stable `ContentHost` inside the designer window.
 `DesignerPreviewViewport.cs` wraps that host without replacing its content or changing source.
-`DesignerPreviewViewportLayout.xui` supplies the preset selector, custom dimensions, and actual-size feedback.
+`DesignerPreviewViewportLayout.xui` contains only the stable scroll surface and borrowed preview.
+`DesignerPreviewSizeLayout.xui` supplies the detached native flyout with presets, custom dimensions, actual-size feedback, and Reset cropping.
+The toolbar shows requested dimensions for fixed sizes and actual dimensions for Fit.
+Opening or closing the flyout never reparents the preview.
 The controller samples arranged dimensions at 250-ms intervals and stops that work on disposal or window closure.
 Disposal runs on the creating UI thread and leaves the borrowed preview content attached and alive.
 The application disposes the viewport controller before the preview host and window.
 Native scrolling is vertical-only. Excessive requested widths fit the available pane and produce an explicit notice.
-`Designer.ViewportTests` covers sizing, invalid input, retained control identity and state, and a 438-DIP pane.
+`Designer.ViewportTests` covers sizing, invalid input, retained control identity and state, nested preset popups, flyout lifecycle, and a 438-DIP pane.
 The application selection smoke also covers fixed-size picking and unchanged preview versions across size changes.
 
 `PreviewHost` constructs a candidate within `ContentUpdate` before replacing the previous content.

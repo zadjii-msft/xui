@@ -8,6 +8,8 @@ internal static partial class Program
     {
         try
         {
+            RunPaletteFlyout(VisualStyle.Classic);
+            RunPaletteFlyout(VisualStyle.WinUI);
             RunHierarchySearch(VisualStyle.Classic);
             RunHierarchySearch(VisualStyle.WinUI);
             RunSiblingInsertion(VisualStyle.Classic);

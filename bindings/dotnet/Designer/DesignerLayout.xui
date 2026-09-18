@@ -64,11 +64,17 @@ component DesignerLayout {
                         help: "Compile this source (Ctrl+Enter). Preview runs trusted C# with your account's permissions.");
                     Toggle("Pick controls", ref: Pick, id: "designer-pick-controls",
                         help: PickStatus);
+                }
+                HStack(spacing: 8) {
+                    Button("Commands", ref: Commands, id: "designer-commands",
+                        help: "Search Designer commands (Ctrl+Shift+P)");
+                    Button("Fit", ref: PreviewSize, id: "designer-preview-size", preferredSize: (210, 36),
+                        help: "Preview size and cropping. Fit reports the current live-preview extent.");
+                    Button("Add control...", ref: AddControl, id: "designer-add-control",
+                        help: "Open the control palette to insert a child or sibling");
                     Toggle("Light theme", ref: Light, id: "designer-light");
                     Button(WinUIStyle ? "Style: WinUI" : "Style: Classic", ref: StyleToggle, id: "designer-style-toggle",
                         help: "Switch between Classic and WinUI without resetting the preview", click: ToggleStyle);
-                    Button("Commands", ref: Commands, id: "designer-commands",
-                        help: "Search Designer commands (Ctrl+Shift+P)");
                 }
             }
             Grid("Designer workspace", ref: Workspace, flex: 1,
