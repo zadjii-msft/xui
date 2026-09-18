@@ -722,6 +722,61 @@ Its complete interaction sweep remains unverified.
 `bindings/dotnet/Syntax.Tests` covers managed binding calls, language changes, and native undo and redo.
 The [contributor procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) contains the build and test commands.
 
+### Native editor feedback, September 18, 2026
+
+The investigation used the Designer sprint merge `935dd1e` with focus fix `e26e187`.
+The source editor still has one RichEdit peer and one `TextSelection`.
+Source indentation, comments, duplication, movement, and deletion use native range replacement, not a multi-caret implementation.
+No source shortcut was removed.
+The native bridge and Designer contain no manual caret renderer.
+
+This does not establish the cause of the reported change in editor feel.
+The missing reproduction details are the exact gesture, source text, expected result, actual result, and live-preview state.
+
+The white scrollbar came from the native nonclient theme.
+Document foreground and background colors did not change that theme.
+`NativeDocumentBridge::update` now requests `DarkMode_Explorer` through `SetWindowTheme` only for dark, non-high-contrast documents.
+Light and high-contrast palettes clear the override.
+The bridge caches the request and defers changes during native IME composition.
+No ordinal lookup, import hook, custom scrollbar drawing, or replacement text surface is involved.
+
+The Windows theme implementation controls the available theme classes.
+The new `xui_document_theme_window_tests` registration runs `xui_document_syntax_window_tests --theme`.
+It captures only the fixture window and checks actual scrollbar pixels in both visual styles.
+On ARM64 Windows build 28638, the test failed before the native change and passed afterward.
+The captured track changed from `f0f0f0` to `171717`.
+Light and high-contrast palette transitions restored the original native theme without changing OS accessibility settings.
+
+The test also checks native scroll, selection, focus, undo/redo, and unchanged text-replacement and callback counts.
+Three consecutive final runs passed for the theme, syntax-window, range-editing-window, and editing-ABI fixtures.
+The syntax-window fixture checks token colors and IME deferral with its own highlighter, without the external LSH package.
+The rebuilt `Designer.TextModeTests` suite passed, including 256 focus-growth assertions in each visual style.
+The rebuilt `Designer.IndentationTests` suite passed all 1,179 indentation and line-editing assertions.
+
+One exploratory focused-capture run changed the selection and scroll position. An immediate repeat did not reproduce it.
+The final fixture separates nonactivated pixel capture from synchronous focused theme changes.
+Focused changes still require exact native selection and scroll preservation.
+The cause of the exploratory drift remains unknown. It is not evidence that the editor-feel report is fixed.
+
+The broader `xui_documents_window_tests` fixture failed at its colored EDIT/STATIC baseline before its external UIA probe.
+Rebuilding without the scrollbar change produced the same failure.
+Its assertion was `Live native fixture contains uniquely colored EDIT and STATIC pixels`.
+That existing fixture failure remains unresolved.
+
+### Required Designer syntax build
+
+`scripts/Build-Designer.ps1` restores a supplied local `Lsh.0.3.0.nupkg`, or accepts an existing extracted package.
+It configures `XUI_REQUIRE_LSH=ON`, builds native XUI and Designer, and compares the deployed DLLs and license.
+`XUI_REQUIRE_LSH` defaults to `OFF` for ordinary native builds.
+The required path rejects an empty package setting instead of silently producing a plain-text Designer.
+The [contributor procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) documents both paths.
+
+The September 18 worktree had no accessible LSH package.
+Configured NuGet feeds returned `NU1101`. Direct nuget.org restore failed with `NU1301`.
+The script's syntax and missing-feed checks passed. Required-package CMake configuration failed explicitly, while the optional path still configured.
+Actual package-enabled highlighting and the positive build-script path remain unverified until the package is supplied.
+The historical package-enabled results in the preceding section do not apply to this worktree.
+
 ## VS Code package
 
 The extension registers the `.xui` file association.

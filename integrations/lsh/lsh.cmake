@@ -1,4 +1,8 @@
 set(XUI_LSH_PACKAGE_DIR "" CACHE PATH "Extracted Lsh 0.3.0 NuGet package; empty disables LSH")
+option(XUI_REQUIRE_LSH "Fail configuration if LSH syntax highlighting is unavailable" OFF)
+if(XUI_REQUIRE_LSH AND NOT XUI_LSH_PACKAGE_DIR)
+    message(FATAL_ERROR "LSH syntax highlighting was requested. Set XUI_LSH_PACKAGE_DIR to an extracted Lsh 0.3.0 package. See CONTRIBUTING.md.")
+endif()
 target_sources(xui_windows PRIVATE src/syntax_highlighting.cpp)
 if(XUI_LSH_PACKAGE_DIR)
     foreach(required build/native/include/lsh.h licenses/LSH-LICENSE.txt Lsh.nuspec)

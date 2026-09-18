@@ -4,6 +4,7 @@ The designer is a XUI application for editing one `.xui` component.
 Its [layout](../../bindings/dotnet/Designer/DesignerLayout.xui) uses `.xui`.
 Its native `MultilineText` editor uses Consolas and keeps Windows selection, clipboard, undo, and IME behavior.
 An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights XUI and embedded C# as the source changes.
+The dedicated Designer build script requires LSH rather than silently producing a plain-text editor.
 Highlighting remains active when live preview is paused.
 The preview uses the existing XUI compiler and native controls, not an HTML approximation.
 

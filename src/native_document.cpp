@@ -6,6 +6,7 @@
 #include <richedit.h>
 #include <richole.h>
 #include <tom.h>
+#include <uxtheme.h>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -219,6 +220,13 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
     text_color_ = text_color; background_ = background; colors_set_ = true;
     struct Setting { bool& value; Setting(bool& v) : value(v) { value = true; } ~Setting() { value = false; } } setting(setting_);
     if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+        const bool dark_scrollbar = palette.mode == ThemeMode::dark && !palette.high_contrast;
+        if (!composing_ && (!scrollbar_theme_set_ || dark_scrollbar_ != dark_scrollbar)) {
+            hr_require(SetWindowTheme(window_, dark_scrollbar ? L"DarkMode_Explorer" : nullptr, nullptr),
+                "Set native document scrollbar theme");
+            dark_scrollbar_ = dark_scrollbar;
+            scrollbar_theme_set_ = true;
+        }
         const PartStyleValues default_text;
         const auto font = Drawing::font_descriptor(text_style ? *text_style : default_text, L"Segoe UI", 14.0f);
         LOGFONTW desired{};

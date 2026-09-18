@@ -43,6 +43,9 @@ Actual screen-reader speech still requires a manual check.
 
 `MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
 Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+Dark documents request the Windows dark scrollbar theme through `SetWindowTheme`.
+Light and high-contrast palettes clear that override.
+Scrollbar appearance depends on the Windows theme implementation. XUI does not replace native scrolling or install theme hooks.
 `set_monospace(true)` selects Consolas for code. The default font remains Segoe UI.
 The default document limit is 65,536 UTF-16 code units. The maximum is 1,048,576.
 Paragraphs use `\r`. Setters normalize `\n` and `\r\n`, and reject null characters or unpaired surrogates.

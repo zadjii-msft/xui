@@ -35,6 +35,7 @@ private:
     std::array<COLORREF, 8> syntax_colors_{};
     bool syntax_dirty_{true};
     bool composing_{}, setting_{}, readonly_{}, monospace_{}, colors_set_{};
+    bool scrollbar_theme_set_{}, dark_scrollbar_{};
     COLORREF text_color_{}, background_{};
     std::size_t maximum_{};
     std::wstring accessible_name_;

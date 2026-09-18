@@ -1198,6 +1198,23 @@ Use the `Lsh` NuGet package, version `0.3.0`, for Windows x64 or ARM64.
 This package supplies custom-grammar compilation through its native C API.
 The samples do not need the package's managed wrapper.
 
+For a local Designer build with required syntax highlighting, use the build script:
+
+```powershell
+.\scripts\Build-Designer.ps1 -LshPackageFeed C:\packages
+```
+
+The feed must contain `Lsh.0.3.0.nupkg`.
+For an existing extracted package, use `-LshPackageDirectory <package-directory>` instead.
+The script selects the host architecture, builds native XUI and Designer, and checks the deployed DLLs and license.
+Use `-Architecture x64` or `-Architecture ARM64` to select another target.
+Use `-BuildDirectory <directory>` for a separate native build.
+If Designer is open, use `-OutputDirectory <new-directory>` to keep its running files unchanged.
+If CMake is absent from `PATH`, use `-CMakePath <path-to-cmake.exe>`.
+The script requires LSH and stops on restore, configuration, build, or deployment errors.
+It does not download or install Microsoft Edit.
+An ordinary native build still supports plain text without LSH.
+
 Restore from a local package feed.
 Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
 
@@ -1205,7 +1222,7 @@ Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
 $feed = "C:\packages"
 dotnet restore integrations\lsh\Lsh.Package.csproj --source $feed --packages build\packages
 $lsh = (Resolve-Path build\packages\lsh\0.3.0).Path
-cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh"
+cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh" -DXUI_REQUIRE_LSH=ON
 cmake --build $build --config Release --target xui xui_gallery xui_winui_gallery --parallel 4
 dotnet build bindings\dotnet\Designer -c Release -r $rid
 dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
@@ -1214,7 +1231,11 @@ dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
 Use the `$build` and `$rid` values from [Build the native code](#build-the-native-code).
 The default managed sample paths use `build\<architecture>\Release`.
 For another build directory, pass `-p:XuiNativeDir=<native-output-directory>` to each managed command.
-Set `XUI_LSH_PACKAGE_DIR` to an empty string to disable LSH.
+To disable LSH intentionally, set `XUI_REQUIRE_LSH=OFF` and `XUI_LSH_PACKAGE_DIR` to an empty string.
+`XUI_REQUIRE_LSH=ON` rejects an empty package path instead of silently producing plain text.
+An invalid package path always stops configuration.
+The package is not available from every NuGet feed.
+If restore reports `NU1101`, obtain the required package from its producer and supply its local feed.
 
 CMake embeds the trusted XUI, C, C++, C#, and Rust grammars at build time.
 It copies the matching `lsh_lib.dll` and `LSH-LICENSE.txt` beside the native binaries.
@@ -1229,13 +1250,26 @@ Run the focused checks with LSH enabled:
 
 ```powershell
 cmake --build $build --config Release --target xui_syntax_highlighting_tests xui_document_syntax_tests xui_document_syntax_window_tests xui_document_editing_window_tests xui_document_editing_abi_tests --parallel 4
-ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure
+ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure -j 1
 dotnet run --project bindings\dotnet\Syntax.Tests -c Release -r $rid
 ```
 
 The native syntax test also supports an LSH-disabled build.
 The managed syntax fixture requires LSH.
 Native window checks need an interactive Windows desktop.
+
+For the native document scrollbar regression, enable the desktop tests:
+
+```powershell
+cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
+cmake --build $build --config Release --target xui_document_syntax_window_tests --parallel 4
+ctest --test-dir $build -C Release -R '^xui_document_(syntax|theme)_window_tests$' --output-on-failure -j 1
+```
+
+The theme check captures only its own window.
+It checks actual dark scrollbar pixels, light/high-contrast palette transitions, native scrolling, selection, undo, and redo.
+It does not change the Windows high-contrast setting.
+Run desktop suites sequentially.
 
 ## Documentation and changes
 

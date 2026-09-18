@@ -1,5 +1,6 @@
 #include "../src/native_document.hpp"
 #include "../src/window_host.hpp"
+#include "owned_window_capture.hpp"
 #include <richedit.h>
 #include <iostream>
 #include <stdexcept>
@@ -11,7 +12,7 @@ struct Fixture {
     std::shared_ptr<MultilineText> document = std::make_shared<MultilineText>();
     std::unique_ptr<NativeDocumentBridge> bridge;
     std::exception_ptr failure;
-    int changes{}, tokens{}, formats{}, replacements{}, writable_transitions{};
+    int changes{}, tokens{}, formats{}, replacements{}, writable_transitions{}, themes{};
     Palette palette = Palette::system(ThemeMode::light);
     static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) noexcept {
         auto* self = reinterpret_cast<Fixture*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -28,6 +29,7 @@ struct Fixture {
         if (message == EM_SETCHARFORMAT) ++self.formats;
         if (message == EM_STREAMIN || message == WM_SETTEXT || message == EM_REPLACESEL) ++self.replacements;
         if (message == EM_SETREADONLY && !wp) ++self.writable_transitions;
+        if (message == WM_THEMECHANGED) ++self.themes;
         return DefSubclassProc(hwnd, message, wp, lp);
     }
     explicit Fixture(std::wstring value = L"if \U0001f600\rvalue", bool read_only = false) {
@@ -98,6 +100,89 @@ struct Fixture {
         require(changes == count, "Only real text edits invoke change callbacks");
     }
 };
+void scrollbar_presentation() {
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        std::wstring value = L"if \U0001f600";
+        for (int i = 0; i < 100; ++i) value += L"\rline";
+        Fixture f(value);
+        PartStyleValues text;
+        text.font_family = make_style_font_family("Consolas");
+        text.font_size = 14.0f;
+        f.document->set_control_style_values(StylePart::text, text);
+        f.enable();
+        f.palette = Palette::system(ThemeMode::light, style);
+        f.refresh();
+        SendMessageW(f.window(), EM_SETSEL, value.size(), value.size());
+        SendMessageW(f.window(), WM_CHAR, L'!', 1);
+        f.document->set_selection({3, 5});
+        f.refresh();
+        SendMessageW(f.window(), EM_LINESCROLL, 0, 45);
+        POINT scroll{};
+        SendMessageW(f.window(), EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+        require(scroll.y > 0, "Scrollbar fixture has native scrolling");
+        const auto selected = f.selection();
+        const auto replacements = f.replacements;
+        const auto color = [&] {
+            RedrawWindow(f.parent, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+            MSG message{};
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+            SCROLLBARINFO bar{sizeof(bar)};
+            require(GetScrollBarInfo(f.window(), OBJID_VSCROLL, &bar) != FALSE, "Read native scrollbar geometry");
+            POINT point{bar.rcScrollBar.left + 3, bar.rcScrollBar.bottom - bar.dxyLineButton - 3};
+            require(ScreenToClient(f.parent, &point) != FALSE, "Map native scrollbar track");
+            const auto pixels = owned_window_capture::capture(f.parent);
+            require(point.x >= 0 && point.x < pixels.width && point.y >= 0 && point.y < pixels.height,
+                "Scrollbar sample is inside the owned capture");
+            return pixels.data[point.y * pixels.width + point.x] & 0xffffff;
+        };
+        const auto light = color();
+        f.palette = Palette::system(ThemeMode::dark, style);
+        f.refresh();
+        const auto dark = color();
+        if (!f.palette.high_contrast) {
+            require(dark != light && ((dark >> 16) & 255) < 110 && ((dark >> 8) & 255) < 110 && (dark & 255) < 110,
+                "Dark document has a dark native scrollbar track");
+        }
+        const auto themes = f.themes;
+        for (int i = 0; i < 20; ++i) f.refresh();
+        require(f.themes == themes, "Repeated presentation does not reset the native theme");
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast, ThemeMode::dark}) {
+            f.palette = Palette::system(mode, style);
+            f.refresh();
+            const auto current = color();
+            if (mode == ThemeMode::light || f.palette.high_contrast)
+                require(current == light, "Light and high-contrast palettes restore the system scrollbar theme");
+            else require(current == dark, "Dark theme returns after a palette switch");
+            POINT after{};
+            SendMessageW(f.window(), EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&after));
+            require(after.x == scroll.x && after.y == scroll.y && f.selection() == selected &&
+                f.document->selection() == selected, "Scrollbar theme preserves native scroll and selection");
+        }
+        SetFocus(f.window());
+        require(GetFocus() == f.window(), "Native document owns focus before theme switches");
+        POINT focused_scroll{};
+        SendMessageW(f.window(), EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&focused_scroll));
+        for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+            f.palette = Palette::system(mode, style);
+            f.refresh();
+            require(GetFocus() == f.window() && f.selection() == selected, "Scrollbar theme preserves native focus and selection");
+            POINT after{};
+            SendMessageW(f.window(), EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&after));
+            require(after.x == focused_scroll.x && after.y == focused_scroll.y, "Focused theme changes preserve native scroll");
+        }
+        require(f.replacements == replacements, "Scrollbar theme never replaces native text");
+        f.check(value + L"!", 1);
+        SendMessageW(f.window(), WM_VSCROLL, SB_LINEDOWN, 0);
+        POINT after{};
+        SendMessageW(f.window(), EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&after));
+        require(after.y > focused_scroll.y, "The system scrollbar still scrolls the native document");
+        require(f.document->command(TextCommand::undo), "Scrollbar theming retains native undo");
+        f.check(value, 2);
+        require(f.document->command(TextCommand::redo), "Scrollbar theming retains native redo");
+        f.check(value + L"!", 3);
+        std::cout << "Native scrollbar track: light=" << std::hex << light << " dark=" << dark << std::dec << '\n';
+    }
+}
 void named_argument_colors() {
     for (const bool read_only : {false, true}) {
         Fixture f(L"text: Name", read_only);
@@ -191,13 +276,13 @@ void colors_and_composition() {
     SendMessageW(hwnd, EM_SETMODIFY, FALSE, 0);
     f.enable(); f.refresh();
     require(!SendMessageW(hwnd, EM_GETMODIFY, 0, 0), "Rehighlight keeps clean document clean");
-    const auto formats = f.formats, before = f.tokens;
+    const auto formats = f.formats, before = f.tokens, themes = f.themes;
     SendMessageW(hwnd, WM_IME_STARTCOMPOSITION, 0, 0);
     SendMessageW(hwnd, EM_SETSEL, initial.size(), initial.size());
     SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"!"));
     f.palette = Palette::system(ThemeMode::dark);
     f.refresh();
-    require(f.bridge->composing() && f.tokens == before && f.formats == formats && f.changes == 0 &&
+    require(f.bridge->composing() && f.tokens == before && f.formats == formats && f.themes == themes && f.changes == 0 &&
         f.document->text() == initial, "Composition does not publish or style intermediate text");
     SendMessageW(hwnd, WM_IME_ENDCOMPOSITION, 0, 0);
     f.refresh();
@@ -320,10 +405,14 @@ void readonly_presentation() {
     f.check(initial + L"!", 3);
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         require(SUCCEEDED(OleInitialize(nullptr)), "Initialize native document COM");
         struct Com { ~Com() { OleUninitialize(); } } com;
+        if (argc == 2 && std::string_view(argv[1]) == "--theme") {
+            scrollbar_presentation();
+            return 0;
+        }
         readonly_presentation();
         named_argument_colors();
         presentation_and_history(); colors_and_composition(); scrolling_and_errors(); typing_and_properties(); plain_shortcuts();
