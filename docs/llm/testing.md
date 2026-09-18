@@ -81,6 +81,7 @@ The test does not inject desktop-wide input or prove terminal text composition.
 
 `tests\swap_chain_overlay_tests.cpp` is the acceptance fixture for popup pixels above live swap chains.
 One producer uses a DXGI pointer, and the other uses an imported composition handle.
+Both direct HWND siblings and producers inside separate `ContentHost` ancestors use the same assertions.
 The fixture captures both producers before the popup opens.
 It then requires opaque popup pixels over both surfaces while the visible producer colors change.
 Dismissal must reveal the current producer pixels, without stale popup pixels.

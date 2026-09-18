@@ -73,7 +73,8 @@ bool producer_pixel(DWORD pixel) {
         matches(pixel, Renderer::pink) || matches(pixel, Renderer::cyan);
 }
 
-void run_case() {
+void run_case(bool nested) {
+    std::cout << (nested ? "Nested native hosts\n" : "Direct native hosts\n") << std::flush;
     const auto original_foreground = GetForegroundWindow();
     WindowOptions options;
     options.title = L"XUI owned live swap-chain overlay regression";
@@ -90,7 +91,10 @@ void run_case() {
     std::array panels{
         std::make_shared<SwapChainPanel>(L"Pointer producer"),
         std::make_shared<SwapChainPanel>(L"Handle producer")};
-    for (const auto& panel : panels) row->add(panel, 1);
+    for (const auto& panel : panels) {
+        if (nested) row->add(std::make_shared<ContentHost>(panel), 1);
+        else row->add(panel, 1);
+    }
     root->add(row, 1);
     window.set_content(root);
 
@@ -253,7 +257,8 @@ void run_case() {
 
 int main() {
     try {
-        run_case();
+        run_case(false);
+        run_case(true);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
