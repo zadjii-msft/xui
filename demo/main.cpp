@@ -11,6 +11,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 1;
     }
     xui::BrowserOptions options;
+    options.application_icon = true;
     try {
         for (int i = 1; i < count; ++i) {
             const std::wstring_view argument(args[i]);

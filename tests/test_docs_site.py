@@ -15,6 +15,8 @@ import docs_site
 
 class DocumentationSiteTests(unittest.TestCase):
     def setUp(self):
+        self.fixture_root = docs_site.ROOT / "build"
+        self.fixture_root.mkdir(exist_ok=True)
         self.pages, self.folders = docs_site.navigation()
         self.source = docs_site.ROOT / "docs/specs/README.md"
         self.destination = self.pages[self.source][0]
@@ -57,6 +59,30 @@ class DocumentationSiteTests(unittest.TestCase):
         result = self.rewrite("[History](../llm/README.md)")
         self.assertIn("/blob/test-revision/docs/llm/README.md", result)
 
+    def test_selected_branding_links_remain_local(self):
+        source = docs_site.ROOT / "docs/specs/branding/zoey.md"
+        destination = self.pages[source][0]
+        for asset, original in docs_site.BRANDING.items():
+            with self.subTest(asset=asset):
+                href = "../../../assets/branding/generated/" + original.name
+                result = docs_site.rewrite_links(
+                    f"[Asset]({href}?download=1#preview)",
+                    source, destination, self.pages, "test-revision",
+                )
+                self.assertEqual(
+                    result, f"[Asset](../{asset.as_posix()}?download=1#preview)"
+                )
+        for href in (
+            "../../../assets/branding/zoey.svg",
+            "../../../assets/branding/generated/zoey-active-256.png",
+            "../../../assets/branding/generated/index.html",
+        ):
+            with self.subTest(href=href):
+                result = docs_site.rewrite_links(
+                    f"[Other]({href})", source, destination, self.pages, "test-revision"
+                )
+                self.assertIn("/blob/test-revision/assets/branding/", result)
+
     def test_external_links_and_fenced_examples_stay_unchanged(self):
         text = (
             "[External](https://example.com/page#anchor)\n"
@@ -70,22 +96,70 @@ class DocumentationSiteTests(unittest.TestCase):
             self.rewrite("[Missing](missing.md)")
 
     def test_prepare_is_stable_and_removes_obsolete_staged_pages(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
             stage = Path(directory)
             with patch.object(docs_site, "INPUT", stage):
                 docs_site.prepare("test-revision")
                 page = stage / "index.md"
                 first = page.stat().st_mtime_ns
+                assets = {
+                    path: ((stage / path).read_bytes(), (stage / path).stat().st_mtime_ns)
+                    for path in docs_site.BRANDING
+                }
+                for path, source in docs_site.BRANDING.items():
+                    self.assertEqual(assets[path][0], source.read_bytes())
                 obsolete = stage / "obsolete.md"
                 obsolete.write_text("old page", encoding="utf-8")
+                private_asset = stage / "assets/branding/study.svg"
+                private_asset.write_text("<svg/>", encoding="utf-8")
                 docs_site.prepare("test-revision")
                 self.assertEqual(page.stat().st_mtime_ns, first)
                 self.assertFalse(obsolete.exists())
+                self.assertFalse(private_asset.exists())
+                for path, (content, modified) in assets.items():
+                    self.assertEqual((stage / path).read_bytes(), content)
+                    self.assertEqual((stage / path).stat().st_mtime_ns, modified)
                 self.assertEqual(len(list(stage.rglob("*.md"))), len(self.pages))
                 self.assertIn("visibility: hidden", (stage / "contents.md").read_text())
+                self.assertIn(
+                    'href="/xui/assets/branding/site.webmanifest"',
+                    (stage / "_includes/head.html").read_text(),
+                )
+
+    def test_branding_allowlist_is_exact(self):
+        self.assertEqual(
+            {path.name for path in docs_site.BRANDING},
+            {
+                "zoey.svg", "zoey.ico", "zoey-16.png", "zoey-32.png",
+                "zoey-180.png", "zoey-192.png", "zoey-256.png",
+                "zoey-512.png", "site.webmanifest",
+                "zoey-idle.svg", "zoey-idle.ico", "zoey-active.svg", "zoey-active.ico",
+                "zoey-success.svg", "zoey-success.ico", "zoey-warning.svg", "zoey-warning.ico",
+                "zoey-error.svg", "zoey-error.ico", "zoey-paused.svg", "zoey-paused.ico",
+            },
+        )
+        for destination, source in docs_site.BRANDING.items():
+            self.assertEqual(destination.parent, Path("assets/branding"))
+            self.assertEqual(source.parent, docs_site.ROOT / "assets/branding/generated")
+
+    def test_prepare_preserves_binary_bytes_and_updates_changed_assets(self):
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
+            root = Path(directory)
+            source = root / "fixture.ico"
+            destination = Path("assets/branding/fixture.ico")
+            source.write_bytes(b"\x00\xff\r\n\x80")
+            with (
+                patch.object(docs_site, "INPUT", root / "stage"),
+                patch.object(docs_site, "BRANDING", {destination: source}),
+            ):
+                docs_site.prepare("test-revision")
+                self.assertEqual((docs_site.INPUT / destination).read_bytes(), source.read_bytes())
+                source.write_bytes(b"\x00\xfe\r\n\x81")
+                docs_site.prepare("test-revision")
+                self.assertEqual((docs_site.INPUT / destination).read_bytes(), source.read_bytes())
 
     def check_fixture(self, content, extra=False):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
             output = Path(directory)
             (output / "index.html").write_text(content, encoding="utf-8")
             if extra:
@@ -112,7 +186,7 @@ class DocumentationSiteTests(unittest.TestCase):
             self.check_fixture("<h1>Home</h1>", extra=True)
 
     def test_output_rejects_application_source(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
             output = Path(directory)
             (output / "index.html").write_text("<h1>Home</h1>", encoding="utf-8")
             (output / "Program.cs").write_text("private source", encoding="utf-8")
@@ -120,8 +194,56 @@ class DocumentationSiteTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected published file"):
                 docs_site.check_output(pages, output)
 
+    def test_output_rejects_unlisted_branding_assets(self):
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
+            output = Path(directory)
+            (output / "index.html").write_text("<h1>Home</h1>", encoding="utf-8")
+            extra = output / "assets/branding/study.svg"
+            extra.parent.mkdir(parents=True)
+            extra.write_text("<svg/>", encoding="utf-8")
+            pages = {self.source: (Path("index.md"), "Home", 1)}
+            with self.assertRaisesRegex(ValueError, "Unexpected published file"):
+                docs_site.check_output(pages, output)
+
+    def test_published_branding_bytes_and_base_path_links(self):
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
+            output = Path(directory)
+            for destination, source in docs_site.BRANDING.items():
+                target = output / destination
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(source.read_bytes())
+            html = (
+                '<img src="/xui/assets/branding/zoey.svg" alt="XUI">'
+                '<link rel="icon" href="/xui/assets/branding/zoey.ico">'
+                '<link rel="apple-touch-icon" href="/xui/assets/branding/zoey-180.png">'
+                '<link rel="manifest" href="/xui/assets/branding/site.webmanifest">'
+            )
+            page = output / "index.html"
+            page.write_text(html, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                docs_site.check_branding(output)
+                docs_site.check_output({self.source: (Path("index.md"), "Home", 1)}, output)
+            page.write_text(html.replace("/xui/assets/", "assets/"), encoding="utf-8")
+            nested = output / "learn/examples/index.html"
+            nested.parent.mkdir(parents=True)
+            nested.write_text(html.replace("/xui/assets/", "../../assets/"), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                docs_site.check_branding(output)
+            for name in ("zoey.svg", "zoey.ico", "zoey-180.png", "site.webmanifest"):
+                with self.subTest(name=name):
+                    page.write_text(
+                        html.replace("/xui/assets/branding/" + name, "/assets/branding/" + name),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(ValueError, "Missing rendered"):
+                        docs_site.check_branding(output)
+            page.write_text(html, encoding="utf-8")
+            (output / "assets/branding/zoey.ico").write_bytes(b"not the canonical icon")
+            with self.assertRaisesRegex(ValueError, "differs from canonical asset"):
+                docs_site.check_branding(output)
+
     def test_code_and_navigation_match_the_original(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=self.fixture_root) as directory:
             output = Path(directory)
             source = output / "source.md"
             source.write_text('```cpp\nitems({{1, "First"}});\n```\n', encoding="utf-8")

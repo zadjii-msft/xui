@@ -13,6 +13,8 @@ internal static class Program
     {
         if (args.Contains("--features")) { FeatureDemo.Run(args.Contains("--callback-fail")); return; }
         using var window = new Window();
+        window.IconErrorHandler = error => throw new InvalidOperationException($"Cannot load the application icon: {error}");
+        window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
         var root = window.Stack();
         root.Padding(20); root.Spacing(10);
         var label = window.Label("Ready — 日本語 😀 — a long Unicode label with native retained layout");

@@ -12,4 +12,5 @@
     <XuiHotReload>false</XuiHotReload>
   </PropertyGroup>
   <Import Project="..\Xui.Declarative.targets" />
+  <Import Project="..\Xui.Branding.targets" />
 </Project>

@@ -1,4 +1,5 @@
 #include "browser.hpp"
+#include "branding.hpp"
 #include "directory.hpp"
 #include "explorer_state.hpp"
 #include "xui/suggestions.hpp"
@@ -87,6 +88,7 @@ class Browser {
 public:
     explicit Browser(const BrowserOptions& options)
         : window_({L"XUI/Files - " + options.folder.wstring(), {924, 641}, options.theme, {460, 420}, false, options.visual_style}) {
+        if (options.application_icon) xui::demo::set_application_icon(window_);
         auto root = std::make_shared<BrowserRoot>([this] {
             if (active_ && split_ && !split_->expanded()) activate(0);
         });

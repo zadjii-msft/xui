@@ -1,4 +1,5 @@
 #include "thumbnail_grid.hpp"
+#include "branding.hpp"
 #include <windows.h>
 #include <shellapi.h>
 #include <filesystem>
@@ -40,6 +41,7 @@ xui::SourceResult enumerate(const std::shared_ptr<FolderState>& state, const xui
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     using namespace xui;
     Window window({L"XUI Images", {900, 740}, ThemeMode::dark, {560, 420}});
+    xui::demo::set_application_icon(window);
     auto root = std::make_shared<Stack>(Axis::vertical);
     root->set_padding({24, 20, 24, 20});
     root->set_spacing(10);

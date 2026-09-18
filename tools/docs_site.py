@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 import time
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +29,21 @@ LINK = re.compile(r"(!?\[[^\]\n]*\]\()([^)\s]+)([^)]*\))")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 LANGUAGE_TABS = [".xui", "C#", "Rust", "C++"]
 TAB = re.compile(r'^\{% tab title="([^"]+)" %\}$')
+BRANDING = {
+    Path("assets/branding") / name: ROOT / "assets/branding/generated" / name
+    for name in (
+        "zoey.svg", "zoey.ico", "zoey-16.png", "zoey-32.png",
+        "zoey-180.png", "zoey-192.png", "zoey-256.png", "zoey-512.png",
+        "zoey-idle.svg", "zoey-idle.ico", "zoey-active.svg", "zoey-active.ico",
+        "zoey-success.svg", "zoey-success.ico", "zoey-warning.svg", "zoey-warning.ico",
+        "zoey-error.svg", "zoey-error.ico", "zoey-paused.svg", "zoey-paused.ico",
+        "site.webmanifest",
+    )
+}
+
+
+def branding_url(name):
+    return urlsplit(SITE).path + "assets/branding/" + name
 
 
 def slug(text):
@@ -89,6 +104,8 @@ def navigation():
 
 
 def rewrite_links(text, source, destination, pages, revision):
+    assets = {source: destination for destination, source in BRANDING.items()}
+
     def replace(match):
         href = match[2]
         parsed = urlsplit(href)
@@ -103,6 +120,10 @@ def rewrite_links(text, source, destination, pages, revision):
         elif target in pages:
             replacement = posixpath.relpath(
                 pages[target][0].as_posix(), destination.parent.as_posix()
+            ) + suffix
+        elif target in assets:
+            replacement = posixpath.relpath(
+                assets[target].as_posix(), destination.parent.as_posix()
             ) + suffix
         else:
             kind = "tree" if target.is_dir() else "blob"
@@ -201,24 +222,30 @@ def prepare(revision):
         converted, _ = convert_tabs(
             text, source.parent == ROOT / "docs/specs/controls"
         )
-        files[destination] = metadata + "---\n" + rewrite_links(
+        files[destination] = (metadata + "---\n" + rewrite_links(
             converted, source, destination, pages, revision
-        )
+        )).encode("utf-8")
     for directory, (label, order) in folders.items():
         if directory / "index.md" in files:
             continue
         files[directory / "index.yml"] = (
             f"label: {json.dumps(label)}\norder: {order}\n"
-        )
+        ).encode("utf-8")
+    for destination, source in BRANDING.items():
+        files[destination] = source.read_bytes()
+    files[Path("_includes/head.html")] = (
+        f'<link rel="apple-touch-icon" sizes="180x180" href="{branding_url("zoey-180.png")}">\n'
+        f'<link rel="manifest" href="{branding_url("site.webmanifest")}">\n'
+    ).encode("utf-8")
     INPUT.mkdir(parents=True, exist_ok=True)
     for existing in INPUT.rglob("*"):
         if existing.is_file() and existing.relative_to(INPUT) not in files:
             existing.unlink()
     for path, content in files.items():
         target = INPUT / path
-        if not target.exists() or target.read_text(encoding="utf-8") != content:
+        if not target.exists() or target.read_bytes() != content:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8", newline="\n")
+            target.write_bytes(content)
     return pages
 
 
@@ -227,6 +254,8 @@ class HtmlPage(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.ids = set()
         self.links = []
+        self.images = []
+        self.link_elements = []
         self.code_blocks = []
         self.in_pre = False
         self.tab_groups = []
@@ -239,6 +268,10 @@ class HtmlPage(HTMLParser):
             self.in_pre = True
             self.code_blocks.append("")
         attrs = dict(attrs)
+        if tag == "img":
+            self.images.append(attrs)
+        elif tag == "link":
+            self.link_elements.append(attrs)
         if tag == "doc-tabs":
             self.tab_groups.append([])
         elif tag == "doc-tab":
@@ -306,7 +339,7 @@ def check_output(pages, output=OUTPUT):
     allowed = expected | {entry[0] for entry in pages.values()} | {
         Path("404.html"), Path(".nojekyll"), Path("robots.txt"),
         Path("sitemap.xml"), Path("llms.txt"),
-    }
+    } | set(BRANDING)
     for path in output.rglob("*"):
         relative = path.relative_to(output)
         resource = relative.parts[0] == "resources" and path.suffix in {
@@ -350,6 +383,33 @@ def check_output(pages, output=OUTPUT):
     if failures:
         raise ValueError("\n".join(failures))
     print(f"Retype output checks passed: {len(expected)} pages, {count} links/assets.")
+
+
+def check_branding(output=OUTPUT):
+    for destination, source in BRANDING.items():
+        target = output / destination
+        if not target.is_file() or target.read_bytes() != source.read_bytes():
+            raise ValueError(f"Published branding differs from canonical asset: {destination}")
+    for path in output.rglob("*.html"):
+        page = HtmlPage(path.read_text(encoding="utf-8"))
+        page_url = urljoin(SITE, path.relative_to(output).as_posix())
+
+        def matches(href, name):
+            return urljoin(page_url, href or "") == urljoin(SITE, branding_url(name))
+
+        if not any(matches(image.get("src"), "zoey.svg") for image in page.images):
+            raise ValueError(f"Missing rendered Zoey logo: {path}")
+        for relation, name in (
+            ("icon", "zoey.ico"), ("apple-touch-icon", "zoey-180.png"),
+            ("manifest", "site.webmanifest"),
+        ):
+            if not any(
+                relation in link.get("rel", "").split()
+                and matches(link.get("href"), name)
+                for link in page.link_elements
+            ):
+                raise ValueError(f"Missing rendered {relation}: {path}")
+    print("Retype branding checks passed: canonical assets and /xui/ logo/icon links.")
 
 
 def check_navigation_and_code(pages, output=OUTPUT):
@@ -422,6 +482,7 @@ def main():
     if args.command == "check":
         check_output(pages)
         check_navigation_and_code(pages)
+        check_branding()
         return 0
     command = retype_command()
     environment = dict(os.environ)
@@ -431,6 +492,7 @@ def main():
         subprocess.run(command + ["build", "--strict"], cwd=ROOT, env=environment, check=True)
         check_output(pages)
         check_navigation_and_code(pages)
+        check_branding()
         return 0
     command += ["start", "--host", "127.0.0.1", "--port", str(args.port)]
     if args.no_open:

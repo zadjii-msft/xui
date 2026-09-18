@@ -1429,6 +1429,71 @@ The tutorial sample does not ship in the release sample ZIPs.
 The sample stores task state only in memory.
 Do not describe Apply as persistent storage or reload replacement as state preservation.
 
+### Zoey brand assets
+
+The [Zoey brand kit](docs/specs/branding/zoey.md) contains the canonical mascot and six status palettes.
+Normal native and managed builds use the checked-in assets and do not need an SVG renderer.
+Asset regeneration requires Node.js 22 or later and npm.
+The pinned renderer works on Windows, Linux, and macOS without a browser or system fonts.
+
+Install the repository dependencies:
+
+```powershell
+npm ci
+```
+
+Edit `assets\branding\zoey.svg`, then regenerate the assets:
+
+```powershell
+npm run branding:generate
+npm run branding:check
+npm run branding:test
+```
+
+To promote an edited copy instead, supply its path:
+
+```powershell
+npm run branding:generate -- --source path\to\updated-zoey.svg
+```
+
+The script validates the SVG before it writes assets.
+It replaces the canonical source, regenerates all palette exports, and updates the VS Code package icon.
+The generator uses only the canonical SVG and palette configuration as artwork inputs.
+Unchanged output files keep their timestamps.
+The check command reports missing or stale assets without writing files.
+
+The editable source must retain its named layers and six solid-color mane paths.
+These include `segments`, `segment-1` through `segment-6`, `face`, `face-border`, `border-colors`, and `border-segment-1` through `border-segment-6`.
+It also retains `mane`, `mane-backing`, `outer-mane-border`, `border-backing`, `title`, and `desc`.
+Internal mask and clip references must remain valid.
+External images, fonts, scripts, CSS, and file references are not supported.
+The square viewBox controls the export size; path edits can change the artwork within it.
+
+Edit `assets\branding\palettes.json` to change palette names, status labels, or single-hue colors.
+If a canonical face color changes, update its `sourceFace` entry too.
+The canonical rainbow palette comes from the source SVG.
+Each status version uses a single mane hue, coordinated face tones, and a darker outer border.
+
+Outputs live in `assets\branding\generated`.
+They include seven SVGs, seven multi-resolution ICOs, fourteen PNG sizes per palette, a web manifest, and a palette preview.
+`manifest.json` records file hashes and the pinned renderer version.
+The generated `integrations\vscode-xui\images\zoey.png` is the same as the canonical 256-pixel PNG.
+Do not edit generated files by hand.
+If a palette is removed, delete only its obsolete generated exports before regeneration.
+
+Open `assets\branding\generated\index.html` to inspect every palette on light and dark artboards.
+After regeneration, rebuild the applications to refresh their embedded icons.
+Run `npm run docs:build` to refresh the staged documentation assets.
+Commit the canonical SVG, palette configuration, and generated assets together.
+
+Native samples embed Zoey through `demo\zoey.rc` and load their window icons from their own executables.
+They do not need a separate icon file at runtime.
+The shared `demo\xui.rc` remains manifest-only.
+Managed sample apphosts embed Zoey and copy `zoey.ico` into build and publish outputs.
+Keep this file beside the managed executable when you distribute the application.
+File Explorer retains its folder and file icons at runtime.
+The NuGet package icon does not change icons in consumer applications.
+
 ### Document scope
 
 Keep each document focused on its reader:

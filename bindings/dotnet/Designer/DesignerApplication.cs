@@ -54,6 +54,8 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, preview.View, templates, window);
+            window.IconErrorHandler = error => ShowError($"Cannot load the application icon: {error}");
+            window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
             preview.Picked += OnPreviewPicked;
             view.Pick.Changed += RequestPicking;
             workspace.SelectionChanged += RequestHighlight;

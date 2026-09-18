@@ -16,6 +16,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 ## Implementation context
 
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
+- [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
 - [Test coverage and protocols](testing.md): Regression scope, sample and Designer release checks, fixture behavior, and measurement methods.
@@ -29,6 +30,24 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 The language guide describes the current syntax.
 The original language plan records an earlier, narrower control set.
 Handoff branch names, uncommitted-state warnings, and local build paths describe the handoff date, not this checkout.
+
+## Documentation branding adapter
+
+[`tools/docs_site.py`](../../tools/docs_site.py) stages handbook pages from `SUMMARY.md` and canonical Zoey files from the explicit `BRANDING` allowlist.
+It copies the generated assets into `assets/branding` within the Retype input.
+Unchanged files keep their timestamps. Unlisted staged files are removed.
+The asset allowlist includes seven SVG/ICO palettes, selected canonical PNGs, and the web manifest.
+The adapter does not publish the source artwork or arbitrary asset directories.
+
+[`retype.yml`](../../retype.yml) uses the documented [`branding.logo`](https://retype.com/configuration/project/#logo) and [`favicon`](https://retype.com/configuration/project/#favicon) properties.
+The adapter generates [`_includes/head.html`](https://retype.com/templating/includes/#site-wide-includes) for the Apple touch icon and web manifest.
+These links retain the `/xui/` project prefix without enabling Markdown templating.
+The [Zoey brand page](../specs/branding/zoey.md) is part of the handbook page allowlist.
+Its selected asset links stay local. Other exports and source files remain revision-pinned GitHub links.
+
+[`tests/test_docs_site.py`](../../tests/test_docs_site.py) covers binary copies, stable writes, and rejection of unlisted assets.
+The build checks canonical asset bytes and rendered logo, favicon, touch-icon, and manifest links on every page.
+Existing checks still cover page selection, navigation, local links, code examples, and language tabs.
 
 ## Historical evidence
 

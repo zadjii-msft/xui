@@ -9,6 +9,7 @@ struct BrowserOptions {
     std::filesystem::path folder;
     ThemeMode theme = ThemeMode::dark;
     VisualStyle visual_style = VisualStyle::classic;
+    bool application_icon{};
 };
 
 // Sample composition. Runs on the calling thread.

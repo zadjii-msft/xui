@@ -1,0 +1,5 @@
+# Preserve the bytes used by the deterministic generator and asset hashes.
+*.svg text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.webmanifest text eol=lf

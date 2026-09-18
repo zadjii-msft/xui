@@ -13,6 +13,8 @@ internal static class FeatureDemo
     internal static void Run(bool fail)
     {
         using var w = new Window("XUI feature bindings", 700, 800);
+        w.IconErrorHandler = error => throw new InvalidOperationException($"Cannot load the application icon: {error}");
+        w.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
         var root = w
             .Stack()
             .Padding(16)
