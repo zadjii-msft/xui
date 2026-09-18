@@ -114,7 +114,7 @@ public:
     explicit SelectorBar(std::wstring name = L"Selection") : RadioGroup(std::move(name), true, true) {}
 };
 
-enum class PopupPlacement { below, above, right, left, center, below_center };
+enum class PopupPlacement { below, above, right, left, center, below_center, below_viewport_center };
 enum class PopupDismissReason { cancel, commit, outside, focus_lost, hidden, owner_closed };
 // Placement is clipped to the intersection of the window client and monitor work area.
 Rect place_popup(Rect anchor, Size desired, Rect viewport, PopupPlacement placement);

@@ -765,7 +765,7 @@ internal static partial class Program
         Assert(Ref<Xui.SplitView>("Panes").Children.Count == 2 && Ref<Xui.Popup>("Flyout").Children.Single() is Xui.Stack,
             "Children-taking factories build complete nested compositions.");
         Assert(Ref<Xui.Button>("RefreshButton").Icon == Xui.ButtonIcon.Refresh &&
-            Ref<Xui.Popup>("Flyout").Placement == Xui.PopupPlacement.BelowCenter && Ref<Xui.Popup>("Flyout").WindowBackground,
+            Ref<Xui.Popup>("Flyout").Placement == Xui.PopupPlacement.BelowViewportCenter && Ref<Xui.Popup>("Flyout").WindowBackground,
             "Button and Popup options use native setters.");
         var input = Ref<Xui.TextInput>("Search");
         Assert(!input.CaptionVisible && input.Placeholder == "Explorer" && !Ref<Xui.NavigationView>("Navigation").HeaderVisible,

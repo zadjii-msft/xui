@@ -81,6 +81,11 @@ For example, Classic `ItemsView` uses the window background, while WinUI `ItemsV
 `PopupPlacement::below_center` centers the popup horizontally on its anchor and places it below that anchor.
 It flips above when necessary and retains the normal viewport clamp.
 C# exposes `PopupPlacement.BelowCenter`. The C ABI placement value is `5`.
+
+`PopupPlacement::below_viewport_center` instead centers horizontally in the client viewport.
+It retains the anchor's lower edge, upward fallback, and viewport clamping.
+C# exposes `PopupPlacement.BelowViewportCenter`. The C ABI placement value is `6`.
+This placement supports palettes below titlebar tabs without an offset for caption buttons.
 An inactive owner can open a popup without activation.
 Initial focus and focus restoration run only when that owner is already the foreground window.
 

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace Xui;
 
 public readonly record struct ElementBounds(float X, float Y, float Width, float Height);
-public enum PopupPlacement : uint { Below, Above, Right, Left, Center, BelowCenter }
+public enum PopupPlacement : uint { Below, Above, Right, Left, Center, BelowCenter, BelowViewportCenter }
 
 public sealed partial class Popup
 {
