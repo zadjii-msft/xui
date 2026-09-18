@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
 #include <thread>
 
 namespace {
@@ -204,6 +205,21 @@ void run_case(bool nested) {
                     }
                 };
                 auto open_frame = capture();
+                std::cout << "Popup bounds " << overlay.left << ',' << overlay.top << ',' << overlay.right << ',' << overlay.bottom
+                    << " green pixels " << count(open_frame, {0, 0, open_frame.width, open_frame.height},
+                        [](DWORD pixel) { return matches(pixel, overlay_color); }) << '\n';
+                wchar_t capture_path[32768]{};
+                if (GetEnvironmentVariableW(L"XUI_OVERLAY_CAPTURE", capture_path, 32768)) {
+                    const DWORD bytes = static_cast<DWORD>(open_frame.data.size() * sizeof(DWORD));
+                    BITMAPFILEHEADER header{0x4d42, static_cast<DWORD>(sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)) + bytes,
+                        0, 0, sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)};
+                    BITMAPINFOHEADER info{sizeof(BITMAPINFOHEADER), open_frame.width, -open_frame.height, 1, 32, BI_RGB, bytes};
+                    std::ofstream output(capture_path, std::ios::binary);
+                    output.write(reinterpret_cast<const char*>(&header), sizeof(header));
+                    output.write(reinterpret_cast<const char*>(&info), sizeof(info));
+                    output.write(reinterpret_cast<const char*>(open_frame.data.data()), bytes);
+                    require(bool(output), "Write owned overlay capture");
+                }
                 visible_producers(open_frame, false);
                 occludes(open_frame);
 
