@@ -133,11 +133,19 @@ Indeterminate and unknown progress states omit the UIA RangeValue pattern.
 Other progress states expose read-only values.
 
 Indeterminate progress animates only while attached, visible, and effectively enabled in a visible, nonminimized window.
-A window-owned timer drives eligible progress controls.
+This native behavior applies to both Classic and WinUI styles.
+A separate window-owned timer drives eligible indeterminate progress controls without an explicit duration.
 The timer stops when no eligible control remains.
 Hide, detach, ancestor disable, window minimization, and window destruction stop affected animation.
 The system client-area animation preference disables motion without changing the progress state.
 The indicator remains visible without motion.
-Unknown, paused, error, determinate, and capacity displays do not request animation.
+Unknown, paused, and error displays do not request animation.
 Capacity meters show used/total text without an active-task claim.
+Capacity updates remain immediate.
+
+Determinate progress supports an explicit duration, with zero as the default.
+Its displayed value uses the shared transition timer, independently of the timer for indeterminate progress.
+Logical and accessible values change immediately.
+The [animation contract](animations.md#determinate-progress-transitions) describes duration, interruption, and displayed values.
+The default duration does not disable automatic indeterminate motion.
 The [progress guide](controls/choices.md#progress) contains examples.

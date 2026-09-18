@@ -78,11 +78,6 @@ void TitleBar::arrange(Rect b) {
         ? std::min(180.0f, (remaining - leading) / 3) : remaining - leading) : 0;
     leading_->arrange({b.x, b.y + 3, leading, std::max(0.0f, b.height - 6)});
     title_->arrange({b.x + leading + 8, b.y, std::max(0.0f, title - 8), b.height});
-    const float tab_width = std::max(0.0f, remaining - leading - title - 36);
-    const float first_width = secondary_tabs_->visible() ? tab_width / 2 : tab_width;
-    tabs_->arrange({b.x + leading + title, b.y + 3, first_width, std::max(0.0f, b.height - 3)});
-    secondary_tabs_->arrange({b.x + leading + title + first_width, b.y + 3,
-        secondary_tabs_->visible() ? tab_width - first_width : 0, std::max(0.0f, b.height - 3)});
     minimize_->arrange({b.x + remaining, b.y, caption, button_height});
     maximize_->arrange({b.x + remaining + caption, b.y, caption, button_height});
     close_->arrange({b.x + remaining + caption * 2, b.y, caption, button_height});
@@ -100,6 +95,12 @@ void TitleBar::arrange(Rect b) {
         const float title_left = b.x + leading;
         const float title_width = title_->visible() ? std::max(0.0f, std::min(180.0f, first->bounds().x - title_left)) : 0;
         title_->arrange({title_left, b.y, title_width, title_->visible() ? b.height : 0});
+    } else {
+        const float tab_width = std::max(0.0f, remaining - leading - title - 36);
+        const float first_width = secondary_tabs_->visible() ? tab_width / 2 : tab_width;
+        tabs_->arrange({b.x + leading + title, b.y + 3, first_width, std::max(0.0f, b.height - 3)});
+        secondary_tabs_->arrange({b.x + leading + title + first_width, b.y + 3,
+            secondary_tabs_->visible() ? tab_width - first_width : 0, std::max(0.0f, b.height - 3)});
     }
 }
 CaptionHit TitleBar::hit_test(Point point) const {

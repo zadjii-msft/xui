@@ -18,6 +18,12 @@ mod control_styling;
 pub use control_styling::*;
 mod application;
 pub use application::*;
+mod reveal;
+mod split_animation;
+mod expander_animation;
+mod progress_animation;
+mod navigation_animation;
+pub use reveal::*;
 #[cfg(test)]
 mod feature_tests;
 

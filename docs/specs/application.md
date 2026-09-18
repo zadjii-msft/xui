@@ -116,7 +116,8 @@ Enabled state and checked state request paint updates.
 Text and typography changes request layout for automatic sizes, or paint for preferred sizes.
 Size limits, spacing, and padding request layout and paint updates.
 The host combines pending updates. It has no continuous render loop.
-Eligible indeterminate progress controls use a window-owned timer.
+Opt-in [animations](animations.md) share one window timer only during active transitions.
+Eligible indeterminate progress controls use a separate window-owned timer, without an explicit transition duration.
 The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines its lifecycle and reduced-animation behavior.
 Text stays on one line unless the text contains an explicit line break.
 An ellipsis marks text that exceeds the available width. The accessible name retains the full text.

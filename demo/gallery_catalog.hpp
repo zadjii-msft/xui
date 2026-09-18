@@ -132,6 +132,37 @@ inline constexpr std::array entries{
         L"});\n"
         L"view->on_activate(show_activation);\n"
         L"// Sources expose folder arrows through hierarchy().expandable."},
+    Entry{L"animations", L"Layout", L"Motion", L"Replay opt-in animations: four reveal directions and coordinated panes with retained native editors.",
+        L"auto editor = std::make_shared<TextInput>(L\"Notes\");\n"
+        L"auto reveal = std::make_shared<Reveal>(editor);\n"
+        L"reveal->set_layout(RevealLayout::expand);\n"
+        L"reveal->set_direction(RevealDirection::bottom);\n"
+        L"reveal->set_duration(180);\n"
+        L"// Mount the reveal, then change its target from an action.\n"
+        L"// reveal->set_open(true);"},
+    Entry{L"feedback-motion", L"Documents", L"Animated feedback", L"Show notices and field validation without replacing the native editor or delaying logical state.",
+        L"auto input = std::make_shared<TextInput>(L\"Name\");\n"
+        L"auto message = std::make_shared<InlineStatus>(L\"Enter a name.\");\n"
+        L"auto validation = std::make_shared<Reveal>(message);\n"
+        L"validation->set_layout(RevealLayout::expand);\n"
+        L"validation->set_duration(180);\n"
+        L"input->on_change([validation](const std::wstring& text) {\n"
+        L"    validation->set_open(text.empty());\n"
+        L"});"},
+    Entry{L"content-motion", L"Layout", L"Animated content states", L"Switch loading, empty, and result content without replacing the native editor.",
+        L"auto note = std::make_shared<TextInput>(L\"Result note\");\n"
+        L"auto results = std::make_shared<Reveal>(note);\n"
+        L"results->set_direction(RevealDirection::right);\n"
+        L"results->set_duration(180);\n"
+        L"// Mount state reveals in the same fixed Grid cell.\n"
+        L"// Close the old state's reveal before opening the new state."},
+    Entry{L"document-motion", L"Documents", L"Animated native documents", L"Move retained plain and rich documents without replacing native editing.",
+        L"auto notes = std::make_shared<MultilineText>(L\"Notes\");\n"
+        L"auto reveal = std::make_shared<Reveal>(notes);\n"
+        L"reveal->set_layout(RevealLayout::expand);\n"
+        L"reveal->set_direction(RevealDirection::top);\n"
+        L"reveal->set_duration(180);\n"
+        L"// Mount once. Change open state without replacing the document."},
     Entry{L"toggle-switch", L"Input", L"Toggle switch", L"An immediate on/off preference with a switch track and thumb, not a checkbox.",
         L"auto notifications = std::make_shared<ToggleSwitch>(L\"Send notifications\");\nnotifications->set_checked(true);\nnotifications->on_change(apply_notifications);"},
     Entry{L"toggle-button", L"Input", L"Toggle button", L"A persistent on/off action with button presentation and accessible checked state.",

@@ -5,6 +5,7 @@ namespace Xui.FileExplorer;
 internal sealed class NavigationSidebar : IDisposable
 {
     private readonly ExplorerApplication app;
+    private readonly SidebarLayout layout;
     private readonly Dictionary<string, ulong> identities = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, string> paths = [];
     private ulong nextId = 1;
@@ -16,7 +17,8 @@ internal sealed class NavigationSidebar : IDisposable
     public NavigationSidebar(ExplorerApplication app)
     {
         this.app = app;
-        View = new SidebarLayout(app.Window, attach: false).Root;
+        layout = new SidebarLayout(app.Window, attach: false);
+        View = layout.Navigation;
         View.SetHoverDelay(1000);
         BindContextMenu();
         foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })
@@ -31,6 +33,7 @@ internal sealed class NavigationSidebar : IDisposable
     }
 
     public NavigationView View { get; }
+    public Reveal Presentation => layout.Root;
     public bool IsOpen { get; private set; } = true;
     public void Dispose() => CancelHover();
 
@@ -58,7 +61,8 @@ internal sealed class NavigationSidebar : IDisposable
     {
         CancelHover();
         IsOpen = !IsOpen;
-        View.Visible(IsOpen);
+        layout.NavigationOpen = IsOpen;
+        if (!IsOpen) app.Active.Focus();
     }
     public void FocusFilter()
     {

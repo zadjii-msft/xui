@@ -585,6 +585,10 @@ void retained_page_resources() {
         require(edit->text() == L"original-edit" && SendMessageW(native, EM_CANUNDO, 0, 0), "Native editor owns text and undo");
         pages->select(1); flush();
         const auto warm_peers = metric(14);
+        if (warm_peers < initial_peers + 20 || metric(30) <= initial_buffer)
+            std::cerr << "Page resources: peers=" << initial_peers << " -> " << warm_peers
+                << ", buffer=" << initial_buffer << " -> " << metric(30)
+                << ", animation_timer=" << metric(33) << ", animation_ticks=" << metric(34) << '\n';
         require(warm_peers >= initial_peers + 20 && metric(30) > initial_buffer,
             "First page visit materializes peers and a larger native composition buffer");
         require(metric(13) > initial_layouts, "Visible page creates measured label layouts");

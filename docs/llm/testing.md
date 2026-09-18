@@ -63,6 +63,677 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### PR 32 integration with main
+
+The merge with `2a5f769` preserves the animation demos, tab tear-out, new controls, and the scroll-copy correction.
+The shared transition timer remains 43, with diagnostics 33 through 36.
+The incoming indeterminate progress timer uses 44, with diagnostics 37 and 38.
+Indeterminate bars and rings retain the incoming Classic and WinUI behavior.
+
+SplitView topology changes settle motion before the primary pane disappears.
+The secondary-only layout occupies the full container without a divider, including widths below the two-pane breakpoint.
+New model regressions cover this topology and determinate ProgressRing interpolation.
+The ring fixture explicitly selects determinate mode because ProgressRing defaults to indeterminate.
+
+The split, progress, control, and new-control model checks passed on Windows ARM64 Release.
+The foundation, queue fairness, progress motion, Expander motion, tab motion, Reveal, and scroll-flicker desktop checks passed.
+The merged native DLL also built successfully.
+
+The gallery retains 60 pages, including Motion and the incoming control examples.
+The catalog, Motion, feedback, progress, content, document, new-control, and both parity smoke modes passed.
+The generator passed 41,997 assertions.
+The VS Code tokenizer passed 30 tests, and the Microsoft Edit grammar passed 12 tests.
+The Explorer model suite passed 78,120 assertions, including the incoming drag and hover-join cases.
+The documentation checks passed for 52 pages, 650 local links, and 19 adapter tests.
+
+The isolated Explorer preview built without warnings at `build\animation-merge-preview\FileExplorer.exe`.
+Its copied native DLL matches the merged native build.
+The full smoke passed, including stationary palettes, tab-drag handlers, reversible hover joins, tear-out rollback, and same-Application merges.
+Separate hover-join, retained-view entry, and pane-animation smoke runs also passed.
+The pane-reopening assertion uses native focus and `IsWindowEnabled` because the managed `Enabled` property is write-only.
+The full smoke observed 28 intermediate pane paints, and the focused pane smoke observed 30.
+Existing user preview outputs remained untouched.
+
+The Rust library suite passed 32 of 33 tests.
+The remaining style test expects `Wrong handle kind` in an error message.
+Incoming main changed `xui_button_set_style` from an exact-kind check to a Button feature check.
+The error status remains 3, but the existing message assertion fails.
+This merge does not weaken that assertion or change the incoming error behavior.
+
+The incoming tab-drag desktop test failed its `Background fixture does not steal foreground` assertion twice.
+An isolated comparison used unchanged `origin/main` `application.cpp` with the current other libraries and the same test object.
+That comparison failed the same assertion after the gesture checks passed.
+This isolates the failure from the merged window-host changes, but does not establish a clean-main baseline.
+The foreground failure remains unresolved.
+
+### Reveal animation checks
+
+`tests\reveal_tests.cpp` covers natural measurement, full-size child geometry, duration validation, reversal, delayed clocks, and terminal invalidation.
+`tests\reveal_window_tests.cpp` covers live timer delivery and intermediate native editor positions.
+It also covers first-character input, immediate focus return, disabled exit interaction, idle paints, hidden windows, and retained models after closure.
+Its retirement fixture removes an active reveal through `Window::replace_content`.
+Its concurrent fixture keeps the shared timer active until the last reveal stops.
+It also covers hidden reveals and minimized windows.
+Its owned-window capture checks moving content pixels and the clip above a stationary footer.
+The capture selects only the fixture window.
+
+The Windows fixture reads the system motion preference without changing it.
+It requires intermediate timer frames when that preference permits motion.
+It requires immediate settlement when the preference disables motion.
+The zero-duration path also runs regardless of the system preference.
+Physical IME candidate positioning and broad frame-time measurements remain manual acceptance work.
+
+On 2026-09-17, the ARM64 Release model and window fixtures passed in the animation worktree.
+The control, style-layout, and preferred-stack fixtures also passed.
+The content-host fixture failed an initial background-focus assertion, then passed in isolation.
+The compiler fixture passed 41,900 assertions, and the FileExplorer model fixture passed 416 assertions.
+The Rust `reveal_contract` fixture and the complete managed FileExplorer `--smoke` also passed.
+The managed `--reveal` fixture passed 27 ownership, validation, and state assertions.
+The Explorer smoke covers the production `.xui` reveal, immediate input, reversal, and settled geometry.
+The VS Code grammar suite passed 38 tests, and the Microsoft Edit grammar suite passed 11 tests.
+The native syntax fixture used the syntax-disabled build configuration.
+These results do not establish a CPU budget or smoothness on other devices.
+
+#### Coordinated layout phase
+
+On 2026-09-17, the ARM64 Release fixtures also passed with `RevealLayout::expand` and all four entry directions.
+The model fixtures cover repeated grid measurement, sibling geometry, reversal, bounded natural sizes, nested clips, and preserved scroll offsets.
+The native fixtures cover zero-height opening focus, first-character delivery, caret selection, undo history, and constant editor height.
+Owned-window captures cover both layout modes for each entry edge.
+Retirement, concurrent transitions, hidden windows, minimized windows, and timer shutdown run with both layout modes.
+Nested native reveals retain input through a scroll viewport.
+Resize and synthetic DPI messages preserve progress and align the native editor with retained bounds.
+Synthetic DPI messages do not replace physical multi-monitor acceptance.
+
+The frame-work fixture samples 20 intermediate frames in a small window with an editor and buttons.
+Fixed layout performs zero root layouts during those samples.
+Expanding layout performs exactly 20 root layouts.
+Both modes stop the shared timer after settlement.
+The fixture includes synchronous update and paint in its timing interval.
+One isolated run recorded median intervals of 16.82 ms for fixed layout and 16.50 ms for expanding layout.
+The respective 95th-percentile intervals were 41.42 ms and 18.51 ms.
+Other runs varied substantially with desktop and graphics activity.
+These samples demonstrate bounded layout work, not an expansion speed advantage or a frame-rate guarantee.
+Representative Explorer workloads, CPU profiling, graphics allocations, and long-cycle retention remain phase 6 work.
+
+One extended capture run exposed cached WinRT factories across fixture apartment shutdown.
+The fixture now retains one apartment across its capture windows and clears factories before final shutdown.
+Queued driver callbacks also reject a completed or absent fixture.
+Some shared-desktop runs lost focus or observed an extra idle repaint.
+The complete isolated Reveal run passed without weakening focus or idle assertions.
+The adjacent core, control, and style-layout fixtures passed after the final native changes.
+The unchanged content-host fixture again failed its background-focus assertion, including an isolated rerun.
+That failure occurs before its replacement loop and has no Reveal in the fixture.
+
+The coordinated-layout compiler fixture passed 41,913 assertions, and the FileExplorer model fixture passed 416 assertions.
+The rebuilt native DLL passed 58 managed Reveal assertions and the Rust `reveal_contract` test.
+The complete Release Explorer smoke passed with animated and zero-duration layout transitions.
+Its geometry assertions first flush the posted layout update because a timer sample can precede that update in the UI queue.
+Its reversal assertion bounds the expected cubic position by measured call times, rather than comparing against a stale rendered frame.
+The smoke retains exact shared-edge, conserved-height, full-size-input, focus, and native-identity assertions.
+The updated Explorer output is separate from the running demo, so its output lock does not interrupt the existing window.
+
+#### Explorer animation demos and replay gallery
+
+On 2026-09-17, the ARM64 Release Explorer smoke passed with opt-in navigation, split-pane, and tab insertion transitions.
+The navigation check compares the shared pane edge, retained search peer, focus return, and titlebar minimum inset.
+The pane check requires intermediate geometry, full-width secondary content, immediate input, retained text, and zero final extent after closure.
+The tab check observes intermediate New tab button positions while logical selection and file focus change immediately.
+The preview output is `build\animation-preview`, separate from the existing user process.
+
+The split model fixture and native pane capture passed.
+The managed split fixture passed 11 assertions, and the Rust `split_animation_contract` passed.
+The tab model fixture passed stable-ID geometry, pointer geometry, interruption, and idle invalidation checks.
+The managed tab fixture passed 22 assertions, and the Rust `tab_animation_duration` passed.
+The tab-specific window fixture passed direct execution and five consecutive CTest runs.
+It covers owned-window pixels, native New tab button identity, presented hit and UIA bounds, rounded clocks, retirement, and idle work.
+The fixture uses natural tab height and a viewport that does not trigger overflow settlement.
+Its native identity check reads the HWND-backed parent of the semantic button.
+
+The gallery catalog fixture passed with the animation page and its handbook route.
+The animation gallery smoke passed replay, reversal, immediate mode, fixed slots, retained native text, pane access, and timer shutdown.
+The first gallery revision clipped the vertical native fields because duplicate captions exceeded the authored child height.
+The sample now hides the duplicate captions and gives each native field an explicit field-sized slot.
+The retention check uses UIA ValuePattern for cross-process text, not `GetWindowTextW`.
+
+The Reveal reversal fixture now waits for a delivered exit sample before it reverses.
+Its diagnostic exit duration is 1000 ms to permit sample observation under desktop load.
+Focus, intermediate progress, endpoints, and idle assertions remain intact.
+That longer fixture exposed a terminal invalidation defect in both Reveal and SplitView.
+Cubic easing can round the progress to its endpoint before the clock reaches the configured duration.
+The next clock sample previously cleared the active flag without requesting the final layout.
+Both models now invalidate completion even when the progress value is unchanged.
+Deterministic rounded-endpoint regressions failed before the fix and passed afterward.
+The complete native Reveal window suite and animation gallery smoke also passed after the fix.
+These results do not establish frame-rate, CPU, or allocation limits for representative applications.
+
+#### Ratio presets and feedback
+
+The split model fixture passed ten consecutive runs with ratio motion, retargeting, pointer takeover, and constrained endpoints.
+The native pane fixture passed intermediate ratio pixel checks on both sides of the divider.
+It also checked native editor geometry, text, focus, caret, and undo retention during width changes.
+The gallery ratio check observed intermediate native editor positions and rapid preset changes.
+The complete Explorer smoke passed with the rebuilt ratio implementation.
+
+The gallery catalog now contains 50 entries.
+The `feedback-motion` page passed its focused runtime check.
+Each validation or notice state produced one live announcement, without repeated announcements during motion.
+Typing and erasing retained native focus, identity, caret, and undo.
+The immediate-mode path also retained announcements and stopped the animation clock.
+Built-in InlineStatus dismissal remains unchanged. The demo animates its containing reveal instead.
+
+#### Popup entry experiment
+
+The popup gallery source now has an optional Animate popup content switch for parent and nested popups.
+It keeps dismissal immediate and resets the retained reveal for the next generation.
+The new native fixture covers first-character input, stationary popup bounds, reentrant dismissal, generation revocation, and clock cleanup.
+The focused gallery fixture covers nested dismissal and native editor retention across replay.
+MSVC syntax checks passed for the gallery and both fixtures.
+The first runtime run exposed premature animation settlement before popup layout.
+The scheduler treated the new popup's empty bounds as hidden ancestry.
+Policy checks now ignore stale geometry while layout is pending, but retain logical visibility, enabled state, modality, and generation checks.
+Normal input and visibility checks still require arranged geometry.
+The native fixture passed intermediate content movement, stationary frame geometry, first-character input, reentrant reopening, and immediate cleanup.
+The gallery popup and feedback modes also passed after this change.
+
+The first gallery replay assertion incorrectly required native identity across complete popup dismissal.
+The existing popup contract releases closed native peers after input dispatch.
+The fixture now requires stable identity during entry, peer release after dismissal, and retained text in the newly created editor after reopening.
+It does not change popup ownership or promise undo retention across dismissal.
+The rebuilt `build\animation-preview` passed the complete Explorer smoke after the shared scheduler change.
+
+The dialog gallery now provides opt-in form entry with stationary title and actions.
+The native fixture passed intermediate form movement, immediate modal exclusion, first-character input, validation failure, and one result after logical closure.
+The gallery fixture passed invalid and valid submissions, owner re-enabling, and timer cleanup.
+Result delivery and dismissal remain immediate. Whole-dialog motion and exit presentation remain planned.
+The public dialog text now describes the existing callback order accurately: generation revocation precedes results, and eligible focus restoration follows callbacks.
+The native modal-entry fixture also passed with WinUI layout.
+
+#### Expander acceptance
+
+The native Expander model and window fixtures passed in ARM64 Release.
+The window fixture covers native input, clipping pixels, UIA geometry, reversal, focus repair, and idle work.
+The gallery `disclosure` example passed collapse/reopen checks with the original native field and retained text.
+The managed fixture passed 21 assertions, and the Rust `expander_animation_contract` passed.
+
+One desktop run missed an intermediate frame in the original 400 ms entry fixture.
+The revised fixture records intermediate body arrangements from before expansion, rather than only after its driver timer starts.
+It uses a 2000 ms diagnostic duration and reports setup, driver, completion, and progress details on failure.
+The revised desktop fixture passed without injected entry clock samples.
+The actual intermediate-frame requirement, focus, native identity, undo, and pixel assertions remain intact.
+
+#### Tab removal and further timing checks
+
+The tab model now supports gap-closing motion after logical removal.
+Its regression passed retained stable-ID positions, removed-ID rejection, trailing New button movement, interruption by insertion, placement-only work, and immediate clearing.
+The native window fixture passed surviving-tab pixels, background pixels in the removed gap, pointer geometry, and immediate UIA item removal.
+The original strip and New button HWNDs remain unchanged, and removal frames perform no root layout.
+The Explorer preview now includes removal motion.
+Its complete application smoke passed with bounded intermediate New button positions during insertion and trailing removal.
+The deleted tab leaves the logical model immediately, and file focus returns before gap-closing motion completes.
+An earlier Explorer run failed the combined pane focus/text/intermediate-frame assertion.
+That assertion now reports each value separately. The complete subsequent run passed without changing pane behavior or its diagnostic duration.
+The earlier failure does not identify which condition failed, so its cause remains unconfirmed.
+
+One loaded-desktop Reveal run completed its 240 ms entry before the driver observed an intermediate frame.
+The fixture now uses the gallery's 1200 ms diagnostic duration for that entry.
+It still requires an actual intermediate timer frame, unchanged input identity, correct geometry, and no idle work.
+This diagnostic allowance does not change the production duration or establish a frame-rate guarantee.
+
+Animation window tests now use the existing `XUI_DESKTOP_TESTS` registration gate.
+Configuration checks passed with the gate both disabled and enabled.
+The headless model tests remain registered in both modes.
+Enabled animation window tests carry the `desktop` label and `RUN_SERIAL`.
+This change prevents a default headless CTest run from opening the new fixture windows.
+
+#### Determinate progress follow-up
+
+Opt-in Progress interpolation passed native model and window fixtures on 2026-09-17.
+The gallery includes normal, slow, and immediate durations, plus reset, retarget, and completion actions.
+The focused `--progress-motion-only` fixture checks immediate logical UIA values, native identity, mode changes, and idle work.
+It passed after the ComboBox commitment correction described below.
+Managed `--progress-animation` passed 32 assertions. Rust `progress_animation_contract` also passed.
+Cargo reported an incremental-directory access warning, but compilation and the contract test succeeded.
+Expander model and window regressions passed with the same native build.
+`ScalarTransition` remains float-valued. Progress uses its easing weight to interpolate double endpoints.
+
+#### Retained content-state follow-up
+
+The `content-motion` gallery source adds loading, empty, and results content in one fixed grid cell.
+These are manual state transitions, not asynchronous requests or a new PageView API.
+The example closes outgoing input immediately and preserves the native result editor for later states.
+The focused fixture checks native movement, query focus and bounds, result text/undo/identity, rapid reversal, and immediate mode.
+MSVC syntax checks passed for the gallery and smoke source.
+The catalog syntax check passed after the command supplied its CMake-provided `XUI_SOURCE_DIRECTORY` definition.
+Documentation checks passed with 52 pages, 601 local links, and 19 site tests.
+The focused `--content-motion-only` run passed on 2026-09-17.
+It observed intermediate native positions, retained HWND/text/undo, immediate input exclusion, reversal, query bounds, focus, and immediate mode.
+
+The first focus assertion incorrectly assumed that an action button would preserve query focus.
+The observed focus after Show results was the Show results button, not the incoming editor.
+The sample now also accepts Enter in the query to show results without a button action.
+Enter in the result note selects loading while the outgoing editor still owns focus.
+These native submit paths exercise both focus preservation and explicit focus return.
+The state buttons retain normal activation behavior.
+Editor submit handlers hold a weak state callback to avoid cycles through the retained editors.
+
+#### Gallery duration commitment correction
+
+The previous gallery helper selected a ComboBox popup preview without committing it.
+UIA SelectionItem selection alone does not call the ComboBox change callback.
+The shared `choose_combo` helper now presses Enter and requires both popup closure and the committed selection.
+Animation, Progress, and content fixtures use this helper.
+Animation and Progress modes passed with actual slow and zero-duration settings.
+Earlier duration-choice assertions did not establish those settings and must not count as immediate-mode evidence.
+The new content run also passed with committed duration choices.
+
+The separate `build\animation-preview` Explorer output was refreshed with the Progress native DLL.
+Its complete smoke passed navigation, panes, tabs, menus, filtering, sorting, columns, commands, detached previews, lifetime, native copy, images, and transfers.
+Documentation checks passed with 52 pages, 603 local links, and 19 site tests.
+These results do not establish visual approval, physical-monitor DPI behavior, or a universal frame-rate guarantee.
+
+#### Concurrent animation scale fixture
+
+`animation_stress_window_tests.cpp` adds bounded workloads with 1, 16, and 64 retained Reveal/Progress pairs.
+Each pair includes a native editor. The fixture compares fixed and expanding layout at the same window size.
+It warms both endpoints before recording CPU time, paints, layouts, peer counts, native buffer bytes, and GDI objects.
+The workload includes reversal, native identity checks, idle settlement, and host hiding.
+The test reads the system motion preference without changing it.
+
+CPU observations include the fixture observer, native composition, and rendering.
+They do not isolate scheduler cost or represent an application benchmark.
+The fixture does not enforce a machine-dependent frame-rate threshold.
+It requires no intermediate root layouts for fixed placement and no animation timer, paints, or layouts after settlement.
+Its own bounded observation timer remains active during the idle assertion.
+The desktop registration is serial and uses `XUI_DESKTOP_TESTS`.
+The native ARM64 Release fixture passed on 2026-09-17 with system motion enabled.
+
+The first version incorrectly included logical target changes and terminal closure in its zero-layout assertion.
+Fixed Reveal still releases its reserved slot at terminal closure.
+The corrected fixture classifies root measurements as target changes, terminal closure, or intermediate frames.
+Each run recorded five target layouts and two closure layouts.
+An early idle assertion also called the explicit update message on every observation.
+That message requests painting, so the observer itself caused the reported idle paints.
+The corrected observer does not request per-tick updates or paints.
+It permits one message-pump turn for final native visibility messages, then requires a quiet 250 ms interval.
+
+One completed run produced these observations:
+
+| Pairs | Layout | Elapsed ms | CPU ms | Paints | Intermediate layouts | Peak native buffer bytes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Fixed | 2649.89 | 203.125 | 114 | 0 | 6144 |
+| 16 | Fixed | 2775.47 | 984.375 | 100 | 0 | 52224 |
+| 64 | Fixed | 3487.95 | 1390.62 | 40 | 0 | 199680 |
+| 1 | Expand | 2637.09 | 281.25 | 112 | 100 | 6144 |
+| 16 | Expand | 2667.74 | 906.25 | 111 | 99 | 52224 |
+| 64 | Expand | 3045.75 | 1328.12 | 57 | 45 | 199680 |
+
+All runs retained their native editor identities and 4, 49, or 193 peers.
+GDI object counts remained at their warmed values: 20, 50, or 146.
+Reversal, idle shutdown, and whole-window hiding passed at every size.
+Paint counts are not displayed-frame counts. CPU values include the observer and the complete native rendering path.
+This single shared-desktop run does not establish that expansion is faster than fixed placement.
+The larger native-editor workload reduced paint delivery despite fewer intermediate root layouts.
+It supports the existing warning that placement-only motion still incurs rendering and native composition cost.
+
+The tab gallery source now provides Reverse document order and normal, slow, and immediate duration choices.
+The new `--tab-motion-only` fixture checks intermediate accessible positions, stable selection/identity, interruption, insertion/removal, and immediate mode.
+The native tab model/window fixtures, gallery catalog, tab gallery, and revised content gallery passed.
+The window fixture includes crossing pixels, hit targets, UIA order/runtime identity, native-peer retention, and idle shutdown.
+Crossing tabs narrow to avoid overlapping input rectangles. Visual preference for this effect remains unconfirmed.
+Managed tab bindings passed 23 assertions. The Rust tab-duration contract passed with reorder calls.
+Cargo again reported incremental-directory access warnings without a build or test failure.
+The separate `build\animation-preview` output contains the new tab implementation and passed the complete Explorer smoke.
+
+#### Navigation-group design boundary
+
+A09 investigation found that a local `NavigationView` duration property cannot preserve the current collection contract.
+`VirtualCollection::item_bounds()` uses consecutive logical row offsets, so an exit gap extends a surviving row's hit and UIA bounds.
+`CollectionProvider::with()` rejects removed keys through the logical source.
+Keeping outgoing keys there would retain interactive accessible identities.
+The renderer also reads images through `source()->visual(row.index)`, which cannot safely use indices from a retired row list.
+Repeated source replacement would trigger structure changes, focus repair, hover resets, and scroll clamping.
+No partial API or substitute navigation demo was added.
+The [animation proposal](../specs/animations.md#proposed-collection-presentation-foundation) records the required shared geometry and draw-only ownership phase.
+
+#### Native document motion
+
+The gallery now has 52 entries, including `document-motion`.
+Its native `--document-motion-only` smoke passed on 2026-09-17.
+The run covered actual native RichEdit movement, immediate input exclusion, reversal, text/selection/undo retention, editable policy, and zero-duration behavior.
+The separate `--document-motion-winui` run also passed with the same assertions.
+That mode checks the gallery's active WinUI style before it exercises motion.
+It uses the full gallery rather than the separate WinUI experiment catalog.
+Both desktop registrations run serially and remain behind `XUI_DESKTOP_TESTS`.
+The gallery catalog also passed.
+The first smoke lookup incorrectly expected native RichEdit to expose the model automation ID.
+The corrected fixture uses the accessible name published by `NativeDocumentBridge::sync()` through `EM_SETUIANAME`, as existing document fixtures do.
+No accessibility provider replacement was added.
+The first native fixture run completed MultilineText fixed mode, then failed its intermediate-layout assertion in a later case.
+A queued update after reversal repeated baseline progress and layout counts.
+The fixture incorrectly required another layout despite unchanged geometry.
+The corrected assertion requires additional layout only when expanding geometry changes.
+Fixed-mode zero-layout checks and all native clipping, input, and identity assertions remain intact.
+Two subsequent native runs passed all four MultilineText/RichText and fixed/expanding combinations.
+The final run observed 86, 84, 85, and 86 intermediate native placements, respectively.
+Coverage includes paint-DC clipping, native UIA bounds/read-only semantics, rich formatting, undo/redo, reversal, focus return, hiding, and idle shutdown.
+No production fix was necessary.
+The demo does not claim media, WebView, opacity, snapshot, or IME acceptance.
+
+#### Detached preview client entry
+
+`PreviewLayout.xui` now wraps the body in a fixed Reveal with an explicit 180 ms duration.
+`PreviewSession` opens that Reveal once, after the first content result reaches the UI thread.
+Loading, cancellation, image decoding, and window lifetime remain independent of entry.
+The caption and status row remain stationary.
+
+The separate `build\animation-preview` output built without warnings and passed the complete Explorer smoke on 2026-09-17.
+The added fixture uses a 1200 ms duration and observes real intermediate native RichEdit positions.
+It checks native focus, selection, read-only text, stationary caption/status geometry, and the stopped animation clock.
+Zero-duration entry and closure during a 10,000 ms diagnostic entry also passed.
+Queued closure completes in less than two seconds, rather than waiting for that entry duration.
+The first closure assertion incorrectly required synchronous HWND destruction inside `Dismiss`.
+`Window::close()` posts `WM_CLOSE`, so the corrected assertion checks completion after message delivery.
+The existing metadata, image, cancellation, native copy, and opener-first lifetime cases also passed.
+No running user output was overwritten.
+
+The next acceptance pass kept a folder preview in a 10,000 ms entry while it closed and disposed Explorer.
+The ownerless preview retained its own active animation clock after opener destruction.
+The native text-copy, image-resize, captured-folder Open, and final-window retirement checks still passed.
+A deleted-file error also left the content reveal closed and inactive.
+The complete Explorer smoke passed again with these new assertions, and the separate preview output was refreshed.
+
+#### Overflow tab reveal
+
+The 2026-09-17 continuation adds A07 source through the existing opt-in tab duration.
+Selection remains logical and immediate. A separate presented offset moves the overflow viewport.
+The retained New tab button stays stationary.
+Clipped tab rectangles drive drawing, hit targets, close targets, and accessible bounds.
+Reversal starts at the current offset. Overflow topology changes still settle immediately.
+
+The gallery adds Fill overflow, First document, and Last document.
+Model coverage includes fractional geometry, disjoint targets, reversal, metadata refresh, resize, immediate mode, and idle invalidation.
+The native fixture adds owned-window pixels, UIA geometry, close actions during reversal, New tab access, and retirement.
+The gallery fixture also observes actual timer-driven accessible movement.
+Initial `/Zs /W4 /WX` checks passed for the model, control, gallery, and gallery-smoke source.
+Native compilation initially waited for the collection foundation handoff.
+The existing preview retained the preceding delivery during that source-only stage.
+Source inspection also found an existing narrow-viewport error in `reveal_selected()`.
+Its 120-DIP minimum could exceed the actual tab width and discard visible neighbors while it searched for an impossible width.
+The minimum now respects actual tab width, with the existing geometry tolerance for fractional edges.
+New model assertions cover narrow immediate and animated endpoints.
+Overflow now reserves the New button slot at the viewport edge, even when the final tab leaves unused space.
+This placement also applies in immediate mode. A viewport that fits all tabs restores the leading tabs.
+The updated control source and native fixture also passed strict syntax checks.
+The final control and model source passed another strict syntax check after the narrow-viewport corrections.
+The documentation check passed for 52 pages and 603 local links.
+
+The next continuation adds Explorer-specific overflow acceptance to `ExplorerSmoke`.
+It fills a bounded tab strip, selects an offscreen document through `FilePaneView`, and clicks the prior displayed viewport before the first frame.
+The fixture checks immediate logical selection, native pointer targeting, file focus, New-button identity, reversal, and immediate mode.
+It closes only the tabs that it created and restores the original selection and duration.
+The managed-only build passed with no warnings or errors.
+`XuiCopyNativeRuntime=false` kept that compilation separate from native runtime delivery.
+The subsequent coordinated build passed the model, native tab window, and tab gallery fixtures.
+This includes intermediate overflow pixels, UIA geometry, native close actions, and timer-driven gallery movement.
+
+The full Explorer smoke then failed its explicit overflow-clock assertion.
+Selection and file focus were correct, but the clock was inactive despite enabled system motion and a 1200 ms duration.
+`TitleBar::arrange()` first assigned generic tab widths, then assigned pane-aligned widths.
+Those temporary widths settled animations during otherwise unchanged root layouts.
+The source correction now arranges each strip only at its final aligned or generic rectangle.
+New model assertions cover both aligned strips, insertion, removal, reorder, overflow, and genuine viewport resize.
+Strict syntax checks passed.
+An isolated model run then reproduced the failure against the last accepted core archive.
+That baseline stopped at `Unchanged pane-aligned titlebar layout preserves insertion`.
+The same fixture passed after linking the corrected `titlebar.cpp` object before that archive.
+This run covered both aligned strips and genuine resize settlement without rebuilding shared libraries.
+The source and archive used the same ARM64 Release runtime configuration.
+No production DLL or preview output changed during this check.
+The subsequent standard CMake build passed the corrected model and native tab fixtures.
+The tab gallery also passed.
+
+The earlier Explorer insertion/removal fixture inferred motion policy from the animation clock.
+It could therefore accept missing animation as reduced motion.
+The corrected fixture reads the OS preference independently and requires an active clock when motion is enabled.
+Earlier Explorer smoke passes do not prove visible tab motion through this host path.
+The complete Explorer smoke then passed with the stricter checks and the title-bar correction.
+The separate `build\animation-overflow-preview` output includes this runtime and the navigation-group opt-in.
+One preceding full run failed a later palette-history assertion.
+The next run passed after adding exact failure diagnostics, without a palette implementation change.
+The cause of that isolated palette failure remains unconfirmed.
+
+#### Collection presentation foundation integration
+
+The source handoff adds immutable single-column presentation bands, explicit clips, and a separate draw-only outgoing cache.
+`src\collection_presentation.hpp` defines the internal snapshot.
+Collection drawing, input, accessibility, image synchronization, and scrolling consume that geometry without replacing the logical source per frame.
+Outgoing image requests use frozen visual metadata rather than stale indexes in the current source.
+Presentation retirement clears the frame and notifies the future transition producer.
+
+Both new fixtures are registered in CMake.
+The window fixture is desktop-gated and serial.
+The first ARM64 Release run passed `xui_collection_presentation_tests` and the expanded `xui_tab_animation_tests`.
+The presentation native fixture and existing collection/navigation window regressions also passed.
+Existing collection, navigation, NavigationView, and collection/navigation style model fixtures passed.
+This accepted foundation supports the subsequent NavigationView producer.
+
+The next continuation stages `--navigation-motion-only` in the gallery fixture.
+It uses the existing nested NavigationView example, not a replacement expander.
+Its assertions cover intermediate surviving-row positions, immediate removal of outgoing UIA rows, ancestor focus repair, pinned sections, and native search identity.
+It also covers reversal, preserved selection, filter interruption, and immediate mode.
+The fixture reads system motion independently, so a missing animation clock cannot silently pass.
+Strict ARM64 syntax checks passed.
+The native handoff subsequently added the producer and C/C#/Rust duration APIs.
+Explorer opts into 180 ms, and the gallery provides normal, slow, and immediate modes.
+The navigation model, existing navigation-view/style models, and C# 15-assertion and Rust binding contracts passed.
+The registered focused navigation gallery fixture also passed.
+
+The first gallery assertion captured pinned geometry before the duration popup and focus changes.
+The corrected baseline follows those actions.
+A second assertion expected reversal to restore a pre-collapse scroll offset that extent clamping had changed.
+The fixture now reveals the first logical row before geometric reversal checks.
+It still requires actual intermediate movement, immediate logical retirement, focus repair, stable native search, and compatible final geometry.
+
+The dedicated native navigation fixture failed `Settled navigation has no idle repaint or layout`.
+Its synchronous `flush()` left previously posted updates in the message queue.
+The corrected setup dispatches those updates with a bounded limit, then paints existing damage before the idle baseline.
+It neither discards messages nor repeatedly waits for a quiet interval.
+Two consecutive native runs passed Classic and WinUI.
+Each style dispatched one queued update and one paint before the baseline.
+The subsequent 180 ms observation recorded no update, paint, layout, or animation work.
+The fixture also requires released presentation and unchanged anchor focus. No production change was necessary.
+Additional Explorer coverage uses native Tab, Home, Left, and Right to exercise real sidebar groups.
+Those checks passed collapse, expansion, reversal, immediate mode, and native search retention in the latest run.
+That run later missed intermediate samples in the existing pane fixture despite an initially active transition.
+The pane failure now includes elapsed-time diagnostics.
+The next complete Explorer smoke passed, including the native group actions and strict tab checks.
+The isolated pane sampling miss did not recur. Its cause remains unconfirmed.
+
+The next compiler-only slice adds reactive NavigationView `duration` authoring in `.xui`.
+Explorer now declares 180 ms in `SidebarLayout.xui` instead of setting it in the controller constructor.
+The generator fixture checks initialization, omitted defaults, retained search identity/text, cached refreshes, invalid types, and range rejection.
+The generator suite passed 41,933 assertions.
+The managed-only Explorer build passed without warnings or errors.
+No desktop run or shared native build occurred during this slice.
+After the native fixture released the desktop slot, the full Explorer build and smoke passed with this declarative opt-in.
+The refreshed gallery catalog and navigation-motion smoke also passed.
+The current verified preview is `build\animation-overflow-preview\FileExplorer.exe`.
+
+#### Retained PageView entry, September 18, 2026
+
+The gallery `pages` example now composes a real PageView with a fixed Reveal.
+The application selects the next page immediately and restarts directional entry at its edge.
+It does not retain outgoing pixels or add a PageView duration API.
+Normal, slow, and immediate choices expose the transition.
+
+The Release gallery, smoke harness, and catalog builds passed.
+The catalog and both `xui_page_motion_gallery_smoke` and `xui_page_motion_winui_gallery_smoke` passed.
+The native checks recorded actual editor positions during right entry and left return.
+They also required immediate outgoing input retirement, typing during entry, fixed neighboring geometry, and retained HWND, text, selection, and undo.
+Rapid switches left only the final page active. Zero duration switched immediately without an animation clock.
+Each animated endpoint released the shared clock.
+These results establish native geometry and input behavior, not subjective visual approval.
+Documentation checks passed for 52 pages and 606 local links.
+The runnable gallery is `build\ARM64\Release\xui_gallery.exe --page pages`.
+The verified Explorer preview remains unchanged while the separate palette-entry implementation awaits acceptance.
+
+#### Explorer view entry, September 18, 2026
+
+Details and Columns now share a fixed Reveal in `FilePaneLayout.xui`.
+The controller opts into 180 ms after initial construction.
+A deliberate mode change requests entry when its filtered rows arrive.
+Rapid mode changes retain only the latest request. Navigation, cancellation, and later filtering settle active motion.
+Initial population and cold navigation do not request entry.
+
+The separate `build\animation-views-preview` Release build passed without warnings or errors.
+Its focused `--view-entry-smoke` passed directional intermediate geometry, fixed surrounding layout, immediate mode ownership, and outgoing native-peer retirement.
+It also passed selection and 320-DIP scroll-offset retention, original Details HWND retention, rapid switching, navigation cancellation, and zero duration.
+The first focused run inspected native focus before the queued visibility update and failed.
+The fixture now dispatches one normal native update before that immediate-retirement assertion. It does not advance the animation clock.
+The corrected focused run passed without a production change for that assertion.
+
+Full acceptance stopped earlier in the new palette fixture at `Palette dismissal must immediately retire native peers and entry work.`
+That failure precedes the view checks. The palette workstream owns its investigation.
+The candidate is runnable, but `build\animation-overflow-preview` remains the latest fully accepted Explorer preview.
+The A14 catalog row remains provisional until integrated acceptance passes.
+
+#### Palette and view integration follow-up, September 18, 2026
+
+The palette failure came from a fixture assumption about native cleanup.
+Dismissal immediately hides and disables popup peers and restores focus.
+The normal later update destroys the HWNDs. The fixture originally required destruction inside the dismissal callback.
+The corrected fixture separates immediate visibility, cancellation, and focus checks from bounded deferred cleanup.
+It requires destroyed peers and a stopped Reveal within two seconds, including ten-second diagnostic entries.
+No production dismissal change was necessary.
+
+Palette acceptance now covers actual result-peer movement, stationary query/frame geometry, native typing, selection, undo, and retained open-generation HWNDs.
+It also covers cold-query retirement, repeated Escape, command execution during entry, and zero duration.
+Cold queries now remove stale logical rows rather than retain disabled suggestions.
+Each new popup generation resets entry. Subsequent query edits do not restart it.
+
+The first integrated rerun passed the palette checks, then missed every intermediate pane sample with an 800 ms diagnostic duration.
+The assertion ran after 1,022 ms and retained the expected native editor, text, and focus.
+Additional diagnostics now record input readiness and the first observation before and after its explicit native update.
+The next complete smoke passed, including A14, A23, existing tab/navigation/pane/Find checks, previews, and transfers.
+That run recorded 15 intermediate pane samples, input readiness at 64 ms, and the first sample at 85 ms.
+The first explicit update ended at 92 ms. The final assertion ran at 1,615 ms.
+These timings include asynchronous observer scheduling. They are not animation frame-time measurements.
+The intermittent missed-sample cause remains unresolved. No pane assertion or production duration changed.
+
+The Release build passed without warnings or errors.
+The latest fully accepted runnable Explorer preview is now `build\animation-views-preview\FileExplorer.exe`.
+The older `build\animation-overflow-preview` output remains intact.
+A14 and A23 now have integrated acceptance. Their scope remains incoming content only, with immediate outgoing ownership changes.
+
+#### Animation queue fairness, September 18, 2026
+
+The isolated `--pane-animation-smoke` exposed a native timer-delivery defect.
+One failure recorded zero timer dispatches and zero progress from 235 ms through 4,930 ms.
+The first timer arrived at 5,082 ms and immediately reached the endpoint.
+Posted updates outranked the generated `WM_TIMER` and `WM_PAINT` messages.
+This was not only a delayed managed observer.
+
+`animation_queue_window_tests.cpp` reproduced the defect with a bounded stream of posted messages.
+The baseline processed 603 messages over 1,500 ms, with no animation timer or intermediate paint.
+The window message loop now services due animation timers between dispatches and worker deliveries.
+The service uses the existing window timer, applies its queued geometry update, and paints the frame.
+It adds no worker, extra timer, or idle wakeup. Inactive windows bypass clock sampling.
+The normal update path still does not advance the animation clock.
+
+The first service revision exposed an ordering defect in the native Reveal fixture.
+It could retrieve another timer before applying the pending animation geometry.
+The corrected service presents that frame before it retrieves another timer.
+Native retirement guards protect both timer and update dispatch.
+The queue fixture warms initial native rendering before its measured traffic. It does not include cold initialization in that workload.
+
+Final native acceptance passed Reveal, TabStrip, NavigationView, Expander, Progress, native documents, concurrent stress, and queue fairness.
+The expanded queue fixture also passed zero-duration traffic and retirement of one active window while another window continued.
+Its idle checks required no animation timer, additional paint, or layout after settlement.
+A separate tab UIA failure hit the conversation window of another process, not a tab.
+The owned test window now stays above unrelated windows without activation. Its strict point-target assertion passed.
+
+Private metrics now count actual timer delivery and successful intermediate SplitView and Reveal paints.
+The Explorer fixture requires those actual paints instead of relying only on asynchronously sampled progress.
+It also reads pane motion policy independently, rather than interpreting an already completed animation as reduced motion.
+Observed cold-start runs consumed most or all of the diagnostic duration before the first managed sample.
+Some had real intermediate paints despite zero managed samples. Others had no intermediate paint.
+The scheduler cannot interrupt expensive callbacks or initial rendering, and this work does not establish a universal frame-rate guarantee.
+
+The final full Explorer smoke passed with 14 managed pane samples and 29 successful intermediate pane paints.
+The refreshed gallery passed popup, tabs, navigation, and retained-page entry in Classic and WinUI.
+The final queue-lifetime fixture passed in 10.83 seconds.
+The latest fully accepted preview is `build\animation-fairness-preview\FileExplorer.exe`.
+The earlier previews remain intact. Physical DPI changes, IME sessions, and subjective visual approval remain outside this automated evidence.
+
+Nonanimated compatibility checks passed multiwindow ownership, the application ABI, navigation input, WinUI lifecycle, and split-resource retirement.
+The default `xui_window_tests` failed its retained-page buffer-growth assertion.
+Peer count increased from 4 to 26, but composition buffer bytes remained 57,456. Animation timers and ticks remained zero.
+An isolated executable replaced the current window host with `HEAD`'s unchanged `src\application.cpp`.
+It reproduced the same assertion and values.
+That comparison used current headers, core, drawing, and other libraries. It isolates host changes, not every animation change.
+The buffer-growth failure remains unresolved. The assertion remains intact, with diagnostics for later investigation.
+
+The queue fixture then exposed a shutdown defect in the new frame service.
+Filtered `PeekMessageW` calls can retrieve `WM_QUIT` regardless of the requested message range.
+The service consumed that message and lost the exit code.
+The regression drained a real animation update, posted exit code 37, and failed its bounded shutdown guard before the correction.
+Both filtered paths now repost the quit message and return to the outer message loop.
+The single-window fixture removes its own normal teardown quit before it starts the next independent case.
+
+A second queue regression exposed dropped native child timers.
+The HWND filter includes child messages, but the initial service dispatched only messages whose HWND matched the top-level window.
+The fixture received zero child-timer callbacks during posted traffic, despite intermediate animation painting.
+The corrected service checks the retained owner lifetime, then dispatches the retrieved message to its actual target.
+It does not add or accelerate native child timers.
+
+#### Overnight checkpoint, September 18, 2026, after 03:00 UTC-05
+
+The corrected queue fixture passed three consecutive runs, including native child timers and exit-code preservation through both application entry points.
+The rebuilt Reveal and application ABI fixtures passed.
+The rebuilt gallery passed popup, tab, navigation, and retained-page entry, including the WinUI page case.
+The final full Explorer smoke passed with 19 managed pane samples and 40 successful intermediate pane paints.
+Native input was ready at 50 ms. These observations describe this run, not a frame-rate guarantee.
+
+The accepted preview is `build\animation-final-preview\FileExplorer.exe`.
+Its native DLL hash matched `build\ARM64\Release\xui.dll` before the full smoke run.
+Earlier previews and running user applications remain unchanged.
+The shared disk became full during acceptance. Cleanup removed four exact, rebuildable linker intermediates from this session.
+The build products and application data remained intact.
+
+The nonanimated multiwindow fixture intermittently failed `No wrong-window shortcuts` during two acceptance batches.
+An isolated baseline-host executable passed eight consecutive runs.
+The current host also passed eight consecutive runs after the fixture gained failure-only shortcut-count diagnostics.
+No production routing change followed that diagnostic addition. The intermittent failure remains unexplained, not fixed.
+The retained-page resource assertion described earlier also remains unresolved.
+This checkpoint does not claim a fully green repository suite or subjective visual approval.
+Documentation source checks passed for 52 pages and 606 local links, plus 19 adapter tests.
+The separate rendered-site check found no generated HTML. This run did not rebuild the documentation site.
+
+The overnight implementation interval ended after its requested horizon.
+The catalog still identifies compact/adaptive navigation, additional collection topology, indicator effects, overlay exit, and advanced rendering as future work.
+Physical DPI changes, IME sessions, media/web hosts, and manual visual acceptance remain outside the delivered evidence.
+
+#### Palette review and Motion discovery, September 18, 2026
+
+User review accepted the other Explorer motion but rejected the palette result slide.
+The shared command/location palette now renders results directly, without a Reveal or entry-animation state.
+Cold queries still clear old logical rows. Cancellation and deferred native cleanup retain their existing contracts.
+A whole-palette pop-in remains planned. This change does not provide scale or opacity animation.
+
+The full Explorer smoke passed in `build\palette-static-preview\FileExplorer.exe`.
+The revised palette checks cover immediate visible results, stationary geometry, and no animation timer after unrelated motion settles.
+They retain native typing, editor identity, selection, undo, execution, Escape, focus return, and deferred cleanup checks.
+The same run passed the other Explorer animation and application regressions.
+The build reported no warnings or errors. Earlier preview outputs remain unchanged.
+
+The existing gallery playground now appears as **Layout > Motion**, with its stable `animations` page ID.
+Catalog checks passed search by both `motion` and `animations`.
+The native motion-page smoke passed its heading, reversal, native-editor, pane, duration, and idle checks.
+Documentation source checks and the adapter tests passed.
+
+### Native input and retained content
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.

@@ -186,6 +186,15 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             if (node.Arguments.ContainsKey("reversed")) Bind("reversed", "bool", "SetReversed({0})", "false");
             if (node.Arguments.ContainsKey("progressState")) Bind("progressState", "global::Xui.ProgressState", "SetState({0})", "default");
         }
+        if (node.Kind == "Reveal")
+        {
+            if (node.Arguments.ContainsKey("duration")) Bind("duration", "uint", "SetDuration({0})", "0");
+            if (node.Arguments.ContainsKey("layout")) Bind("layout", "global::Xui.RevealLayout", "SetLayout({0})", "default");
+            if (node.Arguments.ContainsKey("direction")) Bind("direction", "global::Xui.RevealDirection", "SetDirection({0})", "default");
+            if (node.Arguments.ContainsKey("open")) Bind("open", "bool", "SetOpen({0})", "false");
+        }
+        if (node.Kind == "SplitView" && node.Arguments.ContainsKey("duration"))
+            Bind("duration", "uint", "SetTransitionDuration({0})", "0");
         if (node.Kind == "CheckBox")
         {
             if (node.Arguments.ContainsKey("threeState")) Bind("threeState", "bool", "SetThreeState({0})", "false");
@@ -266,6 +275,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Bind("columns", "global::Xui.GridColumn[]", "SetColumns({0})", "[]");
         if (node.Kind == "NavigationView")
         {
+            if (node.Arguments.ContainsKey("duration"))
+                Bind("duration", "uint", "SetDuration({0})", "0");
             if (node.Arguments.ContainsKey("searchId"))
                 Bind("searchId", "string", "Search.AutomationId = {0}", "\"\"");
             if (node.Arguments.ContainsKey("searchHelp"))
@@ -409,6 +420,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 "Text" => "Label(\"\")",
                 "Grid" => $"Grid({node.Arguments["value"].Text})",
                 "ScrollView" => $"ScrollView({Child(0)}, \"\")",
+                "Reveal" => $"Reveal({Child(0)}, \"\")",
                 "Popup" => $"Popup(\"\", {Child(0)})",
                 "SplitView" => $"SplitView(\"\", {Child(0)}, {Child(1)})",
                 _ => node.Kind + "(\"\")"

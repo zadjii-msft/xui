@@ -726,9 +726,15 @@ root->add(capacity);
 Indeterminate progress animates while attached, visible, and effectively enabled.
 The window-owned timer stops without eligible controls, including hidden or minimized windows.
 The system client-area animation preference suppresses motion without changing the state.
-Unknown, paused, error, and determinate states remain static.
+Unknown, paused, and error states remain static.
 Capacity text describes used and total values without an active-task claim.
 `set_capacity` selects determinate state and requires finite values with `0 <= used <= total` and a positive total.
+
+Determinate progress can interpolate its displayed value with an explicit duration.
+The default duration is zero. Logical and accessible values change immediately.
+This transition uses the shared transition timer, not the separate timer for indeterminate progress.
+The duration does not control indeterminate motion.
+See the [animation contract](../animations.md) for duration, interruption, and presentation APIs.
 
 The style target is `progress`.
 Caption, track, and fill styles do not alter the value.

@@ -24,6 +24,7 @@ internal sealed class FilePaneView
     private string? error;
     private readonly List<ColumnPresentation> columnViews = [];
     private bool focusColumnsAfterRender;
+    private bool viewEntryPending;
 
     private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
         FileRows Rows, ImmutableSource Source);
@@ -36,10 +37,12 @@ internal sealed class FilePaneView
         Tabs = tabs;
         Tabs.SetAutomationId($"pane-{number}-tabs");
         Tabs.NewTabButtonVisible = true;
+        Tabs.Duration = 180;
         Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         layout = new(window, number, path, attach: false);
+        layout.ViewReveal.Duration = 180;
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
@@ -149,7 +152,10 @@ internal sealed class FilePaneView
     public FileContextMenu ContextMenu { get; }
     public TextInput FindInput => find;
     public Button CloseFindButton => closeFind;
-    public ElementBounds FindBounds => findHost.GetBounds();
+    public Reveal FindReveal => layout.FindReveal;
+    internal Reveal ViewReveal => layout.ViewReveal;
+    public ElementBounds FindBounds => FindReveal.GetBounds();
+    public ElementBounds FindContentBounds => findHost.GetBounds();
     public bool IsLoading { get; private set; }
     public bool IsFiltering { get; private set; }
     public string? Error => error;
@@ -218,10 +224,33 @@ internal sealed class FilePaneView
         Cancel();
         error = null;
         Model.Active.SetViewMode(mode);
+        viewEntryPending = Model.Active.HasSnapshot;
         focusColumnsAfterRender = mode == ExplorerViewMode.Columns;
         Render();
         if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
         Focus();
+    }
+
+    private void StartViewEntry()
+    {
+        if (!viewEntryPending) return;
+        viewEntryPending = false;
+        bool restoreFocus = FilesFocused;
+        uint duration = ViewReveal.Duration;
+        ViewReveal.Duration = 0;
+        ViewReveal.Open = false;
+        ViewReveal.Direction = IsColumns ? RevealDirection.Right : RevealDirection.Left;
+        ViewReveal.Duration = duration;
+        ViewReveal.Open = true;
+        if (restoreFocus) Focus();
+    }
+
+    private void SettleViewEntry()
+    {
+        if (!ViewReveal.Animating) return;
+        uint duration = ViewReveal.Duration;
+        ViewReveal.Duration = 0;
+        ViewReveal.Duration = duration;
     }
 
     private void ShowViewMenu()
@@ -298,6 +327,8 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        viewEntryPending = false;
+        SettleViewEntry();
         SaveViewport();
         navigation.Cancel();
         navigation.Dispose();
@@ -603,6 +634,7 @@ internal sealed class FilePaneView
 
     private void ApplyFilter()
     {
+        SettleViewEntry();
         if (IsColumns) { ApplyColumnFilter(); return; }
         filtering.Cancel();
         filtering.Dispose();
@@ -634,10 +666,12 @@ internal sealed class FilePaneView
                 Grid.Offset = tab.ScrollOffset;
             }
             finally { rendering = false; }
+            StartViewEntry();
             UpdateStatus(result.Count, entries.Count, query);
         }, failure =>
         {
             IsFiltering = false;
+            viewEntryPending = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
         });
     }
@@ -716,10 +750,12 @@ internal sealed class FilePaneView
                 throw;
             }
             finally { rendering = false; }
+            StartViewEntry();
             UpdateStatus(checked((int)rows.Count), tab.Entries.Count, query);
         }, failure =>
         {
             IsFiltering = false;
+            viewEntryPending = false;
             error = $"Cannot filter this folder: {failure.Message}";
             status.Text = error;
         });
@@ -770,6 +806,8 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        viewEntryPending = false;
+        SettleViewEntry();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();

@@ -159,11 +159,15 @@ In light and dark themes, NavigationView rows use two-tone keyboard focus around
 The outline extends two DIPs from the inset face and follows its resolved corner radius.
 Classic and high-contrast navigation outlines retain their existing treatment.
 Catalog-wide paint coverage does not establish pixel or behavior parity with WinUI.
-It does not implement Mica, acrylic, general control transitions, automatic system accent selection, or WinUI API compatibility.
+It does not implement Mica, acrylic, general default control transitions, automatic system accent selection, or WinUI API compatibility.
+Applications can select [opt-in transitions](animations.md) independently of the visual style.
+These transitions default to zero duration and share a timer only while active.
 Indeterminate bars and rings use a window-owned animation timer while attached, visible, and effectively enabled.
+Classic uses the same native indeterminate animation.
+This separate timer does not depend on an explicit transition duration.
 Hidden or minimized windows stop the timer.
 The system client-area animation preference suppresses motion.
-Unknown states and capacity meters remain static.
+Unknown states remain static. Capacity updates remain immediate.
 The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines lifecycle limits.
 Date/time controls, native suggestion lists, native editor scrollbars, disabled RichEdit backgrounds, and third-party Shell menus retain platform-owned visuals.
 The C ABI exposes window style selection through `xui_window_visual_style_set` and `xui_window_visual_style_get` in `xui_layout.h`.

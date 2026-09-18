@@ -230,6 +230,7 @@ The [binding reference](../bindings.md) defines the exact surface.
 | `Wrap` | [Wrap](layout.md#wrap) | `Wrap` | `wrap` |
 | `AdaptiveLayout` | [AdaptiveLayout](layout.md#adaptivelayout) | `AdaptiveLayout` | `adaptive_layout` |
 | `ContentView` | [ContentView](layout.md#contentview) | No standalone factory | No standalone factory |
+| `Reveal` | [Reveal](layout.md#reveal) | `Reveal` | `reveal` |
 | `ScrollView` | [ScrollView](layout.md#scrollview) | `ScrollView` | `scroll_view` |
 | `SplitView` | [SplitView](layout.md#splitview) | `SplitView` | `split_view` |
 | `PageView` | [PageView](layout.md#pageview) | `PageView` | `page_view` |
@@ -296,8 +297,8 @@ The linked contracts describe those companion APIs.
 
 ## Language and styling boundaries
 
-The declarative language has 24 built-in nodes.
-Layout and composition use `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, and `Content`.
+The declarative language has 25 built-in nodes.
+Layout and composition use `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, `Reveal`, and `Content`.
 Basic controls use `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other forms are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
 `Content` mounts an existing element. It does not add a new native control class.
