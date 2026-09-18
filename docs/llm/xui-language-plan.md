@@ -67,6 +67,14 @@ The controller uses one snapshot-checked replacement and refuses read-only sourc
 `Designer.IndentationTests/Program.Duplication.cs` covers both styles, exact text and selections, empty lines, Unicode, limits, focus routing, and successive undo/redo.
 The application selection smoke covers palette and shortcut dispatch, actual native preview labels, selection mapping, and exact source undo.
 
+The same controller handles source-only Alt+Up/Down and the palette's selected-line movement actions.
+It swaps the selected block with one adjacent line through a single snapshot-checked replacement.
+The replacement preserves source length and maps UTF-16 selection endpoints into the moved block.
+Document boundaries and read-only source disable palette actions. Direct calls report explicit refusals.
+Identical replacements skip the native edit to preserve undo and preview ownership.
+`Designer.IndentationTests/Program.LineMovement.cs` covers both styles, partial and multiline selections, final and empty lines, Unicode, maximum-length source, and native undo/redo.
+The application selection smoke checks both palette directions, source shortcuts, selection mapping, actual native preview order, and successive source undo.
+
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.

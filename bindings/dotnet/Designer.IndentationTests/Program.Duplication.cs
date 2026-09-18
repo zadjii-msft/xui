@@ -65,7 +65,7 @@ internal static partial class Program
                     errors[^1].Contains("read-only", StringComparison.Ordinal),
                     "The source shortcut reports a read-only refusal.");
                 editor.ReadOnly = false;
-                foreach (var modifiers in new[] { KeyModifiers.None, KeyModifiers.Shift, KeyModifiers.Alt,
+                foreach (var modifiers in new[] { KeyModifiers.None, KeyModifiers.Shift,
                     KeyModifiers.Control, KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Shift })
                     Require(!lines.HandleKey(new(0x28, modifiers, editor.Id)), "Other Down combinations retain native behavior.");
                 Require(!lines.HandleKey(new(0x26, KeyModifiers.Alt | KeyModifiers.Shift, editor.Id)),

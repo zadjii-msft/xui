@@ -17,7 +17,9 @@ internal static partial class Program
             RunComments(VisualStyle.WinUI);
             RunDuplication(VisualStyle.Classic);
             RunDuplication(VisualStyle.WinUI);
-            Console.WriteLine($"Designer source indentation, comment, and duplication assertions: {assertions} passed.");
+            RunLineMovement(VisualStyle.Classic);
+            RunLineMovement(VisualStyle.WinUI);
+            Console.WriteLine($"Designer source indentation and line-editing assertions: {assertions} passed.");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

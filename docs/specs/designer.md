@@ -75,6 +75,24 @@ Read-only source and excessive result length produce explicit errors without par
 This action copies text, not control identities. Duplicate IDs or declarations can cause compiler errors.
 The ordinary source pipeline retains the last valid preview when the copied text is invalid.
 
+**Source: Move selected lines up** and **Source: Move selected lines down** exchange the selected block with the adjacent line.
+Alt+Up and Alt+Down run these actions only when the source editor has focus.
+The same shortcuts in the hierarchy retain their control-movement behavior.
+With no selection, the action moves the caret's line.
+A selection that ends at the next line's start excludes that next line.
+Indentation, blank lines, and line content remain unchanged.
+
+The caret or selection follows the moved block.
+If the block moves to the document's end, the selection excludes any line separator that no longer follows it.
+Each text change creates one native undo operation.
+Identical adjacent lines move the selection without changing source or adding an undo operation.
+At a document boundary, the palette action is disabled and the source shortcut reports a no-op.
+Read-only source refuses the action.
+
+Line movement is a text edit, not syntax-aware control movement.
+The action can move declarations outside their container or introduce compiler errors.
+Invalid source retains the last valid preview.
+
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
 New, open, save, recovery, undo, redo, and render use compact icon buttons.

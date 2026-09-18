@@ -756,6 +756,62 @@ internal sealed partial class DesignerApplication
             await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3 &&
                 NativeLabel(workspace.Document.Root.Children[0].Id),
                 "A second native undo restores the exact source and preview before palette duplication."));
+            foreach (bool usePalette in new[] { true, false })
+            {
+                await Ui(() =>
+                {
+                    var text = workspace.Document!.Root!.Children[0];
+                    editor.Selection = new((ulong)text.Span.Start, (ulong)text.Span.End);
+                    editor.Focus();
+                });
+                string movedSource = "";
+                foreach (bool down in new[] { true, false })
+                {
+                    if (usePalette)
+                    {
+                        await Ui(view.Commands.Invoke);
+                        await Until(() => commandPalette.IsOpen);
+                        await Ui(() =>
+                        {
+                            Require(!window.KeyHandler!(new(down ? 0x28u : 0x26u, KeyModifiers.Alt, commandPalette.Surface.Editor.Id)),
+                                "Source movement shortcuts do not intercept native command palette navigation.");
+                            commandPalette.Surface.Invoke((ulong)(down ? DesignerCommandId.MoveSourceLinesDown : DesignerCommandId.MoveSourceLinesUp));
+                        });
+                    }
+                    else
+                    {
+                        await Ui(() => Require(window.KeyHandler!(new(down ? 0x28u : 0x26u, KeyModifiers.Alt, editor.Id)),
+                            "Alt+Up/Down moves lines in the focused source editor."));
+                    }
+                    await Ready();
+                    await Ui(() =>
+                    {
+                        var children = workspace.Document!.Root!.Children;
+                        var text = children[down ? 1 : 0];
+                        var button = children[down ? 0 : 1];
+                        Require(children.Count == 3 && text.Kind == "Text" && button.Kind == "Button" &&
+                            NativeLabel(text.Id) && preview.TryReadNode(version, text.Id, out var textView) &&
+                            preview.TryReadNode(version, button.Id, out var buttonView) &&
+                            (down ? textView.Bounds.Y > buttonView.Bounds.Y : textView.Bounds.Y < buttonView.Bounds.Y),
+                            "Source line movement changes the actual native preview order without losing controls.");
+                        Require(editor.Focused && editor.Selection == new TextSelection((ulong)text.Span.Start, (ulong)text.Span.End),
+                            "The moved source control keeps its selected characters and native focus.");
+                        if (down) movedSource = editor.Text;
+                        else Require(editor.Text == source, "The inverse move restores exact source text.");
+                    });
+                }
+                await Ui(() => editor.Command(TextCommand.Undo));
+                await Ready();
+                await Ui(() =>
+                {
+                    Require(editor.Text == movedSource && workspace.Document!.Root!.Children[0].Kind == "Button",
+                        "One native undo restores the previous source and preview order.");
+                    editor.Command(TextCommand.Undo);
+                });
+                await Ready();
+                await Ui(() => Require(editor.Text == source && NativeLabel(workspace.Document!.Root!.Children[0].Id),
+                    "A second native undo restores the source and preview before line movement."));
+            }
             await Ui(() =>
             {
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));

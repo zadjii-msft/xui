@@ -4,9 +4,12 @@ internal sealed class DesignerSourceLines(MultilineText editor, Action<string> r
 {
     internal bool HandleKey(UiKeyEvent key)
     {
-        if (key.VirtualKey != 0x28 || key.Modifiers != (KeyModifiers.Alt | KeyModifiers.Shift) || !editor.Focused) return false;
-        Duplicate();
-        return true;
+        if (!editor.Focused) return false;
+        if (key.VirtualKey == 0x28 && key.Modifiers == (KeyModifiers.Alt | KeyModifiers.Shift))
+        { Duplicate(); return true; }
+        if (key.VirtualKey is 0x26 or 0x28 && key.Modifiers == KeyModifiers.Alt)
+        { Move(down: key.VirtualKey == 0x28); return true; }
+        return false;
     }
 
     internal static (int First, int Last) SelectedLineBounds(string source, TextSelection selection)
@@ -45,5 +48,55 @@ internal sealed class DesignerSourceLines(MultilineText editor, Action<string> r
             editor.Focus();
         }
         catch (XuiException error) { report($"Native editor rejected the line duplication: {error.Message}"); }
+    }
+
+    internal bool CanMove(bool down)
+    {
+        if (editor.ReadOnly) return false;
+        string source = editor.Text;
+        var (first, last) = SelectedLineBounds(source, editor.Selection);
+        return down ? last < source.Length : first > 0;
+    }
+
+    internal void Move(bool down)
+    {
+        if (editor.ReadOnly)
+        {
+            report("Source is read-only. No lines moved.");
+            return;
+        }
+        string source = editor.Text;
+        var selection = editor.Selection;
+        var (first, last) = SelectedLineBounds(source, selection);
+        if (down ? last == source.Length : first == 0)
+        {
+            report($"The selected lines are already at the {(down ? "end" : "start")} of the source. No lines moved.");
+            return;
+        }
+        int rangeStart = first, rangeEnd = last, delta;
+        string replacement;
+        if (down)
+        {
+            rangeEnd = source.IndexOf('\r', last + 1);
+            if (rangeEnd < 0) rangeEnd = source.Length;
+            replacement = source[(last + 1)..rangeEnd] + "\r" + source[first..last];
+            delta = rangeEnd - last;
+        }
+        else
+        {
+            rangeStart = first == 1 ? 0 : source.LastIndexOf('\r', first - 2) + 1;
+            replacement = source[first..last] + "\r" + source[rangeStart..(first - 1)];
+            delta = rangeStart - first;
+        }
+        var mapped = new TextSelection((ulong)((int)selection.Start + delta),
+            (ulong)Math.Min((int)selection.End + delta, source.Length));
+        try
+        {
+            if (!source.AsSpan(rangeStart, rangeEnd - rangeStart).SequenceEqual(replacement))
+                editor.ReplaceRange(new((ulong)rangeStart, (ulong)rangeEnd), source, replacement);
+            editor.Selection = mapped;
+            editor.Focus();
+        }
+        catch (XuiException error) { report($"Native editor rejected the line move: {error.Message}"); }
     }
 }
