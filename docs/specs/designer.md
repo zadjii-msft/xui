@@ -213,6 +213,17 @@ Expressions, event handlers, references, and style names remain read-only in the
 The source editor accepts these expressions directly.
 Compiler errors appear without changing the document.
 
+**Properties: Reveal value in source** in the command palette selects the active property's exact authored value and focuses the native source editor.
+It works for literals, expressions, event-handler names, and references.
+The selection excludes the argument name, separators, and comments before the value.
+Multiline values and UTF-16 positions use the current source model.
+Event handlers and references select their authored names, not their definitions.
+
+Navigation preserves the selected control, property, filters, and unapplied drafts, including invalid fields.
+It does not change source, native undo, or preview ownership.
+Unset properties, stale source, and pending visual edits prevent navigation.
+After navigation, source typing uses the ordinary native editing and preview pipeline.
+
 **Find a property** filters the property selector by name, without changing the active editor.
 Search is case-insensitive. Every whitespace-separated term must match the same property name.
 For example, `font si` matches `fontSize`.

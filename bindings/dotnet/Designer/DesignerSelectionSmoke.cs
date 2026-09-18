@@ -368,6 +368,7 @@ internal sealed partial class DesignerApplication
                 workspace.Inspector.ChooseArgument("value");
                 view.Commands.Invoke();
             });
+            ulong? propertySourcePreview = null;
             await Until(() => commandPalette.IsOpen);
             await Ui(() =>
             {
@@ -376,6 +377,31 @@ internal sealed partial class DesignerApplication
                 catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
                 Require(refused && commandPalette.IsOpen && !workspace.CanRevertPropertyDraft && editor.Text == source,
                     "The native command palette disables draft reversion for an authored expression.");
+                Require(preview.TryReadNode(version, buttonId, out var beforeNavigation) && beforeNavigation.ControlId is not null,
+                    "Property source navigation starts with an owned native preview control.");
+                propertySourcePreview = beforeNavigation.ControlId;
+                commandPalette.Surface.Invoke((ulong)DesignerCommandId.RevealPropertySource);
+            });
+            await Until(() => !commandPalette.IsOpen && editor.Focused);
+            await Ui(() =>
+            {
+                var argument = workspace.Hierarchy.Selection!.Arguments.Single(value => value.Name == "value");
+                Require(editor.Selection == new TextSelection((ulong)argument.ValueSpan.Start, (ulong)argument.ValueSpan.End) &&
+                    source.Substring(argument.ValueSpan.Start, argument.ValueSpan.Length) == "Caption" &&
+                    workspace.Inspector.Argument == "value" && workspace.Inspector.Value.ReadOnly && editor.Text == source &&
+                    preview.TryReadNode(version, buttonId, out var retained) && retained.ControlId == propertySourcePreview,
+                    "The palette reveals the exact authored expression after dismissal without changing the inspector or preview ownership.");
+                workspace.Inspector.ChooseArgument("id");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                bool refused = false;
+                try { commandPalette.Surface.Invoke((ulong)DesignerCommandId.RevealPropertySource); }
+                catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                Require(refused && commandPalette.IsOpen && !workspace.CanRevealPropertySource,
+                    "The palette disables source navigation for a property with no authored value.");
                 commandPalette.Surface.CloseButton.Invoke();
             });
             await Until(() => !commandPalette.IsOpen);

@@ -29,6 +29,8 @@ internal sealed class DesignerWorkspace : IDisposable
     internal bool IsBusy => busy;
     internal bool CanRevertPropertyDraft => !disposed && !busy && current && Document?.Source == editor.Text &&
         Hierarchy.Selection is not null && Inspector.CanRevertDraft;
+    internal bool CanRevealPropertySource => !disposed && !busy && current && Document?.Source == editor.Text &&
+        Hierarchy.Selection?.Arguments.Any(argument => argument.Name == Inspector.Argument) == true;
     internal event Action? Changed;
     internal event Action? SelectionChanged;
 
@@ -224,6 +226,30 @@ internal sealed class DesignerWorkspace : IDisposable
     }
 
     internal void Move(int delta) => Edit((document, node, token) => document.MoveNode(document.Revision, node.Id, delta, token));
+
+    internal void RevealPropertySource()
+    {
+        if (busy)
+        {
+            Inspector.Layout.Feedback.Text = "Wait for the current visual edit before showing property source.";
+            return;
+        }
+        if (!current || Document is null || Document.Source != editor.Text || Hierarchy.Selection is not { } selected)
+        {
+            Inspector.Layout.Feedback.Text = "Cannot show a property from a stale hierarchy. Select a property in the current source.";
+            return;
+        }
+        var argument = selected.Arguments.FirstOrDefault(value => value.Name == Inspector.Argument);
+        if (argument is null)
+        {
+            Inspector.Layout.Feedback.Text = "This property is not set in source. Apply a value before showing its source.";
+            return;
+        }
+        editor.Selection = new((ulong)argument.ValueSpan.Start, (ulong)argument.ValueSpan.End);
+        editor.Focus();
+        SelectionChanged?.Invoke();
+        Inspector.Layout.Feedback.Text = $"Selected the authored {argument.Name} value in source. Property drafts remain unapplied.";
+    }
 
     internal void RevertPropertyDraft()
     {

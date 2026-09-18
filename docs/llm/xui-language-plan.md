@@ -73,6 +73,19 @@ Reselecting the active property preserves its draft.
 The clear action clears the query and authored-only state, while selection and source changes retain both filters.
 `Designer.WorkspaceTests/Program.PropertySearch.cs` covers native input, stable keys, all draft modes, authored expressions, revisions, and undo in both styles.
 The application selection smoke checks the property-search command, visible native query, retained dimension draft, and unchanged preview geometry.
+`DesignerWorkspace.RevealPropertySource` selects the active argument's `ValueSpan` after exact source and busy-state checks.
+It keeps the inspector and hierarchy intact, focuses source, and sends the existing outline notification.
+The action uses authored spans rather than searching for repeated text or interpreting expressions.
+`CanRevealPropertySource` gates the command palette, including its deferred availability check.
+`Designer.WorkspaceTests/Program.PropertySource.cs` covers UTF-16 and multiline spans, event names, references, all draft modes, source editing, refusals, and undo.
+Both visual styles use actual native fields and selection.
+The application selection smoke covers palette dispatch, exact expression selection, and retained native preview identity.
+
+An inline source-navigation button remains deferred after a September 17, 2026 ARM64 WinUI test failure.
+Adding that inspector control exposed access violation `0xC0000005` in `Xui.Native.Focus` during inset draft reversion.
+Separate rows, deferred button dispatch, and direct field restoration did not resolve the failure.
+The native cause remains unresolved. Command-only navigation leaves the inspector layout unchanged.
+
 The inspector also filters the control palette by enum name and a short template description.
 `FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.
 Filtered choices retain enum-based native keys instead of result indices.

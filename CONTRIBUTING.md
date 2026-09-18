@@ -311,7 +311,10 @@ It covers pane bounds, pane order, native selection, and source preservation acr
 The workspace suite runs the same builder smoke against production controllers without the preview host.
 It also covers hierarchy search in both visual styles, native queries, match navigation, collapsed ancestors, revision guards, invalid source, and undo preservation.
 Property search checks cover native queries, authored-only results, stable choice keys, retained raw and structured drafts, expressions, source revisions, and undo.
+Property source checks cover exact UTF-16 and multiline selections, literals, expressions, references, event-handler names, retained drafts, refusals, and native undo.
+They also edit a revealed expression and compile a subsequent property change in both styles.
 The application selection smoke checks property-search focus, native query bounds, and unchanged preview geometry while a draft remains active.
+It also checks property-source command availability, exact source selection, and retained native preview identity.
 Sibling insertion checks cover before/after buttons, filtered templates, nested parents, Grid cells, structural refusals, native undo/redo, and cancellation by source typing.
 Empty-cell checks cover native Grid coordinates, nested target selection, read-only discovery, explicit refusals, busy/stale guards, and insertion undo in both styles.
 The source suite covers occupancy combinations, spans, large track arrays, unknown tracks, invalid placement, revisions, cancellation, and compiled insertion.
