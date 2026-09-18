@@ -130,6 +130,7 @@ void run_case() {
                 std::array<RECT, 2> areas{};
                 std::array<SwapChainPanelMetrics, 2> metrics{};
                 std::array<unsigned, 2> resizes{};
+                std::array<std::vector<SwapChainPanelMetrics>, 2> changes;
                 for (std::size_t i = 0; i < panels.size(); ++i) {
                     hosts[i] = panels[i]->native_window();
                     areas[i] = client_bounds(hosts[i], root_hwnd);
@@ -144,6 +145,9 @@ void run_case() {
                     }
                     producers[i]->render(metrics[i], i == 1);
                     resizes[i] = producers[i]->resizes();
+                    panels[i]->on_metrics_changed([&, i](const SwapChainPanelMetrics& value) {
+                        changes[i].push_back(value);
+                    });
                 }
                 auto unchanged = [&] {
                     for (std::size_t i = 0; i < panels.size(); ++i) {
@@ -152,6 +156,8 @@ void run_case() {
                             "Opening and closing the overlay preserves producer HWND and physical bounds");
                         require(panels[i]->metrics() == metrics[i] && panels[i]->has_content(),
                             "Overlay does not resize, hide, or detach either producer");
+                        for (const auto& value : changes[i])
+                            require(value == metrics[i], "Overlay never transiently suspends or resizes a producer");
                         DXGI_SWAP_CHAIN_DESC1 desc{};
                         check(producers[i]->chain()->GetDesc1(&desc), "Read live producer buffers");
                         require(desc.Width == metrics[i].pixel_width && desc.Height == metrics[i].pixel_height &&
@@ -221,6 +227,7 @@ void run_case() {
             } catch (const std::exception& error) {
                 failure = error.what();
             }
+            for (const auto& panel : panels) panel->on_metrics_changed({});
             window.close();
         })) {
             std::cerr << "Could not post overlay fixture\n" << std::flush;
@@ -235,6 +242,7 @@ void run_case() {
     });
     const auto result = Application::run(window);
     finished = true;
+    if (result != 0) std::wcerr << window.error() << L'\n';
     require(ran && result == 0 && failure.empty(), failure.empty() ? "Overlay fixture completes" : failure.c_str());
     require(!popup->is_open(), "Popup is closed after owner teardown");
     for (const auto& panel : panels)
