@@ -449,9 +449,13 @@ void run_case(bool surface_handle, bool capture) {
                 pixels(true, true);
 
                 stage("popup and native editor");
-                bool blocked{};
-                try { window.show_popup(popup, *anchor); } catch (const std::logic_error&) { blocked = true; }
-                require(blocked && !popup->is_open(), "Active native graphics reject retained popup");
+                const auto popup_metrics = panel->metrics();
+                const auto popup_host = panel->native_window();
+                window.show_popup(popup, *anchor); sync();
+                require(popup->is_open() && panel->metrics() == popup_metrics && panel->native_window() == popup_host,
+                    "Popup preserves live native graphics metrics and HWND");
+                require(GetForegroundWindow() == foreground, "Background popup does not activate its owner");
+                window.dismiss_popup(*popup); sync();
                 // Native editor messages target only this owned, non-activated window.
                 const auto focus = GetFocus();
                 const auto text_end = GetWindowTextLengthW(edit);

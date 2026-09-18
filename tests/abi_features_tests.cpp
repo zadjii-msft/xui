@@ -833,7 +833,8 @@ void explorer_contracts() {
     expect(xui_navigation_header(first_pane, 0) == XUI_WRONG_KIND);
     auto centered_popup = create(window, XUI_POPUP, create(window, XUI_GRID));
     ok(xui_popup_placement(centered_popup, 4));
-    expect(xui_popup_placement(centered_popup, 5) == XUI_INVALID_ARGUMENT);
+    ok(xui_popup_placement(centered_popup, 5));
+    expect(xui_popup_placement(centered_popup, 6) == XUI_INVALID_ARGUMENT);
     expect(xui_popup_placement(first_pane, 4) == XUI_WRONG_KIND);
     ok(xui_popup_window_background(centered_popup, 1));
     ok(xui_popup_window_background(centered_popup, 0));

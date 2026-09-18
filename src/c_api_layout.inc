@@ -84,7 +84,7 @@ xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint32_t* sty
 xui_status XUI_CALL xui_popup_placement(xui_handle target, uint32_t placement) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_POPUP); editable(n->owner);
-        require(placement <= 4, XUI_INVALID_ARGUMENT, "Invalid popup placement.");
+        require(placement <= 5, XUI_INVALID_ARGUMENT, "Invalid popup placement.");
         as<xui::Popup>(n).set_placement(static_cast<xui::PopupPlacement>(placement));
     });
 }

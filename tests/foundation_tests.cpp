@@ -142,7 +142,12 @@ void popup_disclosure_progress_actions() {
         require(small.x == 10 && small.y == 20 && small.width == 300 && small.height == 200,
             "Centered popups fit narrow and offset viewports");
     }
-    rejects([&] { popup.set_placement(static_cast<PopupPlacement>(5)); });
+    popup.set_placement(PopupPlacement::below_center);
+    const auto below_center = place_popup({100, 20, 600, 40}, {300, 200}, {0, 0, 800, 600}, PopupPlacement::below_center);
+    require(below_center.x == 250 && below_center.y == 60, "Centered-below placement retains the anchor's lower edge");
+    const auto flipped_center = place_popup({100, 500, 600, 40}, {300, 200}, {0, 0, 800, 600}, PopupPlacement::below_center);
+    require(flipped_center.x == 250 && flipped_center.y == 300, "Centered-below placement flips above the anchor");
+    rejects([&] { popup.set_placement(static_cast<PopupPlacement>(6)); });
     auto content = std::make_shared<Stack>(Axis::vertical);
     auto button = std::make_shared<Button>(L"Details action"); content->add(button);
     Expander expander(L"Details", content);

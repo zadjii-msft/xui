@@ -409,6 +409,9 @@ Rect place_popup(Rect anchor, Size desired, Rect viewport, PopupPlacement placem
     Rect result{anchor.x, anchor.y + anchor.height, std::min(desired.width, viewport.width), std::min(desired.height, viewport.height)};
     const float right = viewport.x + viewport.width, bottom = viewport.y + viewport.height;
     switch (placement) {
+    case PopupPlacement::below_center:
+        result.x = anchor.x + (anchor.width - result.width) / 2;
+        [[fallthrough]];
     case PopupPlacement::below:
         if (result.y + result.height > bottom && anchor.y - result.height >= viewport.y) result.y = anchor.y - result.height;
         break;
@@ -449,7 +452,7 @@ void Popup::arrange(Rect value) {
     children_[0]->arrange(area);
 }
 void Popup::set_placement(PopupPlacement value) {
-    if (value < PopupPlacement::below || value > PopupPlacement::center) throw std::invalid_argument("Invalid popup placement");
+    if (value < PopupPlacement::below || value > PopupPlacement::below_center) throw std::invalid_argument("Invalid popup placement");
     if (placement_ == value) return;
     placement_ = value; invalidate(Invalidation::layout);
 }

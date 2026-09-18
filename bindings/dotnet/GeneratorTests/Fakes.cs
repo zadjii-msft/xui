@@ -199,7 +199,7 @@ public sealed class TextInput : Control
     public void Submit() => Submitted?.Invoke();
 }
 public enum ButtonIcon { None, Back, Forward, Up, Refresh, Search }
-public enum PopupPlacement { Below, Above, Right, Left, Center }
+public enum PopupPlacement { Below, Above, Right, Left, Center, BelowCenter }
 public enum TrackSizing { Fixed, Automatic, Star }
 public readonly record struct GridTrack(TrackSizing Sizing = TrackSizing.Star, float Value = 1, float Minimum = 0, float Maximum = float.MaxValue);
 public readonly record struct GridColumn(string Name, float Width = 120, bool Numeric = false, bool Filterable = false, bool Checkable = false);

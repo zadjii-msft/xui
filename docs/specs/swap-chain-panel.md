@@ -111,14 +111,24 @@ The metrics callback reports these visibility changes so the producer can pause 
 ## Native composition boundary
 
 The panel is a rectangular native surface.
-It supports scrolling and normal layout, but not retained transforms, rounded masks, or retained controls over its pixels.
+It supports scrolling and normal layout, but not retained transforms or rounded masks.
+Ordinary retained siblings do not cover its pixels.
+Supported `Popup` surfaces can cover live panels without changing producer metrics or content.
 The panel has no XUI control-style schema.
 The renderer supplies its own background, colors, and high-contrast presentation.
 
-Retained popups cannot open while a swap-chain surface is active.
+In windows with swap-chain peers, each popup uses its own opaque Direct2D child-window surface.
+Native sibling clipping and popup z-order place this surface above the compositor subtree, including nested content hosts.
+The popup retains native EDIT children, input routing, accessibility, nested dismissal, and modal input ownership.
+Its rounded window region clips both pixels and pointer hit testing.
+The surface stays inside the client and monitor-work-area intersection.
+Opening or closing it does not detach, pause, resize, or hide the producer.
+Producer content outside the opaque popup remains live and visible.
+
+This boundary does not provide translucent shadows, acrylic, or arbitrary retained layers over native composition.
+Modal input blocking remains supported, but a retained dimming scrim does not cover native composition pixels.
+Media and web runtime hosts retain their separate popup restrictions.
 Tooltips remain hidden while a surface is active.
-After the application detaches the surface, retained popups can open.
-An attachment during an open popup does not display until that popup closes.
 Native text inputs beside the panel keep their existing native editing behavior.
 
 `WM_PRINT`, root bitmap capture, and Designer pointer inspection do not include the composition content.

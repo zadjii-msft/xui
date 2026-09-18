@@ -58,7 +58,7 @@
             inspection::Outline ring;
             if (host && content_highlight_geometry(*host, state, *state.highlight, ring) == ContentHighlightResult::applied)
                 for (const auto segment : ring.segments)
-                    if (segment.width > 0 && segment.height > 0) drawing.fill(segment, palette.accent);
+                    if (segment.width > 0 && segment.height > 0) drawing().fill(segment, palette.accent);
         }
     }
     void inspection_api_ready() const {
