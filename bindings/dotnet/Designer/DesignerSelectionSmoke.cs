@@ -423,6 +423,50 @@ internal sealed partial class DesignerApplication
                 SelectionNative.PeerCount("Do not execute") == 1, "One undo restores the exact source and preview before sibling insertion."));
             await Ui(() =>
             {
+                var root = workspace.Document!.Root!;
+                editor.Selection = new((ulong)root.Span.Start, (ulong)root.Span.Start);
+                workspace.SelectFromCaret();
+                workspace.Inspector.Layout.PaletteFilter.Text = "Grid";
+                workspace.Inspector.FilterPalette();
+                Require(workspace.Inspector.Template == ControlTemplate.Grid, "The Grid palette template is available.");
+                workspace.Inspector.Layout.Insert.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                var grid = workspace.Document!.Root!.Children[3];
+                Require(grid.Kind == "Grid" && ReferenceEquals(workspace.Hierarchy.Selection, grid),
+                    "The new empty Grid becomes the current selection.");
+                string before = editor.Text;
+                workspace.Inspector.Layout.FindCell.Invoke();
+                Require(workspace.Inspector.Layout.Row.Text == "0" && workspace.Inspector.Layout.Column.Text == "0" &&
+                    editor.Text == before && preview.AppliedVersion == version,
+                    "Finding an empty cell preserves the live preview and source.");
+                workspace.Inspector.Layout.PaletteFilter.Text = "button";
+                workspace.Inspector.FilterPalette();
+                workspace.Inspector.Layout.Insert.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                var child = workspace.Document!.Root!.Children[3].Children.Single();
+                Require(preview.TryReadNode(version, child.Id, out var added) && added.ControlId is { } control &&
+                    SelectionNative.ReadText(control) == "Button" && added.Bounds.Width > 0 && added.Bounds.Height > 0,
+                    "A discovered cell hosts the inserted native Button in the real preview.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(workspace.Document!.Root!.Children[3].Children.Count == 0,
+                    "One undo removes the cell insertion without removing its Grid.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3,
+                "The next undo removes the Grid with no extra cell-discovery undo entry."));
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();

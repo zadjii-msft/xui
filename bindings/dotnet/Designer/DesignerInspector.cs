@@ -100,6 +100,10 @@ internal sealed class DesignerInspector
         bool grid = selected?.Kind == "Grid" || parent?.Kind == "Grid";
         Layout.Row.Enabled = canEdit && grid;
         Layout.Column.Enabled = canEdit && grid;
+        Layout.FindCell.Enabled = canEdit && grid;
+        Layout.FindCell.Help(selected?.Kind == "Grid"
+            ? "Find the first empty one-cell position in the selected Grid"
+            : "Find the first empty one-cell position in the selected control's parent Grid");
         Layout.StructureHelp.Text = selected is null ? "Select a control to change its structure."
             : parent is null ? "The root cannot move, duplicate, or delete. Insert children into a stack or grid."
             : !siblings && !movable ? "This container requires its children. Edit its structure in source."

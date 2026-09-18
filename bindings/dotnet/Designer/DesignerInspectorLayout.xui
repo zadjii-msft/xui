@@ -77,6 +77,8 @@ component DesignerInspectorLayout {
                     TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));
                     TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (106, 60));
                 }
+                Button("Find empty cell", ref: FindCell, id: "designer-find-grid-cell", enabled: false,
+                    help: "Fill row and column from the selected Grid, or the parent Grid of a non-Grid selection");
                 Button("Insert control", ref: Insert, id: "designer-insert-control");
                 HStack(spacing: 6) {
                     Button("Insert before", ref: InsertBefore, id: "designer-insert-before",

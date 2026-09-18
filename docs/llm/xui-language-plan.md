@@ -77,6 +77,18 @@ The workspace captures the template and Grid cell before it starts the existing 
 `Designer.SourceTests/Program.SiblingInsertion.cs` covers positions, line endings, identities, Grid constraints, fixed-child containers, revisions, and cancellation.
 `Designer.WorkspaceTests/Program.SiblingInsertion.cs` covers native buttons, selection, filtering, nested parents, refusals, undo/redo, and concurrent source typing in both styles.
 The application selection smoke checks the new preview control's native text, arranged order, selection, and undo.
+
+`VisualDocument.TryFindEmptyGridCell` reuses Grid placement validation and collects occupied rectangles.
+It searches column intervals in row order and skips full rows to the next occupied row-span ending.
+This avoids a scan of every cell in large explicit track arrays.
+The query rejects unknown tracks, expression placement, overlaps, invalid bounds, stale revisions, and full Grids.
+It does not compile or execute authored code.
+`DesignerWorkspace.FindEmptyGridCell` fills the native coordinate fields after source and busy-state checks.
+The selected Grid takes precedence over its parent. Otherwise, the helper uses the immediate Grid parent.
+`Designer.SourceTests/Program.EmptyGridCell.cs` covers occupancy combinations, spans, large arrays, refusals, cancellation, and compiled insertion.
+`Designer.WorkspaceTests/Program.GridCellSearch.cs` covers native fields, target selection, refusals, button visibility, compiled insertion, and undo in both styles.
+The application selection smoke covers the resulting native preview control and separate insertion undo operations.
+
 `DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
 `DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
 `Designer.LayoutTests` links the production layouts for native geometry and editor-state tests without the preview compiler.

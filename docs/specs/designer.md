@@ -271,6 +271,18 @@ The root cannot gain siblings, and fixed-child containers retain their required 
 Grid insertion and duplication require an empty, valid row and column.
 For Grid siblings, before/after changes source order. The row and column fields determine visual placement.
 Sibling insertion preserves existing identities and does not copy the selected control.
+
+**Find empty cell** fills the row and column fields with the first free 1-by-1 cell in row-major order.
+The search respects existing row and column spans.
+A selected Grid uses its own cells, even when its parent is another Grid.
+A non-Grid selection uses its immediate Grid parent.
+The feedback identifies which Grid supplies the result.
+
+The action does not change source, selection, undo history, or preview state.
+Full Grids, unknown track lengths, expression-based placement, overlaps, and out-of-bounds children produce an error without changing the fields.
+Stale source and pending visual edits also prevent cell discovery.
+Insertion and duplication remain separate actions with their existing compilation and placement checks.
+
 **Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.
 Unavailable commands are disabled, with the reason beside the commands.
 In the hierarchy, Delete deletes a control, Ctrl+D duplicates it, and Alt+Up or Alt+Down moves it.
@@ -335,6 +347,12 @@ if (node is not null)
 It returns no node outside the view or source bounds.
 Node IDs belong only to one document revision.
 Each new `VisualDocument` has a new revision, even for identical text.
+
+`TryFindEmptyGridCell(revision, gridId, out placement, out error, cancellation)` returns the first free 1-by-1 `GridPlacement`.
+The query requires a current Grid node and supports cancellation.
+It checks explicit track counts and literal child placement without compiling or running authored code.
+A refusal returns `false` and an error message.
+The query does not create an edit or change the document revision.
 
 Each successful edit returns one `VisualEdit` with `Revision`, `ExpectedSource`, `Range`, `Replacement`, and `Selection`.
 `Selection` identifies the full node range in the resulting source.

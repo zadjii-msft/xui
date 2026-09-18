@@ -52,6 +52,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Inspector.Layout.Insert.Click += Insert;
         Inspector.Layout.InsertBefore.Click += () => InsertSibling(after: false);
         Inspector.Layout.InsertAfter.Click += () => InsertSibling(after: true);
+        Inspector.Layout.FindCell.Click += FindEmptyGridCell;
         Inspector.Layout.WrapVertical.Click += () => Wrap(ControlTemplate.VStack);
         Inspector.Layout.WrapHorizontal.Click += () => Wrap(ControlTemplate.HStack);
         Inspector.Layout.WrapScroll.Click += () => Wrap(ControlTemplate.ScrollView);
@@ -272,6 +273,31 @@ internal sealed class DesignerWorkspace : IDisposable
             if (placement is null) return;
         }
         Edit((document, node, token) => document.InsertSibling(document.Revision, node.Id, after, template, placement, token));
+    }
+
+    internal void FindEmptyGridCell()
+    {
+        if (busy) { Inspector.Layout.Feedback.Text = "Wait for the current visual edit before choosing a Grid cell."; return; }
+        if (!current || Document is not { } document || Hierarchy.Selection is not { } selected || document.Source != editor.Text)
+        {
+            Inspector.Layout.Feedback.Text = "Cannot choose a cell from a stale hierarchy. Select a control in the current source.";
+            return;
+        }
+        var grid = selected.Kind == "Grid" ? selected : Hierarchy.Parent(selected);
+        if (grid?.Kind != "Grid")
+        {
+            Inspector.Layout.Feedback.Text = "Select a Grid or one of its direct children.";
+            return;
+        }
+        if (!document.TryFindEmptyGridCell(document.Revision, grid.Id, out var placement, out var error, lifetime.Token))
+        {
+            Inspector.Layout.Feedback.Text = error!;
+            return;
+        }
+        Inspector.Layout.Row.Text = placement.Row.ToString(CultureInfo.InvariantCulture);
+        Inspector.Layout.Column.Text = placement.Column.ToString(CultureInfo.InvariantCulture);
+        string target = selected.Kind == "Grid" ? "selected" : "parent";
+        Inspector.Layout.Feedback.Text = $"Empty cell in the {target} Grid: row {placement.Row}, column {placement.Column}. Insert or duplicate to apply.";
     }
 
     private GridPlacement? ReadGridPlacement()

@@ -47,6 +47,7 @@ internal static partial class Program
             TestStructure();
             TestSiblingInsertion();
             TestGrid();
+            TestEmptyGridCell();
             TestRevisions();
             TestCancellation();
             TestWrapping();

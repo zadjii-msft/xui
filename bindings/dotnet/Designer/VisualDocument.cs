@@ -228,6 +228,47 @@ public sealed class VisualDocument
             replacement, selection, null, cancellation);
     }
 
+    public bool TryFindEmptyGridCell(Guid revision, int gridId, out GridPlacement placement, out string? error,
+        CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        placement = default;
+        error = Target(revision, gridId, out var grid);
+        if (error is not null) return false;
+        if (grid.Kind != "Grid")
+        {
+            error = "Select a Grid to find an empty cell.";
+            return false;
+        }
+        error = ValidateGrid(grid, out int rows, out int columns, out var cells, cancellation);
+        if (error is not null) return false;
+        for (int row = 0; row < rows;)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            int column = 0, nextRow = rows;
+            foreach (var cell in cells.Where(cell => cell.Row <= row && row < cell.Row + cell.RowSpan).OrderBy(cell => cell.Column))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (cell.Column > column)
+                {
+                    placement = new(row, column);
+                    return true;
+                }
+                column = Math.Max(column, cell.Column + cell.ColumnSpan);
+                nextRow = Math.Min(nextRow, cell.Row + cell.RowSpan);
+            }
+            if (column < columns)
+            {
+                placement = new(row, column);
+                return true;
+            }
+            // Only a row-span ending can make a previously full row available.
+            row = nextRow;
+        }
+        error = "The Grid has no empty one-cell position. Add tracks or change placement in source.";
+        return false;
+    }
+
     public VisualEditResult InsertSibling(Guid revision, int nodeId, bool after, ControlTemplate template,
         GridPlacement? placement = null, CancellationToken cancellation = default)
     {
@@ -375,7 +416,7 @@ public sealed class VisualDocument
             // Property changes and insertions do not change the parent's preorder ID.
             var grid = Descendants(syntax.Root!).FirstOrDefault(n => n.Id == id);
             if (grid is null || grid.Kind != "Grid") return Failure("Placement requires a Grid parent.");
-            if (ValidateGrid(grid) is { } placementError) return Failure(placementError);
+            if (ValidateGrid(grid, out _, out _, out _, cancellation) is { } placementError) return Failure(placementError);
         }
         var compilationError = VisualSourceCompilation.Validate(candidate, cancellation);
         if (compilationError is not null) return Failure("The edit would not compile: " + compilationError);
@@ -384,15 +425,20 @@ public sealed class VisualDocument
         return new(new(revision, Source, range, replacement, selected.Span), null);
     }
 
-    private static string? ValidateGrid(XuiSourceNode grid)
+    private static string? ValidateGrid(XuiSourceNode grid, out int rows, out int columns, out List<GridPlacement> cells,
+        CancellationToken cancellation)
     {
-        int? rows = TrackCount(grid, "rows");
-        int? columns = TrackCount(grid, "columns");
-        if (rows is null || columns is null)
+        rows = columns = 0;
+        cells = [];
+        int? rowCount = TrackCount(grid, "rows");
+        int? columnCount = TrackCount(grid, "columns");
+        if (rowCount is null || columnCount is null)
             return "Grid tracks are expressions with unknown lengths. Edit placement in source, or use explicit track array initializers.";
-        var cells = new List<(int Row, int Column, int Rows, int Columns)>();
+        rows = rowCount.Value;
+        columns = columnCount.Value;
         foreach (var child in grid.Children)
         {
+            cancellation.ThrowIfCancellationRequested();
             int? row = Integer(child, "row", 0), column = Integer(child, "column", 0);
             int? rowSpan = Integer(child, "rowSpan", 1), columnSpan = Integer(child, "columnSpan", 1);
             if (row is null || column is null || rowSpan is null || columnSpan is null)
@@ -400,10 +446,10 @@ public sealed class VisualDocument
             if (row < 0 || column < 0 || rowSpan < 1 || columnSpan < 1 ||
                 (long)row + rowSpan > rows || (long)column + columnSpan > columns)
                 return "The Grid cell is outside its declared tracks. Add tracks or choose an in-bounds cell.";
-            if (cells.Any(c => row < (long)c.Row + c.Rows && (long)row + rowSpan > c.Row &&
-                column < (long)c.Column + c.Columns && (long)column + columnSpan > c.Column))
+            if (cells.Any(c => row < (long)c.Row + c.RowSpan && (long)row + rowSpan > c.Row &&
+                column < (long)c.Column + c.ColumnSpan && (long)column + columnSpan > c.Column))
                 return "The Grid cell overlaps another child. Choose a distinct cell or edit intentional overlap in source.";
-            cells.Add((row.Value, column.Value, rowSpan.Value, columnSpan.Value));
+            cells.Add(new(row.Value, column.Value, rowSpan.Value, columnSpan.Value));
         }
         return null;
     }

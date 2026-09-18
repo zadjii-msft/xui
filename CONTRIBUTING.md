@@ -306,8 +306,11 @@ It covers pane bounds, pane order, native selection, and source preservation acr
 The workspace suite runs the same builder smoke against production controllers without the preview host.
 It also covers hierarchy search in both visual styles, native queries, match navigation, collapsed ancestors, revision guards, invalid source, and undo preservation.
 Sibling insertion checks cover before/after buttons, filtered templates, nested parents, Grid cells, structural refusals, native undo/redo, and cancellation by source typing.
+Empty-cell checks cover native Grid coordinates, nested target selection, read-only discovery, explicit refusals, busy/stale guards, and insertion undo in both styles.
+The source suite covers occupancy combinations, spans, large track arrays, unknown tracks, invalid placement, revisions, cancellation, and compiled insertion.
 It compiles source transformations but does not execute authored preview code.
 The application selection smoke checks sibling insertion against native preview text, arranged order, and restoration through source undo.
+It also inserts a native preview control into a discovered Grid cell and checks separate undo operations.
 The discard UI test covers native cancel and undo preservation, deferred approval, and rejection of stale source or revision snapshots.
 
 The following opt-in diagnostic currently fails for programmatic owner closure during a native chooser in the complete designer:
