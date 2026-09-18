@@ -84,6 +84,8 @@ One producer uses a DXGI pointer, and the other uses an imported composition han
 Both direct HWND siblings and producers inside separate `ContentHost` ancestors use the same assertions.
 The fixture captures both producers before the popup opens.
 It then requires opaque popup pixels over both surfaces while the visible producer colors change.
+Repeated `ContentHost` replacement must show each new result color above both producers and remove the previous result pixels.
+Empty results must leave an opaque popup, without stale result pixels or producer leakage.
 Dismissal must reveal the current producer pixels, without stale popup pixels.
 
 The fixture also requires unchanged HWNDs, physical bounds, metrics, buffer dimensions, and resize counts.

@@ -102,6 +102,8 @@ void run_case(bool nested) {
     auto content = std::make_shared<Stack>(Axis::vertical);
     content->set_padding({16, 16, 16, 16});
     content->add(std::make_shared<Label>(L"Retained content above live producers"));
+    auto results = std::make_shared<ContentHost>(std::make_shared<Label>(L"Initial result"));
+    content->add(results, 1);
     auto popup = std::make_shared<Popup>(content, L"Owned live overlay");
     popup->set_fixed_size({360, 180});
     popup->set_placement(PopupPlacement::center);
@@ -232,6 +234,41 @@ void run_case(bool nested) {
                 visible_producers(changed_frame, true);
                 occludes(changed_frame);
                 std::cout << "Overlay occludes both producers while their visible output changes\n" << std::flush;
+
+                constexpr std::array result_colors{0x673c82u, 0x936b25u};
+                for (std::size_t i = 0; i < result_colors.size(); ++i) {
+                    auto result = std::make_shared<Button>(i == 0 ? L"First result" : L"Replacement result");
+                    PartStyleValues result_style;
+                    result_style.background = ThemeColor{result_colors[i]};
+                    result_style.border_thickness = Insets{};
+                    result_style.corner_radius = 0.0f;
+                    result->set_control_style_values(StylePart::root, result_style);
+                    window.replace_content(*results, result);
+                    const auto result_frame = capture();
+                    const auto current_overlay = client_bounds(find_popup(root_hwnd), root_hwnd);
+                    require(popup->is_open() && EqualRect(&current_overlay, &overlay),
+                        "Result replacement preserves the open popup and its physical bounds");
+                    visible_producers(result_frame, true);
+                    occludes(result_frame);
+                    for (const auto& area : covered) {
+                        require(count(result_frame, area, [&](DWORD pixel) {
+                            return matches(pixel, result_colors[i]);
+                        }) > 500, "New result pixels cover both live producer surfaces");
+                        if (i != 0)
+                            require(count(result_frame, area, [&](DWORD pixel) {
+                                return matches(pixel, result_colors[i - 1]);
+                            }) == 0, "Replacement removes the retired result pixels");
+                    }
+                }
+                window.replace_content(*results, {});
+                const auto empty_frame = capture();
+                visible_producers(empty_frame, true);
+                occludes(empty_frame);
+                for (const auto& area : covered)
+                    require(count(empty_frame, area, [&](DWORD pixel) {
+                        return matches(pixel, result_colors[0]) || matches(pixel, result_colors[1]);
+                    }) == 0, "Empty results remove the last result pixels without exposing the producers");
+                std::cout << "Repeated and empty popup results captured above both live producers\n" << std::flush;
 
                 window.dismiss_popup(*popup);
                 require(!popup->is_open(), "Overlay dismissal completes");
