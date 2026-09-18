@@ -241,6 +241,63 @@ internal sealed partial class DesignerApplication
                 commandPalette.Surface.CloseButton.Invoke();
             });
             await Until(() => !commandPalette.IsOpen);
+            int selectedTextStart = 0, selectedInputStart = 0;
+            await Ui(() =>
+            {
+                selectedTextStart = workspace.Document!.Root!.Children[0].Span.Start;
+                selectedInputStart = workspace.Document.Root.Children[2].Span.Start;
+                editor.Selection = new((ulong)selectedTextStart, (ulong)selectedTextStart + 4);
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FindSelection));
+            await Until(() => !commandPalette.IsOpen && sourceSearch.Layout.Query.Focused);
+            await Ui(() => Require(sourceSearch.Layout.Query.Text == "Text" &&
+                editor.Selection == new TextSelection((ulong)selectedTextStart, (ulong)selectedTextStart + 4),
+                "Find selected text opens the complete native query without changing the source selection."));
+            foreach (var (id, start, kind) in new[]
+            {
+                (DesignerCommandId.FindSelectionNext, selectedInputStart, "TextInput"),
+                (DesignerCommandId.FindSelectionPrevious, selectedTextStart, "Text")
+            })
+            {
+                await Ui(view.Commands.Invoke);
+                await Until(() => commandPalette.IsOpen);
+                await Ui(() => commandPalette.Surface.Invoke((ulong)id));
+                await Until(() => !commandPalette.IsOpen && editor.Focused);
+                await Ui(() => Require(editor.Selection == new TextSelection((ulong)start, (ulong)start + 4) &&
+                    workspace.Hierarchy.Selection?.Kind == kind && version == styledVersion &&
+                    preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    $"Palette action {id} synchronizes hierarchy selection without changing preview state."));
+            }
+            await Ui(() =>
+            {
+                Require(window.KeyHandler!(new(0x72, KeyModifiers.Control, editor.Id)) &&
+                    editor.Selection.Start == (ulong)selectedInputStart,
+                    "Source Ctrl+F3 uses the current selection in the complete Designer shell.");
+                Require(window.KeyHandler!(new(0x72, KeyModifiers.Control | KeyModifiers.Shift, editor.Id)) &&
+                    editor.Selection.Start == (ulong)selectedTextStart,
+                    "Source Ctrl+Shift+F3 navigates back through the same current matches.");
+                view.Path.Focus();
+                Require(!window.KeyHandler!(new(0x72, KeyModifiers.Control, view.Path.Id)),
+                    "Ctrl+F3 in the file path is not intercepted by source search.");
+                editor.Selection = new(0, 0);
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                foreach (var id in new[] { DesignerCommandId.FindSelection, DesignerCommandId.FindSelectionNext,
+                    DesignerCommandId.FindSelectionPrevious })
+                {
+                    bool refused = false;
+                    try { commandPalette.Surface.Invoke((ulong)id); }
+                    catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                    Require(refused && commandPalette.IsOpen, $"The palette disables {id} for an empty source selection.");
+                }
+                commandPalette.Surface.CloseButton.Invoke();
+            });
+            await Until(() => !commandPalette.IsOpen);
             await Ui(() => view.Pick.Invoke());
             await Until(() => pickControls);
             await Ui(view.GoToLine.Invoke);

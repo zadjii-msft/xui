@@ -285,6 +285,8 @@ The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
 Source replacement also exercises hierarchy updates, preview compilation, and one-action undo through the complete application.
+Selected-text search checks cover native query contents, source-only shortcuts, current selections, matching options, Unicode, line boundaries, query limits, and undo in both styles.
+The application selection smoke checks palette actions, disabled empty selections, hierarchy synchronization, and retained live preview state.
 Viewport checks cover exact Compact dimensions, retained preview versions and state, native picking, and a return to Fit.
 Command checks cover shortcut routing, pointer-mode exit, native dismissal, discard protection, and focus inside the scrollable inspector.
 Structural command checks cover duplicate, delete, movement, each wrapper, and unwrap through the native palette.

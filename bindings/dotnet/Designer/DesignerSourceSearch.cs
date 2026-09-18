@@ -5,6 +5,7 @@ namespace Xui.Designer;
 
 internal sealed class DesignerSourceSearch
 {
+    internal const int SelectionQueryLimit = 1024;
     private readonly MultilineText editor;
     private readonly Action navigated;
     private readonly Action<string> report;
@@ -13,6 +14,7 @@ internal sealed class DesignerSourceSearch
 
     internal DesignerSourceSearchLayout Layout { get; }
     internal Element View => Layout.Root;
+    internal bool CanFindSelection => TrySelectionQuery(editor.Text, editor.Selection, out _, out _);
 
     internal DesignerSourceSearch(Window window, MultilineText editor, Action navigated, Action<string> report, int maximumLength)
     {
@@ -35,6 +37,12 @@ internal sealed class DesignerSourceSearch
 
     internal bool HandleKey(UiKeyEvent key)
     {
+        if (editor.Focused && key.VirtualKey == 0x72 &&
+            key.Modifiers is KeyModifiers.Control or (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            FindSelection(navigate: true, reverse: key.Modifiers.HasFlag(KeyModifiers.Shift));
+            return true;
+        }
         if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'F')
         {
             Layout.FindOpen = true;
@@ -78,6 +86,59 @@ internal sealed class DesignerSourceSearch
     {
         Layout.FindOpen = false;
         editor.Focus();
+    }
+
+    internal static bool TrySelectionQuery(string source, TextSelection selection, out string query, out string? error)
+    {
+        query = "";
+        error = "Select source text before finding its occurrences.";
+        if (selection.End <= selection.Start || selection.End > (ulong)source.Length) return false;
+        if (selection.End - selection.Start > SelectionQueryLimit)
+        {
+            error = $"Select at most {SelectionQueryLimit} UTF-16 code units for the native Find field.";
+            return false;
+        }
+        int start = (int)selection.Start, end = (int)selection.End;
+        if (SplitsScalar(source, start) || SplitsScalar(source, end))
+        {
+            error = "The selection splits a Unicode character. Select the complete character.";
+            return false;
+        }
+        var text = source.AsSpan(start, end - start);
+        if (text.IndexOfAny("\r\n\0\u0085\u2028\u2029") >= 0)
+        {
+            error = "Select text from one source line without NUL characters for the native Find field.";
+            return false;
+        }
+        query = text.ToString();
+        error = null;
+        return true;
+    }
+
+    internal void FindSelection(bool navigate = false, bool reverse = false)
+    {
+        if (!TrySelectionQuery(editor.Text, editor.Selection, out string query, out string? error))
+        {
+            ReportError(error!);
+            return;
+        }
+        string previous = Layout.Query.Text;
+        try
+        {
+            Layout.Query.Text = query;
+            if (Layout.Query.Text != query)
+            {
+                Layout.Query.Text = previous;
+                Refresh();
+                ReportError("The native Find field could not retain the complete selection. The previous query was restored.");
+                return;
+            }
+            Layout.FindOpen = true;
+            Refresh();
+            if (navigate) Move(reverse);
+            else Layout.Query.Focus(selectAll: true);
+        }
+        catch (XuiException failure) { ReportError($"Could not find selected source text: {failure.Message}"); }
     }
 
     private void SetReplaceOpen(bool open)

@@ -2,7 +2,7 @@ using System.Globalization;
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
 
@@ -41,6 +41,8 @@ internal static class Program
             finally { CultureInfo.CurrentCulture = culture; }
             Run();
             RunReplacement();
+            RunSelectedText(VisualStyle.Classic);
+            RunSelectedText(VisualStyle.WinUI);
             Console.WriteLine($"Designer source search assertions: {assertions} passed.");
             return 0;
         }
@@ -120,7 +122,7 @@ internal static class Program
                 Require(search.HandleKey(new(0x1B, KeyModifiers.None, 0)) && !search.Layout.FindOpen && editor.Focused,
                     "Escape from the query closes Find and returns to source.");
                 Require(!search.HandleKey(new(0x0D, KeyModifiers.None, 0)) &&
-                    !search.HandleKey(new(0x72, KeyModifiers.Control, 0)), "Unregistered shortcuts and source Enter remain native.");
+                    !search.HandleKey(new(0x72, KeyModifiers.Alt, 0)), "Unregistered shortcuts and source Enter remain native.");
                 search.Layout.Query.Text = "Alpha";
                 search.HandleKey(new('F', KeyModifiers.Control, 0));
                 Require(search.HandleKey(new(0x0D, KeyModifiers.None, 0)) && editor.Focused,

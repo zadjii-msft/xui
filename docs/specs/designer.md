@@ -116,6 +116,18 @@ Escape or the close button collapses the panel and returns focus to source.
 Escape also closes the panel after a search returns focus to source.
 The panel retains its query, replacement text, and matching choices between uses.
 
+**Source: Find selected text** in the command palette copies the current source selection into Find and focuses the query.
+It does not move the source selection.
+**Source: Find next occurrence of selected text** and **Source: Find previous occurrence of selected text** also navigate immediately.
+Ctrl+F3 and Ctrl+Shift+F3 provide these navigation actions only when the source editor has focus.
+
+These actions use the complete current selection and retain the case, whole-word, and replacement settings.
+Navigation skips the selected occurrence and wraps through the current matches.
+The selection must contain text from one line, with at most 1024 UTF-16 code units.
+Empty, multiline, oversized, or incomplete Unicode selections are unavailable in the palette.
+A direct shortcut refusal reports the reason and keeps the previous query and source selection.
+Ordinary Ctrl+F still opens the retained query without copying source text.
+
 Ctrl+H opens the replacement row and focuses **Replace with**.
 The chevron beside the navigation buttons also shows or hides this row.
 **Replace** changes the selected match, then selects the next match.

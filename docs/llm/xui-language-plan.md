@@ -197,6 +197,12 @@ The closed panel has a zero-height Grid row and hidden controls.
 Ctrl+F opens the panel, while Escape or its close button hides it without replacing the editor.
 F3 and Shift+F3 also open the panel and navigate the retained query.
 Every navigation reads current native text and selection rather than cached offsets.
+`TrySelectionQuery` checks nonempty source ranges, Unicode boundaries, line separators, and the native query's 1024-code-unit limit.
+`FindSelection` copies the exact selection, preserves matching/replacement settings, and optionally delegates navigation to `Move`.
+It checks the native query after assignment so normalization cannot silently search truncated text.
+Ctrl+F3 and Ctrl+Shift+F3 route only from the source editor.
+`Designer.SearchTests/Program.SelectedText.cs` covers both styles, selection limits, native query contents, refusals, search options, focus, current snapshots, and source undo.
+The application selection smoke covers the three palette actions, disabled empty selections, shortcut routing, hierarchy synchronization, and retained preview state.
 `Designer.SearchTests` covers literal ordinal matching, case selection, native CR and UTF-16 positions, query keys, and untouched source undo.
 It also covers panel visibility, retained query state, focus restoration, and reclaimed editor space.
 The search controller also owns whole-word matching and the collapsible replacement row.
