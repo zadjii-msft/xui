@@ -91,6 +91,13 @@ Every metrics notification must preserve visibility and dimensions, including tr
 The fixture requires unchanged foreground ownership and releases the producers before COM shutdown.
 These checks do not prove native keyboard routing, installed IME behavior, or screen-reader compatibility.
 
+An independent Win32 probe on September 18, 2026 isolated the native clipping requirement.
+A higher-Z-order Direct2D child surface did not cover a sibling DirectComposition producer without `WS_CLIPSIBLINGS`.
+The producer remained live throughout the probe.
+After both peers received the style, the overlay covered the same sampled region.
+An unclipped native ancestor reproduced the failure with the same producer HWND.
+The ancestor also required sibling clipping.
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.
