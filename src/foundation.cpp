@@ -299,7 +299,8 @@ PartStyleValues RadioGroup::item_style_values(StylePart part, std::size_t index,
 Rect RadioGroup::item_content_bounds(std::size_t index, bool hovered, bool pressed) const {
     const auto row = item_style_values(StylePart::item, index, hovered, pressed);
     const auto b = item_bounds(index);
-    const auto padding = row.padding.value_or(Insets{role() == ControlRole::radio_group ? 4.0f : 11.0f, 2, 11, 2});
+    const auto padding = row.padding.value_or(visual_style() == VisualStyle::winui && role() == ControlRole::radio_group ?
+        Insets{} : Insets{role() == ControlRole::radio_group ? 4.0f : 11.0f, 2, 11, 2});
     const auto border = row.border_thickness.value_or(Insets{});
     const float left = std::min(b.width, padding.left + border.left);
     const float top = std::min(b.height, padding.top + border.top);
@@ -318,7 +319,8 @@ Rect RadioGroup::indicator_bounds(std::size_t index, bool hovered, bool pressed)
 Rect RadioGroup::label_bounds(std::size_t index, bool hovered, bool pressed) const {
     auto content = item_content_bounds(index, hovered, pressed);
     if (role() == ControlRole::radio_group) {
-        const float prefix = std::min(content.width, indicator_bounds(index, hovered, pressed).width + 8);
+        const float prefix = std::min(content.width, indicator_bounds(index, hovered, pressed).width +
+            (visual_style() == VisualStyle::winui ? 9 : 8));
         content.x += prefix; content.width -= prefix;
     }
     return content;

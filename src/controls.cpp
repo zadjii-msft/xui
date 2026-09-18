@@ -4,6 +4,12 @@
 #include <cmath>
 
 namespace xui {
+namespace {
+Insets default_button_padding(VisualStyle style) {
+    return style == VisualStyle::winui ? Insets{11, 5, 11, 6} :
+        Insets{style_metrics(style).button_padding, 6, style_metrics(style).button_padding, 6};
+}
+}
 void PageView::add_page(std::shared_ptr<Element> content) { add(std::make_shared<ContentView>(std::move(content), L"Page")); }
 void PageView::select(std::size_t index) {
     if (index >= child_count()) throw std::out_of_range("Page index");
@@ -454,8 +460,7 @@ Size Button::measure_styled(Size available) {
     const auto metrics = style_metrics(visual_style());
     if (auto_size() && values && (values->padding || values->border_thickness)) {
         const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
-        const auto padding = values->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-            visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+        const auto padding = values->padding.value_or(default_button_padding(visual_style()));
         const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
         const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
         return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
@@ -483,9 +488,7 @@ PartStyleValues Button::own_surface_style_values() const {
 }
 Rect Button::content_bounds(Rect bounds) const {
     const auto values = surface_style_values();
-    const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
     bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
@@ -564,8 +567,7 @@ Size Button::measure_control_styled(Size available) {
         return style_data_ ? measure_styled(available) : icon_ == ButtonIcon::none ? Control::measure(available) :
             constrain({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available);
     const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     auto text = measured_text();
     if (icon_ != ButtonIcon::none) {
@@ -648,9 +650,10 @@ Toggle::Layout Toggle::layout_metrics() const {
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool winui = visual_style() == VisualStyle::winui;
     Layout layout;
-    layout.gap = winui ? 9.0f : 12.0f;
+    layout.gap = winui && !switch_ ? 9.0f : 12.0f;
     layout.indicator_size = indicator && indicator->size ? *indicator->size : (switch_ ? 20.0f : winui ? 19.0f : 18.0f);
-    layout.padding = root && root->padding ? *root->padding : Insets{winui ? 0.0f : 12.0f, 0, 12, 0};
+    layout.padding = root && root->padding ? *root->padding :
+        winui ? Insets{} : Insets{12, 0, 12, 0};
     layout.border = root && root->border_thickness ? *root->border_thickness : Insets{};
     layout.indicator_border = indicator && indicator->border_thickness ? *indicator->border_thickness : Insets{};
     return layout;
@@ -686,8 +689,20 @@ Rect Toggle::label_bounds(Rect bounds) const {
     return content;
 }
 Rect Toggle::mark_bounds(Rect bounds) const {
+    return mark_bounds(bounds, enabled());
+}
+Rect Toggle::mark_bounds(Rect bounds, bool enabled) const {
     auto mark = inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
     if (!switch_) return mark;
+    if (visual_style() == VisualStyle::winui) {
+        const float cell = std::min(mark.height, mark.width / 2);
+        const float scale = cell / 20;
+        const float width = (!enabled || (!pressed() && !hovered()) ? 12.0f : pressed() ? 17.0f : 14.0f) * scale;
+        const float height = (!enabled || (!pressed() && !hovered()) ? 12.0f : 14.0f) * scale;
+        const float center = (checked() ? mark.width - cell / 2 : cell / 2) - 0.5f * scale;
+        const float left = enabled && pressed() ? (checked() ? mark.width - width - 3 * scale : 3 * scale) : center - width / 2;
+        return {mark.x + left, mark.y + (mark.height - height) / 2, width, height};
+    }
     const float inset = std::min(pressed() ? 2.0f : hovered() ? 2.5f : 3.0f, std::min(mark.width, mark.height) / 2);
     mark = inset_rect(mark, {inset, inset, inset, inset});
     const float size = std::min(mark.height, mark.width);
@@ -705,7 +720,8 @@ Size Toggle::measure(Size available) {
         layout.padding.right + layout.border.right;
     const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
         layout.border.top + layout.border.bottom;
-    return constrain({width, switch_ && !layout_affecting ? std::max(32.0f, height) : height}, available);
+    return constrain({width, switch_ && !layout_affecting ?
+        std::max(visual_style() == VisualStyle::winui ? 40.0f : 32.0f, height) : height}, available);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;

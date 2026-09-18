@@ -8,6 +8,7 @@
 #include "window_host.hpp"
 #include "platform.hpp"
 #include "list_peer.hpp"
+#include "layout_styling.hpp"
 #include "context_menu.hpp"
 #include "file_transfer.hpp"
 #include "async.hpp"
@@ -41,6 +42,9 @@ constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 thread_local bool running{};
 thread_local bool application_context{};
+D2D1_COLOR_F argb_color(uint32_t value) {
+    return D2D1::ColorF(value & 0xffffff, static_cast<float>(value >> 24) / 255);
+}
 std::mutex host_claim_mutex;
 std::unordered_map<std::uint64_t, const void*> host_claims;
 struct WindowIcons {
@@ -2134,14 +2138,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto expander = std::dynamic_pointer_cast<Expander>(control); expander && expander->has_control_styling()) {
                 if (const auto* style = expander->effective_control_style_values(StylePart::root))
                     drawing.styled_surface(expander->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                if (expander->expanded()) if (const auto* style = expander->effective_control_style_values(StylePart::content))
-                    drawing.styled_surface(expander->content_surface_bounds(), palette, *style, palette.surface, palette.border, 0, {});
+                if (expander->expanded() && palette.style != VisualStyle::winui)
+                    if (const auto* style = expander->effective_control_style_values(StylePart::content))
+                        drawing.styled_surface(expander->content_surface_bounds(), palette, *style, palette.surface, palette.border, 0, {});
             }
             if (auto expander = std::dynamic_pointer_cast<Expander>(control);
-                expander && !expander->has_control_styling() && expander->expanded() && palette.style == VisualStyle::winui) {
-                const auto bounds = expander->bounds();
-                drawing.rounded({bounds.x + 0.5f, bounds.y + 0.5f,
-                    std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)}, palette.surface, 4);
+                expander && expander->expanded() && palette.style == VisualStyle::winui) {
+                const PartStyleValues empty;
+                const auto* style = expander->effective_control_style_values(StylePart::content);
+                const auto brushes = winui_card_brushes(palette.mode);
+                drawing.styled_surface(expander->content_surface_bounds(), palette, style ? *style : empty,
+                    palette.high_contrast ? palette.surface : argb_color(brushes.secondary_fill),
+                    palette.high_contrast ? palette.border : argb_color(brushes.stroke),
+                    4, {1, 0, 1, 1}, Drawing::SurfaceCorners::bottom);
             }
             for (const auto& child : control->retained_children()) paint_content_surface(child);
             drawing.pop_clip();
@@ -2165,7 +2174,26 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         try {
             if (drawing.begin(window, static_cast<float>(dpi), palette.background)) {
                 paint_surfaces(*root);
-                const auto paint_peer = [&](const auto& peer) {
+                Peer* external_focus{};
+                if (palette.style == VisualStyle::winui && keyboard_focus_visible)
+                    for (const auto& peer : peers)
+                        if (peer->control->focused() && enabled(*peer) && visible(*peer) &&
+                            !is_caption_button(*peer->control) && peer->clear_owner.expired()) {
+                            const auto* toggle = dynamic_cast<const Toggle*>(peer->control.get());
+                            const auto* radios = dynamic_cast<const RadioGroup*>(peer->control.get());
+                            const auto* combo = dynamic_cast<const ComboBox*>(peer->control.get());
+                            if (dynamic_cast<Button*>(peer->control.get()) || dynamic_cast<Expander*>(peer->control.get()) ||
+                                dynamic_cast<RangeInput*>(peer->control.get()) || toggle ||
+                                (combo && !palette.high_contrast && !combo->editor() && !combo->popup()->is_open()) ||
+                                (radios && (radios->role() == ControlRole::radio_group ||
+                                    (radios->horizontal_presentation() && !palette.high_contrast)))) {
+                                external_focus = peer.get();
+                                break;
+                            }
+                        }
+                const bool combo_focus = external_focus && dynamic_cast<const ComboBox*>(external_focus->control.get());
+                enum class PeerPaint { content, focus, focus_background };
+                const auto paint_peer = [&](Peer* peer, PeerPaint pass = PeerPaint::content) {
                     if (!visible(*peer)) return;
                     for (auto* parent = peer->parent; parent; parent = parent->parent)
                         drawing.push_clip(viewport(*parent));
@@ -2176,12 +2204,53 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             host_clips += drawing.push_rounded_clip(parent->control->bounds(),
                                 style->corner_radius.value_or(palette.style == VisualStyle::winui ? 4.0f : 0.0f));
                     }
-                    if (peer->document) {
+                    if (const auto* combo = pass == PeerPaint::content ? nullptr : dynamic_cast<const ComboBox*>(peer->control.get())) {
+                        auto bounds = combo->field_bounds();
+                        bounds.x += peer->paint_bounds.x - combo->bounds().x;
+                        bounds.y += peer->paint_bounds.y - combo->bounds().y;
+                        if (pass == PeerPaint::focus_background) drawing.winui_combo_focus_background(bounds, palette);
+                        else drawing.winui_combo_focus_marker(bounds, palette);
+                    }
+                    else if (pass == PeerPaint::focus) {
+                        if (const auto* button = dynamic_cast<const Button*>(peer->control.get()))
+                            drawing.winui_focus_ring(peer->paint_bounds, palette,
+                                button->surface_style_values().corner_radius.value_or(4.0f));
+                        else if (const auto* radios = dynamic_cast<const RadioGroup*>(peer->control.get())) {
+                            for (std::size_t i = 0; i < radios->items().size(); ++i) {
+                                const auto& item = radios->items()[i];
+                                if (radios->selected() != item.id || !item.enabled) continue;
+                                auto bounds = radios->item_bounds(i);
+                                const bool hovered = peer->hovered_choice == i;
+                                const auto style = radios->item_style_values(StylePart::item, i,
+                                    hovered, hovered && peer->pressed_choice == item.id);
+                                bounds.x += peer->paint_bounds.x;
+                                bounds.y += peer->paint_bounds.y;
+                                const bool horizontal = radios->horizontal_presentation();
+                                drawing.winui_focus_ring(bounds, palette, style.corner_radius.value_or(4.0f), horizontal ? 2.0f : 7.0f,
+                                    Drawing::SurfaceCorners::all, horizontal ? 2.0f : 3.0f);
+                                break;
+                            }
+                        }
+                        else if (const auto* toggle = dynamic_cast<const Toggle*>(peer->control.get()))
+                            drawing.winui_toggle_focus(*toggle, peer->paint_bounds, palette, peer->text_layout.Get());
+                        else if (const auto* expander = dynamic_cast<const Expander*>(peer->control.get())) {
+                            auto bounds = expander->header_bounds();
+                            bounds.x += peer->paint_bounds.x - expander->bounds().x;
+                            bounds.y += peer->paint_bounds.y - expander->bounds().y;
+                            const auto* header = expander->effective_control_style_values(StylePart::header);
+                            drawing.winui_focus_ring(bounds, palette, header ? header->corner_radius.value_or(4.0f) : 4.0f, 3,
+                                expander->expanded() ? Drawing::SurfaceCorners::top : Drawing::SurfaceCorners::all);
+                        }
+                        else if (const auto* range = dynamic_cast<const RangeInput*>(peer->control.get()))
+                            drawing.winui_focus_ring(layout_style::content(*range, peer->paint_bounds), palette, 4, 7,
+                                Drawing::SurfaceCorners::all, 0);
+                    }
+                    else if (peer->document) {
                         const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
                         if (root_style) {
                             const auto bounds = peer->control->bounds();
                             drawing.styled_surface(bounds, palette, *root_style, palette.field, palette.border, 4, {1, 1, 1, 1});
-                            if (peer->control->focused()) drawing.focus_ring(bounds, palette);
+                            if (peer->control->focused()) drawing.styled_field_focus(bounds, palette, *root_style);
                         } else if (palette.style == VisualStyle::winui &&
                             (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
                             const auto bounds = peer->control->bounds();
@@ -2221,17 +2290,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     else if (peer->edit) paint_edit(*peer);
                     else {
                         const auto bounds = peer->paint_bounds;
-                        drawing.push_clip(bounds);
+                        auto clip = bounds;
+                        if (const auto* range = dynamic_cast<const RangeInput*>(peer->control.get());
+                            range && palette.style == VisualStyle::winui) {
+                            const auto* thumb = range->effective_control_style_values(StylePart::thumb);
+                            if (!thumb || !thumb->size) {
+                                const bool vertical = range->orientation() == Axis::vertical;
+                                const float x = vertical ? 0 : winui_slider_thumb_outset;
+                                const float y = vertical ? winui_slider_thumb_outset : 0;
+                                clip = {bounds.x - x, bounds.y - y, bounds.width + 2 * x, bounds.height + 2 * y};
+                            }
+                        }
+                        drawing.push_clip(clip);
                         drawing.origin(bounds.x, bounds.y);
                         if (peer->list) peer->list->paint(drawing);
-                        else paint_control(*peer);
+                        else paint_control(*peer, peer != external_focus);
                         drawing.origin(0, 0);
                         drawing.pop_clip();
                     }
                     while (host_clips) { drawing.pop_rounded_clip(); --host_clips; }
                     for (auto* parent = peer->parent; parent; parent = parent->parent) drawing.pop_clip();
                 };
-                for (const auto& peer : peers) if (!popup_owner(peer.get()) && !(peer->adaptive && peer->adaptive->overlay_active())) paint_peer(peer);
+                // The ComboBox template paints its filled focus backdrop beneath the field.
+                if (combo_focus && !popup_owner(external_focus) && !(external_focus->adaptive && external_focus->adaptive->overlay_active()))
+                    paint_peer(external_focus, PeerPaint::focus_background);
+                for (const auto& peer : peers) if (!popup_owner(peer.get()) && !(peer->adaptive && peer->adaptive->overlay_active())) paint_peer(peer.get());
+                if (external_focus && !popup_owner(external_focus) && !(external_focus->adaptive && external_focus->adaptive->overlay_active()))
+                    paint_peer(external_focus, PeerPaint::focus);
                 std::vector<Drawing::NativeWindow> native;
                 for (const auto& peer : peers) if (peer->native() && visible(*peer)) {
                     RECT clip{};
@@ -2266,11 +2351,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         for (auto* parent = representative->parent; parent; parent = parent->parent) drawing.push_clip(viewport(*parent));
                         drawing.fill(layout->navigation()->bounds(), palette.surface);
                         paint_content_surface(layout->navigation());
+                        if (combo_focus && external_focus->adaptive == layout && popup_owner(external_focus) == owner)
+                            paint_peer(external_focus, PeerPaint::focus_background);
                         std::vector<HWND> overlay_native;
                         for (const auto& peer : peers) if (peer->adaptive == layout && popup_owner(peer.get()) == owner) {
-                            paint_peer(peer);
+                            paint_peer(peer.get());
                             if (peer->native()) overlay_native.push_back(peer->window);
                         }
+                        if (external_focus && external_focus->adaptive == layout && popup_owner(external_focus) == owner)
+                            paint_peer(external_focus, PeerPaint::focus);
                         drawing.present_native(overlay_native);
                         for (auto* parent = representative->parent; parent; parent = parent->parent) drawing.pop_clip();
                     }
@@ -2314,13 +2403,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         if (thickness > 0) drawing.line(frame.x + 1, separator_y, frame.x + frame.width - 1, separator_y,
                             color, thickness);
                     }
+                    if (combo_focus && popup_owner(external_focus) == entry.popup->id() &&
+                        !(external_focus->adaptive && external_focus->adaptive->overlay_active()))
+                        paint_peer(external_focus, PeerPaint::focus_background);
                     std::vector<HWND> popup_native;
                     for (const auto& peer : peers) if (popup_owner(peer.get()) == entry.popup->id()) {
-                        paint_peer(peer);
+                        paint_peer(peer.get());
                         if (peer->native()) {
                             popup_native.push_back(peer->window);
                         }
                     }
+                    if (external_focus && popup_owner(external_focus) == entry.popup->id())
+                        paint_peer(external_focus, PeerPaint::focus);
                     drawing.present_native(popup_native);
                     paint_adaptive(entry.popup->id());
                     if (!popup_style) drawing.rounded(frame, entry.commands && palette.style == VisualStyle::classic ?
@@ -2521,7 +2615,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)} : bounds;
             if (style) {
                 drawing.styled_surface(frame, palette, *style, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
-                if (focused) drawing.focus_ring(frame, palette);
+                if (focused) drawing.styled_field_focus(frame, palette, *style);
             } else drawing.field_frame(frame, palette, focused, enabled(peer), invalid, input_fill(peer));
         }
         const auto ink = [&](StylePart part, D2D1_COLOR_F fallback) {
@@ -2565,13 +2659,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (values) drawing.styled_text(text, area, ink, *values, TextStyle::caption);
         else drawing.text(text, area, ink, true);
     }
-    void paint_control(Peer& peer) {
+    void paint_control(Peer& peer, bool include_focus = true) {
         auto& canvas = drawing;
         auto& control = *peer.control;
         const auto bounds = peer.paint_bounds;
         const auto foundation_text = enabled(peer) ? palette.text : palette.disabled;
         const bool fluent = palette.style == VisualStyle::winui;
-        const bool focus_visible = control.focused() && (!fluent || keyboard_focus_visible);
+        const bool focus_visible = include_focus && control.focused() && (!fluent || keyboard_focus_visible);
         if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
             const auto area = runtime->visual_bounds();
             const auto* root_values = runtime->effective_control_style_values(StylePart::root);
@@ -2651,7 +2745,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         D2D1::ColorF(header->foreground->resolve(palette.mode)) : foundation_text;
                     canvas.styled_text(control.name(), rect, ink, *header, TextStyle::caption);
                 }
-                if (IsChild(peer.window, GetFocus())) canvas.focus_ring(frame, palette);
+                if (IsChild(peer.window, GetFocus())) canvas.styled_field_focus(frame, palette, field_values ? *field_values : empty);
                 return;
             }
             if (fluent) canvas.field_frame({0.5f, 0.5f, std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)},
@@ -2865,9 +2959,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (choices->has_control_styling() || choices->horizontal_presentation()) {
                 const PartStyleValues empty;
                 const auto* root_values = choices->effective_control_style_values(StylePart::root);
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
-                    palette.surface, palette.border, fluent ? 4.0f : 0.0f, {});
                 const bool radio = control.role() == ControlRole::radio_group;
+                const bool selector = fluent && !palette.high_contrast && choices->horizontal_presentation();
+                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
+                    (fluent && radio) || selector ? D2D1::ColorF(0, 0.0f) : palette.surface,
+                    palette.border, fluent ? 4.0f : 0.0f, {});
                 const auto ink_for = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
                     return !palette.high_contrast && values.foreground ?
                         D2D1::ColorF(values.foreground->resolve(palette.mode)) : fallback;
@@ -2885,25 +2981,31 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         label.horizontal_alignment = StyleAlignment::center;
                     auto ink = !enabled(peer) || !item.enabled ? palette.disabled :
                         selected && !radio ? palette.selection_text : palette.text;
-                    canvas.styled_surface(b, palette, row, selected && !radio ? palette.selection :
-                        hovered && !radio ? palette.hover : D2D1::ColorF(0, 0.0f), palette.border, 4, {});
+                    canvas.styled_surface(b, palette, row, selected && !radio && !selector ? palette.selection :
+                        hovered && !radio && !selector ? palette.hover : D2D1::ColorF(0, 0.0f), palette.border, 4, {});
                     if (radio) {
                         const auto indicator = choices->item_style_values(StylePart::indicator, i, hovered, pressed);
                         const auto mark = choices->item_style_values(StylePart::mark, i, hovered, pressed);
                         const auto circle = choices->indicator_bounds(i, hovered, pressed);
                         const float diameter = circle.width;
-                        canvas.styled_surface(circle, palette, indicator, selected ? palette.accent : palette.field,
-                            ink, diameter / 2, {1, 1, 1, 1});
-                        if (selected) {
-                            const float dot = std::min(diameter, mark.size.value_or(diameter / 2));
-                            canvas.rounded({circle.x + (diameter - dot) / 2, circle.y + (diameter - dot) / 2, dot, dot},
-                                ink_for(mark, palette.high_contrast ? palette.selection_text : palette.background), dot / 2);
+                        if (fluent && indicator.empty() && mark.empty())
+                            ink = canvas.radio_indicator({circle.x + 0.5f, circle.y, circle.width, circle.height},
+                                palette, selected, enabled(peer) && item.enabled, hovered, pressed);
+                        else {
+                            canvas.styled_surface(circle, palette, indicator, selected ? palette.accent : palette.field,
+                                ink, diameter / 2, {1, 1, 1, 1});
+                            if (selected) {
+                                const float dot = std::min(diameter, mark.size.value_or(diameter / 2));
+                                canvas.rounded({circle.x + (diameter - dot) / 2, circle.y + (diameter - dot) / 2, dot, dot},
+                                    ink_for(mark, palette.high_contrast ? palette.selection_text : palette.background), dot / 2);
+                            }
                         }
                     } else if (selected) {
                         const auto marker = choices->item_style_values(StylePart::selected_marker, i, hovered, pressed);
                         const float width = std::min(b.width, marker.size.value_or(3));
+                        const float extent = fluent && !palette.high_contrast ? std::min(16.0f, b.width) : b.width / 2;
                         const auto marker_bounds = choices->horizontal_presentation() ?
-                            Rect{b.x + b.width / 4, b.y + std::max(0.0f, b.height - width), b.width / 2, std::min(width, b.height)} :
+                            Rect{b.x + (b.width - extent) / 2, b.y + std::max(0.0f, b.height - width), extent, std::min(width, b.height)} :
                             Rect{b.x, b.y + b.height / 4, width, b.height / 2};
                         canvas.styled_surface(marker_bounds, palette, marker,
                             palette.accent, palette.border, width / 2, {});
@@ -2958,6 +3060,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* combo = dynamic_cast<ComboBox*>(&control)) {
+            const bool template_focus = fluent && !palette.high_contrast && !combo->editor();
             if (combo->has_control_styling()) {
                 const PartStyleValues empty;
                 const auto part = [&](StylePart value) -> const PartStyleValues& {
@@ -2989,7 +3092,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto arrow = local(combo->drop_down_bounds());
                 if (fluent) canvas.chevron(arrow, ink_for(part(StylePart::arrow)), true);
                 else canvas.text(L"\u25be", arrow, ink_for(part(StylePart::arrow)));
-                if (focus_visible || IsChild(peer.window, GetFocus())) canvas.focus_ring(frame, palette);
+                if (!template_focus && (focus_visible || IsChild(peer.window, GetFocus())))
+                    canvas.styled_field_focus(frame, palette, part(StylePart::field));
                 return;
             }
             const float edge = fluent ? 0.5f : 1.0f;
@@ -2999,7 +3103,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     enabled(peer), false, input_fill(peer));
                 else canvas.button_face(face, palette, ButtonAppearance::standard, enabled(peer),
                     control.hovered(), combo->popup()->is_open(), false);
-                if (focus_visible) canvas.focus_ring(face, palette);
+                if (focus_visible && !template_focus) canvas.focus_ring(face, palette);
             } else {
                 canvas.rounded(face, palette.field);
                 canvas.rounded(face, control.focused() ? palette.accent : palette.border, 6, true);
@@ -3016,58 +3120,78 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (auto* expander = dynamic_cast<Expander*>(&control)) {
-            if (expander->has_control_styling()) {
-                const auto local = [&](Rect value) { value.x -= control.bounds().x; value.y -= control.bounds().y; return value; };
+            const auto local = [&](Rect value) { value.x -= control.bounds().x; value.y -= control.bounds().y; return value; };
+            const bool regular_winui = fluent && !palette.high_contrast;
+            const auto brushes = winui_card_brushes(palette.mode);
+            const auto header_fill = regular_winui ? argb_color(brushes.fill) :
+                control.pressed() && fluent ? palette.selection : control.hovered() ? palette.hover : palette.surface;
+            const auto paint_disclosure = [&](D2D1_COLOR_F ink) {
+                const auto area = local(expander->disclosure_bounds());
+                if (regular_winui) {
+                    const auto fill = winui_button_brushes(palette.mode, ButtonAppearance::subtle,
+                        enabled(peer), control.hovered(), control.pressed(), false).fill;
+                    if (fill >> 24) canvas.rounded(area, argb_color(fill), 4);
+                }
+                if (fluent)
+                    canvas.symbol(expander->expanded() ? Symbol::chevron_up : Symbol::chevron_down, area, ink, 12);
+                else canvas.chevron(area, ink, expander->expanded());
+            };
+            if (fluent || expander->has_control_styling()) {
                 const PartStyleValues empty;
                 const auto* header = expander->effective_control_style_values(StylePart::header);
                 const auto* text = expander->effective_control_style_values(StylePart::text);
                 const auto* disclosure = expander->effective_control_style_values(StylePart::disclosure);
                 const auto face = local(expander->header_bounds());
                 canvas.styled_surface(face, palette, header ? *header : empty,
-                    control.pressed() && fluent ? palette.selection : control.hovered() ? palette.hover : palette.surface,
-                    palette.border, fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
+                    header_fill,
+                    regular_winui ? argb_color(brushes.stroke) : palette.border,
+                    fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{},
+                    fluent && expander->expanded() ? Drawing::SurfaceCorners::top : Drawing::SurfaceCorners::all);
                 const auto ink = [&](const PartStyleValues* values) {
                     return !palette.high_contrast && values && values->foreground ?
                         D2D1::ColorF(values->foreground->resolve(palette.mode)) : foundation_text;
                 };
                 canvas.styled_text(control.name(), local(expander->header_text_bounds()), ink(text), text ? *text : empty);
-                canvas.chevron(local(expander->disclosure_bounds()), ink(disclosure), expander->expanded());
+                paint_disclosure(ink(disclosure));
                 if (focus_visible) {
-                    if (fluent) canvas.focus_ring(face, palette);
+                    if (fluent) {
+                        const float radius = !palette.high_contrast && header ? header->corner_radius.value_or(4.0f) : 4.0f;
+                        canvas.winui_focus_ring(face, palette, radius, 3,
+                            expander->expanded() ? Drawing::SurfaceCorners::top : Drawing::SurfaceCorners::all);
+                    }
                     else canvas.rounded(face, palette.accent, 6, true);
                 }
                 return;
             }
-            const auto height = fluent ? std::min(bounds.height, expander->effective_header_height()) : expander->effective_header_height();
-            const float edge = fluent ? 0.5f : 1.0f;
+            const auto height = expander->effective_header_height();
+            const float edge = 1.0f;
             const Rect header{edge, edge, std::max(0.0f, bounds.width - 2 * edge),
                 std::max(0.0f, std::min(bounds.height, height) - 2 * edge)};
-            const auto fill = control.pressed() && fluent ? palette.selection :
-                control.hovered() ? palette.hover : palette.surface;
-            if (fluent) {
-                const Rect frame = expander->expanded() ? Rect{edge, edge, header.width, std::max(0.0f, bounds.height - 1)} : header;
-                canvas.push_clip({0, 0, bounds.width, height});
-                canvas.rounded(frame, fill, 4);
-                canvas.pop_clip();
-                canvas.rounded(frame, palette.border, 4, true);
-                if (expander->expanded() && bounds.height > height)
-                    canvas.line(edge, height - edge, bounds.width - edge, height - edge, palette.border);
-                canvas.symbol(expander->expanded() ? Symbol::chevron_up : Symbol::chevron_down,
-                    {std::max(0.0f, bounds.width - 41), 0, 32, height}, foundation_text, 12);
-            } else {
-                canvas.rounded(header, fill, 6);
-                canvas.text(expander->expanded() ? L"\u25be" : L"\u25b8", {10, 0, 24, height}, foundation_text);
-            }
-            canvas.text(control.name(), {fluent ? 17.0f : 36.0f, 0, std::max(0.0f, bounds.width - (fluent ? 78 : 48)), height}, foundation_text);
-            if (focus_visible) {
-                if (fluent) canvas.focus_ring(header, palette);
-                else canvas.rounded(header, palette.accent, 6, true);
-            }
+            const auto fill = header_fill;
+            canvas.rounded(header, fill, 6);
+            canvas.text(expander->expanded() ? L"\u25be" : L"\u25b8", {10, 0, 24, height}, foundation_text);
+            canvas.text(control.name(), {36, 0, std::max(0.0f, bounds.width - 48), height}, foundation_text);
+            if (focus_visible) canvas.rounded(header, palette.accent, 6, true);
             return;
         }
         if (auto* range = dynamic_cast<RangeInput*>(&control)) {
             const auto visual = range->slider_geometry();
             const auto track = visual.track, thumb = visual.thumb;
+            const bool native_brushes = fluent && !palette.high_contrast;
+            const auto brushes = winui_slider_brushes(palette.mode, enabled(peer), control.hovered(), control.pressed() || peer.dragging);
+            const auto track_ink = native_brushes ? argb_color(brushes.track) :
+                fluent && enabled(peer) ? palette.secondary : palette.border;
+            const auto value_ink = native_brushes ? argb_color(brushes.value) : enabled(peer) ? palette.accent : palette.disabled;
+            const auto paint_default_thumb = [&] {
+                const float radius = thumb.width / 2;
+                if (fluent) {
+                    const auto fill = native_brushes ? argb_color(brushes.thumb) : palette.surface;
+                    canvas.styled_surface(thumb, palette, {}, fill, palette.border, 10, {1, 1, 1, 1});
+                    const float dot = !enabled(peer) || control.pressed() || peer.dragging ? 4.0f : control.hovered() ? 7.0f : 6.0f;
+                    canvas.rounded({thumb.x + radius - dot, thumb.y + radius - dot, 2 * dot, 2 * dot},
+                        value_ink, dot);
+                } else canvas.rounded(thumb, enabled(peer) ? palette.accent : palette.disabled, radius);
+            };
             if (range->has_control_styling()) {
                 const PartStyleValues empty;
                 const auto part = [&](StylePart value) -> const PartStyleValues& {
@@ -3076,32 +3200,25 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 };
                 canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
                     D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                const auto ink = enabled(peer) ? palette.accent : palette.disabled;
-                canvas.styled_surface(track, palette, part(StylePart::track), palette.border, palette.border, 2, {});
+                canvas.styled_surface(track, palette, part(StylePart::track), track_ink, palette.border, 2, {});
                 const auto& fill = part(StylePart::fill);
                 const auto fill_ink = !palette.high_contrast && fill.foreground ?
-                    D2D1::ColorF(fill.foreground->resolve(palette.mode)) : ink;
+                    D2D1::ColorF(fill.foreground->resolve(palette.mode)) : value_ink;
                 canvas.styled_surface(visual.filled, palette, fill, fill_ink, palette.border, 2, {});
-                canvas.styled_surface(thumb, palette, part(StylePart::thumb), ink, palette.border, thumb.width / 2, {1, 1, 1, 1});
-                if (control.focused()) canvas.focus_ring({1, 1, std::max(0.0f, bounds.width - 2),
+                const auto& thumb_style = part(StylePart::thumb);
+                if (fluent && thumb_style.empty()) paint_default_thumb();
+                else canvas.styled_surface(thumb, palette, thumb_style, value_ink, palette.border, thumb.width / 2, {1, 1, 1, 1});
+                if (!fluent && control.focused()) canvas.focus_ring({1, 1, std::max(0.0f, bounds.width - 2),
                     std::max(0.0f, bounds.height - 2)}, palette);
                 return;
             }
-            canvas.rounded(track, fluent && enabled(peer) ? palette.secondary : palette.border, 2);
+            canvas.rounded(track, track_ink, 2);
             if (fluent && visual.filled.width > 0 && visual.filled.height > 0)
-                canvas.rounded(visual.filled, enabled(peer) ? palette.accent : palette.disabled, 2);
-            const float radius = thumb.width / 2;
-            if (fluent) {
-                canvas.rounded(thumb, palette.surface, radius);
-                canvas.rounded(thumb, palette.border, radius, true);
-                const float dot = !enabled(peer) || control.pressed() || peer.dragging ? 4.0f : control.hovered() ? 7.0f : 6.0f;
-                canvas.rounded({thumb.x + radius - dot, thumb.y + radius - dot, 2 * dot, 2 * dot},
-                    enabled(peer) ? palette.accent : palette.disabled, dot);
-            } else canvas.rounded(thumb, enabled(peer) ? palette.accent : palette.disabled, radius);
-            if (control.focused()) {
+                canvas.rounded(visual.filled, value_ink, 2);
+            paint_default_thumb();
+            if (!fluent && control.focused()) {
                 const Rect face{1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)};
-                if (fluent) canvas.focus_ring(face, palette);
-                else canvas.outline(face, palette.accent);
+                canvas.outline(face, palette.accent);
             }
             return;
         }
