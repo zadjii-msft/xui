@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-105 desc-105">
-  <title id="title-105">Pulp roar lion</title>
-  <desc id="desc-105">A front-facing lion head. A pointed burst of halftone mane frames flared cheek tufts. Thick ink eyes and a black chin anchor the comic-book expression.</desc>
-<defs>
-<pattern id="comic-dots" width="9" height="9" patternUnits="userSpaceOnUse"><circle cx="3.00" cy="3.00" r="2.00" fill="#B45336"/></pattern>
-</defs>
-<path d="M127 18 154 39 181 28 186 61 219 63 207 96 239 114 216 136 229 165 196 173 191 205 163 203 128 239 94 203 65 205 60 173 27 165 40 136 17 114 49 96 37 63 70 61 75 28 102 39Z" fill="#E99445" stroke="#352D39" stroke-width="4"/><path d="M127 18 154 39 181 28 186 61 219 63 207 96 239 114 216 136 229 165 196 173 191 205 163 203 128 239 94 203 65 205 60 173 27 165 40 136 17 114 49 96 37 63 70 61 75 28 102 39Z" fill="url(#comic-dots)"/><path d="M77 92Q49 64 72 55L96 77Q128 62 160 77L184 55Q207 64 179 92L177 122 189 142 169 153 159 177 128 200 97 177 87 153 67 142 79 122Z" fill="#F9D283" stroke="#352D39" stroke-width="4"/><path d="M85 105 114 113 104 123 91 120ZM142 113 171 105 165 120 152 123Z" fill="#352D39"/><path d="M122 85 132 85 128 128M81 130 110 141 89 145ZM175 130 146 141 167 145Z" fill="#352D39"/><ellipse cx="111" cy="158" rx="20" ry="16" fill="#FFF0BC" /><ellipse cx="145" cy="158" rx="20" ry="16" fill="#FFF0BC" /><path d="M111 137Q128 131 145 137L128 156ZM108 179 128 187 148 179 140 198 128 205 116 198Z" fill="#352D39"/><path d="M128 155V170M103 166Q114 180 128 170 142 180 153 166" fill="none" stroke="#352D39" stroke-width="4"/>
-</svg>

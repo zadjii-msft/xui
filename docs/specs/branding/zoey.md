@@ -3,8 +3,10 @@
 ![Zoey the XUI Lion](../../../assets/branding/generated/zoey-256.png)
 
 Zoey is the XUI mascot and application icon.
-Her design comes from H02: a happy lion with a high cloud crown and six touching Enamel colors.
-A darker, color-matched border follows the mane perimeter without gaps at the color joins.
+Her front-facing head has happy closed eyes and six touching, cloud-shaped mane regions above and beside the face.
+The mane uses the Enamel colors `#ED6B79`, `#F1A355`, `#F0D260`, `#75BA94`, `#75AED7`, and `#AB8AC9`.
+A darker, color-matched outline follows the mane perimeter without gaps or divider lines at the color joins.
+The face and ears have a brown outline.
 The canonical version uses the rainbow palette.
 
 ## Brand assets
@@ -27,7 +29,8 @@ The web manifest references the 192-pixel and 512-pixel PNGs.
 
 Each single-hue palette changes the mane, face, and feature colors together.
 The shape, happy expression, and continuous outline remain the same.
-These files are available to application authors; they do not change framework behavior.
+These files are available to application authors.
+They do not change framework behavior.
 
 - Rainbow / canonical: [SVG](../../../assets/branding/generated/zoey.svg), [PNG](../../../assets/branding/generated/zoey-256.png), [ICO](../../../assets/branding/generated/zoey.ico)
 - Slate / idle: [SVG](../../../assets/branding/generated/zoey-idle.svg), [PNG](../../../assets/branding/generated/zoey-idle-256.png), [ICO](../../../assets/branding/generated/zoey-idle.ico)
@@ -39,7 +42,8 @@ These files are available to application authors; they do not change framework b
 
 Color alone does not communicate status to every reader.
 Applications must pair a status color with a label or another accessible indication.
-Zoey keeps her happy expression in all palettes; the status labels describe application state, not emotion.
+Zoey keeps her happy expression in all palettes.
+The status labels describe application state, not emotion.
 
 ## Use in XUI
 
@@ -48,4 +52,3 @@ Application authors keep control of their own window icons.
 The framework does not apply Zoey as a default to unrelated applications.
 
 The [contributor guide](../../../CONTRIBUTING.md#zoey-brand-assets) describes how to replace the source SVG and regenerate every asset.
-The [design archive](README.md) preserves the earlier iterations.

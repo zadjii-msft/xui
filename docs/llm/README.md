@@ -37,7 +37,7 @@ Handoff branch names, uncommitted-state warnings, and local build paths describe
 It copies the generated assets into `assets/branding` within the Retype input.
 Unchanged files keep their timestamps. Unlisted staged files are removed.
 The asset allowlist includes seven SVG/ICO palettes, selected canonical PNGs, and the web manifest.
-The adapter does not publish the source artwork, design studies, or arbitrary asset directories.
+The adapter does not publish the source artwork or arbitrary asset directories.
 
 [`retype.yml`](../../retype.yml) uses the documented [`branding.logo`](https://retype.com/configuration/project/#logo) and [`favicon`](https://retype.com/configuration/project/#favicon) properties.
 The adapter generates [`_includes/head.html`](https://retype.com/templating/includes/#site-wide-includes) for the Apple touch icon and web manifest.
