@@ -82,7 +82,7 @@ internal static class DesignerBuilderSmoke
                 workspace.Hierarchy.Tree.Expand(workspace.Hierarchy.Key(root), false);
                 workspace.Hierarchy.Tree.Expand(workspace.Hierarchy.Key(root));
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(root));
-                workspace.Inspector.Layout.Insert.Invoke();
+                workspace.Inspector.PaletteLayout.Insert.Invoke();
             });
             await Until(() => workspace.IsCurrent && !workspace.IsBusy && workspace.Document!.Root!.Children.Count == 4);
             await Check(() => workspace.Document!.Root!.Children.Last().Kind == "Text", "Palette inserts a real compilable control.");
@@ -157,8 +157,8 @@ internal static class DesignerBuilderSmoke
             {
                 var cell = workspace.Document!.Root!.Children[0];
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(cell));
-                workspace.Inspector.Layout.Row.Text = "0";
-                workspace.Inspector.Layout.Column.Text = "1";
+                workspace.Inspector.PaletteLayout.Row.Text = "0";
+                workspace.Inspector.PaletteLayout.Column.Text = "1";
                 workspace.Hierarchy.Tree.Focus();
                 if (!workspace.HandleHierarchyKey(new UiKeyEvent('D', KeyModifiers.Control, workspace.Hierarchy.Tree.Id)))
                     throw new InvalidOperationException("The hierarchy did not handle Ctrl+D.");
@@ -172,7 +172,7 @@ internal static class DesignerBuilderSmoke
             });
             await Until(() => !workspace.IsBusy);
             await Check(() => editor.Text == grid &&
-                workspace.Inspector.Layout.Feedback.Text.Contains("overlap", StringComparison.OrdinalIgnoreCase),
+                workspace.Inspector.Feedback.Contains("overlap", StringComparison.OrdinalIgnoreCase),
                 "Grid duplication uses the requested cell and refuses overlap without changing source.");
             await Ui(() =>
             {
@@ -181,7 +181,7 @@ internal static class DesignerBuilderSmoke
                 view.Render.Invoke();
             });
             await Ready();
-            await Ui(workspace.Inspector.Layout.Insert.Invoke);
+            await Ui(workspace.Inspector.PaletteLayout.Insert.Invoke);
             await Until(() => workspace.IsCurrent && !workspace.IsBusy && workspace.Document!.Root!.Children.Count == 2);
             await Check(() => editor.Text.Contains('\r') && !editor.Text.Contains('\n') &&
                 editor.Selection.Start == (ulong)workspace.Document!.Root!.Children[1].Span.Start &&
@@ -235,6 +235,55 @@ internal static class DesignerBuilderSmoke
             await Ready();
             await Check(() => workspace.Document!.Source == newest && workspace.IsCurrent,
                 "A burst of native edits publishes only a hierarchy for the newest exact source.");
+            await Check(() => DesignerInspector.FindTemplates("").SequenceEqual(Enum.GetValues<ControlTemplate>()) &&
+                DesignerInspector.FindTemplates("slider").SequenceEqual([ControlTemplate.RangeInput]) &&
+                DesignerInspector.FindTemplates("  RANGE   numeric ").SequenceEqual([ControlTemplate.RangeInput]) &&
+                DesignerInspector.FindTemplates("table").SequenceEqual([ControlTemplate.DataGrid]),
+                "Palette discovery covers every template and matches names, descriptions, and multiple case-insensitive terms.");
+            await Ui(() =>
+            {
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!));
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "missing-control-xyz";
+                workspace.Inspector.FilterPalette();
+            });
+            await Check(() => workspace.Inspector.Template is null &&
+                workspace.Inspector.PaletteLayout.PaletteHelp.Text.StartsWith("No controls match", StringComparison.Ordinal) &&
+                editor.Text == newest && workspace.IsCurrent, "An empty palette result has no insertion template and does not edit source.");
+            await Ui(() =>
+            {
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "slider";
+                workspace.Inspector.FilterPalette();
+            });
+            await Check(() => workspace.Inspector.Template == ControlTemplate.RangeInput &&
+                workspace.Inspector.PaletteLayout.PaletteHelp.Text == "1 control. Slider for a numeric value.",
+                "Filtering selects the actual template identity and describes the control before insertion.");
+            await Ui(() => workspace.Inspector.ShowPalette(view.AddControl));
+            await Until(() => workspace.Inspector.IsPaletteOpen);
+            await Ui(workspace.Inspector.PaletteLayout.ClearPaletteFilter.Invoke);
+            await Check(() => workspace.Inspector.Template == ControlTemplate.RangeInput &&
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text == "" && workspace.Inspector.PaletteLayout.PaletteFilter.Focused,
+                "Clearing the filter preserves a matching selection and focuses the native filter.");
+            await Ui(() =>
+            {
+                workspace.Inspector.PaletteLayout.PaletteFilter.Text = "slider";
+                workspace.Inspector.FilterPalette();
+                workspace.Inspector.PaletteLayout.Insert.Invoke();
+            });
+            await Until(() => workspace.IsCurrent && !workspace.IsBusy && workspace.Document!.Root!.Children.Count == 2);
+            await Check(() => workspace.Document!.Root!.Children[1].Kind == "RangeInput" &&
+                workspace.Inspector.Template == ControlTemplate.RangeInput,
+                "A filtered palette inserts its selected control through compilation and retains the filter across source revisions.");
+            await Ui(view.Undo.Invoke);
+            await Ready();
+            await Check(() => editor.Text == newest && workspace.Inspector.PaletteLayout.PaletteFilter.Text == "slider",
+                "One native undo removes the filtered insertion without changing its query.");
+            await Ui(view.Undo.Invoke);
+            await Ready();
+            await Check(() => !editor.Text.EndsWith("// Burst 23", StringComparison.Ordinal),
+                "Palette filtering preserves the native edit that preceded insertion.");
+            await Ui(view.Redo.Invoke);
+            await Ready();
+            await Check(() => editor.Text == newest, "Native redo restores the preceding source edit.");
             Console.WriteLine($"Designer builder UI assertions: {assertions} passed.");
         }
         finally
@@ -264,7 +313,7 @@ internal static class DesignerBuilderSmoke
                 {
                     string state = "";
                     await Ui(() => state = $"Current={workspace.IsCurrent}, busy={workspace.IsBusy}. " +
-                        $"{workspace.Hierarchy.Layout.Status.Text} {workspace.Inspector.Layout.Feedback.Text} {diagnostics.Text}");
+                        $"{workspace.Hierarchy.Layout.Status.Text} {workspace.Inspector.Feedback} {diagnostics.Text}");
                     throw new TimeoutException("Builder smoke condition timed out. " + state);
                 }
                 await Task.Delay(30, timeout.Token);

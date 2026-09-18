@@ -7,6 +7,199 @@ namespace Xui.Designer;
 
 public static class DesignerLiteralCodec
 {
+    public static bool TryDecodeRgbColor(string? expression, out uint value, out string? error)
+    {
+        value = 0;
+        error = "Color editing requires an RGB24 integer literal from 0x000000 through 0xFFFFFF, without comments, signs, or expressions.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax) || syntax is not LiteralExpressionSyntax literal ||
+            literal.Token.Value is not (byte or ushort or uint or ulong or sbyte or short or int or long)) return false;
+        decimal number = Convert.ToDecimal(literal.Token.Value, System.Globalization.CultureInfo.InvariantCulture);
+        if (number < 0 || number > 0xFFFFFF) return false;
+        value = (uint)number;
+        error = null;
+        return true;
+    }
+
+    public static string EncodeRgbColor(string originalExpression, uint value)
+    {
+        if (!TryDecodeRgbColor(originalExpression, out uint previous, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        if (value > 0xFFFFFF) throw new ArgumentOutOfRangeException(nameof(value), "Color must fit RGB24.");
+        if (previous == value) return originalExpression;
+        var original = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded = SyntaxFactory.ParseExpression("0x" + value.ToString("X6", System.Globalization.CultureInfo.InvariantCulture))
+            .WithTriviaFrom(original).ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded color exceeds the source length limit.", nameof(value));
+        return encoded;
+    }
+
+    public static bool TryDecodeInsets(string? expression, out string left, out string top, out string right,
+        out string bottom, out string? error)
+    {
+        left = top = right = bottom = "";
+        error = "Insets require one numeric literal or four unnamed tuple values between 0 and 32768 DIPs. Comments, signs, and expressions require source editing.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax)) return false;
+        if (IsInset(syntax))
+            left = top = right = bottom = syntax.ToString();
+        else if (syntax is TupleExpressionSyntax tuple && tuple.Arguments.Count == 4 &&
+            tuple.Arguments.All(argument => argument.NameColon is null && IsInset(argument.Expression)))
+        {
+            left = tuple.Arguments[0].Expression.ToString();
+            top = tuple.Arguments[1].Expression.ToString();
+            right = tuple.Arguments[2].Expression.ToString();
+            bottom = tuple.Arguments[3].Expression.ToString();
+        }
+        else return false;
+        error = null;
+        return true;
+    }
+
+    public static string EncodeInsets(string originalExpression, string left, string top, string right, string bottom)
+    {
+        if (!TryDecodeInsets(originalExpression, out string oldLeft, out string oldTop, out string oldRight,
+            out string oldBottom, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        ExpressionSyntax[] values = [ParseInset(left, nameof(left)), ParseInset(top, nameof(top)),
+            ParseInset(right, nameof(right)), ParseInset(bottom, nameof(bottom))];
+        string[] spellings = values.Select(value => value.ToString()).ToArray();
+        if (spellings.SequenceEqual(new[] { oldLeft, oldTop, oldRight, oldBottom })) return originalExpression;
+        var syntax = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded;
+        if (syntax is TupleExpressionSyntax tuple)
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                var previous = tuple.Arguments[i].Expression;
+                tuple = tuple.ReplaceNode(previous, values[i].WithTriviaFrom(previous));
+            }
+            encoded = tuple.ToFullString();
+        }
+        else
+        {
+            string replacement = spellings.All(value => value == spellings[0])
+                ? spellings[0] : "(" + string.Join(", ", spellings) + ")";
+            encoded = SyntaxFactory.ParseExpression(replacement).WithTriviaFrom(syntax).ToFullString();
+        }
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded insets exceed the source length limit.", nameof(left));
+        return encoded;
+    }
+
+    private static bool IsInset(ExpressionSyntax expression) =>
+        expression is LiteralExpressionSyntax && IsDimension(expression, 32768);
+
+    private static ExpressionSyntax ParseInset(string text, string parameter)
+    {
+        if (text is not null && text.Length <= XuiSourceParser.MaximumSourceLength)
+        {
+            var syntax = SyntaxFactory.ParseExpression(text.Trim());
+            if (!syntax.ContainsDiagnostics && HasOnlyWhitespaceTrivia(syntax) && IsInset(syntax)) return syntax;
+        }
+        throw new ArgumentException("Enter one numeric literal between 0 and 32768 DIPs, without a sign.", parameter);
+    }
+
+    public static bool TryDecodeBoolean(string? expression, out bool value, out string? error)
+    {
+        value = false;
+        error = "Boolean mode requires a true or false literal without comments or directives.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax) ||
+            (!syntax.IsKind(SyntaxKind.TrueLiteralExpression) && !syntax.IsKind(SyntaxKind.FalseLiteralExpression))) return false;
+        value = syntax.IsKind(SyntaxKind.TrueLiteralExpression);
+        error = null;
+        return true;
+    }
+
+    public static string EncodeBoolean(string originalExpression, bool value)
+    {
+        if (!TryDecodeBoolean(originalExpression, out bool originalValue, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        if (value == originalValue) return originalExpression;
+        var syntax = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded = SyntaxFactory.LiteralExpression(value ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression)
+            .WithTriviaFrom(syntax).ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded boolean exceeds the source length limit.", nameof(originalExpression));
+        return encoded;
+    }
+
+    public static bool TryDecodeDimensions(string? expression, out string width, out string height, out string? error)
+    {
+        width = height = "";
+        error = "Dimension mode requires an unnamed tuple of two finite, non-negative numeric literals without comments or directives.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || syntax is not TupleExpressionSyntax tuple || tuple.Arguments.Count != 2 ||
+            tuple.Arguments.Any(argument => argument.NameColon is not null || !IsDimension(argument.Expression)) ||
+            !HasOnlyWhitespaceTrivia(tuple)) return false;
+        width = tuple.Arguments[0].Expression.ToString();
+        height = tuple.Arguments[1].Expression.ToString();
+        error = null;
+        return true;
+    }
+
+    public static string EncodeDimensions(string originalExpression, string width, string height)
+    {
+        if (!TryDecodeDimensions(originalExpression, out string originalWidth, out string originalHeight, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        var widthSyntax = ParseDimension(width, nameof(width));
+        var heightSyntax = ParseDimension(height, nameof(height));
+        if (width.Trim() == originalWidth && height.Trim() == originalHeight) return originalExpression;
+        var tuple = (TupleExpressionSyntax)SyntaxFactory.ParseExpression(originalExpression);
+        var previousWidth = tuple.Arguments[0].Expression;
+        tuple = tuple.ReplaceNode(previousWidth, widthSyntax.WithTriviaFrom(previousWidth));
+        var previousHeight = tuple.Arguments[1].Expression;
+        tuple = tuple.ReplaceNode(previousHeight, heightSyntax.WithTriviaFrom(previousHeight));
+        string encoded = tuple.ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded dimensions exceed the source length limit.", nameof(width));
+        return encoded;
+    }
+
+    private static ExpressionSyntax ParseDimension(string text, string parameter)
+    {
+        if (text is not null && text.Length <= XuiSourceParser.MaximumSourceLength)
+        {
+            var syntax = SyntaxFactory.ParseExpression(text.Trim());
+            if (!syntax.ContainsDiagnostics && HasOnlyWhitespaceTrivia(syntax) && IsDimension(syntax)) return syntax;
+        }
+        throw new ArgumentException("Enter one finite, non-negative numeric literal that fits a single-precision dimension.", parameter);
+    }
+
+    private static bool HasOnlyWhitespaceTrivia(SyntaxNode syntax) => syntax.DescendantTrivia(descendIntoTrivia: true)
+        .All(trivia => trivia.IsKind(SyntaxKind.WhitespaceTrivia) || trivia.IsKind(SyntaxKind.EndOfLineTrivia));
+
+    private static bool IsDimension(ExpressionSyntax expression, double maximum = float.MaxValue)
+    {
+        bool negative = false;
+        if (expression is PrefixUnaryExpressionSyntax unary &&
+            (unary.IsKind(SyntaxKind.UnaryMinusExpression) || unary.IsKind(SyntaxKind.UnaryPlusExpression)))
+        {
+            negative = unary.IsKind(SyntaxKind.UnaryMinusExpression);
+            expression = unary.Operand;
+        }
+        if (expression is not LiteralExpressionSyntax literal || !literal.IsKind(SyntaxKind.NumericLiteralExpression)) return false;
+        double? number = literal.Token.Value switch
+        {
+            int value => value,
+            uint value => value,
+            long value => value,
+            ulong value => value,
+            float value => value,
+            double value => value,
+            decimal value => (double)value,
+            _ => null
+        };
+        if (negative) number = -number;
+        return number is { } dimension && double.IsFinite(dimension) && dimension >= 0 && dimension <= maximum;
+    }
+
     public static bool TryDecodeText(string? expression, out string nativeText, out string? error)
     {
         nativeText = "";

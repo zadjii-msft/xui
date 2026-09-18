@@ -1,0 +1,14 @@
+namespace Xui.Designer;
+
+component DesignerGoToLayout {
+    view {
+        VStack(spacing: 12, preferredSize: (360, 160)) {
+            Text("", ref: Summary, id: "designer-go-to-summary", wrapping: true);
+            HStack(spacing: 12) {
+                TextInput("Line", ref: Line, id: "designer-go-to-line-input", preferredSize: (150, 60), flex: 1);
+                TextInput("Column", ref: Column, id: "designer-go-to-column-input", preferredSize: (150, 60), flex: 1);
+            }
+            Text("Line and column start at 1. Columns count UTF-16 code units, as compiler diagnostics do.", wrapping: true);
+        }
+    }
+}

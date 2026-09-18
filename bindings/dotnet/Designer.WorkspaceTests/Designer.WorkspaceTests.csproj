@@ -20,9 +20,12 @@
     <Compile Include="..\Designer\DesignerHierarchy.cs" Link="DesignerHierarchy.cs" />
     <Compile Include="..\Designer\DesignerInspector.cs" Link="DesignerInspector.cs" />
     <Compile Include="..\Designer\DesignerLiteralCodec.cs" Link="DesignerLiteralCodec.cs" />
+    <Compile Include="..\Designer\DesignerColorEditor.cs" Link="DesignerColorEditor.cs" />
+    <AdditionalFiles Include="..\Designer\DesignerColorLayout.xui" />
     <Compile Include="..\Designer\DesignerBuilderSmoke.cs" Link="DesignerBuilderSmoke.cs" />
     <AdditionalFiles Include="..\Designer\DesignerLayout.xui" />
     <AdditionalFiles Include="..\Designer\DesignerHierarchyLayout.xui" />
     <AdditionalFiles Include="..\Designer\DesignerInspectorLayout.xui" />
+    <AdditionalFiles Include="..\Designer\DesignerControlPaletteLayout.xui" />
   </ItemGroup>
 </Project>

@@ -17,10 +17,9 @@ internal static class Program
             var tree = window.TreeView("Hierarchy");
             var arguments = window.ComboBox("Arguments", false);
             var value = window.MultilineText("Literal value");
-            var palette = window.ComboBox("Palette", false);
             var templates = window.ComboBox("Templates", false);
             var hierarchy = new DesignerHierarchyLayout(window, tree, attach: false);
-            var inspector = new DesignerInspectorLayout(window, arguments, value, palette, attach: false);
+            var inspector = new DesignerInspectorLayout(window, arguments, value, attach: false);
             var preview = window.Label("Layout fixture preview");
             var layout = new DesignerLayout(window, searchLayout.Root, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates, window);
             editor.Text = "Native editor layout fixture";
@@ -45,6 +44,9 @@ internal static class Program
                         Require(editor.GetBounds().Width >= 150, "Source editor width");
                         Require(!searchLayout.FindOpen && !layout.OutputExpanded, "Find and output start collapsed");
                         Require(tree.GetBounds().Width >= 100 && tree.GetBounds().Height >= 150, "Native tree bounds");
+                        Require(hierarchy.Query.GetBounds().Width >= 100 && hierarchy.ClearSearch.GetBounds().Width == 32 &&
+                            hierarchy.NextMatch.GetBounds().Y + hierarchy.NextMatch.GetBounds().Height <= tree.GetBounds().Y,
+                            "Hierarchy search fits above the tree with a usable query and native navigation actions");
                         Require(value.GetBounds().Width >= 100 && value.GetBounds().Height >= 60, "Native inspector bounds");
                         Require(tree.GetBounds().X < editor.GetBounds().X &&
                             editor.GetBounds().X < preview.GetBounds().X &&
@@ -55,6 +57,13 @@ internal static class Program
                             "Common toolbar actions use compact native icon buttons");
                         Require(layout.Save.Text == "Save" && layout.Undo.Text == "Undo",
                             "Icon buttons retain descriptive accessible names");
+                        Require(layout.Commands.Text == "Commands" && layout.Commands.GetBounds().Width >= 80 &&
+                            layout.Commands.GetBounds().X + layout.Commands.GetBounds().Width <=
+                            layout.ToolbarHost.GetBounds().X + layout.ToolbarHost.GetBounds().Width,
+                            "Command discovery has a visible, named toolbar action");
+                        Require(layout.GoToLine.Text == "Go to line" && layout.GoToLine.GetBounds().Width >= 80 &&
+                            layout.GoToLine.GetBounds().Y + layout.GoToLine.GetBounds().Height <= editor.GetBounds().Y,
+                            "Source location navigation has a visible, named action above the editor");
                         foreach (var panel in new[] { layout.HierarchyPanel, layout.InspectorPanel, layout.OutputPanel })
                         {
                             var style = panel.GetControlStyleValues(StylePart.Root, effective: true);
@@ -152,6 +161,29 @@ internal static class Program
                             "Switching back to WinUI restores the original layout");
                         editor.Command(TextCommand.Undo);
                         Require(editor.Text == "Native editor layout fixture", "Panel and style changes preserve native editor undo");
+                        layout.Root.MaximumSize(980, 850);
+                        layout.PreviewSize.Text = "Custom - 4096x4096";
+                    });
+                    await Task.Delay(80);
+                    await Ui(() =>
+                    {
+                        var toolbar = layout.ToolbarHost.GetBounds();
+                        var buttons = new[] { layout.Commands, layout.PreviewSize, layout.AddControl, layout.StyleToggle };
+                        for (int index = 0; index < buttons.Length; index++)
+                        {
+                            var bounds = buttons[index].GetBounds();
+                            Require(bounds.Width >= 80 && bounds.X >= toolbar.X &&
+                                bounds.X + bounds.Width <= toolbar.X + toolbar.Width,
+                                "Flyout and style actions remain inside the toolbar at 980 DIP.");
+                            if (index > 0)
+                            {
+                                var previous = buttons[index - 1].GetBounds();
+                                Require(previous.Y == bounds.Y && previous.X + previous.Width <= bounds.X,
+                                    "The flyout buttons have separate, non-overlapping toolbar bounds.");
+                            }
+                        }
+                        Require(layout.AddControl.Text == "Add control..." && layout.PreviewSize.GetBounds().Width == 210,
+                            "The toolbar exposes Add control and a stable width for current preview dimensions.");
                     });
                 }
                 catch (Exception error) { failure = error; }

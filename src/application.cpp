@@ -6068,13 +6068,12 @@ bool Window::focus(Control& control, bool select_all) {
     if (impl->replacing && !impl->retains(control)) return false;
     if (impl->layout_pending) impl->update();
     if (!impl->ready || impl->closing) return false;
-    for (const auto& peer : impl->peers)
-        if (peer->control.get() == &control) {
-            if (!impl->focus(*peer, false)) return false;
-            if (peer->edit && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
-            return true;
-        }
-    return false;
+    // Focus can collect a WinUI clear button and reallocate the peer vector.
+    // InputScope retains the peer itself across those synchronous updates.
+    auto* peer = impl->find_peer(&control);
+    if (!peer || !impl->focus(*peer, false)) return false;
+    if (peer->edit && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
+    return true;
 }
 void Window::show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Show popups on the window UI thread");

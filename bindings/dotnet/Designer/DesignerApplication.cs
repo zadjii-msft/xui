@@ -14,10 +14,16 @@ internal sealed partial class DesignerApplication : IDisposable
     private readonly MultilineText diagnostics;
     private readonly DesignerLayout view;
     private readonly PreviewHost preview;
+    private readonly DesignerPreviewViewport viewport;
     private readonly DesignerWorkspace workspace;
     private readonly DesignerDiagnosticNavigator diagnosticNavigator;
     private readonly DesignerSourceSearch sourceSearch;
     private readonly DesignerSourceIndentation sourceIndentation;
+    private readonly DesignerSourceComments sourceComments;
+    private readonly DesignerSourceLines sourceLines;
+    private readonly DesignerCommandPalette commandPalette;
+    private readonly DesignerGoTo sourceGoTo;
+    private readonly DesignerColorEditor colorEditor;
     private readonly ComboBox templates;
     private readonly Task compiler;
     private readonly DesignerDocumentStore document;
@@ -44,16 +50,20 @@ internal sealed partial class DesignerApplication : IDisposable
             diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true).SetMaximumLength(MaximumLength);
             preview = new PreviewHost(window, (value, message, success) =>
                 window.Post(() => OnPreview(value, message, success)));
+            viewport = new DesignerPreviewViewport(window, preview.View);
             workspace = new DesignerWorkspace(window, editor, ShowError);
             diagnosticNavigator = new DesignerDiagnosticNavigator(window, editor, diagnostics,
                 () => version, ReportNavigation, workspace.SelectFromCaret);
-            sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret);
+            sourceSearch = new DesignerSourceSearch(window, editor, workspace.SelectFromCaret, ShowError, MaximumLength);
             sourceIndentation = new DesignerSourceIndentation(editor, ShowError);
+            sourceComments = new DesignerSourceComments(editor, ReportNavigation, MaximumLength);
+            sourceLines = new DesignerSourceLines(editor, ReportNavigation, MaximumLength);
             templates = window.ComboBox("New document template", false).SetAutomationId("designer-templates");
             templates.SetItems(DesignerTemplates.All.Select((template, index) => new Choice((ulong)index + 1, template.Name)).ToArray(), 1);
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
-                workspace.Inspector.Layout.Root, preview.View, templates, window);
+                workspace.Inspector.Layout.Root, viewport.View, templates, window);
+            viewport.SetToolbarButton(view.PreviewSize);
             window.IconErrorHandler = error => ShowError($"Cannot load the application icon: {error}");
             window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
             preview.Picked += OnPreviewPicked;
@@ -69,6 +79,9 @@ internal sealed partial class DesignerApplication : IDisposable
             recovery = new DesignerRecoveryDialog(window, document, RecoveredDocument, ReportFileError);
             fileActions = new DesignerFileActions(window, editor, view.Path, document, () => version,
                 ReplacedDocument, SetFileStatus, ReportFileError);
+            commandPalette = new DesignerCommandPalette(window, view.Commands, DesignerCommands, ShowError);
+            sourceGoTo = new DesignerGoTo(window, editor, () => version, workspace.SelectFromCaret, ReportNavigation);
+            colorEditor = new DesignerColorEditor(window, workspace, ShowError);
             SetFileStatus(document.FilePath is { } path ? $"Opened {path}" : "Untitled example. Choose a file path before saving.");
             editor.Event += OnEditorEvent;
             view.Open.Click += Open;
@@ -82,8 +95,17 @@ internal sealed partial class DesignerApplication : IDisposable
             view.Render.Click += () => Schedule(immediate: true);
             view.Live.Changed += value => { live = value; Schedule(); };
             view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); Schedule(immediate: true); };
+            view.Commands.Click += ShowCommands;
+            view.PreviewSize.Click += ShowPreviewSize;
+            view.AddControl.Click += ShowControlPalette;
+            view.GoToLine.Click += ShowGoTo;
             window.KeyHandler = key =>
             {
+                if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'P')
+                { ShowCommands(); return true; }
+                if (commandPalette.IsOpen || viewport.IsOpen || workspace.Inspector.IsPaletteOpen) return false;
+                if (editor.Focused && key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'G')
+                { ShowGoTo(); return true; }
                 if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'S') { Save(); return true; }
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'S')
                 { fileActions.SaveAs(); return true; }
@@ -94,8 +116,11 @@ internal sealed partial class DesignerApplication : IDisposable
                 if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'L')
                 { workspace.SelectFromCaret(); return true; }
                 if (diagnosticNavigator.HandleKey(key)) return true;
+                if (workspace.Hierarchy.HandleSearchKey(key)) return true;
                 if (sourceSearch.HandleKey(key)) return true;
                 if (sourceIndentation.HandleKey(key)) return true;
+                if (sourceComments.HandleKey(key)) return true;
+                if (sourceLines.HandleKey(key)) return true;
                 return workspace.HandleHierarchyKey(key);
             };
             compiler = Task.Run(CompileEdits);
@@ -103,7 +128,11 @@ internal sealed partial class DesignerApplication : IDisposable
         catch
         {
             lifetime.Cancel();
+            commandPalette?.Dispose();
+            sourceGoTo?.Dispose();
+            colorEditor?.Dispose();
             workspace?.Dispose();
+            viewport?.Dispose();
             preview?.Dispose();
             window.Dispose();
             lifetime.Dispose();
@@ -173,6 +202,8 @@ internal sealed partial class DesignerApplication : IDisposable
         workspace.SourceChanged();
         revision?.Cancel();
         version++;
+        sourceGoTo.Refresh();
+        colorEditor.Refresh();
         diagnosticNavigator.Invalidate();
         preview.Supersede(version);
         view.OutlineStatus = "Outline cleared. Waiting for the current preview.";
@@ -430,7 +461,11 @@ internal sealed partial class DesignerApplication : IDisposable
         lifetime.Cancel();
         edits.Writer.TryComplete();
         compiler.GetAwaiter().GetResult();
+        commandPalette.Dispose();
+        sourceGoTo.Dispose();
+        colorEditor.Dispose();
         workspace.Dispose();
+        viewport.Dispose();
         preview.Dispose();
         window.Dispose();
         lifetime.Dispose();

@@ -241,7 +241,7 @@ if(WIN32)
         target_compile_options(xui_document_syntax_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         add_test(NAME xui_document_syntax_tests COMMAND xui_document_syntax_tests)
         add_executable(xui_document_syntax_window_tests tests/document_syntax_window_tests.cpp demo/xui.rc)
-        target_link_libraries(xui_document_syntax_window_tests PRIVATE xui_windows)
+        target_link_libraries(xui_document_syntax_window_tests PRIVATE xui_windows d3d11 dxgi windowsapp)
         target_compile_options(xui_document_syntax_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         target_link_options(xui_document_syntax_window_tests PRIVATE /MANIFEST:NO)
         add_test(NAME xui_document_syntax_window_tests COMMAND xui_document_syntax_window_tests)
@@ -633,6 +633,8 @@ if(WIN32)
         endif()
         option(XUI_DESKTOP_TESTS "Register tests that open desktop windows" OFF)
         if(XUI_DESKTOP_TESTS)
+            add_test(NAME xui_document_theme_window_tests COMMAND xui_document_syntax_window_tests --theme)
+            set_tests_properties(xui_document_theme_window_tests PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE LABELS desktop)
             add_test(NAME xui_native_branding_tests COMMAND xui_native_branding_tests
                 $<TARGET_FILE:xui_abi_sample> $<TARGET_FILE:xui_feature_sample> $<TARGET_FILE:xui_direct_sample>
                 $<TARGET_FILE:xui_demo> $<TARGET_FILE:xui_gallery> $<TARGET_FILE:xui_winui_gallery>

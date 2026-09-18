@@ -1,13 +1,33 @@
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main()
     {
         try
         {
+            RunPaletteFlyout(VisualStyle.Classic);
+            RunPaletteFlyout(VisualStyle.WinUI);
+            RunHierarchySearch(VisualStyle.Classic);
+            RunHierarchySearch(VisualStyle.WinUI);
+            RunSiblingInsertion(VisualStyle.Classic);
+            RunSiblingInsertion(VisualStyle.WinUI);
+            RunGridCellSearch(VisualStyle.Classic);
+            RunGridCellSearch(VisualStyle.WinUI);
+            RunPropertySearch(VisualStyle.Classic);
+            RunPropertySearch(VisualStyle.WinUI);
+            RunPropertySource(VisualStyle.Classic);
+            RunPropertySource(VisualStyle.WinUI);
+            RunStructureAvailability(VisualStyle.Classic);
+            RunStructureAvailability(VisualStyle.WinUI);
+            RunRelativeSelection(VisualStyle.Classic);
+            RunRelativeSelection(VisualStyle.WinUI);
+            RunColorEditor(VisualStyle.Classic);
+            RunColorEditor(VisualStyle.WinUI);
+            RunExpansion(VisualStyle.Classic);
+            RunExpansion(VisualStyle.WinUI);
             using var window = new Window("Designer workspace smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("XUI source").SetMaximumLength(65536);
             var diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true);

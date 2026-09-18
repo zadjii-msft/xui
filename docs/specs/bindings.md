@@ -760,6 +760,7 @@ C# exposes these retained children:
 
 Rust exposes the corresponding methods with snake-case names.
 `CommandSurface.Menu` returns a C# `RetainedElement`; Rust `menu()` returns an `Element`.
+The C# `CommandSurface.IsOpen` property reports whether its native popup is open.
 The native object remains a CommandMenu, not an ItemsView.
 This accessor exposes ordinary Element styling and layout, not a new CommandMenu factory or typed collection API.
 

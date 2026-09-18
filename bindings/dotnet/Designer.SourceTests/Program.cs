@@ -45,11 +45,17 @@ internal static partial class Program
             TestInvalidSource();
             TestArguments();
             TestStructure();
+            TestSiblingInsertion();
             TestGrid();
+            TestEmptyGridCell();
             TestRevisions();
             TestCancellation();
             TestWrapping();
             TestLiteralCodec();
+            TestDimensionCodec();
+            TestInsetsCodec();
+            TestBooleanCodec();
+            TestRgbColorCodec();
             TestRemoveArgument();
             TestPaletteExpansion();
             TestValueControlSource();

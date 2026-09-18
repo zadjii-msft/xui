@@ -23,6 +23,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
+- [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, and safe menu replacement.
 - [Control styling implementation and evidence](control-styling.md): Shared styles, binding lifetimes, family coverage, native paint checks, and performance evidence.

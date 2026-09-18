@@ -18,7 +18,7 @@ $samples = Join-Path $stage "samples\$rid"
 $designer = Join-Path $stage "designer\$rid"
 if ((Test-Path $native) -or (Test-Path $samples) -or (Test-Path $designer)) { throw "Use a fresh staging directory: $stage" }
 $cmake = Get-XuiCMake
-Invoke-Checked { & $cmake -S $repo -B $build -G $Generator -A $Architecture -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF -DXUI_ENABLE_IPO=OFF -DXUI_ENABLE_WEBVIEW2=OFF }
+Invoke-Checked { & $cmake -S $repo -B $build -G $Generator -A $Architecture -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=OFF -DXUI_ENABLE_IPO=OFF -DXUI_ENABLE_WEBVIEW2=OFF -DXUI_ENABLE_LSH=ON -DXUI_REQUIRE_LSH=ON }
 Invoke-Checked { & $cmake --build $build --config Release --parallel 4 }
 Invoke-Checked { & $cmake --install $build --config Release --component Native --prefix $native }
 Invoke-Checked { & $cmake --install $build --config Release --component Samples --prefix "$samples\native" }
@@ -61,6 +61,7 @@ try {
     New-Item -ItemType Directory -Path "$samples\rust" -Force | Out-Null
     Copy-Item "$cargoOutput\$target\release\xui-sample.exe" "$samples\rust"
     Copy-Item "$native\xui.dll" "$samples\rust"
+    Copy-Item "$native\lsh_lib.dll", "$native\LSH-LICENSE.txt" "$samples\rust"
 } finally {
     $env:XUI_LIB_DIR = $oldLibDir
 }

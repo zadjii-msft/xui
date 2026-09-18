@@ -3,25 +3,78 @@ namespace Xui.Designer;
 component DesignerInspectorLayout {
     param global::Xui.Element Arguments;
     param global::Xui.Element ValueEditor;
-    param global::Xui.Element Palette;
+    state bool DimensionsOpen = false;
+    state bool DimensionArgument = false;
+    state bool BooleanOpen = false;
+    state bool BooleanArgument = false;
+    state bool InsetsOpen = false;
+    state bool InsetsArgument = false;
 
     view {
-        ScrollView("Properties and control palette") {
+        ScrollView("Properties and structure") {
             VStack(padding: 10, spacing: 8) {
                 Text("Properties", fontSize: 20, fontWeight: 600);
                 Text("Select a control", ref: Selected, id: "designer-selected-node", wrapping: true);
-                Text("Argument");
+                HStack(spacing: 6) {
+                    TextInput("Find a property", ref: ArgumentFilter, id: "designer-argument-filter", captionVisible: false,
+                        placeholder: "Find: font, size, padding", preferredSize: (190, 36), flex: 1);
+                    Button("Clear property filters", ref: ClearArgumentFilter, id: "designer-argument-filter-clear",
+                        icon: global::Xui.ButtonIcon.Close, size: (32, 32), help: "Show all supported properties");
+                }
+                Toggle("Authored only", ref: AuthoredOnly, id: "designer-arguments-authored-only",
+                    help: "Show properties explicitly set on this control, including expressions");
+                Text("Select a control to find properties.", ref: ArgumentFilterStatus, id: "designer-argument-filter-status", wrapping: true);
                 Content(Arguments, preferredSize: (240, 36));
+                Text("No property selected", ref: ArgumentLabel, id: "designer-editing-argument", wrapping: true);
                 Text("Literal source value (include quotes for text)", ref: ValueLabel, wrapping: true);
                 Toggle("Edit as text", ref: TextMode, id: "designer-property-text-mode", enabled: false,
                     help: "Edit a string literal without quotes or escape sequences");
-                Content(ValueEditor, preferredSize: (240, 80));
+                Toggle("Edit dimensions", ref: DimensionMode, id: "designer-property-dimension-mode", enabled: false,
+                    preferredSize: (240, DimensionArgument ? 32 : 0), visible: DimensionArgument,
+                    help: "Edit a literal size as separate width and height fields");
+                Toggle("Edit boolean", ref: BooleanMode, id: "designer-property-boolean-mode", enabled: false,
+                    preferredSize: (240, BooleanArgument ? 32 : 0), visible: BooleanArgument,
+                    help: "Edit a true or false literal with a native toggle");
+                Toggle("Edit insets", ref: InsetsMode, id: "designer-property-insets-mode", enabled: false,
+                    preferredSize: (240, InsetsArgument ? 32 : 0), visible: InsetsArgument,
+                    help: "Edit padding or border thickness as left, top, right, and bottom values");
+                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : BooleanOpen ? 36 : InsetsOpen ? 126 : 80),
+                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen || BooleanOpen || InsetsOpen ? 0 : 80),
+                        new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 60 : 0),
+                        new(global::Xui.TrackSizing.Fixed, BooleanOpen ? 36 : 0),
+                        new(global::Xui.TrackSizing.Fixed, InsetsOpen ? 126 : 0)]) {
+                    Content(ValueEditor);
+                    HStack(spacing: 6, row: 1) {
+                        TextInput("Width", ref: DimensionWidth, id: "designer-property-width", visible: DimensionsOpen,
+                            preferredSize: (106, 60), flex: 1);
+                        TextInput("Height", ref: DimensionHeight, id: "designer-property-height", visible: DimensionsOpen,
+                            preferredSize: (106, 60), flex: 1);
+                    }
+                    Toggle("Value: false", ref: BooleanValue, id: "designer-property-boolean-value", row: 2,
+                        visible: BooleanOpen, help: "Choose true or false. Apply property commits the draft.");
+                    VStack(spacing: 6, row: 3) {
+                        HStack(spacing: 6) {
+                            TextInput("Left", ref: InsetLeft, id: "designer-property-inset-left", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                            TextInput("Top", ref: InsetTop, id: "designer-property-inset-top", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                        }
+                        HStack(spacing: 6) {
+                            TextInput("Right", ref: InsetRight, id: "designer-property-inset-right", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                            TextInput("Bottom", ref: InsetBottom, id: "designer-property-inset-bottom", visible: InsetsOpen,
+                                preferredSize: (106, 60), flex: 1);
+                        }
+                    }
+                }
                 Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
                 HStack(spacing: 6) {
                     Button("Apply property", ref: Apply, id: "designer-apply-property");
                     Button("Reset", ref: Reset, id: "designer-reset-property", enabled: false,
                         help: "Remove an authored named literal argument and use its default");
                 }
+                Button("Revert draft", ref: RevertDraft, id: "designer-revert-property-draft", enabled: false,
+                    help: "Discard unapplied property changes without changing source or removing the authored value");
                 Text("Structure", fontSize: 18, fontWeight: 600);
                 HStack(spacing: 6) {
                     Button("Move up", ref: Up, id: "designer-move-up", help: "Move to the previous sibling position (Alt+Up in hierarchy)");
@@ -40,14 +93,6 @@ component DesignerInspectorLayout {
                 }
                 Button("Unwrap one child", ref: Unwrap, id: "designer-unwrap", help: "Remove a safe one-child wrapper (Ctrl+Shift+G in hierarchy)");
                 Text("Unwrap needs one child and refuses to discard wrapper properties, identities, or comments.", wrapping: true);
-                Text("Control palette", fontSize: 18, fontWeight: 600);
-                Content(Palette, preferredSize: (240, 36));
-                Text("Insert at the end of the selected stack or grid. Grid insertion and duplication use the cell below.", wrapping: true);
-                HStack(spacing: 6) {
-                    TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));
-                    TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (106, 60));
-                }
-                Button("Insert control", ref: Insert, id: "designer-insert-control");
                 Text("Ready", ref: Feedback, id: "designer-builder-feedback", wrapping: true);
             }
         }

@@ -1,0 +1,39 @@
+namespace Xui.Designer;
+
+component DesignerControlPaletteLayout {
+    param global::Xui.Element Palette;
+
+    view {
+        Popup("Add control", id: "designer-add-control-flyout", preferredSize: (360, 540),
+            placement: global::Xui.PopupPlacement.Below, windowBackground: true) {
+            ScrollView("Control palette") {
+                VStack(padding: 12, spacing: 8) {
+                    Text("Control palette", fontSize: 18, fontWeight: 600);
+                    HStack(spacing: 6) {
+                        TextInput("Find a control", ref: PaletteFilter, id: "designer-palette-filter", captionVisible: false,
+                            placeholder: "Find: button, slider, layout", preferredSize: (240, 36), flex: 1);
+                        Button("Clear control filter", ref: ClearPaletteFilter, id: "designer-palette-filter-clear",
+                            icon: global::Xui.ButtonIcon.Close, size: (32, 32), help: "Show all controls");
+                    }
+                    Content(Palette, preferredSize: (300, 36));
+                    Text("", ref: PaletteHelp, id: "designer-palette-help", wrapping: true);
+                    Text("Insert control adds a child at the end. Insert before/after adds a sibling. Grid actions use the cell below.", wrapping: true);
+                    HStack(spacing: 6) {
+                        TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (140, 60), flex: 1);
+                        TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (140, 60), flex: 1);
+                    }
+                    Button("Find empty cell", ref: FindCell, id: "designer-find-grid-cell", enabled: false,
+                        help: "Fill row and column from the selected Grid, or the parent Grid of a non-Grid selection");
+                    Button("Insert control", ref: Insert, id: "designer-insert-control");
+                    HStack(spacing: 6) {
+                        Button("Insert before", ref: InsertBefore, id: "designer-insert-before",
+                            help: "Insert the palette control before the selected sibling");
+                        Button("Insert after", ref: InsertAfter, id: "designer-insert-after",
+                            help: "Insert the palette control after the selected sibling");
+                    }
+                    Text("Ready", ref: Feedback, id: "designer-palette-feedback", wrapping: true);
+                }
+            }
+        }
+    }
+}

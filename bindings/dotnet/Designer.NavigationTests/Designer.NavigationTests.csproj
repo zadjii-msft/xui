@@ -14,7 +14,9 @@
   <ItemGroup>
     <Compile Include="..\Designer\DesignerDiagnostics.cs" Link="DesignerDiagnostics.cs" />
     <Compile Include="..\Designer\DesignerDiagnosticNavigator.cs" Link="DesignerDiagnosticNavigator.cs" />
+    <Compile Include="..\Designer\DesignerGoTo.cs" Link="DesignerGoTo.cs" />
     <AdditionalFiles Include="..\Designer\DesignerDiagnosticsLayout.xui" />
+    <AdditionalFiles Include="..\Designer\DesignerGoToLayout.xui" />
     <ProjectReference Include="..\Xui\Xui.csproj" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />
     <Analyzer Include="..\Xui.Generator\bin\$(Configuration)\net10.0\Xui.Generator.dll" />

@@ -92,9 +92,9 @@ internal sealed partial class DesignerDiagnostics
     private static int? PositiveNumber(string value) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int result) && result > 0 ? result : null;
 
-    private static TextSpan? Locate(SourceText source, int row, int column)
+    internal static TextSpan? Locate(SourceText source, int row, int column)
     {
-        if (row > source.Lines.Count) return null;
+        if (row <= 0 || column <= 0 || row > source.Lines.Count) return null;
         var line = source.Lines[row - 1];
         if (column > line.Span.Length + 1) return null;
         int offset = line.Start + column - 1;

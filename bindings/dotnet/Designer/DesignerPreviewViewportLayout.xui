@@ -1,0 +1,13 @@
+namespace Xui.Designer;
+
+component DesignerPreviewViewportLayout {
+    param global::Xui.Element Preview;
+
+    view {
+        ScrollView("Preview viewport. Vertical scrolling.", ref: Scroll, id: "designer-viewport-scroll") {
+            VStack(ref: Surface, preferredSize: (0, 0)) {
+                Content(Preview, flex: 1);
+            }
+        }
+    }
+}

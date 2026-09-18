@@ -43,6 +43,9 @@ Actual screen-reader speech still requires a manual check.
 
 `MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
 Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+Dark documents request the Windows dark scrollbar theme through `SetWindowTheme`.
+Light and high-contrast palettes clear that override.
+Scrollbar appearance depends on the Windows theme implementation. XUI does not replace native scrolling or install theme hooks.
 `set_monospace(true)` selects Consolas for code. The default font remains Segoe UI.
 The default document limit is 65,536 UTF-16 code units. The maximum is 1,048,576.
 Paragraphs use `\r`. Setters normalize `\n` and `\r\n`, and reject null characters or unpaired surrogates.
@@ -55,8 +58,9 @@ Property changes replace text once per revision, not once per paint.
 
 ### Syntax highlighting
 
-`MultilineText` supports optional LSH syntax highlighting without replacing its text.
-The [build procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) enables the `Lsh 0.3.0` native package.
+`MultilineText` supports LSH syntax highlighting without replacing its text.
+Windows builds enable the bundled `Lsh 0.3.0` native package by default.
+The [build procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) describes the package override and explicit opt-out.
 The gallery highlights its selected XUI, C#, Rust, or C++ excerpts.
 The Designer highlights `.xui` source, including embedded C#.
 FileExplorer selects a grammar by filename for supported text previews.

@@ -1,7 +1,7 @@
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private static void Require(bool condition, string message)
@@ -16,7 +16,10 @@ internal static class Program
         try
         {
             Run();
-            Console.WriteLine($"Designer diagnostic navigation UI assertions: {assertions} passed.");
+            GoToCoordinates();
+            RunGoTo(VisualStyle.Classic);
+            RunGoTo(VisualStyle.WinUI);
+            Console.WriteLine($"Designer diagnostic and source navigation assertions: {assertions} passed.");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

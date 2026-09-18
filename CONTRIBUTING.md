@@ -27,6 +27,8 @@ cmake --build $build --config Release --parallel 4
 The architecture selection avoids x64 emulation on ARM64 Windows.
 Use the same architecture for `xui.dll` and each application that loads it.
 Close executables from this build directory before relinking them.
+Native builds enable syntax highlighting from the checked-in `dep` package by default.
+See [repository-local packages](#repository-local-packages) for package updates and [LSH configuration](#lsh-highlighting-in-xui-applications) for the opt-out.
 
 If CMake is absent from `PATH`, find the Visual Studio copy:
 
@@ -373,6 +375,7 @@ dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
 ```
 
 This suite checks exact UTF-16 ranges, source preservation, stale revisions, container rules, and generated compilation.
+Dimension codec checks cover numeric syntax, culture independence, exact tuple preservation, input limits, and expression and comment refusals.
 It also checks opt-in element mapping with the existing managed generator fakes, without native DLL calls.
 Diagnostic checks cover exact expression columns and the actual preview compiler output.
 The [source API contract](docs/specs/designer.md#source-editing-api) describes edit proposals and editor integration.
@@ -397,6 +400,8 @@ dotnet run --project bindings\dotnet\Designer.GroupingTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.TextModeTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.NavigationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.SearchTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.ViewportTests -c Release -r $rid
+dotnet run --project bindings\dotnet\Designer.CommandTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer.IndentationTests -c Release -r $rid
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --builder-smoke
 dotnet run --project bindings\dotnet\Designer -c Release -r $rid -- --file-smoke
@@ -420,14 +425,52 @@ It covers draft selection, recovery copies, dirty-source protection, confirmed d
 The grouping UI test uses the production hierarchy and inspector with native source editing.
 It covers wrap buttons, root replacement, unwrap refusals, hierarchy shortcuts, and native undo.
 The navigation UI test covers diagnostic buttons, F8 routing, exact native selections, stale source, and replaced diagnostic text.
+It also covers the native Go to dialog in Classic and WinUI, Unicode boundaries, Enter/Escape, revision guards, cancellation, and undo.
 The source-search UI test covers literal matching, native selection, current-source offsets, keyboard routing, and undo preservation.
+It also covers Unicode word boundaries, single and bulk replacement, no-op edits, native undo and redo, and atomic length-limit errors.
+The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, and retained preview state.
+It also covers the anchored size flyout, Reset cropping, requested versus actual dimensions, native Escape, and a narrow preview pane.
+The workspace UI test covers the Add control flyout in both styles, native query input, focus restoration, source guards, cancellation, and disposal.
+The layout UI test checks toolbar spacing at the default width and at 980 DIP.
+Run native UI suites sequentially because they share desktop focus.
+The command UI test uses the native CommandSurface in Classic and WinUI.
+It covers native query input, Enter, Escape, focus, disabled commands, changed availability, duplicate invocation, cancellation, and source undo.
 The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
+It also covers line comments in both visual styles, selected-line boundaries, Unicode, blank lines, mixed prefixes, read-only source, and atomic length refusals.
+Source-line duplication coverage includes both styles, exact text and selections, trailing empty lines, Unicode, one-action undo/redo, focus routing, and length limits.
+Source-line movement coverage includes both styles, multiline selections, final and empty lines, Unicode, maximum-length source, boundary refusals, and native undo/redo.
+Source-line deletion coverage includes both styles, selection boundaries, final separators, Unicode, maximum-length source, read-only refusals, focus routing, and native undo/redo.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
+Source replacement also exercises hierarchy updates, preview compilation, and one-action undo through the complete application.
+Selected-text search checks cover native query contents, source-only shortcuts, current selections, matching options, Unicode, line boundaries, query limits, and undo in both styles.
+The application selection smoke checks palette actions, disabled empty selections, hierarchy synchronization, and retained live preview state.
+Viewport checks cover exact Compact dimensions, retained preview versions and state, native picking, and a return to Fit.
+Command checks cover shortcut routing, pointer-mode exit, native dismissal, discard protection, and focus inside the scrollable inspector.
+Structural command checks cover duplicate, delete, movement, each wrapper, and unwrap through the native palette.
+They check live preview text, arranged order, selected nodes, disabled root actions, and exact source undo.
+Relative selection checks cover parent, first-child, sibling, and root commands through the native palette without replacing the live preview.
+Go to checks cover the header action, command palette, source-only shortcut, exact caret, hierarchy synchronization, and retained preview state.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
+It also focuses 64 populated fields in a scroll view in both styles, including first-time WinUI clear-button creation and repeated focus.
+These checks preserve native selection, select-all behavior, and scroll reveal when the native peer list grows.
+It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
+Boolean checks cover native toggles in both visual styles, raw drafts, exact no-ops, compilation, undo/redo, reset, and stale-source rejection.
+The selection smoke checks exact native preview sizes after a dimension edit and its source undo.
+It also checks the actual native enabled state after a boolean edit, and restoration through source undo.
+Inset checks cover uniform and four-sided values, draft conversion, numeric limits, native fields, focus, reset, stale source, and undo in both styles.
+Draft reversion checks cover raw and structured modes, invalid fields, retained filters, unset properties, expression refusals, busy/stale guards, and unchanged source undo.
+The application selection smoke checks its command-palette entry, disabled expression actions, and unchanged preview dimensions.
+The source suite checks exact formatting, cultures, rejected syntax, source limits, and compiled inset changes across control kinds.
+The application selection smoke checks the actual native label height after a padding edit and source undo.
+Color codec checks cover RGB24 literals, exact no-ops, whitespace, rejected expressions, source limits, and compilation across color properties.
+Native color checks cover channels, invalid-input recovery, opaque alpha, Escape/cancel, draft updates, stale source/selection/drafts, disposal, and source undo in both styles.
+The application selection smoke checks palette dispatch, unchanged preview ownership before Apply, and native foreground values after Apply and undo.
+Comment checks cover palette and shortcut routing, native preview removal/restoration, and separate undo operations through the complete source pipeline.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
+Palette checks cover name and description search, empty results, retained selection, filtered insertion, and source undo.
 It also covers read-only expressions and recovery from invalid source without replacing the native document.
 The file smoke uses an isolated recovery directory and the complete application.
 It covers automatic drafts, the native recovery picker, disk conflicts, persistent file errors, and native edits after an invalid file opens.
@@ -435,7 +478,24 @@ It also covers real native Open and Save As results, cancellation, file shortcut
 The layout smoke uses the production `.xui` layouts without the runtime compiler or preview host.
 It covers pane bounds, pane order, native selection, and source preservation across theme changes.
 The workspace suite runs the same builder smoke against production controllers without the preview host.
+It also covers hierarchy search in both visual styles, native queries, match navigation, collapsed ancestors, revision guards, invalid source, and undo preservation.
+Property search checks cover native queries, authored-only results, stable choice keys, retained raw and structured drafts, expressions, source revisions, and undo.
+Property source checks cover exact UTF-16 and multiline selections, literals, expressions, references, event-handler names, retained drafts, refusals, and native undo.
+They also edit a revealed expression and compile a subsequent property change in both styles.
+The application selection smoke checks property-search focus, native query bounds, and unchanged preview geometry while a draft remains active.
+It also checks property-source command availability, exact source selection, and retained native preview identity.
+Sibling insertion checks cover before/after buttons, filtered templates, nested parents, Grid cells, structural refusals, native undo/redo, and cancellation by source typing.
+Structural availability checks compare shared capabilities with native buttons for variable-child parents, fixed-child parents, roots, and movement boundaries.
+They also cover busy/stale states, Grid duplication, and native undo in both styles.
+Relative selection workspace checks cover nested parents, collapsed ancestors, boundaries, UTF-16 ranges, focus, filters, and one notification per selection.
+They check exact-snapshot mismatches, pending edits, invalid source, disposal, recovery, and retained source undo in both styles.
+Hierarchy expansion checks cover native descendant rows, retained nested expansion, partial cancellation, selection/source invalidation, disposal, property drafts, and undo in both styles.
+The application selection smoke checks expansion/collapse commands, disabled leaf actions, and retained source selection and preview state.
+Empty-cell checks cover native Grid coordinates, nested target selection, read-only discovery, explicit refusals, busy/stale guards, and insertion undo in both styles.
+The source suite covers occupancy combinations, spans, large track arrays, unknown tracks, invalid placement, revisions, cancellation, and compiled insertion.
 It compiles source transformations but does not execute authored preview code.
+The application selection smoke checks sibling insertion against native preview text, arranged order, and restoration through source undo.
+It also inserts a native preview control into a discovered Grid cell and checks separate undo operations.
 The discard UI test covers native cancel and undo preservation, deferred approval, and rejection of stale source or revision snapshots.
 
 The following opt-in diagnostic currently fails for programmatic owner closure during a native chooser in the complete designer:
@@ -1191,22 +1251,58 @@ Edit discovers the copied definition during its build.
 An installed Edit binary does not load this source file at runtime.
 The [Edit build documentation](https://github.com/microsoft/edit#building-from-source) lists platform requirements.
 
+### Repository-local packages
+
+[`dep`](dep/README.md) contains checked-in NuGet archives for dependencies supplied manually to this repository.
+The root `NuGet.Config` adds this local feed without clearing existing machine or user feeds.
+The [package inventory](dep/README.md#package-inventory) records versions, provenance, checksums, and license locations.
+Extracted packages and restore caches stay under the ignored `build` directory.
+NuGet also retains its normal cache behavior for ordinary managed project restores.
+
+To add or update a manually supplied package:
+
+1. Confirm that its license permits redistribution.
+2. Put the versioned `.nupkg` archive in `dep`.
+3. Record its source, version, SHA-256, and license location in `dep/README.md`.
+4. Pin each consuming project to the intended version.
+5. Update native package paths if the build consumes the archive directly.
+6. Run the affected build and runtime checks before committing the archive and configuration together.
+
+Do not put credentials, private feed tokens, extracted files, or generated packages in `dep`.
+Do not replace the contents of an existing versioned archive. Use a new package version.
+
 ### LSH highlighting in XUI applications
 
 The gallery, Designer, and FileExplorer use LSH when the native XUI build enables it.
-The default build has no LSH dependency and keeps plain text.
-Use the `Lsh` NuGet package, version `0.3.0`, for Windows x64 or ARM64.
+The default Windows native build enables the checked-in `dep\Lsh.0.3.0.nupkg` for x64 or ARM64.
+CMake extracts the archive into a content-addressed directory under the native build directory.
+This native path needs neither a NuGet download nor the .NET SDK.
+Archive changes trigger CMake configuration again.
 This package supplies custom-grammar compilation through its native C API.
 The samples do not need the package's managed wrapper.
 
-Restore from a local package feed.
-Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
+For a local Designer build with required syntax highlighting, use the build script:
 
 ```powershell
-$feed = "C:\packages"
-dotnet restore integrations\lsh\Lsh.Package.csproj --source $feed --packages build\packages
-$lsh = (Resolve-Path build\packages\lsh\0.3.0).Path
-cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh"
+.\scripts\Build-Designer.ps1
+```
+
+The script restores from `dep` by default.
+For another local feed containing `Lsh.0.3.0.nupkg`, use `-LshPackageFeed <directory>`.
+For an existing extracted package, use `-LshPackageDirectory <package-directory>` instead.
+The script selects the host architecture, builds native XUI and Designer, and checks the deployed DLLs and license.
+Use `-Architecture x64` or `-Architecture ARM64` to select another target.
+Use `-BuildDirectory <directory>` for a separate native build.
+If Designer is open, use `-OutputDirectory <new-directory>` to keep its running files unchanged.
+If CMake is absent from `PATH`, use `-CMakePath <path-to-cmake.exe>`.
+The script requires LSH and stops on restore, configuration, build, or deployment errors.
+It does not download or install Microsoft Edit.
+An explicit native opt-out still supports plain text without LSH.
+
+The ordinary CMake build also enables the bundled package:
+
+```powershell
+cmake -S . -B $build -DXUI_ENABLE_LSH=ON -DXUI_REQUIRE_LSH=ON
 cmake --build $build --config Release --target xui xui_gallery xui_winui_gallery --parallel 4
 dotnet build bindings\dotnet\Designer -c Release -r $rid
 dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
@@ -1215,7 +1311,12 @@ dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
 Use the `$build` and `$rid` values from [Build the native code](#build-the-native-code).
 The default managed sample paths use `build\<architecture>\Release`.
 For another build directory, pass `-p:XuiNativeDir=<native-output-directory>` to each managed command.
-Set `XUI_LSH_PACKAGE_DIR` to an empty string to disable LSH.
+To disable LSH intentionally, set `XUI_ENABLE_LSH=OFF` and `XUI_REQUIRE_LSH=OFF`.
+`XUI_REQUIRE_LSH=ON` rejects an explicit opt-out instead of silently producing plain text.
+`XUI_LSH_PACKAGE_DIR` can override the archive with an existing extracted `Lsh 0.3.0` package.
+An empty override selects the checked-in archive. It no longer disables highlighting.
+A missing archive or invalid enabled-package path stops configuration.
+The release build also requires LSH and includes its runtime and license in the sample archives.
 
 CMake embeds the trusted XUI, C, C++, C#, and Rust grammars at build time.
 It copies the matching `lsh_lib.dll` and `LSH-LICENSE.txt` beside the native binaries.
@@ -1230,13 +1331,26 @@ Run the focused checks with LSH enabled:
 
 ```powershell
 cmake --build $build --config Release --target xui_syntax_highlighting_tests xui_document_syntax_tests xui_document_syntax_window_tests xui_document_editing_window_tests xui_document_editing_abi_tests --parallel 4
-ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure
+ctest --test-dir $build -C Release -R '^xui_(syntax_highlighting|document_syntax|document_syntax_window|document_editing_window|document_editing_abi)_tests$' --output-on-failure -j 1
 dotnet run --project bindings\dotnet\Syntax.Tests -c Release -r $rid
 ```
 
 The native syntax test also supports an LSH-disabled build.
 The managed syntax fixture requires LSH.
 Native window checks need an interactive Windows desktop.
+
+For the native document scrollbar regression, enable the desktop tests:
+
+```powershell
+cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
+cmake --build $build --config Release --target xui_document_syntax_window_tests --parallel 4
+ctest --test-dir $build -C Release -R '^xui_document_(syntax|theme)_window_tests$' --output-on-failure -j 1
+```
+
+The theme check captures only its own window.
+It checks actual dark scrollbar pixels, light/high-contrast palette transitions, native scrolling, selection, undo, and redo.
+It does not change the Windows high-contrast setting.
+Run desktop suites sequentially.
 
 ## Documentation and changes
 
