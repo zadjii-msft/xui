@@ -58,6 +58,7 @@ C# creates a panel through `Window.SwapChainPanel(name)`.
 `Metrics` returns physical dimensions, rasterization scale, and visibility.
 `MetricsChanged` uses the existing window-owned, content-scoped callback lifetime and error contract.
 `NativeWindow` returns the borrowed child HWND.
+`VisiblePixelBounds` returns the visible rectangle in panel-local physical pixels.
 
 The declarative leaf `SwapChainPanel("Terminal", ref: Display, flex: 1)` supports common control and layout arguments.
 The C# controller uses the generated `Display` property for graphics operations and event subscriptions.
@@ -66,6 +67,8 @@ Markup does not store native pointers or handles.
 The C ABI creates `XUI_SWAP_CHAIN_PANEL` through `xui_create`.
 `xui_subscribe` reports changed metrics with `XUI_VIEW`.
 The callback reads `xui_swap_chain_get_metrics`, with its structure size initialized.
+It can also read `xui_swap_chain_get_visible_pixel_bounds`, with its separate structure size initialized.
+This additive query does not change the layout of `xui_swap_chain_metrics`.
 Native errors return an explicit status and `xui_error_copy` message.
 Managed exceptions follow the existing callback-error path. They do not cross the unmanaged boundary.
 
@@ -75,9 +78,17 @@ Managed exceptions follow the existing callback-error path. They do not cross th
 `visible` reports whether the panel can display content.
 The metrics do not indicate whether a swap chain is attached or whether a frame was presented.
 
-`on_metrics_changed` receives size, DPI, and visibility changes after native layout.
+`visible_pixel_bounds()` returns the same effective rectangle that clips the composition visual.
+Its origin is the panel client area's top-left corner, not the screen or retained root.
+Its coordinates preserve fractional physical pixels and stay inside the full physical client area.
+Hidden, suspended, closed, unattached, or fully clipped hosts return an empty rectangle.
+Like the existing metrics, this rectangle does not indicate whether producer content is attached.
+To obtain screen coordinates, add the native client's physical screen origin without another DPI multiplication.
+
+`on_metrics_changed` receives size, DPI, visibility, and visible-rectangle changes after native layout.
 The first callback supplies the initial native metrics.
-Callbacks do not repeat when the metrics stay unchanged.
+Clip-only changes also notify C# `MetricsChanged` and C ABI `XUI_VIEW` subscribers.
+Callbacks do not repeat when both the metrics and visible rectangle stay unchanged.
 A callback registered after attachment receives the next change, not an immediate replay.
 The caller can read `metrics()` for the current value.
 

@@ -26,6 +26,15 @@ xui_status XUI_CALL xui_swap_chain_get_window(xui_handle panel, void** window) n
         *window = as<xui::SwapChainPanel>(get(panel, XUI_SWAP_CHAIN_PANEL)).native_window();
     });
 }
+xui_status XUI_CALL xui_swap_chain_get_visible_pixel_bounds(xui_handle panel,
+    xui_swap_chain_visible_pixel_bounds* bounds) noexcept {
+    return boundary([&] {
+        require(bounds != nullptr, XUI_INVALID_ARGUMENT, "Missing visible pixel bounds output.");
+        require(bounds->size == sizeof(*bounds), XUI_VERSION_MISMATCH, "Visible pixel bounds size mismatch.");
+        const auto value = as<xui::SwapChainPanel>(get(panel, XUI_SWAP_CHAIN_PANEL)).visible_pixel_bounds();
+        *bounds = {sizeof(*bounds), value.x, value.y, value.width, value.height};
+    });
+}
 xui_status XUI_CALL xui_swap_chain_native_input(xui_handle panel, uint32_t enabled) noexcept {
     return boundary([&] {
         require(enabled <= 1, XUI_INVALID_ARGUMENT, "Expected a native-input boolean.");

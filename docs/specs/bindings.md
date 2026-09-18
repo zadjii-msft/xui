@@ -5,6 +5,7 @@ See the [reference index](README.md) for related APIs.
 Examples in this reference use C++ unless stated otherwise.
 
 `SwapChainPanel` supplies a [Windows-only graphics host](swap-chain-panel.md) in C++, the C ABI, C#, and declarative `.xui`.
+Its additive `VisiblePixelBounds` query exposes the compositor's panel-local physical clip without changing the existing native metrics structure.
 Rust has no typed wrapper. The host does not implement terminal input or terminal text accessibility.
 
 ## Feature bindings (1.1 extension)

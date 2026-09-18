@@ -9,6 +9,10 @@ typedef struct xui_swap_chain_metrics {
     float rasterization_scale;
     uint32_t visible;
 } xui_swap_chain_metrics;
+typedef struct xui_swap_chain_visible_pixel_bounds {
+    uint32_t size;
+    float x, y, width, height;
+} xui_swap_chain_visible_pixel_bounds;
 /* Create with xui_create(XUI_SWAP_CHAIN_PANEL). XUI_VIEW reports changed metrics.
    All calls require the owner UI thread. The callback uses xui_subscribe.
    Graphics pointers and handles are borrowed for the duration of each setter.
@@ -19,6 +23,10 @@ XUI_API xui_status XUI_CALL xui_swap_chain_set(xui_handle panel, void* swap_chai
 XUI_API xui_status XUI_CALL xui_swap_chain_set_surface(xui_handle panel, void* surface) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_swap_chain_get_metrics(xui_handle panel,
     xui_swap_chain_metrics* metrics) XUI_NOEXCEPT;
+/* Panel-local physical pixels. Fractional edges are preserved. Hidden/closed hosts
+   report an empty rectangle. XUI_VIEW also reports clip-only changes. */
+XUI_API xui_status XUI_CALL xui_swap_chain_get_visible_pixel_bounds(xui_handle panel,
+    xui_swap_chain_visible_pixel_bounds* bounds) XUI_NOEXCEPT;
 /* Borrowed HWND, null before attachment and after native teardown. Never destroy it. */
 XUI_API xui_status XUI_CALL xui_swap_chain_get_window(xui_handle panel, void** window) XUI_NOEXCEPT;
 /* Opts into Tab/Page key delivery to the child HWND and enables its tab stop.

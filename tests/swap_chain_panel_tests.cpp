@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "../demo/swap_chain_renderer.hpp"
 #include "owned_window_capture.hpp"
+#include "../src/native_swap_chain_host.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -19,6 +20,52 @@ using Microsoft::WRL::ComPtr;
 
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+void visible_bounds_case() {
+    auto panel = std::make_shared<SwapChainPanel>();
+    const auto hwnd = CreateWindowExW(WS_EX_NOACTIVATE, L"STATIC", L"Owned visible bounds fixture",
+        WS_POPUP, 0, 0, 320, 240, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    require(hwnd != nullptr, "Create owned bounds fixture");
+    struct Destroy { HWND window; ~Destroy() { DestroyWindow(window); } } destroy{hwnd};
+    const auto empty = [&] {
+        const auto value = panel->visible_pixel_bounds();
+        return value.x == 0 && value.y == 0 && value.width == 0 && value.height == 0;
+    };
+    require(empty(), "Unattached visible bounds are empty");
+    unsigned changes{};
+    panel->on_metrics_changed([&](const SwapChainPanelMetrics&) { ++changes; });
+    {
+        NativeSwapChainHost host(panel, hwnd, [] { return true; });
+        host.sync(true, 144, {2.5f, 3.25f, 100.25f, 80.5f});
+        const auto first = panel->visible_pixel_bounds();
+        require(first.x == 3.75f && first.y == 4.875f && first.width == 150.375f && first.height == 120.75f,
+            "Visible bounds preserve fractional physical pixels at 150 percent DPI");
+        const auto metrics = panel->metrics();
+        host.sync(true, 144, {2.5f, 3.25f, 100.25f, 80.5f});
+        require(changes == 1, "Unchanged metrics and clipping emit no callback");
+        host.sync(true, 144, {2.5f, 3.5f, 100.25f, 80.25f});
+        require(changes == 2 && panel->metrics() == metrics && panel->visible_pixel_bounds().y == 5.25f,
+            "Clip-only changes publish without changing legacy metrics");
+        host.suspend();
+        require(empty() && !panel->metrics().visible && changes == 3, "Suspension publishes empty visible bounds");
+        host.sync(true, 120, {-10, -10, 400, 400});
+        const auto clipped = panel->visible_pixel_bounds();
+        require(clipped.x == 0 && clipped.y == 0 && clipped.width == 320 && clipped.height == 240,
+            "Effective composition clip is clamped to the physical panel");
+        host.sync(false, 120, {0, 0, 100, 100});
+        require(empty() && changes == 5, "Hidden panel publishes empty visible bounds");
+        host.sync(true, 120, {400, 400, 20, 20});
+        require(empty() && !panel->metrics().visible, "Empty clip cannot report a visible host");
+    }
+    require(empty() && !panel->native_window(), "Native teardown empties retained visible bounds");
+    {
+        NativeSwapChainHost rebound(panel, hwnd, [] { return true; });
+        rebound.sync(true, 96, {1, 2, 20, 30});
+        const auto value = panel->visible_pixel_bounds();
+        require(value.x == 1 && value.y == 2 && value.width == 20 && value.height == 30,
+            "Rebound host publishes its new coordinate space");
+    }
+    require(empty(), "Rebound teardown clears visible bounds");
 }
 template<class F> void rejects(F action, const char* message) {
     try { action(); } catch (const std::exception&) { return; }
@@ -444,12 +491,18 @@ void run_case(bool surface_handle, bool capture) {
 
                 stage("scroll and visibility");
                 const auto before_scroll = producer->resizes();
-                scroll->set_offset(90); sync();
+                const auto before_clip = panel->metrics();
+                const auto before_clip_notifications = notifications.size();
+                scroll->set_offset(90.25f); sync();
                 require(panel->metrics().visible, "Partially scrolled panel stays visible");
+                require(panel->metrics() == before_clip && notifications.size() > before_clip_notifications &&
+                    panel->visible_pixel_bounds().y > 0, "Fractional scrolling emits clip-only bounds changes");
                 require(producer->resizes() == before_scroll, "Clipping does not resize producer buffers");
                 pixels(true);
                 scroll->set_offset(scroll->maximum_offset()); sync();
                 require(!panel->metrics().visible && panel->has_content(), "Fully scrolled-out panel retains content but suspends visuals");
+                require(panel->visible_pixel_bounds().width == 0 && panel->visible_pixel_bounds().height == 0,
+                    "Fully scrolled-out visible bounds are empty");
                 const auto suspended_presents = producer->presents();
                 pixels(false);
                 require(producer->presents() == suspended_presents, "Fully clipped producer stops presenting");
@@ -544,6 +597,7 @@ int main(int argc, char** argv) {
             if (std::string_view(argv[i]) == "--no-capture") capture = false;
             else throw std::invalid_argument("Usage: xui_swap_chain_panel_tests [--no-capture]");
         }
+        visible_bounds_case();
         run_case(false, capture);
         run_case(true, capture);
         for (unsigned mode = 0; mode != 3; ++mode) callback_lifetime_case(mode);

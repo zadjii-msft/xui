@@ -4,6 +4,7 @@ namespace Xui;
 
 public readonly record struct SwapChainPanelMetrics(uint PixelWidth, uint PixelHeight,
     float RasterizationScale, bool Visible);
+public readonly record struct SwapChainPanelVisiblePixelBounds(float X, float Y, float Width, float Height);
 
 /// <summary>A native composition host. It does not implement terminal input or text accessibility.</summary>
 public sealed class SwapChainPanel : Control
@@ -30,6 +31,18 @@ public sealed class SwapChainPanel : Control
             var value = new Native.SwapChainMetrics { Size = 20 };
             Window.Check(Native.SwapChainGetMetrics(Handle, ref value));
             return new(value.PixelWidth, value.PixelHeight, value.RasterizationScale, value.Visible != 0);
+        }
+    }
+
+    /// <summary>Visible panel-local physical pixels, with fractional edges. Hidden and closed hosts return an empty rectangle.</summary>
+    public SwapChainPanelVisiblePixelBounds VisiblePixelBounds
+    {
+        get
+        {
+            Window.Guard();
+            var value = new Native.SwapChainVisiblePixelBounds { Size = 20 };
+            Window.Check(Native.SwapChainGetVisiblePixelBounds(Handle, ref value));
+            return new(value.X, value.Y, value.Width, value.Height);
         }
     }
 
@@ -75,6 +88,12 @@ internal static partial class Native
         internal float RasterizationScale;
         internal uint Visible;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SwapChainVisiblePixelBounds
+    {
+        internal uint Size;
+        internal float X, Y, Width, Height;
+    }
 
     [LibraryImport("xui", EntryPoint = "xui_swap_chain_set")]
     internal static partial int SwapChainSet(ulong panel, nint swapChain);
@@ -82,6 +101,8 @@ internal static partial class Native
     internal static partial int SwapChainSetSurface(ulong panel, nint surface);
     [LibraryImport("xui", EntryPoint = "xui_swap_chain_get_metrics")]
     internal static partial int SwapChainGetMetrics(ulong panel, ref SwapChainMetrics metrics);
+    [LibraryImport("xui", EntryPoint = "xui_swap_chain_get_visible_pixel_bounds")]
+    internal static partial int SwapChainGetVisiblePixelBounds(ulong panel, ref SwapChainVisiblePixelBounds bounds);
     [LibraryImport("xui", EntryPoint = "xui_swap_chain_get_window")]
     internal static partial int SwapChainGetWindow(ulong panel, out nint window);
     [LibraryImport("xui", EntryPoint = "xui_swap_chain_native_input")]

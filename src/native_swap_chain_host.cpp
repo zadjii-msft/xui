@@ -17,6 +17,7 @@ struct SwapChainPanel::State {
     DWORD thread{GetCurrentThreadId()};
     HWND window{};
     SwapChainPanelMetrics metrics;
+    Rect visible_pixel_bounds{};
     std::function<void(const SwapChainPanelMetrics&)> changed;
     std::function<bool()> can_activate;
     ComPtr<IDCompositionDesktopDevice> device;
@@ -70,9 +71,12 @@ struct SwapChainPanel::State {
         content = std::move(next);
         apply(metrics.visible);
     }
-    void publish(SwapChainPanelMetrics next) {
-        if (metrics == next) return;
+    void publish(SwapChainPanelMetrics next, Rect visible_bounds) {
+        if (metrics == next && visible_pixel_bounds.x == visible_bounds.x &&
+            visible_pixel_bounds.y == visible_bounds.y && visible_pixel_bounds.width == visible_bounds.width &&
+            visible_pixel_bounds.height == visible_bounds.height) return;
         metrics = next;
+        visible_pixel_bounds = visible_bounds;
         const auto callback = changed;
         if (callback) callback(next);
     }
@@ -82,6 +86,7 @@ struct SwapChainPanel::State {
         active = false;
         window = nullptr;
         metrics = {};
+        visible_pixel_bounds = {};
         can_activate = {};
         target.Reset();
         visual.Reset();
@@ -126,6 +131,7 @@ void SwapChainPanel::set_swap_chain_handle(HANDLE surface) {
 }
 bool SwapChainPanel::has_content() const { return state_->content != nullptr; }
 const SwapChainPanelMetrics& SwapChainPanel::metrics() const { return state_->metrics; }
+Rect SwapChainPanel::visible_pixel_bounds() const { return state_->visible_pixel_bounds; }
 HWND SwapChainPanel::native_window() const { return state_->window; }
 void SwapChainPanel::on_metrics_changed(std::function<void(const SwapChainPanelMetrics&)> callback) {
     state_->check_thread();
@@ -158,8 +164,17 @@ void NativeSwapChainHost::sync(bool visible, UINT dpi, Rect clip) {
         static_cast<std::uint32_t>(std::max(0L, bounds.bottom)), dpi / 96.0f,
         visible && bounds.right > 0 && bounds.bottom > 0 && (!state.can_activate || state.can_activate())};
     const auto scale = next.rasterization_scale;
-    const D2D_RECT_F pixels{clip.x * scale, clip.y * scale,
-        (clip.x + clip.width) * scale, (clip.y + clip.height) * scale};
+    D2D_RECT_F pixels{};
+    if (next.visible) {
+        pixels.left = std::clamp(clip.x * scale, 0.0f, static_cast<float>(next.pixel_width));
+        pixels.top = std::clamp(clip.y * scale, 0.0f, static_cast<float>(next.pixel_height));
+        pixels.right = std::clamp((clip.x + clip.width) * scale, pixels.left, static_cast<float>(next.pixel_width));
+        pixels.bottom = std::clamp((clip.y + clip.height) * scale, pixels.top, static_cast<float>(next.pixel_height));
+        if (pixels.right <= pixels.left || pixels.bottom <= pixels.top) {
+            next.visible = false;
+            pixels = {};
+        }
+    }
     if (!state.clipped || state.clip.left != pixels.left || state.clip.top != pixels.top ||
         state.clip.right != pixels.right || state.clip.bottom != pixels.bottom) {
         if (state.visual) {
@@ -170,7 +185,7 @@ void NativeSwapChainHost::sync(bool visible, UINT dpi, Rect clip) {
         state.clipped = true;
     }
     state.apply(next.visible);
-    state.publish(next);
+    state.publish(next, {pixels.left, pixels.top, pixels.right - pixels.left, pixels.bottom - pixels.top});
 }
 void NativeSwapChainHost::suspend() {
     auto& state = *model_->state_;
@@ -178,7 +193,7 @@ void NativeSwapChainHost::suspend() {
     state.apply(false);
     auto next = state.metrics;
     next.visible = false;
-    state.publish(next);
+    state.publish(next, {});
 }
 void NativeSwapChainHost::cancel_owner() noexcept { model_->state_->close(); }
 bool NativeSwapChainHost::active() const { return model_->state_->active; }

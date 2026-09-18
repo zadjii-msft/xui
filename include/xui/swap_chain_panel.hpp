@@ -26,6 +26,8 @@ public:
     void set_swap_chain_handle(HANDLE surface);
     bool has_content() const;
     const SwapChainPanelMetrics& metrics() const;
+    // Panel-local physical pixels, including fractional edges. Empty when not visible.
+    Rect visible_pixel_bounds() const;
     void on_metrics_changed(std::function<void(const SwapChainPanelMetrics&)> callback);
     // Opt-in for an application-owned HWND input adapter. Window shortcuts still run first.
     void set_native_input(bool enabled);
