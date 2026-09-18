@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">D2 — Softling</title>
+  <desc id="desc">A soft toy-like lion built from pill-shaped rainbow fans, round ears, a wide golden cheek shape, and a single cushion muzzle. A small round chin stays below all six fans.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#EFA0A4" d="M28 115C11 115 10 132 21 145L48 168C68 184 96 168 96 151 96 132 50 113 28 115Z"/></g>
+    <g id="segment-2"><path fill="#F2BB82" d="M34 62C22 74 29 89 42 100L82 134C99 148 117 126 107 110L61 62C51 51 43 53 34 62Z"/></g>
+    <g id="segment-3"><path fill="#EED980" d="M78 26C62 33 70 52 78 67L103 112C111 126 124 116 123 101L120 40C119 21 95 18 78 26Z"/></g>
+    <g id="segment-4"><path fill="#9BCBA5" d="M178 26C194 33 186 52 178 67L153 112C145 126 132 116 133 101L136 40C137 21 161 18 178 26Z"/></g>
+    <g id="segment-5"><path fill="#9BBFDA" d="M222 62C234 74 227 89 214 100L174 134C157 148 139 126 149 110L195 62C205 51 213 53 222 62Z"/></g>
+    <g id="segment-6"><path fill="#BDA9D6" d="M228 115C245 115 246 132 235 145L208 168C188 184 160 168 160 151 160 132 206 113 228 115Z"/></g>
+  </g>
+  <g id="face">
+    <circle cx="76" cy="114" r="23" fill="#E5AC54"/><circle cx="180" cy="114" r="23" fill="#E5AC54"/>
+    <circle cx="76" cy="114" r="12" fill="#C88C45"/><circle cx="180" cy="114" r="12" fill="#C88C45"/>
+    <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z"/>
+    <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148"/>
+    <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9"/>
+    <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C"/>
+    <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185"/>
+    <circle cx="90" cy="169" r="5" fill="#E9AB72"/><circle cx="166" cy="169" r="5" fill="#E9AB72"/>
+  </g>
+</svg>

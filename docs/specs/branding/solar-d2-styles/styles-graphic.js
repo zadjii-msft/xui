@@ -1,0 +1,10 @@
+window.solarD2Styles=(window.solarD2Styles||[]).concat([
+  {id:'s01',label:'S01',file:'01-poster-cut.svg',name:'Poster cut',family:'Graphic & minimal',note:'Jagged flat fan blades frame a long clipped jaw. Slab muzzles and cut-paper eyelids replace the curved face.'},
+  {id:'s02',label:'S02',file:'02-airline.svg',name:'Airline',family:'Graphic & minimal',note:'Hollow leaf fans and fine gold contours leave the face open. Folded ears, a long nose bridge, and looped whisker pads give it a delicate line drawing structure.'},
+  {id:'s03',label:'S03',file:'03-enamel.svg',name:'Enamel',family:'Graphic & minimal',note:'Heavy navy borders separate rounded enamel fan panels. Circular ears, a broad rounded jaw, and a cream double muzzle form a compact pin-like lion.'},
+  {id:'s04',label:'S04',file:'04-counterform.svg',name:'Counterform',family:'Graphic & minimal',note:'Solid fan wedges meet a geometric stencil face. Transparent channels carve the eyelids and divide the squared cheeks, muzzle, and chin.'},
+  {id:'s05',label:'S05',file:'05-prism-blocks.svg',name:'Prism blocks',family:'Graphic & minimal',note:'Faceted fan volumes surround an off-axis arrangement of frontal facial planes. Offset ears, a block nose bridge, and split angular muzzle replace all smooth curves.'},
+  {id:'s06',label:'S06',file:'06-softling.svg',name:'Softling',family:'Graphic & minimal',note:'Soft pill fans and large round ears make a broad toy-like silhouette. Drooping lids, a button nose, and one cushion muzzle sit above a small rounded chin.'},
+  {id:'s07',label:'S07',file:'07-ribbon-flow.svg',name:'Ribbon flow',family:'Graphic & minimal',note:'Six thick looping ribbons replace solid mane panels. The open gold face uses a continuous jaw contour, curled ears, and an interlocking ribbon muzzle.'},
+  {id:'s08',label:'S08',file:'08-keystone.svg',name:'Keystone',family:'Graphic & minimal',note:'Sharp uninterrupted fan wedges frame a reduced pentagonal head. One folded dark shape combines both brows and the nose above two small muzzle facets.'}
+]);

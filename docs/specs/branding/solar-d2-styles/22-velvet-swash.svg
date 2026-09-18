@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Velvet swash</title>
+  <desc id="desc">A groovy seventies lion with curling spectrum fan lobes, a long golden face, heavy-lidded direct eyes and a flowing cream moustache muzzle. A heart-like lower jaw sits below all six mane pieces.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#c86770" d="M93 139C73 128 32 99 20 112S26 157 56 165 83 173 99 154Z"/><path fill="none" stroke="#f5a289" stroke-width="5" stroke-linecap="round" d="M88 151Q44 147 33 125Q29 120 26 125"/></g>
+    <g id="segment-2"><path fill="#d88743" d="M107 118C91 95 89 45 63 37S15 54 25 76 72 112 92 138Z"/><path fill="none" stroke="#f5ba6f" stroke-width="6" stroke-linecap="round" d="M93 118C75 95 71 55 52 53S37 75 48 72"/></g>
+    <g id="segment-3"><path fill="#e9c74e" d="M124 113C119 84 131 47 119 25S78 12 76 34 101 83 103 117Z"/><path fill="none" stroke="#fff09d" stroke-width="6" stroke-linecap="round" d="M113 93C99 62 106 42 97 33Q89 30 90 40"/></g>
+    <g id="segment-4"><path fill="#82a969" d="M132 113C137 84 125 47 137 25S178 12 180 34 155 83 153 117Z"/><path fill="none" stroke="#cee199" stroke-width="6" stroke-linecap="round" d="M143 93C157 62 150 42 159 33Q167 30 166 40"/></g>
+    <g id="segment-5"><path fill="#6699b2" d="M149 118C165 95 167 45 193 37S241 54 231 76 184 112 164 138Z"/><path fill="none" stroke="#add6d8" stroke-width="6" stroke-linecap="round" d="M163 118C181 95 185 55 204 53S219 75 208 72"/></g>
+    <g id="segment-6"><path fill="#977fa8" d="M163 139C183 128 224 99 236 112S230 157 200 165 173 173 157 154Z"/><path fill="none" stroke="#cfb6d2" stroke-width="5" stroke-linecap="round" d="M168 151Q212 147 223 125Q227 120 230 125"/></g>
+  </g>
+  <g id="face">
+    <path fill="#b0783a" d="M82 124C37 117 63 74 85 95L102 119ZM174 124C219 117 193 74 171 95L154 119Z"/>
+    <path fill="#f6d58e" d="M77 114C60 109 67 93 78 102ZM179 114C196 109 189 93 178 102Z"/>
+    <path fill="#dca547" d="M93 104C103 87 153 87 163 104S169 150 182 175 168 215 147 218Q128 247 109 218C88 215 61 200 74 175S83 121 93 104Z"/>
+    <path fill="#edc46c" d="M113 102Q128 97 143 102C124 132 149 153 141 169L128 184 115 169C107 153 132 132 113 102Z"/>
+    <path fill="#5b3d35" d="M83 132C82 113 109 116 111 134L107 145 88 143ZM173 132C174 113 147 116 145 134L149 145 168 143Z"/>
+    <path fill="#fff1cb" d="M87 134Q98 129 109 135L105 145Q94 149 87 140ZM169 134Q158 129 147 135L151 145Q162 149 169 140Z"/>
+    <ellipse cx="99" cy="138" rx="4" ry="6" fill="#5b3d35"/>
+    <ellipse cx="157" cy="138" rx="4" ry="6" fill="#5b3d35"/>
+    <path fill="#fff1cb" d="M127 176C104 154 99 183 87 179Q74 174 82 160C60 176 74 202 99 203Q115 204 128 191 141 204 157 203C182 202 196 176 174 160Q182 174 169 179C157 183 152 154 129 176Z"/>
+    <path fill="#5b3d35" d="M111 163Q128 155 145 163C145 174 134 183 128 183S111 174 111 163Z"/>
+    <path fill="none" stroke="#5b3d35" stroke-width="4" stroke-linecap="round" d="M128 181v10m-13 18q13 12 26 0"/>
+    <path fill="#f6d58e" d="M111 220Q128 228 145 220 128 239 111 220Z"/>
+  </g>
+</svg>

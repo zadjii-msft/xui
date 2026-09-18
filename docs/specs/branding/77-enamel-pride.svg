@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-77 desc-77">
+  <title id="title-77">Enamel Pride lion</title>
+  <desc id="desc-77">A front-facing hard-enamel lion with thick brass borders, jewel-like segmented mane panels, a shield-shaped face, and level watchful eyes.</desc>
+  <g stroke="#4c392d" stroke-width="10" stroke-linejoin="round">
+    <path fill="#b88a45" d="m128 18 28 25 38-4 8 34 30 22-13 33 13 34-31 18-10 37-37-2-26 24-26-24-37 2-10-37-31-18 13-34-13-33 30-22 8-34 38 4Z"/>
+  </g>
+  <g stroke="#d7b464" stroke-width="6" stroke-linejoin="round">
+    <path fill="#315465" d="m128 29 22 26-7 33h-30l-7-33Z"/>
+    <path fill="#568084" d="m72 52 34 5 7 31-35 24-34-16 24-14Zm112 0-34 5-7 31 35 24 34-16-24-14Z"/>
+    <path fill="#283e57" d="m42 102 42 15-8 34-33 14-11-11 14-26Zm172 0-42 15 8 34 33 14 11-11-14-26Z"/>
+    <path fill="#568084" d="m45 174 35-16 37 38-16 8-27 1-7-29Zm166 0-35-16-37 38 16 8 27 1 7-29Z"/>
+    <path fill="#315465" d="m102 186 26-7 26 7-6 20-20 22-20-22Z"/>
+    <path fill="#e6b870" d="M85 108Q56 94 66 69l34 16h56l34-16q10 25-19 39Z"/>
+    <path fill="#f7d496" d="m96 78 64 0 18 62-17 40-33 25-33-25-17-40Z"/>
+    <path fill="#fff0c8" d="m128 155-24-19-15 28 25 15 14-6 14 6 25-15-15-28Z"/>
+  </g>
+  <path fill="#364252" d="m89 111 28 5-5 14-17-3Zm50 5 28-5-6 16-17 3Zm-25 29h28l-14 18Z"/>
+  <g fill="#fff0c8"><circle cx="104" cy="121" r="3"/><circle cx="152" cy="121" r="3"/></g>
+  <path fill="none" stroke="#4c392d" stroke-width="4" stroke-linecap="round" d="M128 161v16m-11 3q11 7 22 0"/>
+</svg>

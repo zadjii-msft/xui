@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-82 desc-82">
+  <title id="title-82">Slow Sunrise lion</title>
+  <desc id="desc-82">A sleepy but open-eyed frontal lion with a draped blue mane, long cheek fur, heavy horizontal eyelids, and a soft peach muzzle.</desc>
+  <path fill="#4e617d" d="M128 20C68 14 45 58 50 91 20 111 17 146 39 163L30 191l31-3 5 33 31-9 31 27 31-27 31 9 5-33 31 3-9-28c22-17 19-52-11-72 5-33-18-77-78-71Z"/>
+  <path fill="#8396ae" d="M128 33C88 32 65 56 68 96 32 121 36 149 62 163l-10 16 29-5-3 31 29-17 21 30 21-30 29 17-3-31 29 5-10-16c26-14 30-42-6-67 3-40-20-64-60-63Z"/>
+  <path fill="none" stroke="#b5bfcb" stroke-width="5" stroke-linecap="round" d="M107 44Q77 61 82 88m67-44q30 17 25 44M55 115q-13 20 7 34m139-34q13 20-7 34"/>
+  <g fill="#e9b693"><ellipse cx="79" cy="101" rx="24" ry="19"/><ellipse cx="177" cy="101" rx="24" ry="19"/></g>
+  <g fill="#b38379"><ellipse cx="79" cy="101" rx="12" ry="9"/><ellipse cx="177" cy="101" rx="12" ry="9"/></g>
+  <path fill="#f4cfa5" d="M128 72q45 0 47 46l8 44q-1 38-55 44-54-6-55-44l8-44q2-46 47-46Z"/>
+  <path fill="#fff0ce" d="M128 156q-31-23-42 0-4 27 23 28l19-8 19 8q27-1 23-28-11-23-42 0Z"/>
+  <path fill="#fff8e8" d="M89 126h30q-2 18-15 18t-15-18m48 0h30q-2 18-15 18t-15-18"/>
+  <path fill="#4e5160" d="M99 127h11v9q-5 9-11 0Zm47 0h11v9q-5 9-11 0Z"/>
+  <path fill="none" stroke="#8f6c66" stroke-width="5" stroke-linecap="round" d="M87 125h33m16 0h33"/>
+  <path fill="none" stroke="#b38379" stroke-width="3" stroke-linecap="round" d="M95 111q10-4 20 0m26 0q10-4 20 0"/>
+  <path fill="#8f6c66" d="M115 149q13-7 26 0l-13 15Z"/>
+  <path fill="none" stroke="#8f6c66" stroke-width="3.5" stroke-linecap="round" d="M128 163v14m-10 3q10 6 20 0"/>
+</svg>

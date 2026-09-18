@@ -1,0 +1,19 @@
+main { max-width: 1120px; }
+.cloud-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.cloud-grid .card { display: flex; flex-direction: column; }
+.cloud-grid .card-body { display: flex; flex-direction: column; flex: 1; }
+.cloud-grid .card h3 { font-size: 16px; }
+.cloud-grid .card p { font-size: 12px; color: #596b62; margin: 0 0 14px; }
+.cloud-grid .card-actions { margin-top: auto; }
+.cloud-grid .anchor-card { border-color: #718f7d; }
+@media (max-width: 860px) {
+  .cloud-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .cloud-grid { grid-template-columns: 1fr; }
+  .reference strong { max-width: 200px; }
+}
+@media print {
+  .cloud-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .card { break-inside: avoid; }
+}

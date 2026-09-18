@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-29-title lion-29-desc">
+  <title id="lion-29-title">Compass lion head</title>
+  <desc id="lion-29-desc">A front-facing lion head. Four broad points extend from a carved circular mane. A diamond brow and broad curved jaw balance the sharp silhouette.</desc>
+<path d="m128 15 29 37q31 5 47 31l37 45-37 29q-5 31-31 47l-45 37-29-37q-31-5-47-31l-37-45 37-29q5-31 31-47Z" fill="#A84828"/>
+  <path d="m128 32 10 29h-20ZM32 128l29-10v20Zm96 96-10-29h20Zm96-96-29 10v-20Z" fill="#E8A256"/>
+  <path d="M72 93c-27-35 2-44 19-20l37-12 37 12c17-24 46-15 19 20l-7 52q-1 46-49 59-48-13-49-59Z" fill="#E8A256"/>
+  <path d="m128 76-18 35 18 25 18-25Z" fill="#F8C777"/>
+  <path d="m90 114 22 3m32 0 22-3" fill="none" stroke="#643221" stroke-width="8" stroke-linecap="round"/>
+  <path d="M128 148c-34-27-52 14-23 27l23-5 23 5c29-13 11-54-23-27Z" fill="#FFE7B0"/>
+  <path d="m113 140 15-5 15 5-15 17Z" fill="#643221"/>
+  <path d="M128 156v16m-13 6h26" fill="none" stroke="#643221" stroke-width="5" stroke-linecap="round"/>
+</svg>

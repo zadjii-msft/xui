@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">D2 — Ribbon flow</title>
+  <desc id="desc">A lion formed from continuous gold ribbon contours and an open center. Six curved rainbow ribbon blades sweep upward and outward, leaving the looped jaw fully exposed.</desc>
+  <g id="mane" fill="none" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+    <g id="segment-1" stroke="#D96B72"><path d="M88 153C61 169 29 152 23 128 47 129 71 140 88 153Z"/></g>
+    <g id="segment-2" stroke="#E79B53"><path d="M97 122C57 117 35 84 42 61 70 72 93 98 97 122Z"/></g>
+    <g id="segment-3" stroke="#D9BA46"><path d="M115 101C88 81 77 46 91 27 111 42 119 74 115 101Z"/></g>
+    <g id="segment-4" stroke="#6EAD80"><path d="M141 101C168 81 179 46 165 27 145 42 137 74 141 101Z"/></g>
+    <g id="segment-5" stroke="#629EC4"><path d="M159 122C199 117 221 84 214 61 186 72 163 98 159 122Z"/></g>
+    <g id="segment-6" stroke="#9A80BD"><path d="M168 153C195 169 227 152 233 128 209 129 185 140 168 153Z"/></g>
+  </g>
+  <g id="face" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="#CB9430" stroke-width="12" d="M86 120C69 128 59 106 70 101 78 97 85 106 90 113M170 120C187 128 197 106 186 101 178 97 171 106 166 113"/>
+    <path stroke="#E8B54C" stroke-width="16" d="M91 123C104 107 152 107 165 123 176 137 179 171 165 192L145 217C136 228 120 228 111 217L91 192C77 171 80 137 91 123Z"/>
+    <path stroke="#7D5C35" stroke-width="6" d="M96 143Q105 150 115 143M141 143Q151 150 160 143"/>
+    <path stroke="#E8B54C" stroke-width="11" d="M128 177C106 162 93 166 97 181 101 195 120 203 128 190 136 203 155 195 159 181 163 166 150 162 128 177Z"/>
+    <path fill="#7D5C35" d="M119 159Q128 155 137 159C142 165 131 177 128 177S114 165 119 159Z"/>
+  </g>
+</svg>

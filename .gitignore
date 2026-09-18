@@ -10,5 +10,6 @@
 /docs/specs/tutorials/sample/obj/
 /node_modules/
 /tools/__pycache__/
+/tools/branding/__pycache__/
 /tests/__pycache__/
 /retype.manifest

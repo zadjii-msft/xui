@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Cloud Crown lab - Rainbow cap</title>
+  <desc id="desc">A broad, almost rectangular cap with a rounded underside. Six touching Enamel-colored mane segments surround a front-facing Softling lion. The original facial features remain, with deliberate scale or tilt changes in some studies.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 75 200 49 189C46.9 188.25 23.4 182.525 21 179C18.6 175.475 17.3 146.725 17 142C16.7 137.275 17 121.175 17 116C17 110.825 16.325 78.55 17 73C17.675 67.45 23.375 44.625 26 42C28.625 39.375 47.65 38.3 52 38C56.35 37.7 79.725 38 84 38C88.275 38 105.7 38 109 38C112.3 38 125.15 38 128 38C130.85 38 143.7 38 147 38C150.3 38 167.725 38 172 38C176.275 38 199.65 37.7 204 38C208.35 38.3 227.375 39.375 230 42C232.625 44.625 238.325 67.45 239 73C239.675 78.55 239 110.825 239 116C239 121.175 239.3 137.275 239 142C238.7 146.725 237.4 175.475 235 179C232.6 182.525 209.1 188.25 207 189C181 200 138 163 128 148Z" />
+    </clipPath>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 75 200 49 189C46.9 188.25 23.4 182.525 21 179C18.6 175.475 17.3 146.725 17 142C16.7 137.275 17 121.175 17 116C17 110.825 16.325 78.55 17 73C17.675 67.45 23.375 44.625 26 42C28.625 39.375 47.65 38.3 52 38C56.35 37.7 79.725 38 84 38C88.275 38 105.7 38 109 38C112.3 38 125.15 38 128 38C130.85 38 143.7 38 147 38C150.3 38 167.725 38 172 38C176.275 38 199.65 37.7 204 38C208.35 38.3 227.375 39.375 230 42C232.625 44.625 238.325 67.45 239 73C239.675 78.55 239 110.825 239 116C239 121.175 239.3 137.275 239 142C238.7 146.725 237.4 175.475 235 179C232.6 182.525 209.1 188.25 207 189C181 200 138 163 128 148Z" fill="#ED6B79" />
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 75 200 49 189C46.9 188.25 23.4 182.525 21 179C18.6 175.475 17.3 146.725 17 142C16.7 137.275 17 121.175 17 116C54 126.667 91 137.333 128 148Z" fill="#ED6B79" stroke="#ED6B79" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-2" d="M128 148C91 137.333 54 126.667 17 116C17 110.825 16.325 78.55 17 73C17.675 67.45 23.375 44.625 26 42C28.625 39.375 47.65 38.3 52 38C77.333 74.667 102.667 111.333 128 148Z" fill="#F1A355" stroke="#F1A355" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-3" d="M128 148C102.667 111.333 77.333 74.667 52 38C56.35 37.7 79.725 38 84 38C88.275 38 105.7 38 109 38C112.3 38 125.15 38 128 38C128 74.667 128 111.333 128 148Z" fill="#F0D260" stroke="#F0D260" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-4" d="M128 148C128 111.333 128 74.667 128 38C130.85 38 143.7 38 147 38C150.3 38 167.725 38 172 38C176.275 38 199.65 37.7 204 38C178.667 74.667 153.333 111.333 128 148Z" fill="#75BA94" stroke="#75BA94" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-5" d="M128 148C153.333 111.333 178.667 74.667 204 38C208.35 38.3 227.375 39.375 230 42C232.625 44.625 238.325 67.45 239 73C239.675 78.55 239 110.825 239 116C202 126.667 165 137.333 128 148Z" fill="#75AED7" stroke="#75AED7" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-6" d="M128 148C165 137.333 202 126.667 239 116C239 121.175 239.3 137.275 239 142C238.7 146.725 237.4 175.475 235 179C232.6 182.525 209.1 188.25 207 189C181 200 138 163 128 148Z" fill="#AB8AC9" stroke="#AB8AC9" stroke-width="0.8" stroke-linejoin="round" />
+    </g>
+  </g>
+  <g id="face-frame" transform="translate(128 160) rotate(0) scale(1 1) translate(-128 -160)">
+    <g id="face">
+      <circle cx="76" cy="114" r="23" fill="#E5AC54" />
+      <circle cx="180" cy="114" r="23" fill="#E5AC54" />
+      <circle cx="76" cy="114" r="12" fill="#C88C45" />
+      <circle cx="180" cy="114" r="12" fill="#C88C45" />
+      <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z" />
+      <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148" />
+      <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9" />
+      <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C" />
+      <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185" />
+      <circle cx="90" cy="169" r="5" fill="#E9AB72" />
+      <circle cx="166" cy="169" r="5" fill="#E9AB72" />
+    </g>
+  </g>
+</svg>

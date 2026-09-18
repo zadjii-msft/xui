@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Cloud Crown lab - Bat cloud</title>
+  <desc id="desc">Pointed wing tips and scalloped shoulders challenge the soft-cloud idea. Six touching Enamel-colored mane segments surround a front-facing Softling lion. The original facial features remain, with deliberate scale or tilt changes in some studies.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 78 201 52 190C52 190 19 175 19 175C19 175 37 151 37 151C37 151 16 117 16 117C16 117 16 60 16 60C16 60 48 82 48 82C48 82 72 50 72 50C72 50 96 67 96 67C96 67 111 44 111 44C111 44 128 32 128 32C128 32 145 44 145 44C145 44 160 67 160 67C160 67 184 50 184 50C184 50 208 82 208 82C208 82 240 60 240 60C240 60 240 117 240 117C240 117 219 151 219 151C219 151 237 175 237 175C237 175 204 190 204 190C178 201 138 163 128 148Z" />
+    </clipPath>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 78 201 52 190C52 190 19 175 19 175C19 175 37 151 37 151C37 151 16 117 16 117C16 117 16 60 16 60C16 60 48 82 48 82C48 82 72 50 72 50C72 50 96 67 96 67C96 67 111 44 111 44C111 44 128 32 128 32C128 32 145 44 145 44C145 44 160 67 160 67C160 67 184 50 184 50C184 50 208 82 208 82C208 82 240 60 240 60C240 60 240 117 240 117C240 117 219 151 219 151C219 151 237 175 237 175C237 175 204 190 204 190C178 201 138 163 128 148Z" fill="#ED6B79" />
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 78 201 52 190C52 190 19 175 19 175C19 175 37 151 37 151C37 151 16 117 16 117C53.333 127.333 90.667 137.667 128 148Z" fill="#ED6B79" stroke="#ED6B79" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-2" d="M128 148C90.667 137.667 53.333 127.333 16 117C16 117 16 60 16 60C16 60 48 82 48 82C48 82 72 50 72 50C90.667 82.667 109.333 115.333 128 148Z" fill="#F1A355" stroke="#F1A355" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-3" d="M128 148C109.333 115.333 90.667 82.667 72 50C72 50 96 67 96 67C96 67 111 44 111 44C111 44 128 32 128 32C128 70.667 128 109.333 128 148Z" fill="#F0D260" stroke="#F0D260" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-4" d="M128 148C128 109.333 128 70.667 128 32C128 32 145 44 145 44C145 44 160 67 160 67C160 67 184 50 184 50C165.333 82.667 146.667 115.333 128 148Z" fill="#75BA94" stroke="#75BA94" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-5" d="M128 148C146.667 115.333 165.333 82.667 184 50C184 50 208 82 208 82C208 82 240 60 240 60C240 60 240 117 240 117C202.667 127.333 165.333 137.667 128 148Z" fill="#75AED7" stroke="#75AED7" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-6" d="M128 148C165.333 137.667 202.667 127.333 240 117C240 117 219 151 219 151C219 151 237 175 237 175C237 175 204 190 204 190C178 201 138 163 128 148Z" fill="#AB8AC9" stroke="#AB8AC9" stroke-width="0.8" stroke-linejoin="round" />
+    </g>
+  </g>
+  <g id="face-frame" transform="translate(128 160) rotate(0) scale(1 1) translate(-128 -160)">
+    <g id="face">
+      <circle cx="76" cy="114" r="23" fill="#E5AC54" />
+      <circle cx="180" cy="114" r="23" fill="#E5AC54" />
+      <circle cx="76" cy="114" r="12" fill="#C88C45" />
+      <circle cx="180" cy="114" r="12" fill="#C88C45" />
+      <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z" />
+      <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148" />
+      <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9" />
+      <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C" />
+      <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185" />
+      <circle cx="90" cy="169" r="5" fill="#E9AB72" />
+      <circle cx="166" cy="169" r="5" fill="#E9AB72" />
+    </g>
+  </g>
+</svg>

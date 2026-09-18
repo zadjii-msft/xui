@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-44-title lion-44-desc">
+  <title id="lion-44-title">Link lion head</title>
+  <desc id="lion-44-desc">A front-facing lion head. Linked oval loops form a transparent mane. A broad temple line narrows into a small heart-shaped muzzle.</desc>
+<g transform="translate(10.24 10.24) scale(.92)">
+  <g fill="none" stroke="#8A6143" stroke-width="11">
+    <ellipse cx="95" cy="52" rx="25" ry="34" transform="rotate(35 95 52)"/>
+    <ellipse cx="161" cy="52" rx="25" ry="34" transform="rotate(-35 161 52)"/>
+    <ellipse cx="49" cy="102" rx="24" ry="36" transform="rotate(15 49 102)"/>
+    <ellipse cx="207" cy="102" rx="24" ry="36" transform="rotate(-15 207 102)"/>
+    <ellipse cx="51" cy="169" rx="24" ry="36" transform="rotate(-25 51 169)"/>
+    <ellipse cx="205" cy="169" rx="24" ry="36" transform="rotate(25 205 169)"/>
+    <ellipse cx="96" cy="211" rx="24" ry="34" transform="rotate(-55 96 211)"/>
+    <ellipse cx="160" cy="211" rx="24" ry="34" transform="rotate(55 160 211)"/>
+  </g>
+  <path d="M79 89q-27-26-28-5t27 27m99-22q27-26 28-5t-27 27" fill="#E9C991"/>
+  <path d="M91 71h74l21 43-26 51-32 30-32-30-26-51Z" fill="#E9C991"/>
+  <path d="M91 114h21m32 0h21" fill="none" stroke="#574431" stroke-width="7" stroke-linecap="round"/>
+  <path d="M128 147c-20-24-39 1-18 22l18 13 18-13c21-21 2-46-18-22Z" fill="#FFF3D5"/>
+  <path d="m116 136 24 0-12 17Z" fill="#574431"/>
+  <path d="M128 153v13m-10-1 10 6 10-6" fill="none" stroke="#574431" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">D2 — Prism blocks</title>
+  <desc id="desc">A frontal cubist lion with offset faceted ears, slant-cut eyes, a rectangular nose bridge, and a split block muzzle. Six angular rainbow volumes stop above a projecting chin.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#CC5451" d="M14 117 72 107 106 145 88 178 44 166Z"/><path fill="#9D4547" d="M14 117 49 144 88 178 44 166Z"/></g>
+    <g id="segment-2"><path fill="#DE8649" d="M21 60 65 37 111 111 79 138 29 96Z"/><path fill="#F4AF58" d="M21 60 65 37 78 65 42 79Z"/></g>
+    <g id="segment-3"><path fill="#E7BE49" d="M74 20 119 12 124 112 101 110Z"/><path fill="#F6D577" d="M74 20 95 42 124 112 101 110Z"/></g>
+    <g id="segment-4"><path fill="#4D967B" d="M136 17 179 25 153 112 133 105Z"/><path fill="#76B493" d="M136 17 157 46 179 25Z"/></g>
+    <g id="segment-5"><path fill="#5289B8" d="M191 36 235 65 223 105 173 137 147 111Z"/><path fill="#316994" d="M235 65 191 82 147 111 173 137 223 105Z"/></g>
+    <g id="segment-6"><path fill="#9475B2" d="M187 108 242 120 215 163 170 177 151 145Z"/><path fill="#B39AC9" d="M187 108 206 140 242 120Z"/></g>
+  </g>
+  <g id="face">
+    <path fill="#B87829" d="M59 95 79 80 100 104 79 130ZM167 105 180 79 198 102 178 128Z"/>
+    <path fill="#573F34" d="M68 96 80 92 86 108ZM176 107 183 94 189 102Z"/>
+    <path fill="#E5AC40" d="M91 106 128 91 167 107 182 170 156 219 114 232 79 196 74 149Z"/>
+    <path fill="#F6CF70" d="M91 106 128 91 122 159 79 196 74 149Z"/>
+    <path fill="#BD8130" d="M128 91 167 107 182 170 145 183 139 128Z"/>
+    <path fill="#453E35" d="M87 132 113 137 102 145 89 140ZM143 137 164 129 165 138 150 145Z"/>
+    <path fill="#EFC56B" d="M116 119 138 125 142 163 119 169Z"/>
+    <path fill="#453E35" d="M113 162 142 157 136 174 124 180Z"/>
+    <path fill="#FFE5A0" d="M90 169 113 169 124 183 118 202 91 196ZM139 178 159 167 172 182 155 199 130 202 129 183Z"/>
+    <path fill="#775234" d="M122 182 129 181 130 203 143 207 124 213 112 206 122 202Z"/>
+  </g>
+</svg>

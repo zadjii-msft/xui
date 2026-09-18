@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Solar Swept locks - Idle</title>
+  <desc id="desc">The original front-facing Solar lion face with six gently wavy mane segments above and beside the head, leaving the chin clear. Slate palette.</desc>
+  <g transform="translate(0 12)">
+    <g id="mane">
+      <path d="M29 118C12 140 25 157 40 157C39 177 53 189 68 178C54 169 68 164 81 157C71 146 66 137 64 129Z" fill="#64748B" id="segment-1" />
+      <path d="M27 107C16 82 32 69 48 69C39 49 54 33 70 43C62 56 76 63 83 81C73 93 68 105 65 121Z" fill="#64748B" id="segment-2" />
+      <path d="M77 53C68 28 91 14 105 23C109 10 123 11 125 25L125 67C111 65 98 71 87 81C87 64 79 68 77 53Z" fill="#64748B" id="segment-3" />
+      <path d="M77 53C68 28 91 14 105 23C109 10 123 11 125 25L125 67C111 65 98 71 87 81C87 64 79 68 77 53Z" fill="#64748B" id="segment-4" transform="translate(256 0) scale(-1 1)" />
+      <path d="M27 107C16 82 32 69 48 69C39 49 54 33 70 43C62 56 76 63 83 81C73 93 68 105 65 121Z" fill="#64748B" id="segment-5" transform="translate(256 0) scale(-1 1)" />
+      <path d="M29 118C12 140 25 157 40 157C39 177 53 189 68 178C54 169 68 164 81 157C71 146 66 137 64 129Z" fill="#64748B" id="segment-6" transform="translate(256 0) scale(-1 1)" />
+    </g>
+    <g id="face">
+      <path fill="#94A3B8" d="M64 93C45 72 65 53 85 69L128 57l43 12c20-16 40 3 21 24l-11 66-53 48-53-48Z" />
+      <path fill="#D4DCE5" d="M87 78q41-20 82 0l8 54q0 45-49 65-49-20-49-65Z" />
+      <path fill="#475569" d="M65 77q10-6 18 3l-8 14Zm126 0q-10-6-18 3l8 14Z" />
+      <path fill="none" stroke="#243246" stroke-width="8" stroke-linecap="round" d="m91 112 15 3m44 0 15-3" />
+      <path fill="#F1F5F9" d="M128 143c-32-23-56 15-29 29 13 7 22 0 29-4 7 4 16 11 29 4 27-14 3-52-29-29Z" />
+      <path fill="#243246" d="M114 139q14-7 28 0l-14 15Z" />
+      <path fill="none" stroke="#243246" stroke-width="5" stroke-linecap="round" d="M128 151v12m-17 1q17 15 34 0" />
+    </g>
+  </g>
+</svg>

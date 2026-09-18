@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Ribbon lion</title>
+  <desc id="desc">A front-facing coral lion with an airy mane made from interwoven rounded ribbon loops.</desc>
+  <g fill="none" stroke="#E97968" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M99 56C63 7 13 59 57 92 0 113 24 171 66 163c-22 50 28 75 62 47 34 28 84 3 62-47 42 8 66-50 9-71 44-33-6-85-42-36"/>
+    <path d="M99 56c-7-43 65-43 58 0"/>
+  </g>
+  <path fill="#FDE3CE" d="M85 83q43-29 86 0l11 42q0 47-54 74-54-27-54-74Z"/>
+  <g fill="none" stroke="#B74850" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M82 91C57 71 75 52 92 77m82 14c25-20 7-39-10-14M89 79q39-22 78 0M77 112v25q4 41 51 62 47-21 51-62v-25"/>
+    <path d="m93 116 12 3m46 0 12-3m-47 25h24l-12 12Zm12 14v15m-16-1q16 14 32 0"/>
+  </g>
+</svg>

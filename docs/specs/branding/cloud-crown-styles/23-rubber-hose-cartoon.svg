@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g23-title g23-desc">
+  <title id="g23-title">G23 — Rubber-hose cartoon</title>
+  <desc id="g23-desc">A cheerful vintage cartoon lion with pie-cut eyes, a swooping bean muzzle, a broad open grin, and six touching boldly outlined cloud-crown panels.</desc>
+  <g id="mane" stroke="#302C3B" stroke-width="5" stroke-linejoin="round">
+    <g id="segment-1"><path fill="#ED6B79" d="M128 142 23 117C13 130 17 149 29 153 15 175 40 194 61 184 85 196 110 170 128 142Z"/></g>
+    <g id="segment-2"><path fill="#F1A355" d="M128 142 54 46C35 34 23 54 32 78 12 85 15 107 23 117Z"/></g>
+    <g id="segment-3"><path fill="#F0D260" d="M128 142V20C115 10 102 16 94 25 72 11 51 27 54 46Z"/></g>
+    <g id="segment-4"><path fill="#75BA94" d="M128 142 202 46C205 27 184 11 162 25 154 16 141 10 128 20Z"/></g>
+    <g id="segment-5"><path fill="#75AED7" d="M128 142 233 117C241 107 244 85 224 78 233 54 221 34 202 46Z"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" d="M128 142C146 170 171 196 195 184 216 194 241 175 227 153 239 149 243 130 233 117Z"/></g>
+  </g>
+  <g id="face" stroke="#302C3B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#EAB36B" d="M88 121C56 140 46 106 64 96 74 91 87 103 88 121ZM168 121C200 140 210 106 192 96 182 91 169 103 168 121Z"/>
+    <path fill="none" stroke-width="3" d="M66 108Q74 105 78 117M190 108Q182 105 178 117"/>
+    <path fill="#F5C984" d="M128 100C104 93 87 105 83 128L78 163Q64 178 81 201C99 228 148 235 171 205Q194 180 178 163L173 128C169 105 152 93 128 100Z"/>
+    <path fill="#FFEDCA" stroke="none" d="M88 157C80 133 93 117 108 126 118 132 119 149 128 151 137 149 138 132 148 126 163 117 176 133 168 157 186 177 156 211 128 211 100 211 70 177 88 157Z"/>
+    <path fill="#302C3B" stroke="none" d="M99 155C83 142 97 121 108 132L103 141 113 141C117 155 109 165 99 155ZM148 155C133 141 147 120 159 132L153 141 164 141C167 154 158 166 148 155Z"/>
+    <path fill="#302C3B" stroke="none" d="M111 159C113 146 143 146 146 158 148 169 128 177 121 170 116 167 110 165 111 159Z"/>
+    <path fill="#FFF4DB" stroke="none" d="M119 155Q127 151 133 155L132 159 120 159Z"/>
+    <path fill="#302C3B" stroke-width="3" d="M95 179Q130 199 164 174C163 199 144 216 127 211 110 207 100 195 95 179Z"/>
+    <path fill="#EFA096" stroke="none" d="M119 206Q121 193 131 198 142 186 150 198 136 215 119 206Z"/>
+    <path fill="none" stroke-width="3" d="M88 173Q91 180 100 179M159 174Q166 175 170 168"/>
+    <path fill="none" stroke-width="2.5" d="M82 163 68 161M83 170 70 173M174 160 188 156M175 167 188 169"/>
+  </g>
+</svg>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>XUI / Solar, round three</title>
+  <link rel="stylesheet" href="gallery.css">
+  <script src="studies.js" defer></script>
+  <script src="gallery.js" defer></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <a href="../index.html">XUI / All 120 explorations</a>
+      <nav aria-label="Related studies">
+        <a href="../solar-d2-styles/index.html">D2 style explorations</a>
+        <a href="../solar/index.html">Previous six</a>
+        <a href="../README.md#solar-round-three">Design notes</a>
+      </nav>
+    </header>
+    <section class="introduction" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Solar / Round three / Shape + proportion</p>
+        <h1 id="page-title">A bigger change<br>in shape.</h1>
+        <p class="intro">Twelve distinct mane silhouettes. Four face proportions. Forty-eight geometry choices, not forty-eight recolors.</p>
+        <p class="principle">The same calm Solar expression. Six separate mane segments. No mane under the chin.</p>
+      </div>
+      <aside class="reading-guide" aria-label="How to compare">
+        <strong>Read across. Compare down.</strong>
+        <p>Each row changes the mane. Each column changes the face proportions.</p>
+        <p>Use the labels, such as A1 or L4, to name your favorites. Select a drawing for a closer look.</p>
+        <span class="count-mark">12 × 4 <span>geometry choices</span></span>
+      </aside>
+    </section>
+    <p id="load-error" class="error" role="alert" hidden></p>
+    <p id="image-error" class="error" role="alert" hidden></p>
+    <noscript><p class="error">The comparison controls need JavaScript. <a href="../README.md#solar-round-three">Open the design notes for SVG links.</a></p></noscript>
+    <fieldset id="controls" class="controls" disabled>
+      <legend class="sr-only">Comparison controls</legend>
+      <div class="field">
+        <label for="palette">Palette for all previews</label>
+        <select id="palette"></select>
+      </div>
+      <div class="field">
+        <label for="mane-filter">Mane silhouette</label>
+        <select id="mane-filter"><option value="">All 12 manes</option></select>
+      </div>
+      <div class="field">
+        <label for="face-filter">Face proportions</label>
+        <select id="face-filter"><option value="">All four faces</option></select>
+      </div>
+      <div class="toggle-controls">
+        <button id="background" type="button" aria-pressed="false">Dark artboards</button>
+        <button id="shortlist-only" type="button" aria-pressed="false">Shortlist only</button>
+        <button id="reset-filters" type="button">Reset filters</button>
+      </div>
+    </fieldset>
+    <p class="palette-note">Rainbow is the canonical palette. Status names are illustrative, not application behavior. Each color has a text label.</p>
+    <section class="shortlist-bar" aria-label="Shortlist">
+      <div><strong>Your shortlist</strong><p id="shortlist-summary" aria-live="polite">No selections. Use “Shortlist” below a drawing. Selections last until this page reloads.</p></div>
+      <button id="clear-shortlist" type="button" disabled>Clear shortlist</button>
+    </section>
+    <section aria-labelledby="matrix-heading">
+      <div class="section-heading">
+        <h2 id="matrix-heading">The shape matrix</h2>
+        <p id="results" role="status"></p>
+      </div>
+      <div id="column-headings" class="matrix-grid column-headings" aria-hidden="true"></div>
+      <div id="matrix"></div>
+      <div id="empty" class="empty" hidden>
+        <h3>No matching drawings</h3>
+        <p>Choose other filters, or turn off “Shortlist only” to see all drawings.</p>
+      </div>
+    </section>
+    <footer>
+      <p>48 shapes · 7 palettes each · 336 standalone SVGs</p>
+      <a href="../README.md#solar-round-three">Design notes and source files</a>
+    </footer>
+  </main>
+  <dialog id="inspector" aria-labelledby="inspect-title" aria-describedby="inspect-description">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">Closer look / Solar round three</p><h2 id="inspect-title"></h2></div>
+      <button id="close-inspector" type="button" autofocus>Close preview</button>
+    </div>
+    <div class="inspect-layout">
+      <div class="artboard inspection-art">
+        <div id="large-preview"></div>
+        <div class="size-samples" aria-label="Actual-size samples">
+          <div><div id="sample-24"></div><span>24px</span></div>
+          <div><div id="sample-48"></div><span>48px</span></div>
+        </div>
+      </div>
+      <div class="inspect-details">
+        <p id="inspect-description"></p>
+        <dl id="inspect-facts"></dl>
+        <h3>Seven palettes, same shape</h3>
+        <p class="palette-note">Palette choices update every preview. Status names are examples, not product states.</p>
+        <div id="inspect-palettes" class="palette-choices" role="group" aria-label="Preview palette"></div>
+        <div class="inspect-actions">
+          <a id="download" class="button primary" download>Download current SVG</a>
+          <button id="inspect-shortlist" type="button" aria-pressed="false">Shortlist</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

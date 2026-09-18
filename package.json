@@ -2,12 +2,17 @@
   "name": "xui-handbook",
   "private": true,
   "scripts": {
+    "branding:generate": "node tools/branding/generate_zoey.mjs",
+    "branding:check": "node tools/branding/generate_zoey.mjs --check",
+    "branding:test": "node --test tests/branding/*.test.mjs",
     "docs:prepare": "python tools/docs_site.py prepare",
     "docs:dev": "python tools/docs_site.py start",
     "docs:build": "python tools/docs_site.py build",
     "docs:check": "python tests/check-docs.py && python -m unittest discover -s tests -p test_docs_site.py"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@xmldom/xmldom": "0.9.12",
     "retypeapp": "4.6.0"
   }
 }

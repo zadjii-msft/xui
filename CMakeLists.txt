@@ -331,6 +331,10 @@ if(WIN32)
     set(XUI_SAMPLE_TARGETS
         xui_abi_sample xui_feature_sample xui_direct_sample xui_demo
         xui_gallery xui_winui_gallery xui_images xui_task_manager)
+    foreach(target IN LISTS XUI_SAMPLE_TARGETS)
+        target_sources(${target} PRIVATE demo/zoey.rc)
+        target_include_directories(${target} PRIVATE demo)
+    endforeach()
     install(TARGETS xui xui_core xui_windows
         RUNTIME DESTINATION . COMPONENT Native
         ARCHIVE DESTINATION . COMPONENT Native)
@@ -548,6 +552,12 @@ if(WIN32)
         target_link_options(xui_window_icon_tests PRIVATE /MANIFEST:NO)
         add_test(NAME xui_window_icon_tests COMMAND xui_window_icon_tests)
         set_tests_properties(xui_window_icon_tests PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        add_executable(xui_native_branding_tests tests/native_branding_tests.cpp demo/xui.rc)
+        target_include_directories(xui_native_branding_tests PRIVATE demo)
+        target_link_libraries(xui_native_branding_tests PRIVATE user32)
+        target_compile_options(xui_native_branding_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_native_branding_tests PRIVATE /MANIFEST:NO)
+        add_dependencies(xui_native_branding_tests ${XUI_SAMPLE_TARGETS} xui_window_icon_tests)
         add_executable(xui_image_window_tests tests/image_window_tests.cpp demo/xui.rc)
         target_link_libraries(xui_image_window_tests PRIVATE xui_windows)
         add_executable(xui_visual_window_tests tests/visual_window_tests.cpp demo/xui.rc)
@@ -582,6 +592,12 @@ if(WIN32)
         endif()
         option(XUI_DESKTOP_TESTS "Register tests that open desktop windows" OFF)
         if(XUI_DESKTOP_TESTS)
+            add_test(NAME xui_native_branding_tests COMMAND xui_native_branding_tests
+                $<TARGET_FILE:xui_abi_sample> $<TARGET_FILE:xui_feature_sample> $<TARGET_FILE:xui_direct_sample>
+                $<TARGET_FILE:xui_demo> $<TARGET_FILE:xui_gallery> $<TARGET_FILE:xui_winui_gallery>
+                $<TARGET_FILE:xui_images> $<TARGET_FILE:xui_task_manager> $<TARGET_FILE:xui_window_icon_tests>
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/generated/zoey.ico")
+            set_tests_properties(xui_native_branding_tests PROPERTIES TIMEOUT 360 LABELS desktop RUN_SERIAL TRUE)
             add_test(NAME xui_navigation_animation_window_tests COMMAND xui_navigation_animation_window_tests)
             set_tests_properties(xui_navigation_animation_window_tests PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE LABELS desktop)
             add_test(NAME xui_collection_presentation_window_tests COMMAND xui_collection_presentation_window_tests)

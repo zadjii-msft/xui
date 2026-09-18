@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-35-title lion-35-desc">
+  <title id="lion-35-title">Bracket lion head</title>
+  <desc id="lion-35-desc">A front-facing lion head. Two thick brackets replace a continuous mane. A round face hangs between them above a separate V-shaped beard.</desc>
+<path d="M93 30H62L28 75v91l34 45h31v-21H74l-24-32V83l24-32h19Zm70 0h31l34 45v91l-34 45h-31v-21h19l24-32V83l-24-32h-19Z" fill="#D27835"/>
+  <path d="m94 204 34 31 34-31-34 11Z" fill="#D27835"/>
+  <path d="M94 79q-23-30-31-3t26 30m73-27q23-30 31-3t-26 30" fill="#F0C584"/>
+  <ellipse cx="128" cy="127" rx="52" ry="65" fill="#F0C584"/>
+  <path d="M96 110h17m30 0h17" fill="none" stroke="#744226" stroke-width="8" stroke-linecap="round"/>
+  <path d="M96 150a17 17 0 0 1 32-8 17 17 0 0 1 32 8v15H96Z" fill="#FFF0C8"/>
+  <path d="m114 136 14-6 14 6-14 17Z" fill="#744226"/>
+  <path d="M128 152v18m-12 0h24" fill="none" stroke="#744226" stroke-width="5" stroke-linecap="round"/>
+</svg>

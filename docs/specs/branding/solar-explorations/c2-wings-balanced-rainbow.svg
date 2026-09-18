@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Solar Wings / Balanced - Canonical</title>
+  <desc id="desc">A front-facing lion with the Solar expression, a balanced face, and six wings mane segments above and beside the face. The chin remains clear. Rainbow palette.</desc>
+  <g>
+    <g id="mane">
+      <path d="M13 134C14 156 37 166 62 161Q78 162 99 170L98 155L90 139Z" fill="#E56868" id="segment-1" />
+      <path d="M13 123C9 105 12 78 28 77C52 79 67 86 81 91L102 112L90 132Z" fill="#ED9652" id="segment-2" />
+      <path d="M39 69C60 43 87 42 123 48L124 105L109 107L85 83Q66 80 39 69Z" fill="#EACB56" id="segment-3" />
+      <path d="M39 69C60 43 87 42 123 48L124 105L109 107L85 83Q66 80 39 69Z" fill="#64B986" id="segment-4" transform="translate(256 0) scale(-1 1)" />
+      <path d="M13 123C9 105 12 78 28 77C52 79 67 86 81 91L102 112L90 132Z" fill="#60A4D8" id="segment-5" transform="translate(256 0) scale(-1 1)" />
+      <path d="M13 134C14 156 37 166 62 161Q78 162 99 170L98 155L90 139Z" fill="#9A80CF" id="segment-6" transform="translate(256 0) scale(-1 1)" />
+    </g>
+    <g id="face" transform="translate(128 144) scale(0.84 0.84) translate(-128 -132)">
+      <path fill="#EAA83B" d="M64 93C45 72 65 53 85 69L128 57l43 12c20-16 40 3 21 24l-11 66-53 48-53-48Z" />
+      <path fill="#F8CC70" d="M87 78q41-20 82 0l8 54q0 45-49 65-49-20-49-65Z" />
+      <path fill="#7A3E20" d="M65 77q10-6 18 3l-8 14Zm126 0q-10-6-18 3l8 14Z" />
+      <path fill="none" stroke="#452B24" stroke-width="8" stroke-linecap="round" d="m91 112 15 3m44 0 15-3" />
+      <path fill="#FFE7A9" d="M128 143c-32-23-56 15-29 29 13 7 22 0 29-4 7 4 16 11 29 4 27-14 3-52-29-29Z" />
+      <path fill="#452B24" d="M114 139q14-7 28 0l-14 15Z" />
+      <path fill="none" stroke="#452B24" stroke-width="5" stroke-linecap="round" d="M128 151v12m-17 1q17 15 34 0" />
+    </g>
+  </g>
+</svg>

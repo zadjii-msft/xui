@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">D2 — Counterform</title>
+  <desc id="desc">A Swiss-style stencil lion assembled from solid geometric forms and open channels. Six quadrant-like rainbow blades frame a gold face with transparent eyelids and muzzle cuts.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#D75150" d="M12 120H91V166H66A54 54 0 0 1 12 120Z"/></g>
+    <g id="segment-2"><path fill="#E8953E" d="M24 76 56 32 109 107 92 124Z"/></g>
+    <g id="segment-3"><path fill="#D8B938" d="M73 20H122V104H111Z"/></g>
+    <g id="segment-4"><path fill="#388B6A" d="M134 20H183L145 104H134Z"/></g>
+    <g id="segment-5"><path fill="#387EAC" d="M200 32 232 76 164 124 147 107Z"/></g>
+    <g id="segment-6"><path fill="#8063A4" d="M165 120H244A54 54 0 0 1 190 166H165Z"/></g>
+  </g>
+  <g id="face" fill="#C89525">
+    <path d="M61 90H83V114H61ZM173 90H195V114H173Z"/>
+    <path d="M90 94H124V151H111V132H91V139H111V165H83V112ZM132 94H166L173 112V165H145V139H165V132H145V151H132Z"/>
+    <path d="M113 157H143L128 176Z" fill="#3C3930"/>
+    <path d="M82 173H106V190H124V220H108L82 194ZM174 173H150V190H132V220H148L174 194Z"/>
+    <path d="M114 178H123V184H114ZM133 178H142V184H133Z"/>
+  </g>
+</svg>

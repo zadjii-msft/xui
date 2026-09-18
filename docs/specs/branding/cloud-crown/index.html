@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>XUI / Cloud Crown in Enamel colors</title>
+  <link rel="stylesheet" href="../softling/gallery.css">
+  <link rel="stylesheet" href="gallery.css">
+  <script src="studies.js" defer></script>
+  <script src="gallery.js" defer></script>
+</head>
+<body>
+  <main>
+    <nav aria-label="Study navigation">
+      <a href="../softling/index.html">Back to Softling manes</a>
+      <a href="../README.md#cloud-crown-in-enamel-colors">Design notes and SVG index</a>
+    </nav>
+    <header>
+      <div>
+        <p class="eyebrow">M10 / Cloud Crown / Touching colors</p>
+        <h1>A little more cloud.</h1>
+        <p>Six Cloud Crown options with touching colors. The Softling face stays unchanged. No gaps or divider lines.</p>
+        <p>Only the six mane colors come from <a href="../solar-d2-styles/03-enamel.svg">S03 / Enamel</a>—not its face, outline, or gloss.</p>
+        <p class="note">C01 keeps the exact M10 shape with the new colors. Select any option to compare its shape with C01.</p>
+        <p><a href="../high-crown-finish/index.html">Selected C03: happy eyes, with an optional face outline and color-matched mane edge.</a></p>
+        <p><a href="../cloud-crown-lab/index.html">Next: thirty bolder High Crown ideas, including asymmetric, angular, botanical, and exaggerated designs.</a></p>
+      </div>
+      <a class="reference" href="../softling/m10-cloud-joined.svg">
+        <span class="artboard"><img id="original-reference" src="../softling/m10-cloud-joined.svg" width="150" height="150" alt="M10 Cloud Crown with its original pastel mane"></span>
+        <strong>M10 / Original pastel Cloud Crown</strong>
+      </a>
+    </header>
+    <noscript><p class="error">This gallery needs JavaScript. <a href="../README.md#cloud-crown-in-enamel-colors">Open the SVG index instead.</a></p></noscript>
+    <p id="load-error" class="error" role="alert" hidden></p>
+    <p id="image-error" class="error" role="alert" hidden></p>
+    <div class="toolbar">
+      <div><h2>The six options</h2><p id="results" role="status">Loading drawings…</p></div>
+      <div class="board-control">
+        <button id="background" type="button" aria-pressed="false" disabled>Dark artboards</button>
+        <span class="note">Same face. Same six mane colors. Different clouds.</span>
+      </div>
+    </div>
+    <div id="gallery" class="cloud-grid"></div>
+  </main>
+  <dialog id="inspector" aria-labelledby="inspect-title" aria-describedby="inspect-note">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">Same scale / C01 and selected option</p><h2 id="inspect-title"></h2></div>
+      <form method="dialog"><button id="close-preview" autofocus>Close</button></form>
+    </div>
+    <div class="comparison">
+      <figure>
+        <div id="anchor-preview" class="artboard"></div>
+        <figcaption>C01 / Exact M10 shape in Enamel mane colors</figcaption>
+      </figure>
+      <figure>
+        <div id="large-preview" class="artboard"></div>
+        <figcaption id="inspect-caption"></figcaption>
+      </figure>
+    </div>
+    <p id="inspect-note"></p>
+    <p id="inspect-error" class="error" role="alert" hidden></p>
+    <div class="inspection-bottom">
+      <div class="samples" aria-label="Selected option at actual CSS pixel sizes">
+        <div><div id="sample-24" class="artboard"></div><span>24px</span></div>
+        <div><div id="sample-48" class="artboard"></div><span>48px</span></div>
+      </div>
+      <div class="actions">
+        <button id="inspect-background" type="button" aria-pressed="false">Dark artboards</button>
+        <a id="download" class="button" download>Download SVG</a>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

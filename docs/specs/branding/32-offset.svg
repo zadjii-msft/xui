@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-32-title lion-32-desc">
+  <title id="lion-32-title">Offset lion head</title>
+  <desc id="lion-32-desc">A front-facing lion head. Two displaced contours form a flat-topped mane. The face has unequal cheek planes, but both eyes look directly forward.</desc>
+<path d="M70 25h102l49 49 12 70-40 59-65 29-65-29-40-59 12-70Z" fill="#DD643F"/>
+  <path d="M78 37h102l49 49 8 67-40 58-61 27-65-29-40-59 12-70Z" fill="none" stroke="#243F57" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M73 88q-10-34 12-25l17 22 29-14 32 12 13-22q28-4 10 33l-2 60-48 53-52-46Z" fill="#FFF0CA"/>
+  <path d="m131 71 32 12 13-22q28-4 10 33l-2 60-48 53-3-59 15-18Z" fill="#EFBE87"/>
+  <path d="m92 114 21 3m35 0 21-3" fill="none" stroke="#243F57" stroke-width="8" stroke-linecap="round"/>
+  <path d="M99 148q18-14 34 2 18-16 36-2l-8 28h-57Z" fill="#FFF8E3"/>
+  <path d="m119 139 28 0-14 18Z" fill="#243F57"/>
+  <path d="M133 157v16m-16 1h31" fill="none" stroke="#243F57" stroke-width="5" stroke-linecap="round"/>
+</svg>

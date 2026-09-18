@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g09-title g09-desc">
+  <title id="g09-title">G09 — Rounded app icon</title>
+  <desc id="g09-desc">A front-facing lion made from polished soft-square geometry, with six touching cloud-crown colors, tiny rounded-square eyes, a rounded triangular nose, and a cream chin below the mane. There is no background tile.</desc>
+  <g id="mane" stroke-width="0.7" stroke-linejoin="round">
+    <g id="segment-1" fill="#ED6B79" stroke="#ED6B79"><path d="M128 136 20 110V155Q20 181 47 181H78Z"/><path fill="#F8B4B7" stroke="none" d="M27 140H31V155Q31 167 43 170V174Q27 171 27 155Z"/></g>
+    <g id="segment-2" fill="#F1A355" stroke="#F1A355"><path d="M128 136 62 49H46Q20 49 20 75V110Z"/></g>
+    <g id="segment-3" fill="#F0D260" stroke="#F0D260"><path d="M128 136V42Q128 20 107 20H87Q62 20 62 45V49Z"/><path fill="#FFF0AE" stroke="none" d="M80 31Q84 27 91 27H108V31H91Q85 31 82 34Z"/></g>
+    <g id="segment-4" fill="#75BA94" stroke="#75BA94"><path d="M128 136 194 49V45Q194 20 169 20H149Q128 20 128 42Z"/></g>
+    <g id="segment-5" fill="#75AED7" stroke="#75AED7"><path d="M128 136 236 110V75Q236 49 210 49H194Z"/><path fill="#CAE5F5" stroke="none" d="M214 57Q229 59 229 75V90H225V75Q225 63 214 61Z"/></g>
+    <g id="segment-6" fill="#AB8AC9" stroke="#AB8AC9"><path d="M128 136 178 181H209Q236 181 236 155V110Z"/></g>
+  </g>
+  <g id="face">
+    <rect x="64" y="98" width="34" height="39" rx="13" fill="#E6B573"/><rect x="158" y="98" width="34" height="39" rx="13" fill="#E6B573"/>
+    <rect x="73" y="108" width="14" height="17" rx="6" fill="#C88E5D"/><rect x="169" y="108" width="14" height="17" rx="6" fill="#C88E5D"/>
+    <path fill="#E6B573" d="M82 144Q82 110 112 110H144Q174 110 174 144V190Q174 228 137 228H119Q82 228 82 190Z"/>
+    <path fill="#F9D595" d="M82 135Q82 103 114 103H142Q174 103 174 135V180Q174 217 140 220H116Q82 217 82 180Z"/>
+    <path fill="#FFE6B6" d="M98 120Q104 111 116 111H137Q141 111 141 115H116Q106 115 101 123Z"/>
+    <rect x="103" y="145" width="9" height="11" rx="4" fill="#5D4B44"/><rect x="144" y="145" width="9" height="11" rx="4" fill="#5D4B44"/>
+    <path fill="#FFF0CD" d="M107 168H149Q158 168 158 178V188Q158 203 144 203H112Q98 203 98 188V178Q98 168 107 168Z"/>
+    <path fill="#5D4B44" d="M120 164H136Q142 164 139 170L132 180Q128 185 124 180L117 170Q114 164 120 164Z"/>
+    <path fill="none" stroke="#5D4B44" stroke-width="3" stroke-linecap="round" d="M128 182V188Q132 194 139 189M128 188Q124 194 117 189"/>
+  </g>
+</svg>

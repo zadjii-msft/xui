@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-63 desc-63">
+  <title id="title-63">Harrumph lion</title>
+  <desc id="desc-63">A grumpy broad lion head with a squat rust mane, tiny lowered ears, heavy straight brows, and an oversized square muzzle.</desc>
+  <path fill="#754650" d="m75 35 35 9 18-19 18 19 35-9 14 30 34 9-9 37 20 27-19 22 6 33-37 5-19 24-43-7-43 7-19-24-37-5 6-33-19-22 20-27-9-37 34-9Z"/>
+  <path fill="#b96c5b" d="m84 50 44 11 44-11 9 40 34-1-19 40 25 23-36 14 19 22-52 4-24 21-24-21-52-4 19-22-36-14 25-23-19-40 34 1Z"/>
+  <g fill="#dca26e" stroke="#754650" stroke-width="5"><ellipse cx="69" cy="101" rx="21" ry="18"/><ellipse cx="187" cy="101" rx="21" ry="18"/></g>
+  <path fill="#e8ba85" d="M77 87q51-27 102 0l22 63q8 44-73 50-81-6-73-50Z"/>
+  <path fill="#fff0c6" stroke="#a2745c" stroke-width="4" d="M87 141h82q20 0 20 20v20q-61 25-122 0v-20q0-20 20-20Z"/>
+  <path fill="#66404a" d="m76 106 43 9-4 11-40-10Zm61 9 43-9 1 10-40 10Z"/>
+  <path fill="#fff3d7" d="m84 123 30 6-4 8-23-2Zm58 6 30-6-3 12-23 2Z"/>
+  <g fill="#47313b"><path d="M96 126h10v11H96Zm54 0h10v11h-10ZM109 142h38l-6 18-13 4-13-4Z"/></g>
+  <path fill="none" stroke="#66404a" stroke-width="4" stroke-linecap="round" d="M128 163v12m-24 9q24-12 48 0m-67-28h10m66 0h10"/>
+  <path fill="#d49b72" d="m121 89 7 12 7-12Z"/>
+</svg>

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Softling - Cloud crown / Fine dividers</title>
+  <desc id="desc">The original front-facing Softling face and pastel rainbow palette, with a fuller cloud crown mane. Continuous mane separated by thin brown lines. Six colored segments surround the upper face. The chin stays clear.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 77 208 51 197C29 204 13 184 20 166C7 159 7 133 17 124C7 110 14 91 30 87C15 62 37 43 56 53C48 28 75 15 90 24C102 7 123 8 128 15C133 8 154 7 166 24C181 15 208 28 200 53C219 43 241 62 226 87C242 91 249 110 239 124C249 133 249 159 236 166C243 184 227 204 205 197C179 208 138 163 128 148Z" />
+    </clipPath>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 77 208 51 197C29 204 13 184 20 166C7 159 7 133 17 124C7 110 14 91 30 87C15 62 37 43 56 53C48 28 75 15 90 24C102 7 123 8 128 15C133 8 154 7 166 24C181 15 208 28 200 53C219 43 241 62 226 87C242 91 249 110 239 124C249 133 249 159 236 166C243 184 227 204 205 197C179 208 138 163 128 148Z" fill="#EFA0A4" />
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 77 208 51 197C29 204 13 184 20 166C7 159 7 133 17 124C54 132 91 140 128 148Z" fill="#EFA0A4" stroke="#EFA0A4" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-2" d="M128 148C91 140 54 132 17 124C7 110 14 91 30 87C15 62 37 43 56 53C80 84.667 104 116.333 128 148Z" fill="#F2BB82" stroke="#F2BB82" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-3" d="M128 148C104 116.333 80 84.667 56 53C48 28 75 15 90 24C102 7 123 8 128 15C128 59.333 128 103.667 128 148Z" fill="#EED980" stroke="#EED980" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-4" d="M128 148C128 103.667 128 59.333 128 15C133 8 154 7 166 24C181 15 208 28 200 53C176 84.667 152 116.333 128 148Z" fill="#9BCBA5" stroke="#9BCBA5" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-5" d="M128 148C152 116.333 176 84.667 200 53C219 43 241 62 226 87C242 91 249 110 239 124C202 132 165 140 128 148Z" fill="#9BBFDA" stroke="#9BBFDA" stroke-width="0.8" stroke-linejoin="round" />
+      <path id="segment-6" d="M128 148C165 140 202 132 239 124C249 133 249 159 236 166C243 184 227 204 205 197C179 208 138 163 128 148Z" fill="#BDA9D6" stroke="#BDA9D6" stroke-width="0.8" stroke-linejoin="round" />
+    </g>
+    <g id="dividers" fill="none" stroke="#73503C" stroke-width="1.75" stroke-opacity="0.68" stroke-linecap="round">
+      <path d="M128 148C91 140 54 132 17 124" />
+      <path d="M128 148C104 116.333 80 84.667 56 53" />
+      <path d="M128 148C128 103.667 128 59.333 128 15" />
+      <path d="M128 148C152 116.333 176 84.667 200 53" />
+      <path d="M128 148C165 140 202 132 239 124" />
+    </g>
+  </g>
+  <g id="face">
+    <circle cx="76" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="180" cy="114" r="23" fill="#E5AC54" />
+    <circle cx="76" cy="114" r="12" fill="#C88C45" />
+    <circle cx="180" cy="114" r="12" fill="#C88C45" />
+    <path fill="#F5C875" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z" />
+    <path fill="none" stroke="#73503C" stroke-width="5" stroke-linecap="round" d="M91 148Q100 155 109 148M147 148Q156 155 165 148" />
+    <ellipse cx="128" cy="181" rx="40" ry="25" fill="#FFF0C9" />
+    <rect x="114" y="159" width="28" height="20" rx="10" fill="#73503C" />
+    <path fill="none" stroke="#73503C" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185" />
+    <circle cx="90" cy="169" r="5" fill="#E9AB72" />
+    <circle cx="166" cy="169" r="5" fill="#E9AB72" />
+  </g>
+</svg>

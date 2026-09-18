@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-37-title lion-37-desc">
+  <title id="lion-37-title">Aperture lion head</title>
+  <desc id="lion-37-desc">A front-facing lion head. Eight separated curved wedges form the mane rather than pointed rays. A flat-bottomed face has deep-set ears and a round muzzle.</desc>
+<g fill="#C5543F">
+    <path d="M136 19q36 3 64 29l-33 35-31-14Z"/>
+    <path d="M212 60q23 27 25 60h-49l-14-29Z"/>
+    <path d="M237 136q-3 36-29 64l-35-33 15-31Z"/>
+    <path d="M196 212q-27 23-60 25v-49l29-14Z"/>
+    <path d="M120 237q-36-3-64-29l33-35 31 15Z"/>
+    <path d="M44 196q-23-27-25-60h49l14 29Z"/>
+    <path d="M19 120q3-36 29-64l35 33-15 31Z"/>
+    <path d="M60 44q27-23 60-25v49L91 82Z"/>
+  </g>
+  <circle cx="82" cy="83" r="18" fill="#F1C389"/>
+  <circle cx="174" cy="83" r="18" fill="#F1C389"/>
+  <circle cx="82" cy="83" r="8" fill="#733E32"/>
+  <circle cx="174" cy="83" r="8" fill="#733E32"/>
+  <path d="M78 121a50 50 0 0 1 100 0v37l-27 30h-46l-27-30Z" fill="#F1C389"/>
+  <path d="M94 116h16m36 0h16" fill="none" stroke="#733E32" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="128" cy="153" r="27" fill="#FFF1D0"/>
+  <path d="M115 139h26l-13 15Z" fill="#733E32"/>
+  <path d="M128 154v15m-11-1 11 5 11-5" fill="none" stroke="#733E32" stroke-width="5" stroke-linecap="round"/>
+</svg>

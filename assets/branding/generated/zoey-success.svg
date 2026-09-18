@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Zoey the XUI Lion - Green / Success</title>
+  <desc id="desc">A front-facing lion with happy closed eyes, a cloud-shaped mane, and seamless color-matched outer borders. The green palette represents success.</desc>
+  <defs>
+    <clipPath id="mane-outline">
+      <path d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C11 103 17 83 32 79C23 55 36 35 53 46C51 23 77 12 94 23C110 8 123 8 128 14C133 8 146 8 162 23C179 12 205 23 203 46C220 35 233 55 224 79C239 83 245 103 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z"/>
+    </clipPath>
+    <mask id="mane-border-band" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <path d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C11 103 17 83 32 79C23 55 36 35 53 46C51 23 77 12 94 23C110 8 123 8 128 14C133 8 146 8 162 23C179 12 205 23 203 46C220 35 233 55 224 79C239 83 245 103 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z" fill="none" stroke="white" stroke-width="8" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g id="mane" clip-path="url(#mane-outline)">
+    <path id="mane-backing" d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C11 103 17 83 32 79C23 55 36 35 53 46C51 23 77 12 94 23C110 8 123 8 128 14C133 8 146 8 162 23C179 12 205 23 203 46C220 35 233 55 224 79C239 83 245 103 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z" fill="#309A72"/>
+    <g id="segments">
+      <path id="segment-1" d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C58 128 93 138 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+      <path id="segment-2" d="M128 148C93 138 58 128 23 118C11 103 17 83 32 79C23 55 36 35 53 46C78 80 103 114 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+      <path id="segment-3" d="M128 148C103 114 78 80 53 46C51 23 77 12 94 23C110 8 123 8 128 14C128 58.667 128 103.333 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+      <path id="segment-4" d="M128 148C128 103.333 128 58.667 128 14C133 8 146 8 162 23C179 12 205 23 203 46C178 80 153 114 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+      <path id="segment-5" d="M128 148C153 114 178 80 203 46C220 35 233 55 224 79C239 83 245 103 233 118C198 128 163 138 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+      <path id="segment-6" d="M128 148C163 138 198 128 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z" fill="#309A72" stroke="#309A72" stroke-width="0.8" stroke-linejoin="round"/>
+    </g>
+    <g id="outer-mane-border" mask="url(#mane-border-band)">
+      <path id="border-backing" d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C11 103 17 83 32 79C23 55 36 35 53 46C51 23 77 12 94 23C110 8 123 8 128 14C133 8 146 8 162 23C179 12 205 23 203 46C220 35 233 55 224 79C239 83 245 103 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z" fill="#21694E"/>
+      <g id="border-colors">
+        <path id="border-segment-1" d="M128 148C118 163 84 198 58 187C34 195 18 173 25 158C13 150 13 129 23 118C58 128 93 138 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+        <path id="border-segment-2" d="M128 148C93 138 58 128 23 118C11 103 17 83 32 79C23 55 36 35 53 46C78 80 103 114 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+        <path id="border-segment-3" d="M128 148C103 114 78 80 53 46C51 23 77 12 94 23C110 8 123 8 128 14C128 58.667 128 103.333 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+        <path id="border-segment-4" d="M128 148C128 103.333 128 58.667 128 14C133 8 146 8 162 23C179 12 205 23 203 46C178 80 153 114 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+        <path id="border-segment-5" d="M128 148C153 114 178 80 203 46C220 35 233 55 224 79C239 83 245 103 233 118C198 128 163 138 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+        <path id="border-segment-6" d="M128 148C163 138 198 128 233 118C243 129 243 150 231 158C238 173 222 195 198 187C172 198 138 163 128 148Z" fill="#21694E" stroke="#21694E" stroke-width="0.8" stroke-linejoin="round"/>
+      </g>
+    </g>
+  </g>
+  <g id="face-border" fill="none" stroke="#154D39" stroke-width="4" stroke-linejoin="round">
+    <circle cx="76" cy="114" r="23" fill="none"/>
+    <circle cx="180" cy="114" r="23" fill="none"/>
+    <path fill="none" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z"/>
+  </g>
+  <g id="face">
+    <circle cx="76" cy="114" r="23" fill="#79BF9D"/>
+    <circle cx="180" cy="114" r="23" fill="#79BF9D"/>
+    <circle cx="76" cy="114" r="12" fill="#257556"/>
+    <circle cx="180" cy="114" r="12" fill="#257556"/>
+    <path fill="#CBE9D5" d="M128 98C158 98 174 111 179 133 184 153 196 171 179 193 167 208 148 221 128 221S89 208 77 193C60 171 72 153 77 133 82 111 98 98 128 98Z"/>
+    <path fill="none" stroke="#154D39" stroke-width="5" stroke-linecap="round" d="M91 148Q100 134 109 148M147 148Q156 134 165 148"/>
+    <ellipse cx="128" cy="181" rx="40" ry="25" fill="#EFFAF1"/>
+    <rect x="114" y="159" width="28" height="20" rx="10" fill="#154D39"/>
+    <path fill="none" stroke="#154D39" stroke-width="4" stroke-linecap="round" d="M128 177V185Q118 193 113 185M128 185Q138 193 143 185"/>
+    <circle cx="90" cy="169" r="5" fill="#79BF9D"/>
+    <circle cx="166" cy="169" r="5" fill="#79BF9D"/>
+  </g>
+</svg>

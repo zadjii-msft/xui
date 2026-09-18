@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-16-title lion-16-desc">
+  <title id="lion-16-title">Spire lion head</title>
+  <desc id="lion-16-desc">A front-facing lion head. A tall pointed mane encloses a narrow sculpted face. Sloped cheek planes lead to a long nose and a compact chin.</desc>
+<path d="m128 14 55 35 28 68-17 65-66 61-66-61-17-65 28-68Z" fill="#183F53"/>
+  <path d="m128 29-18 43-23 114-18-27 14-98Zm0 0 18 43 23 114 18-27-14-98Z" fill="#3E8391"/>
+  <path d="M92 75q-26-26-25 5l20 28m77-33q26-26 25 5l-20 28" fill="#E9BE7B"/>
+  <path d="m128 58 29 24 8 47-18 50-19 25-19-25-18-50 8-47Z" fill="#E9BE7B"/>
+  <path d="m128 69-13 62 13 23 13-23Z" fill="#FFDB99"/>
+  <path d="m98 110 17 7-3 8-14-6Zm60 0-17 7 3 8 14-6Z" fill="#142F40"/>
+  <path d="m108 155 20-12 20 12-7 23h-26Z" fill="#FFF0C9"/>
+  <path d="m118 146 10-7 10 7-10 12Z" fill="#142F40"/>
+  <path d="M128 158v15m-9-1 9 7 9-7" fill="none" stroke="#142F40" stroke-width="4" stroke-linejoin="round"/>
+  <path d="m105 207 23 19 23-19" fill="none" stroke="#3E8391" stroke-width="8" stroke-linejoin="round"/>
+</svg>

@@ -30,7 +30,21 @@ internal static class Program
         }
     }
 
-    private static Window CreateWindow() => new("XUI Minesweeper", 440, 700);
+    private static Window CreateWindow()
+    {
+        var window = new Window("XUI Minesweeper", 440, 700);
+        try
+        {
+            window.IconErrorHandler = error => throw new InvalidOperationException($"Cannot load the application icon: {error}");
+            window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
+            return window;
+        }
+        catch
+        {
+            window.Dispose();
+            throw;
+        }
+    }
 
     private static void Build(Window window, int? seed)
     {

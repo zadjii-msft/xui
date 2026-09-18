@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-56 desc-56">
+  <title id="title-56">Brick Buddy lion</title>
+  <desc id="desc-56">A front-facing building-block lion head with a stepped terracotta mane, rectangular ears, square eyes, and a stacked cream muzzle.</desc>
+  <path fill="#913f37" d="M91 20h74v19h36v31h27v41h13v47h-22v38h-32v24h-35v16h-48v-16H69v-24H37v-38H15v-47h13V70h27V39h36Z"/>
+  <path fill="#d16843" d="M102 30h51v32h-51ZM37 85h29v40H37Zm153 0h29v40h-29ZM48 148h26v38H48Zm134 0h26v38h-26ZM87 196h29v22H87Zm53 0h29v22h-29Z"/>
+  <g fill="#efad45" stroke="#913f37" stroke-width="5" stroke-linejoin="round"><path d="M54 60h39v45H54Zm109 0h39v45h-39Z"/><path d="M84 75h88v32h14v64h-18v29H88v-29H70v-64h14Z"/></g>
+  <path fill="#f5c977" d="M88 80h40v62H76v-31h12Z"/>
+  <path fill="#b97540" d="M65 70h17v20H65Zm109 0h17v20h-17Z"/>
+  <g fill="#fff1cb"><path d="M81 146h42v34H81Zm52 0h42v34h-42ZM104 174h48v15h-48Z"/></g>
+  <g fill="#3d3835"><path d="M95 117h15v15H95Zm51 0h15v15h-15Zm-32 26h28v13h-8v8h-12v-8h-8Z"/><path d="M125 162h6v16h-6Zm-18 12h42v6h-42Z"/></g>
+  <g fill="#fff1cb"><path d="M98 120h4v4h-4Zm51 0h4v4h-4Z"/></g>
+</svg>

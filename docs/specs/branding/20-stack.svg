@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-20-title lion-20-desc">
+  <title id="lion-20-title">Stack lion head</title>
+  <desc id="lion-20-desc">A front-facing lion head. Separate rounded bars build the mane in horizontal layers. A long rectangular face ends in two short muzzle blocks.</desc>
+<g fill="#33485D">
+    <rect x="85" y="19" width="86" height="17" rx="8"/>
+    <rect x="56" y="43" width="144" height="17" rx="8"/>
+    <rect x="31" y="69" width="52" height="18" rx="9"/>
+    <rect x="173" y="69" width="52" height="18" rx="9"/>
+    <rect x="19" y="97" width="51" height="18" rx="9"/>
+    <rect x="186" y="97" width="51" height="18" rx="9"/>
+    <rect x="19" y="125" width="51" height="18" rx="9"/>
+    <rect x="186" y="125" width="51" height="18" rx="9"/>
+    <rect x="30" y="153" width="43" height="18" rx="9"/>
+    <rect x="183" y="153" width="43" height="18" rx="9"/>
+    <rect x="47" y="181" width="42" height="18" rx="9"/>
+    <rect x="167" y="181" width="42" height="18" rx="9"/>
+    <rect x="80" y="209" width="96" height="18" rx="9"/>
+  </g>
+  <path d="M79 70h20v17h58V70h20v26h-9v70q0 32-40 32t-40-32V96h-9Z" fill="#D9AF75"/>
+  <path d="M98 108h15v9H98Zm45 0h15v9h-15Z" fill="#33485D"/>
+  <rect x="96" y="139" width="28" height="33" rx="9" fill="#F6E4C5"/>
+  <rect x="132" y="139" width="28" height="33" rx="9" fill="#F6E4C5"/>
+  <path d="M114 133h28v10l-14 9-14-9Zm10 18h8v27h-8Z" fill="#33485D"/>
+</svg>

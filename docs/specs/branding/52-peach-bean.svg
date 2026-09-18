@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-52 desc-52">
+  <title id="title-52">Peach Bean lion</title>
+  <desc id="desc-52">A tiny-eyed frontal lion with a broad bean-shaped face, crescent ears, and a compact coral mane that curls at its crown.</desc>
+  <path fill="#d9756b" d="M127 29Q165 14 179 46C211 49 229 78 221 108 244 145 224 184 195 193 184 224 157 233 128 221 95 238 65 221 59 195 23 185 11 149 33 116 22 82 42 56 71 51 81 24 111 17 127 29Z"/>
+  <path fill="#ef9b80" d="M90 55q7-32 32-26-14 18 1 26 22 8 39-12l10 23Z"/>
+  <path fill="#ffe0a7" d="M85 97C46 92 47 63 67 63 86 61 97 78 97 88h62c6-16 14-24 30-22 18 4 12 35-17 34Z"/>
+  <path fill="#ffd4a0" d="M128 80C156 78 176 88 182 112L204 153C217 191 175 207 129 207 82 207 43 191 51 160L75 111C82 90 99 78 128 80Z"/>
+  <path fill="#fff1cc" d="M90 157q9-15 38-6 27-9 38 6 11 30-37 30-51 0-39-30Z"/>
+  <g fill="#653a3f"><circle cx="91" cy="141" r="6"/><circle cx="165" cy="141" r="6"/><path d="M119 156q9-7 18 0l-9 9Z"/></g>
+  <path fill="none" stroke="#653a3f" stroke-width="4" stroke-linecap="round" d="M128 165v7m-9 0q9 9 18 0"/>
+  <g fill="#ebaa8c"><ellipse cx="75" cy="158" rx="11" ry="6"/><ellipse cx="181" cy="158" rx="11" ry="6"/></g>
+</svg>

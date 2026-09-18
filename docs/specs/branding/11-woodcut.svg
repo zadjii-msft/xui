@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Woodcut lion</title>
+  <desc id="desc">A front-facing folk-art lion with a terracotta mane, carved cream strokes, and almond eyes.</desc>
+  <path fill="#A6533C" d="M128 15C71 9 22 54 25 117c-5 55 34 99 103 127 69-28 108-72 103-127 3-63-46-108-103-102Z"/>
+  <g fill="none" stroke="#F5DAB0" stroke-width="5" stroke-linecap="round">
+    <path d="m108 33-8 24m48-24 8 24M78 40l-3 15m103-15 3 15M48 75l12 21m148-21-12 21M40 113l16 12m160-12-16 12M42 149l22 9m150-9-22 9M58 182l24 8m116-8-24 8M92 207l14 5m58-5-14 5M128 213v12"/>
+  </g>
+  <path fill="#F5DAB0" d="M81 84c-28-22-25-40-5-34l18 22q34-14 68 0l18-22c20-6 23 12-5 34l2 46c0 35-21 56-49 72-28-16-49-37-49-72Z"/>
+  <path fill="#C58A59" d="m128 77-14 42 5 19-21 15 30 31 30-31-21-15 5-19Z"/>
+  <path fill="#733E32" d="M87 114q12-14 24 0-12 14-24 0Zm58 0q12-14 24 0-12 14-24 0Zm-31 26q14-7 28 0l-14 14Z"/>
+  <path fill="none" stroke="#733E32" stroke-width="4" stroke-linecap="round" d="M128 152v14m-18-2q8 12 18 2 10 10 18-2m-49-25 9 3m-12 8 10 2m55-13-9 3m12 8-10 2"/>
+  <path fill="#F5DAB0" d="m122 30 6-6 6 6-6 18Z"/>
+</svg>

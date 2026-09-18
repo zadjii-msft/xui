@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title-51 desc-51">
+  <title id="title-51">Bendy Roar lion</title>
+  <desc id="desc-51">A black-and-cream rubber-hose style lion head with an inky lobed mane, tall paired eyes, and a broad smiling muzzle.</desc>
+  <path fill="#282b34" d="M128 23C146 9 171 23 172 42 196 27 219 49 210 73 240 73 248 104 226 120 251 139 237 169 214 171 228 197 202 219 180 209 175 237 143 245 128 225 110 245 81 235 76 209 50 219 30 195 42 171 15 169 6 136 30 120 8 100 21 74 46 73 36 48 63 29 84 42 83 19 114 10 128 23Z"/>
+  <g fill="#fff0d2" stroke="#282b34" stroke-width="6">
+    <ellipse cx="72" cy="87" rx="21" ry="25"/>
+    <ellipse cx="184" cy="87" rx="21" ry="25"/>
+    <path d="M128 70C111 48 77 66 77 96v37c-23 8-21 34 2 45 27 32 71 32 98 0 23-11 25-37 2-45V96c0-30-34-48-51-26Z"/>
+  </g>
+  <g fill="#d78855"><ellipse cx="71" cy="86" rx="9" ry="13"/><ellipse cx="185" cy="86" rx="9" ry="13"/></g>
+  <g fill="#fffdf1" stroke="#282b34" stroke-width="4"><ellipse cx="111" cy="113" rx="20" ry="34"/><ellipse cx="145" cy="113" rx="20" ry="34"/></g>
+  <g fill="#282b34"><ellipse cx="112" cy="118" rx="8" ry="17"/><ellipse cx="144" cy="118" rx="8" ry="17"/></g>
+  <path fill="#fff0d2" d="M79 145q25-17 49 4 24-21 49-4l-6 34H85Z"/>
+  <ellipse cx="128" cy="148" rx="20" ry="12" fill="#282b34"/>
+  <path fill="#282b34" d="M94 168q34 16 68 0-8 32-34 33-26-1-34-33Z"/>
+  <path fill="#df8a6d" d="M109 193q19-19 38 0-19 12-38 0"/>
+  <path fill="none" stroke="#282b34" stroke-width="4" stroke-linecap="round" d="m74 148 12 3m-15 9 13-2m98-10-12 3m15 9-13-2"/>
+  <path fill="none" stroke="#fff0d2" stroke-width="5" stroke-linecap="round" d="M102 35q13-9 20-1M37 95q-6 8 0 14"/>
+</svg>

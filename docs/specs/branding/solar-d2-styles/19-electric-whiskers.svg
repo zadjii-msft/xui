@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Electric whiskers</title>
+  <desc id="desc">A lion drawn as continuous luminous neon tubes, with circular ears, open oval eyes and a double-loop muzzle. Six outlined rainbow tubes form the upper fan, leaving the curved chin clear.</desc>
+  <g id="mane" fill="none" stroke-linejoin="round">
+    <g id="segment-1" stroke="#ff587d"><path stroke-width="9" d="M85 160Q50 166 20 121Q14 111 27 112L84 131Z"/><path stroke="#ffcedb" stroke-width="2" d="M85 160Q50 166 20 121Q14 111 27 112L84 131Z"/></g>
+    <g id="segment-2" stroke="#ff9951"><path stroke-width="9" d="M91 122 29 76Q20 70 28 61L49 41Q55 36 61 46L110 113Z"/><path stroke="#ffe0b0" stroke-width="2" d="M91 122 29 76Q20 70 28 61L49 41Q55 36 61 46L110 113Z"/></g>
+    <g id="segment-3" stroke="#ffe04e"><path stroke-width="9" d="M115 101 81 36Q76 24 90 22L111 19Q121 17 121 29V100Z"/><path stroke="#fff8c6" stroke-width="2" d="M115 101 81 36Q76 24 90 22L111 19Q121 17 121 29V100Z"/></g>
+    <g id="segment-4" stroke="#57fca6"><path stroke-width="9" d="M141 101 175 36Q180 24 166 22L145 19Q135 17 135 29V100Z"/><path stroke="#d1ffe4" stroke-width="2" d="M141 101 175 36Q180 24 166 22L145 19Q135 17 135 29V100Z"/></g>
+    <g id="segment-5" stroke="#50caff"><path stroke-width="9" d="M165 122 227 76Q236 70 228 61L207 41Q201 36 195 46L146 113Z"/><path stroke="#c7efff" stroke-width="2" d="M165 122 227 76Q236 70 228 61L207 41Q201 36 195 46L146 113Z"/></g>
+    <g id="segment-6" stroke="#b78aff"><path stroke-width="9" d="M171 160Q206 166 236 121Q242 111 229 112L172 131Z"/><path stroke="#eddbff" stroke-width="2" d="M171 160Q206 166 236 121Q242 111 229 112L172 131Z"/></g>
+  </g>
+  <g id="face" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#201a39" stroke="#b89aff" stroke-width="6" d="M79 124C46 115 53 79 73 85Q87 88 90 104Q128 83 166 104C171 71 210 83 201 109Q198 120 177 124L177 181Q174 218 128 235 82 218 79 181Z"/>
+    <path stroke="#6dcfff" stroke-width="3" d="M68 108Q59 93 75 96M181 96Q197 93 188 108M89 172V186Q96 216 128 226 160 216 167 186V172"/>
+    <path stroke="#f7d266" stroke-width="6" d="M106 126C90 112 85 147 101 150S119 140 106 126ZM150 126C166 112 171 147 155 150S137 140 150 126Z"/>
+    <path stroke="#fff7c6" stroke-width="3" d="M102 132V140M154 132V140"/>
+    <path stroke="#ff96c8" stroke-width="5" d="M127 173C101 150 84 169 94 186S125 196 128 181C131 196 152 203 162 186S155 150 129 173ZM115 163H141L128 175Z"/>
+    <path stroke="#ffd4e8" stroke-width="3" d="M112 208Q128 217 144 208M91 171 69 166M90 182 66 184M165 171 187 166M166 182 190 184"/>
+  </g>
+</svg>

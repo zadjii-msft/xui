@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="g30-title g30-desc">
+  <title id="g30-title">G30 — Minimal kawaii</title>
+  <desc id="g30-desc">A radically reduced front-facing lion with tiny close-set features, oversized cream cushion cheeks, and a small exposed chin. Six unoutlined solid Enamel colors meet in a clean cloud crown.</desc>
+  <g id="mane">
+    <g id="segment-1"><path fill="#ED6B79" stroke="#ED6B79" stroke-width="0.8" d="M128 141 24 115C12 128 18 147 28 154 22 176 40 187 61 180 84 192 112 166 128 141Z"/></g>
+    <g id="segment-2"><path fill="#F1A355" stroke="#F1A355" stroke-width="0.8" d="M128 141 55 47C35 36 25 55 32 77 13 84 15 103 24 115Z"/></g>
+    <g id="segment-3"><path fill="#F0D260" stroke="#F0D260" stroke-width="0.8" d="M128 141V20C115 12 102 18 94 25 73 14 52 28 55 47Z"/></g>
+    <g id="segment-4"><path fill="#75BA94" stroke="#75BA94" stroke-width="0.8" d="M128 141 201 47C204 28 183 14 162 25 154 18 141 12 128 20Z"/></g>
+    <g id="segment-5"><path fill="#75AED7" stroke="#75AED7" stroke-width="0.8" d="M128 141 232 115C241 103 243 84 224 77 231 55 221 36 201 47Z"/></g>
+    <g id="segment-6"><path fill="#AB8AC9" stroke="#AB8AC9" stroke-width="0.8" d="M128 141C144 166 172 192 195 180 216 187 234 176 228 154 238 147 244 128 232 115Z"/></g>
+  </g>
+  <g id="face">
+    <path fill="#DDAE75" d="M86 121C57 129 51 101 70 98 84 96 89 109 86 121ZM170 121C199 129 205 101 186 98 172 96 167 109 170 121Z"/>
+    <path fill="#F8D9A5" d="M128 99C102 99 91 109 87 131 86 143 74 148 67 164 55 194 78 218 103 220 116 236 140 236 153 220 178 218 201 194 189 164 182 148 170 143 169 131 165 109 154 99 128 99Z"/>
+    <path fill="#FFF0D4" d="M128 180C114 160 96 151 80 162 62 175 71 207 96 210 109 212 120 205 128 196 136 205 147 212 160 210 185 207 194 175 176 162 160 151 142 160 128 180Z"/>
+    <g fill="#65515B"><ellipse cx="115" cy="151" rx="2.7" ry="4"/><ellipse cx="141" cy="151" rx="2.7" ry="4"/><path d="M124 165Q128 162 132 165L128 169Z"/></g>
+    <path fill="none" stroke="#65515B" stroke-width="1.8" stroke-linecap="round" d="M128 170V174Q124 178 122 174M128 174Q132 178 134 174"/>
+    <ellipse cx="97" cy="165" rx="9" ry="4.5" fill="#ECB2A1"/><ellipse cx="159" cy="165" rx="9" ry="4.5" fill="#ECB2A1"/>
+  </g>
+</svg>

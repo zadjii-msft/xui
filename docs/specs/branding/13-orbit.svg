@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="lion-13-title lion-13-desc">
+  <title id="lion-13-title">Orbit lion head</title>
+  <desc id="lion-13-desc">A front-facing lion head. A circular mane surrounds a small pear-shaped face. Round ears, dot eyes, and a single broad muzzle keep the head compact.</desc>
+<circle cx="128" cy="128" r="109" fill="#C75D3A"/>
+  <path d="M128 29v23M37 124h20m142 0h20M71 198l14-17m100 17-14-17" fill="none" stroke="#8D3926" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="85" cy="84" r="22" fill="#F5C882"/>
+  <circle cx="171" cy="84" r="22" fill="#F5C882"/>
+  <circle cx="85" cy="84" r="10" fill="#8D3926"/>
+  <circle cx="171" cy="84" r="10" fill="#8D3926"/>
+  <path d="M128 64c32 0 44 26 39 55l13 34c7 34-19 51-52 51s-59-17-52-51l13-34c-5-29 7-55 39-55Z" fill="#F5C882"/>
+  <circle cx="106" cy="122" r="5" fill="#392921"/>
+  <circle cx="150" cy="122" r="5" fill="#392921"/>
+  <rect x="91" y="143" width="74" height="36" rx="18" fill="#FFF0CE"/>
+  <path d="M116 141h24l-12 13Z" fill="#392921"/>
+  <path d="M128 153v13m-11 0q11 9 22 0" fill="none" stroke="#392921" stroke-width="5" stroke-linecap="round"/>
+</svg>

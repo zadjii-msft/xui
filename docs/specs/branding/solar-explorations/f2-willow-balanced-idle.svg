@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Solar Willow / Balanced - Idle</title>
+  <desc id="desc">A front-facing lion with the Solar expression, a balanced face, and six willow mane segments above and beside the face. The chin remains clear. Slate palette.</desc>
+  <g>
+    <g id="mane">
+      <path d="M16 112C44 114 67 123 88 142L103 167C67 181 35 156 37 139Q23 133 16 112Z" fill="#64748B" id="segment-1" />
+      <path d="M32 45C65 47 92 75 102 112L91 132C67 119 44 94 48 73Q34 65 32 45Z" fill="#64748B" id="segment-2" />
+      <path d="M80 14C112 30 123 54 124 103L111 104C93 82 76 59 86 43Q76 27 80 14Z" fill="#64748B" id="segment-3" />
+      <path d="M80 14C112 30 123 54 124 103L111 104C93 82 76 59 86 43Q76 27 80 14Z" fill="#64748B" id="segment-4" transform="translate(256 0) scale(-1 1)" />
+      <path d="M32 45C65 47 92 75 102 112L91 132C67 119 44 94 48 73Q34 65 32 45Z" fill="#64748B" id="segment-5" transform="translate(256 0) scale(-1 1)" />
+      <path d="M16 112C44 114 67 123 88 142L103 167C67 181 35 156 37 139Q23 133 16 112Z" fill="#64748B" id="segment-6" transform="translate(256 0) scale(-1 1)" />
+    </g>
+    <g id="face" transform="translate(128 144) scale(0.84 0.84) translate(-128 -132)">
+      <path fill="#94A3B8" d="M64 93C45 72 65 53 85 69L128 57l43 12c20-16 40 3 21 24l-11 66-53 48-53-48Z" />
+      <path fill="#D4DCE5" d="M87 78q41-20 82 0l8 54q0 45-49 65-49-20-49-65Z" />
+      <path fill="#475569" d="M65 77q10-6 18 3l-8 14Zm126 0q-10-6-18 3l8 14Z" />
+      <path fill="none" stroke="#243246" stroke-width="8" stroke-linecap="round" d="m91 112 15 3m44 0 15-3" />
+      <path fill="#F1F5F9" d="M128 143c-32-23-56 15-29 29 13 7 22 0 29-4 7 4 16 11 29 4 27-14 3-52-29-29Z" />
+      <path fill="#243246" d="M114 139q14-7 28 0l-14 15Z" />
+      <path fill="none" stroke="#243246" stroke-width="5" stroke-linecap="round" d="M128 151v12m-17 1q17 15 34 0" />
+    </g>
+  </g>
+</svg>

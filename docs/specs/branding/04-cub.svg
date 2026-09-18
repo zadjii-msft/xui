@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Little roar lion</title>
+  <desc id="desc">A friendly front-facing lion cub with a scalloped orange mane, round eyes, and a cream muzzle.</desc>
+  <path fill="#DC7748" stroke="#663E35" stroke-width="6" stroke-linejoin="round" d="M128 27c21-17 46-4 49 15 25-5 46 15 41 40 24 9 30 40 12 58 12 25-3 48-27 53-2 25-30 37-50 26-14 20-36 20-50 0-20 11-48-1-50-26-24-5-39-28-27-53C8 122 14 91 38 82c-5-25 16-45 41-40 3-19 28-32 49-15Z"/>
+  <g stroke="#663E35" stroke-width="6">
+    <circle cx="74" cy="86" r="22" fill="#F8C977"/>
+    <circle cx="182" cy="86" r="22" fill="#F8C977"/>
+    <path fill="#F8C977" d="M128 68c43 0 62 28 62 66 0 44-25 66-62 66s-62-22-62-66c0-38 19-66 62-66Z"/>
+  </g>
+  <path fill="#E8A364" d="M65 84q9-9 18 2l-10 13Zm126 0q-9-9-18 2l10 13Z"/>
+  <path fill="#FFE8AF" d="M128 145c-31-24-58 4-38 24 11 11 26 8 38 3 12 5 27 8 38-3 20-20-7-48-38-24Z"/>
+  <g fill="#493A36">
+    <ellipse cx="99" cy="125" rx="8" ry="11"/>
+    <ellipse cx="157" cy="125" rx="8" ry="11"/>
+    <path d="M116 144q12-6 24 0 1 10-12 15-13-5-12-15Z"/>
+  </g>
+  <g fill="#FFF5DD"><circle cx="101" cy="121" r="3"/><circle cx="159" cy="121" r="3"/></g>
+  <g fill="#EC987C"><ellipse cx="83" cy="146" rx="10" ry="5"/><ellipse cx="173" cy="146" rx="10" ry="5"/></g>
+  <path fill="none" stroke="#663E35" stroke-width="4" stroke-linecap="round" d="M128 157v10m-13-1q13 14 26 0"/>
+  <path fill="#F8C977" d="m115 72 4-20 9 14 14-12-3 23Z"/>
+</svg>
