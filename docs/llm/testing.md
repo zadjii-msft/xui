@@ -109,6 +109,13 @@ These ARM64 checks passed without foreground activation. They do not exercise an
 The fixture also covers popup-host replacement, empty results, native editor identity, and nested-popup retirement.
 Closed and foreign hosts remain invalid replacement targets.
 
+On September 18, 2026, the packaged terminal palette exposed a missing mounted-popup ownership path.
+The parent compositor fixture reproduced the rejection after successful static-overlay captures.
+The correction passed the compositor, popup-input, content-host, content-inspection, and ABI-feature fixtures on ARM64.
+The compositor checks included repeated and empty results over both direct and nested live producers.
+The content-host fixture only attempts editor focus and pointer capture when its owner is already active.
+Background runs do not prove those active-input paths.
+
 Native file dialogs have core, native Shell, XUI window, C ABI, and managed fixtures.
 `tests\file_dialog_test_probe.hpp` finds only current-thread dialogs owned by the exact fixture window.
 It records callback errors without throwing through a native timer.

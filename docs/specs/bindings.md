@@ -118,6 +118,8 @@ Replacement does not take foreground activation.
 A host can also belong to an open popup in the same window.
 Show the popup before committing or clearing its host content.
 Closed and foreign popup hosts are not valid replacement targets.
+Dispose a committed popup `ContentUpdate` before dismissing the popup.
+To keep results for reopening, retain the scope until replacement or window closure.
 Replacement preserves native controls outside the host, including the popup search editor.
 It dismisses nested popups whose anchors belong to the retired content.
 Content inspection, pointer picking, and highlight registration remain unsupported inside popup hosts.
