@@ -13,6 +13,7 @@
 #include "xui/swap_chain_panel.hpp"
 #include "xui/xui_swap_chain.h"
 #include "xui/styling.hpp"
+#include "xui/reveal.hpp"
 #include "abi_callbacks.hpp"
 #include <bit>
 #include <atomic>
@@ -103,6 +104,7 @@ struct State {
     std::vector<xui_handle> handles;
     bool running{}, used{}, closed{};
     bool file_dialog_active{};
+    bool tab_drag_dispatching{};
     unsigned callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
@@ -615,6 +617,132 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
         if (child) child->attached = true;
     });
 }
+namespace { constexpr uint32_t reveal_kind = 106; }
+xui_status XUI_CALL xui_expander_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_EXPANDER);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Invalid expander duration.");
+        as<xui::Expander>(node).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_expander_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::Expander>(get(target, XUI_EXPANDER)).duration();
+    });
+}
+xui_status XUI_CALL xui_expander_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::Expander>(get(target, XUI_EXPANDER)).progress();
+    });
+}
+xui_status XUI_CALL xui_expander_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::Expander>(get(target, XUI_EXPANDER)).animating() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_split_view_set_transition_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_SPLIT_VIEW);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Invalid split transition duration.");
+        as<xui::SplitView>(node).set_transition_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_split_view_get_transition_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).transition_duration();
+    });
+}
+xui_status XUI_CALL xui_split_view_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).progress();
+    });
+}
+xui_status XUI_CALL xui_split_view_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::SplitView>(get(target, XUI_SPLIT_VIEW)).animating() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_reveal_create(xui_handle window, xui_handle content, xui_string name, xui_handle* result) noexcept {
+    return boundary([&] {
+        require(result, XUI_INVALID_ARGUMENT, "Missing output handle."); *result = 0;
+        auto n = get(window, XUI_WINDOW); topology(n->owner);
+        auto child = get(content); same(n, child); content_topology(child);
+        require(child->element && !child->attached, XUI_INVALID_ARGUMENT, "Content must be an unattached element.");
+        auto element = std::make_shared<xui::Reveal>(child->element, decode(name));
+        *result = insert(n->owner, reveal_kind, std::move(element));
+        child->attached = true;
+    });
+}
+xui_status XUI_CALL xui_reveal_set_open(xui_handle target, uint32_t open) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(open <= 1, XUI_INVALID_ARGUMENT, "Open must be zero or one.");
+        as<xui::Reveal>(n).set_open(open != 0);
+    });
+}
+xui_status XUI_CALL xui_reveal_get_open(xui_handle target, uint32_t* open) noexcept {
+    return boundary([&] {
+        require(open, XUI_INVALID_ARGUMENT, "Missing open output.");
+        *open = as<xui::Reveal>(get(target, reveal_kind)).open() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_reveal_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Duration must be between 0 and 10000 milliseconds.");
+        as<xui::Reveal>(n).set_duration(milliseconds);
+    });
+}
+xui_status XUI_CALL xui_reveal_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
+    return boundary([&] {
+        require(milliseconds, XUI_INVALID_ARGUMENT, "Missing duration output.");
+        *milliseconds = as<xui::Reveal>(get(target, reveal_kind)).duration();
+    });
+}
+xui_status XUI_CALL xui_reveal_set_layout(xui_handle target, uint32_t layout) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(layout <= XUI_REVEAL_LAYOUT_EXPAND, XUI_INVALID_ARGUMENT, "Invalid Reveal layout.");
+        as<xui::Reveal>(n).set_layout(static_cast<xui::RevealLayout>(layout));
+    });
+}
+xui_status XUI_CALL xui_reveal_get_layout(xui_handle target, uint32_t* layout) noexcept {
+    return boundary([&] {
+        require(layout, XUI_INVALID_ARGUMENT, "Missing layout output.");
+        *layout = static_cast<uint32_t>(as<xui::Reveal>(get(target, reveal_kind)).layout());
+    });
+}
+xui_status XUI_CALL xui_reveal_set_direction(xui_handle target, uint32_t direction) noexcept {
+    return boundary([&] {
+        auto n = get(target, reveal_kind); editable(n->owner);
+        require(direction <= XUI_REVEAL_DIRECTION_RIGHT, XUI_INVALID_ARGUMENT, "Invalid Reveal direction.");
+        as<xui::Reveal>(n).set_direction(static_cast<xui::RevealDirection>(direction));
+    });
+}
+xui_status XUI_CALL xui_reveal_get_direction(xui_handle target, uint32_t* direction) noexcept {
+    return boundary([&] {
+        require(direction, XUI_INVALID_ARGUMENT, "Missing direction output.");
+        *direction = static_cast<uint32_t>(as<xui::Reveal>(get(target, reveal_kind)).direction());
+    });
+}
+xui_status XUI_CALL xui_reveal_get_progress(xui_handle target, float* progress) noexcept {
+    return boundary([&] {
+        require(progress, XUI_INVALID_ARGUMENT, "Missing progress output.");
+        *progress = as<xui::Reveal>(get(target, reveal_kind)).progress();
+    });
+}
+xui_status XUI_CALL xui_reveal_get_animating(xui_handle target, uint32_t* animating) noexcept {
+    return boundary([&] {
+        require(animating, XUI_INVALID_ARGUMENT, "Missing animation output.");
+        *animating = as<xui::Reveal>(get(target, reveal_kind)).animating() ? 1u : 0u;
+    });
+}
 xui_status XUI_CALL xui_stack_add(xui_handle stack, xui_handle child, float flex) noexcept {
     return boundary([&] {
         auto n = get(stack, XUI_STACK); auto c = get(child); same(n, c); content_topology(n);
@@ -809,6 +937,7 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
+#include "c_api_navigation_animation.inc"
 #include "c_api_text.inc"
 #include "c_api_document_editing.inc"
 
@@ -1341,3 +1470,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 #include "c_api_content.inc"
 #include "c_api_file_dialog.inc"
 #include "c_api_swap_chain.inc"
+#include "c_api_window_drag.inc"

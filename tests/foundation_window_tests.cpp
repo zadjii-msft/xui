@@ -53,8 +53,8 @@ struct WindowTrace {
             }
             std::cerr << "Host=" << hwnd << " visible=" << IsWindowVisible(hwnd) << " iconic=" << IsIconic(hwnd)
                 << " paints=" << SendMessageW(hwnd, metrics, 0, 0) << " layouts=" << SendMessageW(hwnd, metrics, 2, 0)
-                << " tooltip=" << SendMessageW(hwnd, metrics, 25, 0) << " animation=" << SendMessageW(hwnd, metrics, 33, 0)
-                << " frames=" << SendMessageW(hwnd, metrics, 34, 0) << '\n';
+                << " tooltip=" << SendMessageW(hwnd, metrics, 25, 0) << " animation=" << SendMessageW(hwnd, metrics, 37, 0)
+                << " frames=" << SendMessageW(hwnd, metrics, 38, 0) << '\n';
             const auto first = trace.count > 40 ? trace.count - 40 : 0;
             for (auto i = first; i < trace.count; ++i) {
                 const auto event = trace.events[i % trace.events.size()];
@@ -201,39 +201,39 @@ void run_window(ThemeMode theme, UINT dpi) {
         BOOL animation{};
         require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) != FALSE, "Read system animation policy");
         flush(hwnd);
-        require(bool(SendMessageW(hwnd, metrics, 33, 0)) == bool(animation), "Ring scheduler follows system reduced animation policy");
-        const auto frames = SendMessageW(hwnd, metrics, 34, 0);
-        Sleep(30); SendMessageW(hwnd, WM_TIMER, 43, 0); UpdateWindow(hwnd);
-        require(SendMessageW(hwnd, metrics, 34, 0) == frames + (animation ? 1 : 0),
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Ring scheduler follows system reduced animation policy");
+        const auto frames = SendMessageW(hwnd, metrics, 38, 0);
+        Sleep(30); SendMessageW(hwnd, WM_TIMER, 44, 0); UpdateWindow(hwnd);
+        require(SendMessageW(hwnd, metrics, 38, 0) == frames + (animation ? 1 : 0),
             "Visible ring advances only when system animation is enabled");
         ring->set_visible(false);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Hiding the last active ring immediately stops its timer");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Hiding the last active ring immediately stops its timer");
         ring->set_visible(true); flush(hwnd);
         ring->set_enabled(false);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Disabling a ring immediately stops its timer");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabling a ring immediately stops its timer");
         ring->set_enabled(true); flush(hwnd);
         ring->set_state(ProgressState::paused);
         auto transient_ring = std::make_shared<ProgressRing>(L"Transient ring");
         auto ring_popup = std::make_shared<Popup>(transient_ring);
         window.show_popup(ring_popup, *toggle_switch); flush(hwnd);
-        require(bool(SendMessageW(hwnd, metrics, 33, 0)) == bool(animation), "Attached popup ring participates in animation");
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Attached popup ring participates in animation");
         ring_popup->set_enabled(false); flush(hwnd);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Disabled ring ancestor stops animation");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabled ring ancestor stops animation");
         window.dismiss_popup(*ring_popup); flush(hwnd);
         transient_ring->set_value(10);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Detached retained rings have no scheduled animation");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Detached retained rings have no scheduled animation");
         ring->set_state(ProgressState::indeterminate); flush(hwnd);
         ShowWindow(hwnd, SW_HIDE);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Hidden owner stops progress animation");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Hidden owner stops progress animation");
         ShowWindow(hwnd, SW_SHOWNOACTIVATE); flush(hwnd);
         EnableWindow(hwnd, FALSE);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Disabled owner stops progress animation");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Disabled owner stops progress animation");
         EnableWindow(hwnd, TRUE); flush(hwnd);
         ShowWindow(hwnd, SW_MINIMIZE);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Minimized owner stops progress animation");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Minimized owner stops progress animation");
         ShowWindow(hwnd, SW_SHOWNOACTIVATE); flush(hwnd);
         ring->set_state(ProgressState::paused);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Paused ring has no timer");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Paused ring has no timer");
         ring->set_state(ProgressState::determinate); ring->set_value(50); flush(hwnd);
         const auto radio_hwnd = native(hwnd, L"Radio"), range_hwnd = native(hwnd, L"Range");
         require(window.focus(*radio), "Radio receives keyboard focus");
@@ -355,12 +355,12 @@ void run_window(ThemeMode theme, UINT dpi) {
         SendMessageW(repeat_hwnd, WM_TIMER, 42, 0);
         require(repeat_count == 2, "Release has no extra repeat");
         progress->set_state(ProgressState::indeterminate); flush(hwnd);
-        require(bool(SendMessageW(hwnd, metrics, 33, 0)) == bool(animation), "Linear indeterminate uses the same owned timer");
+        require(bool(SendMessageW(hwnd, metrics, 37, 0)) == bool(animation), "Linear indeterminate uses the same owned timer");
         progress->set_state(ProgressState::unknown); flush(hwnd);
-        require(!SendMessageW(hwnd, metrics, 33, 0), "Unknown progress and rings remain static");
-        const auto idle_frames = SendMessageW(hwnd, metrics, 34, 0);
-        SendMessageW(hwnd, WM_TIMER, 43, 0);
-        require(SendMessageW(hwnd, metrics, 34, 0) == idle_frames, "Late timer delivery cannot advance static progress");
+        require(!SendMessageW(hwnd, metrics, 37, 0), "Unknown progress and rings remain static");
+        const auto idle_frames = SendMessageW(hwnd, metrics, 38, 0);
+        SendMessageW(hwnd, WM_TIMER, 44, 0);
+        require(SendMessageW(hwnd, metrics, 38, 0) == idle_frames, "Late timer delivery cannot advance static progress");
         SendMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0);
         // A recreated target can itself be lost before presentation. Check recovery on subsequent frames.
         for (int attempt = 0; attempt < 3 && Drawing::live_targets() != 1; ++attempt) {
@@ -473,8 +473,8 @@ void automation(HWND hwnd, ThemeMode theme, UINT dpi) {
                 "Unknown ring does not expose a fabricated range value");
             require(settle(hwnd), "UIA action queue settles before measuring idle paints");
             SendMessageW(hwnd, trace_message, 2, 0);
-            require(!SendMessageW(hwnd, metrics, 33, 0), "Static controls have no animation timer during UIA idle");
-            const auto idle_frames = SendMessageW(hwnd, metrics, 34, 0);
+            require(!SendMessageW(hwnd, metrics, 37, 0), "Static controls have no animation timer during UIA idle");
+            const auto idle_frames = SendMessageW(hwnd, metrics, 38, 0);
             const auto settled = SendMessageW(hwnd, metrics, 0, 0);
             Sleep(250);
             const auto idle = SendMessageW(hwnd, metrics, 0, 0);
@@ -483,7 +483,7 @@ void automation(HWND hwnd, ThemeMode theme, UINT dpi) {
                 SendMessageW(hwnd, trace_message, 0, 0);
             }
             require(idle == settled, "Idle controls issue no paints");
-            require(SendMessageW(hwnd, metrics, 34, 0) == idle_frames, "Static controls advance no animation frames");
+            require(SendMessageW(hwnd, metrics, 38, 0) == idle_frames, "Static controls advance no animation frames");
             const auto peers = SendMessageW(hwnd, metrics, 14, 0);
             require(peers < 36 && SendMessageW(hwnd, metrics, 24, 0) == 0, "Dismissed peers are reclaimed");
             DWORD process_id{}; GetWindowThreadProcessId(hwnd, &process_id);

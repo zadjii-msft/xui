@@ -376,6 +376,7 @@ void miller_window() {
         path.push_back({L"Level " + std::to_wstring(i), source, ItemKey{1, 1}});
     columns->set_column_width(220);
     columns->set_columns(path);
+    columns->column_list(0)->set_automation_id(L"miller-parent");
     root->add(columns, 1); root->add(edit);
     window.set_content(root);
     unsigned selections{}, activations{};
@@ -389,8 +390,15 @@ void miller_window() {
     });
     bool completed{};
     std::atomic<bool> native_done{};
+    Control* pointer_key_target{};
+    unsigned pointer_keys{};
     window.on_key([&](const KeyEvent& event) {
+        if (event.key == Key::f10) {
+            require(event.target == pointer_key_target, "Column pointer focus scopes keyboard input to its native list");
+            ++pointer_keys; return true;
+        }
         if (event.key == Key::f11) {
+            require(pointer_keys == 2, "Header and whitespace focus preserve scoped keyboard dispatch");
             columns->set_columns({path.front()});
             require(columns->active_column() == 0 && !columns->column_list(7)->visible() &&
                 columns->horizontal_offset() == 0 && columns->horizontal_track().width == 0,
@@ -401,8 +409,79 @@ void miller_window() {
         if (event.key != Key::f12) return false;
         const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI Miller host contracts");
         require(hwnd != nullptr, "Find owned Miller host");
+        window.focus(*edit);
+        columns->set_columns({path.front()}); flush(hwnd);
+        columns->set_columns(path); flush(hwnd);
+        const auto appended = columns->column_list(7)->bounds();
+        require(columns->active_column() == 0 && edit->focused() &&
+            appended.x >= columns->bounds().x &&
+            appended.x + appended.width <= columns->bounds().x + columns->bounds().width &&
+            columns->horizontal_offset() == columns->maximum_horizontal(),
+            "Appending a deep path reveals the final column after native layout without stealing editor focus");
         columns->set_active_column(0); flush(hwnd);
         auto first = columns->column_list(0), second = columns->column_list(1);
+        const auto point_at = [&](float x, float y) {
+            const float scale = GetDpiForWindow(hwnd) / 96.0f;
+            return MAKELPARAM(static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)));
+        };
+        auto filtered = path;
+        for (auto& column : filtered) column.source = std::make_shared<Items>(2);
+        columns->set_columns(filtered); flush(hwnd);
+        unsigned column_focuses{};
+        second->on_focus([&] { ++column_focuses; });
+        window.focus(*edit);
+        const auto edit_hwnd = GetFocus();
+        edit->set_text(L"Find query");
+        flush(hwnd);
+        SendMessageW(edit_hwnd, EM_SETSEL, 2, 6);
+        filtered[0].source = std::make_shared<Items>(1);
+        columns->set_columns(filtered);
+        columns->set_active_column(1);
+        columns->set_column_width(221); columns->set_column_width(220);
+        columns->set_horizontal_offset(0); flush(hwnd);
+        DWORD selection_start{}, selection_end{};
+        SendMessageW(edit_hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&selection_start), reinterpret_cast<LPARAM>(&selection_end));
+        require(GetFocus() == edit_hwnd && edit->focused() && edit->text() == L"Find query" &&
+            selection_start == 2 && selection_end == 6 && !column_focuses && !selections && !activations &&
+            first->selection().contains({1, 1}) && second->selection().contains({1, 1}) && columns->columns().size() == path.size(),
+            "Filtering and property updates preserve native editor focus, text range, rows and descendants");
+        columns->set_active_column(0); flush(hwnd);
+        const auto second_header = native(hwnd, L"Level 1");
+        SendMessageW(second_header, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 12));
+        SendMessageW(second_header, WM_LBUTTONUP, 0, point_at(20, 12)); flush(hwnd);
+        const auto second_hwnd = GetFocus();
+        require(second->focused() && second_hwnd != second_header && columns->active_column() == 1 &&
+            column_focuses == 1 && second->selection().contains({1, 1}) && !selections && !activations &&
+            columns->columns().size() == path.size(),
+            "Header pointer input focuses the named native list without selecting or trimming descendants");
+        pointer_key_target = second.get();
+        PostMessageW(second_hwnd, WM_KEYDOWN, VK_F10, 0);
+        window.focus(*edit);
+        columns->set_active_column(0); flush(hwnd);
+        SendMessageW(second_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 180));
+        SendMessageW(second_hwnd, WM_LBUTTONUP, 0, point_at(20, 180)); flush(hwnd);
+        require(GetFocus() == second_hwnd && second->focused() && columns->active_column() == 1 &&
+            column_focuses == 2 && second->selection().contains({1, 1}) && !selections && !activations &&
+            columns->columns().size() == path.size(),
+            "Empty body pointer input focuses its list without changing row selection or descendants");
+        PostMessageW(second_hwnd, WM_KEYDOWN, VK_F10, 0);
+        window.focus(*edit);
+        filtered[1] = {L"Empty column", {}, {}};
+        columns->set_columns(filtered); flush(hwnd);
+        require(GetFocus() == edit_hwnd && column_focuses == 2, "An empty filter result does not steal Find focus");
+        SendMessageW(second_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 12));
+        SendMessageW(second_hwnd, WM_LBUTTONUP, 0, point_at(20, 12)); flush(hwnd);
+        require(GetFocus() == second_hwnd && second->selection().empty() && column_focuses == 3 &&
+            !selections && !activations && columns->columns().size() == path.size(),
+            "A column with no rows still accepts focus without row events");
+        window.focus(*edit);
+        columns->set_enabled(false); flush(hwnd);
+        SendMessageW(second_header, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 12));
+        SendMessageW(second_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 12));
+        require(GetFocus() == edit_hwnd && column_focuses == 3, "Disabled headers and empty lists reject pointer focus");
+        columns->set_enabled(true);
+        second->on_focus({});
+        columns->set_columns(path); columns->set_active_column(0); flush(hwnd);
         window.focus(*edit);
         first->step(1);
         require(edit->focused() && !first->focused() && selections == 1 && !activations,
@@ -410,6 +489,18 @@ void miller_window() {
         window.focus(*first); flush(hwnd);
         auto first_hwnd = GetFocus();
         require(first->focused() && first_hwnd, "First Miller list receives native focus");
+        SendMessageW(first_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point_at(20, 52));
+        SendMessageW(first_hwnd, WM_LBUTTONUP, 0, point_at(20, 52));
+        require(first->selection().contains({2, 1}) && selections == 1 && !activations,
+            "Clicking an existing selected row retains ordinary row selection without activation");
+        const auto vertical_viewport = first->content_viewport();
+        const auto vertical_track = point_at(vertical_viewport.x + vertical_viewport.width + 2,
+            vertical_viewport.y + vertical_viewport.height - 1);
+        SendMessageW(first_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, vertical_track);
+        SendMessageW(first_hwnd, WM_LBUTTONUP, 0, vertical_track);
+        require(first->offset() > 0 && first->selection().contains({2, 1}) && selections == 1 && !activations,
+            "Vertical scrollbar clicks retain native paging without changing row selection");
+        first->set_offset(0); flush(hwnd);
         SendMessageW(first_hwnd, WM_KEYDOWN, VK_RIGHT, 0); flush(hwnd);
         require(columns->active_column() == 1 && second->focused(),
             "C++ host wires Right to native focus in the next column");
@@ -422,6 +513,11 @@ void miller_window() {
         SendMessageW(first_hwnd, WM_CONTEXTMENU, reinterpret_cast<WPARAM>(first_hwnd), MAKELPARAM(point.x, point.y));
         require(first->selection().focused() == ItemKey{1, 1} && selections == 1,
             "Context click selects its row without starting a child query");
+        columns->set_columns({path.front()}); flush(hwnd);
+        columns->set_columns(path); flush(hwnd);
+        require(first->focused() && GetFocus() == first_hwnd && columns->active_column() == 0 &&
+            columns->horizontal_offset() == columns->maximum_horizontal(),
+            "A new column stays revealed while its clipped ancestor retains native keyboard focus");
         columns->set_active_column(7); flush(hwnd);
         require(columns->column_list(7)->bounds().width > 0 &&
             columns->column_list(7)->bounds().x >= columns->bounds().x &&
@@ -443,20 +539,14 @@ void miller_window() {
         SendMessageW(last_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-120)), 0); flush(hwnd);
         require(columns->horizontal_offset() == end - 72 && last->offset() > 80,
             "Unmodified wheel input still scrolls only the pointed column vertically");
-        SendMessageW(native(hwnd, L"Next column"), WM_MOUSEHWHEEL, MAKEWPARAM(0, 30), 0); flush(hwnd);
-        require(columns->horizontal_offset() == end - 72, "Disabled navigation controls reject horizontal input");
-        SendMessageW(native(hwnd, L"Previous column"), WM_MOUSEHWHEEL, MAKEWPARAM(0, 30), 0); flush(hwnd);
-        require(columns->horizontal_offset() == end - 48, "Toolbar wheel input routes to the Miller viewport");
+        SendMessageW(native(hwnd, L"Level 7"), WM_MOUSEHWHEEL, MAKEWPARAM(0, 30), 0); flush(hwnd);
+        require(columns->horizontal_offset() == end - 48, "Header wheel input routes to the Miller viewport");
         SendMessageW(last_hwnd, WM_MOUSEHWHEEL, MAKEWPARAM(0, static_cast<WORD>(-12000)), 0); flush(hwnd);
         require(columns->horizontal_offset() == 0 && columns->active_column() == 7,
             "Wheel scrolling can hide the focused column without snapping back or changing the active column");
         window.focus(*edit);
         columns->set_horizontal_offset(0); flush(hwnd);
         const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
-        const auto point_at = [&](float x, float y) {
-            const float scale = GetDpiForWindow(hwnd) / 96.0f;
-            return MAKELPARAM(static_cast<int>(std::lround(x * scale)), static_cast<int>(std::lround(y * scale)));
-        };
         const auto start = point_at(thumb.width / 2, track.y + track.height / 2);
         const auto finish = point_at(track.width - 1, track.y + track.height / 2);
         SendMessageW(columns_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, finish); flush(hwnd);
@@ -481,6 +571,9 @@ void miller_window() {
         columns->set_enabled(true); flush(hwnd);
         miller_appearance(window, hwnd, *columns, *edit);
         require(selections == 1 && activations == 1, "Hover and separator changes dispatch no selection or activation");
+        window.focus(*first);
+        columns->set_horizontal_offset(columns->maximum_horizontal()); flush(hwnd);
+        require(first->focused(), "Manual scrolling retains focus for the offscreen accessibility checks");
         native_done = true;
         return true;
     });
@@ -501,6 +594,18 @@ void miller_window() {
                     success(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation)), "Create Miller UIA client");
                     ComPtr<IUIAutomationElement> element;
                     success(automation->ElementFromHandle(native(hwnd, L"Folders"), &element), "Read Miller automation element");
+                    auto parent = find(automation.Get(), element.Get(), L"miller-parent");
+                    BOOL offscreen{}, focused{};
+                    success(parent->get_CurrentIsOffscreen(&offscreen), "Read clipped parent visibility");
+                    success(parent->get_CurrentHasKeyboardFocus(&focused), "Read clipped parent focus");
+                    require(offscreen && focused, "A clipped parent remains focused but reports offscreen through UIA");
+                    auto selection = pattern<IUIAutomationSelectionPattern>(parent.Get(), UIA_SelectionPatternId);
+                    ComPtr<IUIAutomationElementArray> selected;
+                    success(selection->GetCurrentSelection(&selected), "Read clipped parent selection");
+                    ComPtr<IUIAutomationElement> row;
+                    success(selected->GetElement(0, &row), "Read clipped selected row");
+                    success(row->get_CurrentIsOffscreen(&offscreen), "Read clipped row visibility");
+                    require(offscreen, "Rows in a clipped parent also report offscreen through UIA");
                     ComPtr<IUIAutomationScrollPattern> scroll;
                     success(element->GetCurrentPatternAs(UIA_ScrollPatternId, IID_PPV_ARGS(&scroll)), "Miller exposes horizontal ScrollPattern");
                     BOOL horizontal{}, vertical{}; double percent{}, size{};

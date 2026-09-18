@@ -92,6 +92,9 @@ void windows(std::array<int, 3> order, bool fail) {
     if (fail) require(app.error().find(L"Independent callback failure") != std::wstring::npos, "Failure detail survives retirement");
     else require(app.error().empty(), "Successful lifecycle reports no error");
     require(closed == 3 && delivered == 3, "Every closure and final deferred action executes once");
+    if (keys[order[0]] != 0 || keys[order[1]] != 1 || keys[order[2]] != 1)
+        std::cerr << "Shortcut counts: order=" << order[0] << ',' << order[1] << ',' << order[2]
+            << " fail=" << fail << " keys=" << keys[0] << ',' << keys[1] << ',' << keys[2] << '\n';
     require(keys[order[0]] == 0 && keys[order[1]] == 1 && keys[order[2]] == 1, "No wrong-window shortcuts");
     require(!app.post([] {}), "Stopped application rejects posts");
 }

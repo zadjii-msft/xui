@@ -91,6 +91,21 @@ Ordinary topology changes remain restricted to initial construction.
 Disposing a committed update clears its content if that update remains current.
 This boundary does not isolate untrusted code or prevent native materialization failures.
 
+## Reveal
+
+`Reveal` retains one child inside a native clip.
+The default fixed layout reserves full height at entry start and releases that height after exit.
+`RevealLayout::expand` changes the reserved extent on each frame so neighboring content resizes with the reveal.
+`RevealDirection` selects bottom, top, left, or right entry.
+The duration defaults to zero, so applications select motion explicitly.
+The host follows the Windows animation preference and retains native input.
+
+The [language guide](../xui-language.md#opt-in-bottom-reveal) contains a complete `.xui` example.
+C# uses `Window.Reveal(content, name)`, with `Open`, `Duration`, `Layout`, and `Direction` properties.
+Rust uses `Window::reveal(content, name)`.
+C++ uses `xui::Reveal` from `xui/reveal.hpp`.
+The [animation contract](../animations.md) describes reversal, focus, lifetime, and performance limits.
+
 ## Grid
 
 Use `Grid` for aligned rows and columns.
@@ -569,8 +584,13 @@ root->add(split, 1);
 
 `first()` and `second()` return retained ContentView hosts.
 Narrow widths collapse the second pane.
-`on_expanded` reports an actual expansion transition.
+`on_expanded` reports logical visibility and available layout, not animation completion.
 The divider supports keyboard resizing and cancellation.
+An explicit transition duration animates secondary-pane entry and exit.
+C# uses `TransitionDuration`. C++ and Rust use `set_transition_duration`.
+The `.xui` argument is `duration`.
+The default is zero, so existing panes remain immediate.
+The [animation contract](../animations.md#split-pane-transitions) defines full-width content, reversal, and reduced motion.
 
 The style target is `split_view`.
 Pane frames, divider, and grip do not replace either ContentView.
@@ -779,6 +799,8 @@ Tab icons and drag states are not supported.
 C++ supplies `set_new_tab_button_visible` and `on_new_tab` for an optional New tab button.
 C# supplies `SetNewTabButtonVisible`; activation raises `EventKind.Action`.
 The typed Rust wrapper does not expose this new-tab configuration.
+When tabs overflow, the New tab button reserves a stationary slot at the viewport edge.
+The [opt-in tab duration](../animations.md#tab-insertion-removal-reorder-and-overflow) also animates selected-tab reveal within that viewport.
 
 ## Related contracts
 

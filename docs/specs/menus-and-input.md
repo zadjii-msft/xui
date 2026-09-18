@@ -121,6 +121,72 @@ The action callback receives the chosen command ID.
 Tab replacement or reordering invalidates pending binding actions.
 Tab menus do not accept Shell paths.
 
+### Tab dragging between windows
+
+`Window::on_tab_drag` enables pointer dragging for the two custom title-bar strips.
+The window must belong to an `Application`.
+Ordinary tab strips and windows without a handler retain their existing input behavior.
+A click still selects and activates a tab. Close and New tab buttons do not start a drag.
+The system drag threshold separates clicks from drags.
+
+One native Windows move-size loop handles each gesture.
+Within the source strip, `reorder` requests a new position while the window stays stationary.
+Outside that strip, `tear_out` asks the application to separate the dragged tab.
+Until an accepted `join`, the dragged tab stays on the original HWND, in the same strip, with the same identity.
+The application creates another window for the remaining models and content.
+Before `Application::show`, remainder windows must call `set_show_activated(false)` or use `WindowOptions::show_activated = false`.
+Otherwise, the new window can take activation from the native move loop.
+During a gesture, the framework inserts nonactivated same-application windows immediately below the moving HWND in the Z-order.
+This avoids a second move loop or synthetic mouse input.
+
+`query_drop` asks whether a visible strip can receive the tab.
+It must not change tab data.
+An accepted target shows an insertion marker.
+Targets must belong to the same application and UI thread, with their own drag handler.
+Hidden, disabled, minimized, modal, and occluded windows do not receive tabs.
+
+With full-window dragging, `join` requests a temporary model transfer into the hovered destination.
+Before an external `join`, `tear_out` preserves the original HWND and creates the remainder workspace when necessary.
+An accepted `join` presents the tab in the destination while the original window retains the native move loop.
+The native loop hides or shows the original window through supported window-position flags.
+Repeated `join` requests to the same destination can reorder the hosted tab.
+A handler that ignores or rejects `join` retains release-only `drop` behavior.
+Outline-only window dragging also retains the release-only fallback.
+
+Before retargeting or cancellation, `leave` asks the application to return the hosted tab to the initiating strip.
+A true result means that the tab is back in its initiating strip, with its original identity.
+On release while joined, `drop` commits the existing hosted transfer instead of transferring the tab a second time.
+Without an accepted `join`, `drop` requests a transfer on pointer release.
+
+Each event contains the source strip, tab identity, target window, target strip, and insertion index.
+Callbacks always run on the initiating window.
+The source strip and tab identity remain fixed throughout the gesture, even while another window hosts the tab.
+For joined events, the target fields identify that destination.
+Strip zero is the primary strip. Strip one is the secondary strip.
+The index identifies a slot before removal from the source.
+For example, an index equal to the target count appends the tab.
+Handlers return true after acceptance of a request.
+A rejected release-only drop leaves the detached window open.
+
+`cancel` reports Escape or cancellation of the native move operation.
+For a joined tab, `leave` precedes `cancel`.
+The application restores its saved model state.
+`completed` follows the move loop, including a joined `drop` commit, and releases application drag state.
+Applications retain every participating window and control tree until `completed`, including an empty initiating window.
+Model transfers never reparent native controls.
+Window closure stops later callbacks.
+Callback exceptions use the existing window error and application error paths.
+Native controls never move between window owners.
+
+`Window::placement` and `set_placement` use outer screen bounds in physical pixels.
+Negative coordinates support monitors left of or above the primary monitor.
+The placement also contains the maximized state and restored bounds.
+A window accepts placement before its first show.
+During the initial drag, the source placement remains the pre-drag placement for the remainder window.
+The [C# explorer](file-explorers.md) supplies model transfer, cancellation, and multiwindow lifetime management.
+
+### Tab appearance and actions
+
 Classic and WinUI tabs have rounded top corners and an open selected bottom edge.
 Inactive tabs share a continuous strip instead of separate button outlines. The close button highlights under the pointer.
 The row inherits its parent background, including unused space after the last tab.
@@ -150,6 +216,14 @@ Native children and custom pixels stay inside their content host.
 The horizontal resize cursor applies only to an enabled, expanded divider or its active drag.
 Pane controls keep their own cursors, including the native text editor's I-beam.
 Capture loss, cancellation, deactivation, and DPI changes cancel a divider drag.
+
+`SplitView::set_primary_visible(false)` removes the primary pane without replacing either content tree.
+If the secondary pane is enabled, it receives the full pane area, including in a narrow window.
+`expanded()` still reports secondary-pane visibility.
+The divider has no width and does not accept focus or input.
+Restoring the primary pane restores the saved ratio and normal responsive layout.
+C# exposes this state as `SplitView.FirstVisible`.
+The explorer uses it to keep a detached secondary tab full-width during the native move loop.
 
 ### Tab icons
 

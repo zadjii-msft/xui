@@ -4,6 +4,8 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
+internal enum ExplorerSmokeMode { Full, ViewEntry, PaneAnimation, Hover }
+
 internal static class ExplorerSmoke
 {
     [DllImport("user32.dll", ExactSpelling = true)]
@@ -29,9 +31,15 @@ internal static class ExplorerSmoke
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool IsWindowEnabled(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool SystemParametersInfoW(uint action, uint parameter, out int value, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
     private static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool GetWindowRect(nint window, out NativeRect rectangle);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern bool OpenClipboard(nint window);
     [DllImport("user32.dll", ExactSpelling = true)]
@@ -46,6 +54,8 @@ internal static class ExplorerSmoke
     private static extern int GetWindowTextW(nint window, System.Text.StringBuilder text, int capacity);
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
 
     private static void CheckCommandSnapshot()
     {
@@ -82,7 +92,7 @@ internal static class ExplorerSmoke
             throw new InvalidOperationException("A tab click must focus the file pane, not the tab strip.");
     }
 
-    public static Task Start(ExplorerApplication app)
+    public static Task Start(ExplorerApplication app, ExplorerSmokeMode mode = ExplorerSmokeMode.Full)
     {
         return Run();
         async Task Run()
@@ -96,6 +106,28 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                if (mode == ExplorerSmokeMode.ViewEntry)
+                {
+                    await CreateViewportFixture();
+                    await ViewEntryChecks();
+                    Console.WriteLine("Explorer view entry passed: directional movement, immediate mode ownership, retained selection/viewport/native peer, cancellation, rapid switching, and zero duration.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.PaneAnimation)
+                {
+                    await PaneAnimationChecks();
+                    Console.WriteLine("Explorer pane animation passed: intermediate layout, retained native input, immediate closure ownership, and endpoint geometry.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.Hover)
+                {
+                    await HoverJoinChecks();
+                    await Ui(app.Window.Close);
+                    Console.WriteLine("Explorer hover smoke passed: Join, hosted reorder, Leave, repeated targets, both strips, Cancel, Drop, competing gestures, and source/target closure.");
+                    return;
+                }
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
                 await Check(() => new[] { app.Sidebar.View.Items, app.Sidebar.View.HeaderItems,
                     app.Sidebar.View.FooterItems }.All(items =>
@@ -126,6 +158,8 @@ internal static class ExplorerSmoke
                 await CaptionCheck(app.Left);
                 await NavigationMenuChecks();
                 await TypeToFindChecks(app.Left);
+                await RevealChecks(app.Left);
+                await RevealChecks(app.Left, animate: false);
                 await Ui(() =>
                 {
                     app.Left.Focus();
@@ -152,14 +186,19 @@ internal static class ExplorerSmoke
                 await Check(() => app.Sidebar.View.Search.GetBounds().Y - app.Sidebar.View.GetBounds().Y == 4,
                     "Navigation has no title header");
                 await Ui(app.Sidebar.Toggle);
-                await Until(() => app.Sidebar.View.GetBounds().Width == 0);
+                await Until(() => !app.Sidebar.Presentation.Animating && app.Sidebar.Presentation.GetBounds().Width == 0);
                 await Check(() => app.Left.Root.GetBounds().X == 0 && app.Window.TitlebarTabs.GetBounds().X == 44
-                    && app.Window.TitlebarLeading.GetBounds().X == 0 && app.Sidebar.View.Search.GetBounds().Width == 0,
+                    && app.Window.TitlebarLeading.GetBounds().X == 0 && !app.Sidebar.View.Search.Focused,
                     "Hidden navigation has no rail and leaves the hamburger before the first tab");
                 await Ui(() => Shortcut(0x46, KeyModifiers.Alt));
-                await Until(() => app.Sidebar.View.GetBounds().Width > 0 && app.Sidebar.View.Search.GetBounds().Width > 0);
+                await Until(() => !app.Sidebar.Presentation.Animating && app.Sidebar.Presentation.GetBounds().Width > 0);
                 await Check(() => app.Sidebar.IsOpen && app.Window.TitlebarTabs.GetBounds().X == app.Left.Root.GetBounds().X,
                     "Alt+F restores navigation and aligned tabs");
+                await NavigationAnimationChecks();
+                await NavigationGroupChecks();
+                await PaneAnimationChecks();
+                await TabAnimationChecks();
+                await TabOverflowChecks();
                 await Ui(() => ClickFirstTab(app.Left));
                 await NewTabButtonChecks(app.Left);
 
@@ -172,6 +211,7 @@ internal static class ExplorerSmoke
                 });
                 await Ready(app.Left);
                 await Check(() => app.Left.VisibleCount == 1 && app.Left.Model.Active.FindOpen, "Pane-local find");
+                await Until(() => FindFits(app.Left));
                 await Check(() => FindFits(app.Left) && app.Left.FindInput.Focused
                     && app.Left.Grid.GetBounds().Height == unfilteredHeight - 56,
                     "Find reserves one complete row instead of clipping a scrolling container");
@@ -187,9 +227,11 @@ internal static class ExplorerSmoke
                 await Ui(() => Shortcut(0x09, KeyModifiers.Control | KeyModifiers.Shift));
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Filter == "small" && app.Left.VisibleCount == 1, "Restored tab filter");
+                await Until(() => FindFits(app.Left));
                 await Check(() => FindFits(app.Left) && app.Left.FindInput.Text == "small", "Restored Find has a complete input row");
                 await Ui(app.Left.CloseFindButton.Invoke);
                 await Ready(app.Left);
+                await Until(() => !app.Left.FindReveal.Animating && app.Left.FindBounds.Height == 0);
                 await Check(() => !app.Left.Model.Active.FindOpen && app.Left.FindBounds.Height == 0
                     && app.Left.VisibleCount == 4 && app.Left.Grid.GetBounds().Height == unfilteredHeight
                     && app.Left.Grid.Focused, "X clears Find, restores row space, and returns focus to the files");
@@ -307,8 +349,8 @@ internal static class ExplorerSmoke
                             throw new InvalidOperationException("Cached suggestions must update synchronously without an empty intermediate view.");
                     }
                     Shortcut(0x09);
-                    if (!app.Palettes.Pending || app.Palettes.ResultCount != 4)
-                        throw new InvalidOperationException("A new folder must keep the old rows until its scan completes.");
+                    if (!app.Palettes.Pending || app.Palettes.ResultCount != 0)
+                        throw new InvalidOperationException("A cold folder query must retire stale logical rows before its scan completes.");
                     app.Palettes.Accept(false);
                     if (!app.Palettes.IsOpen || app.Left.Model.Active.Path != fixture)
                         throw new InvalidOperationException("Pending suggestions must not activate stale rows.");
@@ -320,7 +362,14 @@ internal static class ExplorerSmoke
                     (ulong)app.Palettes.QueryText.Length), "Completion leaves the caret at the end of the path");
                 await Ui(() => Shortcut(0x25, KeyModifiers.Alt));
                 await Until(() => !app.Palettes.Pending);
-                await Check(() => app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar, "Palette history works without a Back button");
+                await Ui(() =>
+                {
+                    if (app.Palettes.QueryText != fixture + Path.DirectorySeparatorChar)
+                        throw new InvalidOperationException(
+                            $"Palette history works without a Back button: query={app.Palettes.QueryText}, " +
+                            $"expected={fixture + Path.DirectorySeparatorChar}, open={app.Palettes.IsOpen}, " +
+                            $"pending={app.Palettes.Pending}, folder={app.Left.Model.Active.Path}.");
+                });
                 await Ui(() => Shortcut(0x27, KeyModifiers.Alt));
                 await Until(() => !app.Palettes.Pending);
                 await Check(() => app.Palettes.QueryText == Path.Combine(fixture, "alpha") + Path.DirectorySeparatorChar,
@@ -402,11 +451,13 @@ internal static class ExplorerSmoke
                 await Ready(app.Right);
                 await Ui(() => { app.Right.Focus(); Shortcut(0x46, KeyModifiers.Control); app.Right.SetFilter("alpha"); });
                 await Ready(app.Right);
+                await Until(() => FindFits(app.Right) && !app.Left.FindReveal.Animating && app.Left.FindBounds.Height == 0);
                 await Check(() => FindFits(app.Right) && app.Right.VisibleCount == 1
                     && app.Left.Model.Active.Filter == "" && app.Left.FindBounds.Height == 0,
                     "Second-pane Find fits its split without changing the first pane");
                 await Ui(() => Shortcut(0x1b));
                 await Ready(app.Right);
+                await Until(() => !app.Right.FindReveal.Animating && app.Right.FindBounds.Height == 0);
                 await Check(() => !app.Right.Model.Active.FindOpen && app.Right.FindBounds.Height == 0
                     && app.Right.VisibleCount == 4 && app.Right.Grid.Focused, "Escape closes second-pane Find");
 
@@ -420,9 +471,7 @@ internal static class ExplorerSmoke
                     app.Left.Grid.SetSort(3, true);
                 });
                 await Ready(app.Left);
-                string many = Path.Combine(fixture, "many");
-                Directory.CreateDirectory(many);
-                for (int i = 0; i < 80; i++) await File.WriteAllTextAsync(Path.Combine(many, $"item-{i:D3}.txt"), "row");
+                string many = await CreateViewportFixture();
                 await Ui(() => { app.Left.Focus(); app.Left.Navigate(many); });
                 await Ready(app.Left);
                 string selectedPath = Path.Combine(many, "item-015.txt");
@@ -474,12 +523,16 @@ internal static class ExplorerSmoke
                 });
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
+                await ViewEntryChecks();
                 await ColumnsChecks();
+                await PerColumnFindChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
+                await HoverJoinChecks();
+                await TabDragChecks();
                 await TabMenuChecks(fixture);
                 await DetachedLifetimeChecks();
-                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, reversible hover joins, tear-out rollback, same-Application merge, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
@@ -488,6 +541,498 @@ internal static class ExplorerSmoke
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task HoverJoinChecks()
+            {
+                ExplorerApplication source = null!, target = null!, remainder = null!;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    source.Left.NewTab(fixture);
+                    target.Left.NewTab(fixture);
+                    source.ToggleSplit();
+                    target.ToggleSplit();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ready(source.Right);
+                await Ready(target.Right);
+                await Until(() => source.SecondPaneVisible && target.SecondPaneVisible);
+                await Ui(() => source.Right.NewTab(fixture));
+                await Ready(source.Right);
+                for (uint sourceStrip = 0; sourceStrip < 2; ++sourceStrip)
+                for (uint targetStrip = 0; targetStrip < 2; ++targetStrip)
+                {
+                    var sourcePane = sourceStrip == 0 ? source.Left : source.Right;
+                    var targetPane = targetStrip == 0 ? target.Left : target.Right;
+                    ExplorerTab[] leftOrder = [], rightOrder = [], targetOrder = [];
+                    ExplorerTab tab = null!, targetActive = null!;
+                    await Ui(() =>
+                    {
+                        leftOrder = source.Left.Model.Tabs.ToArray();
+                        rightOrder = source.Right.Model.Tabs.ToArray();
+                        tab = sourcePane.Model.Active;
+                        targetOrder = targetPane.Model.Tabs.ToArray();
+                        targetActive = targetPane.Model.Active;
+                        if (!Send(source, TabDragKind.TearOut, sourceStrip, tab.Id))
+                            throw new InvalidOperationException($"Hover tear-out failed: {source.Notification.Text}");
+                        remainder = source.DragRemainder!;
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, 0)
+                            || source.CloseRequested || sourcePane.Model.Tabs.Count != 0
+                            || targetPane.Model.Tabs[0] != tab || source.DragRemainder != remainder
+                            || !source.HasTabDrag || !target.HasTabDrag)
+                            throw new InvalidOperationException($"Hover join must retain source/remainder and move actual tab: {source.Notification.Text}");
+                        if (sourceStrip == 1 && !source.Window.TitlebarSecondaryTabs.Visible)
+                            throw new InvalidOperationException("Hosted right-strip gestures must retain secondary strip identity.");
+                        if (!Send(source, TabDragKind.QueryDrop, sourceStrip, tab.Id, target, targetStrip, 0)
+                            || Send(target, TabDragKind.QueryDrop, targetStrip, tab.Id, remainder, 0, 0))
+                            throw new InvalidOperationException("Hosted-tab preview must use its live model and reject competing gestures.");
+                        targetPane.Navigate(Path.Combine(fixture, "alpha"));
+                        var entries = tab.Entries;
+                        for (int i = 0; i < 4; ++i)
+                        {
+                            if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, i % 2)
+                                || !targetPane.IsLoading || targetPane.Model.Active != tab
+                                || !ReferenceEquals(tab.Entries, entries) || targetPane.Model.Tabs[0] != tab)
+                                throw new InvalidOperationException("Unchanged hosted insertion slots must not cancel navigation or rebuild tab content.");
+                        }
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, targetStrip, targetPane.Model.Tabs.Count)
+                            || targetPane.Model.Tabs[^1] != tab
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, target, targetStrip)
+                            || sourcePane.Model.Active != tab || target.HasTabDrag
+                            || !targetPane.Model.Tabs.SequenceEqual(targetOrder) || targetPane.Model.Active != targetActive)
+                            throw new InvalidOperationException($"Join/reorder/Leave must restore target and source strip: {source.Notification.Text}");
+                        uint otherStrip = 1 - targetStrip;
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, target, otherStrip, 0)
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, target, otherStrip))
+                            throw new InvalidOperationException("Retargeting to the other pane of the same destination must be reversible.");
+                        // Retarget the same gesture to its remainder, then return before cancellation.
+                        if (!Send(source, TabDragKind.Join, sourceStrip, tab.Id, remainder, 0, 0)
+                            || !Send(source, TabDragKind.Leave, sourceStrip, tab.Id, remainder, 0)
+                            || !Send(source, TabDragKind.Cancel, sourceStrip, tab.Id)
+                            || !Send(source, TabDragKind.Completed, sourceStrip, tab.Id)
+                            || !source.Left.Model.Tabs.SequenceEqual(leftOrder)
+                            || !source.Right.Model.Tabs.SequenceEqual(rightOrder))
+                            throw new InvalidOperationException($"Retarget/Leave/Cancel must restore both original panes: {source.Notification.Text}");
+                    });
+                    await Until(() => remainder.IsDisposed);
+                    await Ready(source.Left);
+                    await Ready(source.Right);
+                    await Ready(targetPane);
+                }
+                ExplorerTab committed = null!;
+                await Ui(() =>
+                {
+                    committed = source.Right.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 1, committed.Id))
+                        throw new InvalidOperationException("Commit fixture tear-out failed.");
+                    remainder = source.DragRemainder!;
+                    int count = target.Right.Model.Tabs.Count;
+                    if (!Send(source, TabDragKind.Join, 1, committed.Id, target, 1, count)
+                        || !Send(source, TabDragKind.Drop, 1, committed.Id, target, 1, count)
+                        || target.Right.Model.Tabs.Count != count + 1
+                        || target.Right.Model.Tabs.Count(tab => tab == committed) != 1
+                        || target.HasTabDrag || source.CloseRequested || !source.HasTabDrag)
+                        throw new InvalidOperationException($"Hosted release must commit without duplicate transfer: {source.Notification.Text}");
+                });
+                await Check(() => source.Window.State == WindowState.Open && !source.CloseRequested
+                    && remainder.Window.State == WindowState.Open,
+                    "Hosted Drop retains every participating window until Completed");
+                await Ui(() => Send(source, TabDragKind.Completed, 1, committed.Id));
+                await Until(() => source.IsDisposed);
+                await Ready(target.Right);
+                await Ui(() =>
+                {
+                    remainder.Window.Close();
+                    target.Window.Close();
+                });
+                await Until(() => remainder.IsDisposed && target.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                // Destination closure returns the hosted model to the still-live source.
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    committed = source.Left.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Closing-host fixture could not join.");
+                    target.Window.Close();
+                });
+                await Until(() => target.IsDisposed);
+                await Ready(source.Left);
+                await Check(() => source.Left.Model.Active == committed && !source.CloseRequested,
+                    "Closing a hover target returns the tab to its retained source");
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.Leave, 0, committed.Id))
+                        throw new InvalidOperationException("Leave with a null disposed target must acknowledge source recovery.");
+                    Send(source, TabDragKind.Completed, 0, committed.Id);
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Closing-source fixture could not join.");
+                    source.Window.Close();
+                });
+                await Until(() => source.IsDisposed);
+                await Ready(target.Left);
+                await Check(() => target.Left.Model.Tabs.Contains(committed) && !target.HasTabDrag,
+                    "Closing the drag initiator preserves the live hosted model and releases the target guard");
+                await Ui(target.Window.Close);
+                await Until(() => target.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                ExplorerApplication recovery = null!;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    committed = source.Left.Model.Active;
+                    if (!Send(source, TabDragKind.TearOut, 0, committed.Id)
+                        || !Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Retained-model recovery fixture could not join.");
+                    target.Left.ResetTabs(fixture);
+                    if (!Send(source, TabDragKind.Leave, 0, committed.Id, target)
+                        || source.Left.Model.Active != committed || target.HasTabDrag)
+                        throw new InvalidOperationException("Leave must recover the retained model when the destination replaced its pane.");
+                    if (!Send(source, TabDragKind.Join, 0, committed.Id, target, 0, 0))
+                        throw new InvalidOperationException("Recovery fixture could not rejoin.");
+                    while (source.Left.Model.Tabs.Count < ExplorerPane.TabLimit)
+                        source.Left.Model.AddTab(fixture);
+                    if (Send(source, TabDragKind.Leave, 0, committed.Id, target))
+                        throw new InvalidOperationException("A full original source must not claim successful Leave.");
+                    recovery = app.ExplorerWindows.Last();
+                    if (recovery == source || recovery == target || recovery.Left.Model.Active != committed
+                        || target.Left.Model.Tabs.Contains(committed) || target.HasTabDrag)
+                        throw new InvalidOperationException("An impossible rollback must preserve the actual tab in a recovery window.");
+                });
+                await Ready(recovery.Left);
+                await Ui(() =>
+                {
+                    source.Window.Close();
+                    target.Window.Close();
+                    recovery.Window.Close();
+                });
+                await Until(() => source.IsDisposed && target.IsDisposed && recovery.IsDisposed
+                    && app.ExplorerWindows.Count == 1);
+
+                static bool Send(ExplorerApplication owner, TabDragKind kind, uint strip, ulong id,
+                    ExplorerApplication? destination = null, uint targetStrip = 0, int index = 0)
+                    => owner.Window.TabDragHandler?.Invoke(new(kind, strip, id,
+                        destination?.Window, targetStrip, index)) == true;
+            }
+
+            async Task TabDragChecks()
+            {
+                ExplorerApplication source = null!, target = null!, remainder = null!, stale = null!, survivor = null!;
+                ExplorerTab[] left = [], right = [];
+                WindowPlacement placement = default;
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                    if (ReferenceEquals(source, app) || !ReferenceEquals(source.Application, app.Application))
+                        throw new InvalidOperationException("New windows must join the existing Application.");
+                    source.Window.Placement = new(110, 120, 1320, 840, false);
+                });
+                await Ready(source.Left);
+                await Ui(() => source.Left.NewTab(fixture));
+                await Ready(source.Left);
+                await Ui(() => source.ToggleSplit());
+                await Until(() => source.SecondPaneVisible);
+                await Ready(source.Right);
+                await Ui(() => source.Right.NewTab(fixture));
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    left = source.Left.Model.Tabs.ToArray();
+                    right = source.Right.Model.Tabs.ToArray();
+                    placement = source.Window.Placement;
+                    if (!Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 0, left.Length)
+                        || source.Left.Model.Tabs[^1] != left[0]
+                        || !Drag(source, TabDragKind.Cancel, 0, left[0].Id)
+                        || !Drag(source, TabDragKind.Completed, 0, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left)
+                        || !source.Right.Model.Tabs.SequenceEqual(right))
+                        throw new InvalidOperationException("Reorder cancellation must restore both pane orders.");
+                });
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 0, -1)
+                        || source.HasTabDrag || !source.Left.Model.Tabs.SequenceEqual(left))
+                        throw new InvalidOperationException("Invalid insertion slots must not mutate the source.");
+                    if (Drag(source, TabDragKind.Reorder, 0, left[0].Id, source, 1, 1))
+                        throw new InvalidOperationException("Reorder must stay in the source strip.");
+                    string notification = source.Notification.Text;
+                    var leftActive = source.Left.Model.Active;
+                    var rightActive = source.Right.Model.Active;
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        if (!Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, 1)
+                            || Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, -1)
+                            || Drag(source, TabDragKind.QueryDrop, 0, ulong.MaxValue, source, 1, 0)
+                            || source.HasTabDrag || source.Notification.Text != notification
+                            || source.Left.Model.Active != leftActive || source.Right.Model.Active != rightActive
+                            || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right))
+                            throw new InvalidOperationException("Drop preview must validate without changing either pane or reporting errors.");
+                    }
+                    if (!Drag(source, TabDragKind.Drop, 0, left[0].Id, source, 1, 1)
+                        || source.Right.Model.Tabs[1] != left[0] || !source.HasTabDrag
+                        || !Drag(source, TabDragKind.Completed, 0, left[0].Id)
+                        || source.Right.Model.Tabs[1] != left[0])
+                        throw new InvalidOperationException("Release into another pane must transfer once and accept Completed.");
+                    if (!Drag(source, TabDragKind.Drop, 1, left[0].Id, source, 0, 0)
+                        || !Drag(source, TabDragKind.Completed, 1, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left)
+                        || !source.Right.Model.Tabs.SequenceEqual(right))
+                        throw new InvalidOperationException("Cross-pane release must preserve identities and insertion order.");
+                    source.Left.SelectTab(left[0].Id);
+                });
+                await Ready(source.Left);
+                await Ui(() =>
+                {
+                    source.Left.SetViewMode(ExplorerViewMode.Columns);
+                    source.Left.SetFilter("small");
+                });
+                await Ready(source.Left);
+                await Ui(() =>
+                {
+                    source.Left.SelectColumnPath(0, Path.Combine(fixture, "small.txt"));
+                    source.Left.CaptureViewport();
+                    source.Left.Navigate(Path.Combine(fixture, "alpha"));
+                    if (!source.Left.IsLoading
+                        || !Drag(source, TabDragKind.QueryDrop, 0, left[0].Id, source, 1, 0)
+                        || !source.Left.IsLoading || source.HasTabDrag)
+                        throw new InvalidOperationException("Drop preview must leave pending navigation and transaction state unchanged.");
+                    if (!source.Left.IsLoading || !Drag(source, TabDragKind.TearOut, 0, left[0].Id))
+                        throw new InvalidOperationException($"Tear-out must cancel pending navigation. {source.Notification.Text}");
+                    remainder = source.DragRemainder
+                        ?? throw new InvalidOperationException("Tear-out must create the remaining document.");
+                    if (source.Left.Model.Tabs.Count != 1 || source.Left.Model.Active != left[0]
+                        || source.Right.Model.Tabs.Count != 0 || source.Left.IsLoading
+                        || remainder.Window.Placement != placement || !source.HasTabDrag)
+                        throw new InvalidOperationException("Tear-out must keep the dragged tab and original remainder placement.");
+                });
+                await Ready(source.Left);
+                await Ready(remainder.Left);
+                await Ready(remainder.Right);
+                await Check(() => source.Left.Model.Active.Path == fixture && source.Left.IsColumns
+                    && source.Left.FilterQuery == "small" && source.Left.Model.Active.Columns[0].Filter == "small"
+                    && source.Left.SelectedEntry?.Name == "small.txt",
+                    "Transferred Columns state survives canceled obsolete navigation");
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Cancel, 0, left[0].Id)
+                        || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right)
+                        || !source.HasTabDrag || remainder.CloseRequested)
+                        throw new InvalidOperationException("Tear-out cancellation must restore the original models first.");
+                });
+                await Check(() => remainder.Window.State == WindowState.Open,
+                    "Canceled remainder remains alive until Completed");
+                await Ui(() => Drag(source, TabDragKind.Completed, 0, left[0].Id));
+                await Until(() => remainder.IsDisposed && !app.ExplorerWindows.Contains(remainder));
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    source.Right.SelectTab(right[0].Id);
+                });
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 1, right[0].Id))
+                        throw new InvalidOperationException("Right-pane tear-out was rejected.");
+                    remainder = source.DragRemainder!;
+                    if (source.Right.Model.Active != right[0] || source.Left.Model.Tabs.Count != 0
+                        || source.Window.TitlebarTabs.Visible || !source.Window.TitlebarSecondaryTabs.Visible)
+                        throw new InvalidOperationException("Right-pane tear-out must retain the secondary strip.");
+                });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Check(() => !source.Panes.FirstVisible && source.SecondPaneVisible
+                    && source.Left.Root.GetBounds().Width == 0,
+                    "Right-strip tear-out fills the split area without reserving a blank left pane");
+                await Ui(() => source.Window.Placement = placement with { Width = 640 });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Check(() => source.SecondPaneVisible && !source.Panes.FirstVisible
+                    && source.Right.Model.Active == right[0] && source.Window.TitlebarSecondaryTabs.Visible,
+                    "Right-strip tear-out stays full-width and visible in a narrow window");
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Cancel, 1, right[0].Id)
+                        || !source.Panes.FirstVisible
+                        || !source.Left.Model.Tabs.SequenceEqual(left) || !source.Right.Model.Tabs.SequenceEqual(right)
+                        || source.Window.Placement != placement)
+                        throw new InvalidOperationException("Right-strip cancellation must restore primary visibility, pane order, and placement.");
+                });
+                await Ui(() => Drag(source, TabDragKind.Completed, 1, right[0].Id));
+                await Until(() => remainder.IsDisposed);
+                await Ready(source.Left);
+                await Ready(source.Right);
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 1, right[0].Id))
+                        throw new InvalidOperationException("Repeated right-pane tear-out was rejected.");
+                    remainder = source.DragRemainder!;
+                });
+                await Until(() => FillsPaneArea(source, source.Right));
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.Completed, 1, right[0].Id)
+                        || source.Left.Model.Active != right[0] || source.HasTabDrag
+                        || source.Window.TitlebarSecondaryTabs.Visible || !source.Panes.FirstVisible)
+                        throw new InvalidOperationException("Completed right-pane tear-out must normalize the remaining workspace.");
+                });
+                await Until(() => FillsPaneArea(source, source.Left));
+                await Ready(source.Left);
+                await Ready(remainder.Left);
+                await Ready(remainder.Right);
+                await Ui(source.ToggleSplit);
+                await Until(() => source.SecondPaneVisible);
+                await Ready(source.Right);
+                await Check(() =>
+                {
+                    var tabs = source.Window.TitlebarSecondaryTabs;
+                    tabs.Focus();
+                    nint strip = GetFocus();
+                    bool interactive = strip != 0 && tabs.Focused && IsWindowEnabled(strip);
+                    source.Right.Focus();
+                    return source.Right.Model.Tabs.Count == 1 && tabs.Visible && interactive
+                        && source.Right.BackButton.GetBounds().Height > 0;
+                },
+                    "A normalized tear-out window can create and display another pane with an interactive tab strip");
+                await Ui(() => source.ClosePane(source.Right));
+                await Ui(() =>
+                {
+                    if (!Drag(source, TabDragKind.TearOut, 0, right[0].Id) || source.DragRemainder is not null
+                        || !Drag(source, TabDragKind.Cancel, 0, right[0].Id)
+                        || !Drag(source, TabDragKind.Completed, 0, right[0].Id))
+                        throw new InvalidOperationException("A lone tab must not create an empty remainder.");
+                    app.NewWindow(fixture);
+                    target = app.ExplorerWindows.Last();
+                });
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    stale = app.ExplorerWindows.Last();
+                    stale.Window.Close();
+                });
+                await Until(() => stale.IsDisposed);
+                await Ui(() =>
+                {
+                    string notification = source.Notification.Text;
+                    if (Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, stale, 0, 0)
+                        || Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 1, 0)
+                        || !Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 0, 1)
+                        || source.Notification.Text != notification || source.HasTabDrag)
+                        throw new InvalidOperationException("Preview must reject closed or hidden targets without side effects.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, stale, 0, 0)
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("Closed destinations must not mutate the source.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 1, 0))
+                        throw new InvalidOperationException("A hidden destination strip must reject a drop.");
+                    for (int i = target.Left.Model.Tabs.Count; i < ExplorerPane.TabLimit; ++i)
+                        target.Left.Model.AddTab(fixture);
+                    notification = source.Notification.Text;
+                    if (Drag(source, TabDragKind.QueryDrop, 0, right[0].Id, target, 0, 0)
+                        || source.Notification.Text != notification || source.HasTabDrag
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("Full-pane preview must not transfer or report an error.");
+                    if (Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 0, 0)
+                        || source.Left.Model.Active != right[0])
+                        throw new InvalidOperationException("A full target must leave the source unchanged.");
+                    target.Left.ResetTabs(fixture);
+                    target.Left.RenderTransferredModel();
+                    if (!Drag(source, TabDragKind.Drop, 0, right[0].Id, target, 0, 1)
+                        || target.Left.Model.Tabs[1] != right[0] || source.CloseRequested)
+                        throw new InvalidOperationException("Merge must transfer identity without retiring its source before Completed.");
+                });
+                await Check(() => source.Window.State == WindowState.Open, "Release-only Drop retains its source until Completed");
+                await Ui(() => Drag(source, TabDragKind.Completed, 0, right[0].Id));
+                await Until(() => source.IsDisposed && !app.ExplorerWindows.Contains(source));
+                await Ready(target.Left);
+                await Check(() => target.Window.State == WindowState.Open
+                    && ReferenceEquals(target.Left.Model.Active, right[0]),
+                    "Merged windows survive opener retirement");
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    stale = app.ExplorerWindows.Last();
+                });
+                await Ready(stale.Left);
+                await Ui(() =>
+                {
+                    ulong id = stale.Left.Model.Active.Id;
+                    if (!Drag(stale, TabDragKind.Drop, 0, id,
+                        target, 0, target.Left.Model.Tabs.Count) || stale.CloseRequested
+                        || !Drag(stale, TabDragKind.Completed, 0, id) || !stale.CloseRequested)
+                        throw new InvalidOperationException("Merging a fresh window's last tab must discard its dormant placeholder pane.");
+                });
+                await Until(() => stale.IsDisposed);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Drag(target, TabDragKind.TearOut, 0, right[0].Id))
+                        throw new InvalidOperationException("The merged tab could not tear out again.");
+                    survivor = target.DragRemainder!;
+                    target.Window.Close();
+                });
+                await Until(() => target.IsDisposed);
+                await Ready(survivor.Left);
+                await Check(() => survivor.Window.State == WindowState.Open && survivor.Left.HasCurrentRows
+                    && !app.ExplorerWindows.Contains(target),
+                    "The remainder survives source closure during a tear-out transaction");
+                await Ui(() =>
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    remainder.Window.Close();
+                    survivor.Window.Close();
+                });
+                await Until(() => remainder.IsDisposed && survivor.IsDisposed && app.ExplorerWindows.Count == 1);
+
+                static bool Drag(ExplorerApplication controller, TabDragKind kind, uint strip, ulong id,
+                    ExplorerApplication? destination = null, uint targetStrip = 0, int index = 0)
+                    => controller.Window.TabDragHandler?.Invoke(new(kind, strip, id,
+                        destination?.Window, targetStrip, index)) == true;
+
+                static bool FillsPaneArea(ExplorerApplication controller, FilePaneView pane)
+                {
+                    var area = controller.Panes.GetBounds();
+                    var bounds = pane.Root.GetBounds();
+                    return area.Width > 0 && bounds.X == area.X && bounds.Y == area.Y
+                        && bounds.Width == area.Width && bounds.Height == area.Height;
+                }
             }
 
             async Task PreviewChecks()
@@ -536,7 +1081,7 @@ internal static class ExplorerSmoke
                     if (!PostMessageW(filePeer, 0x100, 0x20, 1))
                         throw new InvalidOperationException("Could not post the preview shortcut to the owned file view.");
                 });
-                await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                await Until(() => app.Preview.IsOpen && !app.Preview.Pending && !app.Preview.Current!.EntryReveal.Animating);
                 await Check(() =>
                 {
                     var preview = app.Preview.Current!;
@@ -602,6 +1147,93 @@ internal static class ExplorerSmoke
                 await Check(() => app.Left.Model.Active.FindOpen && !app.Left.IsLoading,
                     "Held Space does not toggle; preview Escape closes only its window without clearing Explorer Find");
                 await Ui(() => app.Left.HideFind());
+                await EntryChecks();
+
+                async Task EntryChecks()
+                {
+                    PreviewSession preview = null!;
+                    nint editor = 0, owner = 0;
+                    bool motion = false;
+                    ElementBounds caption = default, status = default;
+                    var positions = new List<int>();
+                    await Ui(() =>
+                    {
+                        app.Left.SelectPath(Path.Combine(root, "notes.txt"));
+                        app.Preview.ShowSelected(app.Left);
+                        preview = app.Preview.Current!;
+                        preview.EntryReveal.Duration = 1200;
+                    });
+                    await Until(() => !preview.Pending);
+                    await Ui(() =>
+                    {
+                        preview.Text.Focus();
+                        editor = GetFocus();
+                        owner = GetAncestor(editor, 2);
+                        SendMessageW(owner, 0x800C, 0, 0);
+                        if (!preview.Text.Focused || preview.Text.Text != "one\rtwo" || !preview.Text.ReadOnly)
+                            throw new InvalidOperationException("Preview content must accept native read-only focus before entry finishes.");
+                        preview.Text.Selection = new(0, 3);
+                        caption = preview.Window.Titlebar.GetBounds();
+                        status = preview.StatusBounds;
+                        if (!SystemParametersInfoW(0x1042, 0, out int allowed, 0))
+                            throw new InvalidOperationException("Could not read the system motion preference.");
+                        motion = allowed != 0;
+                        if (motion && !preview.EntryReveal.Animating)
+                            throw new InvalidOperationException("Diagnostic preview entry completed before observation.");
+                    });
+                    await Until(() =>
+                    {
+                        var currentCaption = preview.Window.Titlebar.GetBounds();
+                        if (GetFocus() != editor || preview.Text.Selection != new TextSelection(0, 3)
+                            || currentCaption.Y != caption.Y || currentCaption.Height != caption.Height
+                            || preview.StatusBounds.Y != status.Y)
+                            throw new InvalidOperationException("Entry must retain native selection and focus without moving the caption or status.");
+                        var position = new NativePoint();
+                        if (!ClientToScreen(editor, ref position))
+                            throw new InvalidOperationException("Could not read the moving preview editor.");
+                        positions.Add(position.Y);
+                        return !preview.EntryReveal.Animating;
+                    });
+                    await Ui(() =>
+                    {
+                        var final = new NativePoint();
+                        if (!ClientToScreen(editor, ref final))
+                            throw new InvalidOperationException("Could not read the settled preview editor.");
+                        double extent = preview.BodyBounds.Height * GetDpiForWindow(editor) / 96.0;
+                        if (motion && !positions.Any(y => y > final.Y + 1 && y < final.Y + extent - 1))
+                            throw new InvalidOperationException("Preview entry must move the live native document through an intermediate position.");
+                        if (SendMessageW(owner, 0x803C, 33, 0) != 0 || preview.EntryReveal.Progress != 1)
+                            throw new InvalidOperationException("Completed preview entry must stop its shared clock at the endpoint.");
+                        preview.Dismiss();
+                    });
+                    await Until(() => preview.IsDisposed);
+                    foreach (uint duration in new uint[] { 10000, 0 })
+                    {
+                        long closeStarted = 0;
+                        await Ui(() =>
+                        {
+                            app.Preview.ShowSelected(app.Left);
+                            preview = app.Preview.Current!;
+                            preview.EntryReveal.Duration = duration;
+                        });
+                        await Until(() => !preview.Pending);
+                        await Ui(() =>
+                        {
+                            preview.Text.Focus();
+                            owner = GetAncestor(GetFocus(), 2);
+                            SendMessageW(owner, 0x800C, 0, 0);
+                            if (duration == 0 && (preview.EntryReveal.Animating || SendMessageW(owner, 0x803C, 33, 0) != 0))
+                                throw new InvalidOperationException("Immediate preview content must start no animation clock.");
+                            if (duration != 0 && motion && !preview.EntryReveal.Animating)
+                                throw new InvalidOperationException("The interrupted preview fixture must close during active entry.");
+                            closeStarted = Stopwatch.GetTimestamp();
+                            preview.Dismiss();
+                        });
+                        await Until(() => preview.IsDisposed);
+                        await Check(() => !IsWindow(owner) && Stopwatch.GetElapsedTime(closeStarted) < TimeSpan.FromSeconds(2),
+                            "Queued preview closure must finish without waiting for the ten-second entry");
+                    }
+                }
 
                 foreach (string name in new[] { "source.xui", "large.txt", "invalid.txt", "unsupported.pdf", "folder", "pixel.bmp", "broken.bmp", "restricted.txt" })
                 {
@@ -618,7 +1250,7 @@ internal static class ExplorerSmoke
                         if (app.Preview.Current!.CloseButton.Focused)
                             throw new InvalidOperationException("A loading preview must not focus its caption Close button.");
                     });
-                    await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
+                    await Until(() => app.Preview.IsOpen && !app.Preview.Pending && !app.Preview.Current!.EntryReveal.Animating);
                     if (name == "source.xui")
                         await Check(() => app.Preview.Text.Text == syntaxSource && !app.Preview.StatusVisible,
                             "Source previews retain readable native text without highlighting errors");
@@ -698,7 +1330,9 @@ internal static class ExplorerSmoke
                     app.Preview.ShowSelected(app.Left);
                 });
                 await Until(() => app.Preview.IsOpen && !app.Preview.Pending);
-                await Check(() => app.Preview.Message.Contains("Cannot preview"), "Deleted files produce an explicit error");
+                await Check(() => app.Preview.Message.Contains("Cannot preview")
+                    && !app.Preview.Current!.EntryReveal.Open && !app.Preview.Current.EntryReveal.Animating,
+                    "Deleted files produce an explicit error without a false content entry");
                 await File.WriteAllTextAsync(Path.Combine(root, "notes.txt"), "one\r\ntwo");
                 await Ui(() => app.Left.Navigate(root));
                 await Ready(app.Left);
@@ -763,21 +1397,27 @@ internal static class ExplorerSmoke
                 await Ui(() => { app.Left.HideFind(); app.Left.SetViewMode(ExplorerViewMode.Details); app.Left.Navigate(fixture); });
                 await Ready(app.Left);
                 PreviewSession text = null!, image = null!, twin = null!, folder = null!;
-                nint opener = 0, textHost = 0, imageHost = 0;
+                nint opener = 0, textHost = 0, imageHost = 0, folderHost = 0;
+                bool folderMotion = false;
                 await Ui(() =>
                 {
+                    if (!SystemParametersInfoW(0x1042, 0, out int allowed, 0))
+                        throw new InvalidOperationException("Could not read the detached-window motion preference.");
+                    folderMotion = allowed != 0;
                     app.Left.Focus();
                     opener = GetAncestor(GetFocus(), 2);
                     text = Show("survivor.txt");
                     image = Show("survivor.bmp");
                     twin = Show("survivor.bmp");
                     folder = Show("alpha");
-                    text.Text.Focus();
+                    text.CloseButton.Focus();
                     textHost = GetAncestor(GetFocus(), 2);
                     image.CloseButton.Focus();
                     imageHost = GetAncestor(GetFocus(), 2);
+                    folder.CloseButton.Focus();
+                    folderHost = GetAncestor(GetFocus(), 2);
                     uint thread = GetWindowThreadProcessId(opener, out uint process);
-                    foreach (nint host in new[] { textHost, imageHost })
+                    foreach (nint host in new[] { textHost, imageHost, folderHost })
                         if (host == opener || GetWindow(host, 4) != 0 || !IsWindowVisible(host)
                             || GetWindowThreadProcessId(host, out uint other) != thread || other != process
                             || process != Environment.ProcessId || GetDpiForWindow(host) == 0)
@@ -790,19 +1430,29 @@ internal static class ExplorerSmoke
                         app.Preview.ShowSelected(app.Left);
                         if (app.Preview.Current is not { IsOpen: true } current || current.Target.Name != name)
                             throw new InvalidOperationException($"Could not select the {name} lifetime fixture.");
+                        if (name == "alpha") current.EntryReveal.Duration = 10000;
                         return app.Preview.Current!;
                     }
                 });
-                await Until(() => !text.Pending && !folder.Pending
+                await Until(() => !text.Pending && !folder.Pending && !text.EntryReveal.Animating
+                    && !image.EntryReveal.Animating && !twin.EntryReveal.Animating
                     && image.Image.Status == ImageStatus.Ready && twin.Image.Status == ImageStatus.Ready);
                 await Ui(twin.Dismiss);
                 await Until(() => twin.IsDisposed);
                 await Check(() => image.Image.Status == ImageStatus.Ready && image.IsOpen,
                     "Retiring one image preview does not invalidate another window's cached pixels");
-                await Ui(app.Window.Close);
+                await Ui(() =>
+                {
+                    if (folderMotion && !folder.EntryReveal.Animating)
+                        throw new InvalidOperationException("The owner-first fixture must close Explorer during preview entry.");
+                    app.Window.Close();
+                });
                 await Until(() => app.IsDisposed);
                 await Check(() => !IsWindow(opener) && IsWindow(textHost) && IsWindow(imageHost)
                     && text.IsOpen && image.IsOpen && folder.IsOpen, "Previews survive native opener destruction and managed disposal");
+                await Check(() => !folderMotion ||
+                    (folder.EntryReveal.Animating && SendMessageW(folderHost, 0x803C, 33, 0) != 0),
+                    "An ownerless preview keeps its own entry clock after Explorer is disposed");
                 float previousWidth = 0;
                 await Ui(() =>
                 {
@@ -843,6 +1493,278 @@ internal static class ExplorerSmoke
                 // Last-window retirement and queued disposal finish before Application.Run returns.
             }
 
+            async Task PerColumnFindChecks()
+            {
+                var pane = app.Left;
+                string root = Path.Combine(fixture, "per-column-find");
+                string top = Path.Combine(root, "top");
+                string middle = Path.Combine(top, "middle");
+                string leaf = Path.Combine(middle, "leaf");
+                Directory.CreateDirectory(leaf);
+                Directory.CreateDirectory(Path.Combine(root, "elsewhere"));
+                await File.WriteAllTextAsync(Path.Combine(top, "note.txt"), "note");
+                await File.WriteAllTextAsync(Path.Combine(middle, "other.txt"), "other");
+                await File.WriteAllTextAsync(Path.Combine(leaf, "inside.txt"), "inside");
+                await Ui(() => pane.Navigate(root));
+                await Ready(pane);
+                await Ui(() => pane.SetViewMode(ExplorerViewMode.Columns));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(0, top));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(1, middle));
+                await Ready(pane);
+                await Ui(() => pane.SelectColumnPath(2, leaf));
+                await Ready(pane);
+                ExplorerColumn[] path = [];
+                ulong[] peers = [];
+                nint ancestorList = 0;
+                await Ui(() =>
+                {
+                    path = pane.Model.Active.Columns.ToArray();
+                    peers = Enumerable.Range(0, 4).Select(i => pane.Columns.Column((uint)i).Id).ToArray();
+                    pane.HideFind();
+                    pane.Columns.FocusColumn(1);
+                    ancestorList = GetFocus();
+                    pane.Columns.FocusColumn(2);
+                    pane.Columns.HorizontalOffset = Math.Min(pane.Columns.ColumnWidth, pane.Columns.MaximumHorizontalOffset);
+                });
+                await Ui(() =>
+                {
+                    if (!GetWindowRect(ancestorList, out var listBounds))
+                        throw new InvalidOperationException("The ancestor list bounds are unavailable.");
+                    nint header = 0, parent = GetAncestor(ancestorList, 1);
+                    for (nint child = FindWindowExW(parent, 0, null, null); child != 0;
+                        child = FindWindowExW(parent, child, null, null))
+                        if (GetWindowRect(child, out var bounds) && bounds.Left == listBounds.Left &&
+                            bounds.Right == listBounds.Right && bounds.Bottom == listBounds.Top && bounds.Top < bounds.Bottom)
+                        {
+                            header = child;
+                            break;
+                        }
+                    if (header == 0) throw new InvalidOperationException("The ancestor directory header is missing.");
+                    SendMessageW(header, 0x201, 1, (16 << 16) | 12);
+                    ancestorList = GetFocus();
+                    if (!pane.Columns.Column(1).Focused || pane.Columns.ActiveColumn != 1 ||
+                        !path.SequenceEqual(pane.Model.Active.Columns))
+                        throw new InvalidOperationException("Clicking an ancestor header must focus it without changing the path.");
+                    if (!PostMessageW(GetFocus(), 0x100, 0x4e, 1))
+                        throw new InvalidOperationException("Could not type into the ancestor column.");
+                });
+                await Until(() => pane.FindInput.Focused && pane.FilterQuery == "n" && !pane.IsFiltering);
+                await Check(() => pane.Columns.ActiveColumn == 1 && pane.VisibleCount == 1 &&
+                    pane.Model.Active.Path == leaf && path.SequenceEqual(pane.Model.Active.Columns) &&
+                    path[1].SelectedPath == middle && pane.SelectedEntry is null &&
+                    !pane.HasSelection && pane.Status.Text.Contains("1 of 2"),
+                    "Type-to-find targets an ancestor, hides its selected branch, and preserves all descendants");
+                await Ui(() => pane.SetFilter("no matches"));
+                await Ready(pane);
+                await Check(() => pane.VisibleCount == 0 && path[1].SelectedPath == middle &&
+                    path.SequenceEqual(pane.Model.Active.Columns) &&
+                    peers.SequenceEqual(Enumerable.Range(0, 4).Select(i => pane.Columns.Column((uint)i).Id)),
+                    "An empty ancestor result preserves logical path selection and retained column peers");
+                await Ui(() => SendMessageW(ancestorList, 0x201, 1, (80 << 16) | 12));
+                await Check(() => pane.Columns.Column(1).Focused && pane.FilterQuery == "no matches" &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ColumnCount == 4,
+                    "Clicking an empty filtered column focuses it without clearing its query or descendants");
+                await Ui(() => pane.SetFilter("mid"));
+                await Ready(pane);
+                await Check(() => pane.VisibleCount == 1 && pane.SelectedEntry?.FullPath == middle &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ColumnCount == 4,
+                    "Restoring a matching branch restores its selection without navigating or trimming descendants");
+                await Ui(() =>
+                {
+                    pane.Columns.FocusColumn(2);
+                    pane.ShowFind();
+                    pane.SetFilter("other");
+                });
+                await Ready(pane);
+                await Check(() => path[1].Filter == "mid" && path[2].Filter == "other" &&
+                    path[2].SelectedPath == leaf && pane.VisibleCount == 1 && pane.Columns.ColumnCount == 4,
+                    "Each column keeps its own query and hidden path selection");
+                await Ui(() => pane.Columns.FocusColumn(1));
+                await Check(() => pane.FilterQuery == "mid" && pane.FindInput.Text == "mid" &&
+                    pane.Columns.ActiveColumn == 1 && pane.FilesFocused,
+                    "Refocusing an ancestor restores its remembered query without moving focus into Find");
+                await Ui(pane.HideFind);
+                await Ready(pane);
+                await Check(() => path[1].Filter == "" && path[2].Filter == "other" &&
+                    pane.VisibleCount == 2 && pane.Model.Active.Path == leaf,
+                    "Closing Find clears only its target column and preserves the open path");
+                await Ui(() =>
+                {
+                    pane.ShowFind();
+                    pane.SetFilter("no matches");
+                    pane.Columns.FocusColumn(2);
+                    pane.SetFilter("leaf");
+                    pane.Columns.FocusColumn(1);
+                });
+                await Ready(pane);
+                await Check(() => pane.FindInput.Text == "no matches" && pane.FilterQuery == "no matches" &&
+                    pane.VisibleCount == 0 && path[2].Filter == "leaf" &&
+                    pane.Model.Active.Path == leaf && pane.Columns.ActiveColumn == 1,
+                    "Rapid query and target changes cannot deliver results into the wrong Find target");
+                ExplorerTab? original = null;
+                ulong duplicate = 0;
+                await Ui(() =>
+                {
+                    original = pane.Model.Active;
+                    pane.DuplicateTab(original);
+                    duplicate = pane.Model.Active.Id;
+                });
+                await Ready(pane);
+                await Check(() => pane.FilterQuery == "no matches" &&
+                    pane.Model.Active.Columns[2].Filter == "leaf" &&
+                    !ReferenceEquals(path[1], pane.Model.Active.Columns[1]),
+                    "Tab duplication copies independent per-column queries and restores the Find target");
+                await Ui(() => pane.SetFilter("note"));
+                await Ready(pane);
+                await Check(() => path[1].Filter == "no matches" && pane.VisibleCount == 1,
+                    "Editing a duplicate's query does not change the original tab");
+                await Ui(() =>
+                {
+                    pane.CloseTab(duplicate);
+                    pane.SelectTab(original?.Id ?? throw new InvalidOperationException("The original column tab is missing."));
+                });
+                await Ready(pane);
+                await Check(() => ReferenceEquals(original, pane.Model.Active) &&
+                    pane.FilterQuery == "no matches" && pane.Model.Active.Columns[2].Filter == "leaf",
+                    "Tab restoration restores the original target and all column queries");
+                await Ui(() =>
+                {
+                    pane.SetFilter("obsolete");
+                    pane.SelectColumnPath(0, Path.Combine(root, "elsewhere"));
+                });
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == Path.Combine(root, "elsewhere") &&
+                    pane.Model.Active.Columns[1].Filter == "" && pane.FilterQuery == "" &&
+                    !ReferenceEquals(path[1], pane.Model.Active.Columns[1]),
+                    "Replacing a branch cancels obsolete filters and gives replacement columns fresh query state");
+                await Ui(() => { pane.HideFind(); pane.SetViewMode(ExplorerViewMode.Details); pane.Navigate(fixture); });
+                await Ready(pane);
+            }
+
+            async Task<string> CreateViewportFixture()
+            {
+                string many = Path.Combine(fixture, "many");
+                Directory.CreateDirectory(many);
+                for (int i = 0; i < 80; i++)
+                    await File.WriteAllTextAsync(Path.Combine(many, $"item-{i:D3}.txt"), "row");
+                return many;
+            }
+
+            async Task ViewEntryChecks()
+            {
+                var pane = app.Left;
+                string path = Path.Combine(fixture, "many");
+                string selected = Path.Combine(path, "item-015.txt");
+                uint duration = 0;
+                nint gridPeer = 0, owner = 0;
+                bool motion = false;
+                ElementBounds slot = default, address = default, footer = default;
+                await Ui(() => { pane.SetViewMode(ExplorerViewMode.Details); pane.Navigate(path); });
+                await Ready(pane);
+                await Ui(() =>
+                {
+                    duration = pane.ViewReveal.Duration;
+                    pane.ViewReveal.Duration = 1200;
+                    pane.SelectPath(selected);
+                    pane.Grid.Offset = 320;
+                    pane.Focus();
+                    gridPeer = GetFocus();
+                    owner = GetAncestor(gridPeer, 2);
+                    SendMessageW(owner, 0x800C, 0, 0);
+                    slot = pane.ViewReveal.GetBounds();
+                    address = pane.Address.GetBounds();
+                    footer = pane.Footer.GetBounds();
+                    if (gridPeer == 0 || !SystemParametersInfoW(0x1042, 0, out int enabled, 0))
+                        throw new InvalidOperationException("View entry requires a native file peer and readable motion policy.");
+                    motion = enabled != 0;
+                    pane.SetViewMode(ExplorerViewMode.Columns);
+                    SendMessageW(owner, 0x800C, 0, 0);
+                    if (!pane.IsColumns || pane.Grid.Focused)
+                        throw new InvalidOperationException("View selection and outgoing input retirement must be immediate.");
+                });
+                await Ready(pane);
+                await ObserveEntry(columns: true);
+                await Ui(() => pane.SetViewMode(ExplorerViewMode.Details));
+                await Ready(pane);
+                await ObserveEntry(columns: false);
+                await Check(() => GetFocus() == gridPeer && pane.Grid.Offset == 320,
+                    "Details entry retains the original native file peer and saved scroll offset");
+                await Ui(() =>
+                {
+                    pane.SetViewMode(ExplorerViewMode.Columns);
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                    pane.SetViewMode(ExplorerViewMode.Columns);
+                });
+                await Ready(pane);
+                await Check(() => pane.IsColumns && pane.FilesFocused && pane.SelectedEntry?.FullPath == selected,
+                    "Rapid view changes publish only the latest mode and selection");
+                await Ui(() =>
+                {
+                    pane.ViewReveal.Duration = 0;
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                });
+                await Ready(pane);
+                await Check(() => !pane.IsColumns && !pane.ViewReveal.Animating && pane.ViewReveal.Progress == 1
+                    && pane.Grid.Focused && pane.SelectedEntry?.FullPath == selected,
+                    "Zero-duration view changes preserve immediate focus and selection");
+                await Ui(() =>
+                {
+                    pane.ViewReveal.Duration = 1200;
+                    pane.SetViewMode(ExplorerViewMode.Columns);
+                });
+                await Ready(pane);
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Check(() => !pane.ViewReveal.Animating && pane.ViewReveal.Progress == 1
+                    && pane.Model.Active.Path == fixture,
+                    "Navigation settles entry and cannot replay a retired view request");
+                await Ui(() =>
+                {
+                    pane.ViewReveal.Duration = 0;
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                });
+                await Ready(pane);
+                await Ui(() => pane.ViewReveal.Duration = duration);
+
+                async Task ObserveEntry(bool columns)
+                {
+                    var positions = new List<float>();
+                    await Ui(() =>
+                    {
+                        SendMessageW(owner, 0x800C, 0, 0);
+                        if (pane.ViewReveal.Animating != motion || !pane.FilesFocused
+                            || pane.SelectedEntry?.FullPath != selected || pane.Model.Active.ScrollOffset != 320)
+                            throw new InvalidOperationException(
+                                $"View entry must use system motion and retain focus/selection/viewport: columns={columns}, " +
+                                $"active={pane.ViewReveal.Animating}, motion={motion}, focus={pane.FilesFocused}, " +
+                                $"selected={pane.SelectedEntry?.FullPath}, offset={pane.Model.Active.ScrollOffset}.");
+                        if (columns && IsWindowVisible(gridPeer))
+                            throw new InvalidOperationException("The outgoing Details peer must not remain visible during Columns entry.");
+                        positions.Add((columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X);
+                    });
+                    await Until(() =>
+                    {
+                        positions.Add((columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X);
+                        if (pane.ViewReveal.GetBounds() != slot || pane.Address.GetBounds() != address
+                            || pane.Footer.GetBounds() != footer)
+                            throw new InvalidOperationException("View entry must keep the toolbar, footer, and content slot stationary.");
+                        return !pane.ViewReveal.Animating;
+                    });
+                    await Ui(() =>
+                    {
+                        float end = (columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X;
+                        if (motion && !positions.Any(x => columns ? x > end + 0.1f : x < end - 0.1f))
+                            throw new InvalidOperationException(
+                                $"The incoming view must traverse intermediate directional positions: columns={columns}, " +
+                                $"positions=[{string.Join(", ", positions)}], end={end}, width={slot.Width}.");
+                        if (!pane.FilesFocused || pane.SelectedEntry?.FullPath != selected)
+                            throw new InvalidOperationException("The incoming view must retain its selected file and focus throughout entry.");
+                    });
+                }
+            }
+
             async Task ColumnsChecks()
             {
                 var pane = app.Left;
@@ -874,19 +1796,28 @@ internal static class ExplorerSmoke
                 await Until(() => !pane.ViewMenu.IsOpen);
                 await Check(() => pane.IsColumns && pane.FilesFocused,
                     "Escape closes the view flyout without changing the view and restores file focus");
-                await Ui(() => pane.SelectColumnPath(0, alpha));
-                await Ready(pane);
-                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
-                    && pane.Columns.ActiveColumn == 0, "Single selection drills while retaining its ancestor and focus");
-                await Ui(() => pane.SelectColumnPath(1, Path.Combine(alpha, "child")));
-                await Ready(pane);
-                await Check(() => pane.Columns.ColumnCount == 3, "Nested selection appends a column");
                 double columnWidth = 0, horizontalOffset = 0;
                 await Ui(() =>
                 {
                     columnWidth = pane.Columns.ColumnWidth;
                     pane.Columns.ColumnWidth = 2000;
                 });
+                bool LastColumnVisible()
+                {
+                    var viewport = pane.Columns.GetBounds();
+                    var last = pane.Columns.Column(pane.Columns.ColumnCount - 1).GetBounds();
+                    return last.Width > 0 && last.X >= viewport.X &&
+                        last.X + last.Width <= viewport.X + viewport.Width;
+                }
+                await Ui(() => pane.SelectColumnPath(0, alpha));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 2 && pane.Model.Active.Path == alpha
+                    && pane.Columns.ActiveColumn == 0 && LastColumnVisible(),
+                    "Single selection reveals the entire child while retaining its active ancestor");
+                await Ui(() => pane.SelectColumnPath(1, Path.Combine(alpha, "child")));
+                await Ready(pane);
+                await Check(() => pane.Columns.ColumnCount == 3 && pane.Columns.ActiveColumn == 1 && LastColumnVisible(),
+                    "Nested selection reveals the entire appended column without moving the active ancestor");
                 await Until(() => pane.Columns.MaximumHorizontalOffset > 0);
                 await Ui(() =>
                 {
@@ -939,12 +1870,12 @@ internal static class ExplorerSmoke
                 });
                 await Ui(() => pane.SelectColumnPath(0, alpha));
                 await Ready(pane);
-                await Ui(() => { pane.ShowFind(); pane.SetFilter("child"); });
+                await Ui(() => { pane.Columns.FocusColumn(1); pane.ShowFind(); pane.SetFilter("child"); });
                 await Ready(pane);
                 await Check(() => pane.VisibleCount == 1 && pane.Columns.ColumnCount == 2
                     && pane.Model.Active.Columns[0].Snapshot.Entries.Count == 5
                     && pane.Model.Active.Columns[1].SelectedPath is null,
-                    "Find filters the rightmost folder without removing siblings or selecting its focus-only row");
+                    "Find filters its focused column without removing siblings or selecting its focus-only row");
                 await Ui(() =>
                 {
                     foreach (uint key in new uint[] { 0x25, 0x27, 0x24, 0x23 })
@@ -958,10 +1889,10 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Ui(() =>
                 {
-                    if (!pane.FindInput.Focused || pane.FindInput.Text != "" || pane.Model.Active.Filter != ""
+                    if (!pane.FindInput.Focused || pane.FindInput.Text != "child" || pane.FilterQuery != "child"
                         || pane.Model.Active.Path != Path.Combine(alpha, "child"))
                         throw new InvalidOperationException(
-                            $"Find Down opens the folder and clears its filter without moving input focus: " +
+                            $"Find Down opens the folder and retains the ancestor query without moving input focus: " +
                             $"findFocused={pane.FindInput.Focused}, query={pane.FindInput.Text}, path={pane.Model.Active.Path}, " +
                             $"activeColumn={pane.Columns.ActiveColumn}, columns={pane.Columns.ColumnCount}, filesFocused={pane.FilesFocused}.");
                 });
@@ -979,7 +1910,7 @@ internal static class ExplorerSmoke
                 await Check(() => !pane.IsColumns && pane.Model.Active.Filter == "", "New tabs default to Details");
                 await Ui(() => pane.SelectTab(columnsTab));
                 await Ready(pane);
-                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 3 && pane.Model.Active.Filter == "child",
+                await Check(() => pane.IsColumns && pane.Columns.ColumnCount == 3 && pane.FilterQuery == "child",
                     "Tab selection restores mode, chain, and filter");
                 await Ui(pane.HideFind);
                 await Ready(pane);
@@ -1051,6 +1982,241 @@ internal static class ExplorerSmoke
                     && app.Window.CallbackStatus == 0, "Selection-dependent command rows do not reenter the native window");
             }
             await Ui(app.Palettes.Dismiss);
+            await PaletteEntryChecks();
+        }
+
+        async Task PaletteEntryChecks()
+        {
+            try
+            {
+                foreach (bool navigation in new[] { false, true })
+                {
+                    nint editor = 0, results = 0;
+                    nint owner = await QuietOwner();
+                    ElementBounds frame = default, query = default, resultBounds = default;
+                    NativePoint editorPosition = default, resultsPosition = default;
+                    string text = "";
+                    long observed = 0;
+                    await Ui(() =>
+                    {
+                        if (navigation) app.Palettes.ShowNavigation(app.Active);
+                        else app.Palettes.ShowCommands();
+                        editor = GetFocus();
+                        SendMessageW(owner, 0x800C, 0, 0);
+                        frame = app.Palettes.Bounds;
+                        query = app.Palettes.QueryBounds;
+                        if (editor == 0 || !ClientToScreen(editor, ref editorPosition))
+                            throw new InvalidOperationException("The palette must immediately focus its stationary native query editor.");
+                        results = FindResults(owner);
+                        resultBounds = app.Palettes.ResultsBounds;
+                        if (results == 0 || !IsWindowVisible(results) || !ClientToScreen(results, ref resultsPosition) ||
+                            resultBounds.Width <= 0 || resultBounds.Height <= 0)
+                            throw new InvalidOperationException("Palette results must be fully arranged and visible immediately.");
+                        NoPaletteTimer(owner);
+                        text = navigation ? app.Palettes.QueryText + "a" : "Copy";
+                        if (navigation)
+                        {
+                            int end = app.Palettes.QueryText.Length;
+                            SendMessageW(editor, 0x00B1, (nuint)end, end);
+                        }
+                        foreach (char character in navigation ? "a" : "Copy")
+                            SendMessageW(editor, 0x0102, character, 0);
+                        SendMessageW(editor, 0x00B1, 1, 3);
+                        if (app.Palettes.QueryText != text || app.Palettes.Pending ||
+                            app.Palettes.QuerySelection != new TextSelection(1, 3) || SendMessageW(editor, 0x00C6, 0, 0) == 0)
+                            throw new InvalidOperationException("Native typing, cached filtering, selection, and undo must work immediately after opening the palette.");
+                        NoPaletteTimer(owner);
+                        observed = Stopwatch.GetTimestamp();
+                    });
+                    await Until(() =>
+                    {
+                        NativePoint current = default, result = default;
+                        var nativeText = new System.Text.StringBuilder(text.Length + 1);
+                        GetWindowTextW(editor, nativeText, nativeText.Capacity);
+                        if (GetFocus() != editor || !IsWindow(results) || FindResults(owner) != results ||
+                            !ClientToScreen(editor, ref current) || !ClientToScreen(results, ref result) ||
+                            current.X != editorPosition.X || current.Y != editorPosition.Y ||
+                            result.X != resultsPosition.X || result.Y != resultsPosition.Y ||
+                            app.Palettes.Bounds != frame || app.Palettes.QueryBounds != query ||
+                            app.Palettes.ResultsBounds != resultBounds ||
+                            app.Palettes.QueryText != text || nativeText.ToString() != text ||
+                            app.Palettes.QuerySelection != new TextSelection(1, 3) || SendMessageW(editor, 0x00C6, 0, 0) == 0)
+                            throw new InvalidOperationException("Palette results and query must remain stationary with native identities, text, selection, undo, and popup placement preserved.");
+                        NoPaletteTimer(owner);
+                        return Stopwatch.GetElapsedTime(observed) >= TimeSpan.FromMilliseconds(250);
+                    });
+                    long dismissed = 0;
+                    await Ui(() =>
+                    {
+                        dismissed = Stopwatch.GetTimestamp();
+                        app.Palettes.Dismiss();
+                        ClosedImmediately(editor, results);
+                    });
+                    await Retired(editor, results, dismissed, owner);
+                }
+
+                // A cache miss removes the old logical rows before any asynchronous result can arrive.
+                string cold = "";
+                await Ui(() =>
+                {
+                    cold = Path.TrimEndingDirectorySeparator(app.Active.Model.Active.Path) + Path.DirectorySeparatorChar
+                        + ".xui-palette-missing-" + Guid.NewGuid().ToString("N") + Path.DirectorySeparatorChar;
+                    app.Palettes.ShowNavigation(app.Active);
+                    app.Palettes.EditQuery(cold);
+                    if (!app.Palettes.Pending || app.Palettes.ResultCount != 0 || app.Palettes.SelectedIndex != -1)
+                        throw new InvalidOperationException("Cold palette queries must publish an empty logical source, not stale disabled suggestions.");
+                    app.Palettes.Accept(false);
+                    if (!app.Palettes.IsOpen) throw new InvalidOperationException("Pending palette queries must not execute.");
+                    app.Palettes.Dismiss();
+                    app.Palettes.ShowCommands();
+                    app.Palettes.EditQuery("Copy");
+                });
+                await Task.Delay(100);
+                await Check(() => app.Palettes.IsOpen && !app.Palettes.Pending && app.Palettes.QueryText == "Copy"
+                    && app.Palettes.ResultCount == 2, "A retired cold-query generation cannot replace the next palette's commands");
+                await Ui(app.Palettes.Dismiss);
+
+                for (int generation = 0; generation < 3; ++generation)
+                {
+                    nint editor = 0, results = 0, returnFocus = 0;
+                    nint owner = await QuietOwner();
+                    long started = 0;
+                    await Ui(() =>
+                    {
+                        app.Active.Focus();
+                        returnFocus = GetFocus();
+                        app.Palettes.ShowCommands();
+                        editor = GetFocus();
+                        SendMessageW(owner, 0x800C, 0, 0);
+                        results = FindResults(owner);
+                        if (results == 0 || !IsWindowVisible(results) || app.Palettes.ResultsBounds.Height <= 0)
+                            throw new InvalidOperationException("Each palette generation must immediately show its native results.");
+                        NoPaletteTimer(owner);
+                        started = Stopwatch.GetTimestamp();
+                        if (!PostMessageW(editor, 0x0100, 0x1b, 1))
+                            throw new InvalidOperationException("Could not post native Escape after opening the palette.");
+                    });
+                    await Until(() => !app.Palettes.IsOpen);
+                    await Ui(() =>
+                    {
+                        ClosedImmediately(editor, results);
+                        if (GetFocus() != returnFocus)
+                            throw new InvalidOperationException("Native Escape must immediately restore the previous focus.");
+                    });
+                    await Retired(editor, results, started, owner);
+                }
+
+                bool sidebarOpen = false;
+                nint executionEditor = 0, executionResults = 0;
+                nint executionOwner = await QuietOwner();
+                long executed = 0;
+                await Ui(() =>
+                {
+                    sidebarOpen = app.Sidebar.IsOpen;
+                    app.Palettes.ShowCommands();
+                    app.Palettes.EditQuery("Toggle navigation pane");
+                    nint editor = GetFocus();
+                    SendMessageW(GetAncestor(editor, 2), 0x800C, 0, 0);
+                    executionEditor = editor;
+                    executionResults = FindResults(GetAncestor(editor, 2));
+                    if (app.Palettes.ResultCount != 1)
+                        throw new InvalidOperationException("The execution fixture must immediately select a real command.");
+                    NoPaletteTimer(executionOwner);
+                    executed = Stopwatch.GetTimestamp();
+                    if (!PostMessageW(editor, 0x0100, 0x0d, 1))
+                        throw new InvalidOperationException("Could not post native command execution after opening the palette.");
+                });
+                await Until(() => !app.Palettes.IsOpen);
+                await Ui(() =>
+                {
+                    ClosedImmediately(executionEditor, executionResults);
+                    if (app.Sidebar.IsOpen == sidebarOpen)
+                        throw new InvalidOperationException("Enter must dismiss immediately and execute the selected command.");
+                });
+                // Command execution can start unrelated sidebar motion.
+                await Retired(executionEditor, executionResults, executed);
+                await Ui(() =>
+                {
+                    app.Sidebar.Toggle();
+                    app.Palettes.ShowCommands();
+                    nint editor = GetFocus();
+                    SendMessageW(GetAncestor(editor, 2), 0x800C, 0, 0);
+                    SendMessageW(editor, 0x0102, 'C', 0);
+                    if (app.Palettes.ResultsBounds.Height <= 0 || app.Palettes.QueryText != "C" || GetFocus() != editor)
+                        throw new InvalidOperationException("Reopening after command execution must immediately accept native typing with fully arranged results.");
+                    app.Palettes.Dismiss();
+                });
+            }
+            finally
+            {
+                await Ui(() =>
+                {
+                    if (app.Palettes.IsOpen) app.Palettes.Dismiss();
+                });
+            }
+
+            async Task<nint> QuietOwner()
+            {
+                nint owner = 0;
+                await Ui(() =>
+                {
+                    app.Active.Focus();
+                    owner = GetAncestor(GetFocus(), 2);
+                    if (owner == 0) throw new InvalidOperationException("Could not find the palette owner.");
+                    SendMessageW(owner, 0x800C, 0, 0);
+                });
+                // Let unrelated view/tab motion finish without changing its duration or target.
+                await Until(() => SendMessageW(owner, 0x803C, 33, 0) == 0);
+                return owner;
+            }
+
+            static void NoPaletteTimer(nint owner)
+            {
+                if (SendMessageW(owner, 0x803C, 33, 0) != 0)
+                    throw new InvalidOperationException("Opening, filtering, or dismissing a palette must not start an animation timer on an otherwise settled window.");
+            }
+
+            void ClosedImmediately(nint editor, nint results)
+            {
+                bool editorVisible = IsWindowVisible(editor), resultsVisible = IsWindowVisible(results);
+                if (app.Palettes.IsOpen || app.Palettes.Pending || editorVisible || resultsVisible ||
+                    GetFocus() == editor || GetFocus() == results)
+                    throw new InvalidOperationException(
+                        $"Palette dismissal must immediately hide its peers, cancel suggestions, and release focus: " +
+                        $"open={app.Palettes.IsOpen}, pending={app.Palettes.Pending}, " +
+                        $"editorVisible={editorVisible}, resultsVisible={resultsVisible}, " +
+                        $"focus={GetFocus()}, editor={editor}, results={results}.");
+            }
+
+            async Task Retired(nint editor, nint results, long started, nint quietOwner = default)
+            {
+                // Popup pruning defers HWND destruction until the dismissal callback has returned.
+                await Until(() =>
+                {
+                    bool editorAlive = IsWindow(editor), resultsAlive = IsWindow(results);
+                    if (quietOwner != 0) NoPaletteTimer(quietOwner);
+                    var elapsed = Stopwatch.GetElapsedTime(started);
+                    if (elapsed >= TimeSpan.FromSeconds(2))
+                        throw new InvalidOperationException(
+                            $"Palette peer retirement must complete promptly: elapsed={elapsed.TotalMilliseconds:F0}ms, " +
+                            $"editorAlive={editorAlive}, resultsAlive={resultsAlive}, " +
+                            $"open={app.Palettes.IsOpen}, pending={app.Palettes.Pending}.");
+                    return !editorAlive && !resultsAlive;
+                });
+            }
+
+            static nint FindResults(nint owner)
+            {
+                for (nint child = GetWindow(owner, 5); child != 0; child = GetWindow(child, 2))
+                {
+                    var name = new System.Text.StringBuilder(128);
+                    GetWindowTextW(child, name, name.Capacity);
+                    if (name.ToString() == "Palette results") return child;
+                    nint nested = FindResults(child);
+                    if (nested != 0) return nested;
+                }
+                return 0;
+            }
         }
 
         async Task DriveNavigationChecks(string fixture)
@@ -1142,6 +2308,10 @@ internal static class ExplorerSmoke
                 pane.TabMenu.Invoke(TabContextMenu.NewWindow);
                 if (app.NewWindowPath != fixture)
                     throw new InvalidOperationException("New windows must use the right-clicked tab's folder.");
+                var created = app.ExplorerWindows.Last();
+                if (ReferenceEquals(created, app) || !ReferenceEquals(created.Application, app.Application))
+                    throw new InvalidOperationException("New windows must use the existing Application.");
+                created.Window.Close();
                 pane.Model.Tabs[0].Filter = "original";
                 pane.TabMenu.GetCommands(first);
                 pane.TabMenu.Invoke(TabContextMenu.Duplicate);
@@ -1239,6 +2409,164 @@ internal static class ExplorerSmoke
                 if (!app.CloseRequested)
                     throw new InvalidOperationException("Closing the last pane must request window closure.");
             });
+        }
+
+        async Task TabAnimationChecks()
+        {
+            var pane = app.Left;
+            uint duration = 0;
+            ulong selected = 0, inserted = 0;
+            float start = 0;
+            bool motion = false;
+            var positions = new List<float>();
+            nint owner = 0;
+            await Ui(() =>
+            {
+                pane.Focus();
+                owner = GetAncestor(GetFocus(), 2);
+                if (!SystemParametersInfoW(0x1042, 0, out int enabled, 0))
+                    throw new InvalidOperationException("Read system tab animation policy.");
+                motion = enabled != 0;
+                duration = pane.Tabs.Duration;
+                pane.Tabs.Duration = 1200;
+                selected = pane.Model.Active.Id;
+                start = pane.Tabs.NewTabButton.GetBounds().X;
+                pane.NewTab(pane.Model.Active.Path);
+                inserted = pane.Model.Active.Id;
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (inserted == selected || !pane.FilesFocused
+                    || (SendMessageW(owner, 0x803C, 33, 0) != 0) != motion)
+                    throw new InvalidOperationException("Animated insertion must select the new tab, focus its files, and honor the independently read motion policy.");
+            });
+            await Until(() =>
+            {
+                SendMessageW(owner, 0x800C, 0, 0);
+                positions.Add(pane.Tabs.NewTabButton.GetBounds().X);
+                return SendMessageW(owner, 0x803C, 33, 0) == 0;
+            });
+            await Ui(() =>
+            {
+                float end = pane.Tabs.NewTabButton.GetBounds().X;
+                if (motion && (!positions.Any(x => x > start + 0.1f && x < end - 0.1f)
+                    || positions.Any(x => x < start - 0.1f || x > end + 0.1f)))
+                    throw new InvalidOperationException("Tab insertion must move its New tab button through bounded intermediate positions.");
+                start = end;
+                positions.Clear();
+                pane.CloseTab(inserted);
+                pane.SelectTab(selected);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (pane.Model.Tabs.Any(tab => tab.Id == inserted) || !pane.FilesFocused
+                    || (SendMessageW(owner, 0x803C, 33, 0) != 0) != motion)
+                    throw new InvalidOperationException("Animated removal must retire the tab, restore file focus, and honor the independently read motion policy.");
+            });
+            await Until(() =>
+            {
+                SendMessageW(owner, 0x800C, 0, 0);
+                positions.Add(pane.Tabs.NewTabButton.GetBounds().X);
+                return SendMessageW(owner, 0x803C, 33, 0) == 0;
+            });
+            await Ui(() =>
+            {
+                float end = pane.Tabs.NewTabButton.GetBounds().X;
+                if (motion && (!positions.Any(x => x < start - 0.1f && x > end + 0.1f)
+                    || positions.Any(x => x > start + 0.1f || x < end - 0.1f)))
+                    throw new InvalidOperationException("Tab removal must move its New tab button through bounded intermediate positions.");
+                pane.Tabs.Duration = duration;
+            });
+            await Ready(pane);
+        }
+
+        async Task TabOverflowChecks()
+        {
+            var pane = app.Left;
+            uint duration = 0;
+            ulong selected = 0, first = 0, last = 0;
+            var added = new List<ulong>();
+            nint owner = 0, strip = 0, button = 0;
+            ElementBounds buttonBounds = default;
+            bool motion = false;
+            await Ui(() =>
+            {
+                duration = pane.Tabs.Duration;
+                selected = pane.Model.Active.Id;
+                first = pane.Model.Tabs[0].Id;
+                pane.Tabs.Duration = 0;
+                pane.Focus();
+                while (pane.Model.Tabs.Count < 12)
+                {
+                    pane.NewTab(pane.Model.Active.Path);
+                    added.Add(pane.Model.Active.Id);
+                }
+                last = pane.Model.Tabs[^1].Id;
+                pane.SelectTab(last);
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.Tabs.Focus();
+                strip = GetFocus();
+                owner = GetAncestor(strip, 2);
+                button = FindWindowExW(strip, 0, null, "New tab");
+                pane.Focus();
+                if (strip == 0 || button == 0 || !SystemParametersInfoW(0x1042, 0, out int enabled, 0))
+                    throw new InvalidOperationException("Overflow acceptance requires its native strip, New button, and readable system motion policy.");
+                motion = enabled != 0;
+                buttonBounds = pane.Tabs.NewTabButton.GetBounds();
+                pane.Tabs.Duration = 1200;
+                pane.SelectTab(first);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (pane.Model.Active.Id != first || !pane.FilesFocused
+                    || (SendMessageW(owner, 0x803C, 33, 0) != 0) != motion)
+                    throw new InvalidOperationException(
+                        $"Explorer selection must publish immediately and use the native overflow clock without losing file focus: " +
+                        $"selected={pane.Model.Active.Id}, expected={first}, filesFocused={pane.FilesFocused}, " +
+                        $"clock={SendMessageW(owner, 0x803C, 33, 0)}, systemMotion={motion}, duration={pane.Tabs.Duration}, " +
+                        $"tabs={pane.Model.Tabs.Count}, strip={pane.Tabs.GetBounds()}, button={pane.Tabs.NewTabButton.GetBounds()}.");
+
+                // The first pixels still belong to the prior viewport before the first timer frame.
+                SendMessageW(strip, 0x0201, 1, (20 << 16) | 12);
+                SendMessageW(strip, 0x0202, 0, (20 << 16) | 12);
+                if (!pane.FilesFocused || (motion && pane.Model.Active.Id == first))
+                    throw new InvalidOperationException("Native overflow clicks must target the displayed tab rather than the logical destination viewport.");
+                if (pane.Tabs.NewTabButton.GetBounds() != buttonBounds)
+                    throw new InvalidOperationException("Overflow retargeting must keep the New button stationary.");
+            });
+            await Ui(() =>
+            {
+                int count = pane.Model.Tabs.Count;
+                SendMessageW(button, 0x0201, 1, (16 << 16) | 16);
+                SendMessageW(button, 0x0202, 0, (16 << 16) | 16);
+                if (pane.Model.Tabs.Count != count + 1 || !pane.FilesFocused)
+                    throw new InvalidOperationException("The native New tab button must remain usable during overflow motion.");
+                added.Add(pane.Model.Active.Id);
+                pane.CloseTab(pane.Model.Active.Id);
+                pane.SelectTab(last);
+                pane.SelectTab(first);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (pane.Model.Active.Id != first || !pane.FilesFocused)
+                    throw new InvalidOperationException("Rapid Explorer overflow reversal must preserve the last logical selection and file focus.");
+            });
+            await Until(() =>
+            {
+                if (pane.Tabs.NewTabButton.GetBounds() != buttonBounds
+                    || FindWindowExW(strip, 0, null, "New tab") != button)
+                    throw new InvalidOperationException("Overflow frames must retain the native New button and its position.");
+                return SendMessageW(owner, 0x803C, 33, 0) == 0;
+            });
+            await Ready(pane);
+            await Ui(() =>
+            {
+                pane.Tabs.Duration = 0;
+                pane.SelectTab(last);
+                pane.SelectTab(first);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (pane.Model.Active.Id != first || SendMessageW(owner, 0x803C, 33, 0) != 0)
+                    throw new InvalidOperationException("Immediate Explorer overflow must not retain the animation clock.");
+                pane.CloseTabs(added);
+                pane.SelectTab(selected);
+                pane.Tabs.Duration = duration;
+            });
+            await Ready(pane);
         }
 
         async Task NewTabButtonChecks(FilePaneView pane)
@@ -1472,6 +2800,329 @@ internal static class ExplorerSmoke
             await Until(() => SendMessageW(hwnd, 0x7f, 0, 0) != 0 && SendMessageW(hwnd, 0x7f, 1, 0) != 0);
         }
 
+        async Task NavigationAnimationChecks()
+        {
+            var reveal = app.Sidebar.Presentation;
+            nint owner = 0, search = 0;
+            float width = 0;
+            await Ui(() =>
+            {
+                app.Sidebar.FocusFilter();
+                owner = GetAncestor(GetFocus(), 2);
+                search = GetFocus();
+                width = app.Sidebar.View.GetBounds().Width;
+                reveal.Duration = 800;
+                app.Sidebar.Toggle();
+                if (!app.Left.FilesFocused || reveal.Open)
+                    throw new InvalidOperationException("Closing navigation returns focus immediately.");
+            });
+            bool motion = false;
+            await Until(() =>
+            {
+                SendMessageW(owner, 0x800C, 0, 0);
+                var host = reveal.GetBounds();
+                if (Math.Abs(host.Width - width * reveal.Progress) > 0.1 ||
+                    Math.Abs(app.Left.Root.GetBounds().X - host.Width) > 0.1 ||
+                    Math.Abs(app.Window.TitlebarTabs.GetBounds().X - Math.Max(44, host.Width)) > 0.1 ||
+                    app.Sidebar.View.GetBounds().Width != width)
+                    throw new InvalidOperationException("Navigation, files, and title tabs must follow the same expanding clip.");
+                motion |= reveal.Progress > 0 && reveal.Progress < 1;
+                return !reveal.Animating;
+            });
+            await Ui(() =>
+            {
+                app.Sidebar.FocusFilter();
+                if (!app.Sidebar.IsOpen || GetFocus() != search)
+                    throw new InvalidOperationException("Navigation reuses its native search editor on immediate reopen.");
+                if (motion && reveal.Progress != 0)
+                    throw new InvalidOperationException("Navigation opening starts from the collapsed layout.");
+            });
+            await Until(() => !reveal.Animating && reveal.Progress == 1);
+            await Ui(() => { reveal.Duration = 180; app.Left.Focus(); });
+        }
+
+        async Task NavigationGroupChecks()
+        {
+            var view = app.Sidebar.View;
+            uint duration = 0;
+            nint search = 0, items = 0, owner = 0;
+            bool motion = false;
+            await Ui(() =>
+            {
+                duration = view.Duration;
+                view.Duration = 1200;
+                view.Search.Focus();
+                search = GetFocus();
+                owner = GetAncestor(search, 2);
+                if (!SystemParametersInfoW(0x1042, 0, out int enabled, 0))
+                    throw new InvalidOperationException("Read navigation group motion policy.");
+                motion = enabled != 0;
+                if (!PostMessageW(search, 0x100, 0x09, 0) || !PostMessageW(search, 0x101, 0x09, 0))
+                    throw new InvalidOperationException("Send native Tab from navigation search to its items.");
+            });
+            await Until(() => !view.Search.Focused);
+            await Ui(() =>
+            {
+                items = GetFocus();
+                if (items == 0 || items == search || GetAncestor(items, 2) != owner)
+                    throw new InvalidOperationException("Navigation group acceptance must focus the owned item peer.");
+                SendMessageW(items, 0x100, 0x24, 0);
+                SendMessageW(owner, 0x800C, 0, 0);
+                SendMessageW(items, 0x100, 0x25, 0);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (view.Animating != motion)
+                    throw new InvalidOperationException(
+                        $"Explorer's real first navigation group must animate native collapse: active={view.Animating}, systemMotion={motion}.");
+            });
+            await Until(() => !view.Animating);
+            await Ui(() =>
+            {
+                SendMessageW(items, 0x100, 0x27, 0);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (view.Animating != motion)
+                    throw new InvalidOperationException("Native group expansion must use the configured Explorer motion policy.");
+                SendMessageW(items, 0x100, 0x25, 0);
+                SendMessageW(items, 0x100, 0x27, 0);
+                SendMessageW(owner, 0x800C, 0, 0);
+            });
+            await Until(() => !view.Animating);
+            await Ui(() =>
+            {
+                view.Duration = 0;
+                SendMessageW(items, 0x100, 0x25, 0);
+                SendMessageW(items, 0x100, 0x27, 0);
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (view.Animating)
+                    throw new InvalidOperationException("Immediate navigation group changes must not retain motion.");
+                view.Search.Focus();
+                if (GetFocus() != search)
+                    throw new InvalidOperationException("Navigation group motion must retain Explorer's native search editor.");
+                view.Duration = duration;
+                app.Left.Focus();
+            });
+        }
+
+        async Task PaneAnimationChecks()
+        {
+            var split = app.Panes;
+            var entryElapsed = new Stopwatch();
+            long inputReadyMs = 0, firstSampleMs = -1, firstUpdateMs = -1;
+            long inputObservedMs = 0, motionCapturedMs = 0, motionObservedMs = 0;
+            var samples = new List<string>();
+            long startingTicks = 0, startingPanePaints = 0;
+            nint owner = 0, input = 0;
+            float fullLeft = 0, fullRight = 0, extent = 0;
+            bool motion = false;
+            await Ui(() =>
+            {
+                if (!SystemParametersInfoW(0x1042, 0, out int enabled, 0))
+                    throw new InvalidOperationException("Could not read pane motion policy.");
+                motion = enabled != 0;
+                split.TransitionDuration = 0;
+                if (!app.SecondPaneVisible) app.ToggleSplit();
+                app.Right.Focus();
+                owner = GetAncestor(GetFocus(), 2);
+                fullLeft = app.Left.Root.GetBounds().Width;
+                fullRight = app.Right.Root.GetBounds().Width;
+                extent = split.GetBounds().Width;
+            });
+            await Ready(app.Right);
+            await Ui(() =>
+            {
+                app.ToggleSplit();
+                split.TransitionDuration = 800;
+                startingTicks = (long)SendMessageW(owner, 0x803C, 34, 0);
+                startingPanePaints = (long)SendMessageW(owner, 0x803C, 35, 0);
+                entryElapsed.Restart();
+                app.ToggleSplit();
+                app.Right.ShowFind();
+                input = GetFocus();
+                SendMessageW(input, 0x102, 'p', 1);
+                if (!app.Right.FindInput.Focused || app.Right.FindInput.Text != "p")
+                    throw new InvalidOperationException("The incoming pane accepts native input immediately.");
+                inputReadyMs = entryElapsed.ElapsedMilliseconds;
+            });
+            inputObservedMs = entryElapsed.ElapsedMilliseconds;
+            int intermediate = 0;
+            await Ui(() =>
+            {
+                motionCapturedMs = entryElapsed.ElapsedMilliseconds;
+            });
+            motionObservedMs = entryElapsed.ElapsedMilliseconds;
+            void Geometry()
+            {
+                SendMessageW(owner, 0x800C, 0, 0);
+                var first = app.Left.Root.GetBounds();
+                var second = app.Right.Root.GetBounds();
+                var area = split.GetBounds();
+                if (Math.Abs(first.Width - (extent + (fullLeft - extent) * split.Progress)) > 0.1 ||
+                    Math.Abs(second.X - (area.X + extent - fullRight * split.Progress)) > 0.1 ||
+                    second.Width != fullRight)
+                    throw new InvalidOperationException("Pane entry must retain the secondary width and coordinate the primary edge.");
+            }
+            await Until(() =>
+            {
+                bool firstSample = firstSampleMs < 0;
+                if (firstSample) firstSampleMs = entryElapsed.ElapsedMilliseconds;
+                Geometry();
+                if (firstSample) firstUpdateMs = entryElapsed.ElapsedMilliseconds;
+                samples.Add($"{entryElapsed.ElapsedMilliseconds}ms:p={split.Progress:F4}," +
+                    $"ticks={(long)SendMessageW(owner, 0x803C, 34, 0) - startingTicks}");
+                if (split.Progress > 0 && split.Progress < 1) intermediate++;
+                return !split.Animating;
+            });
+            await Ui(() =>
+            {
+                long paintedFrames = (long)SendMessageW(owner, 0x803C, 35, 0) - startingPanePaints;
+                if ((motion && paintedFrames == 0) || GetFocus() != input || app.Right.FindInput.Text != "p")
+                    throw new InvalidOperationException(
+                        $"Pane motion must preserve input identity and show intermediate layout: " +
+                        $"motion={motion}, frames={intermediate}, paintedFrames={paintedFrames}, focus={GetFocus()}, editor={input}, " +
+                        $"text='{app.Right.FindInput.Text}', progress={split.Progress}, elapsed={entryElapsed.ElapsedMilliseconds}ms, " +
+                        $"inputReady={inputReadyMs}ms, inputObserved={inputObservedMs}ms, motionCaptured={motionCapturedMs}ms, " +
+                        $"motionObserved={motionObservedMs}ms, firstSample={firstSampleMs}ms, firstUpdate={firstUpdateMs}ms; " +
+                        $"samples=[{string.Join("; ", samples)}].");
+                Console.WriteLine($"Pane entry samples={intermediate}, paintedFrames={paintedFrames}, inputReady={inputReadyMs}ms, " +
+                    $"inputObserved={inputObservedMs}ms, motionCaptured={motionCapturedMs}ms, motionObserved={motionObservedMs}ms, " +
+                    $"firstSample={firstSampleMs}ms, firstUpdate={firstUpdateMs}ms, complete={entryElapsed.ElapsedMilliseconds}ms.");
+                app.Right.HideFind();
+                app.ClosePane(app.Right);
+                if (app.SecondPaneVisible || !app.Left.FilesFocused)
+                    throw new InvalidOperationException("Closing the pane changes logical visibility and returns focus immediately.");
+            });
+            await Until(() =>
+            {
+                SendMessageW(owner, 0x800C, 0, 0);
+                if (split.Animating) Geometry();
+                return !split.Animating;
+            });
+            await Ui(() =>
+            {
+                if (app.Right.Root.GetBounds().Width != 0 || app.Window.TitlebarSecondaryTabs.GetBounds().Width != 0)
+                    throw new InvalidOperationException("Closed pane and secondary title tabs release their geometry.");
+                split.TransitionDuration = 180;
+            });
+            await Ready(app.Left);
+        }
+
+        async Task RevealChecks(FilePaneView pane, bool animate = true)
+        {
+            await Ui(pane.HideFind);
+            await Until(() => !pane.FindReveal.Animating && pane.FindBounds.Height == 0);
+            float combinedHeight = 0;
+            nint inputPeer = 0;
+            nint owner = 0;
+            bool motion = false;
+            long startingRevealPaints = 0;
+            long closeStarted = 0, closeCompleted = 0;
+            void Geometry()
+            {
+                // A timer sample can precede its posted layout update in the UI queue.
+                SendMessageW(owner, 0x800C, 0, 0);
+                var files = pane.Grid.GetBounds();
+                var reveal = pane.FindBounds;
+                if (Math.Abs(files.Height + reveal.Height - combinedHeight) > 0.1f ||
+                    Math.Abs(files.Y + files.Height - reveal.Y) > 0.1f ||
+                    Math.Abs(reveal.Height - 56 * pane.FindReveal.Progress) > 0.1f)
+                    throw new InvalidOperationException(
+                        $"Find and files must share an edge and divide one constant extent throughout motion. " +
+                        $"Files={files}, reveal={reveal}, combined={combinedHeight}, progress={pane.FindReveal.Progress}.");
+                if (pane.FindContentBounds.Height != 56 || pane.FindInput.GetBounds().Height != 44)
+                    throw new InvalidOperationException("Expanding Reveal must keep the native input at its full size.");
+            }
+            async Task Settled(bool open)
+            {
+                int intermediate = 0;
+                await Until(() =>
+                {
+                    Geometry();
+                    if (pane.FindReveal.Progress > 0 && pane.FindReveal.Progress < 1) intermediate++;
+                    return !pane.FindReveal.Animating && pane.FindReveal.Progress == (open ? 1 : 0);
+                });
+                await Ui(() =>
+                {
+                    long paintedFrames = (long)SendMessageW(owner, 0x803C, 36, 0) - startingRevealPaints;
+                    if (motion && paintedFrames == 0)
+                        throw new InvalidOperationException(
+                            $"Reveal must paint intermediate coordinated layout frames: samples={intermediate}, paintedFrames={paintedFrames}.");
+                });
+                await Ui(Geometry);
+            }
+            await Ui(() =>
+            {
+                if (pane.FindReveal.Layout != RevealLayout.Expand ||
+                    pane.FindReveal.Direction != RevealDirection.Bottom || pane.FindReveal.Duration != 180)
+                    throw new InvalidOperationException("Find must use the configured bottom expanding Reveal.");
+                combinedHeight = pane.Grid.GetBounds().Height;
+                owner = GetAncestor(GetFocus(), 2);
+                startingRevealPaints = (long)SendMessageW(owner, 0x803C, 36, 0);
+                pane.FindReveal.Duration = animate ? 1000u : 0u;
+                pane.ShowFind();
+                motion = pane.FindReveal.Animating;
+                if (motion && (pane.FindBounds.Height != 0 || pane.Grid.GetBounds().Height != combinedHeight))
+                    throw new InvalidOperationException("Opening Find must not resize the file list before its first motion frame.");
+                if (!motion && pane.FindReveal.Progress != 1)
+                    throw new InvalidOperationException("Disabled motion must open Find immediately.");
+                if (!pane.FindInput.Focused || !pane.FindReveal.Open)
+                    throw new InvalidOperationException("Reveal must focus the native input immediately when opening.");
+                owner = GetAncestor(GetFocus(), 2);
+                Geometry();
+                inputPeer = GetFocus();
+                SendMessageW(GetFocus(), 0x102, 's', 1);
+                if (pane.FindInput.Text != "s")
+                    throw new InvalidOperationException("Reveal must preserve native text during opening.");
+            });
+            await Settled(true);
+            await Until(() => FindFits(pane));
+            await Ui(() =>
+            {
+                closeStarted = Stopwatch.GetTimestamp();
+                pane.HideFind();
+                closeCompleted = Stopwatch.GetTimestamp();
+                if (pane.FindReveal.Open || !pane.FilesFocused || pane.FindInput.Text != "")
+                    throw new InvalidOperationException("Closing Find clears its query and returns focus immediately.");
+                if (pane.FindBounds.Height != (motion ? 56 : 0))
+                    throw new InvalidOperationException("Closing Find must not snap the layout at the start of motion.");
+                Geometry();
+            });
+            if (motion)
+                await Until(() =>
+                {
+                    Geometry();
+                    if (!pane.FindReveal.Animating)
+                        throw new InvalidOperationException("Closing Reveal completed without an observable reversal frame.");
+                    return pane.FindReveal.Progress < 0.8f && pane.FindReveal.Progress > 0;
+                });
+            await Ui(() =>
+            {
+                long reverseStarted = Stopwatch.GetTimestamp();
+                startingRevealPaints = (long)SendMessageW(owner, 0x803C, 36, 0);
+                pane.ShowFind();
+                long reverseCompleted = Stopwatch.GetTimestamp();
+                // Reversal samples the current clock, not the previous rendered frame.
+                double minimum = Math.Pow(Math.Clamp(1 - Stopwatch.GetElapsedTime(closeStarted, reverseCompleted).TotalMilliseconds / 1000, 0, 1), 3);
+                double maximum = Math.Pow(Math.Clamp(1 - Stopwatch.GetElapsedTime(closeCompleted, reverseStarted).TotalMilliseconds / 1000, 0, 1), 3);
+                float progress = pane.FindReveal.Progress;
+                if (motion && (progress < minimum - 0.001 || progress > maximum + 0.001))
+                    throw new InvalidOperationException($"Reversal must preserve the sampled closing position: {progress} outside [{minimum}, {maximum}].");
+                if (!pane.FindReveal.Open || !pane.FindInput.Focused || GetFocus() != inputPeer)
+                    throw new InvalidOperationException("Reversing Reveal must reuse its native editor.");
+                Geometry();
+                SendMessageW(GetFocus(), 0x102, 'r', 1);
+                if (pane.FindInput.Text != "r")
+                    throw new InvalidOperationException("The native editor must accept text immediately after reversal.");
+            });
+            await Settled(true);
+            await Until(() => FindFits(pane));
+            await Check(() => pane.FindInput.Text == "r" && pane.FindReveal.Progress == 1,
+                "Reveal completes reversal without losing editor text");
+            await Ui(pane.HideFind);
+            await Settled(false);
+            await Ready(pane);
+            await Until(() => !pane.FindReveal.Animating && pane.FindBounds.Height == 0);
+            await Ui(() => pane.FindReveal.Duration = 180);
+        }
+
         async Task TypeToFindChecks(FilePaneView pane)
         {
             await Ui(() =>
@@ -1481,7 +3132,7 @@ internal static class ExplorerSmoke
                 if (!PostMessageW(GetFocus(), 0x100, 0x53, 1))
                     throw new InvalidOperationException("Could not post the first typing key.");
             });
-            await Until(() => pane.FindInput.Focused && pane.Model.Active.Filter == "s" && !pane.IsFiltering);
+            await Until(() => pane.FindInput.Focused && pane.FilterQuery == "s" && !pane.IsFiltering);
             await Check(() => pane.Model.Active.FindOpen && pane.FindInput.Text == "s",
                 "Typing in either file view opens Find without losing the first character");
             await Ui(() =>
@@ -1489,12 +3140,12 @@ internal static class ExplorerSmoke
                 if (!PostMessageW(GetFocus(), 0x100, 0x4d, 1))
                     throw new InvalidOperationException("Could not post the next typing key.");
             });
-            await Until(() => pane.Model.Active.Filter == "sm" && !pane.IsFiltering);
+            await Until(() => pane.FilterQuery == "sm" && !pane.IsFiltering);
             await Ui(() =>
             {
                 SendMessageW(GetFocus(), 0x102, 0x00e9, 1);
             });
-            await Until(() => pane.Model.Active.Filter == "sm\u00e9" && !pane.IsFiltering);
+            await Until(() => pane.FilterQuery == "sm\u00e9" && !pane.IsFiltering);
             await Ui(pane.HideFind);
             await Ready(pane);
             await Ui(() =>
@@ -1543,7 +3194,8 @@ internal static class ExplorerSmoke
             var input = pane.FindInput.GetBounds();
             var close = pane.CloseFindButton.GetBounds();
             var files = pane.Grid.GetBounds();
-            return bar.Height == 56 && input.Height == 44 && close.Height == 44
+            return !pane.FindReveal.Animating && pane.FindReveal.Progress == 1
+                && bar.Height == 56 && input.Height == 44 && close.Height == 44
                 && input.Width > 0 && input.X >= bar.X && input.Y >= bar.Y
                 && close.X >= input.X + input.Width + 8 && close.Y == input.Y
                 && close.X + close.Width <= bar.X + bar.Width

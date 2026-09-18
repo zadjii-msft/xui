@@ -5,6 +5,7 @@ public enum ExplorerViewMode { Details, Columns }
 public sealed class ExplorerColumn(DirectorySnapshot snapshot)
 {
     public DirectorySnapshot Snapshot { get; } = snapshot;
+    public string Filter { get; set; } = "";
     public string? SelectedPath { get; set; }
     public double ScrollOffset { get; set; }
 }
@@ -52,7 +53,7 @@ public sealed class ExplorerTab
         copy.history.AddRange(history);
         copy.columns.AddRange(columns.Select(column => new ExplorerColumn(column.Snapshot)
         {
-            SelectedPath = column.SelectedPath, ScrollOffset = column.ScrollOffset
+            Filter = column.Filter, SelectedPath = column.SelectedPath, ScrollOffset = column.ScrollOffset
         }));
         return copy;
     }
@@ -61,6 +62,7 @@ public sealed class ExplorerTab
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         if (ViewMode == mode) return;
+        if (ViewMode == ExplorerViewMode.Columns && columns.Count > 0) Filter = columns[^1].Filter;
         ViewMode = mode;
         ResetColumns();
     }
@@ -70,7 +72,7 @@ public sealed class ExplorerTab
         columns.Clear();
         ActiveColumn = 0;
         if (ViewMode == ExplorerViewMode.Columns)
-            columns.Add(new(new(Path, Entries)) { SelectedPath = SelectedPath, ScrollOffset = ScrollOffset });
+            columns.Add(new(new(Path, Entries)) { Filter = Filter, SelectedPath = SelectedPath, ScrollOffset = ScrollOffset });
     }
 
     public void CommitColumn(int parent, DirectorySnapshot snapshot)
@@ -158,6 +160,8 @@ public sealed class ExplorerTab
     private void Apply(string path, IReadOnlyList<FileEntry> entries)
     {
         var sameDirectory = PathsEqual(Path, path);
+        if (sameDirectory && ViewMode == ExplorerViewMode.Columns && columns.Count > 0)
+            Filter = columns[^1].Filter;
         Path = path;
         Entries = entries;
         if (!sameDirectory)
@@ -179,7 +183,19 @@ public sealed class ExplorerTab
 public sealed class ExplorerPane
 {
     public const int TabLimit = 32;
-    private ulong nextId;
+    private static long nextId;
+    private ExplorerTab? active;
+
+    internal ExplorerPane(IEnumerable<ExplorerTab> tabs, ulong activeId)
+    {
+        var items = tabs.ToArray();
+        if (items.Length > TabLimit || items.Select(tab => tab.Id).Distinct().Count() != items.Length)
+            throw new ArgumentException("The pane contains too many tabs or duplicate tab identities.", nameof(tabs));
+        active = items.SingleOrDefault(tab => tab.Id == activeId);
+        if (items.Length != 0 && active is null)
+            throw new ArgumentException("The active tab is not in the pane.", nameof(activeId));
+        Tabs.AddRange(items);
+    }
 
     public ExplorerPane(string path)
     {
@@ -187,13 +203,24 @@ public sealed class ExplorerPane
     }
 
     public List<ExplorerTab> Tabs { get; } = [];
-    public ExplorerTab Active { get; private set; }
+    public ExplorerTab Active
+    {
+        get => active ?? throw new InvalidOperationException("The pane has no tabs.");
+        private set => active = value;
+    }
+
+    private static ulong AllocateId()
+    {
+        long id = Interlocked.Increment(ref nextId);
+        if (id <= 0) throw new InvalidOperationException("Tab identities are exhausted.");
+        return (ulong)id;
+    }
 
     public ExplorerTab AddTab(string path)
     {
         if (Tabs.Count >= TabLimit)
             throw new InvalidOperationException($"A pane can contain at most {TabLimit} tabs.");
-        var tab = new ExplorerTab(checked(++nextId), path);
+        var tab = new ExplorerTab(AllocateId(), path);
         Tabs.Add(tab);
         Active = tab;
         return tab;
@@ -213,7 +240,7 @@ public sealed class ExplorerPane
         ArgumentNullException.ThrowIfNull(source);
         if (Tabs.Count >= TabLimit)
             throw new InvalidOperationException($"A pane can contain at most {TabLimit} tabs.");
-        var copy = source.Duplicate(checked(++nextId));
+        var copy = source.Duplicate(AllocateId());
         int index = Tabs.IndexOf(source);
         Tabs.Insert(index < 0 ? Tabs.Count : index + 1, copy);
         return Active = copy;
@@ -229,12 +256,35 @@ public sealed class ExplorerPane
         return true;
     }
 
+    public bool CanTransferTab(ulong id, ExplorerPane target, int index)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return index >= 0 && index <= target.Tabs.Count && Tabs.Any(tab => tab.Id == id)
+            && (ReferenceEquals(this, target) ||
+                (target.Tabs.Count < TabLimit && target.Tabs.All(tab => tab.Id != id)));
+    }
+
+    // The native strip reports an insertion slot before the source is removed.
+    public bool TransferTab(ulong id, ExplorerPane target, int index)
+    {
+        if (!CanTransferTab(id, target, index)) return false;
+        int sourceIndex = Tabs.FindIndex(tab => tab.Id == id);
+        var tab = Tabs[sourceIndex];
+        if (ReferenceEquals(this, target) && index > sourceIndex) --index;
+        Tabs.RemoveAt(sourceIndex);
+        if (ReferenceEquals(active, tab))
+            active = Tabs.Count == 0 ? null : Tabs[Math.Min(sourceIndex, Tabs.Count - 1)];
+        target.Tabs.Insert(index, tab);
+        target.active = tab;
+        return true;
+    }
+
     public void ReplaceTabs(ExplorerPane source)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (ReferenceEquals(this, source)) throw new ArgumentException("The source pane must be different.", nameof(source));
         int active = source.Tabs.IndexOf(source.Active);
-        var copies = source.Tabs.Select(tab => tab.Duplicate(checked(++nextId))).ToArray();
+        var copies = source.Tabs.Select(tab => tab.Duplicate(AllocateId())).ToArray();
         Tabs.Clear();
         Tabs.AddRange(copies);
         Active = Tabs[active];
@@ -242,7 +292,7 @@ public sealed class ExplorerPane
 
     public void ResetTabs(string path)
     {
-        var tab = new ExplorerTab(checked(++nextId), path);
+        var tab = new ExplorerTab(AllocateId(), path);
         Tabs.Clear();
         Tabs.Add(tab);
         Active = tab;
@@ -251,7 +301,7 @@ public sealed class ExplorerPane
     public void ResetTabs(ExplorerTab source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var tab = source.Duplicate(checked(++nextId));
+        var tab = source.Duplicate(AllocateId());
         Tabs.Clear();
         Tabs.Add(tab);
         Active = tab;

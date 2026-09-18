@@ -1,12 +1,16 @@
 #include "xui/application.hpp"
+#include "xui/documents.hpp"
+#include "xui/image.hpp"
 #include "../src/drawing.hpp"
 #include "image_fixtures.hpp"
+#include "owned_window_capture.hpp"
 #include <windows.h>
 #include <dwmapi.h>
 #include <psapi.h>
 #include <commctrl.h>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -26,7 +30,13 @@ void require(bool value, const char* message) {
 struct Frame {
     int width{}, height{};
     std::vector<DWORD> pixels;
-    explicit Frame(HWND window) {
+    explicit Frame(HWND window, bool owned_only = false) {
+        if (owned_only) {
+            auto captured = owned_window_capture::capture(window);
+            width = captured.width; height = captured.height;
+            pixels = std::move(captured.data);
+            return;
+        }
         RECT rect{};
         GetClientRect(window, &rect);
         POINT origin{};
@@ -155,6 +165,152 @@ LRESULT CALLBACK count_native(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UIN
     if (message == WM_SETTEXT) ++native_text_sets;
     if (message == WM_PRINTCLIENT) ++native_prints;
     return DefSubclassProc(hwnd, message, wp, lp);
+}
+struct DeferredRootPaint {
+    HWND window;
+    explicit DeferredRootPaint(HWND hwnd) : window(hwnd) {
+        require(SetWindowSubclass(window, procedure, 78, 0) != FALSE, "Defer root painting during layout capture");
+    }
+    ~DeferredRootPaint() { finish(); }
+    void finish() {
+        if (!window) return;
+        RemoveWindowSubclass(window, procedure, 78);
+        InvalidateRect(window, nullptr, FALSE);
+        window = nullptr;
+    }
+    static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+        if (message == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
+        return DefSubclassProc(hwnd, message, wp, lp);
+    }
+};
+void scroll_frames(xui::VisualStyle style, bool native, bool images) {
+    xui::Window window({L"XUI scroll frame boundary", {620, 580}});
+    window.set_visual_style(style);
+    auto root = std::make_shared<xui::Stack>(xui::Axis::vertical);
+    auto outside = std::make_shared<xui::Button>(L"Unscrolled focus target");
+    root->add(outside);
+    auto content = std::make_shared<xui::Stack>(xui::Axis::vertical);
+    content->set_spacing(7);
+    auto input = std::make_shared<xui::TextInput>(L"Native scroll caption");
+    input->set_text(L"Native scroll value");
+    auto document = std::make_shared<xui::MultilineText>();
+    document->set_text(L"Native document\nSecond line");
+    document->set_preferred_size({300, 70});
+    for (int i = 0; i < 16; ++i) {
+        auto label = std::make_shared<xui::Label>(L"Label " + std::to_wstring(i) + L" - unchanged frame pixels");
+        label->set_preferred_size({300, 28});
+        content->add(label);
+        content->add(std::make_shared<xui::Button>(L"Action " + std::to_wstring(i)));
+        if (native && i == 1) { content->add(input); content->add(document); }
+    }
+    if (images) {
+        auto image = std::make_shared<xui::Image>();
+        image->set_preferred_size({300, 60});
+        content->add(image);
+    }
+    auto scroll = std::make_shared<xui::ScrollView>(content, L"Scroll frame viewport");
+    root->add(scroll, 1);
+    root->add(std::make_shared<xui::Label>(L"Unscrolled lower boundary"));
+    window.set_content(root);
+    bool finished{};
+    window.post([&] {
+        HWND host{};
+        EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM data) -> BOOL {
+            wchar_t title[80]{};
+            GetWindowTextW(hwnd, title, 80);
+            if (std::wstring_view(title) == L"XUI scroll frame boundary") {
+                *reinterpret_cast<HWND*>(data) = hwnd;
+                return FALSE;
+            }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&host));
+        require(host != nullptr, "Find scroll frame window");
+        require(window.focus(*outside), "Keep native caret out of scroll samples");
+        for (auto dpi : {96u, 144u, 192u}) {
+            RECT suggested{40, 40, 740, 740};
+            SendMessageW(host, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
+            for (auto theme : {xui::ThemeMode::dark, xui::ThemeMode::light, xui::ThemeMode::high_contrast}) {
+                window.set_theme(theme);
+                scroll->set_offset(0);
+                pump();
+                RedrawWindow(host, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                DwmFlush();
+                const auto viewport = scroll->bounds();
+                const auto scale = dpi / 96.0f;
+                const RECT sampled{static_cast<LONG>(std::lround(viewport.x * scale)),
+                    static_cast<LONG>(std::lround(viewport.y * scale)),
+                    static_cast<LONG>(std::lround((viewport.x + viewport.width) * scale)),
+                    static_cast<LONG>(std::lround((viewport.y + viewport.height) * scale))};
+                const auto difference = [&](const Frame& a, const Frame& b) {
+                    require(a.width == b.width && a.height == b.height &&
+                        sampled.left >= 0 && sampled.top >= 0 && sampled.right <= a.width && sampled.bottom <= a.height,
+                        "Scroll capture geometry remains inside the client area");
+                    size_t changed{};
+                    for (int y = sampled.top; y < sampled.bottom; ++y)
+                        for (int x = sampled.left; x < sampled.right; ++x)
+                            changed += distance(a.pixels[y * a.width + x], b.pixels[y * b.width + x]) > 10;
+                    return changed;
+                };
+                for (const auto offset : {13.5f, 47.0f, 131.5f, 6.0f, 0.0f}) {
+                    const auto prefix = std::to_string(native) + "-" + std::to_string(images) + "-" +
+                        std::to_string(dpi) + "-" + std::to_string(static_cast<int>(theme)) + "-" + std::to_string(offset);
+                    const Frame previous(host, true);
+                    // Graphics Capture can dispatch messages through COM. Hold only the
+                    // root paint so capture cannot hide intermediate child pixel copies.
+                    DeferredRootPaint deferred(host);
+                    const auto presentations = SendMessageW(host, WM_APP + 60, 0, 0);
+                    scroll->set_offset(offset);
+                    // Run layout, but deliberately leave WM_PAINT queued. The window must
+                    // retain the previous complete frame, not copied pieces of moved HWNDs.
+                    SendMessageW(host, WM_APP + 12, 0, 0);
+                    require(SendMessageW(host, WM_APP + 60, 0, 0) == presentations,
+                        "Scroll layout does not present a partial root frame");
+                    DwmFlush();
+                    const Frame between(host, true);
+                    require(SendMessageW(host, WM_APP + 60, 0, 0) == presentations,
+                        "Layout capture does not dispatch a root presentation");
+                    const auto changed = difference(previous, between);
+                    if (changed) {
+                        previous.save(output / (prefix + "-before-scroll.bmp"));
+                        between.save(output / (prefix + "-during-scroll.bmp"));
+                        std::cerr << "Scroll changed " << changed << " pixels before root presentation: " << prefix << '\n';
+                    }
+                    require(changed == 0, "Layout preserves the previous complete frame until root presentation");
+                    deferred.finish();
+                    UpdateWindow(host);
+                    DwmFlush();
+                    const Frame presented(host, true);
+                    require(difference(previous, presented) > 100, "Root presentation draws the new scroll position");
+                    RedrawWindow(host, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+                    DwmFlush();
+                    const Frame settled(host, true);
+                    const auto repaired = difference(presented, settled);
+                    if (repaired) {
+                        presented.save(output / (prefix + "-presented.bmp"));
+                        settled.save(output / (prefix + "-settled.bmp"));
+                        std::cerr << "Scroll repaired " << repaired << " pixels after root presentation: " << prefix << '\n';
+                    }
+                    require(repaired == 0, "First scroll frame matches the settled native and custom pixels");
+                }
+            }
+        }
+        if (native) {
+            require(window.focus(*input), "Scrolled native input remains focusable");
+            const auto edit = GetFocus();
+            SendMessageW(edit, EM_SETSEL, 0, -1);
+            SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"Edited after scrolling"));
+            require(input->text() == L"Edited after scrolling", "Scrolled input retains native editing");
+            SendMessageW(edit, EM_UNDO, 0, 0);
+            require(input->text() == L"Native scroll value", "Scrolled input retains native undo");
+        }
+        finished = true;
+        window.close();
+    });
+    const auto result = xui::Application::run(window);
+    if (!window.error().empty()) std::wcerr << window.error() << '\n';
+    require(result == 0 && finished, "Scroll frame experiment completed");
+    require(xui::Drawing::live_targets() == 0, "Scroll fixture releases its root target");
 }
 void run(xui::VisualStyle style) {
     xui::Window window({L"XUI frame boundary test", {720, 620}});
@@ -344,9 +500,23 @@ void run(xui::VisualStyle style) {
 int main(int argc, char** argv) {
     try {
         const std::filesystem::path root = argc > 1 ? argv[1] : "build\\flicker\\frames";
-        const auto style = argc > 2 && std::string_view(argv[2]) == "--winui" ?
+        const bool scroll_only = argc > 2 && std::string_view(argv[2]) == "--scroll";
+        const auto style = (argc > 2 && std::string_view(argv[2]) == "--winui") ||
+            (argc > 3 && std::string_view(argv[3]) == "--winui") ?
             xui::VisualStyle::winui : xui::VisualStyle::classic;
         std::filesystem::create_directories(root);
+        if (scroll_only) {
+            winrt::init_apartment(winrt::apartment_type::single_threaded);
+            struct Apartment {
+                ~Apartment() { winrt::clear_factory_cache(); winrt::uninit_apartment(); }
+            } apartment;
+            output = root;
+            scroll_frames(style, false, false);
+            scroll_frames(style, true, false);
+            scroll_frames(style, true, true);
+            std::cout << "Scroll layout preserves complete frames with custom, native, and image peers\n";
+            return 0;
+        }
         samples.open(root / "samples.csv");
         samples << "phase,frame,region,retained,reference\n";
         DWORD warm_handles{}, warm_gdi{}, warm_user{};

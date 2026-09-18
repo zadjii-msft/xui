@@ -1,4 +1,5 @@
 #pragma once
+#include "xui/animation.hpp"
 
 #include "xui/core.hpp"
 #include "xui/theme.hpp"
@@ -284,6 +285,7 @@ public:
     Layout layout_metrics() const;
     Rect indicator_bounds(Rect bounds) const;
     Rect mark_bounds(Rect bounds) const;
+    Rect mark_bounds(Rect bounds, bool enabled) const;
     Rect content_bounds(Rect bounds) const;
     Rect label_bounds(Rect bounds) const;
 protected:
@@ -467,7 +469,7 @@ struct TabColors {
 };
 
 // One strip peer regardless of tab count, plus one retained optional action button.
-class TabStrip final : public Control {
+class TabStrip final : public Control, public Animation {
 public:
     explicit TabStrip(std::wstring name = L"Tabs");
     ~TabStrip() override;
@@ -476,6 +478,11 @@ public:
     void set_colors(TabColors colors);
     std::optional<std::uint64_t> selected() const { return selected_; }
     void set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected);
+    void set_duration(unsigned milliseconds);
+    unsigned duration() const { return duration_; }
+    bool animating() const override { return scrolling_ || !motion_.empty(); }
+    void advance(Clock::time_point now) override;
+    void settle() override;
     bool select(std::uint64_t id);
     bool activate_tab(std::uint64_t id);
     void step(int delta);
@@ -501,16 +508,40 @@ public:
     Rect content_bounds(Rect bounds) const;
     std::optional<std::size_t> hit_test(float x) const;
     std::optional<std::size_t> hit_test(Point point) const;
+    std::size_t insertion_index(float x) const;
+    void set_drop_indicator(std::optional<std::size_t> index);
+    std::optional<std::size_t> drop_indicator() const { return drop_indicator_; }
     void arrange(Rect bounds) override;
 private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::tab_strip; }
+    void presentation_changed() override { settle(); }
     float tab_viewport_width() const;
+    float target_tab_width() const;
+    Rect target_tab_bounds(std::size_t index) const;
+    Rect motion_tab_bounds(std::size_t index) const;
+    bool overflows() const;
+    bool tabs_fit() const;
     void arrange_new_button();
     void reveal_selected();
+    double presented_first() const;
+    void start_scroll(double from);
     std::vector<TabItem> tabs_;
+    struct TabMotion {
+        std::uint64_t id;
+        Rect from, to;
+    };
+    std::vector<TabMotion> motion_;
+    unsigned duration_{};
+    float motion_progress_{1};
+    bool motion_crossing_{};
+    bool scrolling_{};
+    double scroll_from_{};
+    float new_button_from_{}, new_button_to_{};
+    Clock::time_point motion_started_{};
     TabColors colors_;
     std::optional<std::uint64_t> selected_;
     std::size_t first_{};
+    std::optional<std::size_t> drop_indicator_;
     std::optional<std::uint64_t> context_tab_;
     std::uint64_t tabs_revision_{};
     std::function<void(std::uint64_t)> select_, close_, activate_;
@@ -552,7 +583,7 @@ private:
     std::size_t selected_{};
 };
 
-class SplitView final : public Control {
+class SplitView final : public Control, public Animation {
 public:
     SplitView(std::shared_ptr<Element> first, std::shared_ptr<Element> second,
         std::wstring name = L"Pane divider");
@@ -563,6 +594,14 @@ public:
     float ratio() const { return ratio_; }
     void set_secondary_visible(bool visible);
     bool secondary_visible() const { return secondary_visible_; }
+    void set_transition_duration(unsigned milliseconds);
+    unsigned transition_duration() const { return transition_duration_; }
+    bool animating() const override { return animating_; }
+    float progress() const { return progress_; }
+    void advance(Clock::time_point now) override;
+    void settle() override;
+    void set_primary_visible(bool visible);
+    bool primary_visible() const { return primary_visible_; }
     bool expanded() const;
     void on_expanded(std::function<void(bool)> callback) { expanded_callback_ = std::move(callback); }
     Rect divider() const;
@@ -574,13 +613,22 @@ public:
 protected:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::split_view; }
     StyleStateMask control_style_state_bits() const override;
+    void presentation_changed() override { if (ratio_animating_) settle(); }
 private:
+    float presented_first_width() const;
     std::shared_ptr<ContentView> first_, second_;
     float ratio_{0.5f};
-    bool secondary_visible_{true};
+    bool primary_visible_{true}, secondary_visible_{true};
     bool arranged_expanded_{};
     bool style_dragging_{};
     std::function<void(bool)> expanded_callback_;
+    unsigned transition_duration_{};
+    bool animating_{};
+    float progress_{1}, start_{1};
+    Clock::time_point started_{};
+    bool ratio_animating_{};
+    float ratio_start_{}, ratio_target_{}, ratio_presented_{};
+    Size ratio_viewport_{};
 };
 
 // Returns null when there are no enabled focus targets. Traversal wraps.

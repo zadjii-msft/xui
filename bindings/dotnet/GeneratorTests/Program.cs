@@ -80,6 +80,9 @@ internal static partial class Program
         TestCompositionDiagnostics();
         TestCompositionShape();
         TestValueControls();
+        TestReveal();
+        TestSplitAnimation();
+        TestNavigationAnimation();
         TestToggleControls();
         TestParityControls();
         TestStyling();

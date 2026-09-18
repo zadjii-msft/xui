@@ -1,5 +1,6 @@
 #include "xui/navigation.hpp"
 #include "layout_styling.hpp"
+#include "collection_presentation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
@@ -50,11 +51,113 @@ NavigationList::NavigationList(std::wstring name, NavigationView& owner) :
     set_item_size({240, 40});
     on_activate([this](ItemKey key) { if (owner_) owner_->activate_item(key); });
 }
-void NavigationList::replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected) {
+struct NavigationList::Motion {
+    ItemKey group;
+    std::shared_ptr<const ItemsSource> logical, expanded_source;
+    std::size_t first{}, count{};
+    double width{}, height{}, viewport_height{}, start{}, target{}, gap{}, fallback_offset{};
+    std::optional<ItemKey> anchor;
+    std::optional<ItemKey> selected;
+    double anchor_y{};
+    bool opening{};
+    ScalarTransition clock{0};
+    double desired_offset() const {
+        if (anchor) if (const auto index = logical->find(*anchor)) {
+            const auto after = first + (opening ? count : 0);
+            const auto top = *index < after ? *index * height :
+                (*index - (opening ? count : 0)) * height + gap;
+            return std::max(0.0, top - anchor_y);
+        }
+        return fallback_offset;
+    }
+};
+NavigationList::~NavigationList() = default;
+bool NavigationList::animating() const { return motion_ && motion_->clock.animating(); }
+void NavigationList::collection_presentation_retired() { settle(); }
+std::shared_ptr<const detail::CollectionPresentation> NavigationList::motion_frame() {
+    const auto& m = *motion_;
+    const double start = m.first * m.height;
+    std::vector<detail::CollectionBand> bands;
+    const auto add = [&](std::size_t first, std::size_t count, double top, double clip_height) {
+        if (count) bands.push_back({first, count, {0, top, m.width, m.height}, m.height,
+            {0, top, m.width, clip_height}});
+    };
+    add(0, m.first, 0, start);
+    if (m.opening) add(m.first, m.count, start, m.gap);
+    const auto after = m.first + (m.opening ? m.count : 0);
+    add(after, m.logical->size() - after, start + m.gap, (m.logical->size() - after) * m.height);
+    std::vector<detail::OutgoingCollectionRow> outgoing;
+    const auto extent = (m.logical->size() - (m.opening ? m.count : 0)) * m.height + m.gap;
+    if (!m.opening) {
+        // Anchored scrolling can expose different exiting rows. Read only the retained old snapshot.
+        const auto scroll = std::min(m.desired_offset(), std::max(0.0, extent - m.viewport_height));
+        const auto top = std::max(start, scroll), bottom = std::min(start + m.gap, scroll + m.viewport_height);
+        if (bottom > top) {
+            const auto first = static_cast<std::size_t>(std::clamp(std::floor((top - start) / m.height), 0.0, double(m.count)));
+            const auto end = static_cast<std::size_t>(std::clamp(std::ceil((bottom - start) / m.height), 0.0, double(m.count)));
+            for (auto i = first; i < end; ++i) {
+                const auto index = m.first + i;
+                const auto info = m.expanded_source->hierarchy(index);
+                CollectionRow row{m.expanded_source->key(index), m.expanded_source->item(index), {},
+                    (std::numeric_limits<std::size_t>::max)()};
+                row.depth = info.depth; row.parent = info.parent; row.group = info.group;
+                row.expandable = info.expandable; row.expanded = info.expanded; row.navigation = true;
+                if (owner_ && m.selected && !info.expanded) {
+                    auto selected = owner_->find(*m.selected);
+                    while (selected && selected->parent) {
+                        if (*selected->parent == row.key) { row.selected_descendant = true; break; }
+                        selected = owner_->find(*selected->parent);
+                    }
+                }
+                auto visual = m.expanded_source->visual(index);
+                if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
+                if (visual.image_path.empty()) visual.image_path = row.content.image_path;
+                if (!visual.image_path.empty() && visual.icon == ButtonIcon::none) visual.icon = ButtonIcon::folder;
+                const bool selected = m.selected == row.key;
+                auto frozen = std::make_shared<const detail::FrozenCollectionRow>(
+                    detail::FrozenCollectionRow{std::move(row), std::move(visual), selected});
+                outgoing.push_back({std::move(frozen), {0, start + i * m.height, m.width, m.height},
+                    {0, start, m.width, m.gap}});
+            }
+        }
+    }
+    return std::make_shared<const detail::CollectionPresentation>(m.logical, ++presentation_version_,
+        m.width, m.height, extent, std::move(bands), std::move(outgoing));
+}
+void NavigationList::advance(Clock::time_point now) {
+    if (!motion_) return;
+    const auto viewport = content_viewport();
+    if (viewport.width != motion_->width || viewport.height != motion_->viewport_height ||
+        item_size().height != motion_->height) { settle(); return; }
+    if (!motion_->clock.advance(now)) return;
+    if (!motion_->clock.animating()) { settle(); return; }
+    motion_->gap = std::clamp(motion_->start + (motion_->target - motion_->start) * motion_->clock.value(),
+        0.0, motion_->count * motion_->height);
+    auto frame = motion_frame();
+    const auto offset = motion_->desired_offset();
+    set_collection_presentation(std::move(frame));
+    set_collection_presentation_offset(std::max(0.0, offset));
+}
+void NavigationList::settle() {
+    if (!motion_) return;
+    auto previous = std::move(motion_);
+    auto desired = previous->fallback_offset;
+    if (previous->anchor) if (const auto row = source_->find(*previous->anchor))
+        desired = source_->row_start(*row, item_size().height) - previous->anchor_y;
+    clear_collection_presentation();
+    set_offset(std::max(0.0, desired));
+}
+void NavigationList::replace(std::shared_ptr<const ItemsSource> source, std::optional<ItemKey> selected,
+    std::optional<ItemKey> transition) {
     hover_item({});
     set_help_text(L"");
+    const bool opt_in = transition && owner_ && owner_->duration() && owner_->expanded() &&
+        this == owner_->main_.get() && visible() && content_viewport().width > 0 && content_viewport().height > 0 &&
+        presentation() != ItemsPresentation::tiles;
+    if (!opt_in || (motion_ && motion_->group != *transition)) settle();
     auto focus = selection_.focused();
     const auto previous = source_;
+    const auto old_focus = focus;
     // Move focus to a surviving ancestor when a branch disappears.
     while (focus && !source->find(*focus)) {
         const auto row = previous ? previous->find(*focus) : std::nullopt;
@@ -67,12 +170,79 @@ void NavigationList::replace(std::shared_ptr<const ItemsSource> source, std::opt
     if (focus && !available(*focus)) focus.reset();
     if (!focus && selected && available(*selected)) focus = selected;
     if (!focus) for (std::size_t i = 0; i < source->size(); ++i) if (source->item(i).enabled) { focus = source->key(i); break; }
-    selection_.clear();
-    if (selected && source->find(*selected)) selection_.set(*selected, true);
-    set_source(std::move(source));
-    selection_.set_focus(focus);
-    reveal_focus_ = true;
-    if (focus && bounds().height > 0) reveal(*focus);
+    std::unique_ptr<Motion> next;
+    std::optional<ItemKey> anchor;
+    double anchor_y{}, anchored_offset = offset();
+    if (opt_in && previous) {
+        const auto viewport = content_viewport();
+        const auto rows = visible_content();
+        for (const auto& row : rows) if (source->find(row.key) &&
+            row.bounds.y + row.bounds.height > viewport.y && row.bounds.y < viewport.y + viewport.height) {
+            anchor = row.key; anchor_y = row.bounds.y - viewport.y; break;
+        }
+        const auto parent = previous->find(*transition), next_parent = source->find(*transition);
+        if (parent && next_parent && parent == next_parent) {
+            const bool opening = source->hierarchy(*next_parent).expanded;
+            const auto expanded_source = opening ? source : previous;
+            const auto collapsed_source = opening ? previous : source;
+            const auto first = *parent + 1;
+            auto end = first;
+            while (end < expanded_source->size() &&
+                expanded_source->hierarchy(end).depth > expanded_source->hierarchy(*parent).depth) ++end;
+            const auto count = end - first;
+            bool compatible = count && collapsed_source->size() + count == expanded_source->size();
+            for (std::size_t i = 0; compatible && i < collapsed_source->size(); ++i)
+                compatible = collapsed_source->key(i) == expanded_source->key(i < first ? i : i + count);
+            const double height = item_size().height;
+            const double gap = motion_ ? motion_->gap : opening ? 0 : count * height;
+            const auto header = item_bounds(*parent);
+            compatible = compatible && header.y < viewport.y + viewport.height &&
+                header.y + height + gap > viewport.y;
+            if (motion_) compatible = compatible && motion_->count == count && motion_->first == first &&
+                motion_->height == height && motion_->width == viewport.width &&
+                motion_->expanded_source->size() == expanded_source->size();
+            for (std::size_t i = 0; compatible && motion_ && i < expanded_source->size(); ++i)
+                compatible = expanded_source->key(i) == motion_->expanded_source->key(i);
+            if (compatible) {
+                next = std::make_unique<Motion>();
+                next->group = *transition; next->logical = source; next->expanded_source = expanded_source;
+                next->first = first; next->count = count;
+                next->width = viewport.width; next->height = height; next->viewport_height = viewport.height;
+                next->opening = opening; next->start = next->gap = gap; next->target = opening ? count * height : 0;
+                next->anchor = anchor; next->anchor_y = anchor_y; next->fallback_offset = anchored_offset;
+                next->selected = selected;
+                if (!opening && std::min(static_cast<double>(count), std::ceil(viewport.height / height) + 1) >
+                    detail::CollectionPresentation::maximum_outgoing) next.reset();
+                if (next && old_focus != focus && focus) {
+                    const auto repaired = previous->find(*focus);
+                    const auto box = repaired ? item_bounds(*repaired) : Rect{};
+                    if (!repaired || box.y < viewport.y || box.y + box.height > viewport.y + viewport.height) next.reset();
+                }
+            }
+        }
+    }
+    CollectionSelection selection;
+    if (selected && source->find(*selected)) selection.set(*selected, true);
+    selection.set_focus(focus);
+    if (next && next->start != next->target) {
+        next->clock.retarget(1, owner_->duration(), Clock::now());
+        motion_ = std::move(next);
+        auto frame = motion_frame();
+        const auto desired = motion_->desired_offset();
+        selection_ = std::move(selection);
+        set_source(std::move(source), {}, std::move(frame));
+        reveal_focus_ = false;
+        set_collection_presentation_offset(std::max(0.0, desired));
+    } else {
+        settle();
+        selection_ = std::move(selection);
+        set_source(std::move(source));
+        selection_.set_focus(focus);
+        reveal_focus_ = !opt_in || old_focus != focus;
+        if (reveal_focus_ && focus && bounds().height > 0) reveal(*focus);
+        else if (opt_in && anchor) if (const auto row = source_->find(*anchor))
+            set_offset(std::max(0.0, source_->row_start(*row, item_size().height) - anchor_y));
+    }
 }
 void NavigationList::arrange(Rect bounds) {
     VirtualCollection::arrange(bounds);
@@ -97,6 +267,12 @@ bool NavigationList::prepare_context_menu(std::optional<Point> position) {
 bool NavigationList::select(ItemKey key, SelectionGesture gesture) {
     const auto row = source_ ? source_->find(key) : std::nullopt;
     if (!owner_ || !enabled() || !owner_->enabled() || !row || !source_->item(*row).enabled) return false;
+    if (owner_->duration() && gesture != SelectionGesture::focus_only &&
+        source_->hierarchy(*row).group && source_->hierarchy(*row).expandable) {
+        selection_.set_focus(key);
+        invalidate(Invalidation::paint);
+        return owner_->navigate(key);
+    }
     selection_.set_focus(key);
     reveal(key);
     invalidate(Invalidation::paint);
@@ -226,10 +402,12 @@ NavigationView::NavigationView(std::wstring name) :
     rebuild();
 }
 NavigationView::~NavigationView() {
+    settle_motion();
     toggle_->on_click({}); search_->on_change({});
     for (const auto& list : {header_, main_, footer_}) { list->on_activate({}); list->owner_ = nullptr; }
 }
 void NavigationView::presentation_changed() {
+    settle_motion();
     const bool winui = visual_style() == VisualStyle::winui;
     title_->set_heading(!winui);
     title_->set_body_strong(winui);
@@ -276,6 +454,7 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
     std::set<ItemKey> closed;
     for (const auto& item : items)
         if (index_.contains(item.key) ? closed_.contains(item.key) : !item.expanded) closed.insert(item.key);
+    settle_motion();
     entries_ = std::move(items); index_ = std::move(index); closed_ = std::move(closed);
     std::erase_if(filter_expansion_, [&](const auto& entry) {
         const auto* item = find(entry.first);
@@ -284,7 +463,7 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
     if (selected_ && (!find(*selected_) || !find(*selected_)->selectable || !effective_enabled(*selected_))) selected_.reset();
     rebuild();
 }
-void NavigationView::rebuild() {
+void NavigationView::rebuild(std::optional<ItemKey> transition) {
     const auto query = folded(filter_);
     matching_.clear(); matches_ = 0;
     std::set<ItemKey> included;
@@ -324,12 +503,14 @@ void NavigationView::rebuild() {
         };
         append(append, {}, 0);
         const auto& list = section == NavigationSection::header ? header_ : section == NavigationSection::footer ? footer_ : main_;
-        list->replace(std::move(snapshot), selected_);
+        list->replace(std::move(snapshot), selected_,
+            transition && find(*transition)->section == section ? transition : std::nullopt);
     }
     invalidate(Invalidation::layout);
 }
 void NavigationView::set_expanded(bool value) {
     if (expanded_ == value) return;
+    settle_motion();
     expanded_ = value;
     toggle_->set_name(value ? L"Collapse navigation" : L"Expand navigation");
     rebuild();
@@ -339,7 +520,21 @@ void NavigationView::set_expanded(bool value) {
 void NavigationView::set_pane_widths(float expanded, float collapsed) {
     if (!std::isfinite(expanded) || !std::isfinite(collapsed) || collapsed < 56 || expanded < 160 || expanded < collapsed)
         throw std::invalid_argument("Navigation widths must be finite, expanded >= 160, collapsed >= 56, and expanded >= collapsed");
+    if (expanded_width_ == expanded && collapsed_width_ == collapsed) return;
+    settle_motion();
     expanded_width_ = expanded; collapsed_width_ = collapsed; invalidate(Invalidation::layout);
+}
+void NavigationView::settle_motion() {
+    for (const auto& list : {header_, main_, footer_}) if (list) list->settle();
+}
+void NavigationView::set_duration(unsigned milliseconds) {
+    if (milliseconds > 10000) throw std::invalid_argument("Navigation duration must be between 0 and 10000 milliseconds");
+    if (duration_ == milliseconds) return;
+    settle_motion();
+    duration_ = milliseconds;
+}
+bool NavigationView::animating() const {
+    return header_->animating() || main_->animating() || footer_->animating();
 }
 bool NavigationView::expanded_state(const NavigationItem& item) const {
     if (!expanded_) return false;
@@ -355,16 +550,18 @@ bool NavigationView::item_expanded(ItemKey key) const {
 }
 bool NavigationView::set_item_expanded(ItemKey key, bool value) {
     if (!enabled() || !effective_enabled(key) || !has_children(key)) return false;
+    if (duration_ && expanded_ && item_expanded(key) == value) return true;
     const auto* item = find(key);
     if (item->section == NavigationSection::main && !filter_.empty()) filter_expansion_[key] = value;
     else if (value) closed_.erase(key);
     else closed_.insert(key);
     if (value && !expanded_) { set_expanded(true); return true; }
-    rebuild(); return true;
+    rebuild(key); return true;
 }
 void NavigationView::set_filter(std::wstring query) {
     if (query.size() > 256) throw std::length_error("Navigation filter exceeds 256 code units");
     if (filter_ == query) return;
+    settle_motion();
     if (filter_.empty() || query.empty()) filter_expansion_.clear();
     filter_ = std::move(query); search_->set_text(filter_); rebuild();
     auto callback = filter_changed_; const auto text = filter_;
@@ -372,16 +569,19 @@ void NavigationView::set_filter(std::wstring query) {
 }
 void NavigationView::set_search_visible(bool value) {
     if (search_visible_ == value) return;
+    settle_motion();
     search_visible_ = value; invalidate(Invalidation::layout);
 }
 void NavigationView::set_header_visible(bool value) {
     if (header_visible_ == value) return;
+    settle_motion();
     header_visible_ = value; invalidate(Invalidation::layout);
 }
 bool NavigationView::select(ItemKey key) {
     const auto* item = find(key);
     if (!enabled() || !item || !item->selectable || !effective_enabled(key) ||
         (item->section == NavigationSection::main && !matching_.contains(key))) return false;
+    settle_motion();
     const bool changed = selected_ != key;
     selected_ = key;
     for (auto parent = item->parent; parent; parent = find(*parent)->parent) {
@@ -398,6 +598,7 @@ bool NavigationView::select(ItemKey key) {
 }
 void NavigationView::clear_selection() {
     if (!selected_) return;
+    settle_motion();
     selected_.reset(); rebuild();
 }
 bool NavigationView::navigate(ItemKey key) {

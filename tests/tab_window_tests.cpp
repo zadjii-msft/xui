@@ -123,7 +123,7 @@ void new_tab_accessibility(HWND host, HWND strip, std::atomic<int>& created) {
     driver.join();
     if (failure) std::rethrow_exception(failure);
 }
-void run(const std::filesystem::path& captures) {
+void run(const std::filesystem::path& captures, bool drag_indicator = false) {
     Window window({title, {960, 400}, ThemeMode::dark, {}, true});
     auto root = std::make_shared<Stack>(Axis::vertical);
     auto spacer = std::make_shared<Stack>(Axis::vertical); spacer->set_fixed_size({0, 64}); root->add(spacer);
@@ -164,6 +164,34 @@ void run(const std::filesystem::path& captures) {
             require(hwnd != nullptr, "Find the owned tab fixture");
             const auto tab_peer = peer(hwnd, L"Title bar tabs");
             const auto standalone_peer = peer(hwnd, L"Standalone attached tabs");
+            if (drag_indicator) {
+                for (auto style : {VisualStyle::classic, VisualStyle::winui})
+                    for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
+                        for (UINT dpi : {96u, 144u, 192u}) {
+                            window.set_visual_style(style); window.set_theme(theme);
+                            RECT rectangle{}; GetWindowRect(hwnd, &rectangle);
+                            rectangle.right = rectangle.left + MulDiv(960, dpi, 96);
+                            rectangle.bottom = rectangle.top + MulDiv(440, dpi, 96);
+                            SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rectangle));
+                            const auto palette = Palette::system(theme, style);
+                            for (std::size_t index : {0u, 1u, 3u}) {
+                                tabs->set_drop_indicator(index);
+                                flush(hwnd);
+                                const auto pixels = owned_window_capture::capture(hwnd);
+                                const auto b = paint_bounds(hwnd, tab_peer, dpi);
+                                const auto tab = tabs->tab_bounds(index == 3 ? 2 : index);
+                                const float x = index == 3 ? tab.x + tab.width : std::max(1.0f, tab.x);
+                                require(pixel(pixels, {b.x + x, b.y + 12}, dpi) ==
+                                    rgb(palette.high_contrast ? palette.text : palette.accent),
+                                    "Tab insertion marker is visible at every slot, theme and DPI");
+                            }
+                            tabs->set_drop_indicator({});
+                            require(!tabs->drop_indicator(), "Clearing drag feedback removes the marker state");
+                        }
+                complete = true;
+                window.close();
+                return true;
+            }
             for (auto style : {VisualStyle::classic, VisualStyle::winui})
                 for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast})
                     for (UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
@@ -443,10 +471,12 @@ void run(const std::filesystem::path& captures) {
 }
 int wmain(int argc, wchar_t** argv) {
     try {
-        const auto directory = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::path{};
+        const bool drag_indicator = argc > 1 && std::wstring_view(argv[1]) == L"--drag-indicator";
+        const auto directory = argc > 1 && !drag_indicator ? std::filesystem::path(argv[1]) : std::filesystem::path{};
         if (!directory.empty()) std::filesystem::create_directories(directory);
-        run(directory);
-        std::cout << "Attached tab pixels, themes, DPI, close targets, keyboard focus and overflow passed\n";
+        run(directory, drag_indicator);
+        std::cout << (drag_indicator ? "Tab insertion-marker pixels across styles, themes and DPI passed\n" :
+            "Attached tab pixels, themes, DPI, close targets, keyboard focus and overflow passed\n");
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

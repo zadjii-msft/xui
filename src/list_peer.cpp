@@ -18,9 +18,15 @@ void ListPeer::detach_thumbnails() {
     thumbnails_.clear();
     thumbnail_source_.reset();
 }
+VisibleRange ListPeer::thumbnail_range(Rect clip) const {
+    return visible_range(list_->model().visible_indices().size(), list_->row_height(),
+        list_->offset() + std::max(0.0f, clip.y - list_->content_viewport(width()).y), clip.height);
+}
 bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<TaskWake>& wake,
     std::vector<std::uint64_t>& retained, std::size_t& remaining) {
-    if (!shown || !list_->thumbnails()) { detach_thumbnails(); return false; }
+    if (!shown || !list_->thumbnails()) {
+        const bool changed = !thumbnails_.empty(); detach_thumbnails(); return changed;
+    }
     const auto view = list_->model().view();
     const auto source = view->source();
     const auto pixels = std::clamp(static_cast<UINT>(std::lround(24.0 * dpi_ / 96.0)), 1u,
@@ -34,20 +40,19 @@ bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<Task
     }
     // Bound each pane and the whole window, even on an unusually tall desktop.
     const auto limit = std::min<std::size_t>(24, remaining);
-    const auto range = visible_range(list_->model().visible_indices().size(), list_->row_height(),
-        list_->offset() + std::max(0.0f, clip.y - list_->content_viewport(width()).y), clip.height);
+    const auto range = thumbnail_range(clip);
     const auto& model = list_->model();
     std::vector<const FileItem*> wanted;
     for (auto row = range.begin; row < range.end && wanted.size() < limit; ++row) {
         const auto& item = (*model.items())[model.visible_indices()[row]];
         wanted.push_back(&item);
     }
-    std::erase_if(thumbnails_, [&](const auto& slot) {
+    const auto removed = std::erase_if(thumbnails_, [&](const auto& slot) {
         return std::none_of(wanted.begin(), wanted.end(), [&](const auto* item) {
             return slot->id == item->id && slot->path == item->path;
         });
     });
-    bool changed{};
+    bool changed = removed != 0;
     std::vector<std::pair<ItemId, std::wstring>> errors;
     for (const auto* item : wanted) {
         auto found = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {

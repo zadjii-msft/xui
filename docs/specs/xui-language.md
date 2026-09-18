@@ -39,7 +39,7 @@ The `view` block describes the native tree.
 The `code csharp` block supplies C# methods.
 Fields belong in `state` declarations.
 
-Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, and `SplitView`.
+Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, and `Reveal`.
 Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
 `SwapChainPanel` is a Windows-only graphics leaf. Its generated reference exposes the [native graphics contract](swap-chain-panel.md).
@@ -79,10 +79,63 @@ Event arguments name C# methods.
 `Button` supports `icon: global::Xui.ButtonIcon.Refresh` through the native `SetIcon` method.
 `NavigationView` supports `headerVisible`.
 Its `searchId` and `searchHelp` arguments configure the native search input.
+Its optional reactive `duration` argument is a `uint` from zero through 10,000 milliseconds.
+Omission preserves the zero-duration default. Changed values call `SetDuration` without replacing the native search input.
+The [group animation contract](animations.md#navigation-group-transitions) describes logical state, focus, and interruption.
 `SplitView` supports `secondVisible`.
+Its optional reactive `duration` argument accepts a `uint` from zero through 10,000 milliseconds.
+Zero disables motion. The compiler initializes duration before secondary visibility.
+The [animation contract](animations.md#split-pane-transitions) describes pane geometry, focus, and interruption.
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
+
+## Opt-in bottom reveal
+
+`Reveal` retains exactly one child and slides it within a native clip.
+Its positional string supplies the accessible name.
+The `open` argument is a reactive `bool`.
+The `duration` argument is a reactive `uint` in milliseconds.
+The reactive `layout` and `direction` arguments accept `global::Xui.RevealLayout` and `global::Xui.RevealDirection`.
+Their defaults are `Fixed` and `Bottom`.
+The compiler initializes duration, layout, and direction before open state.
+Zero is the default duration and disables motion.
+The native setter rejects values greater than 10,000 without changing the previous duration.
+
+```text
+component FindExample {
+    state bool FindOpen = false;
+    view {
+        VStack() {
+            Button("Open Find", ref: OpenFind, click: ShowFind);
+            Reveal("Find bar", open: FindOpen, duration: 180,
+                layout: global::Xui.RevealLayout.Expand, ref: FindReveal) {
+                HStack(padding: 6, spacing: 8) {
+                    TextInput("Find", ref: Find, captionVisible: false,
+                        placeholder: "Find", preferredSize: (320, 44), flex: 1);
+                    Button("Close Find", click: HideFind, size: (44, 44));
+                }
+            }
+        }
+    }
+    code csharp {
+        void ShowFind() { FindOpen = true; Find.Focus(); }
+        void HideFind() { FindOpen = false; OpenFind.Focus(); }
+    }
+}
+```
+
+This example animates the reserved height together with the content position.
+An automatic grid row or non-flex stack child follows that measurement.
+The default `Fixed` layout instead reserves full height at entry start and releases it after exit.
+`Top`, `Left`, and `Right` select other entry edges.
+Horizontal expansion needs content with a bounded natural width.
+The application does not bind child visibility to the open state, because outgoing content remains visible during exit.
+The application still chooses focus immediately.
+Reversal, reduced motion, native input, and performance limits follow the [reveal contract](animations.md).
+The typed reference exposes read-only `Progress` and `Animating` properties.
+These properties are not `.xui` arguments.
+Reveal has no style target or arbitrary transform arguments.
 
 ## CheckBox, links, selectors, badges, and menu bars
 

@@ -209,6 +209,9 @@ void switch_button_ring() {
         toggle.set_visual_style(visual);
         toggle.set_text_measurer([](auto, auto) { return Size{60, 20}; });
         const auto size = toggle.measure({500, 100});
+        if (visual == VisualStyle::winui)
+            require(size.width == 112 && size.height == 40,
+                "Natural WinUI switches reserve the track, twelve-DIP label gap, and forty-DIP height without trailing padding");
         const Rect bounds{0, 0, size.width, size.height};
         const auto pill = toggle.indicator_bounds(bounds), off = toggle.mark_bounds(bounds);
         require(pill.width == 2 * pill.height && off.width == off.height &&
@@ -218,9 +221,51 @@ void switch_button_ring() {
         const auto tiny = toggle.indicator_bounds({0, 0, 1, 1});
         require(tiny.width == 0 || tiny.width <= 1, "Switch geometry clips in constrained bounds");
     }
+    toggle.set_visual_style(VisualStyle::winui);
+    for (const bool checked : {false, true}) {
+        toggle.set_checked(checked);
+        toggle.cancel();
+        toggle.pointer_move(false);
+        const auto idle = toggle.mark_bounds({0, 0, 100, 32});
+        require(idle.x == (checked ? 23.5f : 3.5f) && idle.y == 10 && idle.width == 12 && idle.height == 12,
+            "WinUI switch idle thumb matches its twelve-DIP template size and half-DIP alignment");
+        toggle.pointer_move(true);
+        const auto hover = toggle.mark_bounds({0, 0, 100, 32});
+        require(hover.x == (checked ? 22.5f : 2.5f) && hover.y == 9 && hover.width == 14 && hover.height == 14,
+            "WinUI switch hover grows around the fixed thumb center");
+        toggle.pointer_down();
+        const auto press = toggle.mark_bounds({0, 0, 100, 32});
+        require(press.x == (checked ? 20.0f : 3.0f) && press.y == 9 && press.width == 17 && press.height == 14,
+            "WinUI switch press stretches the thumb from a three-DIP outer-edge inset");
+        const auto disabled = toggle.mark_bounds({0, 0, 100, 32}, false);
+        require(disabled.x == idle.x && disabled.y == idle.y && disabled.width == idle.width && disabled.height == idle.height,
+            "Effective ancestor disable suppresses hover and press thumb growth");
+        toggle.cancel();
+        toggle.pointer_move(false);
+    }
+    toggle.set_checked(false);
+    PartStyleValues padding;
+    padding.padding = Insets{3, 4, 5, 6};
+    toggle.set_control_style_values(StylePart::root, padding);
+    const auto padded = toggle.measure({500, 100});
+    require(padded.width == 120 && padded.height == 30,
+        "Explicit switch padding remains authoritative instead of adding implicit trailing or vertical padding");
+    toggle.set_control_style_values(StylePart::root, {});
     PartStyleValues indicator; indicator.size = 30.0f;
     toggle.set_style(ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}}, {}));
     require(toggle.indicator_bounds({0, 0, 200, 80}).width == 60, "Toggle styles size the switch track");
+    require(toggle.mark_bounds({0, 0, 200, 80}).width == 18, "Authored switch track size scales the WinUI thumb proportionally");
+    indicator.border_thickness = Insets{3, 4, 5, 6};
+    toggle.set_control_style_values(StylePart::indicator, indicator);
+    for (const auto area : {Rect{0, 0, 200, 80}, Rect{0, 0, 38, 18}, Rect{0, 0, 12, 18}}) {
+        const auto track = toggle.indicator_bounds(area), thumb = toggle.mark_bounds(area);
+        require(thumb.width >= 0 && thumb.height >= 0 && thumb.width <= track.width && thumb.height <= track.height,
+            "Styled switch thumbs remain bounded when borders and layout constrain their track");
+        require(thumb.width == 0 || thumb.height == 0 ||
+            (thumb.x >= track.x && thumb.y >= track.y &&
+                thumb.x + thumb.width <= track.x + track.width && thumb.y + thumb.height <= track.y + track.height),
+            "A visible switch thumb stays inside the authored track");
+    }
     Progress progress;
     ProgressRing ring;
     require(!progress.ring_presentation() && progress.state() == ProgressState::determinate &&

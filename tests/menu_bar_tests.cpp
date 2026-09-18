@@ -154,10 +154,60 @@ void shared_menu_semantics() {
     surface.set_commands(set, 2);
     require(!surface.menu()->execute(20), "Disabled root blocks descendant invocation");
 }
+void heading_focus_space() {
+    int actions{};
+    MenuBar bar;
+    bar.set_commands(source(actions));
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        bar.set_visual_style(style);
+        for (const auto& child : bar.retained_children())
+            std::static_pointer_cast<MenuBar::Heading>(child)->set_visual_style(style);
+        const float margin = style == VisualStyle::winui ? 4.0f : 0.0f;
+        const auto natural = bar.measure({2000, 100});
+        require(natural.height == 40, "Native heading focus margins fit the default forty-DIP menu height");
+        float width{};
+        for (const auto& child : bar.retained_children())
+            width += child->measure({2000 - 2 * margin, 100 - 2 * margin}).width + 2 * margin;
+        if (natural.width != width)
+            throw std::runtime_error("Menu measurement includes each heading's focus margins: actual=" +
+                std::to_string(natural.width) + " expected=" + std::to_string(width));
+        bar.arrange({10, 20, 2000, 40});
+        float edge = 10;
+        for (const auto& child : bar.retained_children()) {
+            const auto bounds = child->bounds();
+            require(bounds.x == edge + margin && bounds.y == 20 + margin &&
+                bounds.height == 40 - 2 * margin, "Menu headings reserve native focus space on every side");
+            edge = bounds.x + bounds.width + margin;
+        }
+        bar.heading(2)->set_visible(false);
+        bar.arrange({10, 20, 80, 40});
+        require(bar.heading(1)->bounds().x == 10 + margin,
+            "Compressed headings preserve their leading focus margin");
+        for (const auto& child : bar.retained_children()) {
+            const auto bounds = child->bounds();
+            require(bounds.x + bounds.width <= 90.01f && bounds.height >= 0,
+                "Compressed menu headings and margins remain inside the owner");
+        }
+        require(bar.heading(2)->bounds().width == 0, "Hidden headings reserve no focus space");
+        bar.heading(2)->set_visible(true);
+        PartStyleValues root;
+        root.padding = Insets{10, 6, 14, 8};
+        bar.set_control_style_values(StylePart::root, root);
+        bar.arrange({10, 20, 2000, 40});
+        const auto first = bar.heading(1)->bounds();
+        require(first.x == 20 + margin && first.y == 26 + margin && first.height == 26 - 2 * margin,
+            "Authored root padding remains outside heading focus margins");
+        bar.arrange({10, 20, 3, 3});
+        for (const auto& child : bar.retained_children())
+            require(child->bounds().width >= 0 && child->bounds().height >= 0,
+                "Exhausted menu content never produces negative heading extents");
+        bar.set_control_style_values(StylePart::root, {});
+    }
+}
 }
 int main() {
     try {
-        validation(); headings_and_navigation(); lifetime_and_replacement(); shared_menu_semantics();
+        validation(); headings_and_navigation(); lifetime_and_replacement(); shared_menu_semantics(); heading_focus_space();
         std::cout << checks << " menu bar checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

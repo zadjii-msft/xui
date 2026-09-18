@@ -67,11 +67,11 @@ public:
     static constexpr float scrollbar_height = 12;
     void on_selection(std::function<void(std::size_t, ItemKey)> callback) { selection_ = std::move(callback); }
     void on_activate(std::function<void(std::size_t, ItemKey)> callback) { activate_ = std::move(callback); }
-    // Adapter focus request for keyboard and navigation-button actions, not property setters.
+    // Adapter focus request for explicit input actions, not property setters.
     void on_focus_column(std::function<void(const std::shared_ptr<VirtualCollection>&)> callback) { focus_ = std::move(callback); }
+    // Local target coordinates. Headers and empty list space request focus without changing rows.
+    bool focus_pointer(const Control& target, Point point);
     void move_active(bool right);
-    const std::shared_ptr<Button>& previous_button() const { return previous_; }
-    const std::shared_ptr<Button>& next_button() const { return next_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
@@ -79,15 +79,17 @@ private:
     friend class MillerColumnList;
     bool select_item(std::size_t index, ItemKey key, SelectionGesture gesture);
     void activate_item(std::size_t index, ItemKey key);
+    void focus_column(std::size_t index);
     void reveal_active();
+    void reveal_column(std::size_t index);
     void layout();
     float effective_width() const;
     std::vector<MillerColumn> columns_;
     std::vector<std::shared_ptr<MillerColumnList>> lists_;
     std::vector<std::shared_ptr<Label>> headers_;
     std::vector<std::shared_ptr<Element>> children_;
-    std::shared_ptr<Button> previous_, next_;
     std::size_t active_{};
+    std::optional<std::size_t> pending_reveal_;
     float width_{240};
     double offset_{};
     std::function<void(std::size_t, ItemKey)> selection_, activate_;

@@ -48,12 +48,12 @@ struct RowVisual {
 };
 class RowImages {
 public:
-    static constexpr std::size_t maximum_rows = 512, maximum_images = 24;
+    static constexpr std::size_t maximum_rows = 512, maximum_queued = 48;
     bool sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
-        const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained, std::size_t& remaining,
+        const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained,
         bool retain_on_source_change = false);
     bool sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
-        std::vector<std::uint64_t>& retained, std::size_t& remaining, float image_dips = 24);
+        std::vector<std::uint64_t>& retained, float image_dips = 24);
     void clear();
     ItemVisual visual(ItemKey key) const;
     std::shared_ptr<const ImagePixels> pixels(ItemKey key) const;
@@ -66,6 +66,7 @@ private:
         ImageKind kind{};
         std::shared_ptr<ImageRequest> request;
         std::shared_ptr<const ImagePixels> pixels;
+        bool failed{};
         ~Slot() { if (request) request->cancel(); }
     };
     std::vector<std::unique_ptr<Slot>> slots_;
@@ -74,6 +75,8 @@ private:
     UINT pixels_{};
 };
 std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake,
+    ImageKind kind = ImageKind::wic);
+std::shared_ptr<ImageRequest> try_request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake,
     ImageKind kind = ImageKind::wic);
 void clear_image_cache();
 bool reserve_bitmap(std::size_t bytes);

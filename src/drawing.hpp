@@ -73,12 +73,20 @@ public:
     void outline(Rect bounds, D2D1_COLOR_F color);
     void rounded(Rect bounds, D2D1_COLOR_F color, float radius = VisualMetrics::radius, bool stroke = false);
     void arc(Rect bounds, float start_turn, float sweep_turns, D2D1_COLOR_F color, float thickness);
-    void focus_ring(Rect bounds, const Palette& palette, float radius = 4);
+    enum class SurfaceCorners { all, top, bottom };
+    void focus_ring(Rect bounds, const Palette& palette, float radius = 4, SurfaceCorners corners = SurfaceCorners::all);
+    void winui_focus_ring(Rect bounds, const Palette& palette, float radius = 4, float horizontal_outset = 3,
+        SurfaceCorners corners = SurfaceCorners::all, float vertical_outset = 3);
+    void winui_toggle_focus(const Toggle& toggle, Rect bounds, const Palette& palette, IDWriteTextLayout* label);
+    void winui_combo_focus_background(Rect bounds, const Palette& palette);
+    void winui_combo_focus_marker(Rect bounds, const Palette& palette);
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
     void surface_frame(Rect bounds, const Palette& palette);
     void styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
-        D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness);
+        D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness,
+        SurfaceCorners corners = SurfaceCorners::all);
+    void styled_field_focus(Rect bounds, const Palette& palette, const PartStyleValues& values);
     void styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
         IDWriteTextLayout* label, bool focus_visible);
     void hyperlink(const HyperlinkButton& link, Rect bounds, const Palette& palette, bool enabled, bool focus_visible);
@@ -137,6 +145,7 @@ public:
     std::size_t native_bitmap_bytes() const;
     std::size_t scene_paths() const;
 private:
+    void rounded_border(Rect bounds, D2D1_COLOR_F color, float radius, float thickness);
     VisualStyle visual_style_{VisualStyle::classic};
     bool variable_font_{};
     friend struct DrawingTestAccess;
