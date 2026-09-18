@@ -38,6 +38,14 @@ public DataGrid DataGrid(string name) => new(this, FeatureCreate(43, name));
 public HistoryChart HistoryChart(string name) => new(this, FeatureCreate(44, name));
 public NavigationView NavigationView(string name) => new(this, FeatureCreate(45, name));
 public MillerColumns MillerColumns(string name) => new(this, FeatureCreate(46, name));
+public ToggleSwitch ToggleSwitch(string name) => new(this, FeatureCreate(48, name));
+public ToggleButton ToggleButton(string name) => new(this, FeatureCreate(49, name));
+public ProgressRing ProgressRing(string name) => new(this, FeatureCreate(50, name));
+public CheckBox CheckBox(string name) => new(this, FeatureCreate(51, name));
+public HyperlinkButton HyperlinkButton(string name) => new(this, FeatureCreate(52, name));
+public SelectorBar SelectorBar(string name) => new(this, FeatureCreate(53, name));
+public InfoBadge InfoBadge(string name) => new(this, FeatureCreate(54, name));
+public MenuBar MenuBar(string name) => new(this, FeatureCreate(55, name));
 }
 public sealed unsafe partial class RangeInput : Control {
 internal RangeInput(Window w, ulong h) : base(w,h) { }
@@ -242,4 +250,51 @@ public NavigationView SetExpanded(bool value) { Expanded = value; return this; }
 }
 public sealed unsafe partial class MillerColumns : Control {
 internal MillerColumns(Window w, ulong h) : base(w,h) { }
+}
+public sealed unsafe partial class ToggleSwitch : Control {
+internal ToggleSwitch(Window w, ulong h) : base(w,h) { }
+public bool Checked { get { var v = Features.Get(this,46); return v.First != 0; } set => Features.Set(this,46,first: value ? 1u : 0u); }
+public ToggleSwitch SetChecked(bool value) { Checked = value; return this; }
+}
+public sealed unsafe partial class ToggleButton : Control {
+internal ToggleButton(Window w, ulong h) : base(w,h) { }
+public bool Checked { get { var v = Features.Get(this,10); return v.First != 0; } set => Features.Set(this,10,first: value ? 1u : 0u); }
+public ToggleButton SetChecked(bool value) { Checked = value; return this; }
+public ButtonIcon Icon { get { var v = Features.Get(this,45); return (ButtonIcon)v.First; } set => Features.Set(this,45,first: (uint)value); }
+public ToggleButton SetIcon(ButtonIcon value) { Icon = value; return this; }
+}
+public sealed unsafe partial class ProgressRing : Control {
+internal ProgressRing(Window w, ulong h) : base(w,h) { }
+public NumericRange Range { get { var v = Features.Get(this,1); return new(v.A,v.B,v.C,v.D); } set => Features.Set(this,1,a: value.Minimum, b: value.Maximum, c: value.SmallStep, d: value.LargeStep); }
+public ProgressRing SetRange(NumericRange value) { Range = value; return this; }
+public double Value { get { var v = Features.Get(this,2); return v.A; } set => Features.Set(this,2,a: value); }
+public ProgressRing SetValue(double value) { Value = value; return this; }
+public ProgressState State { get { var v = Features.Get(this,6); return (ProgressState)v.First; } set => Features.Set(this,6,first: (uint)value); }
+public ProgressRing SetState(ProgressState value) { State = value; return this; }
+}
+public sealed unsafe partial class CheckBox : Control {
+internal CheckBox(Window w, ulong h) : base(w,h) { }
+public CheckState State { get { var v = Features.Get(this,48); return (CheckState)v.First; } set => Features.Set(this,48,first: (uint)value); }
+public CheckBox SetState(CheckState value) { State = value; return this; }
+public bool ThreeState { get { var v = Features.Get(this,49); return v.First != 0; } set => Features.Set(this,49,first: value ? 1u : 0u); }
+public CheckBox SetThreeState(bool value) { ThreeState = value; return this; }
+}
+public sealed unsafe partial class HyperlinkButton : Control {
+internal HyperlinkButton(Window w, ulong h) : base(w,h) { }
+public ButtonIcon Icon { get { var v = Features.Get(this,45); return (ButtonIcon)v.First; } set => Features.Set(this,45,first: (uint)value); }
+public HyperlinkButton SetIcon(ButtonIcon value) { Icon = value; return this; }
+}
+public sealed unsafe partial class SelectorBar : Control {
+internal SelectorBar(Window w, ulong h) : base(w,h) { }
+}
+public sealed unsafe partial class InfoBadge : Control {
+internal InfoBadge(Window w, ulong h) : base(w,h) { }
+public uint Count { get { var v = Features.Get(this,52); return checked((uint)v.First); } set => Features.Set(this,52,first: value); }
+public InfoBadge SetCount(uint value) { Count = value; return this; }
+public ButtonIcon Icon { get { var v = Features.Get(this,53); return (ButtonIcon)v.First; } set => Features.Set(this,53,first: (uint)value); }
+public InfoBadge SetIcon(ButtonIcon value) { Icon = value; return this; }
+public void SetDot() => Features.Action(this,18);
+}
+public sealed unsafe partial class MenuBar : Control {
+internal MenuBar(Window w, ulong h) : base(w,h) { }
 }

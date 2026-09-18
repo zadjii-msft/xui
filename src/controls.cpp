@@ -4,6 +4,12 @@
 #include <cmath>
 
 namespace xui {
+namespace {
+Insets default_button_padding(VisualStyle style) {
+    return style == VisualStyle::winui ? Insets{11, 5, 11, 6} :
+        Insets{style_metrics(style).button_padding, 6, style_metrics(style).button_padding, 6};
+}
+}
 void PageView::add_page(std::shared_ptr<Element> content) { add(std::make_shared<ContentView>(std::move(content), L"Page")); }
 void PageView::select(std::size_t index) {
     if (index >= child_count()) throw std::out_of_range("Page index");
@@ -454,8 +460,7 @@ Size Button::measure_styled(Size available) {
     const auto metrics = style_metrics(visual_style());
     if (auto_size() && values && (values->padding || values->border_thickness)) {
         const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
-        const auto padding = values->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-            visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+        const auto padding = values->padding.value_or(default_button_padding(visual_style()));
         const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
         const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
         return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
@@ -483,9 +488,7 @@ PartStyleValues Button::own_surface_style_values() const {
 }
 Rect Button::content_bounds(Rect bounds) const {
     const auto values = surface_style_values();
-    const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
     bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
@@ -564,8 +567,7 @@ Size Button::measure_control_styled(Size available) {
         return style_data_ ? measure_styled(available) : icon_ == ButtonIcon::none ? Control::measure(available) :
             constrain({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available);
     const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     auto text = measured_text();
     if (icon_ != ButtonIcon::none) {
@@ -592,23 +594,66 @@ void Button::set_repeat_timing(unsigned delay, unsigned interval) {
     cancel(); repeat_delay_ = delay; repeat_interval_ = interval;
 }
 void Toggle::set_checked(bool checked) {
-    if (checked_ == checked) return;
-    checked_ = checked;
+    set_check_state(checked ? CheckState::checked : CheckState::unchecked);
+}
+void Toggle::set_check_state(CheckState state) {
+    if (state < CheckState::unchecked || state > CheckState::indeterminate) throw std::invalid_argument("Invalid checkbox state");
+    if (state_ == state) return;
+    state_ = state;
     invalidate_state();
 }
 void Toggle::activate() {
-    set_checked(!checked_);
+    set_checked(!checked());
     const auto callback = change_;
-    if (callback) callback(checked_);
+    if (callback) callback(checked());
+}
+void CheckBox::activate() {
+    set_state(state() == CheckState::unchecked ? CheckState::checked :
+        state() == CheckState::checked && three_state_ ? CheckState::indeterminate : CheckState::unchecked);
+    const auto callback = change_;
+    if (callback) callback(state());
+}
+void InfoBadge::set_count(std::uint32_t value) {
+    if (kind_ == InfoBadgeKind::count && count_ == value) return;
+    kind_ = InfoBadgeKind::count; count_ = value; invalidate(Invalidation::layout);
+}
+void InfoBadge::set_icon(ButtonIcon value) {
+    if (value < ButtonIcon::none || value > ButtonIcon::open) throw std::invalid_argument("Invalid badge icon");
+    if (kind_ == InfoBadgeKind::icon && icon_ == value) return;
+    kind_ = InfoBadgeKind::icon; icon_ = value; invalidate(Invalidation::layout);
+}
+void InfoBadge::set_dot() {
+    if (kind_ == InfoBadgeKind::dot) return;
+    kind_ = InfoBadgeKind::dot; invalidate(Invalidation::layout);
+}
+std::wstring InfoBadge::display_text() const {
+    return kind_ == InfoBadgeKind::count ? count_ > 99 ? L"99+" : std::to_wstring(count_) : L"";
+}
+Size InfoBadge::measure(Size available) {
+    if (!visible()) return {};
+    if (!auto_size()) return Control::measure(available);
+    const auto* root = effective_control_style_values(StylePart::root);
+    const auto padding = root && root->padding ? *root->padding : Insets{};
+    const auto border = root && root->border_thickness ? *root->border_thickness : Insets{};
+    const auto* message = effective_control_style_values(StylePart::message);
+    const auto* icon = effective_control_style_values(StylePart::icon);
+    const float text_scale = message && message->font_size ? *message->font_size / 12.0f : 1.0f;
+    const float size = kind_ == InfoBadgeKind::dot ? 8.0f : kind_ == InfoBadgeKind::icon ?
+        std::max(20.0f, icon && icon->size ? *icon->size + 8 : 20.0f) : 20.0f * text_scale;
+    const float width = kind_ == InfoBadgeKind::count ?
+        (count_ > 99 ? 30.0f : count_ > 9 ? 24.0f : 20.0f) * text_scale : size;
+    return constrain({width + padding.left + padding.right + border.left + border.right,
+        size + padding.top + padding.bottom + border.top + border.bottom}, available);
 }
 Toggle::Layout Toggle::layout_metrics() const {
     const auto* root = effective_style_values(StylePart::root);
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool winui = visual_style() == VisualStyle::winui;
     Layout layout;
-    layout.gap = winui ? 9.0f : 12.0f;
-    layout.indicator_size = indicator && indicator->size ? *indicator->size : (winui ? 19.0f : 18.0f);
-    layout.padding = root && root->padding ? *root->padding : Insets{winui ? 0.0f : 12.0f, 0, 12, 0};
+    layout.gap = winui && !switch_ ? 9.0f : 12.0f;
+    layout.indicator_size = indicator && indicator->size ? *indicator->size : (switch_ ? 20.0f : winui ? 19.0f : 18.0f);
+    layout.padding = root && root->padding ? *root->padding :
+        winui ? Insets{} : Insets{12, 0, 12, 0};
     layout.border = root && root->border_thickness ? *root->border_thickness : Insets{};
     layout.indicator_border = indicator && indicator->border_thickness ? *indicator->border_thickness : Insets{};
     return layout;
@@ -627,8 +672,9 @@ Rect Label::content_bounds(Rect bounds) const {
 Rect Toggle::indicator_bounds(Rect bounds) const {
     const auto layout = layout_metrics();
     const auto content = content_bounds(bounds);
-    return {content.x, content.y + std::max(0.0f, (content.height - layout.indicator_size) / 2),
-        layout.indicator_size, layout.indicator_size};
+    const float height = switch_ ? std::min(layout.indicator_size, content.height) : layout.indicator_size;
+    const float width = switch_ ? std::min(layout.indicator_size * 2, content.width) : layout.indicator_size;
+    return {content.x, content.y + std::max(0.0f, (content.height - height) / 2), width, height};
 }
 Rect Toggle::content_bounds(Rect bounds) const {
     const auto layout = layout_metrics();
@@ -637,27 +683,45 @@ Rect Toggle::content_bounds(Rect bounds) const {
 Rect Toggle::label_bounds(Rect bounds) const {
     auto content = content_bounds(bounds);
     const auto layout = layout_metrics();
-    const float prefix = layout.indicator_size + layout.gap;
+    const float prefix = layout.indicator_size * (switch_ ? 2 : 1) + layout.gap;
     content.x += prefix;
     content.width = std::max(0.0f, content.width - prefix);
     return content;
 }
 Rect Toggle::mark_bounds(Rect bounds) const {
-    return inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
+    return mark_bounds(bounds, enabled());
+}
+Rect Toggle::mark_bounds(Rect bounds, bool enabled) const {
+    auto mark = inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
+    if (!switch_) return mark;
+    if (visual_style() == VisualStyle::winui) {
+        const float cell = std::min(mark.height, mark.width / 2);
+        const float scale = cell / 20;
+        const float width = (!enabled || (!pressed() && !hovered()) ? 12.0f : pressed() ? 17.0f : 14.0f) * scale;
+        const float height = (!enabled || (!pressed() && !hovered()) ? 12.0f : 14.0f) * scale;
+        const float center = (checked() ? mark.width - cell / 2 : cell / 2) - 0.5f * scale;
+        const float left = enabled && pressed() ? (checked() ? mark.width - width - 3 * scale : 3 * scale) : center - width / 2;
+        return {mark.x + left, mark.y + (mark.height - height) / 2, width, height};
+    }
+    const float inset = std::min(pressed() ? 2.0f : hovered() ? 2.5f : 3.0f, std::min(mark.width, mark.height) / 2);
+    mark = inset_rect(mark, {inset, inset, inset, inset});
+    const float size = std::min(mark.height, mark.width);
+    return {checked() ? mark.x + mark.width - size : mark.x, mark.y + (mark.height - size) / 2, size, size};
 }
 Size Toggle::measure(Size available) {
     if (!visible()) return {};
     const auto* root = effective_style_values(StylePart::root);
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool layout_affecting = (root && (root->padding || root->border_thickness)) || (indicator && indicator->size);
-    if (!auto_size() || !layout_affecting) return Control::measure(available);
+    if (!auto_size() || (!layout_affecting && !switch_)) return Control::measure(available);
     const auto text = measured_text();
     const auto layout = layout_metrics();
-    const float width = layout.padding.left + layout.border.left + layout.indicator_size + layout.gap + text.width +
+    const float width = layout.padding.left + layout.border.left + layout.indicator_size * (switch_ ? 2 : 1) + layout.gap + text.width +
         layout.padding.right + layout.border.right;
     const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
         layout.border.top + layout.border.bottom;
-    return constrain({width, height}, available);
+    return constrain({width, switch_ && !layout_affecting ?
+        std::max(visual_style() == VisualStyle::winui ? 40.0f : 32.0f, height) : height}, available);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;
@@ -848,6 +912,7 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
     if (!same_ids) { motion_.clear(); motion_crossing_ = false; scrolling_ = false; }
     const auto previous_first = first_;
     tabs_ = std::move(tabs);
+    drop_indicator_.reset();
     ++tabs_revision_;
     selected_ = selected;
     reveal_selected();
@@ -996,6 +1061,21 @@ std::optional<std::size_t> TabStrip::hit_test(Point point) const {
     const auto content = content_bounds();
     return point.y >= content.y && point.y < content.y + content.height ? hit_test(point.x) : std::nullopt;
 }
+std::size_t TabStrip::insertion_index(float x) const {
+    if (!std::isfinite(x)) throw std::invalid_argument("Tab insertion position must be finite");
+    for (std::size_t i = first_; i < tabs_.size(); ++i) {
+        const auto b = tab_bounds(i);
+        if (b.width <= 0) return i;
+        if (x < b.x + b.width / 2) return i;
+    }
+    return tabs_.size();
+}
+void TabStrip::set_drop_indicator(std::optional<std::size_t> index) {
+    if (index && *index > tabs_.size()) throw std::invalid_argument("Tab insertion index is outside the strip");
+    if (drop_indicator_ == index) return;
+    drop_indicator_ = index;
+    invalidate(Invalidation::paint);
+}
 Rect TabStrip::close_bounds(std::size_t index) const {
     auto b = tab_bounds(index);
     if (const auto* tab = effective_control_style_values(StylePart::tab)) {
@@ -1076,7 +1156,9 @@ float SplitView::effective_divider_width() const {
     return values ? values->width.value_or(divider_width) : divider_width;
 }
 Rect SplitView::pane_area() const { return layout_style::content(*this, bounds()); }
-bool SplitView::expanded() const { return secondary_visible_ && pane_area().width >= 2 * minimum_pane_width + effective_divider_width(); }
+bool SplitView::expanded() const {
+    return secondary_visible_ && (!primary_visible_ || pane_area().width >= 2 * minimum_pane_width + effective_divider_width());
+}
 float SplitView::presented_first_width() const {
     if (ratio_animating_) return ratio_presented_;
     const float width = pane_area().width - effective_divider_width();
@@ -1084,8 +1166,9 @@ float SplitView::presented_first_width() const {
         std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width) : width;
 }
 Rect SplitView::divider() const {
-    if (pane_area().width < 2 * minimum_pane_width + effective_divider_width() || progress_ == 0) return {};
     const auto b = pane_area();
+    if (!primary_visible_) return secondary_visible_ ? Rect{b.x, b.y, 0, b.height} : Rect{};
+    if (b.width < 2 * minimum_pane_width + effective_divider_width() || progress_ == 0) return {};
     const auto divider_extent = effective_divider_width();
     const float left = presented_first_width();
     return {b.x + b.width - (b.width - left) * progress_, b.y, divider_extent * progress_, b.height};
@@ -1093,17 +1176,24 @@ Rect SplitView::divider() const {
 void SplitView::arrange(Rect rect) {
     Element::arrange(rect);
     const auto b = pane_area();
-    if (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height)) settle();
-    const bool available = b.width >= 2 * minimum_pane_width + effective_divider_width();
-    if (!available) settle();
-    const bool presenting = available && (secondary_visible_ || animating_ || progress_ > 0);
-    const auto width = std::max(0.0f, b.width - effective_divider_width());
-    const auto left = available ? presented_first_width() : width;
-    const auto right = width - left;
-    first_->arrange(layout_style::content(*this, {b.x, b.y,
-        presenting ? b.width - (right + effective_divider_width()) * progress_ : b.width, b.height}, StylePart::first_pane));
-    second_->arrange(layout_style::content(*this, {presenting ? b.x + b.width - right * progress_ : b.x + b.width, b.y,
-        presenting ? right : 0, presenting ? b.height : 0}, StylePart::second_pane));
+    if (!primary_visible_) {
+        settle();
+        first_->arrange(layout_style::content(*this, {b.x, b.y, 0, 0}, StylePart::first_pane));
+        second_->arrange(layout_style::content(*this, {b.x, b.y,
+            secondary_visible_ ? b.width : 0, secondary_visible_ ? b.height : 0}, StylePart::second_pane));
+    } else {
+        if (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height)) settle();
+        const bool available = b.width >= 2 * minimum_pane_width + effective_divider_width();
+        if (!available) settle();
+        const bool presenting = available && (secondary_visible_ || animating_ || progress_ > 0);
+        const auto width = std::max(0.0f, b.width - effective_divider_width());
+        const auto left = available ? presented_first_width() : width;
+        const auto right = width - left;
+        first_->arrange(layout_style::content(*this, {b.x, b.y,
+            presenting ? b.width - (right + effective_divider_width()) * progress_ : b.width, b.height}, StylePart::first_pane));
+        second_->arrange(layout_style::content(*this, {presenting ? b.x + b.width - right * progress_ : b.x + b.width, b.y,
+            presenting ? right : 0, presenting ? b.height : 0}, StylePart::second_pane));
+    }
     const bool value = expanded();
     if (arranged_expanded_ != value) {
         arranged_expanded_ = value;
@@ -1115,7 +1205,7 @@ void SplitView::set_ratio(float value) {
     if (!std::isfinite(value)) return;
     value = std::clamp(value, 0.1f, 0.9f);
     if (value == ratio_) return;
-    const bool animate = transition_duration_ && !style_dragging_ && expanded() && progress_ == 1 &&
+    const bool animate = transition_duration_ && primary_visible_ && !style_dragging_ && expanded() && progress_ == 1 &&
         second_->bounds().width > 0 && second_->bounds().height > 0 &&
         (!animating_ || ratio_animating_);
     if (animate) {
@@ -1142,7 +1232,7 @@ void SplitView::set_secondary_visible(bool value) {
     secondary_visible_ = value;
     start_ = progress_;
     started_ = now;
-    animating_ = transition_duration_ && progress_ != (value ? 1.0f : 0.0f);
+    animating_ = transition_duration_ && primary_visible_ && progress_ != (value ? 1.0f : 0.0f);
     if (!animating_) progress_ = value ? 1.0f : 0.0f;
     invalidate(Invalidation::layout);
 }
@@ -1180,6 +1270,13 @@ void SplitView::settle() {
     animating_ = false;
     ratio_animating_ = false;
     progress_ = target;
+    invalidate(Invalidation::layout);
+}
+void SplitView::set_primary_visible(bool value) {
+    if (primary_visible_ == value) return;
+    settle();
+    primary_visible_ = value;
+    if (!value) set_style_dragging(false);
     invalidate(Invalidation::layout);
 }
 void TextInput::commit_text(std::wstring text) {

@@ -152,6 +152,18 @@ The temporary event contains a kind, source handle, and value.
 Text input events use `XUI_CHANGE` and `XUI_SUBMIT`.
 The application reads committed text through `xui_text_copy`.
 
+Feature kinds `XUI_TOGGLE_SWITCH`, `XUI_TOGGLE_BUTTON`, and `XUI_PROGRESS_RING` create the dedicated toggle and ring presentations.
+ToggleSwitch uses `XUI_F_CHECKED`, while ToggleButton uses `XUI_F_BUTTON_CHECKED`.
+Both setters are silent. Accepted actions report `XUI_CHANGE`.
+ProgressRing shares the Progress range, value, and state properties and defaults to indeterminate state.
+The [binding contract](../bindings.md#toggle-and-progress-presentations) defines the fields, events, and lifecycle rules.
+
+Additional feature kinds are `XUI_CHECK_BOX`, `XUI_HYPERLINK_BUTTON`, `XUI_SELECTOR_BAR`, `XUI_INFO_BADGE`, and `XUI_MENU_BAR`.
+CheckBox change events carry a CheckState value rather than a boolean.
+SelectorBar uses choice snapshots and selection events.
+MenuBar uses command snapshots with submenu roots.
+The [additional control contract](../bindings.md#checkbox-links-selectors-badges-and-menu-bars) lists the properties and wrapper equivalents.
+
 `xui_update` accepts at most 4,096 records.
 It checks the complete batch before ordinary mutation.
 Allocation or platform errors during application can leave earlier properties applied.

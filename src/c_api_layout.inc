@@ -41,6 +41,21 @@ xui_status XUI_CALL xui_tab_get_duration(xui_handle target, uint32_t* millisecon
     });
 }
 
+xui_status XUI_CALL xui_split_set_first_visible(xui_handle target, uint32_t visible) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_SPLIT_VIEW); editable(n->owner);
+        require(visible <= 1, XUI_INVALID_ARGUMENT, "First pane visibility must be zero or one.");
+        as<xui::SplitView>(n).set_primary_visible(visible != 0);
+    });
+}
+xui_status XUI_CALL xui_split_get_first_visible(xui_handle target, uint32_t* visible) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_SPLIT_VIEW);
+        require(visible, XUI_INVALID_ARGUMENT, "First pane visibility output is required.");
+        *visible = as<xui::SplitView>(n).primary_visible() ? 1u : 0u;
+    });
+}
+
 xui_status XUI_CALL xui_tab_set_new_button(xui_handle target, uint32_t visible) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_TAB_STRIP); editable(n->owner);

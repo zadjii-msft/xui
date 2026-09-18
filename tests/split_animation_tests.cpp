@@ -306,10 +306,45 @@ void ratio_rounded_completion() {
         require(layouts == completed, "Rounded ratio completion leaves no idle work");
     }
 }
+void primary_visibility() {
+    SplitView split(std::make_shared<Label>(L"First"), std::make_shared<Label>(L"Second"));
+    split.arrange({10, 20, 1000, 400});
+    split.set_transition_duration(1000);
+    split.set_ratio(0.6f);
+    require(split.animating(), "The two-pane ratio starts animating");
+    split.set_primary_visible(false);
+    split.arrange(split.bounds());
+    require(!split.animating() && split.expanded(), "Tear-out topology settles ratio motion");
+    near(split.first()->bounds().width, 0, "A hidden primary pane has no width");
+    near(split.second()->bounds().width, 1000, "The remaining secondary pane occupies the full width");
+    near(split.second()->bounds().x, 10, "The remaining pane starts at the container origin");
+    near(split.divider().width, 0, "One remaining pane has no divider");
+    split.arrange({10, 20, 400, 300});
+    require(split.expanded(), "Secondary-only content remains visible below the two-pane breakpoint");
+    near(split.second()->bounds().width, 400, "Narrow secondary-only content keeps the full width");
+    split.set_ratio(0.4f);
+    require(!split.animating(), "A single pane cannot animate a ratio preset");
+    split.set_secondary_visible(false);
+    split.arrange(split.bounds());
+    require(!split.animating() && !split.expanded() && split.second()->bounds().width == 0,
+        "Hiding both panes is immediate");
+    split.set_secondary_visible(true);
+    split.arrange(split.bounds());
+    require(!split.animating() && split.second()->bounds().width == 400, "Restoring the sole pane is immediate");
+    split.set_primary_visible(true);
+    split.arrange({10, 20, 1000, 400});
+    ratio_geometry(split);
+    split.set_secondary_visible(false);
+    require(split.animating(), "Normal two-pane exit still animates");
+    split.set_primary_visible(false);
+    split.arrange(split.bounds());
+    require(!split.animating() && split.progress() == 0 && split.first()->bounds().width == 0 &&
+        split.second()->bounds().width == 0, "Primary retirement settles an active secondary exit");
+}
 }
 int main() {
     try {
-        contracts(); ratio_contracts(); ratio_interruptions(); ratio_visibility(); ratio_rounded_completion();
+        contracts(); ratio_contracts(); ratio_interruptions(); ratio_visibility(); ratio_rounded_completion(); primary_visibility();
         std::cout << "Split visibility and ratio animation contracts passed\n";
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

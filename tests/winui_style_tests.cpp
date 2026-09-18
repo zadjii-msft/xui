@@ -23,6 +23,16 @@ double contrast(uint32_t a, uint32_t b) {
     return (std::max(first, second) + 0.05) / (std::min(first, second) + 0.05);
 }
 void tokens() {
+    require(winui_card_brushes(ThemeMode::light).fill == 0xb3ffffff &&
+        winui_card_brushes(ThemeMode::light).secondary_fill == 0x80f6f6f6 &&
+        winui_card_brushes(ThemeMode::dark).fill == 0x0dffffff &&
+        winui_card_brushes(ThemeMode::dark).secondary_fill == 0x08ffffff,
+        "WinUI card header and content fills retain distinct alpha resources");
+    require(winui_focus_strokes(ThemeMode::light).outer == 0xe4000000 &&
+        winui_focus_strokes(ThemeMode::light).inner == 0xb3ffffff &&
+        winui_focus_strokes(ThemeMode::dark).outer == 0xffffffff &&
+        winui_focus_strokes(ThemeMode::dark).inner == 0xb3000000,
+        "WinUI focus brushes preserve their separate primary and translucent secondary resources");
     require(WindowOptions{}.visual_style == VisualStyle::classic, "Existing windows keep the classic style");
     require(theme_colors(ThemeMode::dark).background == 0x15181b &&
         theme_colors(ThemeMode::light).accent == 0x00718d, "Classic palette remains unchanged");
@@ -59,9 +69,9 @@ void tokens() {
                         if (!visual.fill_visible)
                             require(contrast(visual.text, colors.background) >= 4.5, "Subtle button text works on window surfaces");
                         const auto disabled = winui_button_visual(mode, appearance, false, hover, pressed, checked);
-                        const auto idle_disabled = winui_button_visual(mode, appearance, false, false, false, false);
+                        const auto idle_disabled = winui_button_visual(mode, appearance, false, false, false, checked);
                         require(disabled.fill == idle_disabled.fill && disabled.text == idle_disabled.text &&
-                            disabled.stroke == idle_disabled.stroke, "Disabled state overrides interaction and checked state");
+                            disabled.stroke == idle_disabled.stroke, "Disabled state overrides hover and press without discarding checked state");
                     }
         const auto accent = winui_button_visual(mode, ButtonAppearance::accent, true, false, false, false);
         const auto pressed = winui_button_visual(mode, ButtonAppearance::accent, true, true, true, false);
@@ -69,6 +79,18 @@ void tokens() {
         const auto subtle = winui_button_visual(mode, ButtonAppearance::subtle, true, false, false, false);
         require(!subtle.fill_visible && !subtle.stroke_visible, "Idle subtle buttons have no frame");
         const bool light = mode == ThemeMode::light;
+        for (const bool enabled : {false, true})
+            for (const bool hover : {false, true})
+                for (const bool pressed : {false, true}) {
+                    const auto slider = winui_slider_brushes(mode, enabled, hover, pressed);
+                    require(slider.track == (enabled ? (light ? 0x72000000u : 0x8bffffffu) : (light ? 0x51000000u : 0x3fffffffu)) &&
+                        slider.thumb == (light ? 0xffffffffu : 0xff454545u),
+                        "Slider uses the strong translucent track and solid thumb resources");
+                    const auto accent = light ? 0x005fb8u : 0x60cdffu;
+                    require(slider.value == (!enabled ? (light ? 0x37000000u : 0x28ffffffu) :
+                        (pressed ? 0xcc000000u : hover ? 0xe6000000u : 0xff000000u) | accent),
+                        "Slider value and inner thumb retain native interaction alpha");
+                }
         const auto normal = winui_button_brushes(mode, ButtonAppearance::standard, true, false, false, false);
         const auto down = winui_button_brushes(mode, ButtonAppearance::standard, true, true, true, false);
         require(normal.fill == (light ? 0xb3ffffff : 0x0fffffff) &&
@@ -82,6 +104,13 @@ void tokens() {
             accent_disabled.fill == (light ? 0x37000000 : 0x28ffffff) && !accent_disabled.stroke &&
             accent_disabled.text == (light ? 0xffffffff : 0x87ffffff),
             "Subtle hover is translucent; disabled accent buttons retain their distinct brush family");
+        for (const auto appearance : {ButtonAppearance::standard, ButtonAppearance::accent, ButtonAppearance::subtle}) {
+            const auto checked_disabled = winui_button_brushes(mode, appearance, false, true, true, true);
+            require(checked_disabled.fill == (light ? 0x37000000u : 0x28ffffffu) &&
+                checked_disabled.text == (light ? 0xffffffffu : 0x87ffffffu) &&
+                checked_disabled.stroke == 0 && checked_disabled.accent && !checked_disabled.elevated,
+                "Checked disabled buttons retain the native accent-disabled fill, text, and transparent border");
+        }
         for (const bool marked : {false, true}) {
             const auto idle = winui_indicator_brushes(mode, marked, true, false, false);
             const auto hover = winui_indicator_brushes(mode, marked, true, true, false);
@@ -188,6 +217,61 @@ void presentation_measurement() {
     require(first > 0 && first == layouts, "Style changes layout; repeated style is a no-op");
     const auto natural = button.measure(available);
     require(natural.width == 52 && natural.height == 32, "WinUI Button uses 32-DIP height and 24-DIP horizontal chrome");
+    const auto content = button.content_bounds({0, 0, natural.width, natural.height});
+    require(content.x == 12 && content.y == 6 && content.width == 28 && content.height == 19,
+        "WinUI Button content subtracts template padding and its border exactly once");
+    for (const bool named : {false, true}) {
+        HyperlinkButton link(L"Natural link");
+        link.set_visual_style(VisualStyle::winui);
+        link.set_text_measurer([](std::wstring_view, TextStyle) { return Size{87, 19}; });
+        if (named) {
+            PartStyleValues shape;
+            shape.corner_radius = 16.0f;
+            link.set_control_style_values(StylePart::root, shape);
+        }
+        const auto size = link.measure(available);
+        const auto text = link.content_bounds({0, 0, size.width, size.height});
+        require(text.width >= 87 && text.height >= 19,
+            "Natural-width hyperlinks retain the complete measured text with default and rounded styles");
+        ButtonStyleValues border;
+        border.border_thickness = Insets{};
+        link.set_style_values(border);
+        const auto borderless = link.measure(available);
+        const auto borderless_text = link.content_bounds({0, 0, borderless.width, borderless.height});
+        require(borderless.width == 109 && borderless_text.width == 87,
+            "Explicit border removal retains native padding without an extra hidden border allowance");
+    }
+    const auto check_natural_label = [&](Toggle& choice) {
+        choice.set_visual_style(VisualStyle::winui);
+        choice.set_text_measurer([](std::wstring_view, TextStyle) { return Size{87, 19}; });
+        for (const bool rounded : {false, true}) {
+            if (rounded) {
+                PartStyleValues shape;
+                shape.corner_radius = 16.0f;
+                choice.set_control_style_values(StylePart::root, shape);
+            }
+            const auto size = choice.measure(available);
+            const auto text = choice.label_bounds({0, 0, size.width, size.height});
+            require(size.width == 115 && text.x == 28 && text.width == 87 && text.height >= 19,
+                "Natural-width WinUI checkboxes retain the full label with default and rounded root styles");
+        }
+        choice.set_visual_style(VisualStyle::classic);
+        auto size = choice.measure(available);
+        require(size.width == 141 && choice.label_bounds({0, 0, size.width, size.height}).width == 87,
+            "Classic checkbox chrome and trailing padding remain unchanged");
+        choice.set_visual_style(VisualStyle::winui);
+        PartStyleValues custom;
+        custom.padding = Insets{1, 2, 3, 4};
+        choice.set_control_style_values(StylePart::root, custom);
+        size = choice.measure(available);
+        const auto text = choice.label_bounds({0, 0, size.width, size.height});
+        require(size.width == 119 && text.x == 29 && text.width == 87,
+            "Explicit checkbox padding replaces the WinUI default without clipping its label");
+    };
+    Toggle binary(L"Natural toggle");
+    CheckBox check(L"Natural checkbox");
+    check_natural_label(binary);
+    check_natural_label(check);
     Button tall_text(L"Large text");
     tall_text.set_visual_style(VisualStyle::winui);
     tall_text.set_text_measurer([](std::wstring_view, TextStyle) { return Size{80, 30}; });
@@ -293,19 +377,59 @@ void slider_geometry() {
                 const Size size = vertical ? Size{40, 224} : Size{224, 40};
                 const auto visual = slider_visual(size, axis, reversed, fraction, VisualStyle::winui);
                 const auto classic = slider_visual(size, axis, reversed, fraction, VisualStyle::classic);
-                require(visual.track.x == classic.track.x && visual.track.y == classic.track.y &&
-                    visual.track.width == classic.track.width && visual.track.height == classic.track.height,
-                    "Style preserves the slider track and input geometry");
-                require(visual.thumb.x + visual.thumb.width / 2 == classic.thumb.x + classic.thumb.width / 2 &&
-                    visual.thumb.y + visual.thumb.height / 2 == classic.thumb.y + classic.thumb.height / 2,
-                    "WinUI thumb stays at the existing value position");
+                require((vertical ? visual.track.y : visual.track.x) == 0 &&
+                    (vertical ? visual.track.height : visual.track.width) == 224,
+                    "WinUI rail spans the content instead of stopping at thumb centers");
+                const Point center{visual.thumb.x + visual.thumb.width / 2, visual.thumb.y + visual.thumb.height / 2};
+                const Point classic_center{classic.thumb.x + classic.thumb.width / 2, classic.thumb.y + classic.thumb.height / 2};
+                const double physical_fraction = reversed ? 1 - fraction : fraction;
+                require(std::abs(visual.pointer_fraction(center, axis) - physical_fraction) < 1e-6 &&
+                    std::abs(classic.pointer_fraction(classic_center, axis) - physical_fraction) < 1e-6,
+                    "Both styles map each painted thumb center back to its value");
+                require((vertical ? center.y : center.x) ==
+                    9 + static_cast<float>(vertical ? 1 - physical_fraction : physical_fraction) * 206,
+                    "WinUI travel uses the native eighteen-DIP thumb layout box");
+                require((vertical ? center.x : center.y) == 16 &&
+                    (vertical ? classic_center.x : classic_center.y) == 20,
+                    "WinUI uses its leading 32-DIP cross-axis slot while Classic stays centered");
                 const auto length = vertical ? visual.filled.height : visual.filled.width;
                 const auto start = vertical ? visual.filled.y : visual.filled.x;
-                require(length == 200 * fraction, "Filled track length represents the actual value, including reversed sliders");
-                require(start == (vertical == reversed ? 12.0f : 212.0f - length),
+                require(length == 206 * fraction, "Filled track length uses the space outside the native thumb layout box");
+                require(start == (vertical == reversed ? 0.0f : 224.0f - length),
                     "Filled track starts at the minimum-value end in both orientations");
-                require(visual.thumb.width == 20 && classic.thumb.width == 16, "WinUI thumb has room for its outer ring");
+                require(visual.thumb.width == 22 && classic.thumb.width == 16,
+                    "WinUI outer thumb includes the native two-DIP negative border margin");
             }
+    for (const auto axis : {Axis::horizontal, Axis::vertical})
+        for (const float cross : {0.0f, 16.0f, 32.0f, 100.0f}) {
+            const bool vertical = axis == Axis::vertical;
+            const Size size = vertical ? Size{cross, 200} : Size{200, cross};
+            for (const float thickness : {4.0f, 10.0f})
+                for (const auto thumb : {std::optional<float>{}, std::optional<float>{40.0f}}) {
+                    const auto visual = slider_visual(size, axis, false, .5, VisualStyle::winui, thickness, thumb);
+                    const float center = std::min(cross / 2, std::max(14 + thickness / 2, thumb.value_or(22.0f) / 2));
+                    require((vertical ? visual.track.x + visual.track.width / 2 : visual.track.y + visual.track.height / 2) == center &&
+                        (vertical ? visual.thumb.x + visual.thumb.width / 2 : visual.thumb.y + visual.thumb.height / 2) == center,
+                        "WinUI slot respects narrow content, authored track thickness, and thumb size");
+                }
+        }
+    for (const auto axis : {Axis::horizontal, Axis::vertical})
+        for (const float extent : {0.0f, 8.0f, 18.0f, 100.0f})
+            for (const auto thumb : {std::optional<float>{}, std::optional<float>{0.0f}, std::optional<float>{40.0f}})
+                for (const bool reversed : {false, true})
+                    for (const double fraction : {0.0, .4, 1.0}) {
+                        const bool vertical = axis == Axis::vertical;
+                        const Size size = vertical ? Size{32, extent} : Size{extent, 32};
+                        const auto visual = slider_visual(size, axis, reversed, fraction, VisualStyle::winui, 4, thumb);
+                        const Point center{visual.thumb.x + visual.thumb.width / 2, visual.thumb.y + visual.thumb.height / 2};
+                        const double expected = extent > thumb.value_or(18.0f) ? (reversed ? 1 - fraction : fraction) : 0;
+                        require(std::abs(visual.pointer_fraction(center, axis) - expected) < 1e-6,
+                            "Short and authored WinUI thumbs retain finite, coherent pointer mapping");
+                        require(visual.thumb.width == thumb.value_or(22.0f) &&
+                            visual.filled.width >= 0 && visual.filled.height >= 0 &&
+                            (vertical ? visual.filled.height : visual.filled.width) <= extent,
+                            "Authored thumb size is exact and short tracks never produce inverted fill");
+                    }
 }
 }
 int main() {

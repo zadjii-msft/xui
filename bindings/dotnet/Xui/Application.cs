@@ -56,6 +56,14 @@ public sealed unsafe class Application : IDisposable
     }
     public void Shutdown() { Guard(); Window.CheckStatus(Native.ApplicationShutdown(Handle)); }
     internal void Forget(Window window) => windows.Remove(window);
+    internal Window ResolveWindow(ulong handle)
+    {
+        Guard();
+        foreach (var window in windows)
+            if (window.Handle == handle && handle != 0 && window.State is WindowState.Created or WindowState.Open)
+                return window;
+        throw new XuiException(2, "The tab drag target is not a live window in this application.");
+    }
     internal void Record(Exception? error)
     {
         if (error is not null && !errors.Contains(error)) errors.Add(error);

@@ -19,6 +19,10 @@ The toggle posts through the supplied dispatcher before it moves focus or change
 This avoids a nested native focus event inside the button callback.
 The application expands Output for compile, preview, and file errors.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+`DesignerSourceIndentation.cs` handles Enter and leading-whitespace Tab shortcuts only in the focused source editor.
+It uses native range replacement for single-action undo and reports rejected edits through Output.
+The window's native key router excludes IME composition and modal dialogs before these shortcuts.
+`Designer.IndentationTests` covers native text, caret positions, change callbacks, undo, focus, and length-limit errors.
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.

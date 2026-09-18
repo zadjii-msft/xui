@@ -82,6 +82,14 @@ The [native build procedure](../../../CONTRIBUTING.md#build-the-native-code) des
 | Handle committed text | `TextInput::on_change` |
 | Handle Enter in a field | `TextInput::on_submit` |
 | Handle a checkbox | `Toggle::on_change`, with a `bool` value |
+| Handle tri-state input | `CheckBox::on_change`, with a `CheckState` value |
+| Handle a link-shaped action | `HyperlinkButton::on_click`, without automatic URI navigation |
+| Select a horizontal choice | `SelectorBar::set_items`, `set_selected`, and `on_change` |
+| Show a badge | `InfoBadge::set_dot`, `set_count`, or `set_icon` |
+| Show submenu headings | `MenuBar::set_commands`, with a shared CommandSet |
+| Handle a switch preference | `ToggleSwitch::on_change`, with a `bool` value |
+| Handle a toggle action | `ToggleButton::on_toggle`, with a `bool` value |
+| Show a progress ring | `ProgressRing`, with the Progress range, value, and state APIs |
 | Set a preferred size | `Element::set_preferred_size` |
 | Reserve fixed dimensions | `Element::set_fixed_size` |
 | Share remaining Stack space | `Stack::add(child, 1)` |

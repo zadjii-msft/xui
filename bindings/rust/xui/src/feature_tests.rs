@@ -123,6 +123,124 @@ fn reveal_contract() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn parity_controls() -> Result<()> {
+    let window = Window::new("Parity controls", 400., 300.)?;
+    let check = window.check_box("Check")?;
+    let link = window.hyperlink_button("Open")?;
+    let selector = window.selector_bar("Pages")?;
+    let badge = window.info_badge("Notifications")?;
+    let menu = window.menu_bar("Menu")?;
+    assert_eq!(check.state()?, CheckState::Unchecked);
+    assert!(!check.three_state()?);
+    assert_eq!(selector.selected()?, None);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Dot);
+    assert_eq!(badge.count()?, 0);
+    assert_eq!(badge.icon()?, ButtonIcon::None);
+    let changes = Rc::new(Cell::new(0));
+    let observed = changes.clone();
+    check.on_change(move |value| { assert_eq!(value, CheckState::Checked); observed.set(observed.get() + 1); Ok(()) })?;
+    check.set_three_state(true)?;
+    check.set_state(CheckState::Indeterminate)?;
+    assert_eq!(check.state()?, CheckState::Indeterminate);
+    assert_eq!(changes.get(), 0);
+    check.set_state(CheckState::Unchecked)?; check.invoke()?;
+    assert_eq!(changes.get(), 1);
+    let clicks = Rc::new(Cell::new(0));
+    let observed = clicks.clone();
+    link.on_click(move || { observed.set(observed.get() + 1); Ok(()) })?;
+    link.invoke()?; assert_eq!(clicks.get(), 1);
+    link.set_icon(ButtonIcon::Open)?; assert_eq!(link.icon()?, ButtonIcon::Open);
+    let items = [
+        Choice { id: 1, text: "First".into(), enabled: true, version: 0 },
+        Choice { id: 2, text: "Second".into(), enabled: true, version: 0 },
+        Choice { id: 3, text: "Disabled".into(), enabled: false, version: 0 },
+    ];
+    let selections = Rc::new(Cell::new(0));
+    let observed = selections.clone();
+    selector.on_change(move |id| { assert_eq!(id, 1); observed.set(observed.get() + 1); Ok(()) })?;
+    selector.set_items(&items, Some(2))?;
+    assert_eq!(selector.selected()?, Some(2));
+    assert!(selector.set_items(&items, Some(3)).is_err());
+    assert!(selector.set_selected(99).is_err());
+    assert_eq!(selector.selected()?, Some(2));
+    selector.set_items(&items, None)?; assert_eq!(selector.selected()?, Some(2));
+    selector.select(1)?; assert_eq!(selector.selected()?, Some(1));
+    selector.set_items(&[], None)?; assert_eq!(selector.selected()?, None);
+    selector.set_items(&items, Some(2))?;
+    assert_eq!(selections.get(), 1);
+    badge.set_count(u32::MAX)?; assert_eq!(badge.count()?, u32::MAX);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Count);
+    badge.set_icon(ButtonIcon::Open)?; assert_eq!(badge.icon()?, ButtonIcon::Open);
+    assert_eq!(badge.kind()?, InfoBadgeKind::Icon);
+    badge.set_dot()?; assert_eq!(badge.kind()?, InfoBadgeKind::Dot);
+    let mut commands = vec![
+        Command { id: 1, parent: 0, label: "File".into(), kind: CommandKind::Submenu,
+            enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
+        Command { id: 2, parent: 1, label: "Open".into(), kind: CommandKind::Action,
+            enabled: true, checked: None, shortcut_hint: "Ctrl+O".into(), pin_label: "Pin".into() },
+    ];
+    let invokes = Rc::new(Cell::new(0));
+    let observed = invokes.clone();
+    menu.on_invoke(move |id| { assert_eq!(id, 2); observed.set(observed.get() + 1); Ok(()) })?;
+    menu.set_commands(&commands)?; menu.invoke(2, false)?;
+    assert_eq!(invokes.get(), 1);
+    commands[1].parent = 99; assert!(menu.set_commands(&commands).is_err());
+    menu.invoke(2, false)?; assert_eq!(invokes.get(), 2);
+    let pins = Rc::new(Cell::new(0));
+    let observed = pins.clone();
+    menu.on_pin(move |id| { assert_eq!(id, 2); observed.set(observed.get() + 1); Ok(()) })?;
+    menu.invoke(2, true)?; assert_eq!(pins.get(), 1);
+    menu.bind(2, b'O' as u32, KeyModifiers { control: true, ..Default::default() })?;
+    check.unsubscribe()?; link.unsubscribe()?; selector.unsubscribe()?; menu.unsubscribe()?;
+    check.invoke()?; link.invoke()?; selector.select(1)?; menu.invoke(2, false)?;
+    assert_eq!(changes.get(), 1); assert_eq!(clicks.get(), 1);
+    assert_eq!(selections.get(), 1); assert_eq!(invokes.get(), 2);
+    menu.set_commands(&[])?; assert!(menu.invoke(2, false).is_err());
+    Ok(())
+}
+
+#[test]
+fn toggle_controls() -> Result<()> {
+    let window = Window::new("Toggle controls", 400., 300.)?;
+    let toggle = window.toggle_switch("Enabled")?;
+    let button = window.toggle_button("Bold")?;
+    let ring = window.progress_ring("Loading")?;
+    assert!(!toggle.checked()? && !button.checked()?);
+    assert_eq!(ring.state()?, ProgressState::Indeterminate);
+    assert_eq!(window.progress("Progress")?.state()?, ProgressState::Determinate);
+    let changes = Rc::new(Cell::new(0));
+    let observed = changes.clone();
+    toggle.on_change(move |value| { assert!(!value); observed.set(observed.get() + 1); Ok(()) })?;
+    let toggles = Rc::new(Cell::new(0));
+    let observed = toggles.clone();
+    button.on_toggle(move |value| { assert!(!value); observed.set(observed.get() + 1); Ok(()) })?;
+    toggle.set_checked(true)?; button.set_checked(true)?;
+    assert_eq!(changes.get(), 0); assert_eq!(toggles.get(), 0);
+    toggle.invoke()?; button.invoke()?;
+    assert!(!toggle.checked()? && !button.checked()?);
+    assert_eq!(changes.get(), 1); assert_eq!(toggles.get(), 1);
+    toggle.unsubscribe()?; button.unsubscribe()?;
+    toggle.invoke()?; button.invoke()?;
+    assert!(toggle.checked()? && button.checked()?);
+    assert_eq!(changes.get(), 1); assert_eq!(toggles.get(), 1);
+    button.set_icon(ButtonIcon::Open)?;
+    assert_eq!(button.icon()?, ButtonIcon::Open);
+    for (control, target) in [(&*toggle, StyleTarget::Toggle), (&*button, StyleTarget::Button), (&*ring, StyleTarget::Progress)] {
+        let style = ControlStyle::new(target, &[], &[], None)?;
+        control.set_control_style(Some(&style))?;
+    }
+    ring.set_range(NumericRange { minimum: 100., maximum: 200., small_step: 1., large_step: 10. })?;
+    ring.set_value(150.)?; ring.set_state(ProgressState::Paused)?;
+    assert_eq!(ring.value()?, 150.); assert_eq!(ring.state()?, ProgressState::Paused);
+    ring.set_capacity(25., 80., "items")?;
+    assert_eq!(ring.value()?, 25.); assert_eq!(ring.range()?.maximum, 80.);
+    assert_eq!(ring.state()?, ProgressState::Determinate);
+    assert!(ring.set_capacity(81., 80., "").is_err());
+    assert_eq!(ring.value()?, 25.);
+    Ok(())
+}
 #[test]
 fn shell_image_and_open_icon() -> Result<()> {
     let window = Window::new("Shell image", 300., 300.)?;

@@ -95,7 +95,12 @@ internal sealed class StyleCompiler(Component component)
 {
     internal static readonly string[] Properties = ["background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"];
     internal static readonly string[] States = ["focused", "checked", "hovered", "pressed", "disabled"];
-    internal static string TargetName(string target) => target switch { "Text" => "Label", "VStack" or "HStack" => "Stack", _ => target };
+    internal static string TargetName(string target) => target switch {
+        "Text" => "Label", "VStack" or "HStack" => "Stack",
+        "ToggleSwitch" => "Toggle", "ToggleButton" or "HyperlinkButton" => "Button", "ProgressRing" => "Progress",
+        "CheckBox" => "Toggle", "SelectorBar" => "ChoiceList", "InfoBadge" => "InlineStatus",
+        "MenuBar" => "CommandBar", _ => target
+    };
     internal static string[] AllowedProperties(string target, string part, bool stateRule = false) {
         var properties = stateRule ? StyleCatalog.StateProperties(target, part) : StyleCatalog.Properties(target, part);
         return target == "Button" && part == "root" ? [.. Properties.Union(properties)] : properties;

@@ -19,7 +19,7 @@ pub fn xui() {
             xui_type_name();
         } else if /(?:view|resources|part|when)\>/ {
             yield keyword.other;
-        } else if /(?:VStack|HStack|TextInput|Text|Button|Toggle|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Reveal|RangeInput|Progress|Content)\>/ {
+        } else if /(?:VStack|HStack|TextInput|Text|Button|ToggleSwitch|ToggleButton|Toggle|CheckBox|HyperlinkButton|SelectorBar|InfoBadge|MenuBar|Grid|DataGrid|NavigationView|ItemsView|ScrollView|Popup|SplitView|Reveal|RangeInput|ProgressRing|Progress|Content)\>/ {
             yield storage.type;
         } else if /\(/ {
             yield other;

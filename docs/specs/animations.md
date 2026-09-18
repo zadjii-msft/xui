@@ -2,7 +2,11 @@
 
 ## Scope
 
-XUI animations belong to applications, not to default control styles.
+The transitions in this guide require application opt-in.
+Their durations default to zero.
+Automatic indeterminate Progress and ProgressRing animation is separate and does not require an explicit duration.
+It applies to both Classic and WinUI styles. Unknown progress remains static.
+The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines that animation and its separate native timer.
 `Reveal` supports four entry edges and optional layout expansion.
 The FileExplorer Find bar uses bottom entry with layout expansion.
 Unchecked items in the roadmap are not supported APIs.
@@ -120,7 +124,7 @@ Disabled client-area animation settles transitions immediately.
 Hidden or minimized windows settle active transitions.
 Hidden ancestors, disabled ancestors, content retirement, and window closure also stop active motion.
 The scheduler retains no worker thread or per-control timer.
-One window timer exists only while a transition is active.
+One shared transition timer exists only while a transition is active.
 The message loop services due animation timers and their frame paints during sustained posted-message traffic.
 This prevents a busy update queue from indefinitely delaying motion.
 It does not interrupt a blocking application callback or guarantee a frame rate.
@@ -142,7 +146,9 @@ Changing native clip sizes can resize native composition buffers.
 This feature does not promise compositor-only motion, allocation-free frames, or a fixed CPU cost.
 Large documents, multiple simultaneous reveals, and large windows need separate measurements.
 
-No animation timer or periodic repaint remains after the final transition.
+The shared transition timer stops after the final transition.
+These transitions then cause no periodic repaint.
+Eligible indeterminate progress controls can still request periodic paint through their separate timer.
 No animation surface is necessary for this implementation.
 Unrelated control updates retain their existing behavior.
 
@@ -320,7 +326,8 @@ Retargeting starts from the current displayed value.
 Changed range, state, or duration settles motion.
 Equivalent assignments preserve active motion.
 Paused and error values update immediately, with their existing colors and caption suffixes.
-Indeterminate and unknown states remain static. Capacity updates remain immediate.
+Unknown states remain static. Capacity updates remain immediate.
+Indeterminate motion uses the separate native progress timer, not this duration or the shared transition timer.
 
 An incomplete logical value cannot produce a complete fraction or a generated `100%` caption.
 This guard also applies immediately after a downward retarget from maximum.

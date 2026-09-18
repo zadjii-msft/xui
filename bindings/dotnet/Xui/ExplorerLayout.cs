@@ -5,6 +5,28 @@ namespace Xui;
 public readonly record struct ElementBounds(float X, float Y, float Width, float Height);
 public enum PopupPlacement : uint { Below, Above, Right, Left, Center }
 
+public sealed partial class SplitView
+{
+    /// <summary>Shows the first pane by default. False gives the visible second pane the full area without changing Ratio.</summary>
+    public bool FirstVisible
+    {
+        get
+        {
+            Window.Guard();
+            Window.Check(Native.SplitGetFirstVisible(Handle, out uint visible));
+            return visible != 0;
+        }
+        set => SetFirstVisible(value);
+    }
+
+    public SplitView SetFirstVisible(bool visible)
+    {
+        Window.Guard();
+        Window.Check(Native.SplitSetFirstVisible(Handle, visible ? 1u : 0u));
+        return this;
+    }
+}
+
 public sealed partial class Popup
 {
     public Popup SetWindowBackground(bool enabled)
@@ -110,6 +132,10 @@ public sealed partial class NavigationView
 
 internal static partial class Native
 {
+    [LibraryImport("xui", EntryPoint = "xui_split_set_first_visible")]
+    internal static partial int SplitSetFirstVisible(ulong target, uint visible);
+    [LibraryImport("xui", EntryPoint = "xui_split_get_first_visible")]
+    internal static partial int SplitGetFirstVisible(ulong target, out uint visible);
     [LibraryImport("xui", EntryPoint = "xui_window_show_activated")]
     internal static partial int WindowShowActivated(ulong window, uint activated);
     [LibraryImport("xui", EntryPoint = "xui_window_visual_style_set")]

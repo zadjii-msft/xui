@@ -79,6 +79,8 @@ internal static partial class Program
         TestReveal();
         TestSplitAnimation();
         TestNavigationAnimation();
+        TestToggleControls();
+        TestParityControls();
         TestStyling();
         TestStylingDiagnostics();
         TestStylingShape();

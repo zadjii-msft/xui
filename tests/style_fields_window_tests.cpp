@@ -1,10 +1,12 @@
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
+#include "xui/foundation.hpp"
 #include "xui/native_edit.hpp"
 #include "../src/native_document.hpp"
 #include "owned_window_capture.hpp"
 #include <richedit.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <iostream>
@@ -349,9 +351,102 @@ void window_case() {
     if (result) std::wcerr << window.error() << '\n';
     require(result == 0 && ran, "Native field window contracts completed");
 }
+void rounded_focus_case() {
+    Application application;
+    WindowOptions options{L"XUI rounded field focus contracts", {360, 500}, ThemeMode::dark};
+    options.visual_style = VisualStyle::winui;
+    options.show_activated = false;
+    auto owned_window = application.create_window(options);
+    auto& window = *owned_window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({24, 24, 24, 24}); root->set_spacing(16);
+    auto input = std::make_shared<TextInput>(L"Rounded input");
+    input->set_caption_visible(false); input->set_text(L"Retained input");
+    auto plain = std::make_shared<MultilineText>(); plain->set_text(L"Retained document");
+    auto rich = std::make_shared<RichText>(); rich->set_text(L"Retained rich document");
+    auto password = std::make_shared<PasswordInput>(); password->set_password(L"fixture");
+    auto number = std::make_shared<NumericInput>(L"Rounded number");
+    auto combo = std::make_shared<ComboBox>(L"Rounded combo", true);
+    combo->set_items({{1, L"Text"}, {2, L"Markdown"}}, 1);
+    const std::array<std::shared_ptr<Control>, 6> fields{input, plain, rich, password, number, combo};
+    const std::array<std::shared_ptr<Control>, 6> targets{input, plain, rich, password, number->editor(), combo->editor()};
+    PartStyleValues rounded; rounded.corner_radius = 16.0f;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        fields[i]->set_fixed_size({240, 44});
+        fields[i]->set_control_style_values(i < 4 ? StylePart::root : StylePart::field, rounded);
+        root->add(fields[i]);
+    }
+    auto away = std::make_shared<Button>(L"Move focus"); root->add(away);
+    window.set_content(root); application.show(window);
+    const auto host = FindWindowW(L"Xui.Window.1", options.title.c_str());
+    require(host != nullptr, "Nonactivating field focus fixture owns its window");
+    bool ran{}; std::exception_ptr failure;
+    require(window.post([&] {
+        try {
+            flush(host);
+            const auto edit = child(host, L"EDIT");
+            window.focus(*input);
+            SendMessageW(edit, EM_SETSEL, 0, 2);
+            SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"AB"));
+            const auto text = input->text();
+            const auto selection = input->selection();
+            const auto undo = SendMessageW(edit, EM_CANUNDO, 0, 0);
+            const owned_window_capture::Device device;
+            const float scale = GetDpiForWindow(host) / 96.0f;
+            const auto capture = [&] { flush(host); return owned_window_capture::capture(host, device); };
+            const auto pixel = [&](const owned_window_capture::Pixels& image, float x, float y) {
+                const int px = int(x * scale), py = int(y * scale);
+                require(px >= 0 && py >= 0 && px < image.width && py < image.height,
+                    "Field focus sample is inside the owned capture");
+                return image.data[std::size_t(py) * image.width + px];
+            };
+            for (const auto mode : {ThemeMode::light, ThemeMode::dark}) {
+                window.set_theme(mode);
+                for (std::size_t i = 0; i < fields.size(); ++i) {
+                    window.focus(*away);
+                    const auto baseline = capture();
+                    const auto b = i == 4 ? number->field_bounds() : i == 5 ? combo->field_bounds() : fields[i]->bounds();
+                    window.focus(*targets[i]);
+                    const auto focused = capture();
+                    require(targets[i]->focused(), "Field focus reaches its retained native editor");
+                    int corner_changes{}, edge_changes{};
+                    for (int y = 1; y <= 3; ++y)
+                        for (int x = 1; x <= 3; ++x)
+                            corner_changes += pixel(focused, b.x + x, b.y + y) != pixel(baseline, b.x + x, b.y + y);
+                    for (int y = 0; y <= 2; ++y)
+                        edge_changes += pixel(focused, b.x + b.width / 2, b.y + y) !=
+                            pixel(baseline, b.x + b.width / 2, b.y + y);
+                    if (corner_changes || !edge_changes) {
+                        std::ostringstream error;
+                        error << "Rounded field " << i << " focus must follow its silhouette: corners="
+                            << corner_changes << ", edge=" << edge_changes;
+                        throw std::runtime_error(error.str());
+                    }
+                    window.focus(*away);
+                    const auto cleared = capture();
+                    for (int y = 0; y <= 3; ++y)
+                        for (int x = 1; x < int(b.width) - 1; ++x)
+                            require(pixel(cleared, b.x + x, b.y + y) == pixel(baseline, b.x + x, b.y + y),
+                                "Moving focus removes the field outline without stale pixels");
+                }
+            }
+            require(child(host, L"EDIT") == edit && input->text() == text && input->selection() == selection &&
+                SendMessageW(edit, EM_CANUNDO, 0, 0) == undo,
+                "Rounded focus preserves native editor identity, text, selection, and undo");
+            ran = true;
+        } catch (...) { failure = std::current_exception(); }
+        window.close();
+    }), "Queue rounded field focus regression");
+    const auto result = application.run();
+    if (failure) std::rethrow_exception(failure);
+    require(result == 0 && ran && window.error().empty(), "Rounded field focus regression completes");
 }
-int main() {
+}
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--focus-corners") {
+            rounded_focus_case(); std::cout << "Rounded field focus contracts passed\n"; return 0;
+        }
         require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), "Initialize native document COM");
         document_high_contrast(); rich_defaults(); CoUninitialize();
         window_case(); std::cout << "Native field window contracts passed\n";

@@ -232,6 +232,15 @@ void control_tests() {
     require(split.expanded(), "Widening restores pane");
     split.set_secondary_visible(false); split.arrange(split.bounds());
     require(b->bounds().height == 0, "Explicit collapse removes secondary hit area");
+    split.set_secondary_visible(true);
+    split.set_primary_visible(false);
+    split.arrange({10, 20, 500, 400});
+    require(split.expanded() && a->bounds().width == 0 && a->bounds().height == 0 &&
+        b->bounds().x == 10 && b->bounds().y == 20 && b->bounds().width == 500 && split.divider().width == 0,
+        "A hidden primary pane gives the secondary all available width, including narrow windows");
+    split.set_primary_visible(true); split.arrange({10, 20, 1000, 400});
+    require(split.expanded() && a->bounds().width > 0 && split.divider().width > 0,
+        "Restoring the primary pane restores its divider and saved ratio");
     TextInput address(L"Address");
     address.set_maximum_length(32767);
     address.set_text(std::wstring(2000, L'a'));

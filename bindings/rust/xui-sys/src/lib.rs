@@ -68,6 +68,36 @@ pub struct FileItem {
     pub path: Text,
 }
 pub type Callback = Option<unsafe extern "C" fn(*mut c_void, *const Event) -> Status>;
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct WindowPlacement {
+    pub size: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub maximized: u32,
+}
+pub const TAB_DRAG_REORDER: u32 = 0;
+pub const TAB_DRAG_TEAR_OUT: u32 = 1;
+pub const TAB_DRAG_DROP: u32 = 2;
+pub const TAB_DRAG_CANCEL: u32 = 3;
+pub const TAB_DRAG_COMPLETED: u32 = 4;
+pub const TAB_DRAG_QUERY_DROP: u32 = 5;
+pub const TAB_DRAG_JOIN: u32 = 6;
+pub const TAB_DRAG_LEAVE: u32 = 7;
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct TabDragEvent {
+    pub size: u32,
+    pub kind: u32,
+    pub source_strip: u32,
+    pub target_strip: u32,
+    pub tab_id: u64,
+    pub target: Handle,
+    pub index: u64,
+}
+pub type TabDragHandler = Option<unsafe extern "C" fn(*mut c_void, *const TabDragEvent, *mut u32) -> Status>;
 unsafe extern "C" {
     pub fn xui_navigation_view_set_duration(target: Handle, milliseconds: u32) -> Status;
     pub fn xui_navigation_view_get_duration(target: Handle, milliseconds: *mut u32) -> Status;
@@ -105,12 +135,17 @@ unsafe extern "C" {
     pub fn xui_window_state(window: Handle, state: *mut u32) -> Status;
     pub fn xui_window_closed(window: Handle, callback: Callback, context: *mut c_void) -> Status;
     pub fn xui_window_error(window: Handle, buffer: *mut u8, capacity: u32, required: *mut u32) -> Status;
+    pub fn xui_window_get_placement(window: Handle, placement: *mut WindowPlacement) -> Status;
+    pub fn xui_window_set_placement(window: Handle, placement: *const WindowPlacement) -> Status;
+    pub fn xui_window_tab_drag_handler(window: Handle, callback: TabDragHandler, context: *mut c_void) -> Status;
     pub fn xui_tab_set_colors(tabs: Handle, colors: *const TabColors) -> Status;
     pub fn xui_tab_get_colors(tabs: Handle, colors: *mut TabColors) -> Status;
     pub fn xui_tab_set_new_button(tabs: Handle, visible: u32) -> Status;
     pub fn xui_tab_set_duration(tabs: Handle, milliseconds: u32) -> Status;
     pub fn xui_tab_get_duration(tabs: Handle, milliseconds: *mut u32) -> Status;
     pub fn xui_tab_get_new_button(tabs: Handle, visible: *mut u32) -> Status;
+    pub fn xui_split_set_first_visible(split: Handle, visible: u32) -> Status;
+    pub fn xui_split_get_first_visible(split: Handle, visible: *mut u32) -> Status;
     pub fn xui_abi_version() -> u32;
     pub fn xui_error_copy(
         buffer: *mut u8,
@@ -167,6 +202,14 @@ mod tests {
         assert_eq!(size_of::<Property>(), 56);
         assert_eq!(size_of::<Event>(), 24);
         assert_eq!(size_of::<FileItem>(), 48);
+        assert_eq!(size_of::<WindowPlacement>(), 24);
+        assert_eq!(size_of::<TabDragEvent>(), 40);
+        assert_eq!([TAB_DRAG_REORDER, TAB_DRAG_TEAR_OUT, TAB_DRAG_DROP, TAB_DRAG_CANCEL,
+            TAB_DRAG_COMPLETED, TAB_DRAG_QUERY_DROP, TAB_DRAG_JOIN, TAB_DRAG_LEAVE], [0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(std::mem::offset_of!(WindowPlacement, maximized), 20);
+        assert_eq!(std::mem::offset_of!(TabDragEvent, tab_id), 16);
+        assert_eq!(std::mem::offset_of!(TabDragEvent, target), 24);
+        assert_eq!(std::mem::offset_of!(TabDragEvent, index), 32);
         assert_eq!(std::mem::offset_of!(Property, integer), 48);
         assert_eq!(unsafe { xui_abi_version() }, ABI_VERSION);
     }

@@ -112,9 +112,26 @@ This example does not establish media, WebView, opacity, snapshot, or IME suppor
 
 The `progress` page provides duration choices, Reset progress, Retarget progress, and Complete progress.
 The fill and percentage caption interpolate, while the logical and accessible values change immediately.
-Indeterminate progress remains static and does not keep an animation timer active.
+Determinate duration choices do not control the separate indeterminate animation.
 
 The [animation contract](animations.md) describes interruption, clipping, input, and performance limits.
+
+Dedicated presentation pages use `toggle-switch`, `toggle-button`, and `progress-ring`.
+The `progress` and `progress-ring` pages share Advance, Indeterminate, Pause, and Error buttons.
+Their Show indicator switch controls visibility.
+These pages use the public controls, not gallery-specific drawing.
+
+The toggle pages separate switch preferences from button-shaped toggle actions.
+The progress pages demonstrate determinate, indeterminate, paused, and error states.
+Indeterminate motion respects visibility, enabled state, and the system client-area animation preference.
+The [foundation contract](foundation-controls.md) defines these controls and animation limits.
+
+The Input category also includes `checkbox`, `hyperlink-button`, and `selector-bar`.
+Appearance includes `info-badge`. Commands includes `menu-bar`.
+The checkbox example starts in the mixed state with three-state input enabled.
+The hyperlink callback reports an action without opening a browser.
+The menu bar has File, Edit, View, and disabled Publish roots, with nested Recent examples.
+Its sample commands do not change files, access the clipboard, or open a browser.
 
 The grid calculates synthetic rows without a retained row array.
 The chart updates only on request. The file list uses synthetic fixtures.

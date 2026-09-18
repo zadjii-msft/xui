@@ -7,6 +7,15 @@ _Static_assert(sizeof(xui_window_options) == 40, "options ABI");
 _Static_assert(sizeof(xui_property) == 56, "property ABI");
 _Static_assert(sizeof(xui_event) == 24, "event ABI");
 _Static_assert(sizeof(xui_file_item) == 48, "item ABI");
+_Static_assert(sizeof(xui_window_placement) == 24, "window placement ABI");
+_Static_assert(offsetof(xui_window_placement, maximized) == 20, "placement maximized offset");
+_Static_assert(sizeof(xui_tab_drag_event) == 40, "tab drag event ABI");
+_Static_assert(offsetof(xui_tab_drag_event, tab_id) == 16, "tab drag ID offset");
+_Static_assert(offsetof(xui_tab_drag_event, target) == 24, "tab drag target offset");
+_Static_assert(offsetof(xui_tab_drag_event, index) == 32, "tab drag index offset");
+_Static_assert(XUI_TAB_DRAG_REORDER == 0 && XUI_TAB_DRAG_TEAR_OUT == 1 && XUI_TAB_DRAG_DROP == 2 &&
+    XUI_TAB_DRAG_CANCEL == 3 && XUI_TAB_DRAG_COMPLETED == 4 && XUI_TAB_DRAG_QUERY_DROP == 5 &&
+    XUI_TAB_DRAG_JOIN == 6 && XUI_TAB_DRAG_LEAVE == 7, "tab drag kind ABI");
 _Static_assert(offsetof(xui_property, integer) == 48, "property offset");
 _Static_assert(offsetof(xui_string, length) == 8, "string offset");
 _Static_assert(sizeof(xui_style_property) == 80, "generic style property ABI");

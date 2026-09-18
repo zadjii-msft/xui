@@ -79,6 +79,14 @@ For example, `window.Button("Apply")` creates a Button, not `new Button("Apply")
 | Set dimensions | `FixedSize`, `PreferredSize`, `MinimumSize`, `MaximumSize` |
 | Handle a button | `Button.Click` |
 | Handle a checkbox | `Toggle.Changed`, with a `bool` value |
+| Handle tri-state input | `CheckBox.Changed`, with a `CheckState` value |
+| Handle a link-shaped action | `HyperlinkButton.Click`, without automatic URI navigation |
+| Select a horizontal choice | `SelectorBar.SetItems`, `SetSelected`, and `Changed` |
+| Show a badge | `InfoBadge.SetDot`, `SetCount`, or `SetIcon` |
+| Show submenu headings | `MenuBar.SetCommands`, `Invoked`, and `Pinned` |
+| Handle a switch preference | `ToggleSwitch.Changed`, with a `bool` value |
+| Handle a toggle action | `ToggleButton.Toggled`, with a `bool` value |
+| Show a progress ring | `window.ProgressRing`, with `SetRange`, `SetValue`, and `SetState` |
 | Handle text | `TextInput.Changed` and `TextInput.Submitted` |
 | Handle other control events | `Control.Event`, with a `UiEvent` |
 | Apply several ordinary properties | `Window.Update` |

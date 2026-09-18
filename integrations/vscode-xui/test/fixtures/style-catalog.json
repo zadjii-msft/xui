@@ -1,6 +1,6 @@
 {
   "sourceCommit": "9bc9c4f90034b9acef48bf53e7e0907b6a672b3c",
-  "aliases": {"Text":"Label","VStack":"Stack","HStack":"Stack"},
+  "aliases": {"Text":"Label","VStack":"Stack","HStack":"Stack","ToggleSwitch":"Toggle","ToggleButton":"Button","ProgressRing":"Progress","CheckBox":"Toggle","HyperlinkButton":"Button","SelectorBar":"ChoiceList","InfoBadge":"InlineStatus","MenuBar":"CommandBar"},
   "schemas": [
     {"target":"Toggle","part":"root","properties":["background","foreground","borderBrush","borderThickness","padding","cornerRadius","fontFamily","fontSize","fontWeight","fontStyle","horizontalAlignment","verticalAlignment"],"states":["focused","checked","hovered","pressed","disabled"],"stateProperties":["background","foreground","borderBrush","borderThickness","padding","cornerRadius","fontFamily","fontSize","fontWeight","fontStyle","horizontalAlignment","verticalAlignment"]},
     {"target":"Toggle","part":"label","properties":["foreground","fontFamily","fontSize","fontWeight","fontStyle","horizontalAlignment","verticalAlignment"],"states":["focused","checked","hovered","pressed","disabled"],"stateProperties":["foreground","fontFamily","fontSize","fontWeight","fontStyle","horizontalAlignment","verticalAlignment"]},

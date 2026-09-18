@@ -7,10 +7,14 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry poi
 
 The public contract is in [Packages and deployment](../specs/packages.md).
 `scripts\Build-Release.ps1` builds each architecture and stages its sample inventory.
-`scripts\New-ReleaseAssets.ps1` creates the packages, per-architecture sample ZIPs, and checksums.
+`scripts\New-ReleaseAssets.ps1` creates the packages, per-architecture sample and Designer ZIPs, and checksums.
 Release samples use `Get-XuiSamples -ReleaseOnly`. TaskCard opts out through `IsXuiReleaseSample=false`.
 Local native-copy checks retain the full sample inventory.
 The release build publishes C# samples with NativeAOT, size optimization, and no debug symbols.
+`scripts\Build-DesignerRelease.ps1` separately publishes self-contained Designer output for each architecture.
+The Designer retains managed assemblies and Roslyn for runtime compilation, without trimming, single-file output, or NativeAOT.
+Its SDK must match the target architecture because the Designer references the SDK's Roslyn assemblies.
+`packaging\DESIGNER.md` supplies the [archive instructions](../../packaging/DESIGNER.md).
 `packaging\Xui.nuspec` defines the combined NuGet layout.
 The native and managed imports have separate framework directories.
 `bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
@@ -36,13 +40,21 @@ It requires NativeAOT output without managed runtime files, managed assemblies, 
 These checks do not exercise each sample's interactive behavior.
 The existing desktop regressions remain responsible for that behavior.
 
-`tests\release-packaging-unit.ps1` runs the asset script with inert samples and substitute NuGet and Cargo packers.
+`tests\release-designer.ps1` extracts the Designer ZIP for the selected architecture.
+It checks file hashes, complete manifest coverage, licenses, runtime and compiler files, native PE architectures, and the self-contained runtime configuration.
+It runs the extracted executable with `--smoke`, a restricted `PATH`, and invalid external .NET root paths.
+The existing smoke exercises runtime compilation, preview construction, compilation errors, preview recovery, and file operations.
+The release workflow runs this check on each architecture.
+
+`tests\release-packaging-unit.ps1` runs the asset script with inert samples and Designer files, plus substitute NuGet and Cargo packers.
 It checks separate archive contents, licenses, checksums, existing-output refusal, and incorrect versions, architectures, or hashes.
 The workflow runs these checks before the release builds.
 
 `tests\release-workflow.ps1` replaces `gh` with a local fixture.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
-It also requires both architecture archives before any GitHub request.
+It also checks per-asset upload retries, exponential delays, recovery on the last attempt, retry exhaustion, and a subsequent run.
+Successful uploads must not repeat during retries, and retry exhaustion must stop further uploads.
+It also requires both sample archives and both Designer archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
 It also publishes and runs the FileExplorer model tests with NativeAOT on each architecture.
@@ -50,6 +62,49 @@ The explorer uses source-generated JSON metadata to preserve state persistence w
 The model tests disable reflection-based JSON serialization and cover the persisted schema, round trips, and corrupt-file protection.
 
 ## Tests and measurements
+
+### PR 32 integration with main
+
+The merge with `2a5f769` preserves the animation demos, tab tear-out, new controls, and the scroll-copy correction.
+The shared transition timer remains 43, with diagnostics 33 through 36.
+The incoming indeterminate progress timer uses 44, with diagnostics 37 and 38.
+Indeterminate bars and rings retain the incoming Classic and WinUI behavior.
+
+SplitView topology changes settle motion before the primary pane disappears.
+The secondary-only layout occupies the full container without a divider, including widths below the two-pane breakpoint.
+New model regressions cover this topology and determinate ProgressRing interpolation.
+The ring fixture explicitly selects determinate mode because ProgressRing defaults to indeterminate.
+
+The split, progress, control, and new-control model checks passed on Windows ARM64 Release.
+The foundation, queue fairness, progress motion, Expander motion, tab motion, Reveal, and scroll-flicker desktop checks passed.
+The merged native DLL also built successfully.
+
+The gallery retains 60 pages, including Motion and the incoming control examples.
+The catalog, Motion, feedback, progress, content, document, new-control, and both parity smoke modes passed.
+The generator passed 41,997 assertions.
+The VS Code tokenizer passed 30 tests, and the Microsoft Edit grammar passed 12 tests.
+The Explorer model suite passed 78,120 assertions, including the incoming drag and hover-join cases.
+The documentation checks passed for 52 pages, 650 local links, and 19 adapter tests.
+
+The isolated Explorer preview built without warnings at `build\animation-merge-preview\FileExplorer.exe`.
+Its copied native DLL matches the merged native build.
+The full smoke passed, including stationary palettes, tab-drag handlers, reversible hover joins, tear-out rollback, and same-Application merges.
+Separate hover-join, retained-view entry, and pane-animation smoke runs also passed.
+The pane-reopening assertion uses native focus and `IsWindowEnabled` because the managed `Enabled` property is write-only.
+The full smoke observed 28 intermediate pane paints, and the focused pane smoke observed 30.
+Existing user preview outputs remained untouched.
+
+The Rust library suite passed 32 of 33 tests.
+The remaining style test expects `Wrong handle kind` in an error message.
+Incoming main changed `xui_button_set_style` from an exact-kind check to a Button feature check.
+The error status remains 3, but the existing message assertion fails.
+This merge does not weaken that assertion or change the incoming error behavior.
+
+The incoming tab-drag desktop test failed its `Background fixture does not steal foreground` assertion twice.
+An isolated comparison used unchanged `origin/main` `application.cpp` with the current other libraries and the same test object.
+That comparison failed the same assertion after the gesture checks passed.
+This isolates the failure from the merged window-host changes, but does not establish a clean-main baseline.
+The foreground failure remains unresolved.
 
 ### Reveal animation checks
 
@@ -710,6 +765,8 @@ The explorer adds these regressions:
 | `xui_explorer_tests` | History commits, failed navigation, tab selection and closure, cancellation, bounded state, UNC roots, long Unicode scans, activation, and injected file associations |
 | `xui_explorer_smoke` | The real explorer, address input, history, keyboard shortcuts, context commands, independent panes, tab providers, divider input, clipping, and resource bounds |
 | `xui_tab_window_tests` | Owned-window tab pixels in Classic and WinUI, light/dark/high contrast, 96/120/144/168/192 DPI, open bottom edges, titlebar gap borders, empty rows, custom colors, content activation, close targets, New tab placement and UIA invocation, focus, and overflow |
+| `xui_tab_drag_window_tests` | Queued-paint capture retention, hidden/disabled cancellation, reorder, retained-HWND tear-out, first-show remainder Z-order, reversible hover joins, layered overlays, release-only fallback, cancellation, placement, full-width secondary panes, native focus, and retirement |
+| `xui_tab_drag_indicator_tests` | Focused insertion-marker pixels through `xui_tab_window_tests --drag-indicator`, across both styles, all themes, and multiple DPI values |
 | `xui_suggestion_tests` | Folder prefixes, real and synthetic enumeration limits, deterministic cancellation, native EDIT behavior, popup input, themes, and closure during a blocked request |
 | `xui_split_window_tests` | Eight window cycles with tabs, two lists, native fields, capture cancellation, simulated DPI, target recreation, and final resource disposal |
 
@@ -720,7 +777,40 @@ The smoke test uses scoped UIA focus-property events, selection events, and stru
 Its optional `--global-focus-events` argument also subscribes to desktop-wide focus events.
 That optional subscription can stall inside Windows before a test action. It depends on providers outside this process.
 
+The drag fixtures use owned windows and are available with `BUILD_TESTING`.
+Their scripted caption-down boundary permits deterministic native callback checks without a physical mouse press.
+Full-window dragging uses `WM_WINDOWPOSCHANGING`, including native hide and show flags.
+Outline-only dragging uses `WM_MOVING` and retains release-only merge.
+The live-loop probe reports when user32 declines an operation without a held mouse button.
+Target acceptance depends on actual desktop occlusion. A covered target exercises rejection instead.
+The fixture reports that substitution instead of claiming an accepted merge.
+Dedicated hover cases expose temporary topmost fixture windows without activation.
+Those cases check hover transfer before release, departure, rejoin, rejected commit, cancellation, detached dimensions, and first-show remainder Z-order.
+They also disable a joined target after the last motion and require release-time recovery instead of a stale commit.
+An opaque layered fixture blocks merge.
+Zero alpha, layered pass-through input, and a region hole each permit merge.
+After tear-out and departure from a target, the pointer offset must remain within one physical pixel.
+
+The 2026-09-17 ARM64 development run passed the focused drag, insertion-marker, placement, native ABI, managed binding, and model checks.
+An unobstructed run exercised native `QueryDrop` and accepted `Drop`.
+The full tab-pixel fixture completed its inner assertions but exceeded its 300-second duration requirement.
+That run is not a passing result for the full fixture.
+Physical pointer continuity, Escape delivery through user32, and mixed-monitor dragging still require manual coverage.
+
+The 2026-09-17 follow-up to checkpoint `cbd5ebf` passed the full-window hover, immediate Z-order, native-focus, pointer-offset, and overlay regressions.
+The C ABI, managed drag, and managed split-visibility checks also passed.
+The captured full Explorer smoke passed with the isolated `HoverJoinValidation` output.
+The final isolated build matched the latest native DLL and passed the full smoke after the no-op Join and release-time revalidation changes.
+The pure Explorer suite passed 78,120 assertions.
+An earlier full-smoke process returned exit code 1 without captured diagnostics. The passing rerun does not establish that the full smoke is flake-free.
+The native loop probe still declined entry without a physically held mouse button.
+These results cover native messages and application transfers, not a complete physical drag gesture.
+
 The managed explorer `--smoke` also covers file transfers in its temporary fixture.
+Its tab-drag probes cover same-window and cross-window transfers, limits, stale targets, QueryDrop without mutation, rollback, and continued window lifetime.
+Hover probes cover repeated destinations, closed-target recovery, and window retention through `Completed`.
+Repeated Join at equivalent insertion slots preserves pending navigation, selection, and content.
+Secondary-tab tear-out also checks full-width content at normal and narrow sizes, with layout restoration after cancellation and completion.
 Its preview checks cover native Space dispatch, held Space, focus restoration, text selection, and command isolation.
 They also cover Details and Columns, bounded text, image readiness and errors, metadata, deletion, replacement, and cancellation.
 `PreviewController.cs` owns the popup and request lifetime. `PreviewLayout.xui` defines its layout.
@@ -813,6 +903,20 @@ The tests also require bounded handle counts and rejected provider actions after
 The resource sample follows asynchronous snapshot disposal and a short message-pump interval for native provider cleanup.
 The combined UIA client/server test reports process handles but does not attribute client thread pools to the framework.
 The server-only lifecycle test retains its process-handle limit for eight ordinary windows and eight ScrollView trees.
+
+`xui_scroll_frame_tests` and `xui_winui_scroll_frame_tests` capture viewport pixels between layout and root presentation.
+The previous complete frame must remain unchanged during this interval.
+The first new frame must match a subsequent full repaint, including native fields.
+Cases cover custom-only content, native EDIT and RichEdit content, image placement, three themes, and injected 96/144/192 DPI.
+Offsets include fractional movement, partial native clipping, forward movement, and reverse movement.
+The fixtures also check native editing and undo after scrolling.
+
+The scroll-frame fixtures use owned-window Graphics Capture with cursor capture disabled.
+They defer root painting during the layout capture because Graphics Capture can dispatch messages through COM.
+Child placement and native painting remain active, so intermediate pixel copies remain observable.
+They exclude unrelated window borders and wait for initial window transitions.
+They do not capture the desktop or require an unobscured window.
+
 `xui_window_tests` covers public window ownership, callback closure, startup failure, callback failure, and later runs on the same thread.
 It also covers a public list beside other controls, filter delivery, selection callbacks, reentrant closure, and off-thread snapshot disposal.
 Two sets of eight repeated windows exercise cancelled refreshes, theme changes, resize, simulated DPI changes, and target recreation.

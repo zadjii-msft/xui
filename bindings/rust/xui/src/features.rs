@@ -65,6 +65,8 @@ macro_rules! enums {
     )*};
 }
 enums!(
+    CheckState {Unchecked=0,Checked=1,Indeterminate=2},
+    InfoBadgeKind {Dot=0,Count=1,Icon=2},
     ProgressState {Determinate=0,Indeterminate=1,Paused=2,Error=3,Unknown=4},
     ItemsPresentation {List=0,Tiles=1,Grouped=2},
     CompactNavigation {Stacked=0,Overlay=1},
@@ -79,6 +81,22 @@ enums!(
     TrackSizing {Fixed=0,Automatic=1,Star=2},
     CommandKind {Action=0,Submenu=1,Separator=2}
 );
+impl CheckState {
+    pub(crate) fn from_native(value: u64) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Unchecked), 1 => Ok(Self::Checked), 2 => Ok(Self::Indeterminate),
+            _ => Err(invalid("Invalid check state.")),
+        }
+    }
+}
+impl InfoBadgeKind {
+    pub(crate) fn from_native(value: u64) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Dot), 1 => Ok(Self::Count), 2 => Ok(Self::Icon),
+            _ => Err(invalid("Invalid badge kind.")),
+        }
+    }
+}
 impl ProgressState {
     pub(crate) fn from_native(v: u64) -> Result<Self> {
         match v {
@@ -89,6 +107,20 @@ impl ProgressState {
             4 => Ok(Self::Unknown),
             _ => Err(invalid("Invalid progress state.")),
         }
+    }
+}
+impl ButtonIcon {
+    pub(crate) fn from_native(value: u64) -> Result<Self> {
+        const ICONS: [ButtonIcon; 23] = [
+            ButtonIcon::None, ButtonIcon::Back, ButtonIcon::Forward, ButtonIcon::Up,
+            ButtonIcon::Refresh, ButtonIcon::Split, ButtonIcon::Theme, ButtonIcon::Add,
+            ButtonIcon::Minimize, ButtonIcon::Maximize, ButtonIcon::Restore, ButtonIcon::Close,
+            ButtonIcon::More, ButtonIcon::Navigation, ButtonIcon::Home, ButtonIcon::Folder,
+            ButtonIcon::Settings, ButtonIcon::Search, ButtonIcon::Library, ButtonIcon::History,
+            ButtonIcon::Bookmark, ButtonIcon::Drive, ButtonIcon::Open,
+        ];
+        usize::try_from(value).ok().and_then(|index| ICONS.get(index).copied())
+            .ok_or_else(|| invalid("Invalid button icon."))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -432,6 +464,93 @@ impl Button {
         )
     }
 }
+impl CheckBox {
+    pub fn on_change(&self, mut callback: impl FnMut(CheckState) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 2 { callback(CheckState::from_native(e.value)?)?; }
+            Ok(())
+        })
+    }
+    pub fn invoke(&self) -> Result<()> { self.owner.check(unsafe { sys::xui_invoke(self.handle) }) }
+}
+impl HyperlinkButton {
+    pub fn on_click(&self, mut callback: impl FnMut() -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 1 { callback()?; }
+            Ok(())
+        })
+    }
+    pub fn invoke(&self) -> Result<()> { self.owner.check(unsafe { sys::xui_invoke(self.handle) }) }
+}
+impl SelectorBar {
+    pub fn selected(&self) -> Result<Option<u64>> {
+        let value = self.feature_get(50)?;
+        Ok(if value.second != 0 { Some(value.first) } else { None })
+    }
+    pub fn set_selected(&self, id: u64) -> Result<()> {
+        self.feature_set(50, sys::FeatureValue { first: id, ..value_record() })
+    }
+    pub fn set_items(&self, items: &[Choice], selected: Option<u64>) -> Result<()> { self.choices(items, selected) }
+    pub fn select(&self, id: u64) -> Result<()> { self.feature_action(1, id, 0) }
+    pub fn on_change(&self, mut callback: impl FnMut(u64) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 5 { callback(e.value)?; }
+            Ok(())
+        })
+    }
+}
+impl InfoBadge {
+    pub fn kind(&self) -> Result<InfoBadgeKind> { InfoBadgeKind::from_native(self.feature_get(51)?.first) }
+}
+impl MenuBar {
+    pub fn on_invoke(&self, mut callback: impl FnMut(u64) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 1 { callback(e.value)?; }
+            Ok(())
+        })
+    }
+    pub fn on_pin(&self, mut callback: impl FnMut(u64) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 9 { callback(e.value)?; }
+            Ok(())
+        })
+    }
+}
+impl ToggleSwitch {
+    pub fn on_change(&self, mut callback: impl FnMut(bool) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 2 { callback(e.value != 0)?; }
+            Ok(())
+        })
+    }
+    pub fn invoke(&self) -> Result<()> {
+        self.owner.check(unsafe { sys::xui_invoke(self.handle) })
+    }
+}
+impl ToggleButton {
+    pub fn on_toggle(&self, mut callback: impl FnMut(bool) -> Result<()> + 'static) -> Result<()> {
+        self.on_event(move |e| {
+            if e.kind == 2 { callback(e.value != 0)?; }
+            Ok(())
+        })
+    }
+    pub fn on_change(&self, callback: impl FnMut(bool) -> Result<()> + 'static) -> Result<()> {
+        self.on_toggle(callback)
+    }
+    pub fn invoke(&self) -> Result<()> {
+        self.owner.check(unsafe { sys::xui_invoke(self.handle) })
+    }
+}
+impl Progress {
+    pub fn set_capacity(&self, used: f64, total: f64, unit: &str) -> Result<()> {
+        self.feature_set(47, sys::FeatureValue { a: used, b: total, text: text(unit)?, ..value_record() })
+    }
+}
+impl ProgressRing {
+    pub fn set_capacity(&self, used: f64, total: f64, unit: &str) -> Result<()> {
+        self.feature_set(47, sys::FeatureValue { a: used, b: total, text: text(unit)?, ..value_record() })
+    }
+}
 impl RangeInput {
     pub fn on_change(&self, mut callback: impl FnMut(f64) -> Result<()> + 'static) -> Result<()> {
         self.on_event(move |e| {
@@ -749,7 +868,7 @@ macro_rules! command_controls {
         }
     )*};
 }
-command_controls!(CommandBar, CommandSurface);
+command_controls!(CommandBar, CommandSurface, MenuBar);
 impl MultilineText {
     pub fn command(&self, command: TextCommand) -> Result<()> {
         self.feature_action(4, command as u64, 0)

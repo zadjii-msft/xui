@@ -164,6 +164,21 @@ void precision_and_completion() {
         progress.set_invalidator({});
     }
 }
+void ring_frames() {
+    ProgressRing ring;
+    require(ring.ring_presentation() && ring.duration() == 0, "Ring presentation inherits opt-in value motion");
+    ring.set_state(ProgressState::determinate);
+    ring.set_duration(1000);
+    ring.set_value(80);
+    require(ring.value() == 80 && ring.presented_value() == 0 && ring.animating(),
+        "The ring retains immediate logical progress and an independent displayed value");
+    ring.advance(Animation::Clock::now() + 500ms);
+    require(ring.presented_fraction() > 0 && ring.presented_fraction() < 0.8,
+        "Determinate rings use intermediate presentation fractions");
+    ring.set_state(ProgressState::indeterminate);
+    require(!ring.animating() && ring.presented_value() == 80,
+        "Indeterminate ring visuals do not keep the value-interpolation clock active");
+}
 }
 int main() {
     static_assert(std::is_base_of_v<Animation, Progress>);
@@ -172,6 +187,7 @@ int main() {
         defaults_and_frames(VisualStyle::winui);
         invalid_and_interruptions();
         precision_and_completion();
+        ring_frames();
         std::cout << "Progress animation model contracts passed.\n";
         return 0;
     } catch (const std::exception& error) {

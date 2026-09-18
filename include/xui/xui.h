@@ -105,6 +105,56 @@ XUI_API xui_status XUI_CALL xui_window_closed(xui_handle window,
 XUI_API xui_status XUI_CALL xui_window_error(xui_handle window, char* buffer,
     uint32_t capacity, uint32_t* required) XUI_NOEXCEPT;
 
+/* Outer bounds in physical screen pixels. Negative screen coordinates are valid.
+   Initialize size before get or set. Set accepts x/y in [-1000000,1000000] and width/height in [1,65536].
+   Maximized is 0 or 1.
+   Get requires an open window or a previously set placement. Unknown initial placement returns XUI_NATIVE_ERROR. */
+typedef struct xui_window_placement {
+    uint32_t size;
+    int32_t x, y, width, height;
+    uint32_t maximized;
+} xui_window_placement;
+XUI_API xui_status XUI_CALL xui_window_get_placement(xui_handle window,
+    xui_window_placement* placement) XUI_NOEXCEPT;
+/* Set also works before show. Coordinates describe the normal, non-maximized bounds. */
+XUI_API xui_status XUI_CALL xui_window_set_placement(xui_handle window,
+    const xui_window_placement* placement) XUI_NOEXCEPT;
+enum {
+    XUI_TAB_DRAG_REORDER = 0, XUI_TAB_DRAG_TEAR_OUT = 1, XUI_TAB_DRAG_DROP = 2,
+    XUI_TAB_DRAG_CANCEL = 3, XUI_TAB_DRAG_COMPLETED = 4, XUI_TAB_DRAG_QUERY_DROP = 5,
+    XUI_TAB_DRAG_JOIN = 6, XUI_TAB_DRAG_LEAVE = 7
+};
+typedef struct xui_tab_drag_event {
+    uint32_t size, kind;
+    uint32_t source_strip, target_strip;
+    uint64_t tab_id;
+    xui_handle target;
+    uint64_t index;
+} xui_tab_drag_event;
+/* Source-window callback. Strips are 0 or 1. Target is a same-application window, or zero.
+   Index is the insertion slot before removal, in [0, target tab count].
+   Return XUI_OK and set accepted to 0 or 1. Errors close the source window.
+   Tear-out must retain this HWND, the same strip, and the dragged tab ID.
+   Move remaining models to other windows synchronously. Never transfer native controls.
+   Reorder always uses the source strip. Drop can target the other strip in the same window.
+   Drop occurs at button release, including an other-strip drop before tear-out.
+   Query-drop validates the hovered target and index without mutation. Only accepted queries show an insertion indicator.
+   Join temporarily transfers the model on hover; repeated Join can reorder within that destination.
+   Rejecting Join keeps release-only Drop behavior. External Join follows Tear-out.
+   Leave precedes retarget or Cancel. Accept Leave only after returning the tab to the initiator strip.
+   Source strip and tab ID always identify the initiator; target fields identify the joined destination.
+   Drop while joined commits the existing transfer, rather than transferring the tab again.
+   Retain every window and control tree until Completed. Never reparent native controls.
+   Escape sends cancel, not drop.
+   Completed retires drag state after the move loop, including a joined commit. */
+typedef xui_status (XUI_CALL *xui_tab_drag_handler)(void* context,
+    const xui_tab_drag_event* event, uint32_t* accepted);
+/* Opt-in requires an Application window with a custom title bar.
+   A null callback revokes synchronously. Context remains caller-owned.
+   Replacement and revocation fail during an active gesture, without changing the installed handler. */
+XUI_API xui_status XUI_CALL xui_window_tab_drag_handler(xui_handle window,
+    xui_tab_drag_handler callback, void* context) XUI_NOEXCEPT;
+
 XUI_API uint32_t XUI_CALL xui_abi_version(void) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_error_copy(char* buffer, uint32_t capacity,
     uint32_t* required, xui_status* error) XUI_NOEXCEPT;

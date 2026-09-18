@@ -8,6 +8,8 @@ Highlighting remains active when live preview is paused.
 The preview uses the existing XUI compiler and native controls, not an HTML approximation.
 
 Build and run commands are in [CONTRIBUTING](../../CONTRIBUTING.md#xui-designer).
+Release downloads include separate [Designer archives](packages.md#designer-archives) for Windows x64 and ARM64.
+These archives include the .NET runtime and compiler, so no separate .NET installation is necessary.
 The [language guide](xui-language.md) describes the source syntax.
 
 ## Example documents
@@ -35,6 +37,13 @@ The workspace contains a native source editor, control hierarchy, property inspe
 The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
+
+Enter copies the current line's leading spaces and tabs onto the new line.
+Within the indentation, Enter copies only the whitespace before the caret.
+With no selection, Tab within the leading whitespace adds four spaces.
+Shift+Tab removes up to four leading spaces or one leading tab, without moving focus.
+Tab after source text or with a selection keeps the existing focus-navigation behavior.
+Each indentation edit creates one native undo action.
 
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
@@ -268,7 +277,16 @@ It changes placement only in the new copy and refuses existing placement express
 
 `InsertControl` inserts a complete template at an ordered child index in a Stack or Grid.
 Templates include Text, Button, Toggle, TextInput, VStack, HStack, Grid, ScrollView, SplitView, DataGrid, NavigationView, RangeInput, and Progress.
+ToggleSwitch, ToggleButton, and ProgressRing also have dedicated templates.
+CheckBox, HyperlinkButton, SelectorBar, InfoBadge, and MenuBar have dedicated templates.
 RangeInput and Progress templates start at 50 within the native default range from 0 through 100.
+Both toggle templates start unchecked.
+The ProgressRing template retains the native indeterminate default and requests a 32-by-32-DIP preferred size.
+CheckBox starts unchecked with three-state input off.
+SelectorBar starts with First and Second choices and selects First.
+InfoBadge starts as a dot.
+MenuBar starts with a File submenu and an Open command.
+The HyperlinkButton and MenuBar templates have no application actions.
 These palette templates have no handlers or external dependencies.
 Wrapper templates contain the required children.
 DataGrid starts with Name and Value columns and no rows.

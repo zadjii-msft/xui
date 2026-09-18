@@ -130,7 +130,7 @@ internal sealed class FilePaneView
         UpdateTabs();
     }
 
-    public ExplorerPane Model { get; }
+    public ExplorerPane Model { get; private set; }
     public Grid Root { get; }
     public TabStrip Tabs { get; }
     internal TabContextMenu TabMenu { get; }
@@ -199,6 +199,7 @@ internal sealed class FilePaneView
     public void Activate() => app.Activate(this);
     public void Focus()
     {
+        if (Model.Tabs.Count == 0) return;
         Activate();
         if (IsColumns && Columns.ColumnCount != 0) Columns.FocusColumn(Columns.ActiveColumn);
         else if (!IsColumns) Grid.Focus();
@@ -414,6 +415,45 @@ internal sealed class FilePaneView
 
     internal void CaptureViewport() => SaveViewport();
 
+    internal void SetTransferredModel(ExplorerPane model)
+    {
+        CancelForTransfer();
+        ClearColumns();
+        Model = model;
+        displayedTab = 0;
+        error = null;
+    }
+
+    internal void CancelForTransfer()
+    {
+        Cancel();
+        feedback.Cancel();
+        layout.Feedback.Text = "";
+    }
+
+    internal void RenderTransferredModel()
+    {
+        bool visible = Model.Tabs.Count != 0;
+        SetPaneControlsVisible(visible);
+        if (!visible)
+        {
+            Grid.Visible(false);
+            Columns.Visible(false);
+            SetFindVisible(false);
+            UpdateTabs();
+            return;
+        }
+        Render();
+        if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
+    }
+
+    private void SetPaneControlsVisible(bool visible)
+    {
+        foreach (var control in new Control[] { back, forward, up, Address, layout.Refresh,
+            layout.Commands, layout.ViewMode, layout.Feedback, status })
+            control.Visible(visible);
+    }
+
     internal void ReplaceTabsFrom(FilePaneView source)
     {
         source.SaveViewport();
@@ -427,6 +467,7 @@ internal sealed class FilePaneView
         Cancel();
         ClearColumns();
         Model.ResetTabs(path);
+        SetPaneControlsVisible(true);
         UpdateTabs();
     }
 
@@ -446,6 +487,7 @@ internal sealed class FilePaneView
 
     private void SwitchTab()
     {
+        SetPaneControlsVisible(true);
         bool filesHadFocus = Grid.Focused || Enumerable.Range(0, columnViews.Count)
             .Any(i => Columns.Column((uint)i).Focused);
         Cancel();
@@ -524,6 +566,7 @@ internal sealed class FilePaneView
 
     private void SaveViewport()
     {
+        if (Model.Tabs.Count == 0) return;
         if (displayedTab != Model.Active.Id) return;
         if (IsColumns)
         {
@@ -740,7 +783,7 @@ internal sealed class FilePaneView
         try
         {
             Tabs.SetTabItems(Model.Tabs.Select(t => new TabEntry(t.Id, TabName(t.Path),
-                ButtonIcon.Folder, t.Path)).ToArray(), Model.Active.Id);
+                ButtonIcon.Folder, t.Path)).ToArray(), Model.Tabs.Count == 0 ? null : Model.Active.Id);
         }
         finally { rendering = prior; }
     }

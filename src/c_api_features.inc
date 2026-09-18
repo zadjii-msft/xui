@@ -43,6 +43,10 @@ void wire_navigation_button_notifications(const std::shared_ptr<Node>& n) {
 void wire_feature(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     switch (n->kind) {
+    case XUI_CHECK_BOX: as<xui::CheckBox>(n).on_change([weak](xui::CheckState state) {
+        dispatch(weak, XUI_CHANGE, static_cast<uint64_t>(state));
+    }); break;
+    case XUI_SELECTOR_BAR: as<xui::SelectorBar>(n).on_change([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); }); break;
     case XUI_RANGE_INPUT:
         if (!n->feature_callbacks_captured) {
             const auto& range = as<xui::RangeInput>(n);
@@ -142,7 +146,7 @@ void wire_feature(const std::shared_ptr<Node>& n) {
         });
         as<xui::DataGrid>(n).on_sort([weak](size_t column, bool descending) { dispatch(weak, XUI_VIEW, column | uint64_t(descending) << 32); });
         as<xui::DataGrid>(n).on_filter_open([weak](size_t column) { dispatch(weak, XUI_FILTER_OPEN, column); }); break;
-    case XUI_COMMAND_BAR: case XUI_COMMAND_SURFACE: break; // CommandSet actions dispatch directly.
+    case XUI_COMMAND_BAR: case XUI_COMMAND_SURFACE: case XUI_MENU_BAR: break; // CommandSet actions dispatch directly.
     case XUI_SPLIT_VIEW:
         as<xui::SplitView>(n).on_expanded([weak](bool expanded) {
             if (auto node = weak.lock()) node->owner->window->post([weak, expanded] {
@@ -508,6 +512,14 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         case XUI_HISTORY_CHART: e = std::make_shared<xui::HistoryChart>(name); break;
         case XUI_NAVIGATION_VIEW: e = std::make_shared<xui::NavigationView>(name); break;
         case XUI_MILLER_COLUMNS: e = std::make_shared<xui::MillerColumns>(name); break;
+        case XUI_TOGGLE_SWITCH: e = std::make_shared<xui::ToggleSwitch>(name); break;
+        case XUI_TOGGLE_BUTTON: e = std::make_shared<xui::ToggleButton>(name); break;
+        case XUI_PROGRESS_RING: e = std::make_shared<xui::ProgressRing>(name); break;
+        case XUI_CHECK_BOX: e = std::make_shared<xui::CheckBox>(name); break;
+        case XUI_HYPERLINK_BUTTON: e = std::make_shared<xui::HyperlinkButton>(name); break;
+        case XUI_SELECTOR_BAR: e = std::make_shared<xui::SelectorBar>(name); break;
+        case XUI_INFO_BADGE: e = std::make_shared<xui::InfoBadge>(name); break;
+        case XUI_MENU_BAR: e = std::make_shared<xui::MenuBar>(name); break;
         default: throw Failure{XUI_WRONG_KIND, "Unknown feature kind."};
         }
         *out = insert(n->owner, kind, std::move(e));
@@ -546,6 +558,21 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
             else feature<xui::Expander>(n).set_expanded(v.first != 0);
             break;
         case XUI_F_PROGRESS_STATE: fields(v, 16); limit(v.first, 4); feature<xui::Progress>(n).set_state(static_cast<xui::ProgressState>(v.first)); break;
+        case XUI_F_PROGRESS_CAPACITY:
+            fields(v, 67);
+            require(v.b > 0 && v.a >= 0 && v.a <= v.b, XUI_INVALID_ARGUMENT, "Capacity requires 0 <= used <= total and positive total.");
+            feature<xui::Progress>(n).set_capacity(v.a, v.b, decode(v.text));
+            break;
+        case XUI_F_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Toggle>(n).set_checked(v.first != 0); break;
+        case XUI_F_CHECK_STATE: fields(v, 16); limit(v.first, 2); feature<xui::CheckBox>(n).set_state(static_cast<xui::CheckState>(v.first)); break;
+        case XUI_F_THREE_STATE: fields(v, 16); limit(v.first, 1); feature<xui::CheckBox>(n).set_three_state(v.first != 0); break;
+        case XUI_F_SELECTED:
+            fields(v, 16);
+            try { feature<xui::SelectorBar>(n).set_selected(v.first); }
+            catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Selected item must exist and be enabled."}; }
+            break;
+        case XUI_F_BADGE_COUNT: fields(v, 16); limit(v.first, UINT32_MAX); feature<xui::InfoBadge>(n).set_count(static_cast<uint32_t>(v.first)); break;
+        case XUI_F_BADGE_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::open)); feature<xui::InfoBadge>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
@@ -638,6 +665,16 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
         case XUI_F_SPLIT_RATIO: v->a = feature<xui::SplitView>(n).ratio(); break;
         case XUI_F_OFFSET: v->a = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).offset() : feature<xui::VirtualCollection>(n).offset(); break;
         case XUI_F_BUTTON_CHECKED: v->first = feature<xui::Button>(n).checked(); break;
+        case XUI_F_CHECKED: v->first = feature<xui::Toggle>(n).checked(); break;
+        case XUI_F_CHECK_STATE: v->first = static_cast<uint64_t>(feature<xui::CheckBox>(n).state()); break;
+        case XUI_F_THREE_STATE: v->first = feature<xui::CheckBox>(n).three_state(); break;
+        case XUI_F_SELECTED: {
+            const auto selected = feature<xui::SelectorBar>(n).selected();
+            v->first = selected.value_or(0); v->second = selected.has_value(); break;
+        }
+        case XUI_F_BADGE_KIND: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).kind()); break;
+        case XUI_F_BADGE_COUNT: v->first = feature<xui::InfoBadge>(n).count(); break;
+        case XUI_F_BADGE_ICON: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).icon()); break;
         case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::Progress>(n).state()); break;
         case XUI_F_TEXT_SELECTION: { auto s = feature<xui::DocumentText>(n).selection(); v->first = s.start; v->second = s.end; break; }
         case XUI_F_READ_ONLY: v->first = feature<xui::DocumentText>(n).read_only(); break;
@@ -666,6 +703,11 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
         switch (action) {
         case XUI_A_SELECT:
             if (n->kind == XUI_RADIO_GROUP) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::RadioGroup>(n).select(first); }
+            else if (n->kind == XUI_SELECTOR_BAR) {
+                require(!second, XUI_INVALID_ARGUMENT, "Unused argument.");
+                try { require(as<xui::SelectorBar>(n).select(first), XUI_INVALID_ARGUMENT, "SelectorBar is disabled."); }
+                catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Selected item must exist and be enabled."}; }
+            }
             else if (n->kind == XUI_COMBO_BOX) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::ComboBox>(n).select(first); }
             else if (n->kind == XUI_TAB_STRIP) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::TabStrip>(n).select(first); }
             else if (n->kind == XUI_NAVIGATION_VIEW) { require(!second, XUI_INVALID_ARGUMENT, "Unused argument."); as<xui::NavigationView>(n).select({first, 0}); }
@@ -679,6 +721,7 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
             else feature<xui::NumericInput>(n).change_value(v); break;
         }
         case XUI_A_STEP: limit(first, 1); feature<xui::NumericInput>(n).step(first ? 1 : -1); break;
+        case XUI_A_SET_DOT: feature<xui::InfoBadge>(n).set_dot(); break;
         case XUI_A_TEXT_COMMAND: limit(first, 5); feature<xui::DocumentText>(n).command(static_cast<xui::TextCommand>(first)); break;
         case XUI_A_DISMISS:
             if (n->kind == XUI_INLINE_STATUS) as<xui::InlineStatus>(n).dismiss();
@@ -729,6 +772,10 @@ xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items, uint
         require(!has || ids.contains(selected), XUI_INVALID_ARGUMENT, "Selected ID is absent.");
         std::optional<uint64_t> id = has ? std::optional<uint64_t>(selected) : std::nullopt;
         if (n->kind == XUI_RADIO_GROUP) as<xui::RadioGroup>(n).set_items(std::move(choices), id);
+        else if (n->kind == XUI_SELECTOR_BAR) {
+            try { as<xui::SelectorBar>(n).set_items(std::move(choices), id); }
+            catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Invalid selector items or selection."}; }
+        }
         else if (n->kind == XUI_COMBO_BOX) as<xui::ComboBox>(n).set_items(std::move(choices), id);
         else if (n->kind == XUI_TAB_STRIP) as<xui::TabStrip>(n).set_tabs(std::move(tabs), id);
         else feature<xui::Breadcrumb>(n).set_segments(std::move(segments));
@@ -1417,7 +1464,7 @@ xui_status XUI_CALL xui_grid_check(xui_handle target, uint64_t id, uint64_t vers
 xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record* commands, uint32_t count) noexcept {
     return boundary([&] {
         auto n = get(target); editable(n->owner);
-        require(n->kind == XUI_COMMAND_BAR || n->kind == XUI_COMMAND_SURFACE, XUI_WRONG_KIND, "Expected a command surface.");
+        require(n->kind == XUI_COMMAND_BAR || n->kind == XUI_COMMAND_SURFACE || n->kind == XUI_MENU_BAR, XUI_WRONG_KIND, "Expected a command surface.");
         require(count <= XUI_MAX_BATCH && (commands || !count), XUI_INVALID_ARGUMENT, "Invalid commands span.");
         std::vector<xui::CommandRecord> records; records.reserve(count);
         std::weak_ptr<Node> weak = n;
@@ -1426,6 +1473,8 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
             require(v.size == sizeof(v), XUI_VERSION_MISMATCH, "Command size mismatch.");
             require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_down),
                 XUI_INVALID_ARGUMENT, "Invalid command enum.");
+            if (n->kind == XUI_MENU_BAR && !v.parent)
+                require(v.kind == static_cast<uint32_t>(xui::CommandKind::submenu), XUI_INVALID_ARGUMENT, "MenuBar roots must be submenu groups.");
             xui::CommandRecord r; r.id = v.id; r.parent = v.parent; r.label = decode(v.label);
             r.enabled = !(v.flags & 1); if (v.flags & 4) r.checked = bool(v.flags & 2);
             r.icon = static_cast<xui::ButtonIcon>(v.icon); r.kind = static_cast<xui::CommandKind>(v.kind);
@@ -1435,10 +1484,19 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
             if (!r.pin_label.empty()) r.pin = [weak, id = v.id] { dispatch(weak, XUI_ACTION, id); };
             records.push_back(std::move(r));
         }
-        auto set = std::make_shared<xui::CommandSet>(std::move(records));
-        if (n->kind == XUI_COMMAND_BAR) as<xui::CommandBar>(n).set_commands(set);
-        else resource<xui::CommandSurface>(n, n->kind)->set_commands(set);
-        n->commands = std::move(set);
+        try {
+            auto set = std::make_shared<xui::CommandSet>(std::move(records));
+            if (n->kind == XUI_COMMAND_BAR) as<xui::CommandBar>(n).set_commands(set);
+            else if (n->kind == XUI_MENU_BAR) as<xui::MenuBar>(n).set_commands(set);
+            else resource<xui::CommandSurface>(n, n->kind)->set_commands(set);
+            n->commands = std::move(set);
+        } catch (const std::invalid_argument&) {
+            if (n->kind == XUI_MENU_BAR) throw Failure{XUI_INVALID_ARGUMENT, "Invalid menu command hierarchy or record."};
+            throw;
+        } catch (const std::length_error&) {
+            if (n->kind == XUI_MENU_BAR) throw Failure{XUI_INVALID_ARGUMENT, "Menu commands exceed a record, text, depth, or root limit."};
+            throw;
+        }
     });
 }
 xui_status XUI_CALL xui_command_invoke(xui_handle target, uint64_t id, uint32_t pin) noexcept {
