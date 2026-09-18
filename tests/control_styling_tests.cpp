@@ -463,10 +463,7 @@ void measurement_geometry() {
         require(measured.width == 200 && measured.height == 50, "A fixed size is unaffected by indicator styling");
     }
 
-    // Classic vs WinUI: same authored indicator size, different default gap
-    // and left padding (winui: gap 9, left padding 0; classic: gap 12, left
-    // padding 12); right padding/border stay whatever is authored/default in
-    // both. Difference here is exactly (12-0) + (12-9) = 15.
+    // WinUI omits both default padding edges. Classic keeps 12 DIPs per edge.
     {
         auto classic_ptr = make(VisualStyle::classic);
         auto winui_ptr = make(VisualStyle::winui);
@@ -477,8 +474,20 @@ void measurement_geometry() {
         winui.set_style_values(StylePart::indicator, indicator);
         const auto classic_size = classic.measure({1000, 1000});
         const auto winui_size = winui.measure({1000, 1000});
-        require(classic_size.width - winui_size.width == 15, "Classic and WinUI apply different default gap/left padding");
-        require(classic_size.height == winui_size.height, "Height is unaffected by the gap/left-padding difference");
+        require(classic_size.width == 116 && winui_size.width == 89,
+            "Classic and WinUI apply their default gap and both horizontal padding edges");
+        require(classic_size.height == 20 && winui_size.height == 20,
+            "Height is unaffected by the gap and horizontal padding difference");
+        for (auto* toggle : {&classic, &winui}) {
+            const auto measured = toggle->measure({1000, 1000});
+            const auto label = toggle->label_bounds({0, 0, measured.width, measured.height});
+            require(label.width == 60, "An authored indicator retains the complete natural-width label in both styles");
+        }
+        PartStyleValues root; root.padding = Insets{0, 0, 12, 0};
+        winui.set_style_values(StylePart::root, root);
+        const auto padded = winui.measure({1000, 1000});
+        require(padded.width == 101 && winui.label_bounds({0, 0, padded.width, padded.height}).width == 60,
+            "Explicit trailing padding increases measurement without clipping the WinUI label");
     }
 
     // Indicator border insets the mark within a fixed-size outer square: it

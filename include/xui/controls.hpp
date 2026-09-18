@@ -284,6 +284,7 @@ public:
     Layout layout_metrics() const;
     Rect indicator_bounds(Rect bounds) const;
     Rect mark_bounds(Rect bounds) const;
+    Rect mark_bounds(Rect bounds, bool enabled) const;
     Rect content_bounds(Rect bounds) const;
     Rect label_bounds(Rect bounds) const;
 protected:

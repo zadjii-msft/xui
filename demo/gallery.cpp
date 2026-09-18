@@ -390,6 +390,12 @@ private:
             input->on_submit([output] { output->set_text(L"Events: Enter submitted."); });
             auto caption = std::make_shared<Toggle>(L"Show caption"); caption->set_checked(true); demo->add(caption);
             caption->on_change([input](bool checked) { input->set_caption_visible(checked); });
+            auto rounded = std::make_shared<TextInput>(L"Rounded project name");
+            rounded->set_automation_id(L"gallery-rounded-input");
+            rounded->set_text(L"Rounded field");
+            PartStyleValues field_shape; field_shape.corner_radius = 16.0f;
+            rounded->set_control_style_values(StylePart::root, field_shape);
+            demo->add(rounded);
             label(demo, L"Use PasswordInput for secrets, MultilineText for paragraphs, and RichText for formatted documents.", TextTone::secondary);
             break;
         }
@@ -642,6 +648,18 @@ private:
                 row->add(range);
             }
             demo->add(row);
+            label(demo, L"Reference sizes: 200-DIP horizontal and 100-DIP vertical.", TextTone::secondary);
+            auto reference_row = panel(Axis::horizontal);
+            auto horizontal = std::make_shared<RangeInput>(L"Reference horizontal scale");
+            horizontal->set_range({0, 100, 1, 10}); horizontal->set_fixed_size({200, 32});
+            horizontal->set_automation_id(L"gallery-reference-horizontal-range");
+            reference_row->add(horizontal);
+            auto vertical = std::make_shared<RangeInput>(L"Reference vertical scale");
+            vertical->set_range({-50, 50, 1, 10}); vertical->set_fixed_size({100, 100});
+            vertical->set_orientation(Axis::vertical);
+            vertical->set_automation_id(L"gallery-reference-vertical-range");
+            reference_row->add(vertical);
+            demo->add(reference_row);
             break;
         }
         case 24: {
