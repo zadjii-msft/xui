@@ -129,6 +129,11 @@ internal static class ExplorerSmoke
                     return;
                 }
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Explorer uses the WinUI visual style");
+                await Check(() => ReferenceEquals(app.Sidebar.View.Search.ControlStyle, ExplorerStyles.NavigationFilter)
+                    && app.Sidebar.View.Search.GetControlStyleValues(StylePart.Root, effective: true).Background == new ThemeColor(0xF3F3F3, 0x202020)
+                    && app.Sidebar.View.Search.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0, 0, 0, 1)
+                    && app.Sidebar.View.Search.GetControlStyleValues(StylePart.Root, effective: true).CornerRadius == 0,
+                    "Navigation filter blends into the sidebar with only a bottom border in both themes");
                 await Check(() => new[] { app.Sidebar.View.Items, app.Sidebar.View.HeaderItems,
                     app.Sidebar.View.FooterItems }.All(items =>
                         ReferenceEquals(items.ControlStyle, ExplorerStyles.NavigationItems)

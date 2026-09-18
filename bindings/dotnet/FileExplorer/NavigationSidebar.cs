@@ -19,6 +19,7 @@ internal sealed class NavigationSidebar : IDisposable
         this.app = app;
         layout = new SidebarLayout(app.Window, attach: false);
         View = layout.Navigation;
+        View.Search.SetControlStyle(ExplorerStyles.NavigationFilter);
         View.SetHoverDelay(1000);
         BindContextMenu();
         foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })

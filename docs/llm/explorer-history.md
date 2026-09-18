@@ -5,6 +5,15 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Navigation filter appearance, 2026-09-18
+
+`ExplorerStyles.NavigationFilter` gives the retained search editor a surface that matches the WinUI window background, with only a thin bottom border.
+`NavigationSidebar` applies this style only to `View.Search`.
+The shared `TextInput` renderer retains native editing, focus feedback, and high-contrast defaults.
+The ARM64 Release build and `FileExplorer.exe --smoke` passed in this checkout.
+The smoke checks the attached style, theme colors, border thickness, and corner radius, alongside existing navigation and input checks.
+This run did not include screenshot comparison.
+
 ## Folder identity and Find behavior, 2026-09-16
 
 Tabs previously supported text only.
