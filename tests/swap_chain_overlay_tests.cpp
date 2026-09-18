@@ -86,7 +86,10 @@ void run_case(bool nested) {
     auto root = std::make_shared<Stack>(Axis::vertical);
     root->set_padding({12, 12, 12, 12});
     auto anchor = std::make_shared<Button>(L"Open owned overlay");
-    root->add(anchor);
+    auto anchor_row = std::make_shared<Stack>(Axis::horizontal);
+    anchor_row->add(anchor);
+    anchor_row->add(std::make_shared<Label>(L"Viewport-centered popup"), 1);
+    root->add(anchor_row);
     auto row = std::make_shared<Stack>(Axis::horizontal);
     row->set_spacing(12);
     std::array panels{
@@ -106,7 +109,7 @@ void run_case(bool nested) {
     content->add(results, 1);
     auto popup = std::make_shared<Popup>(content, L"Owned live overlay");
     popup->set_fixed_size({360, 180});
-    popup->set_placement(PopupPlacement::center);
+    popup->set_placement(PopupPlacement::below_viewport_center);
     PartStyleValues style;
     style.background = ThemeColor{overlay_color};
     style.corner_radius = 12.0f;
@@ -192,6 +195,10 @@ void run_case(bool nested) {
                 require(popup->is_open(), "Overlay opens above active swap-chain content");
                 flush(root_hwnd);
                 const auto overlay = client_bounds(find_popup(root_hwnd), root_hwnd);
+                RECT client{};
+                require(GetClientRect(root_hwnd, &client) != FALSE, "Read owned viewport bounds");
+                require(std::abs((overlay.left + overlay.right) - (client.left + client.right)) <= 1,
+                    "A narrow left-aligned anchor still produces an exactly viewport-centered popup");
                 std::array<RECT, 2> covered{};
                 for (std::size_t i = 0; i < panels.size(); ++i) {
                     require(IntersectRect(&covered[i], &areas[i], &overlay) != FALSE,
