@@ -7,6 +7,32 @@ namespace Xui.Designer;
 
 public static class DesignerLiteralCodec
 {
+    public static bool TryDecodeBoolean(string? expression, out bool value, out string? error)
+    {
+        value = false;
+        error = "Boolean mode requires a true or false literal without comments or directives.";
+        if (expression is null || expression.Length > XuiSourceParser.MaximumSourceLength) return false;
+        var syntax = SyntaxFactory.ParseExpression(expression);
+        if (syntax.ContainsDiagnostics || !HasOnlyWhitespaceTrivia(syntax) ||
+            (!syntax.IsKind(SyntaxKind.TrueLiteralExpression) && !syntax.IsKind(SyntaxKind.FalseLiteralExpression))) return false;
+        value = syntax.IsKind(SyntaxKind.TrueLiteralExpression);
+        error = null;
+        return true;
+    }
+
+    public static string EncodeBoolean(string originalExpression, bool value)
+    {
+        if (!TryDecodeBoolean(originalExpression, out bool originalValue, out string? error))
+            throw new ArgumentException(error, nameof(originalExpression));
+        if (value == originalValue) return originalExpression;
+        var syntax = SyntaxFactory.ParseExpression(originalExpression);
+        string encoded = SyntaxFactory.LiteralExpression(value ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression)
+            .WithTriviaFrom(syntax).ToFullString();
+        if (encoded.Length > XuiSourceParser.MaximumSourceLength)
+            throw new ArgumentException("The encoded boolean exceeds the source length limit.", nameof(originalExpression));
+        return encoded;
+    }
+
     public static bool TryDecodeDimensions(string? expression, out string width, out string height, out string? error)
     {
         width = height = "";

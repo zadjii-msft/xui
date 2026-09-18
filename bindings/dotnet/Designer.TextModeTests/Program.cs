@@ -6,7 +6,7 @@ internal static partial class Program
     [STAThread]
     private static int Main()
     {
-        try { Run(); RunDimensions(); return 0; }
+        try { Run(); RunDimensions(); RunBooleans(VisualStyle.Classic); RunBooleans(VisualStyle.WinUI); return 0; }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 

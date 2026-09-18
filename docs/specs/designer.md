@@ -203,6 +203,19 @@ Invalid field syntax prevents conversion and leaves the draft visible for correc
 Commented tuples, named tuples, and expressions cannot use dimension mode.
 Selection or source changes return the inspector to raw mode, and property-focus commands target the currently active editor.
 
+**Edit boolean** replaces the raw editor with a native toggle for an existing `true` or `false` literal.
+The caption shows **Value: true** or **Value: false**.
+The toggle changes a draft. **Apply property** compiles the candidate before it changes source.
+Unchanged values preserve the exact original source and native undo history.
+Changed values preserve surrounding whitespace.
+
+Switching back to raw mode preserves the boolean draft.
+Expressions and unset arguments stay in raw mode.
+Source comments outside the literal remain unchanged. A raw draft with comments cannot enter boolean mode.
+Failed conversion preserves the raw draft and shows an error.
+Reset uses the existing guarded removal of named arguments.
+Selection or source changes clear boolean mode, and property-focus commands target the active toggle.
+
 **Reset** removes an authored named literal argument so the control can use its default.
 Reset compiles the candidate and creates one native undo operation.
 It does not remove positional operands, expressions, references, or comments inside the argument.

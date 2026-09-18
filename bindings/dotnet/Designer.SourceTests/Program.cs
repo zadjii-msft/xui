@@ -51,6 +51,7 @@ internal static partial class Program
             TestWrapping();
             TestLiteralCodec();
             TestDimensionCodec();
+            TestBooleanCodec();
             TestRemoveArgument();
             TestPaletteExpansion();
             TestValueControlSource();

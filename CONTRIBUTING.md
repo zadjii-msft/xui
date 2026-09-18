@@ -289,7 +289,9 @@ Command checks cover shortcut routing, pointer-mode exit, native dismissal, disc
 Go to checks cover the header action, command palette, source-only shortcut, exact caret, hierarchy synchronization, and retained preview state.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
 It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
+Boolean checks cover native toggles in both visual styles, raw drafts, exact no-ops, compilation, undo/redo, reset, and stale-source rejection.
 The selection smoke checks exact native preview sizes after a dimension edit and its source undo.
+It also checks the actual native enabled state after a boolean edit, and restoration through source undo.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 Palette checks cover name and description search, empty results, retained selection, filtered insertion, and source undo.

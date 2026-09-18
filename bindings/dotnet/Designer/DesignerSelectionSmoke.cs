@@ -13,7 +13,7 @@ internal sealed partial class DesignerApplication
                 view {
                     VStack(spacing: 8) {
                         Text("Find target");
-                        Button(Caption, size: (180, 40), click: Activate);
+                        Button(Caption, size: (180, 40), enabled: true, click: Activate);
                         TextInput("Preview input", text: "Preview text");
                     }
                 }
@@ -301,6 +301,35 @@ internal sealed partial class DesignerApplication
                 "One source undo restores the original native preview dimensions."));
             await Ui(() =>
             {
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
+                workspace.Inspector.ChooseArgument("enabled");
+                workspace.Inspector.Layout.BooleanMode.Invoke();
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusProperty));
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.BooleanValue.Focused);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.IsBooleanMode && SelectionNative.Enabled("Do not execute"),
+                    "Property navigation focuses the active boolean toggle while the authored preview remains enabled.");
+                workspace.Inspector.Layout.BooleanValue.Invoke();
+                Require(editor.Text == source && SelectionNative.Enabled("Do not execute"),
+                    "A boolean draft does not change source or the current native preview.");
+                workspace.Inspector.Layout.Apply.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(!SelectionNative.Enabled("Do not execute") && editor.Text.Contains("enabled: false", StringComparison.Ordinal),
+                    "Applying a boolean property disables the actual native preview button through source compilation.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && SelectionNative.Enabled("Do not execute"),
+                "One native source undo restores the enabled preview button."));
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();
@@ -378,6 +407,13 @@ internal sealed partial class DesignerApplication
 
     private static class SelectionNative
     {
+        internal static bool Enabled(string text)
+        {
+            var peers = Peers(text);
+            if (peers.Count != 1) throw new InvalidOperationException($"Expected one preview peer named '{text}', found {peers.Count}.");
+            return IsWindowEnabled(peers.Single());
+        }
+
         internal static string ReadText(ulong control)
         {
             int status = TextCopy(control, null, 0, out uint length);
@@ -430,6 +466,7 @@ internal sealed partial class DesignerApplication
         [DllImport("user32.dll")] private static extern bool EnumChildWindows(nint parent, EnumWindow callback, nint context);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(nint window, StringBuilder text, int count);
         [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out Rect bounds);
+        [DllImport("user32.dll")] private static extern bool IsWindowEnabled(nint window);
         [DllImport("user32.dll")] private static extern nint SendMessageW(nint window, uint message, nint first, nint second);
         [DllImport("user32.dll")] private static extern nint GetFocus();
         [DllImport("user32.dll")] private static extern bool PostMessageW(nint window, uint message, nuint first, nint second);

@@ -6,6 +6,8 @@ component DesignerInspectorLayout {
     param global::Xui.Element Palette;
     state bool DimensionsOpen = false;
     state bool DimensionArgument = false;
+    state bool BooleanOpen = false;
+    state bool BooleanArgument = false;
 
     view {
         ScrollView("Properties and control palette") {
@@ -20,8 +22,13 @@ component DesignerInspectorLayout {
                 Toggle("Edit dimensions", ref: DimensionMode, id: "designer-property-dimension-mode", enabled: false,
                     preferredSize: (240, DimensionArgument ? 32 : 0), visible: DimensionArgument,
                     help: "Edit a literal size as separate width and height fields");
-                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : 80),
-                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 0 : 80), new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 60 : 0)]) {
+                Toggle("Edit boolean", ref: BooleanMode, id: "designer-property-boolean-mode", enabled: false,
+                    preferredSize: (240, BooleanArgument ? 32 : 0), visible: BooleanArgument,
+                    help: "Edit a true or false literal with a native toggle");
+                Grid("Property value editor", preferredSize: (240, DimensionsOpen ? 60 : BooleanOpen ? 36 : 80),
+                    rows: [new(global::Xui.TrackSizing.Fixed, DimensionsOpen || BooleanOpen ? 0 : 80),
+                        new(global::Xui.TrackSizing.Fixed, DimensionsOpen ? 60 : 0),
+                        new(global::Xui.TrackSizing.Fixed, BooleanOpen ? 36 : 0)]) {
                     Content(ValueEditor);
                     HStack(spacing: 6, row: 1) {
                         TextInput("Width", ref: DimensionWidth, id: "designer-property-width", visible: DimensionsOpen,
@@ -29,6 +36,8 @@ component DesignerInspectorLayout {
                         TextInput("Height", ref: DimensionHeight, id: "designer-property-height", visible: DimensionsOpen,
                             preferredSize: (106, 60), flex: 1);
                     }
+                    Toggle("Value: false", ref: BooleanValue, id: "designer-property-boolean-value", row: 2,
+                        visible: BooleanOpen, help: "Choose true or false. Apply property commits the draft.");
                 }
                 Text("Select an argument to edit.", ref: ArgumentHelp, id: "designer-argument-help", wrapping: true);
                 HStack(spacing: 6) {

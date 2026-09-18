@@ -159,12 +159,20 @@ Its dimension helpers accept unnamed pairs of finite, non-negative numeric liter
 They reject expressions, comments, directives, and named tuples instead of rewriting them.
 `EncodeDimensions` replaces only the numeric expressions and retains tuple trivia and exact no-op source.
 `Designer.SourceTests/Program.DimensionCodec.cs` covers this contract and real compiler integration.
+`TryDecodeBoolean` accepts only true/false literals with whitespace trivia.
+`EncodeBoolean` preserves exact no-ops and surrounding whitespace, and rejects output beyond the source limit.
+`Designer.SourceTests/Program.BooleanCodec.cs` covers rejected syntax, length limits, and compiled argument edits.
 
 `DesignerInspector.cs` exposes string conversion through an opt-in text-mode toggle.
 Its dimension-mode toggle replaces the raw value area with two native text fields.
+Its boolean-mode toggle replaces that area with a native value toggle.
+The controller retains the boolean draft from native change events because the managed checked property is write-only.
+Mode changes do not commit source. Argument and source changes clear each structured mode.
 `FocusValue` selects the active field rather than the hidden raw editor.
 `Designer.TextModeTests/Program.Dimensions.cs` covers drafts, validation, mode changes, native source undo, resets, and stale-source rejection.
 The application selection smoke checks actual preview bounds after size edits and undo.
+`Designer.TextModeTests/Program.Booleans.cs` covers boolean drafts, no-ops, focus, undo/redo, reset, and stale-source rejection in both visual styles.
+The selection smoke checks the actual native enabled state after a boolean edit and its undo.
 `DesignerWorkspace.ApplyProperty` rejects no-op values before it starts a source transaction.
 `Designer.TextModeTests` covers the complete native inspector, source callbacks, undo, raw and verbatim spelling, draft conversion, and size-limit errors.
 The September 17, 2026 ARM64 Release run passed 26 text-mode and reset assertions, 16 workspace assertions, and 19 grouping assertions.

@@ -14,6 +14,8 @@ internal sealed class DesignerInspector
     private string textExpression = "";
     private bool dimensionMode;
     private string dimensionExpression = "";
+    private bool booleanMode, booleanValue;
+    private string booleanExpression = "";
     private bool updatingPalette;
     private ControlTemplate[] matchingTemplates = [];
 
@@ -23,6 +25,7 @@ internal sealed class DesignerInspector
     internal ControlTemplate? Template { get; private set; } = ControlTemplate.Text;
     internal bool IsTextMode => textMode;
     internal bool IsDimensionMode => dimensionMode;
+    internal bool IsBooleanMode => booleanMode;
 
     internal DesignerInspector(Window window)
     {
@@ -33,6 +36,12 @@ internal sealed class DesignerInspector
         Layout = new DesignerInspectorLayout(window, arguments, Value, palette, attach: false);
         Layout.TextMode.Changed += ChangeTextMode;
         Layout.DimensionMode.Changed += ChangeDimensionMode;
+        Layout.BooleanMode.Changed += ChangeBooleanMode;
+        Layout.BooleanValue.Changed += value =>
+        {
+            booleanValue = value;
+            Layout.BooleanValue.Text = value ? "Value: true" : "Value: false";
+        };
         Layout.PaletteFilter.Event += e => { if (e.Kind == EventKind.Change) FilterPalette(); };
         Layout.ClearPaletteFilter.Click += () =>
         {
@@ -171,6 +180,7 @@ internal sealed class DesignerInspector
     internal void FocusValue()
     {
         if (dimensionMode) Layout.DimensionWidth.Focus();
+        else if (booleanMode) Layout.BooleanValue.Focus();
         else Value.Focus();
     }
 
@@ -184,6 +194,15 @@ internal sealed class DesignerInspector
         dimensionMode = false;
         Layout.DimensionMode.Checked = false;
         Layout.DimensionsOpen = false;
+        booleanMode = false;
+        Layout.BooleanMode.Checked = false;
+        Layout.BooleanOpen = false;
+        Layout.BooleanArgument = argument?.ValueKind == XuiValueKind.Boolean;
+        string? booleanError = null;
+        bool supportsBoolean = Layout.BooleanArgument &&
+            DesignerLiteralCodec.TryDecodeBoolean(argument?.Value, out _, out booleanError);
+        Layout.BooleanMode.Enabled = writable && supportsBoolean;
+        Layout.BooleanValue.Enabled = writable;
         Layout.DimensionArgument = Argument is "size" or "preferredSize";
         string? dimensionError = null;
         bool supportsDimensions = Layout.DimensionArgument && argument is not null &&
@@ -209,14 +228,20 @@ internal sealed class DesignerInspector
             : $"{argument.ValueKind} literal. Apply validates the complete component.";
         if (writable && textError is not null) Layout.ArgumentHelp.Text += " Text mode unavailable: " + textError;
         if (writable && dimensionError is not null) Layout.ArgumentHelp.Text += " Dimension mode unavailable: " + dimensionError;
+        if (writable && booleanError is not null) Layout.ArgumentHelp.Text += " Boolean mode unavailable: " + booleanError;
         Value.Help(Layout.ArgumentHelp.Text);
-        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null);
+        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null || booleanError is not null);
     }
 
     internal bool TryReadLiteral(out string value, out string? error)
     {
         value = Value.Text;
         error = null;
+        if (booleanMode)
+        {
+            try { value = DesignerLiteralCodec.EncodeBoolean(booleanExpression, booleanValue); return true; }
+            catch (ArgumentException exception) { error = exception.Message; return false; }
+        }
         if (dimensionMode)
         {
             try
@@ -229,6 +254,50 @@ internal sealed class DesignerInspector
         if (!textMode) return true;
         try { value = DesignerLiteralCodec.EncodeText(textExpression, value); return true; }
         catch (ArgumentException exception) { error = exception.Message; return false; }
+    }
+
+    private void ChangeBooleanMode(bool enabled)
+    {
+        if (enabled == booleanMode) return;
+        if (!editable || !Layout.BooleanArgument || (!booleanMode && Value.ReadOnly))
+        {
+            Layout.BooleanMode.Checked = booleanMode;
+            Layout.Feedback.Text = "Boolean mode requires an editable true or false literal in the current source.";
+            return;
+        }
+        if (enabled)
+        {
+            string expression = Value.Text;
+            if (!DesignerLiteralCodec.TryDecodeBoolean(expression, out bool value, out string? error))
+            {
+                Layout.BooleanMode.Checked = false;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            booleanExpression = expression;
+            booleanValue = value;
+            Layout.BooleanValue.Checked = value;
+            Layout.BooleanValue.Text = value ? "Value: true" : "Value: false";
+        }
+        else
+        {
+            if (!TryReadLiteral(out string expression, out string? error))
+            {
+                Layout.BooleanMode.Checked = true;
+                Layout.Feedback.Text = error!;
+                return;
+            }
+            Value.Text = expression;
+        }
+        booleanMode = enabled;
+        Layout.BooleanOpen = enabled;
+        Value.ReadOnly = enabled;
+        Value.Visible(!enabled);
+        Layout.ValueLabel.Text = enabled ? "Boolean value" : "Literal source value (include quotes for text)";
+        Layout.ArgumentHelp.Text = enabled
+            ? "Choose true or false. Apply validates the complete component."
+            : "Boolean literal. Apply validates the complete component.";
+        Layout.ArgumentHelp.Visible(false);
     }
 
     private void ChangeDimensionMode(bool enabled)
