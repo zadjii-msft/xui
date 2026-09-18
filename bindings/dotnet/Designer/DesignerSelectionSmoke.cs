@@ -241,6 +241,54 @@ internal sealed partial class DesignerApplication
                 commandPalette.Surface.CloseButton.Invoke();
             });
             await Until(() => !commandPalette.IsOpen);
+            TextSelection expansionSelection = default;
+            await Ui(() =>
+            {
+                workspace.Inspector.ChooseArgument("spacing");
+                workspace.Inspector.Value.Text = "99";
+                expansionSelection = editor.Selection;
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.CollapseHierarchy));
+            await Until(() => !commandPalette.IsOpen && workspace.Hierarchy.Tree.Focused);
+            await Ui(() =>
+            {
+                var root = workspace.Document!.Root!;
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(root.Children[0]));
+                Require(workspace.Hierarchy.Tree.Selection.Focused == workspace.Hierarchy.Key(root) &&
+                    editor.Selection == expansionSelection && workspace.Inspector.Value.Text == "99",
+                    "Palette collapse hides native child rows without changing source selection or the active property draft.");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.ExpandHierarchy));
+            await Until(() => !commandPalette.IsOpen && !workspace.IsExpandingHierarchy && workspace.Hierarchy.Tree.Focused);
+            await Ui(() =>
+            {
+                Require(editor.Selection == expansionSelection && workspace.Inspector.Value.Text == "99" &&
+                    version == styledVersion && preview.AppliedVersion == styledVersion && ButtonText() == "Activated",
+                    "Palette expansion preserves source, drafts, preview version, and authored state.");
+                var child = workspace.Document!.Root!.Children[0];
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(child));
+                Require(workspace.Hierarchy.Tree.Selection.Focused == workspace.Hierarchy.Key(child),
+                    "Expanded children become selectable through the native tree.");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                foreach (var id in new[] { DesignerCommandId.ExpandHierarchy, DesignerCommandId.CollapseHierarchy,
+                    DesignerCommandId.CancelHierarchyExpansion })
+                {
+                    bool refused = false;
+                    try { commandPalette.Surface.Invoke((ulong)id); }
+                    catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                    Require(refused, $"The palette disables {id} for a leaf without pending expansion.");
+                }
+                commandPalette.Surface.CloseButton.Invoke();
+            });
+            await Until(() => !commandPalette.IsOpen);
             int selectedTextStart = 0, selectedInputStart = 0;
             await Ui(() =>
             {

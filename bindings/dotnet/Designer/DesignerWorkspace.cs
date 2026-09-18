@@ -21,12 +21,16 @@ internal sealed class DesignerWorkspace : IDisposable
     private long version;
     private string? observedSource;
     private bool disposed, current, busy;
+    private long hierarchyExpansion;
 
     internal DesignerHierarchy Hierarchy { get; }
     internal DesignerInspector Inspector { get; }
     internal VisualDocument? Document { get; private set; }
     internal bool IsCurrent => current;
     internal bool IsBusy => busy;
+    internal bool IsExpandingHierarchy { get; private set; }
+    internal bool CanExpandHierarchy => CanEditSelection && !IsExpandingHierarchy && Hierarchy.Selection?.Children.Count > 0;
+    internal bool CanCollapseHierarchy => CanEditSelection && Hierarchy.Selection?.Children.Count > 0;
     internal bool CanEditSelection => !disposed && !busy && current && Document?.Source == editor.Text &&
         Hierarchy.Selection is not null;
     internal bool CanRevertPropertyDraft => !disposed && !busy && current && Document?.Source == editor.Text &&
@@ -73,6 +77,7 @@ internal sealed class DesignerWorkspace : IDisposable
         string source = editor.Text;
         if (observedSource == source) return;
         observedSource = source;
+        StopHierarchyExpansion();
         editCancellation?.Cancel();
         current = false;
         version++;
@@ -167,6 +172,7 @@ internal sealed class DesignerWorkspace : IDisposable
 
     private void SelectNode(XuiSourceNode node, bool revealSource, bool selectHierarchy = true)
     {
+        CancelHierarchyExpansion();
         if (selectHierarchy) Hierarchy.Select(node);
         Inspector.Show(node, Hierarchy.Parent(node), current && !busy, validating: busy);
         if (revealSource) editor.Selection = new((ulong)node.Span.Start, (ulong)node.Span.End);
@@ -192,6 +198,90 @@ internal sealed class DesignerWorkspace : IDisposable
         SelectNode(node, revealSource: true);
         Hierarchy.Tree.Focus();
         Inspector.Layout.Feedback.Text = $"Selected {node.Kind} in the hierarchy.";
+    }
+
+    internal void ExpandHierarchy()
+    {
+        if (!CanExpandHierarchy)
+        {
+            if (!disposed) Inspector.Layout.Feedback.Text = "Select a current container with children and wait for pending edits or expansion.";
+            return;
+        }
+        var selected = Hierarchy.Selection!;
+        var document = Document!;
+        var pending = new Queue<XuiSourceNode>();
+        pending.Enqueue(selected);
+        long request = ++hierarchyExpansion;
+        IsExpandingHierarchy = true;
+        Hierarchy.Tree.Focus();
+        Inspector.Layout.Feedback.Text = "Expanding the selected subtree. Source editing remains available.";
+        PostBatch();
+
+        void PostBatch()
+        {
+            if (window.Post(Batch)) return;
+            StopHierarchyExpansion();
+            throw new InvalidOperationException("The window rejected the hierarchy expansion request.");
+        }
+
+        void Batch()
+        {
+            if (disposed || request != hierarchyExpansion) return;
+            if (!CanEditSelection || Document?.Revision != document.Revision || !ReferenceEquals(Hierarchy.Selection, selected))
+            {
+                CancelHierarchyExpansion();
+                return;
+            }
+            try
+            {
+                for (int count = 0; count < 16 && pending.TryDequeue(out var node); count++)
+                {
+                    Hierarchy.ExpandBranch(node);
+                    if (disposed || request != hierarchyExpansion) return;
+                    foreach (var child in node.Children)
+                        if (child.Children.Count > 0) pending.Enqueue(child);
+                }
+                if (pending.Count > 0) PostBatch();
+                else
+                {
+                    IsExpandingHierarchy = false;
+                    Inspector.Layout.Feedback.Text = "Selected subtree expanded. Source and property drafts are unchanged.";
+                }
+            }
+            catch (XuiException error)
+            {
+                StopHierarchyExpansion();
+                Inspector.Layout.Feedback.Text = $"Hierarchy expansion stopped: {error.Message}. Completed branches remain open.";
+                report(Inspector.Layout.Feedback.Text);
+            }
+        }
+    }
+
+    internal void CollapseHierarchy()
+    {
+        if (!CanCollapseHierarchy)
+        {
+            if (!disposed) Inspector.Layout.Feedback.Text = "Select a current container with children before collapsing its branch.";
+            return;
+        }
+        StopHierarchyExpansion();
+        Hierarchy.Tree.Expand(Hierarchy.Key(Hierarchy.Selection!), expanded: false);
+        Hierarchy.Tree.Focus();
+        Inspector.Layout.Feedback.Text = "Selected branch collapsed. Nested expansion choices are retained.";
+    }
+
+    internal void CancelHierarchyExpansion()
+    {
+        if (disposed || !IsExpandingHierarchy) return;
+        StopHierarchyExpansion();
+        Inspector.Layout.Feedback.Text = "Hierarchy expansion canceled. Completed branches remain open.";
+    }
+
+    private void StopHierarchyExpansion()
+    {
+        if (!IsExpandingHierarchy) return;
+        hierarchyExpansion++;
+        IsExpandingHierarchy = false;
     }
 
     internal bool SelectFromPreview(string expectedSource, int nodeId)
@@ -409,6 +499,7 @@ internal sealed class DesignerWorkspace : IDisposable
             Inspector.Layout.Feedback.Text = "Cannot edit a stale hierarchy. Select a control in the current source.";
             return;
         }
+        StopHierarchyExpansion();
         busy = true;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         editCancellation = cancellation;
@@ -468,6 +559,7 @@ internal sealed class DesignerWorkspace : IDisposable
     {
         if (disposed) return;
         disposed = true;
+        StopHierarchyExpansion();
         lifetime.Cancel();
         snapshots.Writer.TryComplete();
         parser.GetAwaiter().GetResult();

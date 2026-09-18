@@ -71,6 +71,13 @@ Boundary refusals leave selection intact and show an explicit inspector message.
 `Designer.WorkspaceTests/Program.RelativeSelection.cs` covers nested and fixed-child parents, collapsed ancestors, UTF-16 ranges, filters, busy/stale guards, disposal, and native undo.
 Both visual styles use real native controls.
 The application selection smoke covers every palette action, disabled root directions, and retained native preview identity and authored state.
+`DesignerWorkspace.ExpandHierarchy` traverses child containers in batches of at most 16 nodes through the UI dispatcher.
+Each batch checks its request generation, exact source, document revision, and selected node.
+`DesignerHierarchy.ExpandBranch` reuses ancestor expansion without selecting another control or resetting the inspector.
+Selection actions, source changes, visual edits, explicit cancellation, collapse, and disposal retire queued work.
+Collapse hides one branch and retains the native tree's nested expansion choices.
+`Designer.WorkspaceTests/Program.Expansion.cs` covers native row visibility, partial cancellation, stale revisions, drafts, undo, and disposal in both styles.
+The application selection smoke checks palette dispatch, disabled leaf actions, native row availability, and unchanged source selection and preview state.
 The hierarchy's native query searches complete node kinds and authored argument names/values with ordinal, case-insensitive terms.
 `RefreshSearch` orders matches by source span without replacing the tree source or its keys.
 `MoveSearch` uses the existing ancestor expansion and selection path, then publishes one selection event.

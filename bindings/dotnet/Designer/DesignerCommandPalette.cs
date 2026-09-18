@@ -9,7 +9,7 @@ internal enum DesignerCommandId
     RevealPropertySource, DeleteControl, DuplicateControl, MoveControlUp, MoveControlDown,
     WrapVertical, WrapHorizontal, WrapScroll, UnwrapControl,
     SelectParent, SelectFirstChild, SelectPreviousSibling, SelectNextSibling, SelectRoot, ChooseColor,
-    FindSelection, FindSelectionNext, FindSelectionPrevious
+    FindSelection, FindSelectionNext, FindSelectionPrevious, ExpandHierarchy, CollapseHierarchy, CancelHierarchyExpansion
 }
 
 internal sealed record DesignerCommand(

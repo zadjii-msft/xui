@@ -173,16 +173,27 @@ internal sealed class DesignerHierarchy
         }
     }
 
-    internal void Select(XuiSourceNode node)
+    private void RevealAncestors(XuiSourceNode node)
     {
         if (!nodes.TryGetValue(node.Id, out var known) || !ReferenceEquals(node, known))
             throw new InvalidOperationException("The selected node does not belong to this hierarchy revision.");
         var ancestors = new Stack<XuiSourceNode>();
         for (var parent = Parent(node); parent is not null; parent = Parent(parent)) ancestors.Push(parent);
+        foreach (var parent in ancestors) Tree.Expand(Key(parent));
+    }
+
+    internal void ExpandBranch(XuiSourceNode node)
+    {
+        RevealAncestors(node);
+        Tree.Expand(Key(node));
+    }
+
+    internal void Select(XuiSourceNode node)
+    {
         selecting = true;
         try
         {
-            foreach (var parent in ancestors) Tree.Expand(Key(parent));
+            RevealAncestors(node);
             Tree.Select(Key(node));
             if (Tree.Selection.Focused != Key(node))
                 throw new InvalidOperationException("The native hierarchy could not reveal the selected control.");

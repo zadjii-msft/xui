@@ -172,6 +172,17 @@ Stale source and pending visual edits disable these actions.
 Navigation does not change source, native undo, or preview state.
 Native text fields keep their existing keyboard shortcuts.
 
+**Hierarchy: Expand selected subtree** opens the selected container and its descendants through the command palette.
+It processes small batches so source input remains available.
+**Hierarchy: Cancel expansion** stops pending batches and leaves completed branches open.
+Source edits, selection actions, visual edits, and disposal also cancel pending expansion.
+
+**Hierarchy: Collapse selected branch** hides the selected container's descendants and cancels pending expansion.
+It retains nested expansion choices, so reopening the branch restores its previous nested view.
+Expansion and collapse keep the current source selection, property draft, search query, and preview state.
+Leaf nodes, stale source, and pending visual edits disable these commands.
+An active expansion can reopen manually collapsed branches until it finishes or is canceled.
+
 **Find in hierarchy** searches control types and full authored argument names and values.
 The search is case-insensitive. Every whitespace-separated term must match the same control.
 For example, `button Save` finds buttons with `Save` in an argument.

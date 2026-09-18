@@ -328,6 +328,8 @@ Structural availability checks compare shared capabilities with native buttons f
 They also cover busy/stale states, Grid duplication, and native undo in both styles.
 Relative selection workspace checks cover nested parents, collapsed ancestors, boundaries, UTF-16 ranges, focus, filters, and one notification per selection.
 They check exact-snapshot mismatches, pending edits, invalid source, disposal, recovery, and retained source undo in both styles.
+Hierarchy expansion checks cover native descendant rows, retained nested expansion, partial cancellation, selection/source invalidation, disposal, property drafts, and undo in both styles.
+The application selection smoke checks expansion/collapse commands, disabled leaf actions, and retained source selection and preview state.
 Empty-cell checks cover native Grid coordinates, nested target selection, read-only discovery, explicit refusals, busy/stale guards, and insertion undo in both styles.
 The source suite covers occupancy combinations, spans, large track arrays, unknown tracks, invalid placement, revisions, cancellation, and compiled insertion.
 It compiles source transformations but does not execute authored preview code.

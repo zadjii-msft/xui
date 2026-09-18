@@ -24,6 +24,8 @@ internal static partial class Program
             RunRelativeSelection(VisualStyle.WinUI);
             RunColorEditor(VisualStyle.Classic);
             RunColorEditor(VisualStyle.WinUI);
+            RunExpansion(VisualStyle.Classic);
+            RunExpansion(VisualStyle.WinUI);
             using var window = new Window("Designer workspace smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("XUI source").SetMaximumLength(65536);
             var diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true);
