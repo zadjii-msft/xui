@@ -560,6 +560,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& peer = *reinterpret_cast<Peer*>(data);
         InputScope scope(peer.host);
+        if (message == WM_WINDOWPOSCHANGING && peer.host.syncing) {
+            // The root presents all peers together after layout. USER must not copy
+            // old child pixels or repaint intermediate positions between those frames.
+            reinterpret_cast<WINDOWPOS*>(lparam)->flags |= SWP_NOREDRAW | SWP_NOCOPYBITS;
+        }
         try {
             if (auto result = peer.host.inspect_pointer(hwnd, message, wparam, lparam)) return *result;
         } catch (...) { peer.host.fail(); return 0; }

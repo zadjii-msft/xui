@@ -15,9 +15,17 @@ Provider actions include the control identity and item identity. A recycled HWND
 `src\async.cpp` supplies reusable task delivery and cleanup.
 Each window owns one Direct2D target, brush, DirectWrite factory, and set of immutable text formats.
 The host draws labels, images, buttons, toggles, viewports, and visible list rows in one frame.
-Transparent child HWNDs retain input and UIA behavior. Native EDIT and caption HWNDs supply current pixels through `WM_PRINTCLIENT`.
+Transparent child HWNDs retain input and UIA behavior. Native EDIT and document HWNDs supply current pixels through `WM_PRINTCLIENT`.
+The host draws captions in the retained frame. Their STATIC HWNDs supply accessible names.
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
+
+During host synchronization, `navigation_procedure` adds `SWP_NOREDRAW | SWP_NOCOPYBITS` to each peer's `WM_WINDOWPOSCHANGING` flags.
+This shared subclass covers custom controls, native fields, captions, and deferred image placement.
+Without these flags, Windows copies old child pixels during layout, before the root presents the new positions.
+Transparent input HWNDs do not own independent visual frames, so those copies corrupt the visible shared frame.
+The host invalidates the root after synchronization and composes native field pixels before presentation.
+Standalone native edit bridges retain their normal placement behavior.
 
 `demo\browser.cpp` builds the tabs, panes, address fields, lists, status labels, shortcuts, and menus through public APIs.
 `demo\explorer_state.hpp` contains bounded history and tab state without a window dependency.

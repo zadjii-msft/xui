@@ -472,6 +472,18 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+For scroll-frame changes, build and run the presentation fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_flicker_tests xui_scroll_tests xui_native_integration_tests
+ctest --test-dir $build -C Release -R "^xui_((winui_)?(scroll_frame|flicker)|scroll|native_integration)_tests$" --output-on-failure
+```
+
+These fixtures require `XUI_DESKTOP_TESTS=ON` and an interactive desktop.
+The existing flicker fixtures also require an unobscured window.
+The scroll-frame fixtures use owned-window capture without cursor pixels.
+The scroll-frame fixtures save diagnostic BMP files under `scroll-frames` or `winui-scroll-frames` in the build directory after a pixel mismatch.
+
 Compiler and model checks do not need a native window:
 
 ```powershell

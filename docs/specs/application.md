@@ -292,7 +292,9 @@ A disabled viewport rejects input and disables descendant actions.
 
 The shared renderer clips content against every ancestor viewport.
 Each viewport also owns a native parent HWND. Windows clips child EDIT and caption pixels against that parent.
-Nested native fields and captions paint after the shared frame. This order prevents the transparent viewport from erasing native text.
+Scrolling updates native child positions without copying old pixels to intermediate positions.
+The shared frame includes custom controls, captions, and native field pixels before presentation.
+The previous complete frame remains visible until the new frame replaces it.
 A geometry override supplies clipped native EDIT bounds and offscreen state to UIA.
 The override preserves the native accessible name, value pattern, and available native text patterns.
 It does not replace editable text, selection, undo, or IME.
