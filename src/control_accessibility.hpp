@@ -2,6 +2,7 @@
 
 #include "xui/controls.hpp"
 #include "xui/data_grid.hpp"
+#include "collection_presentation.hpp"
 #include <windows.h>
 #include <ole2.h>
 #include <UIAutomationCore.h>
@@ -10,6 +11,7 @@
 
 namespace xui {
 
+RECT clipped_bounds(HWND window);
 constexpr UINT control_action_message = WM_APP + 31;
 constexpr UINT grid_action_message = WM_APP + 32;
 constexpr UINT foundation_action_message = WM_APP + 33;
@@ -60,6 +62,7 @@ struct ControlSnapshot {
     bool single_selection{};
     bool visible{};
     std::shared_ptr<const ItemsSource> collection;
+    std::shared_ptr<const detail::CollectionPresentation> collection_presentation;
     CollectionSelection selection;
     std::size_t collection_columns{1};
     double collection_item_height{56}, collection_offset{}, collection_width{}, collection_height{};

@@ -151,6 +151,21 @@ void choices() {
     PartStyleValues local_row; local_row.row_height = 60;
     metrics.set_control_style_values(StylePart::root, local_row);
     require(metrics.item_bounds(1).y == 60, "Local uniform row metric overrides control-wide state");
+    RadioGroup defaults;
+    defaults.set_visual_style(VisualStyle::winui);
+    defaults.set_items({{1, L"First"}, {2, L"Second"}});
+    defaults.arrange({0, 0, 160, 64});
+    for (const bool styled : {false, true}) {
+        if (styled) {
+            PartStyleValues shape;
+            shape.corner_radius = 16.0f;
+            defaults.set_control_style_values(StylePart::item, shape);
+        }
+        const auto circle = defaults.indicator_bounds(0), label = defaults.label_bounds(0);
+        require(circle.x == 0 && circle.y == 6.5f && circle.width == 19 &&
+            label.x == 28 && label.y == 0 && label.width == 132 && label.height == 32,
+            "WinUI radio default geometry does not change when an item corner style is attached");
+    }
 }
 void ranges() {
     RangeInput range;
@@ -183,6 +198,36 @@ void ranges() {
     require(allocations.load() == before, "Warmed slider state and geometry allocate nothing");
     range.set_control_style(nullptr);
     require(range.slider_geometry().thumb.width == 16 && range.value() == 99, "Clear restores default thumb without changing value");
+    range.set_visual_style(VisualStyle::winui);
+    range.set_orientation(Axis::horizontal); range.set_reversed(false); range.set_value(25);
+    PartStyleValues root; root.padding = Insets{10, 20, 30, 40};
+    range.set_control_style_values(StylePart::root, root);
+    geometry = range.slider_geometry();
+    require(geometry.track.x == 10 && geometry.track.y == 34 && geometry.track.width == 160,
+        "WinUI rail fills padded content and retains its leading cross-axis slot");
+    const Point winui_center{geometry.thumb.x + geometry.thumb.width / 2, geometry.thumb.y + geometry.thumb.height / 2};
+    require(std::abs(geometry.pointer_fraction(winui_center, Axis::horizontal) - .25) < 1e-6 &&
+        geometry.pointer_fraction({0, 36}, Axis::horizontal) == 0 &&
+        geometry.pointer_fraction({200, 36}, Axis::horizontal) == 1,
+        "Padded WinUI geometry maps thumb centers and clamps endpoint clicks");
+    int previews{}, changes{}, cancellations{};
+    range.on_preview([&](double) { ++previews; });
+    range.on_change([&](double) { ++changes; });
+    range.on_cancel([&](double value) { require(value == 25, "User cancellation reports the committed value"); ++cancellations; });
+    require(range.begin_drag(geometry.pointer_fraction({0, 36}, Axis::horizontal)) &&
+        range.drag(geometry.pointer_fraction({200, 36}, Axis::horizontal)) &&
+        range.preview_value() == 100 && range.value() == 25 && previews == 2 && changes == 0,
+        "WinUI endpoint travel previews values without an early commit");
+    range.cancel_drag();
+    require(!range.dragging() && range.value() == 25 && cancellations == 1,
+        "User cancellation restores the value after endpoint movement");
+    range.begin_drag(geometry.pointer_fraction({200, 36}, Axis::horizontal));
+    require(range.commit_drag() && range.value() == 100 && changes == 1,
+        "WinUI endpoint release commits exactly once");
+    range.begin_drag(geometry.pointer_fraction({0, 36}, Axis::horizontal));
+    range.set_value(25);
+    require(!range.dragging() && range.value() == 25 && changes == 1 && cancellations == 1,
+        "Property-driven endpoint cancellation remains silent");
     rejects([] { slider_visual({100, 30}, Axis::horizontal, false, .5, VisualStyle::classic, -1); });
 }
 void composites() {

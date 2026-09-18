@@ -4,6 +4,7 @@
 #include "xui/image.hpp"
 #include "xui/suggestions.hpp"
 #include "xui/adaptive_layout.hpp"
+#include "xui/reveal.hpp"
 #include "xui/navigation.hpp"
 #include "xui/shell_commands.hpp"
 #include "xui/titlebar.hpp"
@@ -390,6 +391,12 @@ private:
             input->on_submit([output] { output->set_text(L"Events: Enter submitted."); });
             auto caption = std::make_shared<Toggle>(L"Show caption"); caption->set_checked(true); demo->add(caption);
             caption->on_change([input](bool checked) { input->set_caption_visible(checked); });
+            auto rounded = std::make_shared<TextInput>(L"Rounded project name");
+            rounded->set_automation_id(L"gallery-rounded-input");
+            rounded->set_text(L"Rounded field");
+            PartStyleValues field_shape; field_shape.corner_radius = 16.0f;
+            rounded->set_control_style_values(StylePart::root, field_shape);
+            demo->add(rounded);
             label(demo, L"Use PasswordInput for secrets, MultilineText for paragraphs, and RichText for formatted documents.", TextTone::secondary);
             break;
         }
@@ -460,7 +467,9 @@ private:
         }
         case 10: {
             auto tabs = std::make_shared<TabStrip>(L"Sample documents"); demo->add(tabs); targets_[index] = tabs;
+            tabs->set_automation_id(L"gallery-motion-tabs");
             tabs->set_tabs({{1, L"Notes"}, {2, L"Preview"}}, 1);
+            tabs->set_duration(180);
             auto next = std::make_shared<std::uint64_t>(2);
             tabs->on_select([output](auto id) { output->set_text(L"Events: document " + std::to_wstring(id)); });
             tabs->on_close([tabs = tabs.get(), output](auto id) {
@@ -468,12 +477,46 @@ private:
                 const auto selected = items.empty() ? std::optional<std::uint64_t>{} : items.front().id;
                 tabs->set_tabs(std::move(items), selected); output->set_text(L"Events: document closed.");
             });
-            button(demo, L"Add document", [tabs, next, output] {
+            const auto add_document = [tabs = tabs.get(), next, output] {
                 if (tabs->tabs().size() >= 12) { output->set_text(L"Events: sample limit is 12 tabs."); return; }
                 auto items = tabs->tabs(); auto id = ++*next; items.push_back({id, L"Document " + std::to_wstring(id)});
                 tabs->set_tabs(std::move(items), id); output->set_text(L"Events: document added.");
-            });
+            };
+            button(demo, L"Add document", add_document)->set_automation_id(L"gallery-tabs-add");
+            tabs->set_new_tab_button_visible(true);
+            tabs->new_tab_button()->set_automation_id(L"gallery-tabs-new");
+            tabs->on_new_tab(add_document);
             auto custom_colors = std::make_shared<Toggle>(L"Custom tab colors");
+            button(demo, L"Close selected document", [tabs] {
+                if (const auto selected = tabs->selected()) tabs->request_close(*selected);
+            })->set_automation_id(L"gallery-tabs-close");
+            button(demo, L"Reverse document order", [tabs, output] {
+                auto items = tabs->tabs();
+                std::reverse(items.begin(), items.end());
+                tabs->set_tabs(std::move(items), tabs->selected());
+                output->set_text(L"Events: document order reversed. Selection keeps its stable identity.");
+            })->set_automation_id(L"gallery-tabs-reverse");
+            auto overflow_actions = panel(Axis::horizontal); demo->add(overflow_actions);
+            button(overflow_actions, L"Fill overflow", [tabs, next, output] {
+                auto items = tabs->tabs();
+                while (items.size() < 12) {
+                    const auto id = ++*next;
+                    items.push_back({id, L"Document " + std::to_wstring(id)});
+                }
+                tabs->set_tabs(std::move(items), tabs->selected());
+                output->set_text(L"Events: select the first or last document to animate the overflow viewport.");
+            })->set_automation_id(L"gallery-tabs-fill");
+            button(overflow_actions, L"First document", [tabs] {
+                if (!tabs->tabs().empty()) tabs->select(tabs->tabs().front().id);
+            })->set_automation_id(L"gallery-tabs-first");
+            button(overflow_actions, L"Last document", [tabs] {
+                if (!tabs->tabs().empty()) tabs->select(tabs->tabs().back().id);
+            })->set_automation_id(L"gallery-tabs-last");
+            auto duration = std::make_shared<ComboBox>(L"Tab duration");
+            duration->set_automation_id(L"gallery-tabs-duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([tabs](auto id) { tabs->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0); });
+            demo->add(duration);
             demo->add(custom_colors);
             custom_colors->on_change([tabs](bool enabled) {
                 tabs->set_colors(enabled ? TabColors{0x18222e, 0x26465e, 0xffffff,
@@ -497,10 +540,33 @@ private:
             for (auto text : {L"First page field", L"Second page field"}) {
                 auto page = panel(); page->add(std::make_shared<TextInput>(text)); pages->add_page(page);
             }
-            demo->add(pages);
-            targets_[index] = button(demo, L"Switch content page", [pages, output] {
-                pages->select(1 - pages->selected()); output->set_text(L"Events: page " + std::to_wstring(pages->selected() + 1));
+            auto entry = std::make_shared<Reveal>(pages, L"Page entry");
+            entry->set_automation_id(L"gallery-page-entry");
+            entry->set_open(true);
+            entry->set_duration(180);
+            auto slot = std::make_shared<Grid>();
+            slot->set_tracks({{TrackSizing::fixed, 110}}, {{TrackSizing::star}});
+            slot->add(entry, 0, 0); demo->add(slot);
+            targets_[index] = button(demo, L"Switch content page", [pages, entry, output] {
+                const auto next = 1 - pages->selected();
+                const auto duration = entry->duration();
+                // Retire the old page immediately, then restart entry for the new input owner.
+                entry->set_duration(0);
+                entry->set_open(false);
+                pages->select(next);
+                entry->set_direction(next ? RevealDirection::right : RevealDirection::left);
+                entry->set_duration(duration);
+                entry->set_open(true);
+                output->set_text(L"Events: page " + std::to_wstring(next + 1));
             });
+            targets_[index]->set_automation_id(L"gallery-page-switch");
+            auto duration = std::make_shared<ComboBox>(L"Page entry duration");
+            duration->set_automation_id(L"gallery-page-duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([entry](auto id) { entry->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0); });
+            demo->add(duration);
+            label(demo, L"Only the new page enters. The old page stops accepting input immediately; its native editor stays retained.",
+                TextTone::secondary);
             break;
         }
         case 13: {
@@ -586,17 +652,38 @@ private:
             demo->add(anchor); targets_[index] = anchor;
             auto content = panel(); content->set_padding({10, 10, 10, 10});
             auto edit = std::make_shared<TextInput>(L"Popup native input"); edit->set_caption_visible(false);
+            edit->set_preferred_size({300, 42});
             content->add(edit);
             auto range = std::make_shared<RangeInput>(L"Popup range"); content->add(range);
             auto nested_anchor = std::make_shared<Button>(L"Nested popup"); content->add(nested_anchor);
-            auto popup = std::make_shared<Popup>(content); popup->set_preferred_size({340, 170});
-            popup->on_dismiss([output](auto reason) { output->set_text(L"Events: popup dismissed (" + std::to_wstring(static_cast<int>(reason)) + L")."); });
+            auto entry = std::make_shared<Reveal>(content, L"Popup content entry");
+            entry->set_direction(RevealDirection::top);
+            auto popup = std::make_shared<Popup>(entry); popup->set_preferred_size({340, 170});
+            popup->on_dismiss([output, entry](auto reason) {
+                entry->set_open(false); entry->settle();
+                output->set_text(L"Events: popup dismissed (" + std::to_wstring(static_cast<int>(reason)) + L").");
+            });
             auto nested_content = panel(); nested_content->set_padding({10, 10, 10, 10});
             auto nested_toggle = std::make_shared<Toggle>(L"Nested independent choice"); nested_content->add(nested_toggle);
-            auto nested = std::make_shared<Popup>(nested_content); nested->set_preferred_size({260, 64}); nested->set_placement(PopupPlacement::right);
+            auto nested_entry = std::make_shared<Reveal>(nested_content, L"Nested popup content entry");
+            nested_entry->set_direction(RevealDirection::left);
+            auto nested = std::make_shared<Popup>(nested_entry); nested->set_preferred_size({260, 64}); nested->set_placement(PopupPlacement::right);
+            nested->on_dismiss([nested_entry](auto) { nested_entry->set_open(false); nested_entry->settle(); });
+            auto animate = std::make_shared<Toggle>(L"Animate popup content");
+            animate->set_automation_id(L"gallery-popup-motion");
+            animate->on_change([entry, nested_entry](bool value) {
+                entry->set_duration(value ? 180 : 0);
+                nested_entry->set_duration(value ? 180 : 0);
+            });
+            demo->add(animate);
+            label(demo, L"Optional entry motion keeps the popup frame in its final position. Dismissal remains immediate.", TextTone::secondary);
             std::weak_ptr<Button> weak_anchor = anchor, weak_nested = nested_anchor;
-            anchor->on_click([this, popup, weak_anchor, edit] { if (auto a = weak_anchor.lock()) window_.show_popup(popup, *a, edit.get()); });
-            nested_anchor->on_click([this, nested, weak_nested] { if (auto a = weak_nested.lock()) window_.show_popup(nested, *a); });
+            anchor->on_click([this, popup, entry, weak_anchor, edit] {
+                if (auto a = weak_anchor.lock()) { entry->set_open(true); window_.show_popup(popup, *a, edit.get()); }
+            });
+            nested_anchor->on_click([this, nested, nested_entry, weak_nested] {
+                if (auto a = weak_nested.lock()) { nested_entry->set_open(true); window_.show_popup(nested, *a); }
+            });
             break;
         }
         case 20: {
@@ -642,6 +729,18 @@ private:
                 row->add(range);
             }
             demo->add(row);
+            label(demo, L"Reference sizes: 200-DIP horizontal and 100-DIP vertical.", TextTone::secondary);
+            auto reference_row = panel(Axis::horizontal);
+            auto horizontal = std::make_shared<RangeInput>(L"Reference horizontal scale");
+            horizontal->set_range({0, 100, 1, 10}); horizontal->set_fixed_size({200, 32});
+            horizontal->set_automation_id(L"gallery-reference-horizontal-range");
+            reference_row->add(horizontal);
+            auto vertical = std::make_shared<RangeInput>(L"Reference vertical scale");
+            vertical->set_range({-50, 50, 1, 10}); vertical->set_fixed_size({100, 100});
+            vertical->set_orientation(Axis::vertical);
+            vertical->set_automation_id(L"gallery-reference-vertical-range");
+            reference_row->add(vertical);
+            demo->add(reference_row);
             break;
         }
         case 24: {
@@ -649,14 +748,24 @@ private:
             auto text = std::make_shared<TextInput>(L"Detail note"); content->add(text);
             auto choice = std::make_shared<Toggle>(L"Keep detail selection"); content->add(choice);
             auto expander = std::make_shared<Expander>(L"Details", content);
+            expander->set_duration(180);
             expander->set_automation_id(L"foundation-disclosure");
             expander->on_change([output](bool expanded) { output->set_text(expanded ? L"Events: details expanded." : L"Events: details collapsed."); });
             demo->add(expander); targets_[index] = expander;
+            auto duration = std::make_shared<ComboBox>(L"Expansion duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([expander](std::uint64_t value) {
+                expander->set_duration(std::array<unsigned, 3>{180, 1200, 0}.at(static_cast<std::size_t>(value - 1)));
+            });
+            demo->add(duration);
+            button(demo, L"Reverse expansion", [expander] { expander->set_expanded(!expander->expanded()); });
+            label(demo, L"This neighbor follows the body height. The detail editor retains its text, caret, and undo.",
+                TextTone::secondary);
             break;
         }
         case 25:
-        case 50: {
-            const bool circular = index == 50;
+        case 54: {
+            const bool circular = index == 54;
             std::shared_ptr<Progress> progress;
             if (circular) {
                 progress = std::make_shared<ProgressRing>(L"Load preview");
@@ -665,6 +774,7 @@ private:
                 progress = std::make_shared<Progress>(L"Sample task");
             }
             progress->set_value(40);
+            if (!circular) progress->set_duration(180);
             progress->set_automation_id(circular ? L"gallery-progress-ring" : L"foundation-progress");
             demo->add(progress);
             auto row = panel(Axis::horizontal);
@@ -680,6 +790,28 @@ private:
             visibility->on_change([progress](bool value) { progress->set_visible(value); }); demo->add(visibility);
             label(demo, L"Only visible indeterminate indicators animate. Windows animation preferences also apply.", TextTone::secondary);
             if (!circular) {
+                auto presets = panel(Axis::horizontal);
+                button(presets, L"Reset progress", [progress, output] {
+                    progress->set_state(ProgressState::determinate); progress->set_value(0);
+                    output->set_text(L"Events: logical progress is 0.");
+                })->set_automation_id(L"gallery-progress-reset");
+                button(presets, L"Retarget progress", [progress, output] {
+                    progress->set_state(ProgressState::determinate);
+                    progress->set_value(progress->value() < 50 ? 75 : 25);
+                    output->set_text(L"Events: logical progress is " + std::to_wstring(static_cast<int>(progress->value())) + L".");
+                })->set_automation_id(L"gallery-progress-retarget");
+                button(presets, L"Complete progress", [progress, output] {
+                    progress->set_state(ProgressState::determinate); progress->set_value(100);
+                    output->set_text(L"Events: logical progress is 100.");
+                })->set_automation_id(L"gallery-progress-complete");
+                demo->add(presets);
+                auto duration = std::make_shared<ComboBox>(L"Progress duration");
+                duration->set_automation_id(L"gallery-progress-duration");
+                duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+                duration->on_change([progress](auto id) { progress->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0); });
+                demo->add(duration);
+                label(demo, L"Logical values and accessibility update immediately. The duration controls determinate interpolation, not indeterminate animation.",
+                    TextTone::secondary);
                 auto capacity = std::make_shared<Progress>(L"Storage capacity"); capacity->set_capacity(48, 128, L"GB"); demo->add(capacity);
                 auto unknown = std::make_shared<Progress>(L"Unknown capacity"); unknown->set_state(ProgressState::unknown); demo->add(unknown);
             }
@@ -902,11 +1034,23 @@ private:
         case 35: {
             auto content = std::make_shared<Stack>(Axis::vertical);
             auto editor = std::make_shared<TextInput>(L"Document title"); editor->set_placeholder(L"A title is required"); content->add(editor);
-            auto dialog = std::make_shared<ContentDialog>(L"Save document", content);
+            auto entry = std::make_shared<Reveal>(content, L"Dialog content entry");
+            entry->set_direction(RevealDirection::bottom);
+            auto dialog = std::make_shared<ContentDialog>(L"Save document", entry);
             dialog->on_validate([editor] { return editor->text().empty() ? L"Enter a document title." : L""; });
-            dialog->on_result([output](DialogResult result) { output->set_text(result == DialogResult::primary ? L"Events: dialog saved" : L"Events: dialog canceled"); });
+            dialog->on_result([output, entry](DialogResult result) {
+                entry->set_open(false); entry->settle();
+                output->set_text(result == DialogResult::primary ? L"Events: dialog saved" : L"Events: dialog canceled");
+            });
             auto open = std::make_shared<Button>(L"Open content dialog"); demo->add(open); targets_[index] = open;
-            open->on_click([this, open = open.get(), dialog, editor] { window_.show_dialog(dialog, *open, editor.get()); });
+            open->set_automation_id(L"gallery-dialog-open");
+            open->on_click([this, open = open.get(), dialog, editor, entry] {
+                entry->set_open(true); window_.show_dialog(dialog, *open, editor.get());
+            });
+            auto animate = std::make_shared<Toggle>(L"Animate dialog content");
+            animate->on_change([entry](bool value) { entry->set_duration(value ? 180 : 0); });
+            demo->add(animate);
+            label(demo, L"Optional entry moves only the form content. The title and actions stay fixed. Results and dismissal remain immediate.", TextTone::secondary);
             label(demo, L"Owner controls stay disabled until OK or Cancel closes the dialog. Empty titles remain visible.", TextTone::secondary);
             break;
         }
@@ -1065,6 +1209,7 @@ private:
                 {{7, 1}, ItemKey{6, 1}, L"API reference", ButtonIcon::search, L"help"}
             });
             nav->select({3, 1});
+            nav->set_duration(180);
             nav->on_select([output](ItemKey key) { output->set_text(L"Events: workspace selected " + std::to_wstring(key.id)); });
             nav->on_activate([output](ItemKey key) { output->set_text(L"Events: workspace activated " + std::to_wstring(key.id)); });
             nav->on_filter([output, weak = std::weak_ptr<NavigationView>(nav)](const auto&) {
@@ -1075,6 +1220,11 @@ private:
             auto actions = panel(Axis::horizontal); demo->add(actions);
             button(actions, L"Filter reports", [nav] { nav->set_expanded(true); nav->set_filter(L"reports"); });
             button(actions, L"Reset workspace filter", [nav] { nav->set_filter(L""); });
+            auto duration = std::make_shared<ComboBox>(L"Navigation group duration");
+            duration->set_automation_id(L"gallery-navigation-duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([nav](auto id) { nav->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0); });
+            demo->add(duration);
             label(demo, L"Use the menu button to collapse the pane. Group arrows reveal nested items. Header and footer shortcuts stay visible.",
                 TextTone::secondary);
             break;
@@ -1128,6 +1278,279 @@ private:
             break;
         }
         case 48: {
+            auto reveals = std::make_shared<std::vector<std::shared_ptr<Reveal>>>();
+            auto editors = std::make_shared<std::vector<std::shared_ptr<TextInput>>>();
+            auto settings = panel(Axis::horizontal); demo->add(settings);
+            auto expand = std::make_shared<Toggle>(L"Resize neighbors");
+            expand->set_checked(true);
+            expand->set_automation_id(L"gallery-animation-expand");
+            settings->add(expand);
+            auto duration = std::make_shared<ComboBox>(L"Animation duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->set_automation_id(L"gallery-animation-duration");
+            settings->add(duration);
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            auto open = button(actions, L"Open all", {});
+            open->set_automation_id(L"gallery-animation-open");
+            auto close = button(actions, L"Close all", {});
+            close->set_automation_id(L"gallery-animation-close");
+            auto reverse = button(actions, L"Reverse", {});
+            reverse->set_automation_id(L"gallery-animation-reverse");
+            auto grid = std::make_shared<Grid>();
+            grid->set_tracks({{TrackSizing::automatic}, {TrackSizing::automatic}}, {{}, {}});
+            grid->set_gap(12, 12);
+            demo->add(grid);
+            const wchar_t* edges[]{L"Bottom", L"Top", L"Left", L"Right"};
+            for (std::size_t i = 0; i < std::size(edges); ++i) {
+                auto cell = panel(); cell->set_spacing(4);
+                cell->set_preferred_size({300, 150});
+                label(cell, edges[i])->set_caption(true);
+                auto content = panel(); content->set_spacing(4);
+                content->set_preferred_size({216, 72});
+                content->set_padding({8, 4, 8, 4});
+                content->set_surface(true);
+                label(content, L"Retained native editor", TextTone::secondary)->set_caption(true);
+                auto editor = std::make_shared<TextInput>(std::wstring(edges[i]) + L" animation text");
+                editor->set_caption_visible(false);
+                editor->set_preferred_size({200, 42});
+                editor->set_text(std::wstring(edges[i]) + L": edit, close, and reopen");
+                content->add(editor); editors->push_back(editor);
+                auto reveal = std::make_shared<Reveal>(content, std::wstring(edges[i]) + L" reveal");
+                reveal->set_direction(static_cast<RevealDirection>(i));
+                reveal->set_layout(RevealLayout::expand);
+                reveal->set_duration(180);
+                reveals->push_back(reveal);
+                auto frame = panel(i < 2 ? Axis::vertical : Axis::horizontal);
+                frame->set_spacing(4);
+                frame->add(reveal);
+                label(frame, L"Neighbor", TextTone::accent)->set_preferred_size({68, 28});
+                cell->add(frame, 1);
+                grid->add(cell, i / 2, i % 2);
+            }
+            auto first = panel(), second = panel();
+            label(first, L"Primary pane", TextTone::accent);
+            auto primary = std::make_shared<TextInput>(L"Primary animation text");
+            primary->set_caption_visible(false);
+            primary->set_preferred_size({300, 42});
+            primary->set_text(L"This pane resizes."); first->add(primary);
+            label(second, L"Secondary pane", TextTone::accent);
+            auto secondary = std::make_shared<TextInput>(L"Secondary animation text");
+            secondary->set_caption_visible(false);
+            secondary->set_preferred_size({300, 42});
+            secondary->set_text(L"This pane slides at full width.");
+            auto nested = std::make_shared<Reveal>(secondary, L"Nested pane editor");
+            nested->set_layout(RevealLayout::expand);
+            nested->set_direction(RevealDirection::top);
+            nested->set_open(true);
+            nested->set_duration(180);
+            reveals->push_back(nested);
+            second->add(nested);
+            auto split = std::make_shared<SplitView>(first, second, L"Animated divider");
+            split->set_secondary_visible(false);
+            split->set_transition_duration(180);
+            split->set_preferred_size({640, 100});
+            demo->add(split);
+            auto presets = panel(Axis::horizontal); demo->add(presets);
+            auto preset_buttons = std::make_shared<std::vector<std::weak_ptr<Button>>>();
+            const wchar_t* preset_names[]{L"More right", L"Equal panes", L"More left"};
+            const float ratios[]{0.35f, 0.5f, 0.65f};
+            for (std::size_t i = 0; i < std::size(ratios); ++i) {
+                auto preset = button(presets, preset_names[i], [split, ratio = ratios[i], output] {
+                    split->set_ratio(ratio);
+                    output->set_text(L"Events: ratio target changed. Drag the divider to take control.");
+                });
+                preset->set_enabled(false);
+                preset->set_automation_id(L"gallery-animation-ratio-" + std::to_wstring(i));
+                preset_buttons->push_back(preset);
+            }
+            split->on_expanded([preset_buttons](bool expanded) {
+                for (const auto& weak : *preset_buttons) if (auto preset = weak.lock()) preset->set_enabled(expanded);
+            });
+            auto panes = button(actions, L"Toggle pane", {});
+            panes->set_automation_id(L"gallery-animation-pane");
+            panes->on_click([this, split, nested, secondary, primary, output] {
+                split->set_secondary_visible(!split->secondary_visible());
+                if (split->secondary_visible()) nested->set_open(true);
+                window_.focus(split->secondary_visible() ? *secondary : *primary);
+                output->set_text(L"Events: pane target changed. Logical focus changes immediately.");
+            });
+            const auto set_open = [this, reveals, editors, output](bool value) {
+                for (const auto& reveal : *reveals) reveal->set_open(value);
+                if (value) window_.focus(*editors->front());
+                output->set_text(value ? L"Events: open requested. Type in the first editor." :
+                    L"Events: close requested. Text and native controls remain retained.");
+            };
+            open->on_click([set_open] { set_open(true); });
+            close->on_click([this, set_open, weak = std::weak_ptr<Button>(open)] {
+                if (auto target = weak.lock()) window_.focus(*target);
+                set_open(false);
+            });
+            reverse->on_click([this, set_open, reveals, weak = std::weak_ptr<Button>(open)] {
+                const auto opening = !reveals->front()->open();
+                if (!opening) if (auto target = weak.lock()) window_.focus(*target);
+                set_open(opening);
+            });
+            expand->on_change([reveals, output](bool value) {
+                for (const auto& reveal : *reveals) reveal->set_layout(value ? RevealLayout::expand : RevealLayout::fixed);
+                output->set_text(value ? L"Events: expansion moves neighbors." : L"Events: fixed slots keep neighbors stationary.");
+            });
+            duration->on_change([reveals, split, output](std::uint64_t value) {
+                const auto milliseconds = std::array<unsigned, 3>{180, 1200, 0}.at(static_cast<std::size_t>(value - 1));
+                for (const auto& reveal : *reveals) reveal->set_duration(milliseconds);
+                split->set_transition_duration(milliseconds);
+                output->set_text(L"Events: duration " + std::to_wstring(milliseconds) + L" ms. Current targets settle.");
+            });
+            targets_[index] = open;
+            label(demo, L"Reverse during motion. Change duration or layout to settle. Windows reduced motion always takes precedence.",
+                TextTone::secondary);
+            break;
+        }
+        case 49: {
+            auto notice = std::make_shared<InlineStatus>(L"No notice yet.");
+            auto notification = std::make_shared<Reveal>(notice, L"Notification reveal");
+            notification->set_layout(RevealLayout::expand);
+            notification->set_direction(RevealDirection::top);
+            notification->set_duration(180);
+            auto warning = std::make_shared<InlineStatus>();
+            warning->set_message(L"Enter a name.", StatusSeverity::warning);
+            auto validation = std::make_shared<Reveal>(warning, L"Validation reveal");
+            validation->set_layout(RevealLayout::expand);
+            validation->set_direction(RevealDirection::top);
+            validation->set_duration(180);
+            auto motion = std::make_shared<Toggle>(L"Animate feedback");
+            motion->set_checked(true);
+            motion->on_change([notification, validation](bool value) {
+                notification->set_duration(value ? 180 : 0);
+                validation->set_duration(value ? 180 : 0);
+            });
+            demo->add(motion);
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            auto sequence = std::make_shared<unsigned>();
+            button(actions, L"Show notice", [notice, notification, sequence] {
+                notice->set_message(L"Saved notice " + std::to_wstring(++*sequence) + L".", StatusSeverity::success);
+                notification->set_open(true);
+            })->set_automation_id(L"gallery-feedback-show");
+            button(actions, L"Hide notice", [notification] { notification->set_open(false); })
+                ->set_automation_id(L"gallery-feedback-hide");
+            demo->add(notification);
+            auto input = std::make_shared<TextInput>(L"Validated name");
+            input->set_automation_id(L"gallery-feedback-name");
+            input->set_placeholder(L"Type a name, then erase it");
+            input->on_change([validation](const std::wstring& text) { validation->set_open(text.empty()); });
+            demo->add(input); targets_[index] = input;
+            demo->add(validation);
+            button(actions, L"Validate name", [this, input, validation] {
+                validation->set_open(input->text().empty());
+                window_.focus(*input);
+            })->set_automation_id(L"gallery-feedback-validate");
+            label(demo, L"This neighbor moves with the validation message.", TextTone::accent);
+            label(demo, L"Reveal owns notice visibility. Built-in InlineStatus dismissal remains immediate. No save or filesystem operation runs.",
+                TextTone::secondary);
+            break;
+        }
+        case 50: {
+            auto query = std::make_shared<TextInput>(L"State demo query");
+            query->set_placeholder(L"This native field stays outside the transition");
+            query->set_automation_id(L"gallery-content-query");
+            demo->add(query); targets_[index] = query;
+            auto actions = panel(Axis::horizontal); demo->add(actions);
+            auto slot = std::make_shared<Grid>();
+            slot->set_tracks({{TrackSizing::fixed, 140}}, {{TrackSizing::star}});
+            auto loading = panel(), empty = panel(), results = panel();
+            label(loading, L"Loading sample results", TextTone::accent);
+            label(loading, L"This is a manual state demo. No background request runs.", TextTone::secondary);
+            label(empty, L"No sample results", TextTone::accent);
+            label(empty, L"Change the query or select Show results.", TextTone::secondary);
+            label(results, L"Retained sample result", TextTone::accent);
+            auto note = std::make_shared<TextInput>(L"Retained result note");
+            note->set_caption_visible(false);
+            note->set_preferred_size({400, 44});
+            note->set_automation_id(L"gallery-content-note");
+            results->add(note);
+            const auto states = std::make_shared<std::array<std::shared_ptr<Reveal>, 3>>(
+                std::array{std::make_shared<Reveal>(loading), std::make_shared<Reveal>(empty),
+                    std::make_shared<Reveal>(results)});
+            for (auto& state : *states) {
+                state->set_direction(RevealDirection::right);
+                state->set_duration(180);
+                slot->add(state, 0, 0);
+            }
+            (*states)[1]->set_open(true); (*states)[1]->settle();
+            const auto select = std::make_shared<std::function<void(std::size_t)>>([this, states, query, note, output](std::size_t next) {
+                const bool return_focus = next != 2 && note->focused();
+                for (std::size_t i = 0; i < states->size(); ++i) if (i != next) (*states)[i]->set_open(false);
+                (*states)[next]->set_open(true);
+                if (return_focus) window_.focus(*query);
+                output->set_text(next == 0 ? L"Events: loading state." :
+                    next == 1 ? L"Events: empty state." : L"Events: results state.");
+            });
+            // The state callback retains both editors, so their submit handlers must not retain it.
+            const auto submit = [weak = std::weak_ptr(select)](std::size_t next) {
+                if (const auto action = weak.lock()) (*action)(next);
+            };
+            query->on_submit([submit] { submit(2); });
+            note->on_submit([submit] { submit(0); });
+            button(actions, L"Show loading", [select] { (*select)(0); })->set_automation_id(L"gallery-content-loading");
+            button(actions, L"Show empty", [select] { (*select)(1); })->set_automation_id(L"gallery-content-empty");
+            button(actions, L"Show results", [select] { (*select)(2); })->set_automation_id(L"gallery-content-results");
+            demo->add(slot);
+            auto duration = std::make_shared<ComboBox>(L"Content duration");
+            duration->set_automation_id(L"gallery-content-duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([states](auto id) {
+                for (const auto& state : *states) state->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0);
+            });
+            demo->add(duration);
+            label(demo, L"Enter in the query shows results. Enter in the result note shows loading and returns query focus. Text and undo remain retained.",
+                TextTone::secondary);
+            break;
+        }
+        case 51: {
+            auto plain = std::make_shared<MultilineText>(L"Moving plain document");
+            plain->set_automation_id(L"gallery-motion-plain");
+            plain->set_text(L"Native multiline text\rType, select, undo, and reverse the pane.");
+            plain->set_preferred_size({280, 180});
+            auto rich = std::make_shared<RichText>(L"Moving rich document");
+            rich->set_automation_id(L"gallery-motion-rich");
+            rich->set_runs({{L"Retained rich document\r", true}, {L"Native italic text", false, true}});
+            rich->set_read_only(true);
+            rich->set_preferred_size({280, 180});
+            auto documents = panel(Axis::horizontal);
+            documents->add(plain, 1);
+            documents->add(rich, 1);
+            auto reveal = std::make_shared<Reveal>(documents);
+            reveal->set_layout(RevealLayout::expand);
+            reveal->set_direction(RevealDirection::top);
+            reveal->set_open(true);
+            reveal->set_duration(180);
+            auto toggle = std::make_shared<Button>(L"Hide documents");
+            toggle->set_automation_id(L"gallery-documents-toggle");
+            toggle->on_click([this, reveal, plain, rich, weak = std::weak_ptr(toggle)] {
+                const auto action = weak.lock();
+                if (!action) return;
+                const bool open = !reveal->open();
+                if (!open && (plain->focused() || rich->focused())) window_.focus(*action);
+                reveal->set_open(open);
+                action->set_name(open ? L"Hide documents" : L"Show documents");
+            });
+            demo->add(toggle);
+            auto duration = std::make_shared<ComboBox>(L"Document duration");
+            duration->set_automation_id(L"gallery-documents-duration");
+            duration->set_items({{1, L"Normal: 180 ms"}, {2, L"Slow: 1200 ms"}, {3, L"Immediate: 0 ms"}}, 1);
+            duration->on_change([reveal](auto id) { reveal->set_duration(id == 1 ? 180 : id == 2 ? 1200 : 0); });
+            demo->add(duration);
+            auto editable = std::make_shared<Toggle>(L"Edit moving rich document");
+            editable->set_automation_id(L"gallery-documents-editable");
+            editable->on_change([rich](bool value) { rich->set_read_only(!value); });
+            demo->add(editable);
+            demo->add(reveal);
+            label(demo, L"The native documents keep their full size behind a changing clip. Closing blocks input immediately.", TextTone::secondary);
+            label(demo, L"This example covers text documents, not video, WebView, opacity, or snapshots. IME composition still needs manual acceptance.",
+                TextTone::secondary);
+            targets_[index] = plain;
+            break;
+        }
+        case 52: {
             auto notifications = std::make_shared<ToggleSwitch>(L"Send notifications");
             notifications->set_automation_id(L"gallery-toggle-switch");
             notifications->set_checked(true);
@@ -1142,7 +1565,7 @@ private:
             label(demo, L"Space changes the focused switch on release. Enter leaves its value unchanged.", TextTone::secondary);
             break;
         }
-        case 49: {
+        case 53: {
             auto pin = std::make_shared<ToggleButton>(L"Pin preview");
             pin->set_automation_id(L"gallery-toggle-button");
             pin->set_checked(true);
@@ -1158,7 +1581,7 @@ private:
             });
             break;
         }
-        case 51: {
+        case 55: {
             auto check = std::make_shared<CheckBox>(L"Include attachments");
             check->set_automation_id(L"gallery-checkbox");
             check->set_three_state(true);
@@ -1179,7 +1602,7 @@ private:
             label(demo, L"Mixed describes a group with different values. Existing Toggle and ToggleSwitch remain binary.", TextTone::secondary);
             break;
         }
-        case 52: {
+        case 56: {
             auto link = std::make_shared<HyperlinkButton>(L"Learn about this sample");
             link->set_automation_id(L"gallery-hyperlink-button");
             link->on_click([output] { output->set_text(L"Events: help requested. No browser was opened."); });
@@ -1191,7 +1614,7 @@ private:
             label(demo, L"The application handles activation. This sample performs no navigation or network request.", TextTone::secondary);
             break;
         }
-        case 53: {
+        case 57: {
             auto selector = std::make_shared<SelectorBar>(L"Task filter");
             selector->set_automation_id(L"gallery-selector-bar");
             selector->set_items({{1, L"All"}, {2, L"Active"}, {3, L"Completed"}, {4, L"Archived", false}}, 1);
@@ -1208,7 +1631,7 @@ private:
             label(demo, L"One Tab stop. Arrow keys change the selection and skip disabled choices.", TextTone::secondary);
             break;
         }
-        case 54: {
+        case 58: {
             auto row = panel(Axis::horizontal);
             label(row, L"Unread notifications");
             auto badge = std::make_shared<InfoBadge>(L"Unread notifications");
@@ -1228,7 +1651,7 @@ private:
             label(demo, L"The badge describes status and never receives keyboard focus.", TextTone::secondary);
             break;
         }
-        case 55: {
+        case 59: {
             auto menu = std::make_shared<MenuBar>(L"Document menu");
             menu->set_automation_id(L"gallery-menu-bar");
             menu->set_commands(gallery::menu_bar_commands([output](std::wstring message) {

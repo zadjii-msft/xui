@@ -88,6 +88,7 @@ internal sealed class PreviewSession : IDisposable
     internal Button OpenButton { get; }
     internal ElementBounds Bounds => layout.Root.GetBounds();
     internal ElementBounds BodyBounds => body.GetBounds();
+    internal Reveal EntryReveal => layout.EntryReveal;
     internal ElementBounds StatusBounds => status.GetBounds();
     internal VectorCanvas MetadataIcon => metadataIcon;
     internal string MetadataName => metadata.Name.Text;
@@ -139,6 +140,7 @@ internal sealed class PreviewSession : IDisposable
                     }
                 }
             }
+            layout.EntryOpen = true;
         }, error =>
         {
             if (!IsOpen) return;

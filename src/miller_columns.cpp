@@ -138,13 +138,7 @@ void MillerColumnList::cancel() {
 }
 
 MillerColumns::MillerColumns(std::wstring name) :
-    Control(ControlRole::content_view, std::move(name), {720, 480}),
-    previous_(std::make_shared<Button>(L"Previous column")),
-    next_(std::make_shared<Button>(L"Next column")) {
-    previous_->set_icon(ButtonIcon::back); next_->set_icon(ButtonIcon::forward);
-    previous_->on_click([this] { move_active(false); });
-    next_->on_click([this] { move_active(true); });
-    children_ = {previous_, next_};
+    Control(ControlRole::content_view, std::move(name), {720, 480}) {
     for (std::size_t i = 0; i < maximum_columns; ++i) {
         auto header = std::make_shared<Label>(L"");
         header->set_body_strong(true);
@@ -157,7 +151,6 @@ MillerColumns::MillerColumns(std::wstring name) :
     layout();
 }
 MillerColumns::~MillerColumns() {
-    previous_->on_click({}); next_->on_click({});
     for (const auto& list : lists_) { list->on_activate({}); list->owner_ = nullptr; }
 }
 void MillerColumns::set_columns(std::vector<MillerColumn> value) {
@@ -168,6 +161,7 @@ void MillerColumns::set_columns(std::vector<MillerColumn> value) {
         if (column.selected && !valid_item(column.source, *column.selected))
             throw std::invalid_argument("Selected identity must identify an enabled column item");
     }
+    const bool appended = value.size() > columns_.size();
     columns_ = std::move(value);
     for (std::size_t i = 0; i < maximum_columns; ++i) {
         const MillerColumn empty;
@@ -177,7 +171,13 @@ void MillerColumns::set_columns(std::vector<MillerColumn> value) {
         lists_[i]->replace(column);
     }
     active_ = columns_.empty() ? 0 : std::min(active_, columns_.size() - 1);
-    reveal_active(); layout(); invalidate(Invalidation::layout);
+    if (appended) reveal_column(columns_.size() - 1);
+    else {
+        offset_ = std::clamp(offset_, 0.0, maximum_horizontal());
+        if (columns_.empty()) pending_reveal_.reset();
+        else if (pending_reveal_) pending_reveal_ = std::min(*pending_reveal_, columns_.size() - 1);
+    }
+    layout(); invalidate(Invalidation::layout);
 }
 std::shared_ptr<MillerColumnList> MillerColumns::column_list(std::size_t index) const {
     if (index >= maximum_columns) throw std::invalid_argument("Column index is out of range");
@@ -188,9 +188,17 @@ double MillerColumns::maximum_horizontal() const {
     return std::max(0.0, static_cast<double>(effective_width()) * columns_.size() - bounds().width);
 }
 void MillerColumns::reveal_active() {
+    reveal_column(active_);
+}
+void MillerColumns::reveal_column(std::size_t index) {
+    pending_reveal_.reset();
     offset_ = std::clamp(offset_, 0.0, maximum_horizontal());
-    if (columns_.empty() || bounds().width <= 0) return;
-    const auto left = static_cast<double>(active_) * effective_width();
+    if (columns_.empty()) return;
+    if (bounds().width <= 0) {
+        pending_reveal_ = index;
+        return;
+    }
+    const auto left = static_cast<double>(index) * effective_width();
     const auto right = left + effective_width();
     if (left < offset_) offset_ = left;
     else if (right > offset_ + bounds().width) offset_ = right - bounds().width;
@@ -208,6 +216,7 @@ void MillerColumns::set_column_width(float value) {
 void MillerColumns::set_horizontal_offset(double value) {
     if (!std::isfinite(value) || value < 0 || value > maximum_horizontal())
         throw std::invalid_argument("Horizontal offset is outside the column viewport");
+    pending_reveal_.reset();
     if (offset_ == value) return;
     offset_ = value; layout(); invalidate(Invalidation::layout);
 }
@@ -233,18 +242,41 @@ Rect MillerColumns::separator_bounds(std::size_t column) const {
     if (column >= columns_.size() || column + 1 >= columns_.size()) return {};
     const auto area = bounds();
     const float available = std::max(0.0f, area.height - horizontal_track().height);
-    const float toolbar = std::min(32.0f, available);
     const float right = static_cast<float>((column + 1) * static_cast<double>(effective_width()) - offset_);
     const float left = std::max(0.0f, right - separator_width);
     const float clipped_right = std::min(area.width, right);
-    return {left, toolbar, std::max(0.0f, clipped_right - left), available - toolbar};
+    return {left, 0, std::max(0.0f, clipped_right - left), available};
 }
 void MillerColumns::move_active(bool right) {
     if (!enabled() || !visible() || columns_.empty() || (right ? active_ + 1 >= columns_.size() : active_ == 0)) return;
-    set_active_column(right ? active_ + 1 : active_ - 1);
+    focus_column(right ? active_ + 1 : active_ - 1);
+}
+void MillerColumns::focus_column(std::size_t index) {
+    set_active_column(index);
     auto callback = focus_;
     const std::shared_ptr<VirtualCollection> target = lists_[active_];
     if (callback) callback(target);
+}
+bool MillerColumns::focus_pointer(const Control& target, Point point) {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y))
+        throw std::invalid_argument("Pointer coordinates must be finite");
+    if (!enabled() || !visible() || !target.enabled() || !target.visible()) return false;
+    const auto area = target.bounds();
+    if (point.x < 0 || point.y < 0 || point.x >= area.width || point.y >= area.height ||
+        area.x + point.x < bounds().x || area.x + point.x >= bounds().x + bounds().width ||
+        area.y + point.y < bounds().y || area.y + point.y >= bounds().y + bounds().height) return false;
+    for (std::size_t i = 0; i < columns_.size(); ++i) {
+        if (!lists_[i]->enabled() || !lists_[i]->visible()) continue;
+        if (&target == lists_[i].get()) {
+            const auto viewport = lists_[i]->content_viewport();
+            if (point.x < viewport.x || point.y < viewport.y ||
+                point.x >= viewport.x + viewport.width || point.y >= viewport.y + viewport.height ||
+                lists_[i]->hit_test(point)) return false;
+        } else if (&target != headers_[i].get()) continue;
+        focus_column(i);
+        return true;
+    }
+    return false;
 }
 bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture gesture) {
     auto& list = *lists_[index];
@@ -272,7 +304,8 @@ Size MillerColumns::measure(Size available) {
 void MillerColumns::arrange(Rect value) {
     const bool resized = bounds().width != value.width;
     Control::arrange(value);
-    if (resized) reveal_active();
+    if (pending_reveal_) reveal_column(*pending_reveal_);
+    else if (resized) reveal_active();
     else offset_ = std::clamp(offset_, 0.0, maximum_horizontal());
     layout();
 }
@@ -280,25 +313,19 @@ void MillerColumns::layout() {
     const auto area = bounds();
     const float width = effective_width();
     const float available = std::max(0.0f, area.height - horizontal_track().height);
-    const float toolbar = std::min(32.0f, available);
-    const float header = std::min(32.0f, std::max(0.0f, available - toolbar));
-    const float height = std::max(0.0f, available - toolbar - header);
+    const float header = std::min(32.0f, available);
+    const float height = std::max(0.0f, available - header);
     const bool shown = visible() && area.width > 0 && area.height > 0;
-    previous_->set_visible(shown); next_->set_visible(shown);
-    previous_->set_enabled(active_ > 0 && !columns_.empty());
-    next_->set_enabled(!columns_.empty() && active_ + 1 < columns_.size());
-    const float button = std::min(160.0f, area.width / 2);
-    previous_->arrange({area.x, area.y, button, toolbar});
-    next_->arrange({area.x + button, area.y, button, toolbar});
     for (std::size_t i = 0; i < maximum_columns; ++i) {
         const float left = static_cast<float>(static_cast<double>(i) * width - offset_);
         const bool present = shown && i < columns_.size();
         const bool onscreen = present && left < area.width && left + width > 0;
         const float content_width = present ? std::max(0.0f, width - (i + 1 < columns_.size() ? separator_width : 0)) : 0;
         headers_[i]->set_visible(onscreen && header > 0);
-        lists_[i]->set_visible(onscreen && height > 0);
-        headers_[i]->arrange({area.x + left, area.y + toolbar, content_width, header});
-        lists_[i]->arrange({area.x + left, area.y + toolbar + header, content_width, present ? height : 0});
+        // Keep native focus on an offscreen ancestor without exposing it to pointer input.
+        lists_[i]->set_visible(present && (onscreen || lists_[i]->focused()) && height > 0);
+        headers_[i]->arrange({area.x + left, area.y, content_width, header});
+        lists_[i]->arrange({area.x + left, area.y + header, content_width, present ? height : 0});
     }
 }
 

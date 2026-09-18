@@ -6,6 +6,7 @@
 #include <compare>
 
 namespace xui {
+namespace detail { class CollectionPresentation; struct CollectionPresentationAccess; }
 
 struct ItemKey {
     std::uint64_t id{}, version{};
@@ -152,24 +153,35 @@ public:
     Rect disclosure_bounds(const CollectionRow& row, bool hovered = false) const;
     bool disclosure_hit(std::size_t index, Point point) const;
     std::optional<std::size_t> hit_test(Point point) const;
+    // An envelope only when an internal frame clips logical ranges. Enumerate through visible_content().
     VisibleRange visible_items() const;
     virtual std::vector<CollectionRow> visible_content() const;
     virtual bool disclose(ItemKey key, bool expanded);
     virtual void horizontal(bool right, SelectionGesture gesture);
     Rect thumb() const;
     void arrange(Rect bounds) override;
+    void cancel() override;
     static constexpr float bar_width = 12;
 protected:
     VirtualCollection(ControlRole role, std::wstring name);
     std::optional<StyleTarget> control_style_target() const override;
     StyleStateMask control_style_state_bits() const override;
-    void set_source(std::shared_ptr<const ItemsSource> source, std::shared_ptr<const CollectionIndex> full = {});
+    void set_source(std::shared_ptr<const ItemsSource> source, std::shared_ptr<const CollectionIndex> full = {},
+        std::shared_ptr<const detail::CollectionPresentation> presentation = {});
+    void set_collection_presentation(std::shared_ptr<const detail::CollectionPresentation> presentation);
+    void set_collection_presentation_offset(double offset);
+    void clear_collection_presentation();
+    // An internal animated consumer stops its clock when user navigation or layout retires a frame.
+    virtual void collection_presentation_retired() {}
     void changed();
     void repair_focus();
     std::shared_ptr<const ItemsSource> source_;
     std::shared_ptr<const CollectionIndex> full_;
     CollectionSelection selection_;
 private:
+    friend struct detail::CollectionPresentationAccess;
+    std::shared_ptr<const detail::CollectionPresentation> collection_presentation_;
+    std::uint64_t collection_presentation_version_{};
     ItemsPresentation presentation_{};
     SelectAllScope scope_{SelectAllScope::filtered};
     Size item_size_{180, 56};

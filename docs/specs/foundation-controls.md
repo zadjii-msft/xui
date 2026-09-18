@@ -37,6 +37,9 @@ An editable ComboBox does not infer an ID from arbitrary text. Handle `on_edit` 
 `NumericInput::step` restores valid formatted text. Native EDIT retains selection, undo, caret, and IME ownership.
 `RangeInput::on_preview` reports drag values without committing them. `on_change` reports accepted values.
 Input cancellation calls `on_cancel` after it clears the preview. Property-driven cancellation remains silent.
+In WinUI style, the full-length track and thumb travel have separate bounds.
+`SliderVisual::pointer_fraction` accounts for that difference, including root padding, short controls, and authored thumb sizes.
+The [WinUI presentation contract](winui-style.md) defines the default thumb layout and painted outset.
 
 ```cpp
 auto size = std::make_shared<xui::RangeInput>(L"Item size");
@@ -79,6 +82,7 @@ Tooltips use one pending one-shot timer and no extra HWND or target. Hidden tool
 It retains `checked()`, silent `set_checked`, and `on_change`.
 It inherits the Toggle accessibility role, Space-key behavior, and `toggle` style target.
 The switch presentation does not introduce a separate accessibility role or style target.
+For custom renderers, `mark_bounds(bounds, enabled)` uses the effective enabled state to suppress WinUI thumb growth under a disabled ancestor.
 
 `ToggleButton` derives from Button and selects `ButtonBehavior::toggle` by default.
 It retains `checked()`, silent `set_checked`, and `on_toggle`.
@@ -129,11 +133,19 @@ Indeterminate and unknown progress states omit the UIA RangeValue pattern.
 Other progress states expose read-only values.
 
 Indeterminate progress animates only while attached, visible, and effectively enabled in a visible, nonminimized window.
-A window-owned timer drives eligible progress controls.
+This native behavior applies to both Classic and WinUI styles.
+A separate window-owned timer drives eligible indeterminate progress controls without an explicit duration.
 The timer stops when no eligible control remains.
 Hide, detach, ancestor disable, window minimization, and window destruction stop affected animation.
 The system client-area animation preference disables motion without changing the progress state.
 The indicator remains visible without motion.
-Unknown, paused, error, determinate, and capacity displays do not request animation.
+Unknown, paused, and error displays do not request animation.
 Capacity meters show used/total text without an active-task claim.
+Capacity updates remain immediate.
+
+Determinate progress supports an explicit duration, with zero as the default.
+Its displayed value uses the shared transition timer, independently of the timer for indeterminate progress.
+Logical and accessible values change immediately.
+The [animation contract](animations.md#determinate-progress-transitions) describes duration, interruption, and displayed values.
+The default duration does not disable automatic indeterminate motion.
 The [progress guide](controls/choices.md#progress) contains examples.

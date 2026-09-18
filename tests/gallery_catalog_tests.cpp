@@ -46,21 +46,34 @@ int main() {
             }
         }
         for (auto count : language_examples) require(count > 0);
-        require(gallery::entries.size() == 56);
+        require(gallery::entries.size() == 60);
+        require(std::wstring_view(gallery::entries[51].id) == L"document-motion");
+        require(std::wstring_view(gallery::references[51].docs) == L"docs/specs/animations.md");
+        require(std::wstring_view(gallery::entries[50].id) == L"content-motion");
+        require(std::wstring_view(gallery::references[50].docs) == L"docs/specs/animations.md");
+        require(std::wstring_view(gallery::entries[49].id) == L"feedback-motion");
+        require(std::wstring_view(gallery::entries[48].id) == L"animations");
+        require(std::wstring_view(gallery::entries[48].title) == L"Motion");
+        require(std::wstring_view(gallery::references[48].docs) == L"docs/specs/animations.md");
+        for (const auto* query : {L"motion", L"animations"}) {
+            catalog.set_filter(query);
+            require(catalog.item_matches({49, 1}));
+        }
+        catalog.set_filter(L"");
         require(std::wstring_view(gallery::entries[45].id) == L"web-content");
         require(std::wstring_view(gallery::entries[46].id) == L"navigation-view");
         require(std::wstring_view(gallery::entries[47].id) == L"miller-columns");
         require(std::wstring_view(gallery::entries[47].group) == L"Collections");
         require(std::wstring_view(gallery::entries[47].code).find(L"xui::MillerColumns") != std::wstring_view::npos);
         require(std::wstring_view(gallery::entries[47].code).find(L"next.resize(column + 1)") != std::wstring_view::npos);
-        require(std::wstring_view(gallery::entries[48].id) == L"toggle-switch");
-        require(std::wstring_view(gallery::entries[49].id) == L"toggle-button");
-        require(std::wstring_view(gallery::entries[50].id) == L"progress-ring");
-        require(std::wstring_view(gallery::entries[48].code).find(L"ToggleSwitch") != std::wstring_view::npos);
-        require(std::wstring_view(gallery::entries[49].code).find(L"ToggleButton") != std::wstring_view::npos);
-        require(std::wstring_view(gallery::entries[50].code).find(L"ProgressRing") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[52].id) == L"toggle-switch");
+        require(std::wstring_view(gallery::entries[53].id) == L"toggle-button");
+        require(std::wstring_view(gallery::entries[54].id) == L"progress-ring");
+        require(std::wstring_view(gallery::entries[52].code).find(L"ToggleSwitch") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[53].code).find(L"ToggleButton") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[54].code).find(L"ProgressRing") != std::wstring_view::npos);
         for (const auto& [index, id] : std::array<std::pair<std::size_t, const wchar_t*>, 5>{
-            {{51, L"checkbox"}, {52, L"hyperlink-button"}, {53, L"selector-bar"}, {54, L"info-badge"}, {55, L"menu-bar"}}})
+            {{55, L"checkbox"}, {56, L"hyperlink-button"}, {57, L"selector-bar"}, {58, L"info-badge"}, {59, L"menu-bar"}}})
             require(std::wstring_view(gallery::entries[index].id) == id);
         for (auto id : {L"radio", L"combo", L"popup", L"tooltip", L"actions", L"number", L"range", L"disclosure", L"progress"})
             require(ids.contains(id));

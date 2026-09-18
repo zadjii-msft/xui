@@ -146,6 +146,97 @@ The post-build command places the matching DLL beside the console executable.
 For a separately built DLL, supply its `xui.lib`, the `include` directory, and the same manifest instead.
 Keep the C executable and native library on the same architecture.
 
+## Reveal animation checks
+
+After the native configuration, run the focused reveal checks:
+
+```powershell
+cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
+cmake --build $build --config Release --target xui_reveal_tests xui_reveal_window_tests xui_split_animation_tests xui_tab_animation_tests xui_tab_animation_window_tests xui_expander_animation_tests xui_expander_animation_window_tests xui_progress_animation_tests xui_progress_animation_window_tests xui_document_animation_window_tests --parallel 1
+ctest --test-dir $build -C Release -R "^xui_(reveal(_window)?|split_animation|tab_animation(_window)?|expander_animation(_window)?|progress_animation(_window)?|document_animation_window)_tests$" --output-on-failure -j 1
+```
+
+The window fixture requires a Windows desktop and owned-window graphics capture.
+It reads the system motion preference without changing it.
+It covers fixed and expanding layout, all entry edges, native input, nested scroll content, resize, and synthetic DPI messages.
+It reports update-and-paint intervals and root-layout counts for a small bounded fixture.
+Timing output is diagnostic, not a frame-rate acceptance threshold.
+The [test notes](docs/llm/testing.md#reveal-animation-checks) describe its coverage and limits.
+
+The collection presentation foundation has separate model and native fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_collection_presentation_tests xui_collection_presentation_window_tests --parallel 1
+ctest --test-dir $build -C Release -R "^xui_collection_presentation(_window)?_tests$" --output-on-failure -j 1
+```
+
+The native fixture also requires `XUI_DESKTOP_TESTS=ON` and runs serially.
+These fixtures exercise internal presentation geometry. They do not enable NavigationView animation.
+
+For the opt-in navigation producer and gallery, run:
+
+```powershell
+cmake --build $build --config Release --target xui_navigation_animation_tests xui_navigation_animation_window_tests xui_gallery xui_gallery_smoke --parallel 1
+ctest --test-dir $build -C Release -R "^xui_(navigation_animation(_window)?_tests|navigation_motion_gallery_smoke)$" --output-on-failure -j 1
+dotnet run --project bindings\dotnet\Tests -- --navigation-animation
+cargo test --manifest-path bindings\rust\Cargo.toml -p xui navigation_animation_contract
+```
+
+The window and gallery registrations require `XUI_DESKTOP_TESTS=ON`.
+
+For the replayable animation gallery, run:
+
+```powershell
+cmake --build $build --config Release --target xui_gallery xui_gallery_smoke --parallel 1
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --animations-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --feedback-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --popup-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --progress-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --content-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --page-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --page-motion-winui
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --tab-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --document-motion-only
+& ".\$build\Release\xui_gallery_smoke.exe" ".\$build\Release\xui_gallery.exe" --document-motion-winui
+& ".\$build\Release\xui_gallery.exe" --page animations
+```
+
+For bounded concurrent-motion observations, use the native stress fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_animation_stress_window_tests --parallel 1
+& ".\$build\Release\xui_animation_stress_window_tests.exe"
+```
+
+The fixture compares fixed and expanding Reveal with concurrent Progress updates and retained native editors.
+Its CPU observations include the test observer and native rendering, not only the animation scheduler.
+Run it separately from other desktop tests.
+
+The gallery check covers duration choices, reversal, layout modes, retained native input, panes, and timer shutdown.
+The feedback check covers field validation, caret and undo retention, and one live announcement per message state.
+The progress check covers immediate logical values, retargeting, mode changes, and idle settlement of determinate transitions.
+The foundation check covers the separate indeterminate bar/ring timer and its visibility, lifetime, and reduced-motion policy.
+The content-state check covers real native editor movement, focus return, retained undo, a fixed slot, and immediate mode.
+The page checks cover directional native movement, immediate input ownership, retained selection and undo, rapid switching, and immediate mode.
+The managed runtime fixtures use `--reveal`, `--split-animation`, `--tab-animation`, `--expander-animation`, and `--progress-animation` in the binding test runner.
+FileExplorer `--smoke` covers the actual navigation, tab, pane, and Find composition.
+FileExplorer `--view-entry-smoke` isolates Details/Columns entry, native ownership, selection, scrolling, cancellation, and immediate mode.
+FileExplorer `--pane-animation-smoke` isolates split entry and reports observer timing and native clock delivery.
+These modes create temporary fixtures and close their own window.
+
+For animation delivery during sustained posted updates, run:
+
+```powershell
+cmake --build $build --config Release --target xui_animation_queue_window_tests
+ctest --test-dir $build -C Release -R "^xui_animation_queue_window_tests$" --output-on-failure -j 1
+```
+
+The desktop fixture covers both application entry points, intermediate painting, terminal settlement, immediate mode, and idle work.
+It also closes one active window while another window continues its own animation and posted updates.
+Its child-timer case checks native timer delivery during posted traffic.
+Its shutdown case posts a nonzero quit code after a real animation update and requires normal loop exit.
+The traffic observer does not force animation clocks or paints.
+
 ## C# and declarative samples
 
 After the native build, run a sample:
@@ -526,6 +617,18 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+For scroll-frame changes, build and run the presentation fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_flicker_tests xui_scroll_tests xui_native_integration_tests
+ctest --test-dir $build -C Release -R "^xui_((winui_)?(scroll_frame|flicker)|scroll|native_integration)_tests$" --output-on-failure
+```
+
+These fixtures require `XUI_DESKTOP_TESTS=ON` and an interactive desktop.
+The existing flicker fixtures also require an unobscured window.
+The scroll-frame fixtures use owned-window capture without cursor pixels.
+The scroll-frame fixtures save diagnostic BMP files under `scroll-frames` or `winui-scroll-frames` in the build directory after a pixel mismatch.
+
 Compiler and model checks do not need a native window:
 
 ```powershell
@@ -759,6 +862,120 @@ dotnet run --project bindings\dotnet\GeneratorTests -c Release
 
 The presentation test requires `XUI_DESKTOP_TESTS=ON` for CTest registration.
 It checks actual Direct2D pixels, native editor identity, resource retention, and idle paints.
+
+For button focus geometry, run the pixel-only check:
+
+```powershell
+cmake --build $build --config Release --target xui_styling_window_tests
+ctest --test-dir $build -C Release -R '^xui_button_focus_pixels$' --output-on-failure
+```
+
+This check uses a hidden Direct2D software target and does not require foreground focus.
+It compares square, rounded, and pill outlines at 96, 144, and 192 DPI.
+It covers local values, focused state rules, inherited part styles, unchanged defaults, Classic, and high contrast.
+The compact gallery contains the corresponding **Keyboard focus shapes** specimens.
+These pixel checks do not establish live keyboard-focus or native WinUI parity.
+
+With `XUI_DESKTOP_TESTS=ON`, run the separate nonactivating adapter checks:
+
+```powershell
+ctest --test-dir $build -C Release -R '^xui_(button_focus|choice_focus|selector_focus|expander_interaction)_window_tests$' --output-on-failure -j 1
+```
+
+The button fixture checks external focus pixels through the window renderer for legacy styles, named styles, unstyled buttons, and rounded hyperlinks.
+It also checks all four focus edges and blur cleanup for default, square, and pill MenuBar headings.
+`xui_menu_bar_tests` covers heading margins, measurement, hidden headings, narrow bounds, and authored root padding.
+`xui_menu_bar_window_tests` covers the native keyboard and popup lifecycle in both visual styles.
+The choice fixture checks the wider focus margin for binary Toggle, CheckBox, and rounded CheckBox.
+Radio coverage includes selected-row placement, focused-state corners, selection movement, and unchanged unfocused pixels.
+The selector fixture checks native focus strokes, square and pill corners, selection movement, ancestor clipping, and outline removal.
+It also measures the centered sixteen-DIP selection marker in light and dark themes.
+Its background checks cover transparent roots, selected and hovered items, and authored root and item fills.
+The Expander fixture checks disclosure directions, hover and press fills, and cancelled-press cleanup.
+The button fixture also checks ancestor clipping. The button and choice fixtures check outline removal.
+All four fixtures preserve the same control composition and check unchanged native editor peers, text, and selection.
+They set model focus after a fixture-local keyboard message, without foreground activation.
+These checks do not establish live keyboard navigation.
+The original `--button-focus-window-only` executable selector runs all four groups together.
+The full styling suite also retains their combined coverage.
+`xui_next_controls_pixels` also checks WinUI hyperlink text, subtle interaction fills, and disabled alpha at 96, 144, and 192 DPI.
+Its checked-disabled Button checks cover native brush alpha, foreground, and border removal through default, legacy, and named-part painting paths.
+Its navigation focus checks cover default and styled rows, group headers, square and rounded corners, oversized radii, viewport clips, and three DPI values.
+The navigation checks also preserve Classic and high-contrast outlines.
+That suite includes checkbox focus margins and resolved corner radii at the same DPI values.
+It also compares default and rounded-root checkbox states against the shared WinUI indicator renderer.
+Rounded surface checks cover continuous equal-width borders and square joins between rounded header and body surfaces.
+Focus checks also cover top-only and bottom-only rounded outlines without a stroke across the clipping boundary.
+`xui_switch_ring_pixels` covers WinUI switch thumb geometry and state brushes at three DPI values, plus authored switch and ProgressRing paint.
+It also checks switch focus targets, corner radii, authored padding and alignment, and cached text geometry.
+
+For the switch focus adapter, run the separate nonactivating fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R '^xui_switch_focus_window_tests$' --output-on-failure
+```
+
+This fixture checks external strokes, content-sized focus, ancestor clips, outline removal, retained peers, and text-layout reuse.
+It uses model focus after a fixture-local keyboard message, not live keyboard navigation.
+
+For closed ComboBox focus, run the two nonactivating fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R '^xui_combo_focus(_layers)?_window_tests$' --output-on-failure -j 1
+```
+
+The main fixture checks the external highlight, accent marker, header exclusion, ancestor clips, disabled state, popup-open suppression, and blur cleanup.
+It covers both styles and all three themes, with retained native editor identity, draft text, and peers.
+The layer fixture checks popups, adaptive overlays, and adaptive overlays inside popups.
+Both fixtures use model focus after a local keyboard message, not live keyboard navigation.
+Their checks run through `Window::post` outside the native input callback.
+The additional-control pixel suite checks highlight geometry and marker placement at 96, 144, and 192 DPI.
+Its independent reference includes translucent fills, two-DIP strokes, and the fixed native highlight radius around different field radii.
+
+For Slider-style RangeInput focus, run the nonactivating adapter:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R '^xui_range_focus_window_tests$' --output-on-failure
+```
+
+This fixture checks horizontal and reversed vertical controls, root padding, ancestor clips, keyboard modality, disabled state, and blur cleanup.
+The 100-by-100 vertical specimen also checks the leading WinUI track position, independently of the geometry helper.
+Endpoint checks cover the full rail, the two-DIP thumb outset, viewport clipping, and removal of old pixels after value changes.
+It preserves values, drag state, and native peers across both styles and all three themes.
+Brush checks cover the solid outer thumb, translucent tracks over different backgrounds, disabled colors, and authored thumb restoration.
+Root-only styles must preserve the default thumb appearance.
+The additional-control pixel suite checks the separate horizontal and vertical focus margins at three DPI values.
+It also covers very short focus targets, where an inner stroke cannot fit.
+
+For authored field focus corners, run the nonactivating adapter and the pixel suite:
+
+```powershell
+cmake --build $build --config Release --target xui_style_fields_window_tests xui_styling_window_tests
+ctest --test-dir $build -C Release -R '^xui_(field_focus_window_tests|next_controls_pixels)$' --output-on-failure -j 1
+```
+
+The adapter checks TextInput, MultilineText, RichText, PasswordInput, NumericInput, and editable ComboBox in light and dark themes.
+Owned-window captures check rounded corners, visible focus edges, and outline removal after focus moves.
+The adapter also checks TextInput native identity, text, selection, and undo.
+It uses `Window::focus`, not live keyboard navigation.
+The pixel suite covers absent, square, rounded, and oversized radii at 96, 144, and 192 DPI.
+It also checks short fields and the unchanged Classic and high-contrast outlines.
+
+For expanded WinUI surfaces, run the separate nonactivating fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_style_layouts_window_tests
+ctest --test-dir $build -C Release -R '^xui_expander_surface_window_tests$' --output-on-failure
+```
+
+This fixture compares default, text-only, and rounded-header Expanders in collapsed and expanded states.
+It covers light, dark, high contrast, authored body styles, and retained peer identity.
+Keyboard-modality checks cover rounded header focus and square lower focus corners after expansion.
+They also cover external strokes, ancestor clipping, and complete frame restoration after blur.
+These checks use model focus, not live keyboard navigation.
 
 For the Toggle pilot, run these additional focused checks:
 

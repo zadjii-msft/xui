@@ -25,7 +25,7 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 Its content parameters accept the image, native text, and status controls from `PreviewSession`.
 `PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
 Generated control references connect these layouts to their C# controllers.
-The `FindOpen` state updates the Find row height and control visibility.
+The `FindOpen` state controls the [bottom reveal](animations.md) for the Find row.
 
 After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#c-file-explorer) for markup changes.
 
@@ -81,17 +81,26 @@ The shared `NavigationView` exposes `SetHoverDelay` and `SetHoverHelp` in C#.
 Its `Preview` event reports row changes, and its `Request` event starts delayed metadata work.
 
 The collapsed navigation pane is completely hidden.
+Its expanding Reveal slides from the left while the file area and title tabs follow the changing width.
+The search editor retains its native identity and full width.
 The navigation button stays at the left edge of the title bar.
 When navigation is hidden, the first tab starts after that button.
 
 Each pane has its own tabs, navigation history, details view, and Find bar.
+The secondary pane enters from the right and retains its full target width inside the split viewport.
+The primary pane, divider, and title-tab positions change together.
+Closing returns focus and disables secondary interaction before the exit finishes.
 Each tab also has an optional Columns view.
 Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
+The bar uses expanding layout on entry and exit.
+Its row height and the file-view height change together on each animation frame.
+The shared edge moves without a preceding resize or a second slide.
+Disabled system animations make these transitions immediate.
 Typing with file-view focus opens Find and sends the first key to its native editor.
 Keyboard layouts, dead keys, and IME input use native text translation.
 Shortcuts, the navigation filter, and palette editors do not start a file filter.
-Successful navigation to a different folder clears the filter but retains the Find bar state.
+In Details, successful navigation to a different folder clears the filter but retains the Find bar state.
 Refresh, failed navigation, and tab switches preserve the filter.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -150,9 +159,12 @@ Closing the last tab or all tabs closes that pane.
 Closing the left pane preserves the other pane's tabs in the remaining workspace.
 Closing the last pane closes the window.
 
-Column headers support sorting and width adjustment.
+Details column headers support sorting and width adjustment.
 File and folder rows highlight under the pointer without changing the selection.
 File rows, navigation folders, and navigation-palette results show asynchronous Windows thumbnails or Shell icons.
+Visible Miller rows load images incrementally without a fixed allowance for completed icons.
+When the decode queue fills, remaining rows wait for capacity instead of remaining on vector icons permanently.
+Pending or failed image requests retain their vector icons.
 Navigation sections also have icons.
 Right-click selects the target row and opens its context menu.
 The XUI menu combines supported Windows Shell commands with folder navigation, bookmarks, and Refresh.
@@ -177,6 +189,13 @@ The flyout identifies the current view. Escape closes it without a view change.
 The command palette also contains **Use Columns view** and **Use Details view**.
 Each tab retains its own view choice.
 
+Deliberate view changes use 180 ms incoming entry after the filtered rows arrive.
+Columns enters from the right. Details enters from the left.
+The old view loses input immediately through the native update, without delayed logical selection.
+The toolbar and footer stay stationary. Selection and the saved scroll offset remain intact.
+Navigation and subsequent filtering settle entry. Windows reduced motion makes entry immediate.
+Initial population does not animate.
+
 Columns view starts at the committed folder.
 A single selection of a folder loads its children in the next column.
 Ancestor columns remain visible. A sibling selection replaces the columns to its right.
@@ -187,7 +206,8 @@ Each column scrolls vertically on its own.
 Rows highlight under the pointer without changing selection or keyboard focus.
 Vertical separators distinguish adjacent columns.
 Left and Right move focus between existing columns.
-The horizontal navigation buttons reveal earlier or later columns.
+Clicking a directory header or empty space below its rows focuses that column without changing selection or the open path.
+New columns scroll fully into view without moving keyboard focus.
 Horizontal wheel input and Shift+wheel scroll the path without changing the selected folder.
 When the path exceeds the pane width, a bottom scrollbar supports thumb dragging and track paging.
 The control supports at most 32 columns in one path.
@@ -195,9 +215,22 @@ The application reports an error at the limit instead of discarding ancestors.
 
 A successful directory scan commits the address, history, and current folder.
 A failed scan preserves the committed folder and displays an error.
-Find filters the rightmost folder. Its navigation keys retain native text-input focus.
+Find filters the focused column. Each column remembers its own query.
+The pane shares one native Find field. Its placeholder identifies the target folder.
+Typing in a column opens Find for that column without losing the first character.
+Focusing another column restores its query without moving focus into Find.
+Closing Find clears only the target column's query.
+
+Filtering an ancestor preserves its descendants, even when the selected folder no longer matches.
+Clearing the filter restores that folder's selection without navigation.
+Selecting a different folder still replaces the descendants. Selecting a file removes later columns.
+Find navigation keys move selection in the target column and retain native text-input focus.
+Opening a child preserves the ancestor's query. New child columns start without a filter.
+The footer reports matches in the target column.
 Context menus use the selected row in the column under the pointer.
-Tabs retain their column paths. Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Tabs retain their column paths, queries, and active column. Tab duplication copies this state independently.
+Explicit navigation, history movement, and Refresh start a new path at the requested folder.
+Refresh preserves that folder's query. Navigation to a different root clears it.
 Mode and tab changes detach obsolete native sources and cancel pending work.
 
 ### File preview
@@ -211,6 +244,12 @@ The titlebar contains the filename, Open glyph, and normal Windows caption contr
 The content starts directly below it, without a second filename or Close row.
 Escape or the caption Close button closes only that preview.
 The preview does not assign initial focus to a caption button.
+Its loaded content uses an opt-in 180 ms entry, authored in `PreviewLayout.xui`.
+The native editor retains focus and selection during entry.
+The titlebar, status row, and native window stay stationary.
+Reduced motion settles entry immediately. Closure does not wait for the animation.
+Entry belongs to the preview window and continues independently if Explorer closes.
+Failed file reads report their error without opening the content reveal.
 Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.
@@ -269,6 +308,13 @@ Preview closure cancels pending delivery and retires its native text, images, an
 One preview's teardown does not invalidate images in another window.
 
 ### Keyboard and palettes
+
+Command and location palettes appear immediately, without scrolling their results into place.
+The query editor, results, status area, and popup frame stay stationary.
+Typing and command execution work immediately.
+Cold queries clear old suggestions immediately. Canceled requests cannot replace newer results.
+Escape and execution dismiss immediately, without an animated exit.
+There is no animated palette entry.
 
 | Input | Action |
 | --- | --- |
@@ -371,7 +417,7 @@ The same rule applies after quote removal and environment-variable expansion.
 Prefix matches appear before other substring matches.
 Tab completion adds a trailing slash to a directory and leaves the caret at the end of the completed path.
 Within a loaded folder, the palette filters its snapshot immediately without a delay or an empty intermediate view.
-For a different folder, the existing rows remain visible but cannot activate until the new scan finishes.
+For a different folder, the palette clears old rows and disables results until the new scan finishes.
 With no selected result, Enter attempts to open the typed folder.
 Explicit file activation uses the Windows file association, which can run executable files.
 

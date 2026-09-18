@@ -12,7 +12,6 @@
 #include <cmath>
 
 namespace xui {
-namespace {
 RECT clipped_bounds(HWND window) {
     RECT rect{};
     if (!IsWindowVisible(window) || !GetWindowRect(window, &rect)) return {};
@@ -31,6 +30,7 @@ RECT clipped_bounds(HWND window) {
     }
     return rect;
 }
+namespace {
 ControlSnapshot read(const std::shared_ptr<ControlAccessibility>& state) {
     std::lock_guard lock(state->mutex);
     return state->snapshot;
@@ -653,6 +653,7 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     if (const auto collection = dynamic_cast<const VirtualCollection*>(&control)) {
         next.single_selection = !collection->multiple_selection();
         next.collection = collection->source(); next.selection = collection->selection();
+        next.collection_presentation = detail::CollectionPresentationAccess::get(*collection);
         next.collection_columns = collection->columns(); next.collection_item_height = collection->item_size().height;
         const auto viewport = collection->content_viewport();
         next.collection_offset = collection->offset(); next.collection_width = viewport.width;

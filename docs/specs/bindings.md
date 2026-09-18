@@ -786,7 +786,8 @@ Button styles change presentation.
 Native behavior, input, and accessibility stay unchanged.
 This compatible `ButtonStyle` API supports `Button` only.
 Typography and named parts use the [generic control-style API](#generic-control-styles).
-Neither API provides control templates, item templates, animations, or arbitrary brushes.
+Neither styling API provides control templates, item templates, animated style transitions, or arbitrary brushes.
+The separate [Reveal host](animations.md) supplies opt-in edge motion and layout expansion.
 `Window.Style` selects Classic or WinUI presentation.
 `Button.Style` supplies an application-authored definition on that presentation.
 

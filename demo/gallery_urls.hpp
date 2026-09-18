@@ -14,7 +14,7 @@ inline std::wstring documentation_url(std::wstring_view path) {
         return root + L"choose-a-control/controls/" + std::wstring(path.substr(controls.size())) + L"/";
     if (path.starts_with(languages))
         return root + L"learn/languages/" + std::wstring(path.substr(languages.size())) + L"/";
-    if (path == L"docs/specs/menus-and-input" || path == L"docs/specs/winui-style")
+    if (path == L"docs/specs/menus-and-input" || path == L"docs/specs/winui-style" || path == L"docs/specs/animations")
         return root + L"contracts/" + std::wstring(path.substr(std::wstring_view(L"docs/specs/").size())) + L"/";
     throw std::invalid_argument("Gallery documentation page has no handbook route");
 }

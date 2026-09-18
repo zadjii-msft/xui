@@ -5,6 +5,7 @@ public enum ExplorerViewMode { Details, Columns }
 public sealed class ExplorerColumn(DirectorySnapshot snapshot)
 {
     public DirectorySnapshot Snapshot { get; } = snapshot;
+    public string Filter { get; set; } = "";
     public string? SelectedPath { get; set; }
     public double ScrollOffset { get; set; }
 }
@@ -52,7 +53,7 @@ public sealed class ExplorerTab
         copy.history.AddRange(history);
         copy.columns.AddRange(columns.Select(column => new ExplorerColumn(column.Snapshot)
         {
-            SelectedPath = column.SelectedPath, ScrollOffset = column.ScrollOffset
+            Filter = column.Filter, SelectedPath = column.SelectedPath, ScrollOffset = column.ScrollOffset
         }));
         return copy;
     }
@@ -61,6 +62,7 @@ public sealed class ExplorerTab
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         if (ViewMode == mode) return;
+        if (ViewMode == ExplorerViewMode.Columns && columns.Count > 0) Filter = columns[^1].Filter;
         ViewMode = mode;
         ResetColumns();
     }
@@ -70,7 +72,7 @@ public sealed class ExplorerTab
         columns.Clear();
         ActiveColumn = 0;
         if (ViewMode == ExplorerViewMode.Columns)
-            columns.Add(new(new(Path, Entries)) { SelectedPath = SelectedPath, ScrollOffset = ScrollOffset });
+            columns.Add(new(new(Path, Entries)) { Filter = Filter, SelectedPath = SelectedPath, ScrollOffset = ScrollOffset });
     }
 
     public void CommitColumn(int parent, DirectorySnapshot snapshot)
@@ -158,6 +160,8 @@ public sealed class ExplorerTab
     private void Apply(string path, IReadOnlyList<FileEntry> entries)
     {
         var sameDirectory = PathsEqual(Path, path);
+        if (sameDirectory && ViewMode == ExplorerViewMode.Columns && columns.Count > 0)
+            Filter = columns[^1].Filter;
         Path = path;
         Entries = entries;
         if (!sameDirectory)

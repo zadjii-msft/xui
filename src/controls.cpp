@@ -4,6 +4,12 @@
 #include <cmath>
 
 namespace xui {
+namespace {
+Insets default_button_padding(VisualStyle style) {
+    return style == VisualStyle::winui ? Insets{11, 5, 11, 6} :
+        Insets{style_metrics(style).button_padding, 6, style_metrics(style).button_padding, 6};
+}
+}
 void PageView::add_page(std::shared_ptr<Element> content) { add(std::make_shared<ContentView>(std::move(content), L"Page")); }
 void PageView::select(std::size_t index) {
     if (index >= child_count()) throw std::out_of_range("Page index");
@@ -454,8 +460,7 @@ Size Button::measure_styled(Size available) {
     const auto metrics = style_metrics(visual_style());
     if (auto_size() && values && (values->padding || values->border_thickness)) {
         const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
-        const auto padding = values->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-            visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+        const auto padding = values->padding.value_or(default_button_padding(visual_style()));
         const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
         const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
         return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
@@ -483,9 +488,7 @@ PartStyleValues Button::own_surface_style_values() const {
 }
 Rect Button::content_bounds(Rect bounds) const {
     const auto values = surface_style_values();
-    const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
     bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
@@ -564,8 +567,7 @@ Size Button::measure_control_styled(Size available) {
         return style_data_ ? measure_styled(available) : icon_ == ButtonIcon::none ? Control::measure(available) :
             constrain({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available);
     const auto metrics = style_metrics(visual_style());
-    const auto padding = values.padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding,
-        visual_style() == VisualStyle::winui ? 7.0f : 6.0f});
+    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     auto text = measured_text();
     if (icon_ != ButtonIcon::none) {
@@ -648,9 +650,10 @@ Toggle::Layout Toggle::layout_metrics() const {
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool winui = visual_style() == VisualStyle::winui;
     Layout layout;
-    layout.gap = winui ? 9.0f : 12.0f;
+    layout.gap = winui && !switch_ ? 9.0f : 12.0f;
     layout.indicator_size = indicator && indicator->size ? *indicator->size : (switch_ ? 20.0f : winui ? 19.0f : 18.0f);
-    layout.padding = root && root->padding ? *root->padding : Insets{winui ? 0.0f : 12.0f, 0, 12, 0};
+    layout.padding = root && root->padding ? *root->padding :
+        winui ? Insets{} : Insets{12, 0, 12, 0};
     layout.border = root && root->border_thickness ? *root->border_thickness : Insets{};
     layout.indicator_border = indicator && indicator->border_thickness ? *indicator->border_thickness : Insets{};
     return layout;
@@ -686,8 +689,20 @@ Rect Toggle::label_bounds(Rect bounds) const {
     return content;
 }
 Rect Toggle::mark_bounds(Rect bounds) const {
+    return mark_bounds(bounds, enabled());
+}
+Rect Toggle::mark_bounds(Rect bounds, bool enabled) const {
     auto mark = inset_rect(indicator_bounds(bounds), layout_metrics().indicator_border);
     if (!switch_) return mark;
+    if (visual_style() == VisualStyle::winui) {
+        const float cell = std::min(mark.height, mark.width / 2);
+        const float scale = cell / 20;
+        const float width = (!enabled || (!pressed() && !hovered()) ? 12.0f : pressed() ? 17.0f : 14.0f) * scale;
+        const float height = (!enabled || (!pressed() && !hovered()) ? 12.0f : 14.0f) * scale;
+        const float center = (checked() ? mark.width - cell / 2 : cell / 2) - 0.5f * scale;
+        const float left = enabled && pressed() ? (checked() ? mark.width - width - 3 * scale : 3 * scale) : center - width / 2;
+        return {mark.x + left, mark.y + (mark.height - height) / 2, width, height};
+    }
     const float inset = std::min(pressed() ? 2.0f : hovered() ? 2.5f : 3.0f, std::min(mark.width, mark.height) / 2);
     mark = inset_rect(mark, {inset, inset, inset, inset});
     const float size = std::min(mark.height, mark.width);
@@ -705,7 +720,8 @@ Size Toggle::measure(Size available) {
         layout.padding.right + layout.border.right;
     const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
         layout.border.top + layout.border.bottom;
-    return constrain({width, switch_ && !layout_affecting ? std::max(32.0f, height) : height}, available);
+    return constrain({width, switch_ && !layout_affecting ?
+        std::max(visual_style() == VisualStyle::winui ? 40.0f : 32.0f, height) : height}, available);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;
@@ -771,8 +787,36 @@ TabStrip::TabStrip(std::wstring name) : Control(ControlRole::tab_strip, std::mov
     adopt(new_button_);
 }
 TabStrip::~TabStrip() { new_button_->on_click({}); }
+void TabStrip::set_duration(unsigned milliseconds) {
+    if (milliseconds > 10000) throw std::invalid_argument("Tab duration must be between 0 and 10000 milliseconds");
+    if (duration_ == milliseconds) return;
+    duration_ = milliseconds;
+    settle();
+}
+void TabStrip::advance(Clock::time_point now) {
+    if (!animating()) return;
+    const float elapsed = std::chrono::duration<float, std::milli>(now - motion_started_).count();
+    const float t = std::clamp(elapsed / duration_, 0.0f, 1.0f);
+    if (t == 1) { settle(); return; }
+    const float remaining = 1 - t;
+    const float next = std::max(motion_progress_, 1 - remaining * remaining * remaining);
+    if (next == motion_progress_) return;
+    motion_progress_ = next;
+    arrange_new_button();
+    invalidate(Invalidation::placement);
+}
+void TabStrip::settle() {
+    if (!animating()) return;
+    motion_.clear();
+    motion_crossing_ = false;
+    scrolling_ = false;
+    motion_progress_ = 1;
+    arrange_new_button();
+    invalidate(Invalidation::placement);
+}
 void TabStrip::set_new_tab_button_visible(bool visible) {
     if (new_button_visible_ == visible) return;
+    settle();
     new_button_visible_ = visible;
     new_button_->set_visible(visible);
     reveal_selected();
@@ -791,10 +835,14 @@ Rect TabStrip::new_tab_button_bounds() const {
     if (!new_button_visible_) return {};
     const auto content = content_bounds();
     float right = content.x;
-    for (std::size_t i = first_; i < tabs_.size(); ++i) {
-        const auto tab = tab_bounds(i);
-        if (tab.width <= 0) break;
-        right = tab.x + tab.width;
+    if (overflows()) right += tab_viewport_width();
+    else if (animating()) right = new_button_from_ + (new_button_to_ - new_button_from_) * motion_progress_;
+    else {
+        for (std::size_t i = first_; i < tabs_.size(); ++i) {
+            const auto tab = tab_bounds(i);
+            if (tab.width <= 0) break;
+            right = std::max(right, tab.x + tab.width);
+        }
     }
     return {right, content.y + std::min(3.0f, content.height),
         std::min(32.0f, std::max(0.0f, content.x + content.width - right)), std::max(0.0f, content.height - 6)};
@@ -825,21 +873,77 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
     if (selected && std::none_of(tabs.begin(), tabs.end(), [&](const auto& tab) { return tab.id == *selected; }))
         throw std::invalid_argument("Selected tab must exist");
     if (!tabs.empty() && !selected) selected = tabs.front().id;
+    if (tabs == tabs_ && selected == selected_) return;
+    const bool same_ids = tabs.size() == tabs_.size() &&
+        std::equal(tabs.begin(), tabs.end(), tabs_.begin(), [](const auto& a, const auto& b) { return a.id == b.id; });
+    const auto previous_button_x = new_tab_button_bounds().x;
+    const auto previous_presented_first = presented_first();
+    std::vector<TabMotion> next;
+    bool crossing = motion_crossing_;
+    if (!same_ids && duration_ && !tabs_.empty() && tabs.size() > tabs_.size() && tabs_fit()) {
+        next.reserve(tabs.size());
+        std::size_t old{};
+        float x = content_bounds().x;
+        for (const auto& tab : tabs) {
+            const auto from = old < tabs_.size() && tabs_[old].id == tab.id ?
+                tab_bounds(old++) : Rect{x, content_bounds().y, 0, content_bounds().height};
+            next.push_back({tab.id, from, {}});
+            x = from.x + from.width;
+        }
+        // Only insertion preserving every prior ID's order is compatible with the current presentation.
+        if (old != tabs_.size()) next.clear();
+    } else if (!same_ids && duration_ && !tabs.empty() && tabs.size() < tabs_.size() && tabs_fit()) {
+        next.reserve(tabs.size());
+        std::size_t old{};
+        for (const auto& tab : tabs) {
+            while (old < tabs_.size() && tabs_[old].id != tab.id) ++old;
+            if (old == tabs_.size()) { next.clear(); break; }
+            next.push_back({tab.id, tab_bounds(old++), {}});
+        }
+    } else if (!same_ids && duration_ && !tabs.empty() && tabs.size() == tabs_.size() && tabs_fit()) {
+        next.reserve(tabs.size());
+        for (const auto& tab : tabs) {
+            const auto old = std::find_if(tabs_.begin(), tabs_.end(), [&](const auto& item) { return item.id == tab.id; });
+            if (old == tabs_.end()) { next.clear(); break; }
+            next.push_back({tab.id, tab_bounds(static_cast<std::size_t>(old - tabs_.begin())), {}});
+        }
+        crossing = true;
+    }
+    if (!same_ids) { motion_.clear(); motion_crossing_ = false; scrolling_ = false; }
+    const auto previous_first = first_;
     tabs_ = std::move(tabs);
     drop_indicator_.reset();
     ++tabs_revision_;
     selected_ = selected;
     reveal_selected();
+    if (first_ != previous_first || !tabs_fit()) {
+        motion_.clear();
+        motion_crossing_ = false;
+        next.clear();
+    }
+    if (same_ids && first_ != previous_first) start_scroll(previous_presented_first);
+    if (!next.empty()) {
+        for (std::size_t i = 0; i < next.size(); ++i) next[i].to = target_tab_bounds(i);
+        new_button_from_ = previous_button_x;
+        new_button_to_ = new_tab_button_bounds().x;
+        motion_ = std::move(next);
+        motion_crossing_ = crossing;
+        motion_progress_ = 0;
+        motion_started_ = Clock::now();
+    }
     arrange_new_button();
-    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
+    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::paint);
 }
 bool TabStrip::select(std::uint64_t id) {
     if (!enabled() || std::none_of(tabs_.begin(), tabs_.end(), [&](const auto& tab) { return tab.id == id; })) return false;
     if (selected_ == id) return true;
     selected_ = id;
+    const auto previous_first = first_;
+    const auto previous_presented_first = presented_first();
     reveal_selected();
+    if (first_ != previous_first) start_scroll(previous_presented_first);
     arrange_new_button();
-    invalidate(new_button_visible_ ? Invalidation::layout : Invalidation::paint);
+    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::paint);
     if (select_) { auto callback = select_; callback(id); }
     return true;
 }
@@ -870,12 +974,69 @@ bool TabStrip::prepare_context_menu(std::optional<Point> position) {
     return context_tab_.has_value();
 }
 Rect TabStrip::tab_bounds(std::size_t index) const {
+    if (scrolling_) {
+        if (index >= tabs_.size()) return {};
+        const auto content = content_bounds();
+        const double width = target_tab_width();
+        const double first = presented_first();
+        const double left = (static_cast<double>(index) - first) * width;
+        const double right = std::min((static_cast<double>(index + 1) - first) * width,
+            static_cast<double>(tab_viewport_width()));
+        if (right <= 0 || left >= right) return {};
+        const float start = content.x + static_cast<float>(std::max(0.0, left));
+        const float end = content.x + static_cast<float>(right);
+        float extent = std::max(0.0f, end - start);
+        if (start + extent > end) extent = std::nextafter(extent, 0.0f);
+        return {start, content.y, extent, content.height};
+    }
+    auto rect = motion_tab_bounds(index);
+    if (!motion_crossing_ || rect.width <= 0) return rect;
+    const double center = static_cast<double>(rect.x) + rect.width / 2.0;
+    double scale = 1;
+    // Disjoint rectangles keep paint, pointer, and UIA ordering equivalent during crossings.
+    for (std::size_t i = 0; i < motion_.size(); ++i) if (i != index) {
+        const auto other = motion_tab_bounds(i);
+        if (other.width <= 0) continue;
+        const double distance = std::abs(center - (static_cast<double>(other.x) + other.width / 2.0));
+        scale = std::min(scale, distance / (rect.width / 2.0 + other.width / 2.0));
+    }
+    if (scale == 1) return rect;
+    const double left = center - rect.width * scale / 2, right = center + rect.width * scale / 2;
+    rect.x = static_cast<float>(left);
+    float end = static_cast<float>(right);
+    // Round inward so subpixel crossings cannot create competing hit targets.
+    if (rect.x < left) rect.x = std::nextafter(rect.x, std::numeric_limits<float>::infinity());
+    if (end > right) end = std::nextafter(end, -std::numeric_limits<float>::infinity());
+    rect.width = std::max(0.0f, end - rect.x);
+    if (rect.x + rect.width > end) rect.width = std::nextafter(rect.width, 0.0f);
+    return rect;
+}
+Rect TabStrip::motion_tab_bounds(std::size_t index) const {
+    if (index < motion_.size() && index < tabs_.size() && motion_[index].id == tabs_[index].id) {
+        const auto& item = motion_[index];
+        const auto blend = [&](float from, float to) { return from + (to - from) * motion_progress_; };
+        return {blend(item.from.x, item.to.x), blend(item.from.y, item.to.y),
+            blend(item.from.width, item.to.width), blend(item.from.height, item.to.height)};
+    }
+    return target_tab_bounds(index);
+}
+float TabStrip::target_tab_width() const {
+    const auto* tab = effective_control_style_values(StylePart::tab);
+    return std::min(tab && tab->width ? *tab->width : 180.0f,
+        tab_viewport_width() / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
+}
+bool TabStrip::overflows() const {
+    return tabs_.size() * target_tab_width() > tab_viewport_width() + 0.01f;
+}
+bool TabStrip::tabs_fit() const {
+    return first_ == 0 && content_bounds().height > 0 && target_tab_width() > 0 &&
+        !overflows();
+}
+Rect TabStrip::target_tab_bounds(std::size_t index) const {
     if (index >= tabs_.size() || index < first_) return {};
     const auto content = content_bounds();
     const auto viewport = tab_viewport_width();
-    const auto* tab = effective_control_style_values(StylePart::tab);
-    const auto width = std::min(tab && tab->width ? *tab->width : 180.0f,
-        viewport / std::max(1.0f, std::min(3.0f, static_cast<float>(tabs_.size()))));
+    const auto width = target_tab_width();
     const float x = content.x + (index - first_) * width;
     return {x, content.y, std::max(0.0f, std::min(width, content.x + viewport - x)), content.height};
 }
@@ -889,7 +1050,8 @@ Rect TabStrip::content_bounds(Rect content) const {
 }
 std::optional<std::size_t> TabStrip::hit_test(float x) const {
     if (x < 0 || x >= bounds().width) return {};
-    for (std::size_t i = first_; i < tabs_.size(); ++i) {
+    const auto first = scrolling_ ? static_cast<std::size_t>(presented_first()) : first_;
+    for (std::size_t i = first; i < tabs_.size(); ++i) {
         const auto rect = tab_bounds(i);
         if (x >= rect.x && x < rect.x + rect.width) return i;
     }
@@ -926,16 +1088,36 @@ Rect TabStrip::close_bounds(std::size_t index) const {
 }
 void TabStrip::reveal_selected() {
     first_ = std::min(first_, tabs_.empty() ? 0 : tabs_.size() - 1);
+    if (!overflows()) first_ = 0;
     if (!selected_) return;
     for (std::size_t i = 0; i < tabs_.size(); ++i) if (tabs_[i].id == selected_) {
         if (i < first_) first_ = i;
-        const auto* tab = effective_control_style_values(StylePart::tab);
-        const float minimum = std::min({120.0f, tab && tab->width ? *tab->width : 180.0f, tab_viewport_width()});
-        while (first_ < i && tab_bounds(i).width < minimum) ++first_;
+        const float minimum = std::min(120.0f, target_tab_width());
+        while (first_ < i && target_tab_bounds(i).width + 0.01f < minimum) ++first_;
         break;
     }
 }
-void TabStrip::arrange(Rect rect) { Element::arrange(rect); reveal_selected(); arrange_new_button(); }
+double TabStrip::presented_first() const {
+    return scrolling_ ? std::lerp(scroll_from_, static_cast<double>(first_), static_cast<double>(motion_progress_)) :
+        static_cast<double>(first_);
+}
+void TabStrip::start_scroll(double from) {
+    motion_.clear();
+    motion_crossing_ = false;
+    scrolling_ = duration_ && from != static_cast<double>(first_) && target_tab_width() > 0 && content_bounds().height > 0;
+    scroll_from_ = from;
+    motion_progress_ = scrolling_ ? 0.0f : 1.0f;
+    motion_started_ = Clock::now();
+}
+void TabStrip::arrange(Rect rect) {
+    const auto previous = bounds();
+    Element::arrange(rect);
+    if (bounds().width != previous.width || bounds().height != previous.height) settle();
+    const auto previous_first = first_;
+    reveal_selected();
+    if (first_ != previous_first) settle();
+    arrange_new_button();
+}
 ContentView::ContentView(std::shared_ptr<Element> content, std::wstring name)
     : Control(ControlRole::content_view, std::move(name), {320, 240}), content_(std::move(content)) { adopt(content_); }
 Size ContentView::measure(Size available) {
@@ -962,6 +1144,10 @@ StyleStateMask SplitView::control_style_state_bits() const {
 }
 void SplitView::set_style_dragging(bool value) {
     if (style_dragging_ == value) return;
+    if (value) {
+        if (ratio_animating_) ratio_ = ratio_presented_ / (pane_area().width - effective_divider_width());
+        settle();
+    }
     style_dragging_ = value;
     if (!invalidate_control_style_state()) invalidate(Invalidation::paint);
 }
@@ -973,23 +1159,41 @@ Rect SplitView::pane_area() const { return layout_style::content(*this, bounds()
 bool SplitView::expanded() const {
     return secondary_visible_ && (!primary_visible_ || pane_area().width >= 2 * minimum_pane_width + effective_divider_width());
 }
+float SplitView::presented_first_width() const {
+    if (ratio_animating_) return ratio_presented_;
+    const float width = pane_area().width - effective_divider_width();
+    return width >= 2 * minimum_pane_width ?
+        std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width) : width;
+}
 Rect SplitView::divider() const {
-    if (!expanded()) return {};
     const auto b = pane_area();
-    if (!primary_visible_) return {b.x, b.y, 0, b.height};
+    if (!primary_visible_) return secondary_visible_ ? Rect{b.x, b.y, 0, b.height} : Rect{};
+    if (b.width < 2 * minimum_pane_width + effective_divider_width() || progress_ == 0) return {};
     const auto divider_extent = effective_divider_width();
-    const float width = b.width - divider_extent;
-    const float left = std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width);
-    return {b.x + left, b.y, divider_extent, b.height};
+    const float left = presented_first_width();
+    return {b.x + b.width - (b.width - left) * progress_, b.y, divider_extent * progress_, b.height};
 }
 void SplitView::arrange(Rect rect) {
     Element::arrange(rect);
     const auto b = pane_area();
-    const auto d = divider();
-    first_->arrange(layout_style::content(*this, {b.x, b.y, primary_visible_ ? (expanded() ? d.x - b.x : b.width) : 0,
-        primary_visible_ ? b.height : 0}, StylePart::first_pane));
-    second_->arrange(layout_style::content(*this, {expanded() ? d.x + d.width : b.x + b.width, b.y,
-        expanded() ? b.x + b.width - d.x - d.width : 0, expanded() ? b.height : 0}, StylePart::second_pane));
+    if (!primary_visible_) {
+        settle();
+        first_->arrange(layout_style::content(*this, {b.x, b.y, 0, 0}, StylePart::first_pane));
+        second_->arrange(layout_style::content(*this, {b.x, b.y,
+            secondary_visible_ ? b.width : 0, secondary_visible_ ? b.height : 0}, StylePart::second_pane));
+    } else {
+        if (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height)) settle();
+        const bool available = b.width >= 2 * minimum_pane_width + effective_divider_width();
+        if (!available) settle();
+        const bool presenting = available && (secondary_visible_ || animating_ || progress_ > 0);
+        const auto width = std::max(0.0f, b.width - effective_divider_width());
+        const auto left = available ? presented_first_width() : width;
+        const auto right = width - left;
+        first_->arrange(layout_style::content(*this, {b.x, b.y,
+            presenting ? b.width - (right + effective_divider_width()) * progress_ : b.width, b.height}, StylePart::first_pane));
+        second_->arrange(layout_style::content(*this, {presenting ? b.x + b.width - right * progress_ : b.x + b.width, b.y,
+            presenting ? right : 0, presenting ? b.height : 0}, StylePart::second_pane));
+    }
     const bool value = expanded();
     if (arranged_expanded_ != value) {
         arranged_expanded_ = value;
@@ -1001,16 +1205,76 @@ void SplitView::set_ratio(float value) {
     if (!std::isfinite(value)) return;
     value = std::clamp(value, 0.1f, 0.9f);
     if (value == ratio_) return;
-    ratio_ = value;
+    const bool animate = transition_duration_ && primary_visible_ && !style_dragging_ && expanded() && progress_ == 1 &&
+        second_->bounds().width > 0 && second_->bounds().height > 0 &&
+        (!animating_ || ratio_animating_);
+    if (animate) {
+        ratio_start_ = presented_first_width();
+        ratio_ = value;
+        const auto area = pane_area();
+        const float width = area.width - effective_divider_width();
+        ratio_target_ = std::clamp(width * ratio_, minimum_pane_width, width - minimum_pane_width);
+        ratio_presented_ = ratio_start_;
+        ratio_viewport_ = {area.width, area.height};
+        started_ = Clock::now();
+        animating_ = ratio_animating_ = ratio_start_ != ratio_target_;
+    } else {
+        settle();
+        ratio_ = value;
+    }
     invalidate(Invalidation::layout);
 }
 void SplitView::set_secondary_visible(bool value) {
     if (secondary_visible_ == value) return;
+    if (ratio_animating_) settle();
+    const auto now = Clock::now();
+    advance(now);
     secondary_visible_ = value;
+    start_ = progress_;
+    started_ = now;
+    animating_ = transition_duration_ && primary_visible_ && progress_ != (value ? 1.0f : 0.0f);
+    if (!animating_) progress_ = value ? 1.0f : 0.0f;
+    invalidate(Invalidation::layout);
+}
+void SplitView::set_transition_duration(unsigned milliseconds) {
+    if (milliseconds > 10000) throw std::invalid_argument("Split transition duration must be between 0 and 10000 milliseconds");
+    if (transition_duration_ == milliseconds) return;
+    transition_duration_ = milliseconds;
+    settle();
+}
+void SplitView::advance(Clock::time_point now) {
+    if (!animating_) return;
+    const float elapsed = std::chrono::duration<float, std::milli>(now - started_).count();
+    const auto t = std::clamp(elapsed / transition_duration_, 0.0f, 1.0f);
+    if (t == 1) { settle(); return; }
+    if (ratio_animating_) {
+        const float remaining = 1 - t;
+        const float next = ratio_start_ + (ratio_target_ - ratio_start_) * (1 - remaining * remaining * remaining);
+        const float presented = ratio_target_ > ratio_start_ ?
+            std::max(ratio_presented_, next) : std::min(ratio_presented_, next);
+        if (presented == ratio_presented_) return;
+        ratio_presented_ = presented;
+        invalidate(Invalidation::layout);
+        return;
+    }
+    const float remaining = 1 - t, target = secondary_visible_ ? 1.0f : 0.0f;
+    const auto next = start_ + (target - start_) * (1 - remaining * remaining * remaining);
+    const auto progress = secondary_visible_ ? std::max(progress_, next) : std::min(progress_, next);
+    if (progress == progress_) return;
+    progress_ = progress;
+    invalidate(Invalidation::layout);
+}
+void SplitView::settle() {
+    const auto target = secondary_visible_ ? 1.0f : 0.0f;
+    if (!animating_ && progress_ == target) return;
+    animating_ = false;
+    ratio_animating_ = false;
+    progress_ = target;
     invalidate(Invalidation::layout);
 }
 void SplitView::set_primary_visible(bool value) {
     if (primary_visible_ == value) return;
+    settle();
     primary_visible_ = value;
     if (!value) set_style_dragging(false);
     invalidate(Invalidation::layout);
