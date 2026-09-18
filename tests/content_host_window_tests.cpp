@@ -2,6 +2,7 @@
 #include "xui/documents.hpp"
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
+#include "native_focus_diagnostics.hpp"
 #include <windows.h>
 #include <ole2.h>
 #include <UIAutomation.h>
@@ -128,6 +129,7 @@ void model_contract() {
     rejects<std::logic_error>([&] { window.replace_content(*host, {}); }, "Reject closed window");
 }
 void native_contract(VisualStyle style) {
+    native_focus_diagnostics::Trace trace(style == VisualStyle::winui ? "ContentHost WinUI" : "ContentHost Classic");
     WindowOptions options;
     options.title = L"XUI ContentHost native contract";
     options.size = {900, 650};
@@ -184,7 +186,7 @@ void native_contract(VisualStyle style) {
         for (unsigned i = 1; i <= 100; ++i) {
             const auto previous = host->content();
             auto candidate = preview(i);
-            window.replace_content(*host, candidate);
+            trace.during("replace ContentHost", [&] { window.replace_content(*host, candidate); });
             check(descendants(hwnd).size() == count, "One hundred replacements have bounded HWND count");
             check(native(hwnd, L"RICHEDIT50W") == edit_hwnd && native(hwnd, L"EDIT") == input_hwnd,
                 "Outside editor HWNDs are stable");
@@ -262,6 +264,7 @@ void native_contract(VisualStyle style) {
     check(result == 0 && ran, "Native replacement contract completes");
     rejects<std::logic_error>([&] { window.replace_content(*host, {}); }, "Replacement after shutdown rejected");
     check(!window.post([] {}), "Shutdown rejects future work");
+    trace.verify_passive();
 }
 void provider_contract() {
     WindowOptions options;

@@ -69,7 +69,7 @@ The September 18, 2026 consolidation merged `origin/main` at `972d144` through `
 Commit `c83411b` added the Terminal branch's split-axis APIs while preserving upstream split animations.
 The ARM64 Release build included the framework DLL, native regression fixtures, and the triangle sample.
 
-The fixed CTest batch passed nine of twelve groups.
+The initial fixed CTest batch passed nine of twelve groups.
 Split animation, split-axis input, controls, layout styles, foundation, explorer, swap-chain hosting, swap-chain ABI, and native key routing passed.
 Three groups failed their existing focus or foreground assertions: live swap-chain overlays, popup input/lifetime, and native ContentHost replacement.
 The overlay fixture reached visible two-producer occlusion before its foreground assertion failed during subsequent operations.
@@ -77,8 +77,27 @@ These failures remain unclassified. They do not establish whether the framework 
 
 One diagnostic ContentHost run passed after the fixture gained numeric HWND diagnostics.
 That result is a non-reproduction, not a correction of the failed batch.
-The overlay and popup fixtures also gained failure-only HWND diagnostics, without another desktop run or weaker assertions.
-`build/arm64/Testing/Temporary/LastTest.log` contains the original CTest results until a later CTest run replaces it.
+The overlay and popup fixtures also gained failure-only HWND diagnostics without weaker assertions.
+The original failed batch remains in the parent session's `files/framework-integration-c83411b-ctest.log`.
+
+The follow-up added `tests/native_focus_diagnostics.hpp`, a thread-local CBT observer.
+It records focus and activation notifications synchronously, with bounded storage and operation labels.
+An initial diagnostic batch passed all three previously failed groups, without observed focus requests, activation requests, or foreground changes.
+The original test order then passed eleven groups and failed the panel fixture's existing foreground assertion.
+The panel fixture did not yet have the CBT observer during that failure.
+An instrumented panel run subsequently passed, without observed requests or foreground changes.
+
+The final fixed batch added strict passive-focus checks to all four affected fixtures.
+Those checks reject transient focus or activation requests, sampled foreground changes, and diagnostic overflow.
+All twelve groups passed in 20.64 seconds on September 18, 2026.
+All eight instrumented cases reported zero activation requests, focus requests, sampled foreground changes, and dropped records.
+The final log is `files/focus-final-acceptance-20260918.log` in the parent session.
+The diagnostic and ordered-batch logs remain beside it.
+
+This final batch passes the current ARM64 acceptance checks with stronger assertions and unchanged production code.
+The earlier foreground failures remain unclassified, not corrected or proven external.
+The observer covers the fixture UI thread, not every application on the desktop.
+Review must distinguish the current passing checks from a root-cause explanation of the earlier failures.
 
 Separate checks passed for native split ABI, managed split visibility and animation, and the generator.
 Non-activating label backgrounds, expander surfaces, and range focus checks passed.
@@ -87,7 +106,7 @@ Documentation checks passed. Foreground-dependent animation and inspection fixtu
 
 The consolidation does not import Terminal application code, packages, or runtime evidence into XUI.
 The separate Terminal output timeouts and earlier UIA event-cache failure remain unresolved.
-The framework PR remains a draft until the failed focus/foreground gate has a classification and any required correction.
+The passing framework batch does not resolve those separate application failures.
 
 ### Hidden scroll views
 

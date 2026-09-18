@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "../demo/swap_chain_renderer.hpp"
 #include "owned_window_capture.hpp"
+#include "native_focus_diagnostics.hpp"
 #include "../src/native_swap_chain_host.hpp"
 #include <algorithm>
 #include <atomic>
@@ -205,6 +206,7 @@ void callback_lifetime_case(unsigned mode) {
 }
 
 void run_case(bool surface_handle, bool capture) {
+    native_focus_diagnostics::Trace trace(surface_handle ? "handle swap-chain panel" : "pointer swap-chain panel");
     WindowOptions options;
     options.title = surface_handle ? L"XUI owned surface-handle regression" : L"XUI owned swap-chain regression";
     options.size = {720, 580};
@@ -285,6 +287,7 @@ void run_case(bool surface_handle, bool capture) {
                     if (callback_error) std::rethrow_exception(callback_error);
                 };
                 auto stage = [&](const char* name) {
+                    trace.during(name, [] {});
                     std::cout << (surface_handle ? "Handle: " : "Pointer: ") << name << '\n' << std::flush;
                 };
                 auto dimensions = [&] {
@@ -451,10 +454,14 @@ void run_case(bool surface_handle, bool capture) {
                 stage("popup and native editor");
                 const auto popup_metrics = panel->metrics();
                 const auto popup_host = panel->native_window();
-                window.show_popup(popup, *anchor); sync();
+                trace.during("show panel popup", [&] { window.show_popup(popup, *anchor); sync(); });
                 require(popup->is_open() && panel->metrics() == popup_metrics && panel->native_window() == popup_host,
                     "Popup preserves live native graphics metrics and HWND");
-                require(GetForegroundWindow() == foreground, "Background popup does not activate its owner");
+                const auto actual_foreground = GetForegroundWindow();
+                if (actual_foreground != foreground)
+                    std::cerr << "Panel owner=" << hwnd << " foreground=" << foreground
+                        << " -> " << actual_foreground << '\n';
+                require(actual_foreground == foreground, "Background popup does not activate its owner");
                 window.dismiss_popup(*popup); sync();
                 // Native editor messages target only this owned, non-activated window.
                 const auto focus = GetFocus();
@@ -588,6 +595,7 @@ void run_case(bool surface_handle, bool capture) {
     require(notifications.size() == callbacks_at_close, "Close does not call producer during resource teardown");
     released(lifetime, "Window close releases producer before retained control destruction");
     require(retired && !retired->native_window() && !retired->has_content(), "Earlier retired control stays detached after COM shutdown");
+    trace.verify_passive();
     std::cout << (surface_handle ? "Surface handle" : "Swap-chain pointer") <<
         ": native layout, DPI, clipping, visibility, popup, editor, replacement, and lifetime passed" <<
         (capture ? " with real compositor pixels\n" : " (pixel capture explicitly disabled)\n");

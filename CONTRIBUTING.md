@@ -131,6 +131,26 @@ This fixture requires popup pixels above two live producers, without changes to 
 It captures only its own window and requires the foreground window to stay unchanged.
 It has no capture-disabled mode.
 
+### Native foreground acceptance
+
+Run the fixed batch without clicking, typing, or switching desktop windows:
+
+```powershell
+cmake --build $build --config Release --target xui_split_animation_tests xui_control_tests xui_style_layouts_tests xui_foundation_tests xui_swap_chain_panel_tests xui_swap_chain_overlay_tests xui_swap_chain_abi_tests xui_swap_chain_input_tests xui_swap_chain_popup_input_tests xui_content_host_window_tests xui_split_axis_window_tests xui_explorer_tests
+ctest --test-dir $build -C Release -R "^xui_(split_animation|control|style_layouts|foundation|swap_chain_panel|swap_chain_overlay|swap_chain_abi|swap_chain_input|swap_chain_popup_input|content_host_window|split_axis_window|explorer)_tests$" --output-on-failure
+```
+
+Four fixtures use a thread-local CBT observer: swap-chain panels, live overlays, popup input/lifetime, and native ContentHost replacement.
+They reject focus or activation requests on the observed UI thread, including transient requests between existing assertions.
+They also reject sampled foreground changes and diagnostic buffer overflow.
+The observer never blocks an operation or injects input.
+Its diagnostics contain operation names, numeric HWNDs, process IDs, and timestamps, not external window titles or content.
+
+If a fixture fails, preserve `Testing\Temporary\LastTest.log` before another CTest run.
+Read the operation and HWND records before attributing the failure to XUI or external desktop activity.
+An unchanged foreground at a later assertion does not cancel an observed focus request.
+A later passing run does not explain an earlier failure.
+
 ### Use XUI in a C++ application
 
 Link the executable to `xui_windows`.

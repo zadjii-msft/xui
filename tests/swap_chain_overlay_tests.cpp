@@ -1,6 +1,7 @@
 #include "xui/application.hpp"
 #include "../demo/swap_chain_renderer.hpp"
 #include "owned_window_capture.hpp"
+#include "native_focus_diagnostics.hpp"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -75,6 +76,7 @@ bool producer_pixel(DWORD pixel) {
 }
 
 void run_case(bool nested) {
+    native_focus_diagnostics::Trace trace(nested ? "nested swap-chain overlay" : "direct swap-chain overlay");
     std::cout << (nested ? "Nested native hosts\n" : "Direct native hosts\n") << std::flush;
     const auto original_foreground = GetForegroundWindow();
     WindowOptions options;
@@ -181,9 +183,11 @@ void run_case(bool nested) {
                         "Overlay operations preserve the foreground window");
                 };
                 auto capture = [&] {
-                    flush(root_hwnd);
+                    trace.during("flush overlay", [&] { flush(root_hwnd); });
                     unchanged();
-                    return owned_window_capture::capture(root_hwnd);
+                    owned_window_capture::Pixels pixels;
+                    trace.during("capture overlay", [&] { pixels = owned_window_capture::capture(root_hwnd); });
+                    return pixels;
                 };
                 auto visible_producers = [&](const owned_window_capture::Pixels& frame, bool alternate) {
                     for (std::size_t i = 0; i < panels.size(); ++i) {
@@ -195,7 +199,7 @@ void run_case(bool nested) {
                 visible_producers(capture(), false);
                 std::cout << "Two live producers captured before overlay\n" << std::flush;
 
-                window.show_popup(popup, *anchor);
+                trace.during("show overlay", [&] { window.show_popup(popup, *anchor); });
                 require(popup->is_open(), "Overlay opens above active swap-chain content");
                 flush(root_hwnd);
                 const auto overlay = client_bounds(find_popup(root_hwnd), root_hwnd);
@@ -254,7 +258,7 @@ void run_case(bool nested) {
                     result_style.border_thickness = Insets{};
                     result_style.corner_radius = 0.0f;
                     result->set_control_style_values(StylePart::root, result_style);
-                    window.replace_content(*results, result);
+                    trace.during("replace popup result", [&] { window.replace_content(*results, result); });
                     const auto result_frame = capture();
                     const auto current_overlay = client_bounds(find_popup(root_hwnd), root_hwnd);
                     require(popup->is_open() && EqualRect(&current_overlay, &overlay),
@@ -271,7 +275,7 @@ void run_case(bool nested) {
                             }) == 0, "Replacement removes the retired result pixels");
                     }
                 }
-                window.replace_content(*results, {});
+                trace.during("clear popup result", [&] { window.replace_content(*results, {}); });
                 const auto empty_frame = capture();
                 visible_producers(empty_frame, true);
                 occludes(empty_frame);
@@ -281,7 +285,7 @@ void run_case(bool nested) {
                     }) == 0, "Empty results remove the last result pixels without exposing the producers");
                 std::cout << "Repeated and empty popup results captured above both live producers\n" << std::flush;
 
-                window.dismiss_popup(*popup);
+                trace.during("dismiss overlay", [&] { window.dismiss_popup(*popup); });
                 require(!popup->is_open(), "Overlay dismissal completes");
                 auto closed_frame = capture();
                 visible_producers(closed_frame, true);
@@ -315,6 +319,7 @@ void run_case(bool nested) {
     require(!popup->is_open(), "Popup is closed after owner teardown");
     for (const auto& panel : panels)
         require(!panel->native_window() && !panel->has_content(), "Owner teardown releases each native composition host");
+    trace.verify_passive();
     std::cout << "Live swap-chain overlay compositor regression passed\n";
 }
 }

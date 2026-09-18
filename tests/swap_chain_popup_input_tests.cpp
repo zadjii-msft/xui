@@ -2,6 +2,7 @@
 #include "xui/documents.hpp"
 #include "../src/drawing.hpp"
 #include "../demo/swap_chain_renderer.hpp"
+#include "native_focus_diagnostics.hpp"
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -66,6 +67,7 @@ void presented(HWND hwnd) {
     }
 }
 void run(bool paint_failure) {
+    native_focus_diagnostics::Trace trace(paint_failure ? "popup paint failure" : "popup input and lifetime");
     const auto foreground = GetForegroundWindow();
     const auto targets = Drawing::live_targets();
     WindowOptions options;
@@ -110,16 +112,18 @@ void run(bool paint_failure) {
                 panel->set_swap_chain(producer->chain());
                 producer->render(panel->metrics(), false);
                 const auto metrics = panel->metrics();
-                window.show_popup(popup, *anchor, search.get()); flush(hwnd);
+                trace.during("initial popup", [&] { window.show_popup(popup, *anchor, search.get()); flush(hwnd); });
                 const auto original_editor = editor(child(hwnd, L"Input overlay"));
                 const auto first_result = std::make_shared<Button>(L"First scoped result");
-                window.replace_content(*results, first_result); flush(hwnd);
+                trace.during("first result", [&] { window.replace_content(*results, first_result); flush(hwnd); });
                 require(child(hwnd, L"First scoped result"), "Popup accepts owned ContentHost replacement");
-                window.show_popup(nested, *first_result); flush(hwnd);
-                window.replace_content(*results, std::make_shared<Button>(L"Second scoped result")); flush(hwnd);
+                trace.during("nested popup", [&] { window.show_popup(nested, *first_result); flush(hwnd); });
+                trace.during("retire nested anchor", [&] {
+                    window.replace_content(*results, std::make_shared<Button>(L"Second scoped result")); flush(hwnd);
+                });
                 require(!nested->is_open(), "Replacing a result dismisses its anchored nested popup");
                 require(child(hwnd, L"Second scoped result"), "Popup result replacement retains its independent surface");
-                window.replace_content(*results, {}); flush(hwnd);
+                trace.during("empty results", [&] { window.replace_content(*results, {}); flush(hwnd); });
                 require(!results->content() && editor(child(hwnd, L"Input overlay")) == original_editor,
                     "Empty result replacement preserves the native search editor");
                 Window foreign(options);
@@ -149,19 +153,21 @@ void run(bool paint_failure) {
                 DeleteObject(region);
 
                 if (!paint_failure) {
-                    SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(0, 0)); flush(hwnd);
+                    trace.during("outside dismissal", [&] {
+                        SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(0, 0)); flush(hwnd);
+                    });
                     require(!popup->is_open() && GetForegroundWindow() == foreground, "Outside dismissal does not activate background owner");
                     bool detached_rejected{};
                     try { window.replace_content(*results, std::make_shared<Label>(L"Detached result")); }
                     catch (const std::invalid_argument&) { detached_rejected = true; }
                     require(detached_rejected, "Closed popup content is not a mounted replacement target");
                     auto dialog = std::make_shared<ContentDialog>(L"Owned modal overlay", std::make_shared<Label>(L"Modal input boundary"));
-                    window.show_dialog(dialog, *anchor); flush(hwnd);
+                    trace.during("show modal", [&] { window.show_dialog(dialog, *anchor); flush(hwnd); });
                     require(!IsWindowEnabled(host) && panel->metrics() == metrics && panel->has_content(),
                         "Modal input disables the producer peer without hiding its live surface");
                     SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(0, 0)); flush(hwnd);
                     require(dialog->popup()->is_open(), "Outside input does not dismiss a modal overlay");
-                    dialog->cancel(); flush(hwnd);
+                    trace.during("cancel modal", [&] { dialog->cancel(); flush(hwnd); });
                     require(IsWindowEnabled(host) && !dialog->popup()->is_open(), "Modal dismissal restores producer input");
                     window.show_popup(popup, *anchor, search.get()); flush(hwnd);
                     window.replace_content(*results, std::make_shared<Button>(L"Reopened scoped result")); flush(hwnd);
@@ -181,7 +187,9 @@ void run(bool paint_failure) {
                         "Resize background owner");
                     flush(hwnd);
                     GetWindowRect(hwnd, &outer);
-                    SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(144, 144), reinterpret_cast<LPARAM>(&outer)); flush(hwnd);
+                    trace.during("DPI change", [&] {
+                        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(144, 144), reinterpret_cast<LPARAM>(&outer)); flush(hwnd);
+                    });
                     RECT clip{}, local{}; GetClientRect(hwnd, &clip); GetWindowRect(popup_hwnd, &local);
                     MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&local), 2);
                     require(local.left >= 0 && local.top >= 0 && local.right <= clip.right && local.bottom <= clip.bottom,
@@ -190,25 +198,26 @@ void run(bool paint_failure) {
                     const auto current_popup = child(hwnd, L"Input overlay");
                     Injection recreate{hwnd, current_popup, &window, popup.get(), D2DERR_RECREATE_TARGET};
                     injection = &recreate; DrawingTestAccess::observe(presented);
-                    flush(hwnd);
+                    trace.during("recreate popup target", [&] { flush(hwnd); });
                     require(recreate.fired, "Recreation injected into popup target after root presentation");
                     injection = nullptr; DrawingTestAccess::observe(nullptr);
                     flush(hwnd);
                     require(Drawing::live_targets() == targets + 2 && popup->is_open(), "Popup target recreation preserves popup and root");
                     Injection dismiss{hwnd, current_popup, &window, popup.get(), S_OK, false, true};
-                    injection = &dismiss; DrawingTestAccess::observe(presented); flush(hwnd);
+                    injection = &dismiss; DrawingTestAccess::observe(presented);
+                    trace.during("reentrant dismiss", [&] { flush(hwnd); });
                     require(dismiss.fired && !popup->is_open(), "Popup dismisses reentrantly after its presentation");
                     injection = nullptr; DrawingTestAccess::observe(nullptr); flush(hwnd);
                     require(Drawing::live_targets() == targets + 1, "Reentrant dismissal releases popup target");
                     window.show_popup(popup, *anchor, search.get()); flush(hwnd);
                     Injection close{hwnd, child(hwnd, L"Input overlay"), &window, popup.get(), S_OK, true};
                     injection = &close; DrawingTestAccess::observe(presented);
-                    flush(hwnd);
+                    trace.during("reentrant close", [&] { flush(hwnd); });
                     require(close.fired, "Owner closes from popup presentation");
                 } else {
                     Injection fail{hwnd, popup_hwnd, &window, popup.get(), E_FAIL};
                     injection = &fail; DrawingTestAccess::observe(presented);
-                    flush(hwnd);
+                    trace.during("paint failure", [&] { flush(hwnd); });
                     require(fail.fired && !window.error().empty(), "Popup drawing failure reaches explicit window error");
                 }
                 const auto actual_foreground = GetForegroundWindow();
@@ -231,6 +240,7 @@ void run(bool paint_failure) {
     require(failure.empty(), failure.c_str());
     require(exercised && (paint_failure ? result != 0 : result == 0), "Expected popup lifetime result");
     require(Drawing::live_targets() == targets, "Owner closure releases every popup drawing target");
+    trace.verify_passive();
 }
 }
 int main() {
