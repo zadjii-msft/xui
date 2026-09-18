@@ -63,6 +63,32 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### Framework consolidation gate
+
+The September 18, 2026 consolidation merged `origin/main` at `972d144` through `15a81e2`.
+Commit `c83411b` added the Terminal branch's split-axis APIs while preserving upstream split animations.
+The ARM64 Release build included the framework DLL, native regression fixtures, and the triangle sample.
+
+The fixed CTest batch passed nine of twelve groups.
+Split animation, split-axis input, controls, layout styles, foundation, explorer, swap-chain hosting, swap-chain ABI, and native key routing passed.
+Three groups failed their existing focus or foreground assertions: live swap-chain overlays, popup input/lifetime, and native ContentHost replacement.
+The overlay fixture reached visible two-producer occlusion before its foreground assertion failed during subsequent operations.
+These failures remain unclassified. They do not establish whether the framework or external desktop activity changed focus.
+
+One diagnostic ContentHost run passed after the fixture gained numeric HWND diagnostics.
+That result is a non-reproduction, not a correction of the failed batch.
+The overlay and popup fixtures also gained failure-only HWND diagnostics, without another desktop run or weaker assertions.
+`build/arm64/Testing/Temporary/LastTest.log` contains the original CTest results until a later CTest run replaces it.
+
+Separate checks passed for native split ABI, managed split visibility and animation, and the generator.
+Non-activating label backgrounds, expander surfaces, and range focus checks passed.
+Both triangle smoke paths passed: the default swap-chain pointer and the imported-handle WARP renderer.
+Documentation checks passed. Foreground-dependent animation and inspection fixtures were not run.
+
+The consolidation does not import Terminal application code, packages, or runtime evidence into XUI.
+The separate Terminal output timeouts and earlier UIA event-cache failure remain unresolved.
+The framework PR remains a draft until the failed focus/foreground gate has a classification and any required correction.
+
 ### Hidden scroll views
 
 The terminal palette exposed a hidden `ScrollView` that still reserved its preferred height.

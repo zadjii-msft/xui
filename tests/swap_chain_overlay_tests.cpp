@@ -173,7 +173,11 @@ void run_case(bool nested) {
                         require(desc.Width == metrics[i].pixel_width && desc.Height == metrics[i].pixel_height &&
                             producers[i]->resizes() == resizes[i], "Producer buffers remain unchanged");
                     }
-                    require(GetForegroundWindow() == original_foreground,
+                    const auto foreground = GetForegroundWindow();
+                    if (foreground != original_foreground)
+                        std::cerr << "Overlay owner=" << root_hwnd << " foreground=" << original_foreground
+                            << " -> " << foreground << '\n';
+                    require(foreground == original_foreground,
                         "Overlay operations preserve the foreground window");
                 };
                 auto capture = [&] {

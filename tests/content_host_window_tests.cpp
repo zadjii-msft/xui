@@ -202,7 +202,11 @@ void native_contract(VisualStyle style) {
             GetWindowRect(button, &bounds);
             check(bounds.right > bounds.left + 1 && bounds.bottom > bounds.top + 1,
                 "Replacement returns after actual native layout");
-            check(GetFocus() == focus_before && GetForegroundWindow() == foreground, "Replacement does not change focus or foreground");
+            const auto actual_focus = GetFocus(), actual_foreground = GetForegroundWindow();
+            if (actual_focus != focus_before || actual_foreground != foreground)
+                std::cerr << "Replacement " << i << " owner=" << hwnd << " focus=" << focus_before
+                    << " -> " << actual_focus << " foreground=" << foreground << " -> " << actual_foreground << '\n';
+            check(actual_focus == focus_before && actual_foreground == foreground, "Replacement does not change focus or foreground");
             auto recovered = std::make_shared<Stack>(Axis::vertical);
             recovered->add(previous);
             previous->measure({300, 100});

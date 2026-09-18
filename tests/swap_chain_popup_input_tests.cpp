@@ -211,7 +211,11 @@ void run(bool paint_failure) {
                     flush(hwnd);
                     require(fail.fired && !window.error().empty(), "Popup drawing failure reaches explicit window error");
                 }
-                require(GetForegroundWindow() == foreground, "Popup input and teardown do not activate owner");
+                const auto actual_foreground = GetForegroundWindow();
+                if (actual_foreground != foreground)
+                    std::cerr << "Popup owner=" << hwnd << " foreground=" << foreground
+                        << " -> " << actual_foreground << '\n';
+                require(actual_foreground == foreground, "Popup input and teardown do not activate owner");
                 exercised = true;
             } catch (const std::exception& error) { failure = error.what(); }
             injection = nullptr;
