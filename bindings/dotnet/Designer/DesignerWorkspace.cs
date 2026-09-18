@@ -27,6 +27,8 @@ internal sealed class DesignerWorkspace : IDisposable
     internal VisualDocument? Document { get; private set; }
     internal bool IsCurrent => current;
     internal bool IsBusy => busy;
+    internal bool CanEditSelection => !disposed && !busy && current && Document?.Source == editor.Text &&
+        Hierarchy.Selection is not null;
     internal bool CanRevertPropertyDraft => !disposed && !busy && current && Document?.Source == editor.Text &&
         Hierarchy.Selection is not null && Inspector.CanRevertDraft;
     internal bool CanRevealPropertySource => !disposed && !busy && current && Document?.Source == editor.Text &&
@@ -50,7 +52,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Inspector.Layout.Apply.Click += ApplyProperty;
         Inspector.Layout.Reset.Click += ResetProperty;
         Inspector.Layout.RevertDraft.Click += RevertPropertyDraft;
-        Inspector.Layout.Delete.Click += () => Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token));
+        Inspector.Layout.Delete.Click += DeleteSelection;
         Inspector.Layout.Duplicate.Click += Duplicate;
         Inspector.Layout.Up.Click += () => Move(-1);
         Inspector.Layout.Down.Click += () => Move(1);
@@ -226,6 +228,7 @@ internal sealed class DesignerWorkspace : IDisposable
     }
 
     internal void Move(int delta) => Edit((document, node, token) => document.MoveNode(document.Revision, node.Id, delta, token));
+    internal void DeleteSelection() => Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token));
 
     internal void RevealPropertySource()
     {
@@ -353,7 +356,7 @@ internal sealed class DesignerWorkspace : IDisposable
         return null;
     }
 
-    private void Duplicate()
+    internal void Duplicate()
     {
         GridPlacement? placement = null;
         if (Hierarchy.Selection is { } selected && Hierarchy.Parent(selected)?.Kind == "Grid")
@@ -371,7 +374,7 @@ internal sealed class DesignerWorkspace : IDisposable
         if (key.Modifiers == KeyModifiers.Control && key.VirtualKey == 'G') { Wrap(ControlTemplate.VStack); return true; }
         if (key.Modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && key.VirtualKey == 'G') { Unwrap(); return true; }
         if (key.Modifiers == KeyModifiers.None && key.VirtualKey == 0x2E)
-        { Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token)); return true; }
+        { DeleteSelection(); return true; }
         if (key.Modifiers == KeyModifiers.Alt && key.VirtualKey is 0x26 or 0x28)
         { Move(key.VirtualKey == 0x26 ? -1 : 1); return true; }
         return false;

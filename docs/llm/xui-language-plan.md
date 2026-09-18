@@ -25,6 +25,14 @@ The application expands Output for compile, preview, and file errors.
 It posts opening and execution through the window dispatcher and checks availability again before each action.
 Reopening or disposal cancels a queued command. A pending command prevents duplicate dispatch.
 
+Structural palette actions reuse `DesignerWorkspace.DeleteSelection`, `Duplicate`, `Move`, `Wrap`, and `Unwrap`.
+`DesignerInspector` exposes the same capability flags that control its existing structural buttons.
+`CanEditSelection` additionally checks disposal, pending compilation, current selection, and the exact source snapshot.
+Grid duplication retains the existing coordinate fields and placement checks.
+`Designer.WorkspaceTests/Program.StructureAvailability.cs` covers parent arity, movement boundaries, busy/stale states, native buttons, Grid duplication, and undo in both styles.
+The application selection smoke dispatches every structural command through the native palette.
+It checks native preview text, arranged order, selection, disabled root actions, and separate wrap/unwrap undo entries.
+
 The shell leaves pointer picking before opening the palette, then leaves popup keys to the native router.
 `Designer.CommandTests` exercises real native search input and both visual styles.
 The application selection smoke covers command shortcuts, file confirmation, and focus inside the inspector.

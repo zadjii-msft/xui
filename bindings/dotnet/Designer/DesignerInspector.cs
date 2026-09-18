@@ -33,6 +33,11 @@ internal sealed class DesignerInspector
     internal bool IsInsetsMode => insetsMode;
     internal bool CanRevertDraft => editable && !validationPending && Argument is not null &&
         node?.Arguments.FirstOrDefault(argument => argument.Name == Argument)?.ValueKind != XuiValueKind.Expression;
+    internal bool CanDeleteOrDuplicate { get; private set; }
+    internal bool CanMoveUp { get; private set; }
+    internal bool CanMoveDown { get; private set; }
+    internal bool CanWrap { get; private set; }
+    internal bool CanUnwrap { get; private set; }
 
     internal DesignerInspector(Window window)
     {
@@ -103,14 +108,14 @@ internal sealed class DesignerInspector
         bool siblings = parent?.Kind is "VStack" or "HStack" or "Grid";
         bool movable = siblings || parent?.Kind == "SplitView";
         int index = selected is null || parent is null ? -1 : parent.Children.ToList().FindIndex(n => n.Id == selected.Id);
-        Layout.Delete.Enabled = canEdit && siblings;
-        Layout.Duplicate.Enabled = canEdit && siblings;
-        Layout.Up.Enabled = canEdit && movable && index > 0;
-        Layout.Down.Enabled = canEdit && movable && index >= 0 && index + 1 < parent!.Children.Count;
-        Layout.WrapVertical.Enabled = canEdit && selected is not null;
-        Layout.WrapHorizontal.Enabled = canEdit && selected is not null;
-        Layout.WrapScroll.Enabled = canEdit && selected is not null;
-        Layout.Unwrap.Enabled = canEdit && selected?.BodySpan is not null && selected.Children.Count == 1;
+        Layout.Delete.Enabled = CanDeleteOrDuplicate = canEdit && siblings;
+        Layout.Duplicate.Enabled = CanDeleteOrDuplicate;
+        Layout.Up.Enabled = CanMoveUp = canEdit && movable && index > 0;
+        Layout.Down.Enabled = CanMoveDown = canEdit && movable && index >= 0 && index + 1 < parent!.Children.Count;
+        Layout.WrapVertical.Enabled = CanWrap = canEdit && selected is not null;
+        Layout.WrapHorizontal.Enabled = CanWrap;
+        Layout.WrapScroll.Enabled = CanWrap;
+        Layout.Unwrap.Enabled = CanUnwrap = canEdit && selected?.BodySpan is not null && selected.Children.Count == 1;
         UpdatePaletteState();
         bool grid = selected?.Kind == "Grid" || parent?.Kind == "Grid";
         Layout.Row.Enabled = canEdit && grid;

@@ -72,7 +72,7 @@ Routine hierarchy and property hints use tooltips instead of persistent labels.
 Read-only reasons and errors remain visible.
 
 **Commands**, or Ctrl+Shift+P, opens a searchable native command palette.
-The palette includes file actions, source editing, focus navigation, preview sizes, preview modes, Output, theme, and visual style.
+The palette includes file actions, source editing, control structure, focus navigation, preview sizes, preview modes, Output, theme, and visual style.
 Up and Down select a result. Enter runs the selected command after the palette closes.
 Escape and the close button dismiss the palette and restore the previous focus.
 The query remains available when the palette opens again.
@@ -343,6 +343,17 @@ The wrap buttons place the selected control inside a VStack, HStack, or ScrollVi
 **Unwrap one child** removes a safe one-child wrapper without discarding authored properties or identities.
 In the hierarchy, Ctrl+G wraps in a VStack, and Ctrl+Shift+G unwraps.
 Each grouping action uses the same compilation and native undo checks as other visual edits.
+
+The command palette includes these actions under **Control:**.
+They use the current hierarchy selection, even when another editor has focus.
+Root deletion, fixed-child restrictions, and movement boundaries disable the corresponding commands.
+Stale source and pending visual edits disable all structural commands.
+Grid duplication uses the inspector's current row and column fields.
+
+The palette closes before a structural action starts.
+Compilation still checks identities, Grid placement, and safe unwrapping.
+An enabled command can report a semantic restriction without changing source.
+These commands do not add shortcuts to native text fields.
 
 Each visual change creates one native undo operation.
 The **Undo** and **Redo** buttons act on the source editor.

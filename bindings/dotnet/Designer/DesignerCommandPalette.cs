@@ -6,7 +6,8 @@ internal enum DesignerCommandId
     Undo, Redo, Find, Replace, SelectFromCaret, FocusSource, FocusHierarchy, FocusPalette, FocusProperty,
     Render, LivePreview, PickControls, Fit, Compact, Medium, Wide,
     Output, VisualStyle, Theme, GoToLine, ToggleComment, FocusHierarchySearch, FocusPropertySearch, RevertPropertyDraft,
-    RevealPropertySource
+    RevealPropertySource, DeleteControl, DuplicateControl, MoveControlUp, MoveControlDown,
+    WrapVertical, WrapHorizontal, WrapScroll, UnwrapControl
 }
 
 internal sealed record DesignerCommand(

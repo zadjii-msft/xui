@@ -588,6 +588,86 @@ internal sealed partial class DesignerApplication
                 "The next undo removes the Grid with no extra cell-discovery undo entry."));
             await Ui(() =>
             {
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!));
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                foreach (var id in new[] { DesignerCommandId.DeleteControl, DesignerCommandId.DuplicateControl,
+                    DesignerCommandId.MoveControlUp, DesignerCommandId.MoveControlDown, DesignerCommandId.UnwrapControl })
+                {
+                    bool refused = false;
+                    try { commandPalette.Surface.Invoke((ulong)id); }
+                    catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                    Require(refused && commandPalette.IsOpen && editor.Text == source,
+                        $"The native palette disables structurally unavailable action {id} for the root.");
+                }
+                commandPalette.Surface.CloseButton.Invoke();
+            });
+            await Until(() => !commandPalette.IsOpen);
+            foreach (var (id, index) in new[]
+            {
+                (DesignerCommandId.DuplicateControl, 0), (DesignerCommandId.DeleteControl, 0),
+                (DesignerCommandId.MoveControlDown, 0), (DesignerCommandId.MoveControlUp, 1),
+                (DesignerCommandId.WrapVertical, 0), (DesignerCommandId.WrapHorizontal, 0), (DesignerCommandId.WrapScroll, 0)
+            })
+            {
+                await Ui(() => workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[index])));
+                await StructureCommand(id);
+                string wrappedSource = "";
+                await Ui(() =>
+                {
+                    var children = workspace.Document!.Root!.Children;
+                    switch (id)
+                    {
+                        case DesignerCommandId.DuplicateControl:
+                            Require(children.Count == 4 && children[0].Kind == "Text" && children[1].Kind == "Text" &&
+                                ReferenceEquals(workspace.Hierarchy.Selection, children[1]) && NativeLabel(children[1].Id),
+                                "Palette duplication selects a new authored node and creates its native preview label.");
+                            break;
+                        case DesignerCommandId.DeleteControl:
+                            Require(children.Count == 2 && children[0].Kind == "Button" &&
+                                preview.TryReadNode(version, children[0].Id, out var first) && first.ElementType == "Button",
+                                "Palette deletion removes only the selected control and rebuilds the native preview.");
+                            break;
+                        case DesignerCommandId.MoveControlDown:
+                        case DesignerCommandId.MoveControlUp:
+                            Require(children[0].Kind == "Button" && children[1].Kind == "Text" &&
+                                preview.TryReadNode(version, children[0].Id, out var button) &&
+                                preview.TryReadNode(version, children[1].Id, out var label) && button.Bounds.Y < label.Bounds.Y,
+                                "Palette movement changes actual native preview order.");
+                            break;
+                        default:
+                            string kind = id == DesignerCommandId.WrapVertical ? "VStack" :
+                                id == DesignerCommandId.WrapHorizontal ? "HStack" : "ScrollView";
+                            Require(children[0].Kind == kind && children[0].Children.Count == 1 &&
+                                ReferenceEquals(workspace.Hierarchy.Selection, children[0]) && NativeLabel(children[0].Children[0].Id),
+                                $"Palette wrapping creates {kind} and retains its live native child.");
+                            wrappedSource = editor.Text;
+                            break;
+                    }
+                });
+                if (id == DesignerCommandId.WrapVertical)
+                {
+                    await StructureCommand(DesignerCommandId.UnwrapControl);
+                    await Ui(() =>
+                    {
+                        Require(workspace.Document!.Root!.Children[0].Kind == "Text" &&
+                            NativeLabel(workspace.Document.Root.Children[0].Id),
+                            "Palette unwrapping preserves the authored child and its native preview.");
+                        editor.Command(TextCommand.Undo);
+                    });
+                    await Ready();
+                    await Ui(() => Require(editor.Text == wrappedSource, "Unwrapping has a separate native source undo operation."));
+                }
+                await Ui(() => editor.Command(TextCommand.Undo));
+                await Ready();
+                await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3,
+                    $"One source undo restores the exact document after {id}."));
+            }
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();
@@ -608,6 +688,22 @@ internal sealed partial class DesignerApplication
                 if (!preview.TryReadNode(version, buttonId, out var node) || node.ControlId is not { } control)
                     throw new InvalidOperationException("The current preview button has no native control identity.");
                 return SelectionNative.ReadText(control);
+            }
+
+            bool NativeLabel(int id) => preview.TryReadNode(version, id, out var node) && node.ControlId is { } control &&
+                SelectionNative.ReadText(control) == "Find target" && node.Bounds.Width > 0 && node.Bounds.Height > 0;
+
+            async Task StructureCommand(DesignerCommandId id)
+            {
+                await Ui(view.Commands.Invoke);
+                await Until(() => commandPalette.IsOpen);
+                await Ui(() =>
+                {
+                    commandPalette.Surface.Invoke((ulong)id);
+                    Require(!workspace.IsBusy, "Structural commands do not edit source inside the native palette callback.");
+                });
+                await Until(() => !commandPalette.IsOpen);
+                await Ready();
             }
         }
         catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
