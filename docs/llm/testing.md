@@ -232,6 +232,20 @@ The tests also require bounded handle counts and rejected provider actions after
 The resource sample follows asynchronous snapshot disposal and a short message-pump interval for native provider cleanup.
 The combined UIA client/server test reports process handles but does not attribute client thread pools to the framework.
 The server-only lifecycle test retains its process-handle limit for eight ordinary windows and eight ScrollView trees.
+
+`xui_scroll_frame_tests` and `xui_winui_scroll_frame_tests` capture viewport pixels between layout and root presentation.
+The previous complete frame must remain unchanged during this interval.
+The first new frame must match a subsequent full repaint, including native fields.
+Cases cover custom-only content, native EDIT and RichEdit content, image placement, three themes, and injected 96/144/192 DPI.
+Offsets include fractional movement, partial native clipping, forward movement, and reverse movement.
+The fixtures also check native editing and undo after scrolling.
+
+The scroll-frame fixtures use owned-window Graphics Capture with cursor capture disabled.
+They defer root painting during the layout capture because Graphics Capture can dispatch messages through COM.
+Child placement and native painting remain active, so intermediate pixel copies remain observable.
+They exclude unrelated window borders and wait for initial window transitions.
+They do not capture the desktop or require an unobscured window.
+
 `xui_window_tests` covers public window ownership, callback closure, startup failure, callback failure, and later runs on the same thread.
 It also covers a public list beside other controls, filter delivery, selection callbacks, reentrant closure, and off-thread snapshot disposal.
 Two sets of eight repeated windows exercise cancelled refreshes, theme changes, resize, simulated DPI changes, and target recreation.
