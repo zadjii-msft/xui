@@ -12,5 +12,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Xui\Xui.csproj" />
     <Compile Include="..\Designer\DesignerSourceIndentation.cs" Link="DesignerSourceIndentation.cs" />
+    <Compile Include="..\Designer\DesignerSourceComments.cs" Link="DesignerSourceComments.cs" />
   </ItemGroup>
 </Project>

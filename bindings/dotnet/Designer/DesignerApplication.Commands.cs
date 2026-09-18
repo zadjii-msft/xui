@@ -26,6 +26,8 @@ internal sealed partial class DesignerApplication
         new(DesignerCommandId.Find, "Source: Find text", () => sourceSearch.HandleKey(new('F', KeyModifiers.Control, editor.Id)), "Ctrl+F"),
         new(DesignerCommandId.Replace, "Source: Find and replace text", () => sourceSearch.HandleKey(new('H', KeyModifiers.Control, editor.Id)), "Ctrl+H"),
         new(DesignerCommandId.GoToLine, "Source: Go to line and column", ShowGoTo, "Ctrl+G in source"),
+        new(DesignerCommandId.ToggleComment, "Source: Toggle line comments", sourceComments.Toggle, "Ctrl+/ in source",
+            () => !editor.ReadOnly),
         new(DesignerCommandId.SelectFromCaret, "Selection: Select control from source caret", workspace.SelectFromCaret, "Ctrl+Shift+L",
             () => workspace.IsCurrent),
         new(DesignerCommandId.FocusSource, "Focus: Source editor", () => editor.Focus()),

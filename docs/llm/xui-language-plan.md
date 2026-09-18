@@ -43,6 +43,14 @@ The application selection smoke covers the header action, command palette, focus
 It uses native range replacement for single-action undo and reports rejected edits through Output.
 The window's native key router excludes IME composition and modal dialogs before these shortcuts.
 `Designer.IndentationTests` covers native text, caret positions, change callbacks, undo, focus, and length-limit errors.
+`DesignerSourceComments.cs` handles source-only Ctrl+/ and the palette's Toggle line comments action.
+It reads exact native CR-separated lines and excludes a final line touched only at the selection's end.
+Comment prefixes follow each line's spaces and tabs. Blank lines remain unchanged.
+The controller maps UTF-16 selection endpoints through the prefix edits and uses one snapshot-checked native replacement.
+It checks the configured source limit before replacement and reports native refusals without retrying a partial edit.
+`Designer.IndentationTests/Program.Comments.cs` covers both visual styles, mixed comments, Unicode, selection boundaries, no-ops, undo/redo, focus, and length limits.
+The application selection smoke covers palette dispatch, source shortcuts, compiler updates, native preview removal/restoration, and successive undo operations.
+
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.

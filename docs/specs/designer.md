@@ -45,6 +45,22 @@ Shift+Tab removes up to four leading spaces or one leading tab, without moving f
 Tab after source text or with a selection keeps the existing focus-navigation behavior.
 Each indentation edit creates one native undo action.
 
+**Source: Toggle line comments** in the command palette comments or uncomments the selected source lines.
+On US keyboards, Ctrl+/ runs this action only when the source editor has focus.
+With no selection, the action uses the caret's line.
+A selection that ends at the next line's start excludes that next line.
+
+The action preserves indentation and blank lines.
+If every nonblank line starts with `//`, it removes those markers and at most one following space.
+Otherwise, it adds `// ` after each nonblank line's indentation, including lines that already have a comment.
+The source selection follows the original characters through the prefix changes.
+Each action creates one native undo operation.
+An all-blank selection reports a no-op. Read-only source and excessive result length produce explicit errors without partial changes.
+
+Line comments are text edits, not syntax-aware refactoring.
+The action can introduce syntax errors inside strings or incomplete control declarations.
+The ordinary source pipeline updates the hierarchy and preview, and invalid source retains the last valid preview.
+
 The file and preview controls occupy a separate, shaded toolbar above the workspace.
 The toolbar uses theme-aware colors and keeps the existing commands and shortcuts.
 New, open, save, recovery, undo, redo, and render use compact icon buttons.

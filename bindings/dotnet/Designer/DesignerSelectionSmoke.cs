@@ -330,6 +330,46 @@ internal sealed partial class DesignerApplication
                 "One native source undo restores the enabled preview button."));
             await Ui(() =>
             {
+                var button = workspace.Document!.Root!.Children[1];
+                editor.Selection = new((ulong)button.Span.Start, (ulong)button.Span.End);
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                Require(!window.KeyHandler!(new(0xBF, KeyModifiers.Control, commandPalette.Surface.Editor.Id)),
+                    "The source comment shortcut does not intercept command palette input.");
+                commandPalette.Surface.Invoke((ulong)DesignerCommandId.ToggleComment);
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(!commandPalette.IsOpen && editor.Focused && editor.Text.Contains("// Button(Caption", StringComparison.Ordinal) &&
+                    workspace.Document!.Root!.Children.Count == 2 && SelectionNative.PeerCount("Do not execute") == 0,
+                    "The palette comment action changes source, hierarchy, and the actual native preview through the normal compiler pipeline.");
+                Require(window.KeyHandler!(new(0xBF, KeyModifiers.Control, editor.Id)),
+                    "Ctrl+/ toggles comments in the focused source editor.");
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3 &&
+                    SelectionNative.PeerCount("Do not execute") == 1,
+                    "The source shortcut restores the selected control and its live native preview.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                Require(editor.Text.Contains("// Button(Caption", StringComparison.Ordinal) && SelectionNative.PeerCount("Do not execute") == 0,
+                    "One source undo restores the previous commented document and preview.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && SelectionNative.PeerCount("Do not execute") == 1,
+                "The preceding palette comment has its own native undo operation."));
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();
@@ -407,6 +447,8 @@ internal sealed partial class DesignerApplication
 
     private static class SelectionNative
     {
+        internal static int PeerCount(string text) => Peers(text).Count;
+
         internal static bool Enabled(string text)
         {
             var peers = Peers(text);

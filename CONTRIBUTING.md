@@ -280,6 +280,7 @@ The viewport UI test covers preset and custom dimensions, invalid input, vertica
 The command UI test uses the native CommandSurface in Classic and WinUI.
 It covers native query input, Enter, Escape, focus, disabled commands, changed availability, duplicate invocation, cancellation, and source undo.
 The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
+It also covers line comments in both visual styles, selected-line boundaries, Unicode, blank lines, mixed prefixes, read-only source, and atomic length refusals.
 The selection smoke uses actual native preview clicks in the full application.
 It covers Find, authored-handler suppression, version guards, source and hierarchy selection, native undo, and explicit stale-preview refusal.
 It also covers outline feedback for the selected control and immediate invalidation after a source revision.
@@ -292,6 +293,7 @@ It also covers native width/height fields, dimension drafts, invalid conversion,
 Boolean checks cover native toggles in both visual styles, raw drafts, exact no-ops, compilation, undo/redo, reset, and stale-source rejection.
 The selection smoke checks exact native preview sizes after a dimension edit and its source undo.
 It also checks the actual native enabled state after a boolean edit, and restoration through source undo.
+Comment checks cover palette and shortcut routing, native preview removal/restoration, and separate undo operations through the complete source pipeline.
 
 The builder smoke covers hierarchy selection, literal edits, palette insertion, structure commands, native undo and redo, and stale-edit rejection.
 Palette checks cover name and description search, empty results, retained selection, filtered insertion, and source undo.

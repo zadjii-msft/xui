@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
 
@@ -13,7 +13,9 @@ internal static class Program
         {
             Run();
             RunKeyboardRouting();
-            Console.WriteLine($"Designer source indentation assertions: {assertions} passed.");
+            RunComments(VisualStyle.Classic);
+            RunComments(VisualStyle.WinUI);
+            Console.WriteLine($"Designer source indentation and comment assertions: {assertions} passed.");
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
