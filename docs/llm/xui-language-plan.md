@@ -71,6 +71,12 @@ Filtered choices retain enum-based native keys instead of result indices.
 An empty result clears the selected template, and the workspace rejects insertion without a template.
 Filtering and description updates do not replace source or reset property input.
 The shared builder smoke covers filtered insertion, retained queries, exact native undo, and the preceding source edit.
+`InsertSibling` resolves the selected node's variable-child parent and delegates to the existing indexed `InsertControl` proposal.
+The inspector retains the current parent for before/after button availability and disables both actions when the palette has no selection.
+The workspace captures the template and Grid cell before it starts the existing cancellable edit workflow.
+`Designer.SourceTests/Program.SiblingInsertion.cs` covers positions, line endings, identities, Grid constraints, fixed-child containers, revisions, and cancellation.
+`Designer.WorkspaceTests/Program.SiblingInsertion.cs` covers native buttons, selection, filtering, nested parents, refusals, undo/redo, and concurrent source typing in both styles.
+The application selection smoke checks the new preview control's native text, arranged order, selection, and undo.
 `DesignerHierarchyLayout.xui` and `DesignerInspectorLayout.xui` define the side panes.
 `DesignerBuilderSmoke.cs` runs the dedicated `--builder-smoke` sequence against the real native controls.
 `Designer.LayoutTests` links the production layouts for native geometry and editor-state tests without the preview compiler.

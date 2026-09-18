@@ -391,6 +391,38 @@ internal sealed partial class DesignerApplication
                 "The preceding palette comment has its own native undo operation."));
             await Ui(() =>
             {
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
+                workspace.Inspector.Layout.PaletteFilter.Text = "button";
+                workspace.Inspector.FilterPalette();
+                workspace.Inspector.Layout.InsertBefore.Focus();
+            });
+            await Ui(() =>
+            {
+                var before = workspace.Inspector.Layout.InsertBefore.GetBounds();
+                var after = workspace.Inspector.Layout.InsertAfter.GetBounds();
+                var panel = view.InspectorPanel.GetBounds();
+                Require(before.Width >= 80 && after.Width >= 80 && before.Y >= panel.Y &&
+                    after.Y + after.Height <= panel.Y + panel.Height && after.X + after.Width <= panel.X + panel.Width,
+                    "Both sibling insertion actions are visible and usable inside the narrow scrollable inspector.");
+                workspace.Inspector.Layout.InsertBefore.Invoke();
+            });
+            await Ready();
+            await Ui(() =>
+            {
+                var children = workspace.Document!.Root!.Children;
+                var inserted = children[1];
+                Require(children.Count == 4 && ReferenceEquals(workspace.Hierarchy.Selection, inserted) &&
+                    preview.TryReadNode(version, inserted.Id, out var added) && added.ControlId is { } addedControl &&
+                    SelectionNative.ReadText(addedControl) == "Button" &&
+                    preview.TryReadNode(version, children[2].Id, out var anchor) && added.Bounds.Y < anchor.Bounds.Y,
+                    "Insert before creates and selects a real native preview button ahead of the original control.");
+                editor.Command(TextCommand.Undo);
+            });
+            await Ready();
+            await Ui(() => Require(editor.Text == source && workspace.Document!.Root!.Children.Count == 3 &&
+                SelectionNative.PeerCount("Do not execute") == 1, "One undo restores the exact source and preview before sibling insertion."));
+            await Ui(() =>
+            {
                 Require(!pickControls, "Disabling Pick controls restores actual authored pointer behavior.");
                 view.Live.Invoke();
                 view.Pick.Invoke();

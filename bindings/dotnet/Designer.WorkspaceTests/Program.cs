@@ -10,6 +10,8 @@ internal static partial class Program
         {
             RunHierarchySearch(VisualStyle.Classic);
             RunHierarchySearch(VisualStyle.WinUI);
+            RunSiblingInsertion(VisualStyle.Classic);
+            RunSiblingInsertion(VisualStyle.WinUI);
             using var window = new Window("Designer workspace smoke", 1440, 960, visualStyle: VisualStyle.WinUI);
             var editor = window.MultilineText("XUI source").SetMaximumLength(65536);
             var diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true);

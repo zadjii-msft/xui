@@ -7,6 +7,7 @@ internal sealed class DesignerInspector
     private readonly ComboBox arguments;
     private readonly ComboBox palette;
     private XuiSourceNode? node;
+    private XuiSourceNode? parent;
     private string[] names = [];
     private int argumentIndex;
     private bool resetting, editable, validationPending;
@@ -70,6 +71,7 @@ internal sealed class DesignerInspector
     {
         string? preferred = ReferenceEquals(node, selected) ? Argument : selected?.Arguments.FirstOrDefault(a => a.IsPositional)?.Name;
         node = selected;
+        this.parent = parent;
         editable = canEdit;
         validationPending = validating;
         Layout.Selected.Text = selected is null ? "Select a control" : $"{selected.Kind} at UTF-16 {selected.Span.Start}..{selected.Span.End}";
@@ -125,6 +127,8 @@ internal sealed class DesignerInspector
     private void UpdatePaletteState()
     {
         Layout.Insert.Enabled = editable && (node?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
+        Layout.InsertBefore.Enabled = Layout.InsertAfter.Enabled = editable && node is not null &&
+            (parent?.Kind is "VStack" or "HStack" or "Grid") && Template is not null;
         palette.Enabled = matchingTemplates.Length > 0;
         string count = matchingTemplates.Length == 1 ? "1 control." : $"{matchingTemplates.Length} controls.";
         Layout.PaletteHelp.Text = Template is { } template

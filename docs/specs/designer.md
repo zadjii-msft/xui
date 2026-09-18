@@ -263,8 +263,14 @@ Filtering preserves the selected template when it remains in the results.
 An empty result disables insertion. The clear button restores the complete catalog.
 The filter remains available during source errors and pending edits, without changing source.
 
-The palette inserts a complete control at the end of the selected stack or grid.
+**Insert control** adds a complete palette control at the end of the selected stack or grid.
+**Insert before** and **Insert after** add a sibling beside the selected control.
+Sibling insertion requires a VStack, HStack, or Grid parent.
+The new control becomes the hierarchy and source selection after compilation.
+The root cannot gain siblings, and fixed-child containers retain their required child counts.
 Grid insertion and duplication require an empty, valid row and column.
+For Grid siblings, before/after changes source order. The row and column fields determine visual placement.
+Sibling insertion preserves existing identities and does not copy the selected control.
 **Delete**, **Duplicate**, **Move up**, and **Move down** act on the selected hierarchy control.
 Unavailable commands are disabled, with the reason beside the commands.
 In the hierarchy, Delete deletes a control, Ctrl+D duplicates it, and Alt+Up or Alt+Down moves it.
@@ -379,6 +385,10 @@ Calling this method explicitly authorizes removal of a named expression.
 The inspector applies a stricter policy and permits only literal resets.
 
 `DeleteNode` and `DuplicateNode` require a Stack or Grid parent.
+`InsertSibling(revision, nodeId, after, template, placement, cancellation)` inserts a palette template beside the selected node.
+It resolves the immediate parent and reuses `InsertControl` with the preceding or following child index.
+The method retains the same compilation, source-limit, Grid overlap, revision, and cancellation checks.
+Grid parents require explicit placement. Fixed-child containers and the view root reject sibling insertion.
 The view root cannot move, disappear, or duplicate.
 `ScrollView` and `Popup` retain exactly one child.
 `SplitView` retains exactly two children.

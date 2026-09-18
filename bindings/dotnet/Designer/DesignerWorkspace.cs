@@ -50,6 +50,8 @@ internal sealed class DesignerWorkspace : IDisposable
         Inspector.Layout.Up.Click += () => Move(-1);
         Inspector.Layout.Down.Click += () => Move(1);
         Inspector.Layout.Insert.Click += Insert;
+        Inspector.Layout.InsertBefore.Click += () => InsertSibling(after: false);
+        Inspector.Layout.InsertAfter.Click += () => InsertSibling(after: true);
         Inspector.Layout.WrapVertical.Click += () => Wrap(ControlTemplate.VStack);
         Inspector.Layout.WrapHorizontal.Click += () => Wrap(ControlTemplate.HStack);
         Inspector.Layout.WrapScroll.Click += () => Wrap(ControlTemplate.ScrollView);
@@ -254,6 +256,22 @@ internal sealed class DesignerWorkspace : IDisposable
             if (placement is null) return;
         }
         Edit((document, node, token) => document.InsertControl(document.Revision, node.Id, node.Children.Count, template, placement, token));
+    }
+
+    internal void InsertSibling(bool after)
+    {
+        if (Inspector.Template is not { } template)
+        {
+            Inspector.Layout.Feedback.Text = "Choose a control from the palette before insertion.";
+            return;
+        }
+        GridPlacement? placement = null;
+        if (Hierarchy.Selection is { } selected && Hierarchy.Parent(selected)?.Kind == "Grid")
+        {
+            placement = ReadGridPlacement();
+            if (placement is null) return;
+        }
+        Edit((document, node, token) => document.InsertSibling(document.Revision, node.Id, after, template, placement, token));
     }
 
     private GridPlacement? ReadGridPlacement()

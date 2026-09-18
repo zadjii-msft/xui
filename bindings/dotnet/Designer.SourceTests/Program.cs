@@ -45,6 +45,7 @@ internal static partial class Program
             TestInvalidSource();
             TestArguments();
             TestStructure();
+            TestSiblingInsertion();
             TestGrid();
             TestRevisions();
             TestCancellation();

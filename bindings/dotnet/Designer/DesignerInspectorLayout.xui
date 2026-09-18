@@ -72,12 +72,18 @@ component DesignerInspectorLayout {
                 }
                 Content(Palette, preferredSize: (240, 36));
                 Text("", ref: PaletteHelp, id: "designer-palette-help", wrapping: true);
-                Text("Insert at the end of the selected stack or grid. Grid insertion and duplication use the cell below.", wrapping: true);
+                Text("Insert control adds a child at the end. Insert before/after adds a sibling. Grid actions use the cell below.", wrapping: true);
                 HStack(spacing: 6) {
                     TextInput("Grid row", ref: Row, id: "designer-grid-row", text: "0", preferredSize: (106, 60));
                     TextInput("Grid column", ref: Column, id: "designer-grid-column", text: "0", preferredSize: (106, 60));
                 }
                 Button("Insert control", ref: Insert, id: "designer-insert-control");
+                HStack(spacing: 6) {
+                    Button("Insert before", ref: InsertBefore, id: "designer-insert-before",
+                        help: "Insert the palette control before the selected sibling");
+                    Button("Insert after", ref: InsertAfter, id: "designer-insert-after",
+                        help: "Insert the palette control after the selected sibling");
+                }
                 Text("Ready", ref: Feedback, id: "designer-builder-feedback", wrapping: true);
             }
         }

@@ -228,6 +228,16 @@ public sealed class VisualDocument
             replacement, selection, null, cancellation);
     }
 
+    public VisualEditResult InsertSibling(Guid revision, int nodeId, bool after, ControlTemplate template,
+        GridPlacement? placement = null, CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (Target(revision, nodeId, out var node) is { } error) return Failure(error);
+        if (VariableParent(node, out var parent) is { } reason) return Failure(reason);
+        int index = parent.Children.ToList().FindIndex(child => child.Id == node.Id);
+        return InsertControl(revision, parent.Id, index + (after ? 1 : 0), template, placement, cancellation);
+    }
+
     public VisualEditResult InsertControl(Guid revision, int parentId, int index, ControlTemplate template,
         GridPlacement? placement = null, CancellationToken cancellation = default)
     {
@@ -343,7 +353,7 @@ public sealed class VisualDocument
     private string? VariableParent(XuiSourceNode node, out XuiSourceNode parent)
     {
         parent = null!;
-        if (!parents.TryGetValue(node.Id, out var found)) return "The view requires one root; its root cannot be deleted or duplicated.";
+        if (!parents.TryGetValue(node.Id, out var found)) return "The view requires one root; its root cannot have siblings, be deleted, or be duplicated.";
         parent = found;
         if (parent.Kind is not ("VStack" or "HStack" or "Grid"))
             return $"{parent.Kind} requires exactly {(parent.Kind == "SplitView" ? "two children" : "one child")}. Edit its child in place.";
