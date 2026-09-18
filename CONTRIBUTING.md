@@ -297,6 +297,8 @@ They check live preview text, arranged order, selected nodes, disabled root acti
 Relative selection checks cover parent, first-child, sibling, and root commands through the native palette without replacing the live preview.
 Go to checks cover the header action, command palette, source-only shortcut, exact caret, hierarchy synchronization, and retained preview state.
 The text-mode UI test covers decoded string editing, exact no-op preservation, mode conversion, native undo, encoded-length errors, and named property resets.
+It also focuses 64 populated fields in a scroll view in both styles, including first-time WinUI clear-button creation and repeated focus.
+These checks preserve native selection, select-all behavior, and scroll reveal when the native peer list grows.
 It also covers native width/height fields, dimension drafts, invalid conversion, size resets, focus, and stale-source rejection.
 Boolean checks cover native toggles in both visual styles, raw drafts, exact no-ops, compilation, undo/redo, reset, and stale-source rejection.
 The selection smoke checks exact native preview sizes after a dimension edit and its source undo.

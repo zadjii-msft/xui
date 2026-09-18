@@ -126,10 +126,19 @@ The action uses authored spans rather than searching for repeated text or interp
 Both visual styles use actual native fields and selection.
 The application selection smoke covers palette dispatch, exact expression selection, and retained native preview identity.
 
-An inline source-navigation button remains deferred after a September 17, 2026 ARM64 WinUI test failure.
+An inline source-navigation button was deferred after a September 17, 2026 ARM64 WinUI test failure.
 Adding that inspector control exposed access violation `0xC0000005` in `Xui.Native.Focus` during inset draft reversion.
 Separate rows, deferred button dispatch, and direct field restoration did not resolve the failure.
-The native cause remains unresolved. Command-only navigation leaves the inspector layout unchanged.
+
+The September 18 investigation reproduced the crash with 64 populated native fields inside a scroll view, without extra inspector controls.
+WinUI focus creates a clear-button peer during a synchronous update.
+That update can reallocate the peer vector and invalidate the reference held by `Window::focus`.
+`src/application.cpp` now retains the stable peer pointer instead. The existing `InputScope` prevents peer retirement during the call.
+The command-only source-navigation interface remains unchanged.
+
+`Designer.TextModeTests/Program.FocusGrowth.cs` covers first-time clear-button creation, repeated focus, selection preservation, select-all, and scroll reveal in both styles.
+The pre-fix ARM64 Release run failed with `0xC0000005` in WinUI after Classic passed.
+After the native rebuild, both styles passed, along with property editing, draft reversion, and the full application selection smoke.
 
 The inspector also filters the control palette by enum name and a short template description.
 `FindTemplates` uses ordinal case-insensitive matching for every whitespace-separated query term.
