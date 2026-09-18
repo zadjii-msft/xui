@@ -27,6 +27,8 @@ cmake --build $build --config Release --parallel 4
 The architecture selection avoids x64 emulation on ARM64 Windows.
 Use the same architecture for `xui.dll` and each application that loads it.
 Close executables from this build directory before relinking them.
+Native builds enable syntax highlighting from the checked-in `dep` package by default.
+See [repository-local packages](#repository-local-packages) for package updates and [LSH configuration](#lsh-highlighting-in-xui-applications) for the opt-out.
 
 If CMake is absent from `PATH`, find the Visual Studio copy:
 
@@ -1190,21 +1192,44 @@ Edit discovers the copied definition during its build.
 An installed Edit binary does not load this source file at runtime.
 The [Edit build documentation](https://github.com/microsoft/edit#building-from-source) lists platform requirements.
 
+### Repository-local packages
+
+[`dep`](dep/README.md) contains checked-in NuGet archives for dependencies supplied manually to this repository.
+The root `NuGet.Config` adds this local feed without clearing existing machine or user feeds.
+The [package inventory](dep/README.md#package-inventory) records versions, provenance, checksums, and license locations.
+Extracted packages and restore caches stay under the ignored `build` directory.
+NuGet also retains its normal cache behavior for ordinary managed project restores.
+
+To add or update a manually supplied package:
+
+1. Confirm that its license permits redistribution.
+2. Put the versioned `.nupkg` archive in `dep`.
+3. Record its source, version, SHA-256, and license location in `dep/README.md`.
+4. Pin each consuming project to the intended version.
+5. Update native package paths if the build consumes the archive directly.
+6. Run the affected build and runtime checks before committing the archive and configuration together.
+
+Do not put credentials, private feed tokens, extracted files, or generated packages in `dep`.
+Do not replace the contents of an existing versioned archive. Use a new package version.
+
 ### LSH highlighting in XUI applications
 
 The gallery, Designer, and FileExplorer use LSH when the native XUI build enables it.
-The default build has no LSH dependency and keeps plain text.
-Use the `Lsh` NuGet package, version `0.3.0`, for Windows x64 or ARM64.
+The default Windows native build enables the checked-in `dep\Lsh.0.3.0.nupkg` for x64 or ARM64.
+CMake extracts the archive into a content-addressed directory under the native build directory.
+This native path needs neither a NuGet download nor the .NET SDK.
+Archive changes trigger CMake configuration again.
 This package supplies custom-grammar compilation through its native C API.
 The samples do not need the package's managed wrapper.
 
 For a local Designer build with required syntax highlighting, use the build script:
 
 ```powershell
-.\scripts\Build-Designer.ps1 -LshPackageFeed C:\packages
+.\scripts\Build-Designer.ps1
 ```
 
-The feed must contain `Lsh.0.3.0.nupkg`.
+The script restores from `dep` by default.
+For another local feed containing `Lsh.0.3.0.nupkg`, use `-LshPackageFeed <directory>`.
 For an existing extracted package, use `-LshPackageDirectory <package-directory>` instead.
 The script selects the host architecture, builds native XUI and Designer, and checks the deployed DLLs and license.
 Use `-Architecture x64` or `-Architecture ARM64` to select another target.
@@ -1213,16 +1238,12 @@ If Designer is open, use `-OutputDirectory <new-directory>` to keep its running 
 If CMake is absent from `PATH`, use `-CMakePath <path-to-cmake.exe>`.
 The script requires LSH and stops on restore, configuration, build, or deployment errors.
 It does not download or install Microsoft Edit.
-An ordinary native build still supports plain text without LSH.
+An explicit native opt-out still supports plain text without LSH.
 
-Restore from a local package feed.
-Set `$feed` to the directory containing `Lsh.0.3.0.nupkg`:
+The ordinary CMake build also enables the bundled package:
 
 ```powershell
-$feed = "C:\packages"
-dotnet restore integrations\lsh\Lsh.Package.csproj --source $feed --packages build\packages
-$lsh = (Resolve-Path build\packages\lsh\0.3.0).Path
-cmake -S . -B $build "-DXUI_LSH_PACKAGE_DIR=$lsh" -DXUI_REQUIRE_LSH=ON
+cmake -S . -B $build -DXUI_ENABLE_LSH=ON -DXUI_REQUIRE_LSH=ON
 cmake --build $build --config Release --target xui xui_gallery xui_winui_gallery --parallel 4
 dotnet build bindings\dotnet\Designer -c Release -r $rid
 dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
@@ -1231,11 +1252,12 @@ dotnet build bindings\dotnet\FileExplorer -c Release -r $rid
 Use the `$build` and `$rid` values from [Build the native code](#build-the-native-code).
 The default managed sample paths use `build\<architecture>\Release`.
 For another build directory, pass `-p:XuiNativeDir=<native-output-directory>` to each managed command.
-To disable LSH intentionally, set `XUI_REQUIRE_LSH=OFF` and `XUI_LSH_PACKAGE_DIR` to an empty string.
-`XUI_REQUIRE_LSH=ON` rejects an empty package path instead of silently producing plain text.
-An invalid package path always stops configuration.
-The package is not available from every NuGet feed.
-If restore reports `NU1101`, obtain the required package from its producer and supply its local feed.
+To disable LSH intentionally, set `XUI_ENABLE_LSH=OFF` and `XUI_REQUIRE_LSH=OFF`.
+`XUI_REQUIRE_LSH=ON` rejects an explicit opt-out instead of silently producing plain text.
+`XUI_LSH_PACKAGE_DIR` can override the archive with an existing extracted `Lsh 0.3.0` package.
+An empty override selects the checked-in archive. It no longer disables highlighting.
+A missing archive or invalid enabled-package path stops configuration.
+The release build also requires LSH and includes its runtime and license in the sample archives.
 
 CMake embeds the trusted XUI, C, C++, C#, and Rust grammars at build time.
 It copies the matching `lsh_lib.dll` and `LSH-LICENSE.txt` beside the native binaries.

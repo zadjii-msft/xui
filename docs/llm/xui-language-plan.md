@@ -765,17 +765,27 @@ That existing fixture failure remains unresolved.
 
 ### Required Designer syntax build
 
-`scripts/Build-Designer.ps1` restores a supplied local `Lsh.0.3.0.nupkg`, or accepts an existing extracted package.
+`scripts/Build-Designer.ps1` restores `dep/Lsh.0.3.0.nupkg` by default, or accepts an external local feed or extracted package.
 It configures `XUI_REQUIRE_LSH=ON`, builds native XUI and Designer, and compares the deployed DLLs and license.
 `XUI_REQUIRE_LSH` defaults to `OFF` for ordinary native builds.
-The required path rejects an empty package setting instead of silently producing a plain-text Designer.
+`XUI_ENABLE_LSH` defaults to `ON`. CMake extracts the bundled archive without requiring .NET for native-only builds.
+The required path rejects an explicit disabled configuration instead of silently producing a plain-text Designer.
 The [contributor procedure](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) documents both paths.
 
-The September 18 worktree had no accessible LSH package.
+The initial September 18 worktree had no accessible LSH package.
 Configured NuGet feeds returned `NU1101`. Direct nuget.org restore failed with `NU1301`.
 The script's syntax and missing-feed checks passed. Required-package CMake configuration failed explicitly, while the optional path still configured.
-Actual package-enabled highlighting and the positive build-script path remain unverified until the package is supplied.
-The historical package-enabled results in the preceding section do not apply to this worktree.
+The maintainer then supplied the archive in `dep`, which resolved the dependency-location blocker.
+The repository-local NuGet feed preserves existing feeds and restores the exact pinned package from a fresh cache.
+CMake uses the archive SHA-256 to isolate extracted versions and tracks the archive as a configuration dependency.
+The native packaged-grammar tests and the default Designer build script passed with that package.
+The ARM64 Release rerun passed all six focused native suites with LSH enabled.
+These suites cover grammar spans, native colors, dark/light/high-contrast palettes, IME deferral, range editing, undo, and the editing ABI.
+The managed `Syntax.Tests` suite also passed its LSH and native editing checks.
+The default Designer script passed after the restore-only project changed to .NET 10.
+Its deployed native DLLs and license matched the build outputs.
+Configuration checks accepted the explicit optional opt-out and rejected both the required opt-out and an invalid extracted-package directory.
+The final configuration retained enabled, required LSH.
 
 ## VS Code package
 

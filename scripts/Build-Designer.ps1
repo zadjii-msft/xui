@@ -1,7 +1,7 @@
-[CmdletBinding(DefaultParameterSetName = 'Package')]
+[CmdletBinding(DefaultParameterSetName = 'Feed')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Package')][string]$LshPackageDirectory,
-    [Parameter(Mandatory, ParameterSetName = 'Feed')][string]$LshPackageFeed,
+    [Parameter(ParameterSetName = 'Feed')][string]$LshPackageFeed = "$PSScriptRoot\..\dep",
     [ValidateSet('ARM64', 'x64')][string]$Architecture = $(if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'ARM64' } else { 'x64' }),
     [string]$BuildDirectory,
     [string]$OutputDirectory,
@@ -28,7 +28,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Feed') {
 $lsh = (Resolve-Path -LiteralPath $LshPackageDirectory).Path
 Invoke-Checked {
     & $CMakePath -S $repo -B $build -G 'Visual Studio 17 2022' -A $Architecture `
-        '-DXUI_REQUIRE_LSH=ON' "-DXUI_LSH_PACKAGE_DIR=$lsh"
+        '-DXUI_ENABLE_LSH=ON' '-DXUI_REQUIRE_LSH=ON' "-DXUI_LSH_PACKAGE_DIR=$lsh"
 }
 Invoke-Checked { & $CMakePath --build $build --config Release --target xui --parallel 4 }
 $native = Join-Path $build 'Release'
