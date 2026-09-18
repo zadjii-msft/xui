@@ -38,6 +38,8 @@ internal sealed partial class DesignerApplication
         new(DesignerCommandId.FocusPropertySearch, "Properties: Find a property", () => workspace.Inspector.Layout.ArgumentFilter.Focus()),
         new(DesignerCommandId.FocusProperty, "Focus: Property value", workspace.Inspector.FocusValue,
             CanExecute: () => workspace.IsCurrent && workspace.Hierarchy.Selection is not null),
+        new(DesignerCommandId.RevertPropertyDraft, "Properties: Revert draft", workspace.RevertPropertyDraft,
+            CanExecute: () => workspace.CanRevertPropertyDraft),
         new(DesignerCommandId.Render, "Preview: Render current source", () => Schedule(immediate: true), "Ctrl+Enter"),
         new(DesignerCommandId.LivePreview, "Preview: Toggle live preview", () => view.Live.Invoke(), Checked: live),
         new(DesignerCommandId.PickControls, "Preview: Pick controls", () => RequestPicking(true),

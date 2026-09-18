@@ -225,6 +225,16 @@ The match count excludes this retained entry.
 Filtering, clearing, and reselecting the current property preserve raw and structured drafts.
 Selecting a different property retains the existing behavior: its source value replaces the previous draft.
 
+**Revert draft** discards unapplied changes to the active property and restores its latest authored value.
+An unset property returns to an empty draft. The action does not add or remove source arguments.
+It retains the property selection, filters, and active raw, text, dimension, boolean, or inset mode.
+Invalid draft fields can also revert. Focus returns to the active property editor.
+**Properties: Revert draft** in the command palette provides the same action.
+Expressions, stale source, and pending visual edits prevent reversion.
+
+Revert does not compile source, change the preview, or create a source undo entry.
+**Reset** is different: it removes an authored named argument through a compiled source edit.
+
 **Properties: Find a property** in the command palette focuses the query.
 Filters remain available across selection and source changes, including parsing and invalid source.
 They do not change source, native undo, preview state, or read-only restrictions.

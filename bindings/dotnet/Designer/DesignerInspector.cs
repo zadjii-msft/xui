@@ -31,6 +31,8 @@ internal sealed class DesignerInspector
     internal bool IsDimensionMode => dimensionMode;
     internal bool IsBooleanMode => booleanMode;
     internal bool IsInsetsMode => insetsMode;
+    internal bool CanRevertDraft => editable && !validationPending && Argument is not null &&
+        node?.Arguments.FirstOrDefault(argument => argument.Name == Argument)?.ValueKind != XuiValueKind.Expression;
 
     internal DesignerInspector(Window window)
     {
@@ -235,6 +237,25 @@ internal sealed class DesignerInspector
         else Value.Focus();
     }
 
+    internal void RevertDraft()
+    {
+        if (!CanRevertDraft)
+        {
+            Layout.Feedback.Text = "Select an editable literal property before reverting its draft.";
+            return;
+        }
+        bool restoreText = textMode, restoreDimensions = dimensionMode, restoreBoolean = booleanMode, restoreInsets = insetsMode;
+        ShowArgument();
+        if (restoreText) { Layout.TextMode.Checked = true; ChangeTextMode(true); }
+        else if (restoreDimensions) { Layout.DimensionMode.Checked = true; ChangeDimensionMode(true); }
+        else if (restoreBoolean) { Layout.BooleanMode.Checked = true; ChangeBooleanMode(true); }
+        else if (restoreInsets) { Layout.InsetsMode.Checked = true; ChangeInsetsMode(true); }
+        Layout.Feedback.Text = node!.Arguments.Any(argument => argument.Name == Argument)
+            ? "Draft restored from source. No source edit was applied."
+            : "Draft cleared. This property is not set in source.";
+        FocusValue();
+    }
+
     private void ShowArgument()
     {
         var argument = node?.Arguments.FirstOrDefault(a => a.Name == Argument);
@@ -280,6 +301,7 @@ internal sealed class DesignerInspector
         Value.ReadOnly = !writable;
         Layout.Apply.Enabled = writable;
         Layout.Reset.Enabled = writable && argument is { IsPositional: false };
+        Layout.RevertDraft.Enabled = CanRevertDraft;
         Layout.ArgumentHelp.Text = !editable ? validationPending
             ? "Read-only while the visual edit is validated."
             : "Read-only until the hierarchy matches valid source."

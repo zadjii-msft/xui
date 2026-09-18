@@ -74,6 +74,8 @@ component DesignerInspectorLayout {
                     Button("Reset", ref: Reset, id: "designer-reset-property", enabled: false,
                         help: "Remove an authored named literal argument and use its default");
                 }
+                Button("Revert draft", ref: RevertDraft, id: "designer-revert-property-draft", enabled: false,
+                    help: "Discard unapplied property changes without changing source or removing the authored value");
                 Text("Structure", fontSize: 18, fontWeight: 600);
                 HStack(spacing: 6) {
                     Button("Move up", ref: Up, id: "designer-move-up", help: "Move to the previous sibling position (Alt+Up in hierarchy)");

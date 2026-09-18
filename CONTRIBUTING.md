@@ -294,6 +294,8 @@ Boolean checks cover native toggles in both visual styles, raw drafts, exact no-
 The selection smoke checks exact native preview sizes after a dimension edit and its source undo.
 It also checks the actual native enabled state after a boolean edit, and restoration through source undo.
 Inset checks cover uniform and four-sided values, draft conversion, numeric limits, native fields, focus, reset, stale source, and undo in both styles.
+Draft reversion checks cover raw and structured modes, invalid fields, retained filters, unset properties, expression refusals, busy/stale guards, and unchanged source undo.
+The application selection smoke checks its command-palette entry, disabled expression actions, and unchanged preview dimensions.
 The source suite checks exact formatting, cultures, rejected syntax, source limits, and compiled inset changes across control kinds.
 The application selection smoke checks the actual native label height after a padding edit and source undo.
 Comment checks cover palette and shortcut routing, native preview removal/restoration, and separate undo operations through the complete source pipeline.

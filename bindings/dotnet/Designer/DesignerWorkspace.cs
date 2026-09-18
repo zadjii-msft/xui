@@ -27,6 +27,8 @@ internal sealed class DesignerWorkspace : IDisposable
     internal VisualDocument? Document { get; private set; }
     internal bool IsCurrent => current;
     internal bool IsBusy => busy;
+    internal bool CanRevertPropertyDraft => !disposed && !busy && current && Document?.Source == editor.Text &&
+        Hierarchy.Selection is not null && Inspector.CanRevertDraft;
     internal event Action? Changed;
     internal event Action? SelectionChanged;
 
@@ -45,6 +47,7 @@ internal sealed class DesignerWorkspace : IDisposable
         Hierarchy.Layout.FromCaret.Click += SelectFromCaret;
         Inspector.Layout.Apply.Click += ApplyProperty;
         Inspector.Layout.Reset.Click += ResetProperty;
+        Inspector.Layout.RevertDraft.Click += RevertPropertyDraft;
         Inspector.Layout.Delete.Click += () => Edit((document, node, token) => document.DeleteNode(document.Revision, node.Id, token));
         Inspector.Layout.Duplicate.Click += Duplicate;
         Inspector.Layout.Up.Click += () => Move(-1);
@@ -221,6 +224,21 @@ internal sealed class DesignerWorkspace : IDisposable
     }
 
     internal void Move(int delta) => Edit((document, node, token) => document.MoveNode(document.Revision, node.Id, delta, token));
+
+    internal void RevertPropertyDraft()
+    {
+        if (busy)
+        {
+            Inspector.Layout.Feedback.Text = "Wait for the current visual edit before reverting a property draft.";
+            return;
+        }
+        if (!current || Document is null || Document.Source != editor.Text || Hierarchy.Selection is null)
+        {
+            Inspector.Layout.Feedback.Text = "Cannot revert a draft from a stale hierarchy. Select a property in the current source.";
+            return;
+        }
+        Inspector.RevertDraft();
+    }
 
     internal void ResetProperty()
     {

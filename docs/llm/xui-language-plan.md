@@ -217,6 +217,12 @@ Stack padding stays outside inset mode because it uses a uniform structural sett
 The controller retains the boolean draft from native change events because the managed checked property is write-only.
 Mode changes do not commit source. Argument and source changes clear each structured mode.
 `FocusValue` selects the active field rather than the hidden raw editor.
+`DesignerWorkspace.RevertPropertyDraft` checks the current source snapshot and busy state before discarding a property draft.
+`DesignerInspector.RevertDraft` restores the authored value through `ShowArgument`, then restores the previous structured mode and editor focus.
+It retains the current property and filters, and never calls a source-edit proposal.
+`CanRevertPropertyDraft` also gates the command-palette entry, which checks availability again after dismissal.
+`Designer.TextModeTests/Program.RevertDraft.cs` covers invalid drafts, every editor mode, unset values, expressions, current revisions, and source undo in both styles.
+The application selection smoke checks command dispatch, disabled expression actions, and unchanged native preview dimensions.
 `Designer.TextModeTests/Program.Insets.cs` covers inset drafts, native geometry, no-ops, errors, reset, stale source, and undo in both styles.
 The application selection smoke checks property focus and the actual label height after a padding edit and source undo.
 `Designer.TextModeTests/Program.Dimensions.cs` covers drafts, validation, mode changes, native source undo, resets, and stale-source rejection.

@@ -321,6 +321,25 @@ internal sealed partial class DesignerApplication
                 view.Commands.Invoke();
             });
             await Until(() => commandPalette.IsOpen);
+            ulong? revertPreviewControl = null;
+            await Ui(() =>
+            {
+                Require(preview.TryReadNode(version, buttonId, out var beforeRevert) && beforeRevert.ControlId is not null,
+                    "Draft reversion starts with an owned native preview control.");
+                revertPreviewControl = beforeRevert.ControlId;
+                commandPalette.Surface.Invoke((ulong)DesignerCommandId.RevertPropertyDraft);
+            });
+            await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.DimensionWidth.Focused);
+            await Ui(() =>
+            {
+                Require(workspace.Inspector.IsDimensionMode && workspace.Inspector.Layout.DimensionWidth.Text == "180" &&
+                    workspace.Inspector.Layout.DimensionHeight.Text == "40" && editor.Text == source &&
+                    preview.TryReadNode(version, buttonId, out var unchanged) && unchanged.Bounds.Width == 180 &&
+                    unchanged.ControlId == revertPreviewControl,
+                    "The Revert draft command restores dimensions without compiling or replacing the current native preview.");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
             await Ui(() => commandPalette.Surface.Invoke((ulong)DesignerCommandId.FocusProperty));
             await Until(() => !commandPalette.IsOpen && workspace.Inspector.Layout.DimensionWidth.Focused);
             await Ui(() =>
@@ -343,6 +362,23 @@ internal sealed partial class DesignerApplication
             await Ui(() => Require(editor.Text == source && preview.TryReadNode(version, buttonId, out var restored) &&
                 restored.Bounds.Width == 180 && restored.Bounds.Height == 40,
                 "One source undo restores the original native preview dimensions."));
+            await Ui(() =>
+            {
+                workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
+                workspace.Inspector.ChooseArgument("value");
+                view.Commands.Invoke();
+            });
+            await Until(() => commandPalette.IsOpen);
+            await Ui(() =>
+            {
+                bool refused = false;
+                try { commandPalette.Surface.Invoke((ulong)DesignerCommandId.RevertPropertyDraft); }
+                catch (XuiException error) when (error.Message.Contains("disabled", StringComparison.Ordinal)) { refused = true; }
+                Require(refused && commandPalette.IsOpen && !workspace.CanRevertPropertyDraft && editor.Text == source,
+                    "The native command palette disables draft reversion for an authored expression.");
+                commandPalette.Surface.CloseButton.Invoke();
+            });
+            await Until(() => !commandPalette.IsOpen);
             await Ui(() =>
             {
                 workspace.Hierarchy.Tree.Select(workspace.Hierarchy.Key(workspace.Document!.Root!.Children[1]));
