@@ -59,6 +59,8 @@ public:
     AdaptiveLayout(std::shared_ptr<Element> navigation, std::shared_ptr<Element> content);
     void set_breakpoint(float width);
     void set_navigation_extent(float extent);
+    void set_content_sized(bool value);
+    bool content_sized() const { return content_sized_; }
     void set_compact_navigation(CompactNavigation mode);
     void set_navigation_open(bool open);
     const std::shared_ptr<Element>& navigation() const { return child_at(1); }
@@ -73,6 +75,7 @@ protected:
 private:
     float breakpoint_{640}, extent_{220};
     bool compact_{};
+    bool content_sized_{};
     bool open_{true};
     CompactNavigation mode_{};
 };

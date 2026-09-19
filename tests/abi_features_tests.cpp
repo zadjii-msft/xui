@@ -842,6 +842,16 @@ void explorer_contracts() {
     expect(xui_popup_window_background(centered_popup, 2) == XUI_INVALID_ARGUMENT);
     expect(xui_popup_window_background(first_pane, 1) == XUI_WRONG_KIND);
     auto shortcut_items = create(window, XUI_ITEMS_VIEW);
+    expect(read_value(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION).first == 0);
+    auto activation = value(); activation.first = 1;
+    ok(xui_feature_set(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION, &activation));
+    expect(read_value(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION).first == 1);
+    activation.first = 2;
+    expect(xui_feature_set(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION, &activation) == XUI_INVALID_ARGUMENT);
+    expect(read_value(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION).first == 1);
+    activation.first = 0;
+    ok(xui_feature_set(shortcut_items, XUI_F_SINGLE_CLICK_ACTIVATION, &activation));
+    expect(xui_feature_set(first_pane, XUI_F_SINGLE_CLICK_ACTIVATION, &activation) == XUI_WRONG_KIND);
     ok(xui_items_trailing_shortcut_badges(shortcut_items, 1));
     ok(xui_items_trailing_shortcut_badges(shortcut_items, 0));
     expect(xui_items_trailing_shortcut_badges(shortcut_items, 2) == XUI_INVALID_ARGUMENT);
@@ -877,8 +887,8 @@ void explorer_contracts() {
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_VERSION_MISMATCH);
     visuals[1].size = sizeof(xui_item_visual);
     static_assert(XUI_BUTTON_ICON_DRIVE == 21 && XUI_BUTTON_ICON_OPEN == 22);
-    static_assert(XUI_BUTTON_ICON_SAVE == 23 && XUI_BUTTON_ICON_CHEVRON_DOWN == 28);
-    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_CHEVRON_DOWN; ++icon) {
+    static_assert(XUI_BUTTON_ICON_SAVE == 23 && XUI_BUTTON_ICON_CHEVRON_DOWN == 28 && XUI_BUTTON_ICON_CHEVRON_RIGHT == 29);
+    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_CHEVRON_RIGHT; ++icon) {
         visuals[1].icon = icon;
         ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
         tab_visuals[0].icon = icon;
@@ -888,15 +898,15 @@ void explorer_contracts() {
         button_icon = value();
         ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &button_icon)); expect(button_icon.first == icon);
     }
-    auto invalid_icon = value(); invalid_icon.first = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    auto invalid_icon = value(); invalid_icon.first = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
     expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
     invalid_icon.first = UINT64_MAX;
     expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
     auto retained_icon = value();
-    ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &retained_icon)); expect(retained_icon.first == XUI_BUTTON_ICON_CHEVRON_DOWN);
-    tab_visuals[0].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &retained_icon)); expect(retained_icon.first == XUI_BUTTON_ICON_CHEVRON_RIGHT);
+    tab_visuals[0].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
     expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
-    visuals[1].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    visuals[1].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
     visuals[1].icon = 15;
     const std::string oversized(32768, 'x');
@@ -1196,6 +1206,18 @@ int main(int argc, char** argv) {
         if(kind==XUI_VIEW_PICKER)content=handles[XUI_ITEMS_VIEW];
         handles[kind]=create(w,kind,content,second);
     }
+    const auto measured = handles[XUI_ADAPTIVE_LAYOUT];
+    expect(read_value(measured, XUI_F_CONTENT_SIZED).first == 0);
+    auto sizing = value(); sizing.first = 1;
+    ok(xui_feature_set(measured, XUI_F_CONTENT_SIZED, &sizing));
+    expect(read_value(measured, XUI_F_CONTENT_SIZED).first == 1);
+    sizing.first = 2;
+    expect(xui_feature_set(measured, XUI_F_CONTENT_SIZED, &sizing) == XUI_INVALID_ARGUMENT);
+    expect(read_value(measured, XUI_F_CONTENT_SIZED).first == 1);
+    sizing.first = 0;
+    expect(xui_feature_set(handles[XUI_ITEMS_VIEW], XUI_F_CONTENT_SIZED, &sizing) == XUI_WRONG_KIND);
+    ok(xui_feature_set(measured, XUI_F_CONTENT_SIZED, &sizing));
+    expect(read_value(measured, XUI_F_CONTENT_SIZED).first == 0);
     auto range=handles[XUI_RANGE_INPUT];auto v=value();v.a=-10;v.b=10;v.c=0.5;v.d=2;
     auto split_value=value();split_value.a=.4;
     ok(xui_feature_set(handles[XUI_SPLIT_VIEW],XUI_F_SPLIT_RATIO,&split_value));
@@ -1295,7 +1317,7 @@ int main(int argc, char** argv) {
     expect(xui_map_complete(othermap,token,nullptr,0)==XUI_INVALID_ARGUMENT);ok(xui_request_cancel(token));
     xui_command_record commands[]{{sizeof(xui_command_record),0,1,0,text("Action"),text("Ctrl+K"),text("Pin"),0,0}};
     auto bar=handles[XUI_COMMAND_BAR];ok(xui_commands_set(bar,commands,1));xui_event action{};ok(xui_subscribe(bar,event,&action));
-    for (uint32_t icon = 14; icon <= XUI_BUTTON_ICON_CHEVRON_DOWN; ++icon) {
+    for (uint32_t icon = 14; icon <= XUI_BUTTON_ICON_CHEVRON_RIGHT; ++icon) {
         commands[0].icon = icon;
         ok(xui_commands_set(bar, commands, 1));
         xui_handle command_button{}; ok(xui_command_bar_button(bar, 1, &command_button));
@@ -1303,7 +1325,7 @@ int main(int argc, char** argv) {
         ok(xui_feature_get(command_button, XUI_F_BUTTON_ICON, &command_icon));
         expect(command_icon.first == icon);
     }
-    commands[0].icon = XUI_BUTTON_ICON_CHEVRON_DOWN + 1;
+    commands[0].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
     expect(xui_commands_set(bar, commands, 1) == XUI_INVALID_ARGUMENT);
     commands[0].icon = 0;
     ok(xui_commands_set(bar, commands, 1));

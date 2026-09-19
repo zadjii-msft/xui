@@ -1835,6 +1835,8 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         const float tail = 16 - tip;
         const float shoulder = icon == ButtonIcon::back ? 7.0f : 9.0f;
         stroke(tip, 8, tail, 8); stroke(tip, 8, shoulder, 3); stroke(tip, 8, shoulder, 13);
+    } else if (icon == ButtonIcon::chevron_right) {
+        stroke(5, 3, 11, 8); stroke(11, 8, 5, 13);
     } else if (icon == ButtonIcon::chevron_up || icon == ButtonIcon::chevron_down) {
         const float tip = icon == ButtonIcon::chevron_up ? 5.0f : 11.0f;
         const float tail = 16 - tip;

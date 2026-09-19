@@ -37,7 +37,7 @@ Each pane has a New tab icon immediately after its last visible tab, not in the 
 The navigation, New tab, and address-toolbar icons use the shared `ExplorerStyles.IconButton` style.
 Their idle backgrounds match the window in light and dark themes, without borders.
 Hover, pressed, disabled, keyboard focus, and high-contrast feedback remain available.
-The address button retains its standard face.
+The address bar uses borderless breadcrumb buttons with separate folder dropdowns.
 Both styles use attached tabs with rounded top corners and an open selected bottom edge.
 The row inherits its parent background.
 The title-bar border continues across the navigation area, pane divider, and caption area, except below selected tabs.
@@ -115,6 +115,37 @@ The menu contains tab shifting, duplication, path copying, and closing commands.
 Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
+
+### Breadcrumb address bar
+
+The C# demo uses `BreadcrumbAddressBar`, a demo-local control inspired by the File Pilot address bar.
+Each ancestor name opens that folder.
+The right chevron after each name opens a dropdown of its immediate subfolders.
+The dropdown appears below the address bar and excludes files.
+One click activates a folder in either the subfolder dropdown or the ancestor menu.
+Arrow keys change selection without navigation. Enter activates the selected folder.
+Empty folders and directory-read errors have distinct messages.
+
+Earlier segments collapse as the pane narrows.
+The current folder remains visible.
+The **Parent folders** button lists the complete path, including hidden ancestors.
+The bar retains at most 64 segment pairs, but the ancestor menu retains every path component.
+Left and Right move between visible name and chevron buttons.
+Down opens the focused segment's folder dropdown.
+
+Segment names have two DIPs of horizontal padding on each side.
+Measured text widths determine each segment's width. Character counts do not determine layout.
+When the complete path does not fit, earlier segments disappear into the ancestor menu instead of shrinking short names.
+The current folder name uses its measured text width rather than the remaining bar width.
+Clicking the current name or the empty space after it opens the navigation palette.
+Ctrl+L and Alt+D open the same palette.
+There is no inline address editor.
+The palette retains its native input, path suggestions, and keyboard commands.
+
+Each pane owns its breadcrumb controls and folder dropdown.
+Navigation, tab changes, pane closure, and dropdown dismissal cancel obsolete folder requests.
+Canceled requests cannot replace newer dropdown contents.
+The searchable navigation palette remains available through Ctrl+G and the **Go to folder** command.
 
 ### Tab tear-out and merge
 
@@ -322,7 +353,7 @@ There is no animated palette entry.
 | --- | --- |
 | Navigation button | Expand or collapse the navigation pane |
 | Alt+F | Focus the navigation filter |
-| Ctrl+L / address button | Open the navigation palette at the active folder |
+| Ctrl+L / Alt+D / Ctrl+G / current breadcrumb / trailing space | Open the navigation palette at the active folder |
 | Up / Down in the palette | Select the previous or next result |
 | Tab in the navigation palette | Insert the selected full path without navigation |
 | Ctrl+Backspace in the navigation palette | Delete the selection or previous word or path component |
