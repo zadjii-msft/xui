@@ -1,14 +1,41 @@
 namespace Xui.FileExplorer;
 
 component PreviewLayout {
-    param global::Xui.Element Body;
+    param global::Xui.Element TextContent;
+    param global::Xui.Element ImageContent;
+    param global::Xui.Element Metadata;
     param global::Xui.Element Status;
     state bool EntryOpen = false;
+
+    resources {
+        WindowBackground: theme(light: 0xF3F3F3, dark: 0x202020);
+    }
+
+    style PreviewText for MultilineText {
+        background: resource(WindowBackground);
+        borderThickness: 0;
+        padding: 12;
+        cornerRadius: 0;
+        part text {
+            fontFamily: "Cascadia Mono";
+            fontSize: 14;
+        }
+    }
+
+    style PreviewImage for Image {
+        background: resource(WindowBackground);
+        borderThickness: 0;
+        cornerRadius: 0;
+    }
 
     view {
         VStack(padding: 12, spacing: 8) {
             Reveal("Preview content entry", open: EntryOpen, duration: 180, flex: 1, ref: EntryReveal) {
-                Content(Body);
+                Grid("Preview content", ref: Body) {
+                    Content(TextContent, style: PreviewText);
+                    Content(ImageContent, style: PreviewImage);
+                    Content(Metadata);
+                }
             }
             Content(Status);
         }

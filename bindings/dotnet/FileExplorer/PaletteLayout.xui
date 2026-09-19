@@ -1,6 +1,8 @@
 namespace Xui.FileExplorer;
 
 component PaletteLayout {
+    state string StatusText = "";
+
     view {
         Popup("Explorer palette", id: "explorer-palette", preferredSize: (760, 420),
             placement: global::Xui.PopupPlacement.Center, windowBackground: true) {
@@ -10,9 +12,10 @@ component PaletteLayout {
                         new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Automatic)]) {
                     TextInput("Go to folder", ref: Editor, id: "palette-query", captionVisible: false, preferredSize: (740, 44));
                     ItemsView("Palette results", ref: Results, id: "palette-results", row: 2);
-                    ScrollView("Palette status", ref: StatusHost, preferredSize: (740, 0), visible: false, row: 3) {
+                    ScrollView("Palette status", ref: StatusHost,
+                        preferredSize: (740, StatusText.Length == 0 ? 0 : 32), visible: StatusText.Length != 0, row: 3) {
                         VStack(padding: 4) {
-                            Text("", ref: Message, id: "palette-status");
+                            Text(StatusText, id: "palette-status");
                         }
                     }
                 }

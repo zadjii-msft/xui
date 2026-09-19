@@ -26,28 +26,19 @@ internal sealed class BreadcrumbAddressBar : IDisposable
         this.pane = pane;
         var window = app.Window;
         string id = automationId = $"pane-{number}-address";
-        Root = window.Grid("Folder address").AutoSize(false).PreferredSize(480, 36)
-            .SetTracks([new(TrackSizing.Star)], [new(TrackSizing.Star)]);
         pathHost = window.CreateContentHost();
-        pathPresentation = window.Reveal(pathHost, "Folder breadcrumbs").SetDuration(0).SetOpen(true);
-        AncestorsButton = window.Button("Parent folders").SetAutomationId(id + "-ancestors")
-            .SetIcon(ButtonIcon.More).SetStyle(ExplorerStyles.IconButton).Help("Show all parent folders");
+        var layout = new BreadcrumbAddressLayout(window, id, pathHost, attach: false);
+        Root = layout.Root.AutoSize(false);
+        pathPresentation = layout.PathPresentation;
+        Display = layout.Display;
+        AncestorsButton = layout.Ancestors.SetStyle(ExplorerStyles.IconButton);
         AncestorsButton.Click += ShowAncestors;
         AncestorsButton.FocusEntered += pane.Activate;
-        var display = window.Grid("Address breadcrumbs")
-            .SetTracks([new(TrackSizing.Star)], [new(TrackSizing.Fixed, 24), new(TrackSizing.Star)]);
-        display.Add(AncestorsButton).Add(pathPresentation, column: 1);
-        Display = window.Reveal(display, "Address display").SetDuration(0).SetOpen(true);
-        Root.Add(Display);
 
-        folderList = window.ItemsView("Folders").SetAutomationId(id + "-folders").ItemSize(280, 32)
-            .SetSingleClickActivation(true);
-        message = window.Label("");
-        var content = window.Grid("Folder menu")
-            .SetTracks([new(TrackSizing.Star), new(TrackSizing.Fixed, 36)], [new(TrackSizing.Star)]);
-        content.Add(folderList).Add(message, row: 1);
-        folders = window.Popup("Address folders", content).PreferredSize(360, 300)
-            .SetPlacement(PopupPlacement.Below).SetWindowBackground(true);
+        var menu = new BreadcrumbMenuLayout(window, id, attach: false);
+        folderList = menu.Folders.ItemSize(280, 32).SetSingleClickActivation(true);
+        message = menu.Message;
+        folders = menu.Root;
         folders.Event += e =>
         {
             if (e.Kind == EventKind.Dismiss) CancelQuery();
@@ -107,22 +98,17 @@ internal sealed class BreadcrumbAddressBar : IDisposable
                 throw new InvalidOperationException("Cannot dispatch an address-bar action.");
         }
         Element? tail = null;
-        TrailingSpace = app.Window.Button("Go to folder").SetAutomationId(automationId + "-space")
-            .SetIcon(ButtonIcon.Folder).SetStyle(ExplorerStyles.IconButton).PreferredSize(0, 36).AutoSize(false)
-            .Help("Go to folder (Ctrl+L or Alt+D)");
-        TrailingSpace.SetControlStyle(ExplorerStyles.AddressSpace);
+        TrailingSpace = new BreadcrumbSpaceLayout(app.Window, automationId, attach: false).Root
+            .SetStyle(ExplorerStyles.IconButton).AutoSize(false);
         TrailingSpace.FocusEntered += () => Dispatch(pane.Activate);
         TrailingSpace.Click += () => Dispatch(ShowNavigation);
         // Bound retained controls; the ancestor menu still contains the complete path.
         foreach (var part in parts.TakeLast(64).Reverse())
         {
-            var name = app.Window.Button(part.Name).SetStyle(ExplorerStyles.BreadcrumbButton)
-                .SetAutomationId($"{automationId}-name-{parts.Count - 1 - buttons.Count}")
-                .MaximumSize(200, 36)
-                .Help(part.Path + (part == parts[^1] ? "\nGo to folder (Ctrl+L)" : "\nOpen folder"));
-            var children = app.Window.Button($"Folders in {part.Name}").SetIcon(ButtonIcon.ChevronRight)
-                .SetAutomationId($"{automationId}-children-{parts.Count - 1 - buttons.Count}")
-                .SetStyle(ExplorerStyles.IconButton).FixedSize(16, 36).Help($"Show folders in {part.Path}");
+            var segment = new BreadcrumbSegmentLayout(app.Window, automationId, parts.Count - 1 - buttons.Count,
+                part.Name, part.Path, part == parts[^1], attach: false);
+            var name = segment.Name.MaximumSize(200, 36);
+            var children = segment.Children.SetStyle(ExplorerStyles.IconButton);
             name.FocusEntered += () => Dispatch(pane.Activate);
             children.FocusEntered += () => Dispatch(pane.Activate);
             name.Click += () => Dispatch(() =>
@@ -134,14 +120,11 @@ internal sealed class BreadcrumbAddressBar : IDisposable
             buttons.Insert(0, (name, children, part.Path));
             if (tail is null)
             {
-                tail = app.Window.Stack(Axis.Horizontal).Spacing(0).Padding(0)
-                    .Add(name).Add(children).Add(TrailingSpace, 1);
+                tail = segment.Root.Add(TrailingSpace, 1);
             }
             else
             {
-                var segment = app.Window.Stack(Axis.Horizontal).Spacing(0).Padding(0)
-                    .Add(name).Add(children);
-                tail = app.Window.AdaptiveLayout("Collapsible path segment", segment, tail)
+                tail = app.Window.AdaptiveLayout("Collapsible path segment", segment.Root, tail)
                     .AutoSize(true).SetContentSized(true)
                     .SetCompactNavigation(CompactNavigation.Overlay).SetNavigationOpen(false);
                 tail.SetControlStyle(ExplorerStyles.BreadcrumbLayout);

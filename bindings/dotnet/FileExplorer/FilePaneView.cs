@@ -46,7 +46,12 @@ internal sealed class FilePaneView
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         AddressBar = new(app, this, number);
-        layout = new(window, number, AddressBar.Root, attach: false);
+        Columns = window.MillerColumns($"Columns in pane {number}");
+        Columns.SetAutomationId($"pane-{number}-columns");
+        Columns.Visible(false);
+        tree = new(app, number, Identify);
+        Tree.Visible(false);
+        layout = new(window, number, AddressBar.Root, Columns, Tree, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
@@ -59,17 +64,7 @@ internal sealed class FilePaneView
         WireButton(layout.Refresh, Refresh);
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
-        Columns = window.MillerColumns($"Columns in pane {number}");
-        Columns.SetAutomationId($"pane-{number}-columns");
-        Columns.Visible(false);
-        layout.ContentHost.Add(Columns);
-        Items = window.ItemsView($"Items in pane {number}");
-        Items.SetAutomationId($"pane-{number}-items");
-        Items.Visible(false);
-        layout.ContentHost.Add(Items);
-        tree = new(app, number, Identify);
-        Tree.Visible(false);
-        layout.ContentHost.Add(Tree);
+        Items = layout.Items;
         viewMenu = new(window, number, attach: false);
         viewOptions =
         [

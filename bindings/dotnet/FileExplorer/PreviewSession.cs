@@ -37,18 +37,13 @@ internal sealed class PreviewSession : IDisposable
         OpenButton.SetStyle(ExplorerStyles.IconButton);
         OpenButton.Click += Open;
         work = new(Window);
-        body = Window.Grid("Preview content");
         Text = Window.MultilineText("File contents");
         Text.SetReadOnly(true).SetMaximumLength(FilePreviewService.MaximumTextLength);
-        Text.SetControlStyle(ExplorerStyles.PreviewText);
         Text.SetAutomationId("preview-text").Visible(false);
         Image = Window.Image("Image preview");
-        Image.SetControlStyle(ExplorerStyles.PreviewImage);
         Image.SetAutomationId("preview-image").Visible(false);
-        body.Add(Text);
-        body.Add(Image);
         metadataIcon = Window.VectorCanvas("Generic file icon");
-        metadataIcon.SetAutomationId("preview-file-icon").PreferredSize(160, 160);
+        metadataIcon.SetAutomationId("preview-file-icon");
         metadataIcon.SetScene(target.IsDirectory
             ? [new(1, [new(12, 42), new(60, 42), new(72, 55), new(148, 55), new(148, 130), new(12, 130)],
                 "Generic folder", Closed: true, Fill: new(0.84f, 0.65f, 0.24f), Stroke: new(0.35f, 0.3f, 0.16f), StrokeWidth: 2)]
@@ -57,13 +52,13 @@ internal sealed class PreviewSession : IDisposable
                new(2, [new(100, 12), new(100, 42), new(130, 42)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 2),
                new(3, [new(53, 72), new(111, 72)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 3),
                new(4, [new(53, 92), new(111, 92)], Stroke: new(0.3f, 0.38f, 0.46f), StrokeWidth: 3)]);
-        metadata = new(Window, metadataIcon, attach: false);
-        body.Add(metadata.Root);
+        metadata = new(Window, metadataIcon, target, attach: false);
         ShowMetadata(false);
         status = Window.InlineStatus("Preview status");
         status.SetAutomationId("preview-status");
         status.SetDismissible(false);
-        layout = new(Window, body, status);
+        layout = new(Window, Text, Image, metadata.Root, status);
+        body = layout.Body;
         Window.KeyHandler = HandleKey;
         Window.Closed += e =>
         {
@@ -100,11 +95,6 @@ internal sealed class PreviewSession : IDisposable
     public void Show()
     {
         var selected = Target;
-        metadata.Name.Text = selected.Name;
-        metadata.Kind.Text = $"File Type: {(selected.IsDirectory ? "File folder" : selected.Kind)}";
-        metadata.Size.Text = selected.IsDirectory ? "Size: Not calculated"
-            : $"Size: {FileRows.FormatSize(selected.Size)} ({selected.Size:N0} bytes)";
-        metadata.Modified.Text = $"Date Modified: {selected.ModifiedUtc.ToLocalTime():g}";
         Text.SetName($"Contents of {selected.Name}").Visible(false);
         Image.SetName($"Preview of {selected.Name}").Visible(false);
         ShowMetadata(false);
@@ -164,8 +154,7 @@ internal sealed class PreviewSession : IDisposable
     private void ShowMetadata(bool visible)
     {
         metadataIcon.Visible(visible);
-        foreach (var label in new[] { metadata.Name, metadata.Kind, metadata.Size, metadata.Modified })
-            label.Visible(visible);
+        metadata.MetadataVisible = visible;
     }
 
     internal void Open()

@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Preview }
 
 internal static class ExplorerSmoke
 {
@@ -110,6 +110,13 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                if (mode == ExplorerSmokeMode.Preview)
+                {
+                    await PreviewChecks();
+                    await DetachedLifetimeChecks();
+                    Console.WriteLine("Explorer preview smoke passed: declarative metadata, text and image content, cancellation, native input, and opener-first lifetime.");
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.Partition)
                 {
                     await PartitionChecks();
@@ -591,6 +598,29 @@ internal static class ExplorerSmoke
                 await Ready(pane);
                 await Check(() => bar.Segments.Count > 1 && bar.Segments[^1].Path == fixture,
                     "Breadcrumbs reflect the committed folder");
+                await Ui(() =>
+                {
+                    var segments = bar.Segments.Select(segment => segment.Name).ToArray();
+                    var style = segments[0].Style;
+                    var space = bar.TrailingSpace;
+                    var spaceStyle = space.ControlStyle;
+                    app.Right.AddressBar.SetPath(app.Right.Model.Active.Path);
+                    if (style is null || segments.Any(button => !ReferenceEquals(button.Style, style))
+                        || !ReferenceEquals(app.Right.AddressBar.Segments[0].Name.Style, style)
+                        || space.GetControlStyleValues(StylePart.Icon, effective: true).Size != 0)
+                        throw new InvalidOperationException("Declarative breadcrumbs must share styles across segments and panes and hide the trailing icon.");
+                    bar.SetPath(fixture);
+                    if (!segments.SequenceEqual(bar.Segments.Select(segment => segment.Name))
+                        || !ReferenceEquals(space, bar.TrailingSpace))
+                        throw new InvalidOperationException("An unchanged path must retain its controls without reconstructing declarative components.");
+                    string deep = Path.GetPathRoot(fixture)! + string.Join(Path.DirectorySeparatorChar, Enumerable.Repeat("folder", 80));
+                    bar.SetPath(deep);
+                    if (bar.Segments.Count != 64 || bar.Segments.Any(segment => !ReferenceEquals(segment.Name.Style, style)))
+                        throw new InvalidOperationException("Declarative path rebuilds must retain the 64-segment bound and reuse the cached style.");
+                    bar.SetPath(fixture);
+                    if (!ReferenceEquals(bar.TrailingSpace.ControlStyle, spaceStyle))
+                        throw new InvalidOperationException("Declarative trailing-space styles must be shared across path replacements.");
+                });
                 foreach (string folder in new[] { "dev", "WWW", "\u8cc7\u6599" })
                 {
                     string parent = Path.Combine(Path.GetPathRoot(fixture)!, folder);
@@ -1360,6 +1390,13 @@ internal static class ExplorerSmoke
                     && app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)
                     && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontFamily == "Cascadia Mono",
                     "Text preview uses borderless Cascadia Mono without a read-only notice, plus an Open icon");
+                await Check(() =>
+                {
+                    var rootStyle = app.Preview.Text.GetControlStyleValues(StylePart.Root, effective: true);
+                    return rootStyle.Background == new ThemeColor(0xF3F3F3, 0x202020)
+                        && rootStyle.Padding == new Insets(12) && rootStyle.CornerRadius == 0
+                        && app.Preview.Text.GetControlStyleValues(StylePart.Text, effective: true).FontSize == 14;
+                }, "Declarative text styling preserves the themed background, padding, corners, and native font size");
                 await Ui(() =>
                 {
                     if (!PostMessageW(GetFocus(), 0x100, 0x09, 1))
@@ -1532,6 +1569,12 @@ internal static class ExplorerSmoke
                             "Image preview occupies the visible content area");
                         await Check(() => !app.Preview.StatusVisible && app.Preview.Message == "",
                             "Images omit routine decode-size notices while the image control retains its errors");
+                        await Check(() =>
+                        {
+                            var style = app.Preview.Image.GetControlStyleValues(StylePart.Root, effective: true);
+                            return style.Background == new ThemeColor(0xF3F3F3, 0x202020)
+                                && style.BorderThickness == new Insets(0) && style.CornerRadius == 0;
+                        }, "Declarative image styling preserves the themed borderless surface");
                     }
                     if (name is "folder" or "unsupported.pdf")
                     {
@@ -1688,6 +1731,9 @@ internal static class ExplorerSmoke
                 await Until(() => !text.Pending && !folder.Pending && !text.EntryReveal.Animating
                     && !image.EntryReveal.Animating && !twin.EntryReveal.Animating
                     && image.Image.Status == ImageStatus.Ready && twin.Image.Status == ImageStatus.Ready);
+                await Check(() => image.Image.ControlStyle is not null
+                    && ReferenceEquals(image.Image.ControlStyle, twin.Image.ControlStyle),
+                    "Independent preview windows share the immutable declarative image style");
                 await Ui(twin.Dismiss);
                 await Until(() => twin.IsDisposed);
                 await Check(() => image.Image.Status == ImageStatus.Ready && image.IsOpen,
@@ -1951,7 +1997,8 @@ internal static class ExplorerSmoke
                             await Ui(() =>
                             {
                                 var style = pane.Tree.GetControlStyleValues(StylePart.Root, effective: true);
-                                if (!ReferenceEquals(pane.Tree.ControlStyle, ExplorerStyles.FileTree)
+                                if (pane.Tree.ControlStyle is null
+                                    || !ReferenceEquals(pane.Tree.ControlStyle, app.Right.Tree.ControlStyle)
                                     || style.RowHeight != 24 || style.FontSize != 12 || style.Indentation != 16
                                     || pane.Tree.GetControlStyleValues(StylePart.Icon, effective: true).Size != 16)
                                     throw new InvalidOperationException("Tree must use compact single-line rows, small icons, and shallow nesting.");
