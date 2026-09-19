@@ -167,6 +167,56 @@ Those checks require a desktop interaction with FileExplorer.
 
 ## Performance design
 
+### Layout and frame hot paths
+
+`Window::Impl::update` collects the retained tree and synchronizes peers.
+A pending layout request also calls root measurement and arrangement.
+`Stack::layout_children` measures fixed children before flex children on each pass.
+Nested stacks therefore repeat measurement during root measurement and descendant arrangement.
+The framework does not cache arbitrary application measurements.
+
+Each Stack retains a scratch vector for child sizes.
+A layout pass takes exclusive ownership of that vector and returns it after completion or an exception.
+A reentrant pass uses separate storage, so it cannot overwrite pending outer sizes.
+Each pass still measures children against the current constraints.
+Retained capacity depends on the largest child count, not the number of frames.
+Cross-axis alignment reads the selected alignment directly instead of copying a complete `PartStyleValues` for each child.
+
+`Window::Impl::paint` submits visible peers and captures native control pixels into the shared frame.
+Complete native capture preserves text, selection, scrolling, and popup composition.
+Tree collection, peer synchronization, and native capture remain profiling candidates for large forms.
+They are not measured bottlenecks in this pass.
+Partial native capture or measurement caches need separate invalidation and frame-correctness evidence.
+
+### Text cache lookup
+
+`Drawing::styled_format` and `Drawing::styled_layout` run during styled text measurement and painting.
+Their retained keys contain only typography fields.
+Cache hits compare the supplied style fields without a temporary `PartStyleValues` or a new shared font-family reference.
+Cache entries retain font-family ownership only on insertion.
+Equivalent family names still share cache entries.
+
+The format cache retains at most 64 entries. The layout cache retains at most 128 entries.
+Layout keys still include text, width, line limits, and effective wrapping.
+Long text and private text retain their cache exclusions.
+Cache hits still restore mutable layout bounds.
+Color and other non-typography properties do not change text identity.
+The optimization reduces lookup work and key storage, not DirectWrite shaping cost on a miss.
+
+### Collection projection and selection
+
+Immutable collection projections retain a row offset for each span.
+Row access uses binary search over these offsets instead of a scan from the first span.
+The index costs one `size_t` per span, not one entry per source row.
+Group headers, collapsed content, and virtual source ranges retain their existing identities.
+
+Projection identity searches still visit spans in order.
+Consecutive ranges from the same source reuse one source lookup, including ranges separated by headers or gaps.
+`CollectionSelection::contains` applies the same rule to range terms separated by point terms.
+A source change resets the reused lookup.
+Each call owns its lookup state, so later calls cannot use stale results.
+Source exceptions still propagate.
+
 ### Opt-in reveal
 
 `include\xui\reveal.hpp` and `src\reveal.cpp` define the retained four-edge reveal.

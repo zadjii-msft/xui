@@ -361,7 +361,22 @@ void Stack::add(std::shared_ptr<Element> child, float flex) {
     invalidate(Invalidation::layout);
 }
 
-std::vector<Size> Stack::layout_children(Size available) {
+struct Stack::LayoutScratch {
+    std::vector<Size>& storage;
+    std::vector<Size> sizes;
+
+    explicit LayoutScratch(std::vector<Size>& storage) : storage(storage) {
+        sizes.swap(storage);
+    }
+    ~LayoutScratch() {
+        // Nested layout must not overwrite an outer pass, even during exception unwinding.
+        if (sizes.capacity() > storage.capacity()) sizes.swap(storage);
+    }
+    LayoutScratch(const LayoutScratch&) = delete;
+    LayoutScratch& operator=(const LayoutScratch&) = delete;
+};
+
+void Stack::layout_children(Size available, std::vector<Size>& sizes) {
     const auto spacing = effective_spacing();
     available = normalized(available);
     const bool horizontal = axis_ == Axis::horizontal;
@@ -371,7 +386,7 @@ std::vector<Size> Stack::layout_children(Size available) {
         static_cast<double>(spacing) * static_cast<double>(children_.size() - 1);
     double remaining = (std::max)(0.0, main - gaps);
     double total_flex = 0.0;
-    std::vector<Size> sizes(children_.size());
+    sizes.resize(children_.size());
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const auto& child = children_[index];
         if (child.flex > 0.0f && main < maximum) {
@@ -398,7 +413,6 @@ std::vector<Size> Stack::layout_children(Size available) {
             Size{share, (std::min)(measured.height, cross)} :
             Size{(std::min)(measured.width, cross), share};
     }
-    return sizes;
 }
 
 Size Stack::measure(Size available) {
@@ -410,7 +424,9 @@ Size Stack::measure(Size available) {
     const double padding_height = static_cast<double>(padding.top) + padding.bottom;
     const Size inner{dimension(available.width - padding_width),
         dimension(available.height - padding_height)};
-    const auto sizes = layout_children(inner);
+    LayoutScratch scratch(layout_sizes_);
+    auto& sizes = scratch.sizes;
+    layout_children(inner, sizes);
     double main = sizes.empty() ? 0.0 :
         static_cast<double>(spacing) * static_cast<double>(sizes.size() - 1);
     double cross = 0.0;
@@ -435,7 +451,9 @@ void Stack::arrange(Rect rectangle) {
     const Size inner{
         dimension(static_cast<double>(rectangle.width) - left - padding.right),
         dimension(static_cast<double>(rectangle.height) - top - padding.bottom)};
-    const auto sizes = layout_children(inner);
+    LayoutScratch scratch(layout_sizes_);
+    auto& sizes = scratch.sizes;
+    layout_children(inner, sizes);
     const bool horizontal = axis_ == Axis::horizontal;
     const double main_limit = horizontal ? inner.width : inner.height;
     double position = 0.0;
@@ -453,12 +471,7 @@ void Stack::arrange(Rect rectangle) {
         const double x = static_cast<double>(rectangle.x) + left + (horizontal ? position : 0.0);
         const double y = static_cast<double>(rectangle.y) + top + (horizontal ? 0.0 : position);
         Rect child_bounds{coordinate(x), coordinate(y), horizontal ? length : inner.width, horizontal ? inner.height : length};
-        if (style) {
-            auto cross_style = *style;
-            if (horizontal) cross_style.horizontal_alignment.reset();
-            else cross_style.vertical_alignment.reset();
-            child_bounds = layout_style::aligned(child_bounds, sizes[index], &cross_style);
-        }
+        child_bounds = layout_style::aligned_cross(child_bounds, sizes[index], style, axis_);
         children_[index].element->arrange(child_bounds);
         position = (std::min)(main_limit, position + length + spacing);
     }

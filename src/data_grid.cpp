@@ -42,7 +42,8 @@ float DataGrid::effective_row_height() const { return part_style(StylePart::root
 float DataGrid::effective_header_height() const { return part_style(StylePart::root).header_height.value_or(header_height); }
 float DataGrid::effective_scrollbar_width() const { return part_style(StylePart::scrollbar).width.value_or(bar_width); }
 int DataGrid::page_rows() const {
-    return std::max(1, static_cast<int>(std::min(double(INT_MAX), double(viewport_height()) / effective_row_height())));
+    const auto g = geometry();
+    return std::max(1, static_cast<int>(std::min(double(INT_MAX), double(g.viewport_height()) / g.row_height)));
 }
 GridGeometry DataGrid::geometry() const {
     const auto style = part_style(StylePart::root);
@@ -348,10 +349,11 @@ void DataGrid::set_offset(double vertical, double horizontal) {
 }
 void DataGrid::arrange(Rect rect) { Control::arrange(rect); set_offset(offset_, horizontal_); }
 std::pair<std::size_t, std::size_t> DataGrid::visible_rows() const {
-    if (!source_ || viewport_height() <= 0) return {};
-    const auto height = effective_row_height();
-    const auto first = static_cast<std::size_t>(std::min(double(source_->size()), offset_ / height));
-    const auto count = static_cast<std::size_t>(std::min(double(source_->size() - first), std::ceil(double(viewport_height()) / height) + 1));
+    if (!source_) return {};
+    const auto g = geometry();
+    if (g.viewport_height() <= 0) return {};
+    const auto first = static_cast<std::size_t>(std::min(double(source_->size()), offset_ / g.row_height));
+    const auto count = static_cast<std::size_t>(std::min(double(source_->size() - first), std::ceil(double(g.viewport_height()) / g.row_height) + 1));
     return {first, first + count};
 }
 std::optional<std::size_t> DataGrid::row_at(float y) const {

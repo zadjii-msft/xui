@@ -161,15 +161,26 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format_, small_format_, heading_format_, subtitle_format_, strong_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> numeric_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> caption_format_;
+    struct TextFormatKey {
+        std::shared_ptr<const StyleFontFamily> font_family;
+        std::optional<float> font_size;
+        std::optional<uint32_t> font_weight;
+        std::optional<StyleFontStyle> font_style;
+        std::optional<StyleAlignment> horizontal_alignment, vertical_alignment;
+        bool wrapping{};
+        TextFormatKey() = default;
+        TextFormatKey(const PartStyleValues& values, bool wrap);
+        bool matches(const PartStyleValues& values, bool wrap) const;
+    };
     struct StyledFormat {
         TextStyle fallback{};
-        PartStyleValues typography;
+        TextFormatKey typography;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
     };
     struct StyledLayout {
         std::wstring text;
         TextStyle fallback{};
-        PartStyleValues typography;
+        TextFormatKey typography;
         float width{};
         std::size_t maximum_lines{};
         Size measured{};
@@ -179,6 +190,7 @@ private:
     std::vector<StyledLayout> styled_layouts_;
     std::size_t next_styled_format_{}, next_styled_layout_{};
     IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values);
+    IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values, bool wrap);
     Microsoft::WRL::ComPtr<IDWriteFontFace> symbol_face_;
     const wchar_t* symbol_family_{L""};
     DWRITE_FONT_METRICS symbol_font_metrics_{};

@@ -18,8 +18,12 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Layout and frame hot paths](architecture.md#layout-and-frame-hot-paths): Reusable layout storage, reentrant measurements, and native frame boundaries.
+- [Text cache lookup](architecture.md#text-cache-lookup): Compact typography keys, cache limits, and retained ownership.
+- [Collection hot paths](architecture.md#collection-projection-and-selection): Indexed projection spans and per-call source lookup reuse.
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
 - [Test coverage and protocols](testing.md): Regression scope, sample and Designer release checks, fixture behavior, and measurement methods.
+- [Framework performance evidence](testing.md#framework-performance-pass-september-19-2026): Allocation counts, retained cache sizes, and measurement limits.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.

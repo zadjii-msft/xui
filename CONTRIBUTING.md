@@ -690,6 +690,8 @@ The NuGet package, both Cargo crates, and both sample ZIPs include that license.
 
 ## Tests
 
+### Native regression checks
+
 Run the registered native tests after a build:
 
 ```powershell
@@ -720,6 +722,38 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+### Performance regression checks
+
+Build the layout, collection, and text-cache fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_layout_performance_tests xui_collections_tests xui_collection_presentation_tests xui_style_collections_tests xui_style_grid_tests xui_style_basic_render_tests xui_style_navigation_render_tests
+ctest --test-dir $build -C Release -R "^xui_(layout_performance|collections|collection_presentation|style_collections|style_grid)_tests$" --output-on-failure
+& ".\$build\Release\xui_style_basic_render_tests.exe"
+& ".\$build\Release\xui_style_navigation_render_tests.exe"
+```
+
+The layout fixture requires zero scratch allocations after its initial pass.
+It also covers reentrant layout, exceptions, changed constraints, child growth, and styled alignment.
+The collection fixtures cover projection boundaries, source lookup counts, identity, collapse, exceptions, and grid geometry.
+The rendering fixtures cover text-cache identity, ownership, allocation counts, cache limits, and pixels.
+The rendering fixtures create their own Windows rendering surfaces.
+
+After other builds and tests stop, run the microbenchmarks:
+
+```powershell
+& ".\$build\Release\xui_style_basic_render_tests.exe" --benchmark
+& ".\$build\Release\xui_collections_tests.exe" --benchmark
+```
+
+The text benchmark reports median lookup time for small and full caches.
+It also reports the size of each retained cache entry.
+The collection benchmark reports selection and projection workloads with source lookup counts.
+These results describe lookup work, not application frame time.
+The [maintainer report](docs/llm/testing.md#framework-performance-pass-september-19-2026) records the measurement scope.
+
+### Native presentation checks
+
 For scroll-frame changes, build and run the presentation fixtures:
 
 ```powershell
@@ -731,6 +765,8 @@ These fixtures require `XUI_DESKTOP_TESTS=ON` and an interactive desktop.
 The existing flicker fixtures also require an unobscured window.
 The scroll-frame fixtures use owned-window capture without cursor pixels.
 The scroll-frame fixtures save diagnostic BMP files under `scroll-frames` or `winui-scroll-frames` in the build directory after a pixel mismatch.
+
+### Binding and compiler checks
 
 Compiler and model checks do not need a native window:
 

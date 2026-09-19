@@ -109,6 +109,12 @@ void states_and_geometry() {
         "Styled header and row sizes govern hit testing");
     require(grid.maximum_offset() == 44000000 - 136 && grid.maximum_horizontal() == 68,
         "Styled sizes govern source extent and scroll ranges");
+    require(grid.page_rows() == 3 && grid.visible_rows() == std::pair<std::size_t, std::size_t>{0, 5},
+        "Paging and visible rows use the styled viewport with one boundary row");
+    grid.set_offset(45, 0);
+    require(grid.visible_rows() == std::pair<std::size_t, std::size_t>{1, 6},
+        "Fractional-row scrolling retains the visible boundary row");
+    grid.set_offset(0, 0);
     grid.hover_pointer(Point{20, 70});
     grid.pointer_move(true);
     require(grid.row_style(StylePart::row, 0).background->light == 0x112233 &&
