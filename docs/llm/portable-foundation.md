@@ -48,3 +48,15 @@ The Windows sample compiled against the real managed Windows bindings without na
 The tests exercise native text edits without writeback, silent setters, stable peers, stale events, and failed cleanup.
 These results do not establish Android or browser execution.
 The commit handoff records final assertion counts and command results.
+
+## Windows integration evidence, September 19, 2026
+
+The integration branch built `xui.dll` for Windows ARM64 in Release mode.
+The shared Windows demo passed its `--smoke` run against that native library.
+The run covered native button invocation, generated state updates, editor text, stable control identity, and window closure.
+It did not establish physical keyboard input, IME behavior, screen-reader behavior, or pixel layout.
+
+The first run exposed a missing STA entry-point attribute in the new Windows sample.
+`Program.Main` now declares `[STAThread]` and reports startup errors with a nonzero exit code.
+The run requires the generated executable with its Windows manifest, not direct execution of the managed DLL.
+The contributor procedure contains the supported command.

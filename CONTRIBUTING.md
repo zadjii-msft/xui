@@ -38,6 +38,16 @@ After a native build, run the Windows demo:
 dotnet run --project bindings\dotnet\Experimental\WindowsDemo\WindowsDemo.csproj -c Release
 ```
 
+For an automatic check of the shared source against native Windows controls, run:
+
+```powershell
+dotnet run --project bindings\dotnet\Experimental\WindowsDemo\WindowsDemo.csproj -c Release -- --smoke
+```
+
+The smoke run opens a nonactivated window and closes it after the checks.
+It covers a native button callback, generated state updates, editor text, stable control identity, and window cleanup.
+It does not establish physical keyboard input, IME behavior, screen-reader behavior, or pixel layout.
+
 Android and browser projects require their own backend and platform acceptance checks.
 Headless results do not establish native input, accessibility, or layout behavior on those platforms.
 
