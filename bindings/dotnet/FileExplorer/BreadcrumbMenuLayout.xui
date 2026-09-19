@@ -1,0 +1,15 @@
+namespace Xui.FileExplorer;
+
+component BreadcrumbMenuLayout {
+    param string Id;
+
+    view {
+        Popup("Address folders", preferredSize: (360, 300),
+            placement: global::Xui.PopupPlacement.Below, windowBackground: true) {
+            Grid("Folder menu", rows: [new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Fixed, 36)]) {
+                ItemsView("Folders", ref: Folders, id: Id + "-folders");
+                Text("", ref: Message, row: 1);
+            }
+        }
+    }
+}

@@ -1,0 +1,15 @@
+namespace Xui.FileExplorer;
+
+component BreadcrumbSpaceLayout {
+    param string Id;
+
+    style AddressSpace for Button {
+        part icon { size: 0; }
+    }
+
+    view {
+        Button("Go to folder", id: Id + "-space", style: AddressSpace,
+            icon: global::Xui.ButtonIcon.Folder, preferredSize: (0, 36),
+            help: "Go to folder (Ctrl+L or Alt+D)");
+    }
+}

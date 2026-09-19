@@ -1,0 +1,27 @@
+namespace Xui.FileExplorer;
+
+component BreadcrumbSegmentLayout {
+    param string Id;
+    param int Index;
+    param string FolderName;
+    param string FolderPath;
+    param bool Current;
+
+    style BreadcrumbButton for Button {
+        background: theme(light: 0xF3F3F3, dark: 0x202020);
+        borderThickness: 0;
+        cornerRadius: 4;
+        padding: (2, 0, 2, 0);
+        when hovered { background: theme(light: 0xEAEAEA, dark: 0x2D2D2D); }
+        when pressed { background: theme(light: 0xE1E1E1, dark: 0x292929); }
+    }
+
+    view {
+        HStack(spacing: 0, padding: 0) {
+            Button(FolderName, ref: Name, style: BreadcrumbButton, id: $"{Id}-name-{Index}",
+                help: FolderPath + (Current ? "\nGo to folder (Ctrl+L)" : "\nOpen folder"));
+            Button($"Folders in {FolderName}", ref: Children, id: $"{Id}-children-{Index}",
+                icon: global::Xui.ButtonIcon.ChevronRight, size: (16, 36), help: $"Show folders in {FolderPath}");
+        }
+    }
+}

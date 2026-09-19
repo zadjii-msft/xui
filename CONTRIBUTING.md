@@ -571,7 +571,17 @@ dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
 ```
 
 The complete `--smoke` run includes these address-bar checks.
+The address-bar checks also cover shared declarative styles, unchanged-path identity, and the 64-segment limit.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
+
+The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--preview-smoke" -PassThru -Wait
+$process.ExitCode
+```
+
+The complete `--smoke` run includes the same preview checks.
 
 ### NativeAOT and deployment
 

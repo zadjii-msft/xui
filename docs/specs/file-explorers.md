@@ -17,16 +17,34 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 ### Edit the markup
 
 `ExplorerLayout.xui` composes the sidebar, file panes, and notification.
-`FilePaneLayout.xui` defines each pane, including its toolbar, file grid, Find row, and status.
+`FilePaneLayout.xui` defines each pane, including its toolbar, file-view placement, compact Tree style, Find row, and status.
+It creates the Details and Items controls and accepts the controller-owned Tree and Columns controls through `Content`.
+
+`BreadcrumbAddressLayout.xui` defines the address container and its parent-folder button.
+`BreadcrumbMenuLayout.xui` defines the folder popup, list, and message.
+`BreadcrumbSegmentLayout.xui` defines each name-and-chevron pair and its name-button style.
+`BreadcrumbSpaceLayout.xui` defines the keyboard-accessible trailing button without a visible glyph.
+
 `SidebarLayout.xui` defines the navigation control.
-`PaletteLayout.xui` defines the folder and command palette.
+`PaletteLayout.xui` defines the folder and command palette, including its reactive status text, visibility, and height.
 `ViewMenuLayout.xui` defines the footer's view-choice flyout.
 `FilePaneView` creates a compact command menu for folder and file order beside it.
+
 `PreviewLayout.xui` defines the content of an independent preview window.
-Its content parameters accept the image, native text, and status controls from `PreviewSession`.
+Its overlay grid accepts the image, native text, and status controls from `PreviewSession`.
+It also defines the native text and image styles.
 `PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
+Its constructor receives the file entry, and its state controls metadata visibility.
+
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state controls the [bottom reveal](animations.md) for the Find row.
+
+The controllers retain event handlers, filesystem work, cancellation, and immutable collection sources.
+They also configure native features without a declarative argument.
+Shared styles for title-bar icons and nested navigation controls remain in `ExplorerStyles`.
+Dynamic breadcrumb composition retains its `ContentHost` ownership and 64-segment limit.
+An unchanged path does not rebuild its controls.
+The generated components share immutable styles and create the existing native controls without a runtime parser or per-frame reconciliation.
 
 After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#c-file-explorer) for markup changes.
 

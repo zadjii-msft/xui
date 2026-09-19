@@ -1,0 +1,21 @@
+namespace Xui.FileExplorer;
+
+component BreadcrumbAddressLayout {
+    param string Id;
+    param global::Xui.Element PathContent;
+
+    view {
+        Grid("Folder address", preferredSize: (480, 36)) {
+            Reveal("Address display", ref: Display, duration: 0, open: true) {
+                Grid("Address breadcrumbs",
+                    columns: [new(global::Xui.TrackSizing.Fixed, 24), new(global::Xui.TrackSizing.Star)]) {
+                    Button("Parent folders", ref: Ancestors, id: Id + "-ancestors",
+                        icon: global::Xui.ButtonIcon.More, help: "Show all parent folders");
+                    Reveal("Folder breadcrumbs", ref: PathPresentation, duration: 0, open: true, column: 1) {
+                        Content(PathContent);
+                    }
+                }
+            }
+        }
+    }
+}
