@@ -231,3 +231,6 @@ Platform projects link the shared `.xui` file directly.
 They must not copy its UI into Razor, JavaScript, Android XML, or hand-written C#.
 Platform-specific startup, dispatch, lifecycle callbacks, and widget mapping remain outside the shared sample.
 Actual browser and Android execution require separate platform implementation and acceptance checks.
+
+The [experimental DOM backend](experimental-dom-web.md) implements this subset with local .NET WebAssembly and native DOM controls.
+Its public contract describes browser layout, event ordering, input identity, and page lifetime.
