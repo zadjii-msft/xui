@@ -52,6 +52,7 @@ XUI_API xui_status XUI_CALL xui_navigation_header(xui_handle navigation, uint32_
    5=below and horizontally centered on the anchor,
    6=below and horizontally centered in the client viewport.
    Below placements flip above if necessary. */
+/* Accepts XUI_POPUP and XUI_COMMAND_SURFACE. */
 XUI_API xui_status XUI_CALL xui_popup_placement(xui_handle popup, uint32_t placement) XUI_NOEXCEPT;
 /* Use the window background for the popup frame and its unstyled children. */
 XUI_API xui_status XUI_CALL xui_popup_window_background(xui_handle popup, uint32_t enabled) XUI_NOEXCEPT;

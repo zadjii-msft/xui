@@ -10,6 +10,8 @@ internal sealed class FilePaneView
     private readonly Button back, forward, up;
     private readonly FilePaneLayout layout;
     private readonly ViewMenuLayout viewMenu;
+    private readonly CommandSurface partitionMenu;
+    private ExplorerTab? partitionMenuTab;
     private readonly Stack findHost;
     private readonly Button closeFind;
     private readonly Label status;
@@ -28,7 +30,7 @@ internal sealed class FilePaneView
     private bool viewEntryPending;
 
     private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
-        FileRows Rows, ImmutableSource Source);
+        ExplorerPartition Partition, FileRows Rows, ImmutableSource Source);
 
     public FilePaneView(ExplorerApplication app, int number, string path, TabStrip tabs)
     {
@@ -66,6 +68,23 @@ internal sealed class FilePaneView
         WireButton(layout.ViewMode, ShowViewMenu);
         WireButton(viewMenu.Details, () => ChooseView(ExplorerViewMode.Details));
         WireButton(viewMenu.Columns, () => ChooseView(ExplorerViewMode.Columns));
+        partitionMenu = window.MenuFlyout($"Folder and file order in pane {number}").SetPlacement(PopupPlacement.Above);
+        WireButton(layout.Partition, ShowPartitionMenu);
+        partitionMenu.OnCommand((id, _) =>
+        {
+            if (!ReferenceEquals(partitionMenuTab, Model.Active))
+            {
+                app.Report("The partition menu is no longer available. Open it again.");
+                return;
+            }
+            ChoosePartition(id switch
+            {
+                1 => ExplorerPartition.FoldersFirst,
+                2 => ExplorerPartition.FilesFirst,
+                3 => ExplorerPartition.Mixed,
+                _ => throw new ArgumentOutOfRangeException(nameof(id))
+            });
+        });
         ContextMenu = new(app, this);
         Grid.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
             ShellMenuPresentation.Xui);
@@ -148,6 +167,14 @@ internal sealed class FilePaneView
     internal Popup ViewMenu => viewMenu.Root;
     internal Button DetailsOption => viewMenu.Details;
     internal Button ColumnsOption => viewMenu.Columns;
+    internal Button PartitionButton => layout.Partition;
+    internal CommandSurface PartitionMenu => partitionMenu;
+    internal IReadOnlyList<string> DisplayedPaths(uint column = 0)
+    {
+        var source = IsColumns ? columnViews[checked((int)column)].Rows : rows;
+        return Enumerable.Range(0, checked((int)source.Count))
+            .Select(index => source.EntryAt((ulong)index).FullPath).ToArray();
+    }
     internal Label Feedback => layout.Feedback;
     internal Label Status => status;
     internal Stack Footer => layout.Footer;
@@ -264,6 +291,7 @@ internal sealed class FilePaneView
 
     private void ShowViewMenu()
     {
+        if (partitionMenu.IsOpen) partitionMenu.Dismiss();
         viewMenu.Details.Text = IsColumns ? "Details" : "Details (current)";
         viewMenu.Columns.Text = IsColumns ? "Columns (current)" : "Columns";
         viewMenu.Root.Show(layout.ViewMode);
@@ -274,6 +302,59 @@ internal sealed class FilePaneView
     {
         viewMenu.Root.Dismiss();
         SetViewMode(mode);
+        Focus();
+    }
+
+    public void SetPartition(ExplorerPartition partition)
+    {
+        if (Model.Active.Partition == partition) return;
+        SaveViewport();
+        Model.Active.SetPartition(partition);
+        UpdatePartitionButton();
+        ApplyFilter();
+    }
+
+    private static string PartitionName(ExplorerPartition partition) => partition switch
+    {
+        ExplorerPartition.FoldersFirst => "Folders, then files",
+        ExplorerPartition.FilesFirst => "Files, then folders",
+        ExplorerPartition.Mixed => "Mixed",
+        _ => throw new ArgumentOutOfRangeException(nameof(partition))
+    };
+
+    private void UpdatePartitionButton()
+    {
+        var partition = Model.Active.Partition;
+        layout.Partition.Icon = partition switch
+        {
+            ExplorerPartition.FoldersFirst => ButtonIcon.FoldersFirst,
+            ExplorerPartition.FilesFirst => ButtonIcon.FilesFirst,
+            ExplorerPartition.Mixed => ButtonIcon.Mixed,
+            _ => throw new ArgumentOutOfRangeException(nameof(partition))
+        };
+        layout.Partition.Text = PartitionName(partition);
+        layout.Partition.Help($"Current order: {PartitionName(partition)}. Choose folder and file order.");
+    }
+
+    private void ShowPartitionMenu()
+    {
+        if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
+        partitionMenuTab = Model.Active;
+        partitionMenu.SetCommands(PartitionCommands());
+        partitionMenu.Show(layout.Partition);
+    }
+
+    internal Command[] PartitionCommands() =>
+    [
+        new(1, "Folders, then files", Checked: Model.Active.Partition == ExplorerPartition.FoldersFirst, Icon: ButtonIcon.FoldersFirst),
+        new(2, "Files, then folders", Checked: Model.Active.Partition == ExplorerPartition.FilesFirst, Icon: ButtonIcon.FilesFirst),
+        new(3, "Mixed", Checked: Model.Active.Partition == ExplorerPartition.Mixed, Icon: ButtonIcon.Mixed)
+    ];
+
+    private void ChoosePartition(ExplorerPartition partition)
+    {
+        partitionMenu.Dismiss();
+        SetPartition(partition);
         Focus();
     }
 
@@ -462,7 +543,7 @@ internal sealed class FilePaneView
     private void SetPaneControlsVisible(bool visible)
     {
         foreach (var control in new Control[] { back, forward, up, Address, layout.Refresh,
-            layout.Commands, layout.ViewMode, layout.Feedback, status })
+            layout.Commands, layout.ViewMode, layout.Partition, layout.Feedback, status })
             control.Visible(visible);
     }
 
@@ -474,11 +555,11 @@ internal sealed class FilePaneView
         SwitchTab();
     }
 
-    internal void ResetTabs(string path)
+    internal void ResetTabs(string path, ExplorerPartition partition = ExplorerPartition.FoldersFirst)
     {
         Cancel();
         ClearColumns();
-        Model.ResetTabs(path);
+        Model.ResetTabs(path, partition);
         SetPaneControlsVisible(true);
         UpdateTabs();
     }
@@ -666,6 +747,7 @@ internal sealed class FilePaneView
             Grid.Visible(!IsColumns);
             Columns.Visible(IsColumns);
             layout.ViewMode.Help(IsColumns ? "Current view: Columns. Choose a view." : "Current view: Details. Choose a view.");
+            UpdatePartitionButton();
             if (!IsColumns) ClearColumns();
             else
             {
@@ -704,10 +786,11 @@ internal sealed class FilePaneView
         string query = tab.Filter;
         int column = tab.SortColumn;
         bool descending = tab.SortDescending;
+        var partition = tab.Partition;
         app.Work.Start(token => Task.Run(() =>
         {
             token.ThrowIfCancellationRequested();
-            var result = FileSystemService.FilterAndSort(entries, query, column, descending);
+            var result = FileSystemService.FilterAndSort(entries, query, column, descending, partition);
             token.ThrowIfCancellationRequested();
             return result;
         }, token), filtering.Token, result =>
@@ -750,9 +833,10 @@ internal sealed class FilePaneView
         var queries = chain.Select(column => column.Filter).ToArray();
         int sort = tab.SortColumn;
         bool descending = tab.SortDescending;
+        var partition = tab.Partition;
         var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
             ReferenceEquals(view.Model, column) && view.Query == queries[i]
-            && view.Sort == sort && view.Descending == descending)).ToArray();
+            && view.Sort == sort && view.Descending == descending && view.Partition == partition)).ToArray();
         app.Work.Start(token => Task.Run(() =>
         {
             var results = new IReadOnlyList<FileEntry>?[chain.Length];
@@ -761,7 +845,7 @@ internal sealed class FilePaneView
                 token.ThrowIfCancellationRequested();
                 if (reusable[i] is null)
                     results[i] = FileSystemService.FilterAndSort(chain[i].Snapshot.Entries,
-                        queries[i], sort, descending);
+                        queries[i], sort, descending, partition);
             }
             return results;
         }, token), filtering.Token, results =>
@@ -778,7 +862,7 @@ internal sealed class FilePaneView
                     else
                     {
                         var sourceRows = new FileRows(results[i]!, Identify);
-                        next.Add(new(chain[i], queries[i], sort, descending,
+                        next.Add(new(chain[i], queries[i], sort, descending, partition,
                             sourceRows, window.ImmutableSource(sourceRows)));
                     }
                 }
@@ -873,6 +957,8 @@ internal sealed class FilePaneView
         viewEntryPending = false;
         SettleViewEntry();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
+        if (partitionMenu.IsOpen) partitionMenu.Dismiss();
+        partitionMenuTab = null;
         navigation.Cancel();
         filtering.Cancel();
         IsLoading = false;

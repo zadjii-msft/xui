@@ -1756,6 +1756,29 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
 }
 
 void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
+    if (icon == ButtonIcon::folders_first || icon == ButtonIcon::files_first || icon == ButtonIcon::mixed) {
+        // Native vector equivalents of assets/icons/{folders-first,files-first,mixed}.svg.
+        const float size = std::min(box.width, box.height);
+        if (size <= 0) return;
+        const float scale = size / 24;
+        const Point origin{box.x + (box.width - size) / 2, box.y + (box.height - size) / 2};
+        const auto path = [&](std::span<const Point> points, float x, float y) {
+            for (std::size_t i = 1; i < points.size(); ++i)
+                line(origin.x + (x + points[i - 1].x) * scale, origin.y + (y + points[i - 1].y) * scale,
+                    origin.x + (x + points[i].x) * scale, origin.y + (y + points[i].y) * scale, color, 1.5f * scale);
+        };
+        constexpr Point folder[]{{0, 0}, {3, 0}, {4.5f, 1.5f}, {8, 1.5f}, {8, 6}, {0, 6}, {0, 0}};
+        constexpr Point file[]{{0, 0}, {4, 0}, {6, 2}, {6, 8}, {0, 8}, {0, 0}};
+        constexpr Point fold[]{{4, 0}, {4, 2}, {6, 2}};
+        for (int row = 0; row < 2; ++row) for (int column = 0; column < 2; ++column) {
+            const bool directory = icon == ButtonIcon::folders_first ? row == 0 :
+                icon == ButtonIcon::files_first ? row == 1 : row == column;
+            const float x = 2.0f + column * 12, y = 2.0f + row * 12;
+            if (directory) path(folder, x, y + 1);
+            else { path(file, x + 1, y); path(fold, x + 1, y); }
+        }
+        return;
+    }
     if (visual_style_ == VisualStyle::winui) {
         symbol(button_symbol(icon), box, color, std::min(box.width, box.height));
         return;

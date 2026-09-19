@@ -21,7 +21,8 @@ public enum ButtonIcon : uint
 {
     None, Back, Forward, Up, Refresh, Split, Theme, Add, Minimize, Maximize, Restore, Close, More,
     Navigation, Home, Folder, Settings, Search, Library, History, Bookmark, Drive, Open,
-    Save = 23, SaveAs = 24, Undo = 25, Redo = 26, ChevronUp = 27, ChevronDown = 28
+    Save = 23, SaveAs = 24, Undo = 25, Redo = 26, ChevronUp = 27, ChevronDown = 28,
+    FoldersFirst = 29, FilesFirst = 30, Mixed = 31
 }
 
 public sealed unsafe partial class NavigationView

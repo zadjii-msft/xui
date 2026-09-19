@@ -764,6 +764,13 @@ The C# `CommandSurface.IsOpen` property reports whether its native popup is open
 The native object remains a CommandMenu, not an ItemsView.
 This accessor exposes ordinary Element styling and layout, not a new CommandMenu factory or typed collection API.
 
+`Window.MenuFlyout(name)` creates a compact, non-searchable `CommandSurface` with 32-DIP menu rows.
+It has no title, search editor, close button, or visible keyboard footer. Access to these absent children reports an error.
+`Content`, `Results`, `Menu`, and the hidden `Status` remain available.
+`CommandSurface.SetPlacement` positions the menu relative to its anchor.
+Each C# `Command` accepts an optional `Icon` alongside its label and checked state.
+The C ABI selects this menu with `XUI_COMMAND_SURFACE` creation mode 1. Mode 0 retains the searchable palette.
+
 Window titlebar access requires a custom titlebar.
 `Window.Titlebar` and the NavigationView lists also use C# `RetainedElement` and Rust `Element` wrappers.
 Their native style targets remain `TitleBar` and `NavigationList`.
@@ -1089,6 +1096,13 @@ The C constant is `XUI_BUTTON_ICON_OPEN`, for `XUI_F_BUTTON_ICON` and supported 
 Rust provides `ButtonIcon::Open` and `Button::set_icon`.
 WinUI uses the Segoe Fluent glyph U+E8A7. Classic uses vector strokes.
 A button with an icon displays only the icon, but retains its accessible name.
+
+`ButtonIcon.FoldersFirst`, `ButtonIcon.FilesFirst`, and `ButtonIcon.Mixed` have values 29, 30, and 31.
+Existing icon values remain unchanged.
+The C constants are `XUI_BUTTON_ICON_FOLDERS_FIRST`, `XUI_BUTTON_ICON_FILES_FIRST`, and `XUI_BUTTON_ICON_MIXED`.
+Rust uses the same PascalCase names under `ButtonIcon`.
+These icons use native vector paths in Classic and WinUI, with the button's current foreground color.
+The [Explorer reference](file-explorers.md#columns-view) links their original SVG designs.
 
 The bindings do not expose image error details, image resource limits, or image resource counters.
 Synchronous API errors still use the status and diagnostic contract below.

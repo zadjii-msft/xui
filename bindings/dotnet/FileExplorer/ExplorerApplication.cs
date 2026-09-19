@@ -191,7 +191,7 @@ internal sealed partial class ExplorerApplication : IDisposable
     {
         if (rightInitialized) { Right.Refresh(); return; }
         rightInitialized = true;
-        if (Right.Model.Tabs.Count == 0) Right.ResetTabs(Active.Model.Active.Path);
+        Right.ResetTabs(Active.Model.Active.Path, Active.Model.Active.Partition);
         Right.Navigate(Active.Model.Active.Path);
     }
 
@@ -238,13 +238,14 @@ internal sealed partial class ExplorerApplication : IDisposable
         Left.Focus();
     }
 
-    public void NewWindow(string path)
+    public void NewWindow(string path, ExplorerTab? source = null)
     {
         NewWindowPath = path;
         ExplorerApplication? created = null;
         try
         {
             created = windows.Create(path);
+            created.Left.Model.Active.SetPartition((source ?? Active.Model.Active).Partition);
             created.Left.Navigate(created.Left.Model.Active.Path);
             Application.Show(created.Window);
         }
@@ -318,7 +319,7 @@ internal sealed partial class ExplorerApplication : IDisposable
         new("Close tab", "Ctrl+W", () => Active.CloseTab()),
         new("Duplicate tab", "", () => Active.DuplicateTab(Active.Model.Active),
             () => Active.Model.Tabs.Count < ExplorerPane.TabLimit),
-        new("Duplicate tab to new window", "Ctrl+N", () => NewWindow(Active.Model.Active.Path)),
+        new("Duplicate tab to new window", "Ctrl+N", () => NewWindow(Active.Model.Active.Path, Active.Model.Active)),
         new("Duplicate in new pane", "", () => DuplicateInNewPane(Active, Active.Model.Active)),
         new("Close all tabs", "Ctrl+Shift+W", () => ClosePane(Active)),
         new("Next tab", "Ctrl+Tab", () => Active.CycleTab(1)),

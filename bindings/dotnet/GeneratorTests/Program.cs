@@ -914,11 +914,12 @@ internal static partial class Program
     {
         Assert((uint)RealXui.ButtonIcon.Drive == 21, "Existing button icon ABI values remain unchanged");
         var icons = new[] { RealXui.ButtonIcon.Save, RealXui.ButtonIcon.SaveAs, RealXui.ButtonIcon.Undo, RealXui.ButtonIcon.Redo,
-            RealXui.ButtonIcon.ChevronUp, RealXui.ButtonIcon.ChevronDown };
+            RealXui.ButtonIcon.ChevronUp, RealXui.ButtonIcon.ChevronDown,
+            RealXui.ButtonIcon.FoldersFirst, RealXui.ButtonIcon.FilesFirst, RealXui.ButtonIcon.Mixed };
         for (var i = 0; i < icons.Length; ++i)
             Assert((uint)icons[i] == 23 + i, "Document icons append stable ABI values");
         Assert((uint)RealXui.ButtonIcon.Open == 22, "The published Open icon ABI value remains unchanged");
-        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 29, "The managed icon contract has no gaps or aliases");
+        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 32, "The managed icon contract has no gaps or aliases");
     }
     private static void TestExecution()
     {

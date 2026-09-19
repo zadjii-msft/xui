@@ -150,6 +150,8 @@ Classic and unsupported font configurations retain Segoe UI.
 WinUI command icons use the installed Segoe Fluent Icons font, including navigation, breadcrumbs, captions, disclosure arrows, search, and field actions.
 Checkbox marks, menu checks, grid indicators, tab close buttons, status symbols, and generic file placeholders use the same font.
 Classic retains its vector icons and existing caption font. Shell icons and thumbnails retain their original content.
+The three folder/file partition icons use their original SVG geometry as native vector paths in both styles.
+They use the control's foreground color, including disabled and high-contrast colors.
 If Segoe Fluent Icons is absent, WinUI uses Segoe MDL2 Assets and reports this fallback in the debugger.
 Missing symbol fonts or required glyphs produce an explicit error, not missing-character boxes. XUI does not redistribute fonts.
 Buttons and selection indicators use translucent template brushes, including separate disabled and pressed states.

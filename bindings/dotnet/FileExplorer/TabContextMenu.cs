@@ -59,7 +59,7 @@ internal sealed class TabContextMenu(ExplorerApplication app, FilePaneView pane)
             case ShiftLeft: pane.MoveTab(target.Id, -1); break;
             case ShiftRight: pane.MoveTab(target.Id, 1); break;
             case Duplicate: pane.DuplicateTab(target); break;
-            case NewWindow: app.NewWindow(path); break;
+            case NewWindow: app.NewWindow(path, target); break;
             case NewPane: app.DuplicateInNewPane(pane, target); break;
             case CopyPath: app.Transfers.CopyPaths(pane, [path]); break;
             case Close: pane.CloseTab(target.Id); break;

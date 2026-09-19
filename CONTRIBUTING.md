@@ -282,6 +282,9 @@ The page checks cover directional native movement, immediate input ownership, re
 The managed runtime fixtures use `--reveal`, `--split-animation`, `--tab-animation`, `--expander-animation`, and `--progress-animation` in the binding test runner.
 FileExplorer `--smoke` covers the actual navigation, tab, pane, and Find composition.
 FileExplorer `--view-entry-smoke` isolates Details/Columns entry, native ownership, selection, scrolling, cancellation, and immediate mode.
+FileExplorer `--partition-smoke` covers the partition flyout, Details and Columns order, rapid changes, and tab, pane, and window inheritance.
+The flyout checks cover menu keyboard input, command icons, checked state, and dismissal.
+Run `dotnet run --project bindings\dotnet\Tests -c Release -- --features` for feature bindings, including compact menu creation and command icons.
 FileExplorer `--pane-animation-smoke` isolates split entry and reports observer timing and native clock delivery.
 These modes create temporary fixtures and close their own window.
 

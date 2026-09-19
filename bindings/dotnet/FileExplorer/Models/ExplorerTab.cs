@@ -1,6 +1,7 @@
 namespace Xui.FileExplorer.Models;
 
 public enum ExplorerViewMode { Details, Columns }
+public enum ExplorerPartition { FoldersFirst, FilesFirst, Mixed }
 
 public sealed class ExplorerColumn(DirectorySnapshot snapshot)
 {
@@ -35,6 +36,7 @@ public sealed class ExplorerTab
     public string? SelectedPath { get; set; }
     public double ScrollOffset { get; set; }
     public ExplorerViewMode ViewMode { get; private set; }
+    public ExplorerPartition Partition { get; private set; }
     public IReadOnlyList<ExplorerColumn> Columns => columns;
     public int ActiveColumn { get; set; }
     public IReadOnlyList<FileEntry> Entries { get; private set; } = Array.Empty<FileEntry>();
@@ -48,7 +50,7 @@ public sealed class ExplorerTab
         {
             Filter = Filter, FindOpen = FindOpen, SortColumn = SortColumn, SortDescending = SortDescending,
             SelectedPath = SelectedPath, ScrollOffset = ScrollOffset, ViewMode = ViewMode,
-            ActiveColumn = ActiveColumn, Entries = Entries, historyIndex = historyIndex
+            ActiveColumn = ActiveColumn, Entries = Entries, historyIndex = historyIndex, Partition = Partition
         };
         copy.history.AddRange(history);
         copy.columns.AddRange(columns.Select(column => new ExplorerColumn(column.Snapshot)
@@ -65,6 +67,12 @@ public sealed class ExplorerTab
         if (ViewMode == ExplorerViewMode.Columns && columns.Count > 0) Filter = columns[^1].Filter;
         ViewMode = mode;
         ResetColumns();
+    }
+
+    public void SetPartition(ExplorerPartition partition)
+    {
+        if (!Enum.IsDefined(partition)) throw new ArgumentOutOfRangeException(nameof(partition));
+        Partition = partition;
     }
 
     private void ResetColumns()
@@ -221,6 +229,7 @@ public sealed class ExplorerPane
         if (Tabs.Count >= TabLimit)
             throw new InvalidOperationException($"A pane can contain at most {TabLimit} tabs.");
         var tab = new ExplorerTab(AllocateId(), path);
+        tab.SetPartition(active?.Partition ?? ExplorerPartition.FoldersFirst);
         Tabs.Add(tab);
         Active = tab;
         return tab;
@@ -290,9 +299,10 @@ public sealed class ExplorerPane
         Active = Tabs[active];
     }
 
-    public void ResetTabs(string path)
+    public void ResetTabs(string path, ExplorerPartition partition = ExplorerPartition.FoldersFirst)
     {
         var tab = new ExplorerTab(AllocateId(), path);
+        tab.SetPartition(partition);
         Tabs.Clear();
         Tabs.Add(tab);
         Active = tab;

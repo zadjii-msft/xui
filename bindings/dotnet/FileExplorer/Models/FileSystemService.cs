@@ -94,18 +94,21 @@ public sealed class FileSystemService
             .ToArray());
 
     public static IReadOnlyList<FileEntry> FilterAndSort(
-        IReadOnlyList<FileEntry> entries, string filter, int column, bool descending)
+        IReadOnlyList<FileEntry> entries, string filter, int column, bool descending,
+        ExplorerPartition partition = ExplorerPartition.FoldersFirst)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentNullException.ThrowIfNull(filter);
         if (column is < 0 or > 3)
             throw new ArgumentOutOfRangeException(nameof(column));
+        if (!Enum.IsDefined(partition))
+            throw new ArgumentOutOfRangeException(nameof(partition));
         var result = entries.Where(entry => entry.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
         Array.Sort(result, (left, right) =>
         {
             var folders = right.IsDirectory.CompareTo(left.IsDirectory);
-            if (folders != 0)
-                return folders;
+            if (folders != 0 && partition != ExplorerPartition.Mixed)
+                return partition == ExplorerPartition.FoldersFirst ? folders : -folders;
             var comparison = column switch
             {
                 1 => left.ModifiedUtc.CompareTo(right.ModifiedUtc),

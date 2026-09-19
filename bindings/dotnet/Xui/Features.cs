@@ -29,7 +29,8 @@ public readonly record struct GridColumn(string Name, float Width = 120, bool Nu
 public enum CommandKind : uint { Action, Submenu, Separator }
 [Flags] public enum KeyModifiers : uint { None = 0, Control = 1, Shift = 2, Alt = 4 }
 public readonly record struct Command(ulong Id, string Label, ulong Parent = 0, CommandKind Kind = CommandKind.Action,
-    bool Enabled = true, bool? Checked = null, string ShortcutHint = "", string PinLabel = "");
+    bool Enabled = true, bool? Checked = null, string ShortcutHint = "", string PinLabel = "",
+    ButtonIcon Icon = ButtonIcon.None);
 public readonly record struct GeoPoint(double Latitude, double Longitude);
 public readonly record struct MapMarker(ulong Id, GeoPoint Location, string Name);
 public readonly record struct ScenePoint(float X, float Y);
@@ -92,6 +93,7 @@ internal static unsafe class Features
         {
             var c = commands[i]; records[i] = new() { Size = (uint)sizeof(Native.CommandRecord), Id = c.Id, Parent = c.Parent,
                 Kind = (uint)c.Kind, Label = pins.Text(c.Label), Hint = pins.Text(c.ShortcutHint), PinLabel = pins.Text(c.PinLabel),
+                Icon = (uint)c.Icon,
                 Flags = (c.Enabled ? 0u : 1u) | (c.Checked == true ? 2u : 0u) | (c.Checked.HasValue ? 4u : 0u) };
         }
         fixed (Native.CommandRecord* p = records)
@@ -104,6 +106,8 @@ internal static unsafe class Features
 }
 public sealed unsafe partial class Window
 {
+    /// <summary>Creates a compact command menu without a search editor, title, or keyboard footer.</summary>
+    public CommandSurface MenuFlyout(string name) => new(this, FeatureCreate(24, name, mode: 1));
     public static bool WebContentEnabled => (Native.Capabilities() & 1) != 0;
     internal ulong FeatureCreate(uint kind, string name, Element? content = null, Element? second = null, uint mode = 0)
     {
@@ -277,6 +281,12 @@ public sealed partial class CommandSurface
     public RetainedElement Menu => menu ??= new(Window, Features.Child(this, 6));
     public void Show(Control anchor) => Features.Popup(this, anchor);
     public CommandSurface SetCommands(ReadOnlySpan<Command> commands) { Features.Commands(this, commands); return this; }
+    public CommandSurface SetPlacement(PopupPlacement placement)
+    {
+        Window.Guard();
+        Window.Check(Native.PopupPlacement(Handle, (uint)placement));
+        return this;
+    }
     public void OnCommand(Action<ulong, bool> action) => Window.SetSubscription(Handle, e => action(e.Value, (uint)e.Kind == 9));
     public void Invoke(ulong id, bool pin = false) => Features.InvokeCommand(this, id, pin);
     public CommandSurface Bind(ulong id, uint virtualKey, KeyModifiers modifiers) { Features.BindCommand(this, id, virtualKey, modifiers); return this; }
@@ -607,7 +617,7 @@ public sealed unsafe partial class Window
             try
             {
                 var item = pin.Source.Item(index, column);
-                if ((uint)item.Icon > (uint)ButtonIcon.ChevronDown) throw new ArgumentException("Invalid item icon.");
+                if ((uint)item.Icon > (uint)ButtonIcon.Mixed) throw new ArgumentException("Invalid item icon.");
                 if (item.ImagePath.Length > 32767) throw new ArgumentException("Image path exceeds 32767 UTF-16 units.");
                 var bytes = Utf8(item.ImagePath);
                 *icon = (uint)item.Icon; *required = (uint)bytes.Length;
