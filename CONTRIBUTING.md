@@ -14,6 +14,33 @@ Binding generation uses Python.
 Run the commands from the repository root in Visual Studio Developer PowerShell.
 The commands use a separate build directory, so they do not replace another build's executables.
 
+## Experimental portable foundation
+
+The portable runtime and headless tests require only the .NET 10 SDK.
+They do not require `xui.dll`, an Android workload, or a browser workload.
+The [portable contract](docs/specs/experimental-portable-xui.md) defines the supported subset and backend responsibilities.
+
+Run these commands from the repository root:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\Xui.Portable\Xui.Portable.csproj -c Release
+dotnet run --project bindings\dotnet\Experimental\Xui.Portable.Tests\Xui.Portable.Tests.csproj -c Release
+dotnet run --project bindings\dotnet\GeneratorTests\GeneratorTests.csproj -c Release
+dotnet build bindings\dotnet\Experimental\WindowsDemo\WindowsDemo.csproj -c Release -p:XuiCopyNativeRuntime=false
+```
+
+The last command compiles the exact shared `.xui` source through the existing Windows backend.
+It does not run a Windows GUI or copy native DLLs.
+
+After a native build, run the Windows demo:
+
+```powershell
+dotnet run --project bindings\dotnet\Experimental\WindowsDemo\WindowsDemo.csproj -c Release
+```
+
+Android and browser projects require their own backend and platform acceptance checks.
+Headless results do not establish native input, accessibility, or layout behavior on those platforms.
+
 ## Build the native code
 
 ```powershell

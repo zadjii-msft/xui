@@ -70,6 +70,7 @@ internal static partial class Program
             string.Join("\n", swapChainCompilation.GetDiagnostics()));
         TestButtonIconContract();
         TestPortableStyleCatalog();
+        TestPortableProfile();
         TestExecution();
         TestSizeAndHelp();
         TestParsing();

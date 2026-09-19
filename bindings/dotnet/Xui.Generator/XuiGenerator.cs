@@ -28,8 +28,11 @@ public sealed class XuiGenerator : IIncrementalGenerator
         var files = context.AdditionalTextsProvider
             .Where(file => file.Path.EndsWith(".xui", StringComparison.OrdinalIgnoreCase))
             .Select((file, token) => (file.Path, Text: file.GetText(token)));
-        context.RegisterSourceOutput(files, (output, file) =>
+        var profiles = context.AnalyzerConfigOptionsProvider.Select((options, _) =>
+            options.GlobalOptions.TryGetValue("build_property.XuiGeneratorProfile", out var profile) ? profile : "");
+        context.RegisterSourceOutput(files.Combine(profiles), (output, input) =>
         {
+            var (file, profile) = input;
             string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
             if (file.Text is null)
             {
@@ -39,9 +42,11 @@ public sealed class XuiGenerator : IIncrementalGenerator
             }
             try
             {
+                if (profile is not ("" or "Windows" or "Portable"))
+                    throw new ParseError($"Unknown XuiGeneratorProfile '{profile}'. Use Windows or Portable.", 0);
                 var parser = new Parser(file.Text.ToString());
                 var component = parser.Parse();
-                var emitter = new Emitter(component, file.Path, file.Text);
+                var emitter = new Emitter(component, file.Path, file.Text, profile == "Portable");
                 var generated = emitter.Emit();
                 // Keep declarations to avoid rude deletions. The watch delta pipeline can
                 // ignore generator diagnostics, so C# #error must also block invalid updates.
@@ -76,8 +81,9 @@ public sealed class XuiGenerator : IIncrementalGenerator
     }
 }
 
-internal sealed class Emitter(Component component, string path, SourceText source)
+internal sealed class Emitter(Component component, string path, SourceText source, bool portable = false)
 {
+    private string Runtime => portable ? "global::Xui.Experimental.Portable" : "global::Xui";
     private const int MaximumLineDirectiveColumn = 65536;
     internal List<ParseError> Errors { get; } = [];
     private readonly StringBuilder output = new();
@@ -171,9 +177,9 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             if (node.Kind is "Toggle" or "ToggleSwitch" or "ToggleButton" && node.Arguments.ContainsKey("checked")) Bind("checked", "bool", "Checked = {0}", "false");
             if (node.Kind == "TextInput" && node.Arguments.ContainsKey("text")) Bind("text", "string", "Text = {0}", "\"\"");
             if (node.Arguments.ContainsKey("visible"))
-                Bind("visible", "bool", $"global::Xui.ControlFeatures.Visible(__xuiN{index}, {{0}})", "true", staticCall: true);
+                Bind("visible", "bool", $"{Runtime}.ControlFeatures.Visible(__xuiN{index}, {{0}})", "true", staticCall: true);
             if (node.Arguments.ContainsKey("help"))
-                Bind("help", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
+                Bind("help", "string", $"{Runtime}.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
         }
         else if (Dependencies(node.Arguments["value"]).Length != 0)
             Errors.Add(new ParseError($"{node.Kind} positional input cannot depend on state. This constructor input is fixed for the component lifetime.", node.Arguments["value"].Offset));
@@ -284,10 +290,10 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         if (node.Arguments.ContainsKey("size"))
             Bind("size", "(float Width, float Height)",
-                $"global::Xui.ElementExtensions.FixedSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
+                $"{Runtime}.ElementExtensions.FixedSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
         if (node.Arguments.ContainsKey("preferredSize"))
             Bind("preferredSize", "(float Width, float Height)",
-                $"global::Xui.ElementExtensions.PreferredSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
+                $"{Runtime}.ElementExtensions.PreferredSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
         foreach (var child in node.Children) Collect(child, node);
     }
     private static string Part(string value) => value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + value;
@@ -302,6 +308,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
 
     internal string Emit()
     {
+        if (portable) ValidatePortable();
         styling.Validate();
         Collect(component.Root);
         var names = new HashSet<string>(StringComparer.Ordinal) { "Root", component.Name.TrimStart('@') };
@@ -333,8 +340,10 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("{");
         if (component.Styles.Count != 0) EmitStyles();
-        Line("private readonly global::Xui.Window __xuiWindow;");
-        Line($"public global::Xui.{Type(component.Root)} Root => __xuiN0;");
+        Line($"private readonly {Runtime}.{(portable ? "Host" : "Window")} __xuiWindow;");
+        Line($"public {Runtime}.{Type(component.Root)} Root => __xuiN0;");
+        if (!portable)
+        {
         Line("#if XUI_DESIGNER");
         Line($"internal int __xuiDesignerNodeCount => {nodes.Count};");
         Line("internal global::Xui.Element __xuiDesignerElement(int nodeId)");
@@ -347,6 +356,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("};");
         Line("}");
         Line("#endif");
+        }
         foreach (var parameter in component.Parameters)
         {
             Map(parameter.Offset);
@@ -355,7 +365,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         for (int i = 0; i < nodes.Count; i++)
             if (nodes[i].Arguments.TryGetValue("ref", out var reference))
-                Line($"public global::Xui.{Type(nodes[i])} {reference.Text} => __xuiN{i};");
+                Line($"public {Runtime}.{Type(nodes[i])} {reference.Text} => __xuiN{i};");
         if (component.States.Count != 0) Line("private bool __xuiReady;");
         foreach (var state in component.States)
         {
@@ -371,7 +381,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Line($"get {{ __xuiWindow.VerifyAccess(); return __xuiState_{state.Name.TrimStart('@')}; }}");
             Line("set");
             Line("{");
-            Line("__xuiWindow.VerifyAccess();");
+            Line(portable ? "__xuiWindow.VerifyMutation();" : "__xuiWindow.VerifyAccess();");
             Line($"if (global::System.Collections.Generic.EqualityComparer<{state.Type}>.Default.Equals(__xuiState_{state.Name.TrimStart('@')}, value)) return;");
             Line($"__xuiState_{state.Name.TrimStart('@')} = value;");
             Line("if (__xuiReady) {");
@@ -380,12 +390,14 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             Line("}");
             Line("}");
         }
-        for (int i = 0; i < nodes.Count; i++) Line($"private readonly global::Xui.{Type(nodes[i])} __xuiN{i};");
+        for (int i = 0; i < nodes.Count; i++) Line($"private readonly {Runtime}.{Type(nodes[i])} __xuiN{i};");
         foreach (var binding in bindings)
         {
             Line($"private {binding.Type} {binding.Name}_last = default!;");
             Line($"private bool {binding.Name}_set;");
         }
+        if (!portable)
+        {
         Line("#if XUI_HOT_RELOAD");
         Line("private readonly string __xuiOriginalShape;");
         Line("private string __xuiShape() => " + Literal(Part(Shape(component.Root)) +
@@ -401,10 +413,12 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("return true;");
         Line("}");
         Line("#endif");
-        Line($"public {component.Name}(global::Xui.Window window{string.Concat(component.Parameters.Select(p => $", {p.Type} {p.Name}"))}, bool attach = true)");
+        }
+        Line($"public {component.Name}({Runtime}.{(portable ? "Host" : "Window")} window{string.Concat(component.Parameters.Select(p => $", {p.Type} {p.Name}"))}{(portable ? "" : ", bool attach = true")})");
         Line("{");
         Line("global::System.ArgumentNullException.ThrowIfNull(window);");
         Line("window.VerifyAccess();");
+        if (portable) Line("using var __xuiBuild = window.BeginBuild();");
         if (component.Root.Kind is not ("VStack" or "HStack"))
             Line("if (attach) throw new global::System.ArgumentException(\"Only a Stack root can attach to a window. Use attach: false for this component.\", nameof(attach));");
         Line("__xuiWindow = window;");
@@ -415,8 +429,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             string Child(int child) => $"__xuiN{nodes.IndexOf(node.Children[child])}";
             var create = node.Kind switch
             {
-                "VStack" => "Stack(global::Xui.Axis.Vertical)",
-                "HStack" => "Stack(global::Xui.Axis.Horizontal)",
+                "VStack" => $"Stack({Runtime}.Axis.Vertical)",
+                "HStack" => $"Stack({Runtime}.Axis.Horizontal)",
                 "Text" => "Label(\"\")",
                 "Grid" => $"Grid({node.Arguments["value"].Text})",
                 "ScrollView" => $"ScrollView({Child(0)}, \"\")",
@@ -492,12 +506,16 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 else Line($"__xuiN{i}.{eventName} += __xuiEvent{i}_{key};");
             }
         }
-        if (component.Root.Kind is "VStack" or "HStack") Line("if (attach) window.SetContent(__xuiN0);");
+        if (component.Root.Kind is "VStack" or "HStack") Line(portable ? "window.SetContent(__xuiN0);" : "if (attach) window.SetContent(__xuiN0);");
         if (component.States.Count != 0) Line("__xuiReady = true;");
+        if (portable) Line("__xuiBuild.Complete();");
+        else
+        {
         Line("#if XUI_HOT_RELOAD");
         Line("__xuiOriginalShape = __xuiShape();");
         Line("global::Xui.Development.ReloadHost.Register(window, __xuiReload);");
         Line("#endif");
+        }
         Line("}");
         Line("private void __xuiRefresh()");
         Line("{");
@@ -566,6 +584,36 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Unmap();
         Line("}");
         return output.ToString();
+    }
+
+    private void ValidatePortable()
+    {
+        if (component.Root.Kind is not ("VStack" or "HStack"))
+            throw new ParseError("The Portable profile requires a VStack or HStack root.", component.Root.Offset);
+        if (component.Styles.Count != 0)
+            throw new ParseError("The Portable profile does not support styles.", component.Styles[0].Offset);
+        if (component.Resources.Count != 0)
+            throw new ParseError("The Portable profile does not support resources.", component.Resources[0].Offset);
+        void Visit(Node node)
+        {
+            string[] specific = node.Kind switch
+            {
+                "VStack" or "HStack" => ["spacing", "padding"],
+                "Text" => ["value"],
+                "Button" => ["value", "click"],
+                "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
+                "ScrollView" => ["value"],
+                _ => throw new ParseError($"The Portable profile does not support '{node.Kind}'.", node.Offset)
+            };
+            var allowed = new HashSet<string>(specific, StringComparer.Ordinal) { "size", "preferredSize", "ref", "flex" };
+            if (node.Kind is not ("VStack" or "HStack"))
+                allowed.UnionWith(["id", "enabled", "visible", "help"]);
+            foreach (var argument in node.Arguments)
+                if (!allowed.Contains(argument.Key))
+                    throw new ParseError($"The Portable profile does not support '{argument.Key}' on {node.Kind}.", argument.Value.Offset);
+            foreach (var child in node.Children) Visit(child);
+        }
+        Visit(component.Root);
     }
 
     private void EmitStyles()

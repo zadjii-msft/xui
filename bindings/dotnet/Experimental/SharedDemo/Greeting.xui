@@ -1,0 +1,37 @@
+namespace PortableDemo;
+
+component Greeting {
+    state int Count = 0;
+    state string Entry = "";
+    state string Message = "Type a name, then submit.";
+
+    view {
+        VStack(spacing: 12, padding: 16) {
+            Text("XUI shared authoring experiment", id: "title");
+            ScrollView("Greeting and counter", id: "content", flex: 1) {
+                VStack(spacing: 12) {
+                    TextInput("Your name", text: Entry, change: SetEntry, submit: Greet,
+                        placeholder: "Ada", preferredSize: (280, 56), ref: Input, id: "name");
+                    Text(Message, ref: GreetingLabel, id: "greeting");
+                    Text($"Count: {Count}", ref: CountLabel, id: "count");
+                    HStack(spacing: 8) {
+                        Button("Increment", click: Increment, enabled: Count < 10, ref: IncrementButton, id: "increment");
+                        Button("Submit", click: Greet, id: "submit");
+                        Button("Reset", click: Reset, id: "reset");
+                    }
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetEntry(string value) => Entry = value;
+        void Increment() => Count++;
+        void Greet() => Message = string.IsNullOrWhiteSpace(Entry) ? "Hello, friend!" : $"Hello, {Entry}!";
+        void Reset() {
+            Count = 0;
+            Entry = "";
+            Message = "Type a name, then submit.";
+        }
+    }
+}

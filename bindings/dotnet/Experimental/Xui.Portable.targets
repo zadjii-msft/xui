@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <XuiGeneratorProfile>Portable</XuiGeneratorProfile>
+    <XuiHotReload Condition="'$(XuiHotReload)' == ''">false</XuiHotReload>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)..\Xui.Declarative.Common.targets" />
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\Xui.Generator\Xui.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Xui.Portable\Xui.Portable.csproj" />
+  </ItemGroup>
+  <Target Name="ValidatePortableXui" BeforeTargets="CoreCompile">
+    <Error Condition="'$(XuiHotReload)' == 'true'" Text="The experimental Portable profile does not support XuiHotReload." />
+  </Target>
+</Project>

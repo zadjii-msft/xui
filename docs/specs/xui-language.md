@@ -3,6 +3,8 @@
 The `.xui` language describes a retained control tree with C# state and behavior.
 The compiler generates C# that uses the existing XUI bindings.
 It does not add a runtime parser, virtual tree, or reconciler.
+The [experimental portable profile](experimental-portable-xui.md) targets an independent managed subset.
+The Windows profile remains the default.
 
 The implementation supports fixed compositions.
 It supports named control styles, named visual parts, state rules, typography, and color resources.

@@ -4,6 +4,7 @@
     <DefineConstants Condition="'$(XuiHotReload)' == 'true'">$(DefineConstants);XUI_HOT_RELOAD</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <CompilerVisibleProperty Include="XuiGeneratorProfile" />
     <AdditionalFiles Include="**\*.xui" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
     <Watch Include="**\*.xui" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
   </ItemGroup>
