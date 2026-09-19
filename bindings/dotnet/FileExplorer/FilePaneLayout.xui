@@ -2,7 +2,7 @@ namespace Xui.FileExplorer;
 
 component FilePaneLayout {
     param int Number;
-    param string InitialPath;
+    param global::Xui.Element AddressBar;
     state bool FindOpen = false;
 
     view {
@@ -13,15 +13,13 @@ component FilePaneLayout {
                 Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
                 Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
                 Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
-                Button(InitialPath, ref: Address, id: $"pane-{Number}-address", flex: 1, help: "Go to a folder (Ctrl+L)");
+                Content(AddressBar, flex: 1);
                 Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
                 Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
             }
-            Reveal($"View entry in pane {Number}", open: true, ref: ViewReveal, row: 1) {
-                Grid($"File views in pane {Number}", ref: ContentHost) {
-                    DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files",
-                        columns: [new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)]);
-                }
+            Grid($"File views in pane {Number}", ref: ContentHost, row: 1) {
+                DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files",
+                    columns: FileRows.Columns);
             }
             Reveal("Find", open: FindOpen, duration: 180, layout: global::Xui.RevealLayout.Expand, ref: FindReveal, row: 2) {
                 HStack(ref: FindHost, padding: 6, spacing: 8) {
@@ -35,7 +33,7 @@ component FilePaneLayout {
                 Text("", ref: Feedback, id: $"pane-{Number}-feedback", flex: 1);
                 Text("Loading folder...", ref: Status, id: $"pane-{Number}-status");
                 Button("Choose view", ref: ViewMode, id: $"pane-{Number}-view-mode",
-                    icon: global::Xui.ButtonIcon.Library, size: (32, 32), help: "Choose Details or Columns");
+                    icon: global::Xui.ButtonIcon.Library, size: (32, 32), help: "Choose icons, List, Tree, Details, or Columns");
             }
         }
     }

@@ -659,6 +659,7 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.collection_offset = collection->offset(); next.collection_width = viewport.width;
         next.collection_height = viewport.height;
         next.collection_viewport_x = viewport.x; next.collection_viewport_y = viewport.y;
+        if (const auto* tree = dynamic_cast<const TreeView*>(collection)) next.collection_details = tree->detail_columns();
     }
     if (const auto map = dynamic_cast<const MapView*>(&control)) {
         const auto center = map->center();

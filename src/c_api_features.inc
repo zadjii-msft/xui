@@ -330,7 +330,7 @@ xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_nav
             entry.label = decode(item.label); entry.keywords = decode(item.keywords);
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_down));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
                 entry.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 entry.image_path = decode(visuals[i].image_path);
                 require(entry.image_path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
@@ -582,7 +582,7 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
-        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::chevron_down)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::chevron_right)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
         case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
         case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
@@ -623,7 +623,15 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_WEB_HTML: fields(v, 64); require(xui_capabilities() & 1, XUI_NATIVE_ERROR, "WebView2 is disabled in this build."); feature<xui::WebContent>(n).set_html(decode(v.text)); break;
         case XUI_F_WEB_PROFILE: fields(v, 64); feature<xui::WebContent>(n).set_profile_root(decode(v.text)); break;
         case XUI_F_ITEM_SIZE: fields(v, 3); finite_float(v.a); finite_float(v.b); feature<xui::VirtualCollection>(n).set_item_size({float(v.a), float(v.b)}); break;
-        case XUI_F_PRESENTATION: fields(v, 16); limit(v.first, 2); feature<xui::VirtualCollection>(n).set_presentation(static_cast<xui::ItemsPresentation>(v.first)); break;
+        case XUI_F_PRESENTATION: {
+            fields(v, 16); limit(v.first, 3);
+            auto& collection = feature<xui::VirtualCollection>(n);
+            require(v.first != 3 || collection.role() == xui::ControlRole::items_view,
+                XUI_INVALID_ARGUMENT, "Gallery presentation requires ItemsView.");
+            collection.set_presentation(static_cast<xui::ItemsPresentation>(v.first)); break;
+        }
+        case XUI_F_SINGLE_CLICK_ACTIVATION: fields(v, 16); limit(v.first, 1); feature<xui::ItemsView>(n).set_single_click_activation(v.first != 0); break;
+        case XUI_F_CONTENT_SIZED: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_content_sized(v.first != 0); break;
         case XUI_F_OFFSET:
             fields(v, 1);
             if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).set_offset(v.a, as<xui::DataGrid>(n).horizontal_offset());
@@ -681,6 +689,8 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
         case XUI_F_BADGE_KIND: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).kind()); break;
         case XUI_F_BADGE_COUNT: v->first = feature<xui::InfoBadge>(n).count(); break;
         case XUI_F_BADGE_ICON: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).icon()); break;
+        case XUI_F_SINGLE_CLICK_ACTIVATION: v->first = feature<xui::ItemsView>(n).single_click_activation(); break;
+        case XUI_F_CONTENT_SIZED: v->first = feature<xui::AdaptiveLayout>(n).content_sized(); break;
         case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::Progress>(n).state()); break;
         case XUI_F_TEXT_SELECTION: { auto s = feature<xui::DocumentText>(n).selection(); v->first = s.start; v->second = s.end; break; }
         case XUI_F_READ_ONLY: v->first = feature<xui::DocumentText>(n).read_only(); break;
@@ -747,13 +757,24 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
             feature<xui::VirtualCollection>(n).step(std::bit_cast<int32_t>(uint32_t(first))); break;
         case XUI_A_GRID_NAVIGATE: {
             limit(first, 5); limit(second, 3);
-            auto& grid = feature<xui::DataGrid>(n);
             const auto gesture = second & 2 ? (second & 1 ? xui::SelectionGesture::add_range : xui::SelectionGesture::extend) :
                 second & 1 ? xui::SelectionGesture::focus_only : xui::SelectionGesture::replace;
-            if (first >= 4) grid.edge(first == 5, gesture);
-            else {
-                const auto distance = first >= 2 ? std::max(1, static_cast<int>(grid.viewport_height() / xui::DataGrid::row_height)) : 1;
-                grid.step((first % 2 ? 1 : -1) * distance, gesture);
+            if (n->kind == XUI_DATA_GRID) {
+                auto& grid = feature<xui::DataGrid>(n);
+                if (first >= 4) grid.edge(first == 5, gesture);
+                else {
+                    const auto distance = first >= 2 ? std::max(1, static_cast<int>(grid.viewport_height() / xui::DataGrid::row_height)) : 1;
+                    grid.step((first % 2 ? 1 : -1) * distance, gesture);
+                }
+            } else {
+                auto& collection = feature<xui::VirtualCollection>(n);
+                if (first >= 4) collection.edge(first == 5, gesture);
+                else {
+                    const auto rows = first >= 2 ? std::max(1.0, std::floor(
+                        double(collection.content_viewport().height) / collection.item_size().height)) : 1.0;
+                    const auto distance = static_cast<int>(std::min(double(INT_MAX), rows * collection.columns()));
+                    collection.step((first % 2 ? 1 : -1) * distance, gesture);
+                }
             }
             break;
         }
@@ -800,7 +821,7 @@ xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* it
             xui::TabItem tab{items[i].id, decode(items[i].text)};
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_down));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
                 tab.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 tab.image_path = decode(visuals[i].image_path);
             }
@@ -1102,6 +1123,11 @@ struct ForeignSource final : xui::ItemsSource {
         if (r.flags & 8) item.checked = bool(r.flags & 4);
         return item;
     }
+    std::wstring cell(size_t index, size_t column) const override {
+        require(index < size() && column < 64, XUI_INVALID_ARGUMENT, "Source cell is out of range.");
+        const auto row = read(1, index, column);
+        return decode({row.primary, row.primary_length, 0});
+    }
     bool selectable(size_t index) const override { return index < size(); }
     xui::ItemVisual read_visual(size_t index, size_t column = 0) const {
         if (!visual_query) return {};
@@ -1121,7 +1147,7 @@ struct ForeignSource final : xui::ItemsSource {
                 state->callback_failure = status; state->window->close();
                 throw Failure{XUI_CALLBACK_FAILED, "An immutable visual callback failed."};
             }
-            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_down) && required <= XUI_MAX_STRING_BYTES,
+            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right) && required <= XUI_MAX_STRING_BYTES,
                 XUI_INVALID_ARGUMENT, "Invalid visual callback output.");
         };
         query(nullptr, 0);
@@ -1435,16 +1461,21 @@ xui_status XUI_CALL xui_grid_tracks(xui_handle target, const xui_grid_track* row
 }
 xui_status XUI_CALL xui_grid_columns(xui_handle target, const xui_column* columns, uint32_t count) noexcept {
     return boundary([&] {
-        auto n = get(target, XUI_DATA_GRID); editable(n->owner);
-        require(columns && count && count <= 256, XUI_INVALID_ARGUMENT, "A data grid needs 1..256 columns.");
+        auto n = get(target); editable(n->owner);
+        require(n->kind == XUI_DATA_GRID || n->kind == XUI_TREE_VIEW, XUI_WRONG_KIND, "Columns require a data grid or tree.");
+        const bool tree = n->kind == XUI_TREE_VIEW;
+        require((columns || !count) && count <= (tree ? 64u : 256u) && (tree || count),
+            XUI_INVALID_ARGUMENT, "Invalid column span.");
         std::vector<xui::GridColumn> result;
         for (uint32_t i = 0; i < count; ++i) {
             const auto& c = columns[i];
             require(c.size == sizeof(c), XUI_VERSION_MISMATCH, "Column size mismatch.");
             require(!c.reserved && c.flags <= 7 && std::isfinite(c.width) && c.width >= 48 && c.width <= 2000, XUI_INVALID_ARGUMENT, "Invalid data column.");
+            require(!tree || !(c.flags & 6), XUI_INVALID_ARGUMENT, "Tree detail columns cannot filter or check.");
             result.push_back({decode(c.name), c.width, bool(c.flags & 1), bool(c.flags & 2), bool(c.flags & 4)});
         }
-        as<xui::DataGrid>(n).set_columns(std::move(result));
+        if (tree) as<xui::TreeView>(n).set_columns(std::move(result));
+        else as<xui::DataGrid>(n).set_columns(std::move(result));
     });
 }
 xui_status XUI_CALL xui_grid_column_width(xui_handle target, uint32_t column, float width) noexcept {
@@ -1477,7 +1508,7 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
         for (uint32_t i = 0; i < count; ++i) {
             const auto& v = commands[i];
             require(v.size == sizeof(v), XUI_VERSION_MISMATCH, "Command size mismatch.");
-            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_down),
+            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right),
                 XUI_INVALID_ARGUMENT, "Invalid command enum.");
             if (n->kind == XUI_MENU_BAR && !v.parent)
                 require(v.kind == static_cast<uint32_t>(xui::CommandKind::submenu), XUI_INVALID_ARGUMENT, "MenuBar roots must be submenu groups.");

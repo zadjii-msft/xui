@@ -292,7 +292,9 @@ The content-state check covers real native editor movement, focus return, retain
 The page checks cover directional native movement, immediate input ownership, retained selection and undo, rapid switching, and immediate mode.
 The managed runtime fixtures use `--reveal`, `--split-animation`, `--tab-animation`, `--expander-animation`, and `--progress-animation` in the binding test runner.
 FileExplorer `--smoke` covers the actual navigation, tab, pane, and Find composition.
-FileExplorer `--view-entry-smoke` isolates Details/Columns entry, native ownership, selection, scrolling, cancellation, and immediate mode.
+FileExplorer `--view-switch-smoke` checks stationary view switches, native ownership, retained selection and scrolling, and the absence of an animation timer.
+The earlier `--view-entry-smoke` flag is an alias for this check.
+FileExplorer `--views-smoke` isolates the view menu, icon galleries, List, compact Tree rows, lazy child loading, Find, selection, tab state, and cancellation.
 FileExplorer `--pane-animation-smoke` isolates split entry and reports observer timing and native clock delivery.
 These modes create temporary fixtures and close their own window.
 
@@ -555,6 +557,18 @@ The DLL must include the visual-style API in `xui_layout.h`.
 File clipboard and drag-and-drop commands also require the file-transfer APIs from this checkout.
 The New tab buttons require the tab-action APIs from this checkout.
 An older `xui.dll` does not provide these APIs.
+
+The focused address-bar smoke covers compact geometry, chevrons, trailing-space activation, palette shortcuts, folder dropdowns, cancellation, ancestor navigation, and pane isolation:
+
+```powershell
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--address-smoke" -PassThru -Wait
+$process.ExitCode
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+The complete `--smoke` run includes these address-bar checks.
+The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
 ### NativeAOT and deployment
 

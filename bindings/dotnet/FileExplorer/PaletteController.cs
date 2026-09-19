@@ -66,6 +66,7 @@ internal sealed class PaletteController
 
     public void ShowNavigation(FilePaneView target)
     {
+        target.AddressBar.Cancel();
         if (IsOpen) Dismiss();
         pane = target;
         navigationMode = true;
@@ -86,6 +87,7 @@ internal sealed class PaletteController
 
     public void ShowCommands()
     {
+        app.Active.AddressBar.Cancel();
         if (IsOpen) Dismiss();
         pane = app.Active;
         navigationMode = false;

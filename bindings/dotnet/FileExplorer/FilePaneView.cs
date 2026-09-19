@@ -10,6 +10,8 @@ internal sealed class FilePaneView
     private readonly Button back, forward, up;
     private readonly FilePaneLayout layout;
     private readonly ViewMenuLayout viewMenu;
+    private readonly FileTreeView tree;
+    private readonly (ExplorerViewMode Mode, string Name, Button Button)[] viewOptions;
     private readonly Stack findHost;
     private readonly Button closeFind;
     private readonly Label status;
@@ -25,7 +27,6 @@ internal sealed class FilePaneView
     private readonly List<ColumnPresentation> columnViews = [];
     private bool focusColumnsAfterRender;
     private ExplorerColumn? findColumn;
-    private bool viewEntryPending;
 
     private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
         FileRows Rows, ImmutableSource Source);
@@ -42,19 +43,17 @@ internal sealed class FilePaneView
         Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
-        layout = new(window, number, path, attach: false);
-        layout.ViewReveal.Duration = 180;
+        AddressBar = new(app, this, number);
+        layout = new(window, number, AddressBar.Root, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
         BackButton = back = layout.Back;
         forward = layout.Forward;
         up = layout.Up;
-        Address = layout.Address;
         WireButton(back, () => MoveHistory(-1));
         WireButton(forward, () => MoveHistory(1));
         WireButton(up, Up);
-        WireButton(Address, () => app.Palettes.ShowNavigation(this));
         WireButton(layout.Refresh, Refresh);
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
@@ -62,12 +61,33 @@ internal sealed class FilePaneView
         Columns.SetAutomationId($"pane-{number}-columns");
         Columns.Visible(false);
         layout.ContentHost.Add(Columns);
+        Items = window.ItemsView($"Items in pane {number}");
+        Items.SetAutomationId($"pane-{number}-items");
+        Items.Visible(false);
+        layout.ContentHost.Add(Items);
+        tree = new(app, number, Identify);
+        Tree.Visible(false);
+        layout.ContentHost.Add(Tree);
         viewMenu = new(window, number, attach: false);
+        viewOptions =
+        [
+            (ExplorerViewMode.ExtraLargeIcons, "XL Icons", viewMenu.ExtraLargeIcons),
+            (ExplorerViewMode.LargeIcons, "L Icons", viewMenu.LargeIcons),
+            (ExplorerViewMode.MediumIcons, "M Icons", viewMenu.MediumIcons),
+            (ExplorerViewMode.List, "List", viewMenu.List),
+            (ExplorerViewMode.Tree, "Tree", viewMenu.Tree),
+            (ExplorerViewMode.Details, "Details", viewMenu.Details),
+            (ExplorerViewMode.Columns, "Columns", viewMenu.Columns)
+        ];
         WireButton(layout.ViewMode, ShowViewMenu);
-        WireButton(viewMenu.Details, () => ChooseView(ExplorerViewMode.Details));
-        WireButton(viewMenu.Columns, () => ChooseView(ExplorerViewMode.Columns));
+        foreach (var option in viewOptions)
+            WireButton(option.Button, () => ChooseView(option.Mode));
         ContextMenu = new(app, this);
         Grid.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
+            ShellMenuPresentation.Xui);
+        Items.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
+            ShellMenuPresentation.Xui);
+        Tree.OnContextMenu(ContextMenu.GetCommands, ContextMenu.Invoke, ContextMenu.GetShellPaths,
             ShellMenuPresentation.Xui);
         for (uint i = 0; i < ExplorerTab.ColumnLimit; i++)
         {
@@ -99,7 +119,8 @@ internal sealed class FilePaneView
         };
         Tabs.FocusEntered += Activate;
         Grid.FocusEntered += Activate;
-        Address.FocusEntered += Activate;
+        Items.FocusEntered += Activate;
+        Tree.FocusEntered += Activate;
         find.FocusEntered += Activate;
         find.Changed += text =>
         {
@@ -117,9 +138,20 @@ internal sealed class FilePaneView
             if (columnViews[(int)e.Column].Rows.Entry(e.Key.Id) is { IsDirectory: false } entry)
                 app.Open(entry, this);
         };
+        Items.Event += e =>
+        {
+            if (!IsItems) return;
+            HandleCollectionEvent(e.Kind, e.Value);
+        };
+        Tree.Event += e =>
+        {
+            if (rendering || !IsTree || tree.Updating) return;
+            if (e.Kind is EventKind.Click or EventKind.Selection) tree.StopRestoring();
+            HandleCollectionEvent(e.Kind, e.Value);
+        };
         Grid.Event += e =>
         {
-            if (rendering || IsColumns) return;
+            if (rendering || Model.Active.ViewMode != ExplorerViewMode.Details) return;
             Activate();
             if (e.Kind == EventKind.Click && rows.Entry(e.Value) is { } item)
                 app.Open(item, this);
@@ -140,26 +172,35 @@ internal sealed class FilePaneView
     public Grid Root { get; }
     public TabStrip Tabs { get; }
     internal TabContextMenu TabMenu { get; }
-    public Button Address { get; }
+    public BreadcrumbAddressBar AddressBar { get; }
+    public Button Address => AddressBar.AncestorsButton;
     public Button BackButton { get; }
     public DataGrid Grid { get; }
+    public ItemsView Items { get; }
+    public TreeView Tree => tree.View;
+    internal FileTreeView TreeController => tree;
     public MillerColumns Columns { get; }
     public Button ViewModeButton => layout.ViewMode;
     internal Popup ViewMenu => viewMenu.Root;
     internal Button DetailsOption => viewMenu.Details;
     internal Button ColumnsOption => viewMenu.Columns;
+    internal Button ViewOption(ExplorerViewMode mode) => viewOptions.Single(option => option.Mode == mode).Button;
     internal Label Feedback => layout.Feedback;
     internal Label Status => status;
     internal Stack Footer => layout.Footer;
     public bool IsColumns => Model.Active.ViewMode == ExplorerViewMode.Columns;
+    public bool IsTree => Model.Active.ViewMode == ExplorerViewMode.Tree;
+    public bool IsItems => Model.Active.ViewMode is ExplorerViewMode.List or ExplorerViewMode.MediumIcons
+        or ExplorerViewMode.LargeIcons or ExplorerViewMode.ExtraLargeIcons;
+    private Control FlatView => IsTree ? Tree : IsItems ? Items : Grid;
     public bool FilesFocused => IsColumns
         ? Columns.ColumnCount != 0 && Columns.Column(Columns.ActiveColumn).Focused
-        : Grid.Focused;
+        : FlatView.Focused;
     public FileContextMenu ContextMenu { get; }
     public TextInput FindInput => find;
     public Button CloseFindButton => closeFind;
     public Reveal FindReveal => layout.FindReveal;
-    internal Reveal ViewReveal => layout.ViewReveal;
+    internal ElementBounds ViewBounds => layout.ContentHost.GetBounds();
     public ElementBounds FindBounds => FindReveal.GetBounds();
     public ElementBounds FindContentBounds => findHost.GetBounds();
     public bool IsLoading { get; private set; }
@@ -172,25 +213,45 @@ internal sealed class FilePaneView
     public bool HasCurrentRows => !IsLoading && !IsFiltering && displayedTab == Model.Active.Id;
     public string TransferDirectory => IsColumns && IsCurrentColumn(Columns.ActiveColumn)
         ? columnViews[(int)Columns.ActiveColumn].Model.Snapshot.Path : Model.Active.Path;
-    public FileEntry? Entry(ItemKey key) => IsColumns ? FindPresentation?.Rows.Entry(key.Id) : rows.Entry(key.Id);
+    public FileEntry? Entry(ItemKey key) => IsColumns ? FindPresentation?.Rows.Entry(key.Id)
+        : IsTree ? tree.Entry(key) : rows.Entry(key.Id);
     public bool HasSelection => HasCurrentRows &&
-        (IsColumns ? SelectedEntry is not null :
-            Enumerable.Range(0, VisibleCount).Any(index => Grid.Contains(rows.Key((ulong)index))));
+        (IsColumns ? SelectedEntry is not null : IsTree ? tree.SelectedEntries.Length > 0 :
+            Enumerable.Range(0, VisibleCount).Any(index => Contains(rows.Key((ulong)index))));
     public FileEntry[] SelectedEntries => HasCurrentRows
         ? IsColumns ? SelectedEntry is { } entry ? [entry] : []
-        : Enumerable.Range(0, VisibleCount).Where(index => Grid.Contains(rows.Key((ulong)index)))
+        : IsTree ? tree.SelectedEntries
+        : Enumerable.Range(0, VisibleCount).Where(index => Contains(rows.Key((ulong)index)))
             .Select(index => rows.EntryAt((ulong)index)).ToArray()
         : [];
     public FileEntry? SelectedEntry
     {
         get
         {
-            if (!IsColumns) return Grid.Selection.Focused is { } key ? rows.Entry(key.Id) : null;
+            if (!IsColumns) return FocusedKey is { } key ? Entry(key) : null;
             uint index = Columns.ActiveColumn;
             return IsCurrentColumn(index) && Columns.Column(index).Selection.Focused is { } selected
                 && Columns.Column(index).Contains(selected)
                 ? columnViews[(int)index].Rows.Entry(selected.Id) : null;
         }
+    }
+
+    private ItemKey? FocusedKey => IsTree ? Tree.Selection.Focused : IsItems ? Items.Selection.Focused : Grid.Selection.Focused;
+    private bool Contains(ItemKey key) => IsTree ? Tree.Contains(key) : IsItems ? Items.Contains(key) : Grid.Contains(key);
+    private double FlatOffset
+    {
+        get => IsTree ? Tree.Offset : IsItems ? Items.Offset : Grid.Offset;
+        set { if (IsTree) Tree.Offset = value; else if (IsItems) Items.Offset = value; else Grid.Offset = value; }
+    }
+
+    private void HandleCollectionEvent(EventKind kind, ulong id)
+    {
+        if (rendering || kind is not (EventKind.Click or EventKind.Selection)) return;
+        Activate();
+        if (kind == EventKind.Click && HasCurrentRows && Entry(new(id)) is { } entry)
+            app.Open(entry, this);
+        else if (kind == EventKind.Selection)
+            Model.Active.SelectedPath = SelectedEntry?.FullPath;
     }
 
     private void WireButton(Button button, Action action)
@@ -211,13 +272,18 @@ internal sealed class FilePaneView
         if (Model.Tabs.Count == 0) return;
         Activate();
         if (IsColumns && Columns.ColumnCount != 0) Columns.FocusColumn(Columns.ActiveColumn);
-        else if (!IsColumns) Grid.Focus();
+        else if (!IsColumns) FlatView.Focus();
         else focusColumnsAfterRender = true;
     }
     public void SelectPath(string path)
     {
         if (IsColumns) SelectColumnPath(Columns.ActiveColumn, path);
-        else if (rows.KeyForPath(path) is { } key) Grid.Select(key);
+        else if (IsTree) tree.SelectPath(path);
+        else if (rows.KeyForPath(path) is { } key)
+        {
+            if (IsItems) Items.Select(key);
+            else Grid.Select(key);
+        }
     }
 
     public void SelectColumnPath(uint column, string path)
@@ -228,46 +294,24 @@ internal sealed class FilePaneView
 
     public void SetViewMode(ExplorerViewMode mode)
     {
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         if (Model.Active.ViewMode == mode) return;
         SaveViewport();
         Cancel();
         error = null;
         Model.Active.SetViewMode(mode);
-        viewEntryPending = Model.Active.HasSnapshot;
         focusColumnsAfterRender = mode == ExplorerViewMode.Columns;
         Render();
         if (!Model.Active.HasSnapshot) Navigate(Model.Active.Path);
         Focus();
     }
 
-    private void StartViewEntry()
-    {
-        if (!viewEntryPending) return;
-        viewEntryPending = false;
-        bool restoreFocus = FilesFocused;
-        uint duration = ViewReveal.Duration;
-        ViewReveal.Duration = 0;
-        ViewReveal.Open = false;
-        ViewReveal.Direction = IsColumns ? RevealDirection.Right : RevealDirection.Left;
-        ViewReveal.Duration = duration;
-        ViewReveal.Open = true;
-        if (restoreFocus) Focus();
-    }
-
-    private void SettleViewEntry()
-    {
-        if (!ViewReveal.Animating) return;
-        uint duration = ViewReveal.Duration;
-        ViewReveal.Duration = 0;
-        ViewReveal.Duration = duration;
-    }
-
     private void ShowViewMenu()
     {
-        viewMenu.Details.Text = IsColumns ? "Details" : "Details (current)";
-        viewMenu.Columns.Text = IsColumns ? "Columns (current)" : "Columns";
+        foreach (var option in viewOptions)
+            option.Button.Text = option.Name + (Model.Active.ViewMode == option.Mode ? " (current)" : "");
         viewMenu.Root.Show(layout.ViewMode);
-        (IsColumns ? viewMenu.Columns : viewMenu.Details).Focus();
+        ViewOption(Model.Active.ViewMode).Focus();
     }
 
     private void ChooseView(ExplorerViewMode mode)
@@ -339,12 +383,12 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
-        viewEntryPending = false;
-        SettleViewEntry();
+        AddressBar.DismissMenu();
         SaveViewport();
         navigation.Cancel();
         navigation.Dispose();
         navigation = new();
+        tree.Cancel();
         filtering.Cancel();
         IsFiltering = false;
         var tab = Model.Active;
@@ -451,6 +495,8 @@ internal sealed class FilePaneView
         {
             Grid.Visible(false);
             Columns.Visible(false);
+            Items.Visible(false);
+            Tree.Visible(false);
             SetFindVisible(false);
             UpdateTabs();
             return;
@@ -461,7 +507,8 @@ internal sealed class FilePaneView
 
     private void SetPaneControlsVisible(bool visible)
     {
-        foreach (var control in new Control[] { back, forward, up, Address, layout.Refresh,
+        AddressBar.SetVisible(visible);
+        foreach (var control in new Control[] { back, forward, up, layout.Refresh,
             layout.Commands, layout.ViewMode, layout.Feedback, status })
             control.Visible(visible);
     }
@@ -500,7 +547,7 @@ internal sealed class FilePaneView
     private void SwitchTab()
     {
         SetPaneControlsVisible(true);
-        bool filesHadFocus = Grid.Focused || Enumerable.Range(0, columnViews.Count)
+        bool filesHadFocus = Grid.Focused || Items.Focused || Tree.Focused || Enumerable.Range(0, columnViews.Count)
             .Any(i => Columns.Column((uint)i).Focused);
         Cancel();
         if (displayedTab != Model.Active.Id && columnViews.Count > 0) ClearColumns();
@@ -606,6 +653,8 @@ internal sealed class FilePaneView
             };
             list.Select(matches.Key((ulong)target));
         }
+        else if (IsTree) Tree.Navigate(direction.Value, modifiers);
+        else if (IsItems) Items.Navigate(direction.Value, modifiers);
         else Grid.Navigate(direction.Value, modifiers);
         return true;
     }
@@ -614,6 +663,7 @@ internal sealed class FilePaneView
     {
         if (Model.Tabs.Count == 0) return;
         if (displayedTab != Model.Active.Id) return;
+        if (IsFiltering) return;
         if (IsColumns)
         {
             for (int i = 0; i < columnViews.Count && i < Columns.ColumnCount; i++)
@@ -636,7 +686,8 @@ internal sealed class FilePaneView
             }
             return;
         }
-        Model.Active.ScrollOffset = Grid.Offset;
+        if (IsTree && tree.Restoring) return;
+        Model.Active.ScrollOffset = FlatOffset;
         Model.Active.SelectedPath = SelectedEntry?.FullPath;
     }
 
@@ -663,9 +714,24 @@ internal sealed class FilePaneView
             UpdateTabs();
             UpdateNavigation();
             Grid.SetSort((uint)Model.Active.SortColumn, Model.Active.SortDescending);
-            Grid.Visible(!IsColumns);
+            Grid.Visible(Model.Active.ViewMode == ExplorerViewMode.Details);
             Columns.Visible(IsColumns);
-            layout.ViewMode.Help(IsColumns ? "Current view: Columns. Choose a view." : "Current view: Details. Choose a view.");
+            Items.Visible(IsItems);
+            Tree.Visible(IsTree);
+            if (IsItems)
+            {
+                Items.Presentation = Model.Active.ViewMode == ExplorerViewMode.List ? ItemsPresentation.List : ItemsPresentation.Gallery;
+                var (width, height) = Model.Active.ViewMode switch
+                {
+                    ExplorerViewMode.ExtraLargeIcons => (256, 288),
+                    ExplorerViewMode.LargeIcons => (160, 192),
+                    ExplorerViewMode.MediumIcons => (96, 128),
+                    _ => (180, 32)
+                };
+                Items.ItemSize(width, height);
+            }
+            if (!IsTree) tree.Clear();
+            layout.ViewMode.Help($"Current view: {viewOptions.Single(option => option.Mode == Model.Active.ViewMode).Name}. Choose a view.");
             if (!IsColumns) ClearColumns();
             else
             {
@@ -693,8 +759,8 @@ internal sealed class FilePaneView
 
     private void ApplyFilter()
     {
-        SettleViewEntry();
         if (IsColumns) { ApplyColumnFilter(); return; }
+        tree.Cancel();
         filtering.Cancel();
         filtering.Dispose();
         filtering = new();
@@ -718,19 +784,22 @@ internal sealed class FilePaneView
             rendering = true;
             try
             {
-                using var source = window.ImmutableSource(rows);
-                Grid.SetSource(source);
                 displayedTab = tab.Id;
-                if (rows.KeyForPath(tab.SelectedPath) is { } key) Grid.Select(key);
-                Grid.Offset = tab.ScrollOffset;
+                if (IsTree) tree.SetRows(result, tab);
+                else
+                {
+                    using var source = window.ImmutableSource(rows);
+                    if (IsItems) Items.SetSource(source);
+                    else Grid.SetSource(source);
+                    if (tab.SelectedPath is { } path) SelectPath(path);
+                    FlatOffset = tab.ScrollOffset;
+                }
             }
             finally { rendering = false; }
-            StartViewEntry();
             UpdateStatus(result.Count, entries.Count, query);
         }, failure =>
         {
             IsFiltering = false;
-            viewEntryPending = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
         });
     }
@@ -813,12 +882,10 @@ internal sealed class FilePaneView
                 throw;
             }
             finally { rendering = false; }
-            StartViewEntry();
             UpdateColumnStatus();
         }, failure =>
         {
             IsFiltering = false;
-            viewEntryPending = false;
             error = $"Cannot filter this folder: {failure.Message}";
             status.Text = error;
         });
@@ -834,10 +901,12 @@ internal sealed class FilePaneView
 
     public void DisposeSources()
     {
+        AddressBar.Dispose();
         feedback.Cancel();
         feedback.Dispose();
         foreach (var column in columnViews) column.Source.Dispose();
         columnViews.Clear();
+        tree.Dispose();
     }
 
     private void UpdateTabs()
@@ -860,7 +929,7 @@ internal sealed class FilePaneView
 
     private void UpdateNavigation()
     {
-        Address.Text = Model.Active.Path;
+        AddressBar.SetPath(Model.Active.Path);
         back.Enabled = Model.Active.CanBack;
         forward.Enabled = Model.Active.CanForward;
         up.Enabled = Directory.GetParent(Model.Active.Path) is not null;
@@ -870,11 +939,11 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
-        viewEntryPending = false;
-        SettleViewEntry();
+        AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();
+        tree.Cancel();
         IsLoading = false;
         IsFiltering = false;
         focusColumnsAfterRender = false;

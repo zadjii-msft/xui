@@ -148,6 +148,12 @@ Styles do not recolor decoded thumbnails or Shell icon pixels.
 ## ItemsView
 
 Use `ItemsView` for generic immutable sources.
+By default, a mouse click selects a row. A double-click or Enter activates it.
+C# `SetSingleClickActivation(true)` enables menu-style activation on an unmodified primary press.
+C++ and Rust expose `set_single_click_activation(true)`.
+The C ABI exposes the Boolean feature property `XUI_F_SINGLE_CLICK_ACTIVATION` (54).
+Keyboard and programmatic selection remain separate from activation. Modified clicks retain their selection gestures.
+
 This example source generates rows without a retained array of row strings.
 
 {% tabs %}

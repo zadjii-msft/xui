@@ -161,10 +161,23 @@ StyleStateMask AdaptiveLayout::control_style_state_bits() const {
 }
 void AdaptiveLayout::set_breakpoint(float value) { positive(value); if (breakpoint_ == value) return; breakpoint_ = value; invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_navigation_extent(float value) { positive(value); if (extent_ == value) return; extent_ = value; invalidate(Invalidation::layout); }
+void AdaptiveLayout::set_content_sized(bool value) { if (content_sized_ == value) return; content_sized_ = value; invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_compact_navigation(CompactNavigation value) { if (mode_ == value) return; mode_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_navigation_open(bool value) { if (open_ == value) return; open_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); }
 Size AdaptiveLayout::measure(Size available) {
     if (!auto_size()) return Element::measure(available);
+    if (content_sized_) {
+        const auto p = effective_layout_insets();
+        const auto inner = layout_style::inner(available, p);
+        const Size natural{(std::numeric_limits<float>::max)(), inner.height};
+        const auto nav = navigation()->measure(natural), body = content()->measure(natural);
+        const auto gap = effective_spacing();
+        const bool compact = inner.width < nav.width + gap + body.width;
+        const auto desired = compact && mode_ == CompactNavigation::overlay ? body :
+            compact ? Size{std::max(nav.width, body.width), nav.height + gap + body.height} :
+            Size{nav.width + gap + body.width, std::max(nav.height, body.height)};
+        return constrain(layout_style::outer(desired, p), available);
+    }
     if (compact_ != (available.width < breakpoint_)) {
         compact_ = available.width < breakpoint_;
         invalidate_control_style_state();
@@ -183,6 +196,24 @@ Size AdaptiveLayout::measure(Size available) {
 }
 void AdaptiveLayout::arrange(Rect value) {
     Element::arrange(value); value = bounds();
+    if (content_sized_) {
+        value = layout_style::inset(value, effective_layout_insets());
+        const Size natural{(std::numeric_limits<float>::max)(), value.height};
+        const auto nav = navigation()->measure(natural), body = content()->measure(natural);
+        const bool compact = value.width < nav.width + effective_spacing() + body.width;
+        if (compact_ != compact) { compact_ = compact; invalidate_control_style_state(); }
+        if (compact_ && mode_ == CompactNavigation::overlay) {
+            content()->arrange(value);
+            navigation()->arrange(open_ ? Rect{value.x, value.y, std::min(nav.width, value.width * 0.85f), value.height} : Rect{});
+            return;
+        }
+        const auto gap = std::min(effective_spacing(), compact_ ? value.height : value.width);
+        const auto extent = std::min(compact_ ? nav.height : nav.width, (compact_ ? value.height : value.width) - gap);
+        navigation()->arrange({value.x, value.y, compact_ ? value.width : extent, compact_ ? extent : value.height});
+        content()->arrange({value.x + (compact_ ? 0 : extent + gap), value.y + (compact_ ? extent + gap : 0),
+            value.width - (compact_ ? 0 : extent + gap), value.height - (compact_ ? extent + gap : 0)});
+        return;
+    }
     if (compact_ != (value.width < breakpoint_)) {
         compact_ = value.width < breakpoint_;
         invalidate_control_style_state();

@@ -23,6 +23,7 @@ internal static class Tests
             if (args is ["--tab-animation"]) { TabAnimationTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
+            if (args is ["--features"]) { FeatureTests.Run(); return 0; }
             if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }
             if (args is ["--parity-controls"]) { FeatureTests.ParityControls(); return 0; }
             if (args is ["--styling-definitions"]) return 0;
@@ -86,18 +87,29 @@ internal static class Tests
             var scroll = w.ScrollView(w.Stack(), "Scroll").SetOffset(0);
             Assert(ReferenceEquals(scroll, scroll.SetOffset(0)));
             var shortcuts = w.ItemsView("Commands");
+            var measured = w.AdaptiveLayout("Measured", w.Stack(), w.Stack());
+            Assert(!measured.ContentSized);
+            Assert(ReferenceEquals(measured, measured.SetContentSized(true)) && measured.ContentSized);
+            measured.SetContentSized(false);
+            Assert(!measured.ContentSized);
+            Assert(!shortcuts.SingleClickActivation);
+            Assert(ReferenceEquals(shortcuts, shortcuts.SetSingleClickActivation(true)));
+            Assert(shortcuts.SingleClickActivation);
+            shortcuts.SetSingleClickActivation(false);
+            Assert(!shortcuts.SingleClickActivation);
             Assert(ReferenceEquals(shortcuts, shortcuts.SetTrailingShortcutBadges(true).SetTrailingShortcutBadges(false)));
             var popup = w.Popup("Palette", w.Stack());
             Assert(ReferenceEquals(popup, popup.SetWindowBackground(true).SetWindowBackground(false)));
             Task.Run(() =>
             {
                 Throws<XuiException>(() => shortcuts.SetTrailingShortcutBadges(true));
+                Throws<XuiException>(() => shortcuts.SetSingleClickActivation(true));
                 Throws<XuiException>(() => popup.SetWindowBackground(true));
             }).GetAwaiter().GetResult();
             var image = w.Image("Image").FixedSize(100, 100).Source("");
             var open = w.Button("Open selected file").SetIcon(ButtonIcon.Open);
             Assert((uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 && open.Icon == ButtonIcon.Open);
-            Throws<XuiException>(() => open.SetIcon((ButtonIcon)29));
+            Throws<XuiException>(() => open.SetIcon((ButtonIcon)30));
             Assert(open.Icon == ButtonIcon.Open);
             Assert(ReferenceEquals(image, image.Source("")));
             Assert(ReferenceEquals(image, image.ShellSource(".", 160, 160)));

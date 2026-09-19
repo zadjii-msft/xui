@@ -314,6 +314,10 @@ public:
         const auto [span, index] = at(row);
         return span.group ? ItemVisual{} : span.source->visual(index);
     }
+    std::wstring cell(std::size_t row, std::size_t column) const override {
+        const auto [span, index] = at(row);
+        return span.group ? (column == 0 ? span.group->name : std::wstring{}) : span.source->cell(index, column);
+    }
     ItemHierarchy hierarchy(std::size_t row) const override {
         const auto [span, index] = at(row);
         ItemHierarchy info{span.parent, span.depth, span.group.has_value(), span.group.has_value(), !span.collapsed};
@@ -408,7 +412,7 @@ PartStyleValues VirtualCollection::row_style_values(StylePart part, const Collec
     state |= control_style_state_bits() & style_states::disabled;
     auto result = resolve_control_style_part(part, state);
     const auto face = row.group ? StylePart::group_header :
-        role() == ControlRole::items_view && presentation() == ItemsPresentation::tiles ? StylePart::tile : StylePart::row;
+        role() == ControlRole::items_view && wraps_items() ? StylePart::tile : StylePart::row;
     if (face == StylePart::row) return result;
     const auto& schema = control_style_schema(*control_style_target());
     const auto definition = control_style();
@@ -509,6 +513,9 @@ void VirtualCollection::activate_item(ItemKey key, bool inline_action) {
     auto callback = inline_action ? action_ : activate_; if (callback) callback(key);
 }
 void VirtualCollection::set_presentation(ItemsPresentation value) {
+    if (value < ItemsPresentation::list || value > ItemsPresentation::gallery ||
+        (value == ItemsPresentation::gallery && role() != ControlRole::items_view))
+        throw std::invalid_argument("Invalid collection presentation");
     if (presentation_ == value) return;
     clear_collection_presentation();
     presentation_ = value; set_offset(offset_); if (selection_.focused()) reveal(*selection_.focused());
@@ -522,7 +529,7 @@ void VirtualCollection::set_item_size(Size value) {
     item_size_ = value; set_offset(offset_); invalidate(Invalidation::paint);
 }
 std::size_t VirtualCollection::columns() const {
-    return presentation_ == ItemsPresentation::tiles ? static_cast<std::size_t>(std::max(1.0f, std::floor(content_viewport().width / item_size().width))) : 1;
+    return wraps_items() ? static_cast<std::size_t>(std::max(1.0f, std::floor(content_viewport().width / item_size().width))) : 1;
 }
 double VirtualCollection::maximum_offset() const {
     if (collection_presentation_) return std::max(0.0, collection_presentation_->extent() - content_viewport().height);
@@ -551,7 +558,32 @@ Rect VirtualCollection::item_bounds(std::size_t index) const {
     return {viewport.x + float(index % cols) * width,
         viewport.y + static_cast<float>(double(index / cols) * height - scroll), width, height};
 }
+CollectionGalleryLayout VirtualCollection::gallery_layout(const CollectionRow& row, StyleStateMask state) const {
+    auto b = row.bounds;
+    PartStyleValues face, icon;
+    if (has_control_styling()) {
+        face = row_style_values(StylePart::tile, row, state);
+        icon = row_style_values(StylePart::icon, row, state);
+    }
+    const auto p = face.padding.value_or(Insets{}), t = face.border_thickness.value_or(Insets{});
+    const auto left = std::min(b.width, p.left + t.left + 8);
+    const auto top = std::min(b.height, p.top + t.top + 8);
+    const auto action = !row.content.action.empty() && b.width >= 160 ? 74.0f : 0.0f;
+    b = {b.x + left, b.y + top, std::max(0.0f, b.width - left - p.right - t.right - 8 - action),
+        std::max(0.0f, b.height - top - p.bottom - t.bottom - 8)};
+    const float secondary = row.content.secondary.empty() ? 0.0f : std::min(20.0f, b.height / 3);
+    const float primary = std::min(40.0f, b.height - secondary);
+    const float label_top = b.y + b.height - primary - secondary;
+    const float image_height = std::max(0.0f, label_top - b.y - 4);
+    const float extent = std::max(0.0f, std::min({b.width, image_height,
+        icon.size.value_or(std::max(0.0f, item_size().width - 16))}));
+    return {{b.x + (b.width - extent) / 2, b.y + (image_height - extent) / 2, extent, extent},
+        {b.x, label_top, b.width, primary}, {b.x, label_top + primary, b.width, secondary}};
+}
 Rect VirtualCollection::disclosure_bounds(const CollectionRow &row, bool hovered) const {
+    if (const auto* tree = dynamic_cast<const TreeView*>(this); tree && !tree->detail_columns().empty())
+        return tree->details_layout(row, collection_row_style_state(row, selection_.contains(row.key),
+            focused() && selection_.focused() == row.key, enabled(), hovered || row.hovered)).disclosure;
     auto b = row.bounds;
     if (row.navigation)
         return {b.x + std::max(0.0f, b.width - 32), b.y, std::min(b.width, 32.0f), b.height};
@@ -561,7 +593,7 @@ Rect VirtualCollection::disclosure_bounds(const CollectionRow &row, bool hovered
                                                       enabled(), hovered || row.hovered);
         const auto values =
             resolve_control_style_part(row.group ? StylePart::group_header
-                                       : role() == ControlRole::items_view && presentation() == ItemsPresentation::tiles ? StylePart::tile
+                                       : role() == ControlRole::items_view && wraps_items() ? StylePart::tile
                                                                                                                          : StylePart::row,
                                        state);
         const auto p = values.padding.value_or(Insets{}), t = values.border_thickness.value_or(Insets{});
@@ -583,6 +615,7 @@ bool VirtualCollection::disclosure_hit(std::size_t index, Point point) const {
         return false;
     CollectionRow row{source_->key(index), source_->item(index), item_bounds(index), index};
     row.group = info.group;
+    row.expandable = info.expandable;
     row.depth = info.depth;
     row.expanded = info.expanded;
     row.pending = info.pending;
@@ -590,7 +623,8 @@ bool VirtualCollection::disclosure_hit(std::size_t index, Point point) const {
     row.hovered = true;
     if (row.content.submenu)
         return false;
-    if (!has_control_styling())
+    const auto* tree = dynamic_cast<const TreeView*>(this);
+    if (!has_control_styling() && (!tree || tree->detail_columns().empty()))
         return point.x < row.bounds.x + 34 + std::min<float>(static_cast<float>(row.depth) * 20, row.bounds.width / 3);
     const auto b = disclosure_bounds(row);
     return point.x >= b.x && point.x < b.x + b.width && point.y >= b.y && point.y < b.y + b.height;
@@ -718,6 +752,51 @@ std::vector<CollectionRow> ItemsView::visible_content() const {
 }
 TreeView::TreeView(std::wstring name) : VirtualCollection(ControlRole::tree_view, std::move(name)) {}
 TreeView::~TreeView() { for (auto& [key, branch] : branches_) branch.stop.request_stop(); }
+void TreeView::set_columns(std::vector<GridColumn> columns) {
+    if (columns.size() > 64) throw std::invalid_argument("Tree details support at most 64 columns");
+    for (const auto& column : columns)
+        if (!std::isfinite(column.width) || column.width < 48 || column.width > 2000 || column.filterable || column.checkable)
+            throw std::invalid_argument("Tree details require widths from 48 to 2000 and read-only columns");
+    if (detail_columns_ == columns) return;
+    detail_columns_ = std::move(columns);
+    invalidate(Invalidation::paint);
+}
+TreeDetailsLayout TreeView::details_layout(const CollectionRow& row, StyleStateMask state) const {
+    TreeDetailsLayout result;
+    if (detail_columns_.empty()) return result;
+    auto b = row.bounds;
+    const auto face = row_style_values(StylePart::row, row, state);
+    const auto padding = face.padding.value_or(Insets{}), border = face.border_thickness.value_or(Insets{});
+    const float left = std::min(b.width, padding.left + border.left), top = std::min(b.height, padding.top + border.top);
+    b = {b.x + left, b.y + top, std::max(0.0f, b.width - left - padding.right - border.right),
+        std::max(0.0f, b.height - top - padding.bottom - border.bottom)};
+    if (!row.content.action.empty() && row.bounds.width >= 160) b.width = std::max(0.0f, b.width - 74);
+    float total{};
+    for (const auto& column : detail_columns_) total += column.width;
+    float x = b.x;
+    for (std::size_t i = 0; i < detail_columns_.size(); ++i) {
+        const auto width = detail_columns_[i].width + (i == 0 ? std::max(0.0f, b.width - total) : 0);
+        result.columns.push_back({std::min(x, b.x + b.width), b.y, std::max(0.0f, std::min(width, b.x + b.width - x)), b.height});
+        x += width;
+    }
+    const auto name = result.columns.front();
+    const auto indentation = row_style_values(StylePart::root, row, state).indentation.value_or(16);
+    const float end = name.x + name.width;
+    x = std::min(end, name.x + 4 + static_cast<float>(row.depth) * indentation + (row.content.checked ? 20 : 0));
+    const auto slot = [&](float width) {
+        const Rect rect{x, name.y, std::max(0.0f, std::min(width, end - x)), name.height};
+        x += rect.width;
+        return rect;
+    };
+    if (row.expandable && !row.content.submenu) result.disclosure = slot(16);
+    if (row.content.icon != ButtonIcon::none || !row.content.image_path.empty()) {
+        const auto extent = std::min({row_style_values(StylePart::icon, row, state).size.value_or(16), name.height, std::max(0.0f, end - x)});
+        result.icon = {x, name.y + (name.height - extent) / 2, extent, extent};
+        x = std::min(end, x + extent + 6);
+    }
+    result.name = {x, name.y, std::max(0.0f, end - x - 6), name.height};
+    return result;
+}
 void TreeView::set_tree(std::shared_ptr<const TreeSource> value) {
     if (tree_ == value) return;
     for (auto& [key, branch] : branches_) branch.stop.request_stop();
@@ -757,9 +836,10 @@ bool TreeView::disclose(ItemKey key, bool open) {
         if (selection_.focused() != previous_focus) changed();
         return true;
     }
-    if (branch.open && (branch.pending || branch.children)) return true;
+    if (branch.open && (branch.pending || (branch.children && branch.error.empty()))) return true;
     branch.open = true;
-    if (branch.children) { rebuild(); return true; }
+    if (branch.children && branch.error.empty()) { rebuild(); return true; }
+    branch.children.reset();
     branch.stop = std::stop_source{}; branch.pending = true; branch.error.clear();
     branch.generation = ++generation_;
     const TreeRequest request{key, branch.generation, branch.stop.get_token()};
@@ -818,6 +898,11 @@ std::vector<CollectionRow> TreeView::visible_content() const {
             row.error = !it->second.error.empty();
             if (row.pending) row.content.secondary = L"Loading children";
             else if (!it->second.error.empty()) row.content.secondary = it->second.error + L". Right arrow retries.";
+        }
+        if (!detail_columns_.empty()) {
+            row.cells.reserve(detail_columns_.size() - 1);
+            for (std::size_t column = 1; column < detail_columns_.size(); ++column)
+                row.cells.push_back(source_->cell(row.index, column));
         }
     }
     return rows;

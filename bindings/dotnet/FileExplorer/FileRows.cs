@@ -5,27 +5,33 @@ namespace Xui.FileExplorer;
 
 internal sealed class FileRows : IReadOnlyImmutableSource
 {
+    internal static readonly GridColumn[] Columns =
+        [new("Name", 280), new("Date modified", 160), new("Type", 125), new("Size", 100, Numeric: true)];
+
     private readonly IReadOnlyList<FileEntry> entries;
     private readonly Dictionary<ulong, int> indices = [];
     private readonly ItemKey[] keys;
     private readonly bool suggestions;
+    private readonly bool tree;
 
-    public FileRows(IReadOnlyList<FileEntry> entries, Func<string, ulong> identify, bool suggestions = false)
+    public FileRows(IReadOnlyList<FileEntry> entries, Func<string, ulong> identify, bool suggestions = false, bool tree = false)
     {
         this.entries = entries;
         this.suggestions = suggestions;
+        this.tree = tree;
         keys = new ItemKey[entries.Count];
         for (int i = 0; i < entries.Count; i++)
         {
-            keys[i] = new(identify(entries[i].FullPath));
+            keys[i] = new(identify(entries[i].FullPath), tree && entries[i].IsDirectory ? 1UL : 0);
             indices.Add(keys[i].Id, i);
         }
     }
 
     public ulong Count => (ulong)entries.Count;
-    public bool HasChildren(ItemKey key) => Entry(key.Id)?.IsDirectory == true;
+    // TreeSource asks the root snapshot about descendants too. Directory keys carry that immutable bit.
+    public bool HasChildren(ItemKey key) => tree ? key.Version == 1 : Entry(key.Id)?.IsDirectory == true;
     public ItemKey Key(ulong index) => keys[checked((int)index)];
-    public ulong? Find(ItemKey key) => indices.TryGetValue(key.Id, out int index) ? (ulong)index : null;
+    public ulong? Find(ItemKey key) => indices.TryGetValue(key.Id, out int index) && keys[index] == key ? (ulong)index : null;
     public FileEntry? Entry(ulong id) => indices.TryGetValue(id, out int index) ? entries[index] : null;
     public FileEntry EntryAt(ulong index) => entries[checked((int)index)];
     public ItemKey? KeyForPath(string? path)

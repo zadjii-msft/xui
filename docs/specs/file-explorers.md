@@ -37,7 +37,7 @@ Each pane has a New tab icon immediately after its last visible tab, not in the 
 The navigation, New tab, and address-toolbar icons use the shared `ExplorerStyles.IconButton` style.
 Their idle backgrounds match the window in light and dark themes, without borders.
 Hover, pressed, disabled, keyboard focus, and high-contrast feedback remain available.
-The address button retains its standard face.
+The address bar uses borderless breadcrumb buttons with separate folder dropdowns.
 Both styles use attached tabs with rounded top corners and an open selected bottom edge.
 The row inherits its parent background.
 The title-bar border continues across the navigation area, pane divider, and caption area, except below selected tabs.
@@ -92,7 +92,7 @@ Each pane has its own tabs, navigation history, details view, and Find bar.
 The secondary pane enters from the right and retains its full target width inside the split viewport.
 The primary pane, divider, and title-tab positions change together.
 Closing returns focus and disables secondary interaction before the exit finishes.
-Each tab also has an optional Columns view.
+Each tab also supports icon galleries, List, Tree, and Columns.
 Details remains the default.
 Find uses a single-line field with placeholder text and an X button, without labels or internal scrollbars.
 The bar uses expanding layout on entry and exit.
@@ -102,7 +102,7 @@ Disabled system animations make these transitions immediate.
 Typing with file-view focus opens Find and sends the first key to its native editor.
 Keyboard layouts, dead keys, and IME input use native text translation.
 Shortcuts, the navigation filter, and palette editors do not start a file filter.
-In Details, successful navigation to a different folder clears the filter but retains the Find bar state.
+Outside Columns, successful navigation to a different folder clears the filter but retains the Find bar state.
 Refresh, failed navigation, and tab switches preserve the filter.
 While Find has focus, Up, Down, PageUp, and PageDown move the file selection without moving input focus.
 Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last matching files.
@@ -115,6 +115,37 @@ The menu contains tab shifting, duplication, path copying, and closing commands.
 Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
+
+### Breadcrumb address bar
+
+The C# demo uses `BreadcrumbAddressBar`, a demo-local control inspired by the File Pilot address bar.
+Each ancestor name opens that folder.
+The right chevron after each name opens a dropdown of its immediate subfolders.
+The dropdown appears below the address bar and excludes files.
+One click activates a folder in either the subfolder dropdown or the ancestor menu.
+Arrow keys change selection without navigation. Enter activates the selected folder.
+Empty folders and directory-read errors have distinct messages.
+
+Earlier segments collapse as the pane narrows.
+The current folder remains visible.
+The **Parent folders** button lists the complete path, including hidden ancestors.
+The bar retains at most 64 segment pairs, but the ancestor menu retains every path component.
+Left and Right move between visible name and chevron buttons.
+Down opens the focused segment's folder dropdown.
+
+Segment names have two DIPs of horizontal padding on each side.
+Measured text widths determine each segment's width. Character counts do not determine layout.
+When the complete path does not fit, earlier segments disappear into the ancestor menu instead of shrinking short names.
+The current folder name uses its measured text width rather than the remaining bar width.
+Clicking the current name or the empty space after it opens the navigation palette.
+Ctrl+L and Alt+D open the same palette.
+There is no inline address editor.
+The palette retains its native input, path suggestions, and keyboard commands.
+
+Each pane owns its breadcrumb controls and folder dropdown.
+Navigation, tab changes, pane closure, and dropdown dismissal cancel obsolete folder requests.
+Canceled requests cannot replace newer dropdown contents.
+The searchable navigation palette remains available through Ctrl+G and the **Go to folder** command.
 
 ### Tab tear-out and merge
 
@@ -183,20 +214,50 @@ The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
 Canceled or obsolete requests cannot replace the current view.
 
-### Columns view
+### View choices
 
 The footer contains the item count and a **Choose view** icon.
-The icon opens a flyout above the footer with **Details** and **Columns** choices.
+The icon opens a flyout above the footer.
+The choices appear in this order: **XL Icons**, **L Icons**, **M Icons**, **List**, **Tree**, **Details**, and **Columns**.
+Columns is a separate view below Details, not a variation of Details.
 The flyout identifies the current view. Escape closes it without a view change.
-The command palette also contains **Use Columns view** and **Use Details view**.
+The command palette contains a **Use ... view** command for each choice.
 Each tab retains its own view choice.
+New tabs start in Details. Tab duplication and window transfers retain the source view choice.
 
-Deliberate view changes use 180 ms incoming entry after the filtered rows arrive.
-Columns enters from the right. Details enters from the left.
-The old view loses input immediately through the native update, without delayed logical selection.
+View changes do not animate. The selected view appears in its final position.
+The old view loses input immediately through the native update.
 The toolbar and footer stay stationary. Selection and the saved scroll offset remain intact.
-Navigation and subsequent filtering settle entry. Windows reduced motion makes entry immediate.
-Initial population does not animate.
+Obsolete filter results cannot replace a later view choice.
+The Find bar, navigation pane, and split pane retain their separate transitions.
+
+The three icon choices use the same virtual gallery with different tile sizes.
+M, L, and XL use minimum widths of 96, 160, and 256 DIPs, respectively.
+Their tile heights are 128, 192, and 288 DIPs.
+Each tile shows an image or icon above its filename.
+The gallery adjusts the number of columns to the pane width.
+List shows compact rows without metadata columns. Details retains its sortable metadata columns.
+Both views and the galleries use the tab's filter and sort order.
+
+Tree starts with the current folder's immediate children.
+It uses compact 24-DIP rows, 12-DIP text, 16-DIP icons, and 16-DIP indentation per level.
+Alternating row backgrounds and full-row selection distinguish adjacent entries.
+Names show nesting. Date modified, Type, and Size remain in aligned columns, using the same metadata as Details.
+Tree has no column header or separate sort controls. It retains the tab's sort order.
+Right Arrow or a disclosure arrow expands a folder without changing the address or history.
+Left Arrow collapses the folder or selects its parent.
+Enter or a double-click opens the selected item through the usual file action.
+Child scans run outside the UI thread. Canceled child results cannot update a collapsed branch or another view.
+Read errors appear on the branch and in the application notification. Right Arrow retries the branch.
+
+Find filters names within each requested sibling list. It does not search unopened descendants.
+The Tree count reports matching immediate children of the current folder.
+Refresh, filter changes, and view changes reset expanded branches.
+Tree restores the ancestors of a retained selected descendant when that descendant still matches the filter.
+Selection, previews, file clipboard commands, and context menus use the active view, including loaded Tree descendants.
+Native file drag and drop remains available in Details.
+
+### Columns view
 
 Columns view starts at the committed folder.
 A single selection of a folder loads its children in the next column.
@@ -322,7 +383,7 @@ There is no animated palette entry.
 | --- | --- |
 | Navigation button | Expand or collapse the navigation pane |
 | Alt+F | Focus the navigation filter |
-| Ctrl+L / address button | Open the navigation palette at the active folder |
+| Ctrl+L / Alt+D / Ctrl+G / current breadcrumb / trailing space | Open the navigation palette at the active folder |
 | Up / Down in the palette | Select the previous or next result |
 | Tab in the navigation palette | Insert the selected full path without navigation |
 | Ctrl+Backspace in the navigation palette | Delete the selection or previous word or path component |

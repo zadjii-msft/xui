@@ -243,6 +243,8 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
                     std::max(0.0f, b.height - top - p.bottom - t.bottom)};
     };
     const auto b = row.bounds;
+    const auto* tree = dynamic_cast<const TreeView*>(&owner);
+    const bool details = tree && !tree->detail_columns().empty();
     if (b.width <= 0 || b.height <= 0)
         return;
     push_clip(b);
@@ -258,17 +260,17 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
         return;
     }
     const auto face_part = row.group ? StylePart::group_header
-                           : owner.role() == ControlRole::items_view && owner.presentation() == ItemsPresentation::tiles ? StylePart::tile
+                           : owner.role() == ControlRole::items_view && owner.wraps_items() ? StylePart::tile
                                                                                                                          : StylePart::row;
     auto face_values = resolve(face_part);
-    const Rect face{b.x + 2, b.y + 2, std::max(0.0f, b.width - 4), std::max(0.0f, b.height - 4)};
+    const Rect face = details ? b : Rect{b.x + 2, b.y + 2, std::max(0.0f, b.width - 4), std::max(0.0f, b.height - 4)};
     const auto background = highlighted    ? palette.selection
                             : hot          ? palette.hover
                             : row.group    ? palette.surface
-                            : command_menu ? palette.surface
+                            : command_menu || (details && row.index % 2 && !palette.high_contrast) ? palette.surface
                                            : palette.background;
-    if (highlighted || hot || row.group || face_values.background || face_values.border_brush || face_values.border_thickness)
-        styled_surface(face, palette, face_values, background, palette.border, row.navigation ? 5.0f : 4.0f, {});
+    if (details || highlighted || hot || row.group || face_values.background || face_values.border_brush || face_values.border_thickness)
+        styled_surface(face, palette, face_values, background, palette.border, details ? 0.0f : row.navigation ? 5.0f : 4.0f, {});
     if (focused && !palette.high_contrast) {
         const auto values = resolve(StylePart::focus_marker);
         const auto definition = owner.control_style();
@@ -305,6 +307,87 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
                                    std::min(static_cast<float>(row.depth) * root.indentation.value_or(row.navigation ? 16.0f : 20.0f),
                                             content.width / 3);
     const auto icon_ink = color(icon_values.foreground, ink);
+    if (details) {
+        const auto geometry = tree->details_layout(row, state);
+        const auto cell_text = [&](std::wstring_view value, Rect box, StylePart part, bool numeric, D2D1_COLOR_F fallback) {
+            auto values = resolve(part);
+            values.maximum_lines = 1;
+            values.wrapping = false;
+            values.horizontal_alignment = numeric ? StyleAlignment::end : StyleAlignment::start;
+            values.vertical_alignment = StyleAlignment::center;
+            styled_text(value, inset(box, values), color(values.foreground, fallback), values);
+        };
+        if (row.expandable && !row.content.submenu)
+            chevron(geometry.disclosure, color(resolve(StylePart::disclosure).foreground, ink), row.expanded);
+        if (visual && geometry.icon.width > 0)
+            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.icon, icon_ink);
+        const auto name = (row.pending || row.error) && geometry.columns.size() == 1 ?
+            row.content.primary + L" — " + row.content.secondary : row.content.primary;
+        cell_text(name, geometry.name, StylePart::primary_text, tree->detail_columns().front().numeric, ink);
+        for (std::size_t column = 1; column < geometry.columns.size(); ++column) {
+            auto box = geometry.columns[column];
+            const auto inset_left = std::min(6.0f, box.width);
+            box.x += inset_left; box.width = std::max(0.0f, box.width - inset_left - 6);
+            const bool status = column == 1 && (row.pending || row.error);
+            cell_text(status ? row.content.secondary :
+                column <= row.cells.size() ? std::wstring_view{row.cells[column - 1]} : std::wstring_view{}, box,
+                status ? (row.error ? StylePart::error : StylePart::pending) : StylePart::secondary_text,
+                !status && tree->detail_columns()[column].numeric,
+                disabled ? palette.disabled : highlighted ? palette.selection_text : status && row.error ? palette.error : palette.secondary);
+        }
+        if (row.content.checked) {
+            const auto column = geometry.columns.front();
+            const auto x = column.x + 4 + static_cast<float>(row.depth) * root.indentation.value_or(16);
+            push_clip(column);
+            check_indicator({x, column.y + (column.height - 16) / 2, 16, 16}, palette, *row.content.checked, !disabled);
+            pop_clip();
+        }
+        if (!row.content.action.empty() && b.width >= 160) {
+            const Rect button{b.x + b.width - 70, b.y + 8, 64, std::max(0.0f, b.height - 16)};
+            const auto values = resolve(StylePart::action);
+            styled_surface(button, palette, values, palette.field, palette.border, 4, {1, 1, 1, 1});
+            draw_text(row.content.action, {button.x + 5, button.y, button.width - 10, button.height}, StylePart::action, ink, TextStyle::caption);
+        }
+        if (focused || (hot && palette.high_contrast)) focus_ring(face, palette);
+        pop_clip();
+        return;
+    }
+    if (owner.presentation() == ItemsPresentation::gallery && !row.group) {
+        const auto geometry = owner.gallery_layout(row, state);
+        if (visual && geometry.image.width > 0)
+            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.image, icon_ink);
+        const auto label = [&](std::wstring_view value, Rect box, StylePart part, D2D1_COLOR_F fallback, TextStyle style) {
+            auto values = resolve(part);
+            if (!values.horizontal_alignment) values.horizontal_alignment = StyleAlignment::center;
+            if (!values.vertical_alignment) values.vertical_alignment = StyleAlignment::start;
+            if (!values.maximum_lines) values.maximum_lines = part == StylePart::primary_text ? 2 : 1;
+            styled_text(value, inset(box, values), color(values.foreground, fallback), values, style);
+        };
+        label(row.content.primary, geometry.primary, StylePart::primary_text, ink, TextStyle::body);
+        label(row.content.secondary, geometry.secondary, StylePart::secondary_text,
+            disabled ? palette.disabled : highlighted ? palette.selection_text : palette.secondary, TextStyle::caption);
+        if (row.content.checked)
+            check_indicator({content.x + 8, content.y + 8, 16, 16}, palette, *row.content.checked, !disabled);
+        if (!row.content.action.empty() && b.width >= 160) {
+            const Rect button{b.x + b.width - 70, b.y + 8, 64, std::max(0.0f, b.height - 16)};
+            const auto values = resolve(StylePart::action);
+            styled_surface(button, palette, values, palette.field, palette.border, 4, {1, 1, 1, 1});
+            draw_text(row.content.action, {button.x + 5, button.y, button.width - 10, button.height},
+                StylePart::action, ink, TextStyle::caption);
+        }
+        if (row.content.progress && std::isfinite(*row.content.progress)) {
+            const auto track = resolve(StylePart::track), segment = resolve(StylePart::fill);
+            const auto thickness = std::min(content.height, track.thickness.value_or(2));
+            const Rect bar{geometry.primary.x, content.y + content.height - thickness - 2, geometry.primary.width, thickness};
+            styled_surface(bar, palette, track, palette.border, palette.border, 0, {});
+            const auto interior = inset(bar, track);
+            styled_surface({interior.x, interior.y, interior.width * static_cast<float>(std::clamp(*row.content.progress, 0.0, 1.0)), interior.height},
+                palette, segment, color(segment.foreground, ink), ink, 0, {});
+        }
+        if (focused || (hot && palette.high_contrast)) focus_ring(face, palette);
+        pop_clip();
+        return;
+    }
     if (!row.navigation && row.content.checked) {
         if (command_menu || owner.role() == ControlRole::items_view || owner.role() == ControlRole::tree_view) {
             const auto mark = resolve(StylePart::mark);
@@ -409,7 +492,9 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
 }
 void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered,
     const std::shared_ptr<const ImagePixels>& pixels, bool trailing_shortcut_badges, bool command_menu, const VirtualCollection* owner) {
-    if (owner && owner->has_control_styling()) {
+    const auto* tree = dynamic_cast<const TreeView*>(owner);
+    if (owner && (owner->has_control_styling() || owner->presentation() == ItemsPresentation::gallery ||
+        (tree && !tree->detail_columns().empty()))) {
         styled_collection_row(*owner, row, selected, focused, enabled, palette, hovered, pixels, trailing_shortcut_badges, command_menu);
         return;
     }
@@ -1835,6 +1920,8 @@ void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
         const float tail = 16 - tip;
         const float shoulder = icon == ButtonIcon::back ? 7.0f : 9.0f;
         stroke(tip, 8, tail, 8); stroke(tip, 8, shoulder, 3); stroke(tip, 8, shoulder, 13);
+    } else if (icon == ButtonIcon::chevron_right) {
+        stroke(5, 3, 11, 8); stroke(11, 8, 5, 13);
     } else if (icon == ButtonIcon::chevron_up || icon == ButtonIcon::chevron_down) {
         const float tip = icon == ButtonIcon::chevron_up ? 5.0f : 11.0f;
         const float tail = 16 - tip;

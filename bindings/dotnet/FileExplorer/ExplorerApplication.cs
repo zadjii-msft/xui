@@ -134,6 +134,7 @@ internal sealed partial class ExplorerApplication : IDisposable
     {
         if (pane.Model.Tabs.Count == 0) return;
         if (ReferenceEquals(active, pane)) return;
+        active?.AddressBar.Cancel();
         active = pane;
         Sidebar.Refresh();
         UpdateTitle();
@@ -325,7 +326,7 @@ internal sealed partial class ExplorerApplication : IDisposable
         new("Previous tab", "Ctrl+Shift+Tab", () => Active.CycleTab(-1)),
         new("Toggle split panes", "Ctrl+\\", ToggleSplit),
         new("Focus other pane", "F6", () => OtherPane(Active, show: true)?.Focus()),
-        new("Go to folder", "Ctrl+L", () => Palettes.ShowNavigation(Active)),
+        new("Go to folder", "Ctrl+L", () => Active.AddressBar.ShowNavigation()),
         new("Back", "Alt+Left", () => Active.MoveHistory(-1), () => Active.Model.Active.CanBack),
         new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
         new("Up to parent folder", "Alt+Up", () => Active.Up()),
@@ -340,6 +341,11 @@ internal sealed partial class ExplorerApplication : IDisposable
             () => Active.HasCurrentRows && !Transfers.Busy),
         new("Copy file paths", "Ctrl+Shift+C", () => Transfers.CopyPaths(Active),
             () => Active.HasSelection && !Transfers.Busy),
+        new("Use XL Icons view", "", () => Active.SetViewMode(ExplorerViewMode.ExtraLargeIcons)),
+        new("Use L Icons view", "", () => Active.SetViewMode(ExplorerViewMode.LargeIcons)),
+        new("Use M Icons view", "", () => Active.SetViewMode(ExplorerViewMode.MediumIcons)),
+        new("Use List view", "", () => Active.SetViewMode(ExplorerViewMode.List)),
+        new("Use Tree view", "", () => Active.SetViewMode(ExplorerViewMode.Tree)),
         new("Use Details view", "", () => Active.SetViewMode(ExplorerViewMode.Details)),
         new("Use Columns view", "", () => Active.SetViewMode(ExplorerViewMode.Columns)),
         new("Find in this folder", "Ctrl+F", () => Active.ShowFind()),
@@ -384,6 +390,7 @@ internal sealed partial class ExplorerApplication : IDisposable
         uint vk = key.VirtualKey;
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
+        if (Active.AddressBar.HandleKey(key)) return true;
         if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
             switch (vk)
@@ -430,7 +437,8 @@ internal sealed partial class ExplorerApplication : IDisposable
         {
             switch (vk)
             {
-                case 0x4c: Palettes.ShowNavigation(Active); return true;
+                case 0x4c: Active.AddressBar.ShowNavigation(); return true;
+                case 0x47: Palettes.ShowNavigation(Active); return true;
                 case 0x46: Active.ShowFind(); return true;
                 case 0x54: Active.NewTab(); return true;
                 case 0x57: Active.CloseTab(); return true;
@@ -453,6 +461,7 @@ internal sealed partial class ExplorerApplication : IDisposable
         {
             switch (vk)
             {
+                case 0x44: Active.AddressBar.ShowNavigation(); return true;
                 case 0x46: Sidebar.FocusFilter(); return true;
                 case 0x25: Active.MoveHistory(-1); return true;
                 case 0x27: Active.MoveHistory(1); return true;

@@ -68,7 +68,7 @@ enums!(
     CheckState {Unchecked=0,Checked=1,Indeterminate=2},
     InfoBadgeKind {Dot=0,Count=1,Icon=2},
     ProgressState {Determinate=0,Indeterminate=1,Paused=2,Error=3,Unknown=4},
-    ItemsPresentation {List=0,Tiles=1,Grouped=2},
+    ItemsPresentation {List=0,Tiles=1,Grouped=2,Gallery=3},
     CompactNavigation {Stacked=0,Overlay=1},
     DateTimePresentation {Date=0,Time=1,Calendar=2},
     TextCommand {Undo=0,Redo=1,Copy=2,Cut=3,Paste=4,SelectAll=5},
@@ -77,7 +77,7 @@ enums!(
     ButtonBehavior {Momentary=0,Repeat=1,Toggle=2,Dropdown=3},
     ButtonIcon {None=0,Back=1,Forward=2,Up=3,Refresh=4,Split=5,Theme=6,Add=7,
         Minimize=8,Maximize=9,Restore=10,Close=11,More=12,Navigation=13,Home=14,
-        Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22},
+        Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22,ChevronRight=29},
     TrackSizing {Fixed=0,Automatic=1,Star=2},
     CommandKind {Action=0,Submenu=1,Separator=2}
 );
@@ -111,6 +111,7 @@ impl ProgressState {
 }
 impl ButtonIcon {
     pub(crate) fn from_native(value: u64) -> Result<Self> {
+        if value == Self::ChevronRight as u64 { return Ok(Self::ChevronRight); }
         const ICONS: [ButtonIcon; 23] = [
             ButtonIcon::None, ButtonIcon::Back, ButtonIcon::Forward, ButtonIcon::Up,
             ButtonIcon::Refresh, ButtonIcon::Split, ButtonIcon::Theme, ButtonIcon::Add,
@@ -1283,7 +1284,21 @@ impl DataGrid {
         })
     }
 }
+impl AdaptiveLayout {
+    pub fn content_sized(&self) -> Result<bool> {
+        Ok(self.feature_get(55)?.first != 0)
+    }
+    pub fn set_content_sized(&self, enabled: bool) -> Result<()> {
+        self.feature_set(55, sys::FeatureValue { first: enabled as u64, ..value_record() })
+    }
+}
 impl ItemsView {
+    pub fn single_click_activation(&self) -> Result<bool> {
+        Ok(self.feature_get(54)?.first != 0)
+    }
+    pub fn set_single_click_activation(&self, enabled: bool) -> Result<()> {
+        self.feature_set(54, sys::FeatureValue { first: enabled as u64, ..value_record() })
+    }
     pub fn selection(&self) -> Result<SelectionInfo> {
         self.collection_selection()
     }
@@ -1308,6 +1323,26 @@ impl ItemsView {
     }
 }
 impl TreeView {
+    pub fn set_columns(&self, columns: &[GridColumn]) -> Result<()> {
+        if columns.len() > 64 {
+            return Err(invalid("A tree supports at most 64 detail columns."));
+        }
+        let values = columns
+            .iter()
+            .map(|c| {
+                Ok(sys::Column {
+                    size: size_of::<sys::Column>() as u32,
+                    flags: c.numeric as u32
+                        | (c.filterable as u32) << 1
+                        | (c.checkable as u32) << 2,
+                    name: text(&c.name)?,
+                    width: c.width,
+                    reserved: 0,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        check(unsafe { sys::xui_grid_columns(self.handle, values.as_ptr(), values.len() as u32) })
+    }
     pub fn selection(&self) -> Result<SelectionInfo> {
         self.collection_selection()
     }
