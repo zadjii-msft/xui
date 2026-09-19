@@ -15,6 +15,9 @@ Rust has no typed wrapper. The host does not implement terminal input or termina
 C# `Window.SetPresentation(fontFamily, fontSize, smoothScrolling, animations)` applies typography to current and future controls in that window.
 The font family accepts up to 128 UTF-16 units. The font size accepts 8–32 DIPs.
 This explicit window policy replaces the local font family and font size on supported style parts.
+`Element.SetPresentationFontSize(size)` overrides the window font size for a control, including its text parts.
+The size accepts 8–32 DIPs. Pass `null` to restore the window font size.
+The C equivalent is `xui_control_presentation_font_size`, where zero restores the window font size.
 Native text inputs keep their native editing behavior.
 
 `Theme.System` follows the Windows application theme, including later theme changes.

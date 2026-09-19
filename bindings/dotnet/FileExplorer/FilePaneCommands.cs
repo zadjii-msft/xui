@@ -17,6 +17,13 @@ internal sealed partial class FilePaneView
         bool standard = options.ToolbarCommands.SequenceEqual(defaults) && !options.ToolbarLabels;
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.Visible(options.ShowToolbar && standard);
+        foreach (var (button, id) in new[] { (layout.Back, "back"), (layout.Forward, "forward"),
+            (layout.Up, "up-to-parent-folder"), (layout.Refresh, "refresh-folder"), (layout.Commands, "commands") })
+        {
+            var command = app.Commands.Single(c => c.StableId == id);
+            string hint = app.ShortcutHint(command);
+            button.Help(hint.Length == 0 ? command.Name : $"{command.Name} ({hint})");
+        }
         status.Visible(options.ShowStatus);
         customToolbar ??= CreateToolbar();
         customToolbarButtons.Clear();

@@ -18,6 +18,35 @@ internal static class ContextActionsSmoke
             pane.SelectPath(Path.Combine(fixture, "small.txt"));
             var commands = pane.ContextMenu.GetCommands();
             Check(commands.Any(command => command.Id == ContextActionsController.SearchCommand), "File menus offer context search.");
+            var beforeBindings = app.State.Customization.Clone();
+            (ulong Id, string StableId)[] hinted =
+            [
+                (FileContextMenu.Preview, "preview-selected-item"), (FileContextMenu.Copy, "copy-files"),
+                (FileContextMenu.Cut, "cut-files"), (FileContextMenu.CopyPaths, "copy-file-paths"),
+                (FileContextMenu.Paste, "paste-files-into-this-folder"), (FileContextMenu.Refresh, "refresh-folder")
+            ];
+            string? originalCopyHint = commands.Single(command => command.Id == FileContextMenu.Copy).ShortcutHint;
+            try
+            {
+                var remapped = beforeBindings.Clone();
+                for (int i = 0; i < hinted.Length; ++i)
+                    remapped.Keybindings[hinted[i].StableId] = [$"Ctrl+Shift+F{i + 13}"];
+                remapped.Keybindings["copy-files"] = ["Ctrl+Shift+F14", "Ctrl+Shift+F19"];
+                app.SetCustomization(remapped);
+                var updated = pane.ContextMenu.GetCommands();
+                foreach (var item in hinted)
+                    Check(updated.Single(command => command.Id == item.Id).ShortcutHint ==
+                        app.ShortcutHint(app.Commands.Single(command => command.StableId == item.StableId)),
+                        $"Context hint follows registered bindings for {item.StableId}.");
+                Check(commands.Single(command => command.Id == FileContextMenu.Copy).ShortcutHint == originalCopyHint,
+                    "A captured context menu retains its original shortcut hint snapshot.");
+                remapped.Keybindings["preview-selected-item"] = [];
+                app.SetCustomization(remapped);
+                Check(pane.ContextMenu.GetCommands().Single(command => command.Id == FileContextMenu.Preview).ShortcutHint == "",
+                    "A removed preview binding leaves no stale Space hint.");
+            }
+            finally { app.SetCustomization(beforeBindings); }
+            pane.ContextMenu.GetCommands();
             pane.ContextMenu.Invoke(ContextActionsController.SearchCommand);
             Check(context.IsOpen && context.Query.Focused, "Context search shows a popup with a native focused text editor.");
             Check(context.SelectedPaths.SequenceEqual([Path.Combine(fixture, "small.txt")]), "Search retains an immutable selected path.");

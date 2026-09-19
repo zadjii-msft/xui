@@ -376,7 +376,25 @@ class ShellWorker {
                         [&](const auto& item) { return item.key == state->key; });
                     if (found == state->commands.end() || !found->enabled || found->separator ||
                         found->native_only || !found->children.empty()) throw std::logic_error("Shell command is not invocable");
-                    if (state->current()) provider->invoke(state->key);
+                    auto key = state->key;
+                    const auto same_verb = [&](const ShellCommandInfo& item) {
+                        return !item.separator && !item.native_only && item.children.empty() &&
+                            CompareStringOrdinal(item.verb.c_str(), -1, found->verb.c_str(), -1, TRUE) == CSTR_EQUAL;
+                    };
+                    if (state->canonical_verbs && !found->verb.empty() &&
+                        std::count_if(state->commands.begin(), state->commands.end(), same_verb) == 1) {
+                        if (!state->current()) return;
+                        auto fresh = create(state);
+                        const auto commands = fresh->discover(state->stop.get_token());
+                        if (state->stop.stop_requested()) return;
+                        if (std::count_if(commands.begin(), commands.end(), same_verb) != 1)
+                            throw std::logic_error("The Shell canonical action is no longer uniquely available");
+                        const auto resolved = std::find_if(commands.begin(), commands.end(), same_verb);
+                        if (!resolved->enabled) throw std::logic_error("The Shell canonical action is no longer enabled");
+                        key = resolved->key;
+                        provider = std::move(fresh);
+                    }
+                    if (state->current()) provider->invoke(key);
                 } else {
                     if (!provider) provider = create(state);
                     if (state->current())

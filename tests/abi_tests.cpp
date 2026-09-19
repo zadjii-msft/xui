@@ -45,7 +45,8 @@ int main() {
             "xui_window_content", "xui_update", "xui_subscribe", "xui_text_copy", "xui_focus",
             "xui_invoke", "xui_image_source", "xui_image_shell_source", "xui_image_state", "xui_list_items", "xui_list_filter",
             "xui_list_select", "xui_list_state", "xui_window_callback_error",
-            "xui_window_set_presentation", "xui_control_set_presentation"}) expect(GetProcAddress(dll, name) != nullptr);
+            "xui_window_set_presentation", "xui_control_set_presentation",
+            "xui_control_presentation_font_size"}) expect(GetProcAddress(dll, name) != nullptr);
         auto o = options(); xui_handle invalid = 99;
         o.version++; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH); expect(invalid == 0);
         o = options(); o.size--; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH);
@@ -70,6 +71,12 @@ int main() {
             theme.integer = 4;
             expect(xui_update(w.h, &theme, 1) == XUI_INVALID_ARGUMENT);
             auto label = w.control(XUI_LABEL, "日本語 😀");
+            ok(xui_control_presentation_font_size(label, 12));
+            ok(xui_control_presentation_font_size(label, 0));
+            expect(xui_control_presentation_font_size(label, 7) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_size(label, 33) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_size(0, 12) == XUI_INVALID_HANDLE);
+            expect(xui_control_presentation_font_size(w.h, 12) == XUI_WRONG_KIND);
             expect(xui_control_set_presentation(label, 1, 0) == XUI_WRONG_KIND);
             expect(read(label) == "日本語 😀");
             const auto input = w.control(XUI_TEXT_INPUT);

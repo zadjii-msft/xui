@@ -23,7 +23,7 @@ internal static class ExplorerPresentation
         new(StylePart.Icon, new() { Size = 16 })
     ]);
 
-    public static void ApplyNavigationItems(NavigationList items, ExplorerCustomization settings)
+    public static void ApplyNavigationItems(RetainedElement items, ExplorerCustomization settings)
     {
         items.SetPresentationFontSize(CompactFontSize(settings));
         items.SetControlStyle(NavigationItems(settings));

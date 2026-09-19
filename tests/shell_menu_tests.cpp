@@ -775,11 +775,32 @@ void snapshot_tests() {
         return ready == 2;
     });
     check(slow_context->invokes == 1 && slow_context->invoked_offset == 0, "Snapshot invokes actual original COM command");
+    check(slow_context->queries == 2, "Canonical invocation resolves its identity against a fresh native menu");
     check(xui_shell_actions_destroy(session) == XUI_OK, "Destroy snapshot without joining");
     pump_until([&] { return slow_context->refs == 1; });
+    check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Create availability recheck snapshot");
+    pump_until([&] {
+        results.keys.clear();
+        check(xui_shell_actions_read(session, receive, &results, &ready) == XUI_OK, "Discover initially enabled action");
+        return ready == 1;
+    });
+    slow_context->disabled_leaf = true;
+    const auto stale_enabled_key = results.keys.front();
+    check(xui_shell_actions_invoke(session, stale_enabled_key.id, stale_enabled_key.version) == XUI_OK,
+        "Queue initially enabled canonical action");
+    pump_until([&] {
+        const auto status = xui_shell_actions_read(session, nullptr, nullptr, &ready);
+        check(status == XUI_OK || status == XUI_NATIVE_ERROR, "Availability failure is explicit");
+        return status == XUI_NATIVE_ERROR;
+    });
+    check(slow_context->invokes == 1, "A canonical action disabled in a fresh menu never invokes its stale enabled entry");
+    check(xui_shell_actions_destroy(session) == XUI_OK, "Destroy failed availability recheck snapshot");
+    pump_until([&] { return slow_context->refs == 1; });
+    slow_context->disabled_leaf = false;
     slow_context->query_delay = 200;
+    const auto previous_queries = slow_context->queries.load();
     check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Start cancellable snapshot");
-    pump_until([&] { return slow_context->queries > 1; });
+    pump_until([&] { return slow_context->queries > previous_queries; });
     const auto start = GetTickCount64();
     check(xui_shell_actions_destroy(session) == XUI_OK && GetTickCount64() - start < 100,
         "Snapshot cancellation does not wait for Shell discovery");
@@ -801,7 +822,16 @@ void snapshot_tests() {
     check(fallback_tracks == 1 && slow_context->initialized == 1 && slow_context->invokes == 2 &&
         slow_context->invoked_offset == 1, "Fallback preserves native dynamic submenu messages and original COM invocation");
     check(xui_shell_actions_destroy(session) == XUI_OK, "Destroy completed native fallback");
-    check(xui_window_destroy(window) == XUI_OK, "Retire snapshot owner");
+    pump_until([&] { return slow_context->refs == 1; });
+    slow_context->query_delay = 200;
+    const auto before_owner_close = slow_context->queries.load();
+    check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Create owner-bound pending snapshot");
+    pump_until([&] { return slow_context->queries > before_owner_close; });
+    const auto close_started = GetTickCount64();
+    check(xui_window_destroy(window) == XUI_OK && GetTickCount64() - close_started < 100,
+        "Owner disposal cancels borrowed snapshots without waiting for extensions");
+    check(xui_shell_actions_read(session, nullptr, nullptr, &ready) == XUI_INVALID_HANDLE,
+        "Owner disposal retires all borrowed snapshot handles");
     pump_until([&] { return slow_context->refs == 1; });
     inspect = {};
     ShellMenuTestAccess::create = nullptr;

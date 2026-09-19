@@ -19,9 +19,9 @@ public sealed unsafe partial class Window
     }
 }
 
-public abstract partial class Control
+public abstract partial class Element
 {
-    public Control SetPresentationFontSize(float? fontSize)
+    public Element SetPresentationFontSize(float? fontSize)
     {
         Window.Guard();
         if (fontSize is { } value && (!float.IsFinite(value) || value is < 8 or > 32))
@@ -29,7 +29,10 @@ public abstract partial class Control
         Window.Check(Native.ControlPresentationFontSize(Handle, fontSize ?? 0));
         return this;
     }
+}
 
+public abstract partial class Control
+{
     public Control SetPresentation(bool singleClick = false, bool thumbnailFill = false)
     {
         Window.Guard();

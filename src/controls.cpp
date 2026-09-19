@@ -47,6 +47,14 @@ void Control::set_visual_style(VisualStyle style) {
     invalidate(Invalidation::layout);
 }
 
+void Control::set_presentation_font_size(float value) {
+    if (!std::isfinite(value) || (value != 0 && (value < 8 || value > 32)))
+        throw std::invalid_argument("Invalid presentation font size");
+    if (presentation_font_size_ == value) return;
+    presentation_font_size_ = value;
+    invalidate(Invalidation::layout);
+}
+
 void Control::set_name(std::wstring name) {
     if (name_ == name) return;
     name_ = std::move(name);

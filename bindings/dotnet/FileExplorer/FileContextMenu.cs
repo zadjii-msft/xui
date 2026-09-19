@@ -29,7 +29,7 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         destination = target is { IsDirectory: true } ? target.FullPath : pane.TransferDirectory;
         List<Command> result = [];
         if (target is not null)
-            result.Add(new(Preview, "Preview", ShortcutHint: "Space"));
+            result.Add(new(Preview, "Preview", ShortcutHint: ShortcutHint("preview-selected-item")));
         if (target is { IsDirectory: true })
         {
             bool saved = app.State.Bookmarks.Contains(target.FullPath, StringComparer.OrdinalIgnoreCase);
@@ -43,13 +43,13 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         bool ready = app.Transfers.CanTransfer(pane);
         if (paths.Length > 0)
         {
-            result.Add(new(Copy, "Copy files", Enabled: ready, ShortcutHint: "Ctrl+C"));
-            result.Add(new(Cut, "Cut files", Enabled: ready, ShortcutHint: "Ctrl+X"));
-            result.Add(new(CopyPaths, "Copy paths", Enabled: ready, ShortcutHint: "Ctrl+Shift+C"));
+            result.Add(new(Copy, "Copy files", Enabled: ready, ShortcutHint: ShortcutHint("copy-files")));
+            result.Add(new(Cut, "Cut files", Enabled: ready, ShortcutHint: ShortcutHint("cut-files")));
+            result.Add(new(CopyPaths, "Copy paths", Enabled: ready, ShortcutHint: ShortcutHint("copy-file-paths")));
         }
         result.Add(new(Paste, target is { IsDirectory: true } ? "Paste into this folder" : "Paste",
-            Enabled: ready, ShortcutHint: "Ctrl+V"));
-        result.Add(new(Refresh, "Refresh", ShortcutHint: "F5"));
+            Enabled: ready, ShortcutHint: ShortcutHint("paste-files-into-this-folder")));
+        result.Add(new(Refresh, "Refresh", ShortcutHint: ShortcutHint("refresh-folder")));
         commands = result.ToArray();
         var selectedPaths = (string[])paths.Clone();
         var selectedTab = tab;
@@ -64,6 +64,9 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
     }
 
     public string[] GetShellPaths() => paths.Length <= 256 ? (string[])paths.Clone() : [];
+
+    private string ShortcutHint(string identity) =>
+        app.ShortcutHint(app.Commands.Single(command => command.StableId == identity));
 
     public void Invoke(ulong id)
     {

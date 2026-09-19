@@ -25,7 +25,9 @@ The worker releases its handlers on their STA after the extension returns, and r
 `c_api_shell_actions.inc` adapts the same worker to a cancellable metadata snapshot.
 The adapter owns a hidden UI-thread validation window.
 Each action checks the managed selection callback through that window.
-The worker retains its original COM provider and command identities.
+The worker retains its original COM provider and command identities for entries without a unique canonical verb.
+Canonical actions require a fresh provider for the captured paths before invocation.
+The fresh menu must contain one matching supported leaf, with an enabled state.
 The search path requests canonical verbs. The ordinary gallery path still omits that extra extension work.
 
 `ShellActions.cs` copies the metadata into managed records.
@@ -33,6 +35,9 @@ The search path requests canonical verbs. The ordinary gallery path still omits 
 `ContextActionCatalog.cs` supplies explicit app identities, canonical-verb normalization, and pure search rules.
 Duplicate canonical verbs cannot identify favorites.
 The controller never saves `ItemKey` values.
+Preference changes use a clone and `SetCustomization`, so failed changes retain the previous state.
+Context command 1002 opens the customization editor independently of the selection.
+The hidden-action list cannot remove this recovery command.
 
 `ContextActionsSmoke.cs` covers the live popup and preference changes through `--context-actions-smoke`.
 `ContextActionTests.cs` covers search, favorite identities, disabled entries, and duplicate verbs.

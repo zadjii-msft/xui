@@ -91,6 +91,10 @@ int main() {
         auto grid = std::make_shared<DataGrid>(L"Presentation grid");
         grid->set_columns({{L"Name", 400}});
         grid->set_source(std::make_shared<collections_test::Rows>(100));
+        auto tree = std::make_shared<TreeView>(L"Compact presentation tree");
+        PartStyleValues compact; compact.row_height = 24.0f; compact.font_size = 12.0f;
+        tree->set_control_style_values(StylePart::root, compact);
+        tree->set_presentation_font_size(12);
         PartStyleValues density; density.row_height = 42.0f;
         items->set_control_style_values(StylePart::root, density);
         grid->set_control_style_values(StylePart::root, density);
@@ -99,7 +103,7 @@ int main() {
         int item_activations{}, grid_activations{};
         items->on_activate([&](ItemKey) { ++item_activations; });
         grid->on_activate([&] { ++grid_activations; });
-        root->add(text); root->add(items, 1); root->add(grid, 1);
+        root->add(text); root->add(items, 1); root->add(grid, 1); root->add(tree);
         window->set_content(root);
         app.show(*window);
         HWND hwnd = FindWindowW(nullptr, L"XUI presentation regression");
@@ -111,6 +115,9 @@ int main() {
             const auto& cell = grid->control_style_values(StylePart::cell);
             require(cell.font_size == 18 && cell.font_family->name == L"Consolas",
                 "Window typography reaches grid cells");
+            require(tree->control_style_values(StylePart::root).font_size == 12 &&
+                tree->control_style_values(StylePart::primary_text).font_size == 12 && tree->item_size().height == 24,
+                "Compact typography survives the window policy on root and text parts");
             const HWND item_peer = child(hwnd, L"Presentation items");
             const HWND grid_peer = child(hwnd, L"Presentation grid");
             click(item_peer, 21);
@@ -145,9 +152,17 @@ int main() {
             require(grid_activations == 2 && grid->selected() == RowKey{1, 1},
                 "An unchanged deferred press activates the pressed item once");
             window->set_presentation("Segoe UI", 16, false, false);
+            tree->set_presentation_font_size(14);
             flush(hwnd);
             require(grid->control_style_values(StylePart::cell).font_size == 16,
                 "Live font changes reach existing controls");
+            require(tree->control_style_values(StylePart::root).font_size == 14 &&
+                tree->control_style_values(StylePart::primary_text).font_size == 14,
+                "Live compact font changes survive repeated collection");
+            tree->set_presentation_font_size(0);
+            flush(hwnd);
+            require(tree->control_style_values(StylePart::primary_text).font_size == 16,
+                "Clearing the compact override restores window typography");
             items->set_offset(0); grid->set_offset(0, 0);
             const auto wheel = MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA));
             SendMessageW(item_peer, WM_MOUSEWHEEL, wheel, 0);

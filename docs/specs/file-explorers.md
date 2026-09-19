@@ -17,6 +17,7 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 ### Search and customize context actions
 
 File and folder menus include **Search / customize context actions**.
+Built-in app actions show their current configured shortcut hints, including aliases and removed bindings.
 The popup searches app actions and supported Windows Shell leaves by label or canonical verb.
 Its native text editor retains standard text selection and keyboard input.
 **Run** uses the paths captured when the context menu opened.
@@ -33,6 +34,9 @@ Unavailable favorites remain visible and can be unpinned.
 The search popup retains hidden actions and provides **Show app action** to restore them.
 These preferences persist in the Explorer customization state.
 **Show Windows menu** retains native submenus, dynamic commands, and owner-drawn Shell extensions.
+**Customize Explorer** always remains in the context menu, including menus for empty space.
+Hidden-action preferences cannot remove this recovery command.
+It opens customization even if the toolbar, sidebar, and command-palette keybinding are disabled.
 
 ### Edit the markup
 
@@ -164,6 +168,13 @@ Toolbar labels are optional.
 The sidebar section row accepts an ordered list of section names.
 An omitted section stays hidden.
 The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
+
+File rows use the configured row height and font size.
+Tree rows stay compact: their height is 8 DIPs less, with a minimum of 20 DIPs.
+Navigation rows use 4 DIPs less, with the same minimum.
+Tree and navigation fonts use 2 DIPs less, with a minimum of 9 DIPs.
+The defaults remain 24/12 DIPs for Tree rows and 28/12 DIPs for navigation rows.
+Gallery heights add the configured row height to the image area.
 
 Import and export use a versioned JSON document.
 An absent field uses its default.

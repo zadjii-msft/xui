@@ -91,7 +91,11 @@ internal sealed class NavigationSidebar : IDisposable
         var saved = app.State.Bookmarks.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (string path in saved.Take(3800)) AddPath(path, bookmarks, "bookmark");
         if (saved.Length > 3800) Empty($"{saved.Length - 3800} more bookmarks in state.json", bookmarks);
-        if (app.State.Bookmarks.Count == 0) Empty("Bookmark this folder with Ctrl+D", bookmarks);
+        if (app.State.Bookmarks.Count == 0)
+        {
+            string shortcut = app.ShortcutHint(app.Commands.Single(c => c.StableId == "add-or-remove-folder-bookmark"));
+            Empty(shortcut.Length == 0 ? "Bookmark this folder from Commands" : $"Bookmark this folder with {shortcut}", bookmarks);
+        }
         ulong storage = Header("Storage", ButtonIcon.Drive);
         foreach (var drive in DriveInfo.GetDrives()) AddPath(drive.Name, storage, "drive");
         ulong places = Header("Places", ButtonIcon.Home);
@@ -172,7 +176,7 @@ internal sealed class NavigationSidebar : IDisposable
         Presentation.Duration = app.State.Customization.Animations ? 180u : 0u;
         View.Search.SetControlStyle(ExplorerPresentation.NavigationFilter(app.State.Customization));
         foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })
-            items.SetControlStyle(ExplorerPresentation.NavigationItems(app.State.Customization));
+            ExplorerPresentation.ApplyNavigationItems(items, app.State.Customization);
         if (wasOpen && !IsOpen) app.Active.Focus();
         Refresh();
     }

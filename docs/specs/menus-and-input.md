@@ -14,7 +14,10 @@ The paths must have the same parent.
 The shared Shell STA owns the extension objects and their native menus.
 No COM objects cross into the application UI thread.
 
-`Invoke()` uses the original command identity, not a command label or a reconstructed verb.
+`Invoke()` resolves a unique canonical verb against a fresh menu for the captured paths.
+It rejects missing, ambiguous, or disabled matches.
+The provider runs the fresh menu's original command identity, not a command label or a reconstructed command line.
+Entries without a unique canonical verb retain their session-scoped identity.
 The application supplies a current-selection callback.
 The native worker calls that callback on the UI thread before an action.
 The provider also checks the current enabled state.
