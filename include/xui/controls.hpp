@@ -24,12 +24,18 @@ enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, min
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 enum class CheckState { unchecked, checked, indeterminate };
 enum class InfoBadgeKind { dot, count, icon };
+struct MenuIcon {
+    // Top-down premultiplied BGRA. An empty image selects the theme-colored command glyph.
+    std::uint32_t width{}, height{};
+    std::vector<std::uint32_t> pixels;
+};
 struct MenuItem {
     // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.
     // Shortcut labels do not register application keyboard shortcuts.
     std::wstring text;
     std::function<void()> action;
     bool enabled{true}, checked{}, separator{};
+    std::shared_ptr<const MenuIcon> icon;
 };
 enum class ShellMenuPresentation { windows, xui };
 struct ContextMenuContent {

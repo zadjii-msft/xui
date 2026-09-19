@@ -205,7 +205,10 @@ The XUI menu combines supported Windows Shell commands with folder navigation, b
 It uses the same styled native context menu as the gallery's Menus and confirmation page, not a `CommandSurface` popup.
 Shell commands still run through their original Windows handlers.
 The Show Windows menu... item opens the full native menu for extension-specific content that requires native handling.
-Labeled commands with native bitmaps remain available as text in XUI.
+Shell commands in the XUI menu show their supported native icons.
+Commands without a supported bitmap have no icon. The Windows-menu fallback also has no icon.
+Supplied icons retain their colors. Disabled commands and high-contrast menus use theme-colored glyphs instead of bitmap colors.
+Checkmarks remain visible beside the icons.
 Native submenus and owner-drawn entries use the Windows menu fallback.
 Open in this pane keeps folder navigation in the demo. Shell Open uses Windows behavior.
 Files omit folder-only commands and duplicate Open actions.

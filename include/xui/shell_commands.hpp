@@ -9,7 +9,8 @@ struct ShellCommandInfo {
     std::vector<ShellCommandInfo> children;
     ButtonIcon icon{ButtonIcon::none};
     std::vector<std::wstring> shortcut_hints;
-    bool has_native_icon{}; // Bitmap metadata alone does not prevent text-only custom presentation.
+    bool has_native_icon{};
+    std::shared_ptr<const MenuIcon> native_icon;
 };
 // Implementations own their apartment and extension objects. Discovery never invokes a verb.
 class ShellCommandProvider {
@@ -45,6 +46,7 @@ private:
     struct State;
     std::shared_ptr<State> state_;
     std::shared_ptr<const CommandSet> commands_;
+    std::map<CommandId, std::shared_ptr<const MenuIcon>> icons_;
     std::string error_;
 };
 #ifdef _WIN32
