@@ -545,6 +545,18 @@ File clipboard and drag-and-drop commands also require the file-transfer APIs fr
 The New tab buttons require the tab-action APIs from this checkout.
 An older `xui.dll` does not provide these APIs.
 
+The focused address-bar smoke covers compact geometry, chevrons, trailing-space activation, palette shortcuts, folder dropdowns, cancellation, ancestor navigation, and pane isolation:
+
+```powershell
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--address-smoke" -PassThru -Wait
+$process.ExitCode
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+The complete `--smoke` run includes these address-bar checks.
+The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
+
 ### NativeAOT and deployment
 
 ```powershell

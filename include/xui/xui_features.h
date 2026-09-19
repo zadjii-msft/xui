@@ -13,7 +13,7 @@ enum {
     XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
     XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
     XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
-    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28, XUI_BUTTON_ICON_CHEVRON_RIGHT = 29
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -255,8 +255,15 @@ enum {
     XUI_F_SECOND_VISIBLE, XUI_F_BUTTON_ICON,
     XUI_F_CHECKED, XUI_F_PROGRESS_CAPACITY,
     XUI_F_CHECK_STATE, XUI_F_THREE_STATE, XUI_F_SELECTED,
-    XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON
+    XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON,
+    XUI_F_SINGLE_CLICK_ACTIVATION = 54,
+    XUI_F_CONTENT_SIZED = 55
 };
+/* CONTENT_SIZED: first = boolean, for AdaptiveLayout, default false.
+   Measure both children to choose the breakpoint and navigation extent instead of fixed values. */
+/* SINGLE_CLICK_ACTIVATION: first = boolean, for ItemsView, default false.
+   Unmodified primary presses select and activate enabled rows, as in command menus.
+   Keyboard and programmatic selection do not activate rows. */
 /* CHECKED: first = boolean, for Toggle and ToggleSwitch.
    PROGRESS_CAPACITY: a = used, b = total, text = unit, for Progress and ProgressRing.
    ToggleButton uses BUTTON_CHECKED; its toggle notification is CHANGE (boolean).
@@ -293,7 +300,7 @@ typedef struct xui_item_visual {
    none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
    minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
    folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
-   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28.
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28, chevron_right=29.
    This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
    Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */

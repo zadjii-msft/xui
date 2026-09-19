@@ -46,10 +46,11 @@ void text_presentation() {
         symbol_codepoints[static_cast<std::size_t>(button_symbol(ButtonIcon::undo))] == 0xe7a7 &&
         symbol_codepoints[static_cast<std::size_t>(button_symbol(ButtonIcon::redo))] == 0xe7a6 &&
         button_symbol(ButtonIcon::chevron_up) == Symbol::chevron_up &&
-        button_symbol(ButtonIcon::chevron_down) == Symbol::chevron_down);
+        button_symbol(ButtonIcon::chevron_down) == Symbol::chevron_down &&
+        button_symbol(ButtonIcon::chevron_right) == Symbol::chevron_right);
     require(symbol_codepoints[static_cast<std::size_t>(button_symbol(ButtonIcon::open))] == 0xe8a7,
         "Open uses the Segoe Fluent OpenInNewWindow glyph");
-    for (int i = static_cast<int>(ButtonIcon::back); i <= static_cast<int>(ButtonIcon::chevron_down); ++i)
+    for (int i = static_cast<int>(ButtonIcon::back); i <= static_cast<int>(ButtonIcon::chevron_right); ++i)
         require(drawing.has_symbol(button_symbol(static_cast<ButtonIcon>(i))),
             "Every nonempty button icon has an available Fluent glyph mapping");
     require(!drawing.has_symbol(Symbol::none) && !drawing.has_symbol(Symbol::count),

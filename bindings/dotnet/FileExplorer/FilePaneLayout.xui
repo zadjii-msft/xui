@@ -2,7 +2,7 @@ namespace Xui.FileExplorer;
 
 component FilePaneLayout {
     param int Number;
-    param string InitialPath;
+    param global::Xui.Element AddressBar;
     state bool FindOpen = false;
 
     view {
@@ -13,7 +13,7 @@ component FilePaneLayout {
                 Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
                 Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
                 Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
-                Button(InitialPath, ref: Address, id: $"pane-{Number}-address", flex: 1, help: "Go to a folder (Ctrl+L)");
+                Content(AddressBar, flex: 1);
                 Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
                 Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
             }

@@ -12,16 +12,18 @@ internal static class Program
             bool viewEntrySmoke = args.Contains("--view-entry-smoke");
             bool paneAnimationSmoke = args.Contains("--pane-animation-smoke");
             bool hoverSmoke = args.Contains("--smoke-hover");
-            if ((viewEntrySmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0) > 1)
+            bool addressSmoke = args.Contains("--address-smoke");
+            if ((viewEntrySmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) > 1)
                 throw new ArgumentException("Choose one focused smoke mode.");
-            bool smoke = args.Contains("--smoke") || viewEntrySmoke || paneAnimationSmoke || hoverSmoke;
+            bool smoke = args.Contains("--smoke") || viewEntrySmoke || paneAnimationSmoke || hoverSmoke || addressSmoke;
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
             using var windows = new ExplorerWindows(application, previews, smoke);
             var app = windows.Create(initialPath);
             app.Run(viewEntrySmoke ? ExplorerSmokeMode.ViewEntry :
                 paneAnimationSmoke ? ExplorerSmokeMode.PaneAnimation :
-                hoverSmoke ? ExplorerSmokeMode.Hover : ExplorerSmokeMode.Full);
+                hoverSmoke ? ExplorerSmokeMode.Hover :
+                addressSmoke ? ExplorerSmokeMode.Address : ExplorerSmokeMode.Full);
             return 0;
         }
         catch (Exception error)
