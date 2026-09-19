@@ -27,6 +27,7 @@ No hosted site is required to read these pages.
 - [Packages and deployment](packages.md): NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, project integration, hot reload, and VS Code or Microsoft Edit syntax support.
 - [Experimental portable XUI](experimental-portable-xui.md): An opt-in managed subset, shared demo, and backend contract for local C# execution.
+- [Experimental Android backend](experimental-android.md): Native Android widgets, shared-source application startup, input, layout, and Activity lifetime.
 - [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
