@@ -1,12 +1,38 @@
 #include "../src/drawing.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <new>
 #include <stdexcept>
+
+namespace allocation_probe {
+thread_local bool active{};
+thread_local std::size_t calls{};
+}
+void* operator new(std::size_t size) {
+    if (auto* value = std::malloc(size ? size : 1)) {
+        if (allocation_probe::active) ++allocation_probe::calls;
+        return value;
+    }
+    throw std::bad_alloc{};
+}
+void* operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void* value) noexcept { std::free(value); }
+void operator delete[](void* value) noexcept { std::free(value); }
+void operator delete(void* value, std::size_t) noexcept { std::free(value); }
+void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 
 namespace xui {
 struct DrawingTestAccess {
+    static_assert(sizeof(Drawing::TextFormatKey) < sizeof(PartStyleValues) / 2);
+    static IDWriteTextFormat* format(Drawing& drawing, const PartStyleValues& values, TextStyle fallback = TextStyle::body) {
+        return drawing.styled_format(fallback, values);
+    }
+    static std::size_t format_entry_bytes() { return sizeof(Drawing::StyledFormat); }
+    static std::size_t layout_entry_bytes() { return sizeof(Drawing::StyledLayout); }
     static void software_target(Drawing& drawing, HWND window) {
         const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
@@ -203,6 +229,127 @@ void typography_cache(Fixture& fixture) {
     drawing.set_visual_style(VisualStyle::classic);
     const auto restored = fixture.render([&] { drawing.text(L"Default path", {10, 10, 180, 50}, D2D1::ColorF(0xffffff)); });
     require(baseline == restored, "Authored typography does not mutate built-in unstyled formats or output");
+}
+void typography_cache_keys() {
+    Drawing drawing;
+    drawing.initialize();
+    PartStyleValues values;
+    values.font_family = make_style_font_family("Segoe UI");
+    values.font_size = 16.0f;
+    const std::weak_ptr<const StyleFontFamily> family = values.font_family;
+    Size measured;
+    const auto first = drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured);
+    const auto original_size = measured;
+    auto* format = DrawingTestAccess::format(drawing, values);
+    values.font_family = make_style_font_family("Segoe UI");
+    require(!family.expired(), "Retained typography owns the original family after the caller replaces it");
+    values.foreground = ThemeColor{0x123456};
+    values.padding = Insets{1, 2, 3, 4};
+    values.wrapping = false;
+    require(DrawingTestAccess::format(drawing, values) == format &&
+        drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured) == first,
+        "Equal family names, non-text properties and explicit no-wrap reuse cached typography");
+    const auto created = Drawing::created_text_layouts();
+    allocation_probe::calls = 0;
+    allocation_probe::active = true;
+    for (unsigned i = 0; i < 1024; ++i) {
+        DrawingTestAccess::format(drawing, values);
+        drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured);
+    }
+    allocation_probe::active = false;
+    require(allocation_probe::calls == 0 && Drawing::created_text_layouts() == created,
+        "Warm format and layout lookups allocate no C++ storage or DirectWrite layouts");
+    require(measured.width == original_size.width && measured.height == original_size.height,
+        "Cache hits preserve measured glyph metrics");
+    require(SUCCEEDED(first->SetMaxWidth(12)) && SUCCEEDED(first->SetMaxHeight(8)), "Mutate returned layout bounds");
+    require(drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured) == first &&
+        first->GetMaxWidth() == 10000000 && first->GetMaxHeight() == 10000000,
+        "Cache hits restore mutable layout bounds");
+    const auto differs = [&](PartStyleValues changed) {
+        require(DrawingTestAccess::format(drawing, changed) != format &&
+            drawing.styled_layout(L"Borrowed cache key", TextStyle::body, changed, measured) != first,
+            "Each typography field participates in format and layout identity");
+    };
+    auto changed = values; changed.font_family = make_style_font_family("Consolas"); differs(changed);
+    changed = values; changed.font_size = 17.0f; differs(changed);
+    changed = values; changed.font_weight = 700; differs(changed);
+    changed = values; changed.font_style = StyleFontStyle::italic; differs(changed);
+    changed = values; changed.horizontal_alignment = StyleAlignment::end; differs(changed);
+    changed = values; changed.vertical_alignment = StyleAlignment::start; differs(changed);
+    changed = values; changed.wrapping = true; differs(changed);
+    require(DrawingTestAccess::format(drawing, values, TextStyle::caption) != format &&
+        drawing.styled_layout(L"Borrowed cache key", TextStyle::caption, values, measured) != first,
+        "Fallback style remains part of cache identity even with authored fonts");
+    changed = values; changed.wrapping.reset();
+    const auto implicit_wrap = drawing.styled_layout(L"Borrowed cache key", TextStyle::body, changed, measured, 50);
+    changed.wrapping = true;
+    require(drawing.styled_layout(L"Borrowed cache key", TextStyle::body, changed, measured, 50) == implicit_wrap &&
+        implicit_wrap->GetWordWrapping() == DWRITE_WORD_WRAPPING_WRAP,
+        "Positive width and explicit wrap share the normalized layout key");
+    changed.wrapping = false;
+    require(drawing.styled_layout(L"Borrowed cache key", TextStyle::body, changed, measured, 50) != implicit_wrap,
+        "Explicit no-wrap overrides the positive-width default");
+    require(drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured, 51) != first &&
+        drawing.styled_layout(L"Borrowed cache key", TextStyle::body, values, measured, 0, 1) != first,
+        "Width and maximum lines remain part of layout identity");
+    changed = values; changed.vertical_alignment = StyleAlignment::stretch;
+    bool rejected{};
+    try { DrawingTestAccess::format(drawing, changed); } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "Warm caches still reject unsupported vertical stretch");
+    const auto count = DrawingTestAccess::layouts(drawing);
+    const std::wstring long_text(4097, L'a');
+    drawing.styled_layout(long_text, TextStyle::body, values, measured);
+    drawing.styled_layout(long_text, TextStyle::body, values, measured);
+    require(DrawingTestAccess::layouts(drawing) == count, "Oversized text does not enter the bounded layout cache");
+    drawing.release();
+    require(DrawingTestAccess::layouts(drawing) == 0 && DrawingTestAccess::formats(drawing) == 0 && family.expired(),
+        "Release drops typography cache ownership");
+}
+void typography_benchmark() {
+    constexpr unsigned iterations = 200000;
+    std::cout << "Typography entry bytes: format=" << DrawingTestAccess::format_entry_bytes()
+        << " layout=" << DrawingTestAccess::layout_entry_bytes() << '\n';
+    for (const unsigned count : {1u, 64u}) {
+        Drawing drawing;
+        drawing.initialize();
+        std::array<PartStyleValues, 64> values;
+        for (unsigned i = 0; i < count; ++i) {
+            values[i].font_family = make_style_font_family("Segoe UI");
+            values[i].font_size = 10.0f + i * 0.25f;
+            DrawingTestAccess::format(drawing, values[i]);
+        }
+        std::array<double, 7> samples;
+        for (auto& sample : samples) {
+            const auto start = std::chrono::steady_clock::now();
+            for (unsigned i = 0; i < iterations; ++i)
+                DrawingTestAccess::format(drawing, values[i % count]);
+            sample = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count() / iterations;
+        }
+        std::sort(samples.begin(), samples.end());
+        std::cout << "Cached format lookup entries=" << count << " median_ns=" << samples[3] << '\n';
+    }
+    for (const unsigned count : {1u, 128u}) {
+        Drawing drawing;
+        drawing.initialize();
+        PartStyleValues values;
+        values.font_family = make_style_font_family("Segoe UI");
+        values.font_size = 16.0f;
+        std::array<std::wstring, 128> text;
+        Size measured;
+        for (unsigned i = 0; i < count; ++i) {
+            text[i] = L"Retained row " + std::to_wstring(i);
+            drawing.styled_layout(text[i], TextStyle::body, values, measured);
+        }
+        std::array<double, 7> samples;
+        for (auto& sample : samples) {
+            const auto start = std::chrono::steady_clock::now();
+            for (unsigned i = 0; i < iterations; ++i)
+                drawing.styled_layout(text[i % count], TextStyle::body, values, measured);
+            sample = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count() / iterations;
+        }
+        std::sort(samples.begin(), samples.end());
+        std::cout << "Cached layout lookup entries=" << count << " median_ns=" << samples[3] << '\n';
+    }
 }
 void open_icon(Fixture& fixture) {
     Button button(L"Open selected file");
@@ -432,8 +579,12 @@ void clear_glyph_and_state(Fixture& fixture) {
     fixture.drawing.set_visual_style(VisualStyle::classic);
 }
 }
-int main() {
-    try { Fixture fixture; document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
+int main(int argc, char** argv) {
+    try {
+        if (argc == 2 && std::string_view(argv[1]) == "--benchmark") { typography_benchmark(); return 0; }
+        typography_cache_keys();
+        Fixture fixture; document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture);
+    }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";
 }

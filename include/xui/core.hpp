@@ -140,7 +140,9 @@ private:
     bool separator_after_{};
     bool separator_inset_enabled_{true};
     std::vector<Child> children_;
-    std::vector<Size> layout_children(Size available);
+    struct LayoutScratch;
+    std::vector<Size> layout_sizes_;
+    void layout_children(Size available, std::vector<Size>& sizes);
 };
 
 class ContentHost final : public Stack {

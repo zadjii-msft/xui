@@ -2006,33 +2006,32 @@ void Drawing::cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color
         rectangle(bounds), brush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
-namespace {
-PartStyleValues text_format_values(const PartStyleValues& values) {
-    PartStyleValues result;
-    result.font_family = values.font_family; result.font_size = values.font_size;
-    result.font_weight = values.font_weight; result.font_style = values.font_style;
-    result.horizontal_alignment = values.horizontal_alignment; result.vertical_alignment = values.vertical_alignment;
-    if (values.wrapping.value_or(false)) result.wrapping = true;
-    return result;
-}
-bool same_text_format(const PartStyleValues& a, const PartStyleValues& b) {
-    return (a.font_family == b.font_family || (a.font_family && b.font_family && a.font_family->name == b.font_family->name)) &&
-        a.font_size == b.font_size && a.font_weight == b.font_weight && a.font_style == b.font_style &&
-        a.horizontal_alignment == b.horizontal_alignment && a.vertical_alignment == b.vertical_alignment && a.wrapping == b.wrapping;
-}
+Drawing::TextFormatKey::TextFormatKey(const PartStyleValues& values, bool wrap) :
+    font_family(values.font_family), font_size(values.font_size), font_weight(values.font_weight),
+    font_style(values.font_style), horizontal_alignment(values.horizontal_alignment),
+    vertical_alignment(values.vertical_alignment), wrapping(wrap) {}
+bool Drawing::TextFormatKey::matches(const PartStyleValues& values, bool wrap) const {
+    return (font_family == values.font_family ||
+        (font_family && values.font_family && font_family->name == values.font_family->name)) &&
+        font_size == values.font_size && font_weight == values.font_weight && font_style == values.font_style &&
+        horizontal_alignment == values.horizontal_alignment && vertical_alignment == values.vertical_alignment && wrapping == wrap;
 }
 IDWriteTextFormat* Drawing::styled_format(TextStyle fallback, const PartStyleValues& values) {
+    return styled_format(fallback, values, values.wrapping.value_or(false));
+}
+IDWriteTextFormat* Drawing::styled_format(TextStyle fallback, const PartStyleValues& values, bool wrap) {
     if (values.vertical_alignment == StyleAlignment::stretch)
         throw std::invalid_argument("Text vertical alignment does not support stretch");
     auto* base = fallback == TextStyle::body_strong ? strong_format_.Get() :
         fallback == TextStyle::subtitle ? subtitle_format_.Get() : fallback == TextStyle::heading ? heading_format_.Get() :
         fallback == TextStyle::caption ? small_format_.Get() : format_.Get();
-    const auto typography = text_format_values(values);
-    if (typography.empty()) return base;
+    if (!values.font_family && !values.font_size && !values.font_weight && !values.font_style &&
+        !values.horizontal_alignment && !values.vertical_alignment && !wrap) return base;
+    // Hits borrow the caller's values; only retained entries acquire font-family ownership.
     for (const auto& cached : styled_formats_)
-        if (cached.fallback == fallback && same_text_format(cached.typography, typography)) return cached.format.Get();
+        if (cached.fallback == fallback && cached.typography.matches(values, wrap)) return cached.format.Get();
     StyledFormat entry;
-    entry.fallback = fallback; entry.typography = typography;
+    entry.fallback = fallback; entry.typography = TextFormatKey{values, wrap};
     const auto descriptor = font_descriptor(values, edit_font_family(), base->GetFontSize(), base->GetFontWeight());
     const float size = descriptor.size;
     const auto weight = static_cast<DWRITE_FONT_WEIGHT>(descriptor.weight);
@@ -2065,7 +2064,7 @@ IDWriteTextFormat* Drawing::styled_format(TextStyle fallback, const PartStyleVal
     hr_require(entry.format->SetParagraphAlignment(vertical == StyleAlignment::center ? DWRITE_PARAGRAPH_ALIGNMENT_CENTER :
         vertical == StyleAlignment::end ? DWRITE_PARAGRAPH_ALIGNMENT_FAR : DWRITE_PARAGRAPH_ALIGNMENT_NEAR),
         "Set styled paragraph alignment");
-    hr_require(entry.format->SetWordWrapping(values.wrapping.value_or(false) ? DWRITE_WORD_WRAPPING_WRAP :
+    hr_require(entry.format->SetWordWrapping(wrap ? DWRITE_WORD_WRAPPING_WRAP :
         DWRITE_WORD_WRAPPING_NO_WRAP), "Set styled text wrapping");
     Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
     hr_require(text_factory_->CreateEllipsisTrimmingSign(entry.format.Get(), &ellipsis), "Create styled text ellipsis");
@@ -2081,12 +2080,9 @@ Microsoft::WRL::ComPtr<IDWriteTextLayout> Drawing::styled_layout(std::wstring_vi
     const bool wrap = values.wrapping.value_or(width > 0);
     width = std::isfinite(width) && width > 0 ? std::min(width, 10000000.0f) : 10000000.0f;
     maximum_lines = values.maximum_lines.value_or(static_cast<uint32_t>(std::min<std::size_t>(maximum_lines, UINT32_MAX)));
-    auto typography = text_format_values(values);
-    if (wrap) typography.wrapping = true;
-    else typography.wrapping.reset();
     for (auto& entry : styled_layouts_) {
         if (entry.fallback != fallback || entry.width != width || entry.maximum_lines != maximum_lines ||
-            entry.text != value || !same_text_format(entry.typography, typography)) continue;
+            entry.text != value || !entry.typography.matches(values, wrap)) continue;
         measured = entry.measured;
         hr_require(entry.layout->SetMaxWidth(width), "Restore styled text width");
         hr_require(entry.layout->SetMaxHeight(10000000.0f), "Restore styled text height");
@@ -2094,10 +2090,10 @@ Microsoft::WRL::ComPtr<IDWriteTextLayout> Drawing::styled_layout(std::wstring_vi
     }
     StyledLayout entry;
     if (value.size() <= 4096) entry.text = value;
-    entry.fallback = fallback; entry.typography = typography;
+    entry.fallback = fallback; entry.typography = TextFormatKey{values, wrap};
     entry.width = width; entry.maximum_lines = maximum_lines;
     hr_require(text_factory_->CreateTextLayout(value.data(), static_cast<UINT32>(std::min<std::size_t>(value.size(), UINT32_MAX)),
-        styled_format(fallback, typography), width, 10000000.0f, &entry.layout), "Create styled text layout");
+        styled_format(fallback, values, wrap), width, 10000000.0f, &entry.layout), "Create styled text layout");
     ++created_text_layouts_;
     DWRITE_TEXT_METRICS metrics{};
     hr_require(entry.layout->GetMetrics(&metrics), "Measure styled text");
