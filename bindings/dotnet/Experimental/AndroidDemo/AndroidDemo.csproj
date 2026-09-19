@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <ApplicationId>dev.xui.portable.greeting</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <ProjectReference Include="..\Xui.Android\Xui.Android.csproj" />
+    <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
+  </ItemGroup>
+</Project>

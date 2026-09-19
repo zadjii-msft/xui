@@ -231,3 +231,6 @@ Platform projects link the shared `.xui` file directly.
 They must not copy its UI into Razor, JavaScript, Android XML, or hand-written C#.
 Platform-specific startup, dispatch, lifecycle callbacks, and widget mapping remain outside the shared sample.
 Actual browser and Android execution require separate platform implementation and acceptance checks.
+
+The [Android adapter](experimental-android.md) implements this subset with native widgets and a shared-source Activity sample.
+Its reference-only compilation and arithmetic tests do not establish Android device execution.

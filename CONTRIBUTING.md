@@ -51,6 +51,94 @@ It does not establish physical keyboard input, IME behavior, screen-reader behav
 Android and browser projects require their own backend and platform acceptance checks.
 Headless results do not establish native input, accessibility, or layout behavior on those platforms.
 
+## Experimental Android backend
+
+The [Android contract](docs/specs/experimental-android.md) describes the native backend and its current acceptance limits.
+The application links `SharedDemo/Greeting.xui` without a second UI definition.
+The actual application requires .NET 10, the Android workload, a compatible JDK, and the Android SDK.
+The minimum device version is Android 8.0, API 26.
+
+On a provisioned Android development machine, build the application:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\AndroidDemo\AndroidDemo.csproj -c Debug
+```
+
+If the build reports `NETSDK1147`, provision the Android workload through your approved development environment.
+Do not treat reference-only compilation as an APK build.
+Do not accept SDK licenses or elevate an installer without the machine owner's approval.
+SDK installation is outside these commands.
+
+With a connected device or emulator, deploy and start the application:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\AndroidDemo\AndroidDemo.csproj -c Debug -t:Run
+```
+
+Run the SDK-only arithmetic tests:
+
+```powershell
+dotnet run --project bindings\dotnet\Experimental\Xui.Android.LayoutTests\Xui.Android.LayoutTests.csproj -c Release
+```
+
+Compile the production adapter, demo, and device tests against the official Android reference assemblies:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\Xui.Android.ReferenceCheck\Xui.Android.ReferenceCheck.csproj -c Release
+```
+
+The reference project downloads `Microsoft.Android.Ref.36` through the configured NuGet source.
+It does not require workload installation, produce an APK, or execute Android code.
+The arithmetic tests contain no Android substitutes.
+Neither command establishes native integration.
+
+On an Android device or emulator, run the native assertion application:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\AndroidDeviceTests\AndroidDeviceTests.csproj -c Debug -t:Run
+adb logcat -s Xui.Android.Tests:I Xui.Android:E AndroidRuntime:E
+```
+
+The application displays `PASS` only after all native assertions complete.
+Failures appear in logcat and propagate as unhandled errors.
+The native assertions cover real widgets, callbacks, selection, composition spans, scrolling, layout, dispatch, and teardown.
+They do not replace physical input or TalkBack checks.
+
+### Android device smoke procedure
+
+1. Run `AndroidDemo` on a device or emulator.
+2. Press **Increment** ten times.
+3. Make sure that the count reaches ten and the button becomes disabled.
+4. Press **Reset**.
+5. Enter a name with the soft keyboard.
+6. Submit with the keyboard's **Done** action.
+7. Make sure that the greeting contains the entered name.
+8. Edit the name and press the **Submit** button.
+9. Make sure that both submit paths use the current text.
+10. Select text in the editor.
+11. Press **Increment** without replacing the editor text.
+12. Make sure that the text and selection remain unchanged.
+13. Repeat an unrelated state update during an active IME composition.
+14. Make sure that the editor does not restart the composition or replace the widget.
+15. Press **Reset** while the editor has focus.
+16. Make sure that reset clears the text without another authored change callback.
+17. Use a small landscape viewport with the keyboard open.
+18. Make sure that all controls remain reachable through vertical scrolling.
+19. With TalkBack enabled, inspect the title, caption, input, buttons, and disabled state.
+20. In the debugger, pause the native test app after its hidden-caption update.
+21. Make sure that TalkBack still announces the input name.
+22. In `AndroidDemo`, rotate the device after an increment and a submitted greeting.
+23. Make sure that the count, entry, message, focus, and selection survive recreation.
+24. Background and restore the Activity.
+25. Make sure that one press produces one callback after reattachment.
+26. Close and reopen the Activity.
+27. Make sure that destroyed widgets cannot produce callbacks or retain the old Activity.
+
+Composition, keyboard visibility, and scroll position do not survive Activity recreation.
+Use Android Studio's layout and memory tools for native identity and Activity-retention checks.
+Use an authored handler breakpoint for the silent-setter check.
+Record the device, Android version, density, font scale, keyboard, and TalkBack version with acceptance results.
+
 ## Build the native code
 
 ```powershell

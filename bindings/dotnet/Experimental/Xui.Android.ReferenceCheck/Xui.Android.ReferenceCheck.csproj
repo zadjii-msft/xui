@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AndroidReferenceVersion>36.1.69</AndroidReferenceVersion>
+    <AndroidReferencePath>$(NuGetPackageRoot)microsoft.android.ref.36\$(AndroidReferenceVersion)\ref\net10.0</AndroidReferencePath>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <PackageDownload Include="Microsoft.Android.Ref.36" Version="[$(AndroidReferenceVersion)]" />
+    <Reference Include="Mono.Android" HintPath="$(AndroidReferencePath)\Mono.Android.dll" />
+    <Reference Include="Java.Interop" HintPath="$(AndroidReferencePath)\Java.Interop.dll" />
+    <Compile Include="..\Xui.Android\*.cs" Link="Adapter\%(Filename)%(Extension)" />
+    <Compile Include="..\AndroidDemo\MainActivity.cs" Link="MainActivity.cs" />
+    <Compile Include="..\AndroidDeviceTests\TestActivity.cs" Link="TestActivity.cs" />
+    <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>android26.0</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
