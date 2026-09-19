@@ -44,6 +44,12 @@ class Control : public Element {
 public:
     ControlRole role() const { return role_; }
     VisualStyle visual_style() const { return visual_style_; }
+    bool thumbnail_fill() const { return thumbnail_fill_; }
+    void set_thumbnail_fill(bool value) { thumbnail_fill_ = value; invalidate(Invalidation::paint); }
+    bool single_click_activation() const { return single_click_activation_; }
+    void set_single_click_activation(bool value) { single_click_activation_ = value; }
+    float presentation_font_size() const { return presentation_font_size_; }
+    void set_presentation_font_size(float value);
     // Backend presentation context. Changing style preserves the control model.
     void set_visual_style(VisualStyle style);
     const std::wstring& name() const { return name_; }
@@ -116,6 +122,8 @@ private:
     unsigned tooltip_delay_{600};
     bool enabled_{true}, visible_{true}, focused_{}, hovered_{}, pointer_{}, keyboard_{};
     bool tab_stop_{true};
+    bool thumbnail_fill_{}, single_click_activation_{};
+    float presentation_font_size_{};
     std::function<ContextMenuContent()> menu_;
     std::function<void()> focus_;
     TextMeasurer measurer_;

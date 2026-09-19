@@ -126,7 +126,7 @@ public:
         const PartStyleValues& values, TextStyle fallback = TextStyle::body);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
     void cell_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color, bool numeric);
-    void item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink);
+    void item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink, bool fill = false);
     void collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered = false,
         const std::shared_ptr<const ImagePixels>& pixels = {}, bool trailing_shortcut_badges = false, bool command_menu = false,
         const VirtualCollection* owner = nullptr);
@@ -138,7 +138,7 @@ public:
     bool push_rounded_clip(Rect bounds, float radius);
     void pop_rounded_clip();
     void origin(float x, float y);
-    bool image(const std::shared_ptr<const ImagePixels>& pixels, Rect bounds);
+    bool image(const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, bool fill = false);
     void keep_images(std::span<const std::uint64_t> ids);
     void scene(const std::shared_ptr<const VectorScene>& scene, std::optional<ShapeId> selected, D2D1_COLOR_F highlight);
     std::size_t native_buffer_bytes() const { return std::size_t(native_size_.width) * native_size_.height * 4; }

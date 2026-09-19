@@ -14,6 +14,26 @@ The explorer selects `VisualStyle.WinUI` for both light and dark themes.
 Other applications retain the classic style unless they explicitly select WinUI.
 The existing C++ explorer remains available as `xui_demo.exe`.
 
+### Search and customize context actions
+
+File and folder menus include **Search / customize context actions**.
+The popup searches app actions and supported Windows Shell leaves by label or canonical verb.
+Its native text editor retains standard text selection and keyboard input.
+**Run** uses the paths captured when the context menu opened.
+Selection, tab, or folder changes cancel stale Shell actions.
+
+**Pin** saves an explicit app identity or a unique canonical Shell verb.
+The popup explains when a Shell entry does not support pinning.
+No temporary Shell command ID enters the saved state.
+Pinned app actions appear first in the app portion of the context menu.
+**Pinned context actions** shows favorites against a fresh Shell snapshot.
+Unavailable favorites remain visible and can be unpinned.
+
+**Hide app action** removes a built-in app action from the context menu.
+The search popup retains hidden actions and provides **Show app action** to restore them.
+These preferences persist in the Explorer customization state.
+**Show Windows menu** retains native submenus, dynamic commands, and owner-drawn Shell extensions.
+
 ### Edit the markup
 
 `ExplorerLayout.xui` composes the sidebar, file panes, and notification.
@@ -116,6 +136,46 @@ The menu contains tab shifting, duplication, path copying, and closing commands.
 Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
+
+### Customization
+
+The **Customize Explorer** command opens a searchable settings editor.
+The command palette includes this command even when the toolbar or sidebar is hidden.
+Each settings row has a value field and an **Apply value** button.
+**Reset selected** restores one default. **Reset all** restores all customization defaults.
+
+Keyboard rows support multiple aliases and sequences of up to three strokes.
+For example, `Ctrl+K, Ctrl+R; Ctrl+Shift+R` assigns a sequence and a separate alias.
+An empty value removes all mappings for that command.
+The value `default` restores its default mappings.
+The editor rejects duplicate shortcuts, conflicting sequence prefixes, reserved Windows shortcuts, and AltGr combinations.
+The command palette shows the current mappings.
+
+A sequence expires after 1.8 seconds between strokes.
+Escape cancels an incomplete sequence.
+An invalid continuation returns the key to normal input.
+Custom mappings and sequences run only while a file view has focus.
+Default global navigation and tab shortcuts retain their normal behavior.
+File actions never replace native editor shortcuts.
+
+Toolbar and sidebar command rows accept a position.
+Position `0` hides the command. Other positions select its place in the command order.
+Toolbar labels are optional.
+The sidebar section row accepts an ordered list of section names.
+An omitted section stays hidden.
+The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
+
+Import and export use a versioned JSON document.
+An absent field uses its default.
+Import rejects invalid values, duplicate identities, unsupported versions, unknown fields, and shortcut conflicts.
+A failed import leaves the current settings and other saved state unchanged.
+Settings use the optional `Customization` field in `state.json`.
+Older state files remain valid.
+
+Commands retain stable identities independently of their display names when they supply an explicit `Id`.
+The existing `ExplorerCommand(Name, Shortcut, Execute, CanExecute)` constructor remains valid.
+Extensions can supply the optional `Id` and `Aliases` arguments.
+Every command runs through an availability check immediately before execution.
 
 ### Breadcrumb address bar
 

@@ -19,3 +19,21 @@ It retains at most one active request and one pending request, then exits after 
 Closing the menu cancels its request without waiting for a Shell extension.
 A blocked extension can delay later Shell results, but application commands and cancellation remain available.
 The worker releases its handlers on their STA after the extension returns, and retains the module until that cleanup finishes.
+
+## Search snapshots
+
+`c_api_shell_actions.inc` adapts the same worker to a cancellable metadata snapshot.
+The adapter owns a hidden UI-thread validation window.
+Each action checks the managed selection callback through that window.
+The worker retains its original COM provider and command identities.
+The search path requests canonical verbs. The ordinary gallery path still omits that extra extension work.
+
+`ShellActions.cs` copies the metadata into managed records.
+`ContextActionsController.cs` owns the Explorer popup, search, favorites, hidden app actions, and completion polling.
+`ContextActionCatalog.cs` supplies explicit app identities, canonical-verb normalization, and pure search rules.
+Duplicate canonical verbs cannot identify favorites.
+The controller never saves `ItemKey` values.
+
+`ContextActionsSmoke.cs` covers the live popup and preference changes through `--context-actions-smoke`.
+`ContextActionTests.cs` covers search, favorite identities, disabled entries, and duplicate verbs.
+`shell_menu_tests.cpp` covers native metadata, original COM invocation, stale selection rejection, cancellation, and handle retirement.

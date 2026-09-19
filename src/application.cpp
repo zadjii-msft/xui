@@ -116,7 +116,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         bool dragging{};
         float drag_y{}, drag_offset{};
         int wheel_remainder{};
+        bool wheel_motion{};
+        double wheel_start{}, wheel_target{}, wheel_last{};
+        Animation::Clock::time_point wheel_started{};
+        std::weak_ptr<const CollectionIndex> wheel_source;
         int grid_drag{};
+        bool grid_single_click{};
+        std::weak_ptr<const GridSource> grid_press_source;
+        std::optional<RowKey> grid_press_key;
         Microsoft::WRL::ComPtr<IDropTarget> file_target;
         std::size_t grid_drop{};
         std::size_t grid_column{};
@@ -192,6 +199,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::chrono::steady_clock::time_point tooltip_due;
     bool tooltip_shown{};
     bool progress_animating{}, client_animation{true};
+    bool smooth_scrolling{}, presentation_animations{true};
+    std::shared_ptr<const StyleFontFamily> presentation_font;
+    float presentation_font_size{14};
     std::chrono::steady_clock::time_point progress_epoch;
     std::uint64_t progress_frames{};
     float progress_phase{};
@@ -456,6 +466,29 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::optional<bool> allowed;
         const auto now = Animation::Clock::now();
         for (const auto& peer : peers) {
+            if (peer->wheel_motion) {
+                auto* collection = dynamic_cast<VirtualCollection*>(peer->control.get());
+                auto* grid = dynamic_cast<DataGrid*>(peer->control.get());
+                const double current = collection ? collection->offset() : grid->offset();
+                const CollectionIndex* source = collection ? static_cast<const CollectionIndex*>(collection->source().get()) :
+                    static_cast<const CollectionIndex*>(grid->source().get());
+                if (current != peer->wheel_last || peer->wheel_source.lock().get() != source) peer->wheel_motion = false;
+                else {
+                    const bool stop = settle || !showing || !visible(*peer) || !enabled(*peer) ||
+                        !smooth_scrolling || !client_animation || palette.high_contrast;
+                    const double t = stop ? 1 : std::clamp(std::chrono::duration<double, std::milli>(
+                        now - peer->wheel_started).count() / 140.0, 0.0, 1.0);
+                    if (tick || stop) {
+                        const double value = peer->wheel_start + (peer->wheel_target - peer->wheel_start) *
+                            (1 - std::pow(1 - t, 3));
+                        if (collection) collection->set_offset(value);
+                        else grid->set_offset(value, grid->horizontal_offset());
+                        peer->wheel_last = collection ? collection->offset() : grid->offset();
+                        peer->wheel_motion = t < 1;
+                    }
+                    active = active || peer->wheel_motion;
+                }
+            }
             auto* animation = dynamic_cast<Animation*>(peer->control.get());
             if (!animation || !animation->animating()) continue;
             bool ancestors_visible = true;
@@ -476,7 +509,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 BOOL value{};
                 win32_require(SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &value, 0) != FALSE,
                     "Read system animation preference");
-                allowed = value != FALSE;
+                allowed = value != FALSE && presentation_animations && !palette.high_contrast;
             }
             if (!*allowed) animation->settle();
             else if (tick) animation->advance(now);
@@ -799,8 +832,25 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             "Enable popup rendering surface");
         peer.overlay_drawing = std::move(surface);
     }
+    void apply_typography(Element& element) {
+        if (!presentation_font) return;
+        const auto target = element.control_style_target();
+        if (!target) return;
+        const auto* control = dynamic_cast<Control*>(&element);
+        const float font_size = control && control->presentation_font_size() != 0 ?
+            control->presentation_font_size() : presentation_font_size;
+        for (const auto& part : control_style_schema(*target).parts) {
+            constexpr auto family = style_property(StyleProperty::font_family), size = style_property(StyleProperty::font_size);
+            if (!(part.allowed & family) && !(part.allowed & size)) continue;
+            auto values = element.control_style_values(part.part);
+            if (part.allowed & family) values.font_family = presentation_font;
+            if (part.allowed & size) values.font_size = std::min(font_size, part.limits.maximum_font_size);
+            element.set_control_style_values(part.part, std::move(values));
+        }
+    }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
         claim(element);
+        apply_typography(*element);
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
             stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
@@ -1558,7 +1608,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (options.visual_style != VisualStyle::winui) hover_edit(nullptr, nullptr);
         palette = Palette::system(options.theme, options.visual_style);
         drawing().set_visual_style(options.visual_style);
-        platform::appearance(window, options.theme, palette);
+        platform::appearance(window, palette.mode, palette);
         HBRUSH next_background = CreateSolidBrush(platform::native_color(palette.background));
         HBRUSH next_field = CreateSolidBrush(platform::native_color(palette.field));
         if (!next_background || !next_field) {
@@ -2210,7 +2260,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             enabled(peer) && onscreen(peer) && retains(*progress);
     }
     void sync_progress_animation() {
-        const bool active = window && ready && !closing && client_animation &&
+        const bool active = window && ready && !closing && client_animation && presentation_animations && !palette.high_contrast &&
             IsWindowVisible(window) && IsWindowEnabled(window) && !IsIconic(window) &&
             std::any_of(peers.begin(), peers.end(), [&](const auto& peer) { return animated_progress(*peer); });
         if (!active) { stop_progress_animation(); return; }
@@ -2250,6 +2300,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         update();
         return true;
+    }
+    void wheel_scroll(Peer& peer, double delta) {
+        auto* collection = dynamic_cast<VirtualCollection*>(peer.control.get());
+        auto* grid = dynamic_cast<DataGrid*>(peer.control.get());
+        const double current = collection ? collection->offset() : grid->offset();
+        const double maximum = collection ? collection->maximum_offset() : grid->maximum_offset();
+        const double target = std::clamp((peer.wheel_motion && current == peer.wheel_last ?
+            peer.wheel_target : current) + delta, 0.0, maximum);
+        if (!smooth_scrolling || !client_animation || palette.high_contrast) {
+            peer.wheel_motion = false;
+            if (collection) collection->set_offset(target);
+            else grid->set_offset(target, grid->horizontal_offset());
+            return;
+        }
+        peer.wheel_start = peer.wheel_last = current;
+        peer.wheel_target = target;
+        peer.wheel_started = Animation::Clock::now();
+        peer.wheel_source = collection ? std::static_pointer_cast<const CollectionIndex>(collection->source()) :
+            std::static_pointer_cast<const CollectionIndex>(grid->source());
+        peer.wheel_motion = current != target;
+        invalidate(Invalidation::paint);
     }
     bool scroll_wheel(Peer& peer, WPARAM wparam) {
         auto* owner = peer.control->role() == ControlRole::scroll_view ? &peer : peer.parent;
@@ -4446,15 +4517,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (!enabled(peer)) return 0;
                 peer.wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
                 const int ticks = peer.wheel_remainder / WHEEL_DELTA; peer.wheel_remainder %= WHEEL_DELTA;
-                collection->set_offset(collection->offset() - ticks * collection->item_size().height * 3); return 0;
+                wheel_scroll(peer, -ticks * collection->item_size().height * 3); return 0;
             }
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 if (!enabled(peer)) return 0;
                 peer.wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
                 const int ticks = peer.wheel_remainder / WHEEL_DELTA;
                 peer.wheel_remainder %= WHEEL_DELTA;
-                grid->set_offset(grid->offset() - ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) ? 0 : ticks * 3.0 * grid->effective_row_height()),
-                    grid->horizontal_offset() - ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) ? ticks * 96 : 0));
+                if (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT)
+                    grid->set_offset(grid->offset(), grid->horizontal_offset() - ticks * 96);
+                else wheel_scroll(peer, -ticks * 3.0 * grid->effective_row_height());
                 return 0;
             }
             if (scroll_wheel(peer, wparam)) return 0;
@@ -4709,6 +4781,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
             peer.tracking = false; peer.command_pointer.reset(); peer.tab_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
+            peer.wheel_motion = false;
             if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
@@ -4765,15 +4838,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (auto* menu = dynamic_cast<CommandMenu*>(collection)) { menu->execute(item_key.id); return 0; }
                     peer.collection_before = collection->selection();
                     const bool ctrl = (wparam & MK_CONTROL) != 0, shift = (wparam & MK_SHIFT) != 0;
-                    const auto* items = dynamic_cast<ItemsView*>(collection);
-                    const bool single_click = items && items->single_click_activation() && !ctrl && !shift && !info.group;
+                    const bool single_click = collection->single_click_activation() && !ctrl && !shift && !info.group;
                     if (collection->wraps_items() && !shift && !single_click) {
                         peer.collection_drag = true; peer.collection_anchor = item_key; peer.collection_additive = ctrl; SetCapture(hwnd);
                     }
                     const bool selected = collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
                         ctrl ? SelectionGesture::toggle : SelectionGesture::replace);
                     if (single_click && selected && !closing && visible(peer) && enabled(peer) &&
-                        items->single_click_activation() && collection->source() == source)
+                        collection->single_click_activation() && collection->source() == source)
                         collection->activate_item(item_key);
                 }
                 return 0;
@@ -4839,10 +4911,23 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
                             (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace;
                         if (grid->file_drag_enabled()) {
+                            const auto source = grid->source();
+                            const auto pressed = source->key(*row);
                             if (grid->begin_file_press({x, y}, selection_gesture)) {
+                                peer.grid_single_click = selection_gesture == SelectionGesture::replace;
+                                peer.grid_press_source = source;
+                                peer.grid_press_key = pressed;
                                 peer.grid_drag = 6; SetCapture(hwnd);
                             }
-                        } else grid->select(grid->source()->key(*row), selection_gesture, false);
+                        } else {
+                            const auto source = grid->source();
+                            const auto pressed = source->key(*row);
+                            grid->select(pressed, selection_gesture, false);
+                            if (grid->single_click_activation() && !(wparam & (MK_CONTROL | MK_SHIFT)) &&
+                                !closing && visible(peer) && enabled(peer) && grid->source() == source &&
+                                grid->selected() == pressed)
+                                grid->activate_selected();
+                        }
                     }
                 }
                 else grid->clear_selection();
@@ -4921,8 +5006,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (peer.grid_drag == 6) {
                 peer.grid_drag = 0;
-                static_cast<DataGrid&>(control).end_file_press(enabled(peer) && inside());
+                auto& grid = static_cast<DataGrid&>(control);
+                const auto source = peer.grid_press_source.lock();
+                const auto pressed = std::exchange(peer.grid_press_key, {});
+                peer.grid_press_source.reset();
+                const bool current = source && source == grid.source() && pressed &&
+                    grid.pending_file_press() == pressed && grid.selected() == pressed;
+                grid.end_file_press(current && enabled(peer) && inside());
                 if (GetCapture() == hwnd) ReleaseCapture();
+                if (current && control.single_click_activation() && peer.grid_single_click &&
+                    !(wparam & (MK_CONTROL | MK_SHIFT)) && !closing && visible(peer) && enabled(peer) && inside() &&
+                    grid.source() == source && grid.selected() == pressed)
+                    grid.activate_selected();
                 return 0;
             }
             if (std::exchange(peer.suppress_popup_click, false)) return 0;
@@ -4974,7 +5069,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_LBUTTONDBLCLK:
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (auto* items = dynamic_cast<ItemsView*>(collection); items && items->single_click_activation()) return 0;
+                if (collection->single_click_activation()) return 0;
                 if (const auto row = collection->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
                     const auto item_key = collection->source()->key(*row); const auto info = collection->source()->hierarchy(*row);
                     if (info.expandable) collection->disclose(item_key, !info.expanded);
@@ -4983,6 +5078,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return 0;
             }
             if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer)) {
+                if (grid->single_click_activation()) return 0;
                 if (auto row = grid->row_at(GET_Y_LPARAM(lparam) * 96.0f / dpi)) {
                     grid->select(grid->source()->key(*row), false); grid->activate_selected();
                 }
@@ -6033,6 +6129,20 @@ void Window::set_theme(ThemeMode theme) {
     if (impl_->options.theme == theme) return;
     impl_->options.theme = theme;
     impl_->apply_theme();
+}
+void Window::set_presentation(std::string_view font_family, float font_size, bool smooth_scrolling, bool animations) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set presentation on its UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (!std::isfinite(font_size) || font_size < 8 || font_size > 32)
+        throw std::invalid_argument("Font size must be between 8 and 32 DIPs");
+    auto family = make_style_font_family(font_family);
+    if (family->name.size() > 128) throw std::invalid_argument("Font family exceeds 128 UTF-16 units");
+    impl_->presentation_font = std::move(family);
+    impl_->presentation_font_size = font_size;
+    impl_->smooth_scrolling = smooth_scrolling;
+    impl_->presentation_animations = animations;
+    for (const auto& peer : impl_->peers) impl_->apply_typography(*peer->control);
+    impl_->invalidate(Invalidation::layout);
 }
 ThemeMode Window::theme() const { return impl_->options.theme; }
 void Window::set_visual_style(VisualStyle style) {

@@ -8,6 +8,7 @@ public sealed class ExplorerState
     public const int RecentLimit = 10;
     public List<string> Bookmarks { get; set; } = [];
     public List<string> Recents { get; set; } = [];
+    public ExplorerCustomization Customization { get; set; } = new();
 
     public void AddRecent(string path)
     {
@@ -121,5 +122,7 @@ public sealed class AppStateStore
             throw new InvalidDataException("The explorer state contains too many saved paths.");
         foreach (var path in state.Bookmarks.Concat(state.Recents))
             ExplorerState.ValidatePath(path);
+        if (state.Customization is null) throw new InvalidDataException("Customization cannot be null.");
+        state.Customization.Validate();
     }
 }

@@ -53,6 +53,7 @@ Existing checks still cover page selection, navigation, local links, code exampl
 ## Historical evidence
 
 - [Explorer history](explorer-history.md): File views, lazy Tree requests, breadcrumb address composition, folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
+- Explorer customization: `ExplorerCustomizationController.cs` owns command dispatch and transactional settings updates. `CustomizationController.cs` owns the searchable editor. `Models\KeySequenceTracker.cs` owns sequence state. The [public contract](../specs/file-explorers.md#customization) describes the application behavior.
 - [Rendering history](rendering-history.md): Complete text frames, native context menus, and shared rounded menu frames.
 - [Task Manager history](task-manager-history.md): Grid delivery, retained resources, and graphics-memory investigations.
 - [Earlier milestones](milestone-history.md): Suggestions, navigation, images, Windows integration, layout, and performance baselines.

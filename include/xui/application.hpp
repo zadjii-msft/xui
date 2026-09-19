@@ -148,6 +148,7 @@ public:
     void on_icon_error(std::function<void(const std::wstring&)> callback);
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
+    void set_presentation(std::string_view font_family, float font_size, bool smooth_scrolling, bool animations);
     ThemeMode theme() const;
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;

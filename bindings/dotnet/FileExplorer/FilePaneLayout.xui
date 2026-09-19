@@ -4,18 +4,21 @@ component FilePaneLayout {
     param int Number;
     param global::Xui.Element AddressBar;
     state bool FindOpen = false;
+    state bool ToolbarOpen = true;
 
     view {
         Grid($"Pane {Number} layout",
             rows: [new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Star),
                 new(global::Xui.TrackSizing.Automatic), new(global::Xui.TrackSizing.Automatic)]) {
-            HStack(spacing: 4, padding: 8) {
-                Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
-                Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
-                Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
-                Content(AddressBar, flex: 1);
-                Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
-                Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
+            Reveal("Toolbar", open: ToolbarOpen, duration: 0, layout: global::Xui.RevealLayout.Expand) {
+                HStack(spacing: 4, padding: 8, ref: Toolbar) {
+                    Button("Back", ref: Back, id: $"pane-{Number}-back", icon: global::Xui.ButtonIcon.Back, size: (36, 36));
+                    Button("Forward", ref: Forward, id: $"pane-{Number}-forward", icon: global::Xui.ButtonIcon.Forward, size: (36, 36));
+                    Button("Up", ref: Up, id: $"pane-{Number}-up", icon: global::Xui.ButtonIcon.Up, size: (36, 36));
+                    Content(AddressBar, flex: 1);
+                    Button("Refresh", ref: Refresh, id: $"pane-{Number}-refresh", icon: global::Xui.ButtonIcon.Refresh, size: (36, 36));
+                    Button("Commands", ref: Commands, id: $"pane-{Number}-commands", icon: global::Xui.ButtonIcon.More, size: (36, 36), help: "Commands (Ctrl+Shift+P)");
+                }
             }
             Grid($"File views in pane {Number}", ref: ContentHost, row: 1) {
                 DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files",

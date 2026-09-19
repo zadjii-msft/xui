@@ -2,7 +2,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal sealed class FilePaneView
+internal sealed partial class FilePaneView
 {
     private readonly ExplorerApplication app;
     private readonly Window window;
@@ -175,7 +175,10 @@ internal sealed class FilePaneView
             if (e.Kind == EventKind.Click && rows.Entry(e.Value) is { } item)
                 app.Open(item, this);
             else if (e.Kind == EventKind.Selection)
+            {
                 Model.Active.SelectedPath = Grid.Selection.Focused is { } key ? rows.Entry(key.Id)?.FullPath : null;
+                RefreshCommandAvailability();
+            }
             else if (e.Kind == EventKind.View)
             {
                 SaveViewport();
@@ -185,6 +188,8 @@ internal sealed class FilePaneView
             }
         };
         UpdateTabs();
+        ApplyCustomization();
+        app.RegisterCustomizablePane(this);
     }
 
     public ExplorerPane Model { get; private set; }
@@ -278,7 +283,10 @@ internal sealed class FilePaneView
         if (kind == EventKind.Click && HasCurrentRows && Entry(new(id)) is { } entry)
             app.Open(entry, this);
         else if (kind == EventKind.Selection)
+        {
             Model.Active.SelectedPath = SelectedEntry?.FullPath;
+            RefreshCommandAvailability();
+        }
     }
 
     private void WireButton(Button button, Action action)
@@ -436,6 +444,7 @@ internal sealed class FilePaneView
                 Cancel();
                 error = $"A path can contain at most {ExplorerTab.ColumnLimit} columns. Open the folder directly to start a new path.";
                 status.Text = error;
+                RefreshCommandAvailability();
                 return;
             }
             Navigate(entry.FullPath, parentColumn: (int)column);
@@ -476,6 +485,7 @@ internal sealed class FilePaneView
         IsLoading = true;
         error = null;
         status.Text = $"Opening {path}...";
+        RefreshCommandAvailability();
         app.Work.Start(token => app.Files.ReadDirectoryAsync(path, tab.Path, token), navigation.Token, snapshot =>
         {
             if (!ReferenceEquals(tab, Model.Active)) return;
@@ -802,14 +812,7 @@ internal sealed class FilePaneView
             if (IsItems)
             {
                 Items.Presentation = Model.Active.ViewMode == ExplorerViewMode.List ? ItemsPresentation.List : ItemsPresentation.Gallery;
-                var (width, height) = Model.Active.ViewMode switch
-                {
-                    ExplorerViewMode.ExtraLargeIcons => (256, 288),
-                    ExplorerViewMode.LargeIcons => (160, 192),
-                    ExplorerViewMode.MediumIcons => (96, 128),
-                    _ => (180, 32)
-                };
-                Items.ItemSize(width, height);
+                ApplyItemSize();
             }
             if (!IsTree) tree.Clear();
             layout.ViewMode.Help($"Current view: {viewOptions.Single(option => option.Mode == Model.Active.ViewMode).Name}. Choose a view.");
@@ -847,6 +850,7 @@ internal sealed class FilePaneView
         filtering.Dispose();
         filtering = new();
         IsFiltering = true;
+        RefreshCommandAvailability();
         var tab = Model.Active;
         var entries = tab.Entries;
         string query = tab.Filter;
@@ -863,7 +867,7 @@ internal sealed class FilePaneView
         {
             if (!ReferenceEquals(tab, Model.Active)) return;
             IsFiltering = false;
-            rows = new(result, Identify);
+            rows = new(result, Identify, dateFormat: PresentationSettings.DateFormat);
             rendering = true;
             try
             {
@@ -884,12 +888,16 @@ internal sealed class FilePaneView
         {
             IsFiltering = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
+            RefreshCommandAvailability();
         });
     }
 
     private void UpdateStatus(int count, int total, string query)
-        => status.Text = error ?? (IsLoading ? "Opening folder..." : query.Length == 0
+    {
+        status.Text = error ?? (IsLoading ? "Opening folder..." : query.Length == 0
             ? $"{count:N0} items" : $"{count:N0} of {total:N0} items match \"{query}\"");
+        RefreshCommandAvailability();
+    }
 
     private void ApplyColumnFilter()
     {
@@ -897,6 +905,7 @@ internal sealed class FilePaneView
         filtering.Dispose();
         filtering = new();
         IsFiltering = true;
+        RefreshCommandAvailability();
         var tab = Model.Active;
         var chain = tab.Columns.ToArray();
         var queries = chain.Select(column => column.Filter).ToArray();
@@ -905,7 +914,8 @@ internal sealed class FilePaneView
         var partition = tab.Partition;
         var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
             ReferenceEquals(view.Model, column) && view.Query == queries[i]
-            && view.Sort == sort && view.Descending == descending && view.Partition == partition)).ToArray();
+            && view.Sort == sort && view.Descending == descending && view.Partition == partition
+            && view.Rows.DateFormat == PresentationSettings.DateFormat)).ToArray();
         app.Work.Start(token => Task.Run(() =>
         {
             var results = new IReadOnlyList<FileEntry>?[chain.Length];
@@ -930,7 +940,7 @@ internal sealed class FilePaneView
                     if (reusable[i] is { } existing) next.Add(existing);
                     else
                     {
-                        var sourceRows = new FileRows(results[i]!, Identify);
+                        var sourceRows = new FileRows(results[i]!, Identify, dateFormat: PresentationSettings.DateFormat);
                         next.Add(new(chain[i], queries[i], sort, descending, partition,
                             sourceRows, window.ImmutableSource(sourceRows)));
                     }
@@ -972,6 +982,7 @@ internal sealed class FilePaneView
             IsFiltering = false;
             error = $"Cannot filter this folder: {failure.Message}";
             status.Text = error;
+            RefreshCommandAvailability();
         });
     }
 
@@ -985,6 +996,7 @@ internal sealed class FilePaneView
 
     public void DisposeSources()
     {
+        app.UnregisterCustomizablePane(this);
         AddressBar.Dispose();
         feedback.Cancel();
         feedback.Dispose();
@@ -1017,6 +1029,7 @@ internal sealed class FilePaneView
         back.Enabled = Model.Active.CanBack;
         forward.Enabled = Model.Active.CanForward;
         up.Enabled = Directory.GetParent(Model.Active.Path) is not null;
+        RefreshCommandAvailability();
     }
 
     internal void Report(string message) => app.Report(message);

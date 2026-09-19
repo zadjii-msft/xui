@@ -13,6 +13,8 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
     private Command[] commands = [];
     private ulong tab;
     private ExplorerViewMode mode;
+    private readonly ContextActionsController customization = new(app, pane);
+    internal ContextActionsController Customization => customization;
 
     public Command[] GetCommands()
         => GetCommands(pane.SelectedEntries);
@@ -48,13 +50,24 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         result.Add(new(Paste, target is { IsDirectory: true } ? "Paste into this folder" : "Paste",
             Enabled: ready, ShortcutHint: "Ctrl+V"));
         result.Add(new(Refresh, "Refresh", ShortcutHint: "F5"));
-        return commands = result.ToArray();
+        commands = result.ToArray();
+        var selectedPaths = (string[])paths.Clone();
+        var selectedTab = tab;
+        var selectedMode = mode;
+        var selectedDirectory = pane.Model.Active.Path;
+        bool selectionBound = pane.SelectedEntries.Select(entry => entry.FullPath).SequenceEqual(selectedPaths, StringComparer.OrdinalIgnoreCase);
+        return customization.Capture(commands, selectedPaths,
+            () => pane.HasCurrentRows && selectedTab == pane.Model.Active.Id && selectedMode == pane.Model.Active.ViewMode &&
+                selectedDirectory == pane.Model.Active.Path &&
+                (!selectionBound || pane.SelectedEntries.Select(entry => entry.FullPath).SequenceEqual(selectedPaths, StringComparer.OrdinalIgnoreCase)),
+            Invoke);
     }
 
-    public string[] GetShellPaths() => paths.Length <= 256 ? paths : [];
+    public string[] GetShellPaths() => paths.Length <= 256 ? (string[])paths.Clone() : [];
 
     public void Invoke(ulong id)
     {
+        if (customization.Invoke(id)) return;
         if (tab != pane.Model.Active.Id || mode != pane.Model.Active.ViewMode)
         {
             app.Report("The menu is no longer available in this tab or view.");
@@ -63,6 +76,27 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
         if (!commands.Any(command => command.Id == id && command.Enabled))
         {
             app.Report("That command is not available for this item.");
+            return;
+        }
+        if (id is Copy or Cut or CopyPaths or Paste && !app.Transfers.CanTransfer(pane))
+        {
+            app.Report("File transfer actions are not available while this pane is busy.");
+            return;
+        }
+        if (id == Paste && !Directory.Exists(destination))
+        {
+            app.Report("The paste destination is no longer available.");
+            return;
+        }
+        if (id is not (Refresh or Paste) && paths.Any(path => !File.Exists(path) && !Directory.Exists(path)))
+        {
+            app.Report("A selected path is no longer available.");
+            return;
+        }
+        if (id is Open or NewTab or OtherPane or Bookmark && target is { IsDirectory: true } folder &&
+            !Directory.Exists(folder.FullPath))
+        {
+            app.Report("The selected folder is no longer available.");
             return;
         }
         pane.Activate();

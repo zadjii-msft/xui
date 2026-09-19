@@ -1,4 +1,7 @@
 #include "xui/xui.h"
+#include "xui/xui_shell_actions.h"
+#include "shell_commands_internal.hpp"
+#include <commctrl.h>
 #include "xui/xui_content.h"
 #include "xui/application.hpp"
 #include "xui/image.hpp"
@@ -205,7 +208,7 @@ void lifecycle(const std::shared_ptr<State>& state, xui_handle handle) {
 xui::WindowOptions window_options(const xui_window_options* options) {
     require(options && options->size == sizeof(*options), XUI_VERSION_MISMATCH, "Window options size mismatch.");
     require(options->version == XUI_ABI_VERSION, XUI_VERSION_MISMATCH, "XUI ABI version mismatch.");
-    require(!options->reserved && options->theme <= 2 && std::isfinite(options->width) &&
+    require(!options->reserved && options->theme <= 3 && std::isfinite(options->width) &&
         std::isfinite(options->height) && options->width > 0 && options->height > 0 &&
         options->width <= 32768 && options->height <= 32768, XUI_INVALID_ARGUMENT, "Invalid window options.");
     return {decode(options->title), {options->width, options->height}, static_cast<xui::ThemeMode>(options->theme)};
@@ -383,7 +386,7 @@ xui_status XUI_CALL xui_window_create(const xui_window_options* options, xui_han
         *result = 0;
         require(options && options->size == sizeof(*options), XUI_VERSION_MISMATCH, "Window options size mismatch.");
         require(options->version == XUI_ABI_VERSION, XUI_VERSION_MISMATCH, "XUI ABI version mismatch.");
-        require(!options->reserved && options->theme <= 2 && std::isfinite(options->width) &&
+        require(!options->reserved && options->theme <= 3 && std::isfinite(options->width) &&
             std::isfinite(options->height) && options->width > 0 && options->height > 0 &&
             options->width <= 32768 && options->height <= 32768, XUI_INVALID_ARGUMENT, "Invalid window options.");
         auto state = std::make_shared<State>();
@@ -426,6 +429,36 @@ xui_status XUI_CALL xui_window_run(xui_handle window) noexcept {
 }
 xui_status XUI_CALL xui_window_close(xui_handle window) noexcept {
     return boundary([&] { auto n = get(window, XUI_WINDOW); n->owner->window->close(); });
+}
+xui_status XUI_CALL xui_window_set_presentation(xui_handle window, xui_string font_family,
+    float font_size, uint32_t smooth_scrolling, uint32_t animations) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        require(smooth_scrolling <= 1 && animations <= 1 && std::isfinite(font_size) &&
+            font_size >= 8 && font_size <= 32, XUI_INVALID_ARGUMENT, "Invalid presentation options.");
+        const auto text = decode(font_family);
+        require(!text.empty() && text.size() <= 128, XUI_INVALID_ARGUMENT, "Invalid font family.");
+        n->owner->window->set_presentation(encode(text), font_size, smooth_scrolling != 0, animations != 0);
+    }, true);
+}
+xui_status XUI_CALL xui_control_set_presentation(xui_handle target, uint32_t single_click, uint32_t thumbnail_fill) noexcept {
+    return boundary([&] {
+        auto n = get(target); editable(n->owner);
+        require(single_click <= 1 && thumbnail_fill <= 1, XUI_INVALID_ARGUMENT, "Invalid presentation flags.");
+        auto& value = control(n);
+        require(dynamic_cast<xui::VirtualCollection*>(&value) || dynamic_cast<xui::DataGrid*>(&value) ||
+            dynamic_cast<xui::Image*>(&value), XUI_WRONG_KIND, "Expected a collection, data grid, or image.");
+        value.set_single_click_activation(single_click != 0);
+        value.set_thumbnail_fill(thumbnail_fill != 0);
+    });
+}
+xui_status XUI_CALL xui_control_presentation_font_size(xui_handle target, float font_size) noexcept {
+    return boundary([&] {
+        auto n = get(target); editable(n->owner);
+        require(std::isfinite(font_size) && (font_size == 0 || (font_size >= 8 && font_size <= 32)),
+            XUI_INVALID_ARGUMENT, "Invalid presentation font size.");
+        control(n).set_presentation_font_size(font_size);
+    });
 }
 xui_status XUI_CALL xui_window_file_type_icon(xui_handle window, xui_string extension, uint32_t directory) noexcept {
     return boundary([&] {
@@ -798,7 +831,7 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
                 require(std::isfinite(p.a) && p.a >= 0, XUI_INVALID_ARGUMENT, "Invalid offset."); break;
             case XUI_THEME:
                 require(n->kind == XUI_WINDOW, XUI_WRONG_KIND, "Theme requires Window.");
-                require(p.integer <= 2, XUI_INVALID_ARGUMENT, "Invalid theme."); break;
+                require(p.integer <= 3, XUI_INVALID_ARGUMENT, "Invalid theme."); break;
             default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown property."};
             }
             prepared.push_back(std::move(next));
@@ -1471,3 +1504,4 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 #include "c_api_file_dialog.inc"
 #include "c_api_swap_chain.inc"
 #include "c_api_window_drag.inc"
+#include "c_api_shell_actions.inc"

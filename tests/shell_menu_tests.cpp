@@ -1,6 +1,7 @@
 #include "../src/shell_commands_internal.hpp"
 #include "../src/context_menu.hpp"
 #include "xui/xui.h"
+#include "xui/xui_shell_actions.h"
 #include <commctrl.h>
 #include <algorithm>
 #include <filesystem>
@@ -20,7 +21,7 @@ template<class F> void rejects(F&& action) {
 }
 struct Context final : IContextMenu3 {
     std::atomic<ULONG> refs{1};
-    HMENU child{};
+    HMENU child{}, parent{};
     UINT first{}, invoked_offset{};
     std::atomic<unsigned> queries{}, invokes{}, verb_queries{};
     unsigned initialized{}, measured{}, drawn{}, chars{};
@@ -28,6 +29,7 @@ struct Context final : IContextMenu3 {
     bool fail{}, fail_invoke{};
     HBITMAP leaf_bitmap{};
     bool owner_drawn_leaf{}, blank_leaf{}, disabled_leaf{};
+    std::wstring canonical_verb;
     std::wstring leaf_label{L"Inspect fixture"};
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** output) override {
         if (!output) return E_POINTER;
@@ -38,6 +40,7 @@ struct Context final : IContextMenu3 {
     ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
     ULONG STDMETHODCALLTYPE Release() override { return --refs; }
     HRESULT STDMETHODCALLTYPE QueryContextMenu(HMENU menu, UINT, UINT first_id, UINT last, UINT flags) override {
+        parent = menu;
         ++queries; first = first_id;
         if (query_delay) Sleep(query_delay);
         if (fail) return E_FAIL;
@@ -60,8 +63,12 @@ struct Context final : IContextMenu3 {
         if (!IS_INTRESOURCE(info->lpVerb)) return E_INVALIDARG;
         ++invokes; invoked_offset = LOWORD(info->lpVerb); return fail_invoke ? E_FAIL : S_OK;
     }
-    HRESULT STDMETHODCALLTYPE GetCommandString(UINT_PTR, UINT, UINT*, LPSTR, UINT) override {
-        ++verb_queries; if (verb_delay) Sleep(verb_delay); return E_NOTIMPL;
+    HRESULT STDMETHODCALLTYPE GetCommandString(UINT_PTR id, UINT flags, UINT*, LPSTR text, UINT capacity) override {
+        ++verb_queries; if (verb_delay) Sleep(verb_delay);
+        if (id == 0 && flags == GCS_VERBW && !canonical_verb.empty() && capacity > canonical_verb.size()) {
+            wcscpy_s(reinterpret_cast<wchar_t*>(text), capacity, canonical_verb.c_str()); return S_OK;
+        }
+        return E_NOTIMPL;
     }
     HRESULT STDMETHODCALLTYPE HandleMenuMsg(UINT message, WPARAM w, LPARAM l) override {
         LRESULT result{}; return HandleMenuMsg2(message, w, l, &result);
@@ -106,6 +113,14 @@ struct Provider final : ShellCommandProvider {
     void invoke(ItemKey key) override { invoked->push_back(key); }
 };
 void bitmap_leaf_tests(HWND owner) {
+    {
+        Context context;
+        auto provider = ShellMenuTestAccess::provider(owner, &context);
+        const auto discovered = provider->discover({});
+        EnableMenuItem(context.parent, context.first, MF_BYCOMMAND | MF_GRAYED);
+        rejects([&] { provider->invoke(discovered.front().key); });
+        check(context.invokes == 0, "Availability is checked again on the original native menu before invocation");
+    }
     struct Bitmap {
         HBITMAP value{CreateBitmap(1, 1, 1, 32, nullptr)};
         ~Bitmap() { if (value) DeleteObject(value); }
@@ -719,6 +734,79 @@ void latency_tests(HWND owner) {
     ShellMenuTestAccess::create = nullptr;
     inspect = {}; inspect_styled = {}; slow_context.reset();
 }
+void snapshot_tests() {
+    require_first_frame = false;
+    ShellMenuTestAccess::create = slow_provider;
+    slow_context = std::make_unique<Context>();
+    slow_context->canonical_verb = L"fixture.inspect";
+    struct Results {
+        bool valid{true};
+        std::vector<ItemKey> keys;
+        std::vector<std::string> verbs;
+    } results;
+    const auto current = +[](void* data) -> uint32_t { return static_cast<Results*>(data)->valid ? 1u : 0u; };
+    const auto receive = +[](void* data, uint64_t id, uint64_t version, xui_string, xui_string verb, uint32_t) -> xui_status {
+        auto& result = *static_cast<Results*>(data);
+        result.keys.push_back({id, version}); result.verbs.emplace_back(verb.data, verb.length); return XUI_OK;
+    };
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, {"Snapshot fixture", 16, 0}, 300, 200};
+    xui_handle window{}, session{};
+    check(xui_window_create(&options, &window) == XUI_OK, "Create snapshot binding owner");
+    const xui_string path{"fake-selection", 14, 0};
+    check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Create asynchronous Shell snapshot");
+    uint32_t ready{};
+    pump_until([&] {
+        results.keys.clear(); results.verbs.clear();
+        check(xui_shell_actions_read(session, receive, &results, &ready) == XUI_OK, "Read copied Shell metadata");
+        return ready == 1;
+    });
+    check(results.keys.size() == 2 && results.verbs.front() == "fixture.inspect",
+        "Snapshot exposes actual canonical verbs and leaves, never a dynamic submenu");
+    check(xui_shell_actions_read(session, nullptr, nullptr, &ready) == XUI_OK && ready == 1,
+        "Status polling does not require repeated metadata delivery");
+    const auto key = results.keys.front();
+    results.valid = false;
+    check(xui_shell_actions_invoke(session, key.id, key.version) == XUI_INVALID_ARGUMENT && slow_context->invokes == 0,
+        "Stale selections cannot invoke a searched command");
+    results.valid = true;
+    check(xui_shell_actions_invoke(session, key.id, key.version) == XUI_OK, "Invoke original snapshot identity");
+    pump_until([&] {
+        check(xui_shell_actions_read(session, receive, &results, &ready) == XUI_OK, "Read Shell invocation completion");
+        return ready == 2;
+    });
+    check(slow_context->invokes == 1 && slow_context->invoked_offset == 0, "Snapshot invokes actual original COM command");
+    check(xui_shell_actions_destroy(session) == XUI_OK, "Destroy snapshot without joining");
+    pump_until([&] { return slow_context->refs == 1; });
+    slow_context->query_delay = 200;
+    check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Start cancellable snapshot");
+    pump_until([&] { return slow_context->queries > 1; });
+    const auto start = GetTickCount64();
+    check(xui_shell_actions_destroy(session) == XUI_OK && GetTickCount64() - start < 100,
+        "Snapshot cancellation does not wait for Shell discovery");
+    check(xui_shell_actions_read(session, receive, &results, &ready) == XUI_INVALID_HANDLE, "Destroyed snapshot handles are invalid");
+    pump_until([&] { return slow_context->refs == 1; });
+    slow_context->query_delay = 0;
+    std::atomic<unsigned> fallback_tracks{};
+    inspect = [&](HMENU, HWND owner) {
+        ++fallback_tracks;
+        SendMessageW(owner, WM_INITMENUPOPUP, reinterpret_cast<WPARAM>(slow_context->child), 0);
+        return 2u;
+    };
+    check(xui_shell_actions_create(window, &path, 1, current, &results, &session) == XUI_OK, "Create full Windows fallback snapshot");
+    check(xui_shell_actions_windows(session) == XUI_OK, "Request Windows fallback before discovery finishes");
+    pump_until([&] {
+        check(xui_shell_actions_read(session, nullptr, nullptr, &ready) == XUI_OK, "Read native fallback completion");
+        return ready == 2;
+    });
+    check(fallback_tracks == 1 && slow_context->initialized == 1 && slow_context->invokes == 2 &&
+        slow_context->invoked_offset == 1, "Fallback preserves native dynamic submenu messages and original COM invocation");
+    check(xui_shell_actions_destroy(session) == XUI_OK, "Destroy completed native fallback");
+    check(xui_window_destroy(window) == XUI_OK, "Retire snapshot owner");
+    pump_until([&] { return slow_context->refs == 1; });
+    inspect = {};
+    ShellMenuTestAccess::create = nullptr;
+    slow_context.reset();
+}
 }
 int wmain(int argc, wchar_t** argv) {
     HWND owner{};
@@ -740,6 +828,8 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::cout << "Latency menus\n";
         latency_tests(owner);
+        std::cout << "Searchable snapshot bindings\n";
+        snapshot_tests();
         Context context;
         inspect = [](HMENU, HWND hwnd) { DestroyWindow(hwnd); return 1u; };
         check(!ShellMenuTestAccess::run(owner, &context, {}), "Closing the owner cancels pending Shell invocation");

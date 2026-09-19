@@ -573,6 +573,30 @@ dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
 The complete `--smoke` run includes these address-bar checks.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
+The customization checks cover key sequences, shortcut conflicts, import errors, legacy state, and native editor shortcut ownership:
+
+```powershell
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--customization-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
+```
+
+The desktop check applies settings to both panes and opens the searchable settings editor.
+The smoke uses isolated state and does not change the normal saved settings.
+
+The context-action check opens the search popup against real Shell metadata.
+It covers the native editor, captured paths, canonical favorites, hidden app actions, and stale selection cancellation.
+It does not run real Shell commands.
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--context-actions-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer context actions smoke failed." }
+```
+
+`xui_shell_menu_tests` separately checks command invocation with a fixture COM provider.
+Its snapshot checks cover canonical verbs, original command IDs, cancellation, and stale handle rejection.
+
 ### NativeAOT and deployment
 
 ```powershell

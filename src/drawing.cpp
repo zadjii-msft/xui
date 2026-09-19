@@ -65,9 +65,9 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink) {
+void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink, bool fill) {
     if (pixels) {
-        if (image(pixels, bounds)) return;
+        if (image(pixels, bounds, fill)) return;
         OutputDebugStringW(L"XUI thumbnail: Bitmap upload failed. Drawing the fallback icon.\n");
     }
     if (visual.icon != ButtonIcon::none) button_icon(bounds, ink, visual.icon);
@@ -355,7 +355,7 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
     if (owner.presentation() == ItemsPresentation::gallery && !row.group) {
         const auto geometry = owner.gallery_layout(row, state);
         if (visual && geometry.image.width > 0)
-            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.image, icon_ink);
+            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.image, icon_ink, owner.thumbnail_fill());
         const auto label = [&](std::wstring_view value, Rect box, StylePart part, D2D1_COLOR_F fallback, TextStyle style) {
             auto values = resolve(part);
             if (!values.horizontal_alignment) values.horizontal_alignment = StyleAlignment::center;
@@ -661,6 +661,12 @@ D2D1_COLOR_F argb_color(uint32_t value) {
 }
 
 Palette Palette::system(ThemeMode mode, VisualStyle style) {
+    if (mode == ThemeMode::system) {
+        DWORD light = 1, bytes = sizeof(light);
+        RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes);
+        mode = light ? ThemeMode::light : ThemeMode::dark;
+    }
     HIGHCONTRASTW contrast{sizeof(contrast)};
     win32_require(SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) != 0,
                   "Read high contrast settings");
@@ -987,7 +993,7 @@ void Drawing::keep_images(std::span<const std::uint64_t> ids) {
     for (std::size_t i = bitmaps_.size(); i; --i)
         if (std::find(ids.begin(), ids.end(), bitmaps_[i - 1].id) == ids.end()) erase_bitmap(i - 1);
 }
-bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bounds) {
+bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, bool fill) {
     if (!target_ || bounds.width <= 0 || bounds.height <= 0) return false;
     auto it = std::find_if(bitmaps_.begin(), bitmaps_.end(), [&](const auto& entry) { return entry.id == pixels->id; });
     if (it == bitmaps_.end()) {
@@ -1011,10 +1017,13 @@ bool Drawing::image(const std::shared_ptr<const ImagePixels>& pixels, Rect bound
         std::rotate(it, std::next(it), bitmaps_.end());
         it = std::prev(bitmaps_.end());
     }
-    const float scale = std::min(bounds.width / pixels->size.width, bounds.height / pixels->size.height);
+    const float scale = fill ? std::max(bounds.width / pixels->size.width, bounds.height / pixels->size.height) :
+        std::min(bounds.width / pixels->size.width, bounds.height / pixels->size.height);
     const float width = pixels->size.width * scale, height = pixels->size.height * scale;
+    push_clip(bounds);
     target_->DrawBitmap(it->value.Get(), rectangle({bounds.x + (bounds.width - width) / 2,
         bounds.y + (bounds.height - height) / 2, width, height}), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    pop_clip();
     return true;
 }
 void Drawing::release() {

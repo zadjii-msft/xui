@@ -15,7 +15,6 @@ internal sealed partial class ExplorerApplication : IDisposable
     private FilePaneView? active;
     private bool splitOpen;
     private bool rightInitialized;
-    private bool light;
     private bool disposed;
     private string? iconPath;
 
@@ -68,6 +67,16 @@ internal sealed partial class ExplorerApplication : IDisposable
             Transfers = new(this);
             Transfers.Bind(Left);
             Transfers.Bind(Right);
+            customizationEditor = new(this);
+            try { ValidateCustomization(State.Customization); }
+            catch (InvalidDataException error)
+            {
+                startupMessage = $"Keyboard preferences were not applied: {error.Message}";
+                ignoreSavedBindings = true;
+                stateWritable = false;
+                Report(startupMessage);
+            }
+            ApplyCustomization();
             Window.KeyHandler = HandleKey;
             Window.NavigationHandler = HandleNavigation;
             Window.TabDragHandler = HandleTabDrag;
@@ -135,13 +144,17 @@ internal sealed partial class ExplorerApplication : IDisposable
         if (pane.Model.Tabs.Count == 0) return;
         if (ReferenceEquals(active, pane)) return;
         active?.AddressBar.Cancel();
+        keySequence.Reset();
         active = pane;
         Sidebar.Refresh();
+        RefreshCommandAvailability();
         UpdateTitle();
     }
 
     public void LocationChanged(FilePaneView pane, bool recordRecent = true)
     {
+        if (ReferenceEquals(pane, Active)) keySequence.Reset();
+        RefreshCommandAvailability();
         if (recordRecent)
         {
             State.AddRecent(pane.Model.Active.Path);
@@ -246,6 +259,8 @@ internal sealed partial class ExplorerApplication : IDisposable
         try
         {
             created = windows.Create(path);
+            created.State.Customization = State.Customization.Clone();
+            created.ApplyCustomization();
             created.Left.Model.Active.SetPartition((source ?? Active.Model.Active).Partition);
             created.Left.Navigate(created.Left.Model.Active.Path);
             Application.Show(created.Window);
@@ -310,57 +325,64 @@ internal sealed partial class ExplorerApplication : IDisposable
 
     private void ToggleTheme()
     {
-        light = !light;
-        Window.SetTheme(light ? Theme.Light : Theme.Dark);
+        var settings = State.Customization.Clone();
+        settings.Theme = settings.Theme == "light" ? "dark" : "light";
+        try { SetCustomization(settings); }
+        catch (Exception error) when (UiWork.IsExpected(error)) { Report(error.Message); }
     }
 
     private IReadOnlyList<ExplorerCommand> CreateCommands() =>
     [
-        new("New tab", "Ctrl+T", () => Active.NewTab()),
-        new("Close tab", "Ctrl+W", () => Active.CloseTab()),
+        new("Commands", "Ctrl+Shift+P", () => Palettes.ShowCommands(), Id: "commands"),
+        new("Customize Explorer", "", ShowCustomization, Id: "customization"),
+        new("Move tab left", "Ctrl+Shift+PageUp", () => Active.MoveTab(Active.Model.Active.Id, -1), Id: "tab.move-left"),
+        new("Move tab right", "Ctrl+Shift+PageDown", () => Active.MoveTab(Active.Model.Active.Id, 1), Id: "tab.move-right"),
+        new("New tab", "Ctrl+T", () => Active.NewTab(), Id: "new-tab"),
+        new("Close tab", "Ctrl+W", () => Active.CloseTab(), Id: "close-tab"),
         new("Duplicate tab", "", () => Active.DuplicateTab(Active.Model.Active),
-            () => Active.Model.Tabs.Count < ExplorerPane.TabLimit),
-        new("Duplicate tab to new window", "Ctrl+N", () => NewWindow(Active.Model.Active.Path, Active.Model.Active)),
-        new("Duplicate in new pane", "", () => DuplicateInNewPane(Active, Active.Model.Active)),
-        new("Close all tabs", "Ctrl+Shift+W", () => ClosePane(Active)),
-        new("Next tab", "Ctrl+Tab", () => Active.CycleTab(1)),
-        new("Previous tab", "Ctrl+Shift+Tab", () => Active.CycleTab(-1)),
-        new("Toggle split panes", "Ctrl+\\", ToggleSplit),
-        new("Focus other pane", "F6", () => OtherPane(Active, show: true)?.Focus()),
-        new("Go to folder", "Ctrl+L", () => Active.AddressBar.ShowNavigation()),
-        new("Back", "Alt+Left", () => Active.MoveHistory(-1), () => Active.Model.Active.CanBack),
-        new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward),
-        new("Up to parent folder", "Alt+Up", () => Active.Up()),
-        new("Refresh folder", "F5", () => Active.Refresh()),
+            () => Active.Model.Tabs.Count < ExplorerPane.TabLimit, Id: "duplicate-tab"),
+        new("Duplicate tab to new window", "Ctrl+N", () => NewWindow(Active.Model.Active.Path, Active.Model.Active), Id: "duplicate-tab-to-new-window"),
+        new("Duplicate in new pane", "", () => DuplicateInNewPane(Active, Active.Model.Active), Id: "duplicate-in-new-pane"),
+        new("Close all tabs", "Ctrl+Shift+W", () => ClosePane(Active), Id: "close-all-tabs"),
+        new("Next tab", "Ctrl+Tab", () => Active.CycleTab(1), Id: "next-tab"),
+        new("Previous tab", "Ctrl+Shift+Tab", () => Active.CycleTab(-1), Id: "previous-tab"),
+        new("Toggle split panes", "Ctrl+\\", ToggleSplit, Id: "toggle-split-panes"),
+        new("Focus other pane", "F6", () => OtherPane(Active, show: true)?.Focus(), Id: "focus-other-pane"),
+        new("Go to folder", "Ctrl+L", () => Active.AddressBar.ShowNavigation(), Id: "go-to-folder"),
+        new("Back", "Alt+Left", () => Active.MoveHistory(-1), () => Active.Model.Active.CanBack, Id: "back"),
+        new("Forward", "Alt+Right", () => Active.MoveHistory(1), () => Active.Model.Active.CanForward, Id: "forward"),
+        new("Up to parent folder", "Alt+Up", () => Active.Up(), Id: "up-to-parent-folder"),
+        new("Refresh folder", "F5", () => Active.Refresh(), Id: "refresh-folder"),
         new("Preview selected item", "Space", () => Preview.ShowSelected(Active),
-            () => Preview.CanPreview(Active)),
+            () => Preview.CanPreview(Active), Id: "preview-selected-item"),
         new("Copy files", "Ctrl+C", () => Transfers.Copy(Active, cut: false),
-            () => Active.HasSelection && !Transfers.Busy),
+            () => Active.HasSelection && !Transfers.Busy, Id: "copy-files"),
         new("Cut files", "Ctrl+X", () => Transfers.Copy(Active, cut: true),
-            () => Active.HasSelection && !Transfers.Busy),
+            () => Active.HasSelection && !Transfers.Busy, Id: "cut-files"),
         new("Paste files into this folder", "Ctrl+V", () => Transfers.Paste(Active),
-            () => Active.HasCurrentRows && !Transfers.Busy),
+            () => Active.HasCurrentRows && !Transfers.Busy, Id: "paste-files-into-this-folder"),
         new("Copy file paths", "Ctrl+Shift+C", () => Transfers.CopyPaths(Active),
-            () => Active.HasSelection && !Transfers.Busy),
-        new("Use XL Icons view", "", () => Active.SetViewMode(ExplorerViewMode.ExtraLargeIcons)),
-        new("Use L Icons view", "", () => Active.SetViewMode(ExplorerViewMode.LargeIcons)),
-        new("Use M Icons view", "", () => Active.SetViewMode(ExplorerViewMode.MediumIcons)),
-        new("Use List view", "", () => Active.SetViewMode(ExplorerViewMode.List)),
-        new("Use Tree view", "", () => Active.SetViewMode(ExplorerViewMode.Tree)),
-        new("Use Details view", "", () => Active.SetViewMode(ExplorerViewMode.Details)),
-        new("Use Columns view", "", () => Active.SetViewMode(ExplorerViewMode.Columns)),
-        new("Find in this folder", "Ctrl+F", () => Active.ShowFind()),
-        new("Clear folder filter", "Escape", () => Active.HideFind()),
-        new("Filter navigation", "Alt+F", Sidebar.FocusFilter),
-        new("Toggle navigation pane", "", Sidebar.Toggle),
-        new("Add or remove folder bookmark", "Ctrl+D", Bookmark),
+            () => Active.HasSelection && !Transfers.Busy, Id: "copy-file-paths"),
+        new("Use XL Icons view", "", () => Active.SetViewMode(ExplorerViewMode.ExtraLargeIcons), Id: "use-xl-icons-view"),
+        new("Use L Icons view", "", () => Active.SetViewMode(ExplorerViewMode.LargeIcons), Id: "use-l-icons-view"),
+        new("Use M Icons view", "", () => Active.SetViewMode(ExplorerViewMode.MediumIcons), Id: "use-m-icons-view"),
+        new("Use List view", "", () => Active.SetViewMode(ExplorerViewMode.List), Id: "use-list-view"),
+        new("Use Tree view", "", () => Active.SetViewMode(ExplorerViewMode.Tree), Id: "use-tree-view"),
+        new("Use Details view", "", () => Active.SetViewMode(ExplorerViewMode.Details), Id: "use-details-view"),
+        new("Use Columns view", "", () => Active.SetViewMode(ExplorerViewMode.Columns), Id: "use-columns-view"),
+        new("Find in this folder", "Ctrl+F", () => Active.ShowFind(), Id: "find-in-this-folder"),
+        new("Clear folder filter", "Escape", () => Active.HideFind(),
+            () => Active.Model.Active.FindOpen, Id: "clear-folder-filter"),
+        new("Filter navigation", "Alt+F", Sidebar.FocusFilter, Id: "filter-navigation"),
+        new("Toggle navigation pane", "", Sidebar.Toggle, Id: "toggle-navigation-pane"),
+        new("Add or remove folder bookmark", "Ctrl+D", Bookmark, Id: "add-or-remove-folder-bookmark"),
         new("Open selected folder in new tab", "", () => { if (Active.SelectedEntry is { IsDirectory: true } e) Active.NewTab(e.FullPath); },
-            () => Active.SelectedEntry is { IsDirectory: true }),
+            () => Active.SelectedEntry is { IsDirectory: true }, Id: "open-selected-folder-in-new-tab"),
         new("Open selected item in other pane", "Ctrl+Enter", () =>
             { if (Active.SelectedEntry is { } e && OtherPane(Active, show: true) is { } target) Open(e, target); },
-            () => Active.SelectedEntry is not null),
-        new("Toggle light / dark theme", "Ctrl+F6", ToggleTheme),
-        new("Close window", "Alt+F4", Window.Close)
+            () => Active.SelectedEntry is not null, Id: "open-selected-item-in-other-pane"),
+        new("Toggle light / dark theme", "Ctrl+F6", ToggleTheme, Id: "toggle-light-dark-theme"),
+        new("Close window", "Alt+F4", Window.Close, Id: "close-window")
     ];
 
     private bool HandleNavigation(UiNavigationEvent navigation)
@@ -392,92 +414,8 @@ internal sealed partial class ExplorerApplication : IDisposable
         var modifiers = key.Modifiers;
         if (Palettes.HandleKey(vk, modifiers)) return true;
         if (Active.AddressBar.HandleKey(key)) return true;
-        if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift))
-        {
-            switch (vk)
-            {
-                case 0x21: Active.MoveTab(Active.Model.Active.Id, -1); return true;
-                case 0x22: Active.MoveTab(Active.Model.Active.Id, 1); return true;
-                case 0x57: ClosePane(Active); return true;
-            }
-        }
         if (Active.HandleFindKey(key)) return true;
-        if (Active.FilesFocused)
-        {
-            if (modifiers == KeyModifiers.None && vk == 0x20 && Preview.CanPreview(Active))
-            {
-                Preview.ShowSelected(Active); return true;
-            }
-            if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x43)
-            {
-                Transfers.CopyPaths(Active); return true;
-            }
-            if (modifiers == KeyModifiers.Control)
-            {
-                switch (vk)
-                {
-                    case 0x43:
-                    case 0x2d: Transfers.Copy(Active, cut: false); return true;
-                    case 0x58: Transfers.Copy(Active, cut: true); return true;
-                    case 0x56: Transfers.Paste(Active); return true;
-                }
-            }
-            if (modifiers == KeyModifiers.Shift)
-            {
-                switch (vk)
-                {
-                    case 0x2d: Transfers.Paste(Active); return true;
-                }
-            }
-        }
-        if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x50)
-        {
-            Palettes.ShowCommands(); return true;
-        }
-        if (modifiers == KeyModifiers.Control)
-        {
-            switch (vk)
-            {
-                case 0x4c: Active.AddressBar.ShowNavigation(); return true;
-                case 0x47: Palettes.ShowNavigation(Active); return true;
-                case 0x46: Active.ShowFind(); return true;
-                case 0x54: Active.NewTab(); return true;
-                case 0x57: Active.CloseTab(); return true;
-                case 0x73: Active.CloseTab(); return true;
-                case 0x4e: NewWindow(Active.Model.Active.Path); return true;
-                case 0x44: Bookmark(); return true;
-                case 0x09: Active.CycleTab(1); return true;
-                case 0xdc: ToggleSplit(); return true;
-                case 0x75: ToggleTheme(); return true;
-                case 0x0d when Active.FilesFocused:
-                    if (Active.SelectedEntry is { } entry && OtherPane(Active, show: true) is { } target) Open(entry, target);
-                    return true;
-            }
-        }
-        if (modifiers == (KeyModifiers.Control | KeyModifiers.Shift) && vk == 0x09)
-        {
-            Active.CycleTab(-1); return true;
-        }
-        if (modifiers == KeyModifiers.Alt)
-        {
-            switch (vk)
-            {
-                case 0x44: Active.AddressBar.ShowNavigation(); return true;
-                case 0x46: Sidebar.FocusFilter(); return true;
-                case 0x25: Active.MoveHistory(-1); return true;
-                case 0x27: Active.MoveHistory(1); return true;
-                case 0x26: Active.Up(); return true;
-            }
-        }
-        if (modifiers == KeyModifiers.None)
-        {
-            switch (vk)
-            {
-                case 0x74: Active.Refresh(); return true;
-                case 0x75: OtherPane(Active, show: true)?.Focus(); return true;
-                case 0x1b when Active.Model.Active.FindOpen: Active.HideFind(); return true;
-            }
-        }
+        if (HandleCustomizationKey(key)) return true;
         if (key.IsTextInput && Active.FilesFocused) Active.ShowFind();
         return false;
     }

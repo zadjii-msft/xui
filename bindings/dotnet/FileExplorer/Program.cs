@@ -15,15 +15,17 @@ internal static class Program
             bool partitionSmoke = args.Contains("--partition-smoke");
             bool viewsSmoke = args.Contains("--views-smoke");
             bool addressSmoke = args.Contains("--address-smoke");
+            bool customizationSmoke = args.Contains("--customization-smoke");
+            bool contextActionsSmoke = args.Contains("--context-actions-smoke");
             if ((viewSwitchSmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0)
-                + (viewsSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) > 1)
+                + (viewsSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) + (customizationSmoke ? 1 : 0) + (contextActionsSmoke ? 1 : 0) > 1)
                 throw new ArgumentException("Choose one focused smoke mode.");
-            bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke;
+            bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke || customizationSmoke || contextActionsSmoke;
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
             using var windows = new ExplorerWindows(application, previews, smoke);
             var app = windows.Create(initialPath);
-            app.Run(viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
+            app.Run(contextActionsSmoke ? ExplorerSmokeMode.ContextActions : customizationSmoke ? ExplorerSmokeMode.Customization : viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
                 paneAnimationSmoke ? ExplorerSmokeMode.PaneAnimation :
                 hoverSmoke ? ExplorerSmokeMode.Hover :
                 partitionSmoke ? ExplorerSmokeMode.Partition :

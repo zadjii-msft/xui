@@ -44,7 +44,8 @@ int main() {
             "xui_window_run", "xui_window_close", "xui_create", "xui_stack_create", "xui_stack_add",
             "xui_window_content", "xui_update", "xui_subscribe", "xui_text_copy", "xui_focus",
             "xui_invoke", "xui_image_source", "xui_image_shell_source", "xui_image_state", "xui_list_items", "xui_list_filter",
-            "xui_list_select", "xui_list_state", "xui_window_callback_error"}) expect(GetProcAddress(dll, name) != nullptr);
+            "xui_list_select", "xui_list_state", "xui_window_callback_error",
+            "xui_window_set_presentation", "xui_control_set_presentation"}) expect(GetProcAddress(dll, name) != nullptr);
         auto o = options(); xui_handle invalid = 99;
         o.version++; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH); expect(invalid == 0);
         o = options(); o.size--; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH);
@@ -60,7 +61,16 @@ int main() {
         ok(xui_error_copy(error, 1024, &count, &code)); expect(code == XUI_INVALID_HANDLE);
         {
             Window w, other;
+            ok(xui_window_set_presentation(w.h, s("Segoe UI"), 16, 1, 0));
+            expect(xui_window_set_presentation(w.h, s(""), 16, 1, 0) == XUI_INVALID_ARGUMENT);
+            expect(xui_window_set_presentation(w.h, s("Segoe UI"), 33, 1, 0) == XUI_INVALID_ARGUMENT);
+            expect(xui_window_set_presentation(w.h, s("Segoe UI"), 16, 2, 0) == XUI_INVALID_ARGUMENT);
+            xui_property theme{sizeof(xui_property), XUI_THEME, w.h, {}, 0, 0, 0, 0, 3};
+            ok(xui_update(w.h, &theme, 1));
+            theme.integer = 4;
+            expect(xui_update(w.h, &theme, 1) == XUI_INVALID_ARGUMENT);
             auto label = w.control(XUI_LABEL, "日本語 😀");
+            expect(xui_control_set_presentation(label, 1, 0) == XUI_WRONG_KIND);
             expect(read(label) == "日本語 😀");
             const auto input = w.control(XUI_TEXT_INPUT);
             const auto named_button = w.control(XUI_BUTTON);
@@ -103,6 +113,8 @@ int main() {
             auto child = other.control(XUI_LABEL);
             expect(xui_stack_add(stack, child, 0) == XUI_INVALID_ARGUMENT);
             auto image = w.control(XUI_IMAGE);
+            ok(xui_control_set_presentation(image, 0, 1));
+            expect(xui_control_set_presentation(image, 0, 2) == XUI_INVALID_ARGUMENT);
             expect(xui_image_source(image, s("x"), 0, 144) == XUI_INVALID_ARGUMENT);
             ok(xui_image_source(image, s(""), 192, 144));
             expect(xui_image_shell_source(label, s("."), 160, 160) == XUI_WRONG_KIND);

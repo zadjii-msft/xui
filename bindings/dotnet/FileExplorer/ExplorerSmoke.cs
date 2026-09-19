@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions }
 
 internal static class ExplorerSmoke
 {
@@ -110,6 +110,20 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                if (mode == ExplorerSmokeMode.ContextActions)
+                {
+                    await ContextActionsSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer context actions smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.Customization)
+                {
+                    await ExplorerCustomizationSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer customization smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.Partition)
                 {
                     await PartitionChecks();
@@ -525,7 +539,8 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     var emptyMenu = app.Left.ContextMenu.GetCommands();
-                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste }.Order())
+                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste,
+                        ContextActionsController.SearchCommand, ContextActionsController.CustomizeCommand }.Order())
                         || app.Left.ContextMenu.GetShellPaths().Length != 0)
                         throw new InvalidOperationException("Empty-area menus must not target an old selection.");
                     app.Left.SelectPath(Path.Combine(fixture, "small.txt"));
