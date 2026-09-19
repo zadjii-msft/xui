@@ -27,6 +27,7 @@ struct Context final : IContextMenu3 {
     DWORD query_delay{}, verb_delay{};
     bool fail{}, fail_invoke{};
     HBITMAP leaf_bitmap{};
+    unsigned repeated_icons{};
     bool owner_drawn_leaf{}, blank_leaf{}, disabled_leaf{};
     std::wstring leaf_label{L"Inspect fixture"};
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** output) override {
@@ -54,7 +55,14 @@ struct Context final : IContextMenu3 {
         if (!child || !AppendMenuW(child, MF_STRING | MF_GRAYED, first + 1, L"Deferred")) return E_FAIL;
         if (!AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(child), L"Dynamic Shell submenu")) return E_FAIL;
         if (!AppendMenuW(menu, MF_STRING | MF_GRAYED, first + 2, L"Disabled Shell verb")) return E_FAIL;
-        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 3);
+        for (unsigned i = 0; i < repeated_icons; ++i) {
+            MENUITEMINFOW item{sizeof(item)};
+            item.fMask = MIIM_STRING | MIIM_ID | MIIM_BITMAP;
+            item.wID = first + 3 + i; item.hbmpItem = leaf_bitmap;
+            item.dwTypeData = const_cast<wchar_t*>(L"Repeated icon");
+            if (!InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &item)) return E_FAIL;
+        }
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 3 + repeated_icons);
     }
     HRESULT STDMETHODCALLTYPE InvokeCommand(CMINVOKECOMMANDINFO* info) override {
         if (!IS_INTRESOURCE(info->lpVerb)) return E_INVALIDARG;
@@ -119,6 +127,8 @@ void bitmap_leaf_tests(HWND owner) {
         const auto discovered = provider->discover({});
         check(discovered.front().has_native_icon && discovered.front().native_only == (mode == 1 || mode == 2),
             "Native bitmap metadata is independent of custom invocation safety");
+        check(bool(discovered.front().native_icon) == (mode != 1),
+            "Ordinary bitmap pixels are copied, but owner-drawn pixels stay with the native handler");
         unsigned fallbacks{};
         CustomShellMenu model(provider, {}, [] { return true; }, [&] { ++fallbacks; });
         const auto& first = model.commands()->records().front();
@@ -135,6 +145,157 @@ void bitmap_leaf_tests(HWND owner) {
             check(fallbacks == 1 && !context.invokes, "Owner-drawn and unlabeled leaves use fallback without direct invocation");
         }
         check(context.queries == 1, "Custom bitmap commands preserve the original Shell context");
+    }
+}
+void icon_snapshot_tests(HWND owner) {
+    BITMAPINFO info{};
+    info.bmiHeader = {sizeof(BITMAPINFOHEADER), 2, -2, 1, 32, BI_RGB};
+    void* data{};
+    struct Bitmap {
+        HBITMAP value{};
+        ~Bitmap() { if (value) DeleteObject(value); }
+    } bitmap{CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &data, nullptr, 0)};
+    check(bitmap.value && data, "Create alpha Shell icon");
+    const std::vector<std::uint32_t> expected{0xff123456, 0x80402010, 0, 0xffabcdef};
+    std::copy(expected.begin(), expected.end(), static_cast<std::uint32_t*>(data));
+    std::shared_ptr<const MenuIcon> copied;
+    {
+        Context context; context.leaf_bitmap = bitmap.value;
+        auto provider = ShellMenuTestAccess::provider(owner, &context);
+        CustomShellMenu model(provider, {}, [] { return true; }, [] {});
+        copied = model.menu_items().front().icon;
+        check(copied && copied->width == 2 && copied->height == 2 && copied->pixels == expected,
+            "Shell icons preserve top-down premultiplied alpha pixels through the styled adapter");
+    }
+    std::fill_n(static_cast<std::uint32_t*>(data), 4, 0x00123456);
+    {
+        Context context; context.leaf_bitmap = bitmap.value;
+        auto provider = ShellMenuTestAccess::provider(owner, &context);
+        const auto legacy = provider->discover({}).front().native_icon;
+        check(legacy && legacy->pixels == std::vector<std::uint32_t>(4, 0xff123456),
+            "Legacy bitmaps without alpha become opaque without changing colors");
+        check(copied->pixels == expected, "Later bitmap changes cannot mutate an existing icon snapshot");
+    }
+    check(DeleteObject(bitmap.value) != FALSE, "Release extension-owned bitmap");
+    bitmap.value = nullptr;
+    check(copied->pixels == expected, "Copied icons outlive the original menu, provider, and bitmap");
+    for (auto pseudo : {HBMMENU_CALLBACK, HBMMENU_SYSTEM, HBMMENU_MBAR_CLOSE, HBMMENU_POPUP_MINIMIZE}) {
+        Context context; context.leaf_bitmap = pseudo;
+        auto provider = ShellMenuTestAccess::provider(owner, &context);
+        CustomShellMenu model(provider, {}, [] { return true; }, [] {});
+        const auto icon = model.menu_items().front().icon;
+        check(!icon, "Unsupported pseudo-bitmaps leave the icon space empty without extension drawing");
+    }
+    bitmap.value = CreateBitmap(65, 1, 1, 32, nullptr);
+    check(bitmap.value != nullptr, "Create oversized Shell icon");
+    {
+        Context context; context.leaf_bitmap = bitmap.value;
+        auto provider = ShellMenuTestAccess::provider(owner, &context);
+        check(!provider->discover({}).front().native_icon, "Oversized icons do not allocate copied pixel buffers");
+    }
+    check(DeleteObject(bitmap.value) != FALSE, "Release oversized bitmap");
+    bitmap.value = CreateBitmap(64, 64, 1, 32, nullptr);
+    check(bitmap.value != nullptr, "Create maximum-size icon");
+    Context context; context.leaf_bitmap = bitmap.value; context.repeated_icons = 300;
+    auto provider = ShellMenuTestAccess::provider(owner, &context);
+    const auto commands = provider->discover({});
+    std::size_t bytes{};
+    for (const auto& command : commands) if (command.native_icon) bytes += command.native_icon->pixels.size() * 4;
+    check(bytes == 4 * 1024 * 1024 && !commands.back().native_icon,
+        "The exact 4 MiB menu budget preserves remaining commands without unbounded bitmap copies");
+}
+void icon_paint_tests(HWND owner) {
+    struct Surface {
+        HDC dc{CreateCompatibleDC(nullptr)};
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        ~Surface() {
+            if (previous) SelectObject(dc, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (dc) DeleteDC(dc);
+        }
+    } surface;
+    BITMAPINFO info{};
+    info.bmiHeader = {sizeof(BITMAPINFOHEADER), 1024, -128, 1, 32, BI_RGB};
+    void* data{};
+    surface.bitmap = CreateDIBSection(surface.dc, &info, DIB_RGB_COLORS, &data, nullptr, 0);
+    check(surface.dc && surface.bitmap, "Create context icon paint surface");
+    surface.previous = SelectObject(surface.dc, surface.bitmap);
+    check(surface.previous && surface.previous != HGDI_ERROR, "Select context icon paint surface");
+    auto bitmap = std::make_shared<MenuIcon>();
+    bitmap->width = bitmap->height = 1; bitmap->pixels = {0x80800000};
+    const auto native_color = [](D2D1_COLOR_F value) {
+        return RGB(std::lround(value.r * 255), std::lround(value.g * 255), std::lround(value.b * 255));
+    };
+    ContextMenuTestAccess::track = track_styled;
+    for (bool checked : {false, true}) {
+        for (auto theme : {ThemeMode::dark, ThemeMode::light, ThemeMode::high_contrast}) {
+            for (UINT dpi : {96u, 144u, 192u}) {
+                const auto palette = Palette::system(theme);
+                const auto px = [dpi](int value) { return MulDiv(value, dpi, 96); };
+                Button button(L"Shell icons");
+                button.on_context_menu([&] {
+                    return std::vector<MenuItem>{
+                        {L"Bitmap command\tCtrl+B", {}, true, checked, false, bitmap},
+                        {L"Disabled command", {}, false, false, false, bitmap},
+                        {L"Command without icon", {}},
+                        {L"", {}, true, false, true}
+                    };
+                });
+                inspect_styled = [&](HMENU menu, HWND hwnd) {
+                    for (UINT id = 1; id <= 3; ++id) for (UINT state : {0u, UINT(ODS_SELECTED)}) {
+                        MEASUREITEMSTRUCT measure{};
+                        measure.CtlType = ODT_MENU; measure.itemID = id;
+                        check(SendMessageW(hwnd, WM_MEASUREITEM, 0, reinterpret_cast<LPARAM>(&measure)) != 0, "Measure icon row");
+                        check(measure.itemWidth < 1024 && measure.itemHeight < 128, "Measured icon row fits paint surface");
+                        DRAWITEMSTRUCT draw{};
+                        draw.CtlType = ODT_MENU; draw.itemID = id; draw.itemState = state;
+                        draw.hwndItem = reinterpret_cast<HWND>(menu);
+                        draw.hDC = surface.dc; draw.rcItem = {0, 0, LONG(measure.itemWidth), LONG(measure.itemHeight)};
+                        check(SendMessageW(hwnd, WM_DRAWITEM, 0, reinterpret_cast<LPARAM>(&draw)) != 0, "Draw icon row");
+                        const bool selected = id != 2 && state;
+                        const auto background = native_color(selected ? palette.selection : palette.surface);
+                        const int x = px(12) + (checked ? px(22) : 0);
+                        const int y = (int(measure.itemHeight) - px(16)) / 2;
+                        if (id == 1 && !palette.high_contrast) {
+                            const auto blend = [](unsigned source, unsigned backdrop) {
+                                return source + (backdrop * 127 + 127) / 255;
+                            };
+                            const auto expected = RGB(blend(128, GetRValue(background)), blend(0, GetGValue(background)), blend(0, GetBValue(background)));
+                            const auto actual = GetPixel(surface.dc, x + px(8), y + px(8));
+                            if (actual != expected) std::cerr << "Icon pixel: theme=" << int(theme) << " dpi=" << dpi <<
+                                " checked=" << checked << " state=" << state << " expected=" << expected << " actual=" << actual << '\n';
+                            check(actual == expected,
+                                "Bitmap pixels visibly blend against normal and selected row colors at every DPI");
+                        } else if (id == 3) {
+                            for (int iy = y; iy < y + px(16); ++iy)
+                                for (int ix = x; ix < x + px(16); ++ix)
+                                    check(GetPixel(surface.dc, ix, iy) == background,
+                                        "Commands without icons leave the entire icon space empty in every theme and state");
+                        } else {
+                            const auto ink = native_color(id == 2 ? palette.disabled : selected ? palette.selection_text : palette.text);
+                            check(GetPixel(surface.dc, x + px(2), y + px(4)) == ink,
+                                "Supplied icons use a theme-colored glyph when disabled or in high contrast");
+                        }
+                        if (checked && id == 1)
+                            check(GetPixel(surface.dc, px(14), measure.itemHeight / 2) ==
+                                native_color(selected ? palette.selection_text : palette.text),
+                                "The checkmark remains visible in a separate column beside the icon");
+                    }
+                    return 0u;
+                };
+                show_control_menu(button, owner, MAKELPARAM(30, 40), palette, dpi);
+            }
+        }
+    }
+    inspect_styled = {};
+    ContextMenuTestAccess::track = nullptr;
+    for (auto invalid : {MenuIcon{65, 1, {}}, MenuIcon{0, 1, {}}, MenuIcon{1, 1, {}}}) {
+        Button button(L"Invalid icon");
+        button.on_context_menu([&] {
+            return std::vector<MenuItem>{{L"Invalid", {}, true, false, false, std::make_shared<const MenuIcon>(invalid)}};
+        });
+        rejects([&] { show_control_menu(button, owner, MAKELPARAM(30, 40), Palette::system(), 96); });
     }
 }
 void custom_model_tests(HWND owner) {
@@ -155,6 +316,8 @@ void custom_model_tests(HWND owner) {
     auto model = std::make_shared<CustomShellMenu>(provider, app, [&] { return current; }, [&] { ++fallbacks; });
     auto commands = model->commands();
     const auto items = model->menu_items();
+    check(std::none_of(items.begin(), items.end(), [](const auto& item) { return bool(item.icon); }),
+        "Commands without copied icons remain iconless, including disabled actions, groups, and the Windows fallback");
     const auto styled_find = [&](std::wstring_view label) -> const MenuItem& {
         for (const auto& item : items) if (item.text == label) return item;
         throw std::runtime_error("Expected styled context-menu label");
@@ -734,6 +897,8 @@ int wmain(int argc, wchar_t** argv) {
         if (argc == 2) {
             std::cout << "Mock menus\n"; mock_tests(owner);
             std::cout << "Bitmap menus\n"; bitmap_leaf_tests(owner);
+            std::cout << "Icon snapshots\n"; icon_snapshot_tests(owner);
+            std::cout << "Icon pixels\n"; icon_paint_tests(owner);
             std::cout << "Custom models\n"; custom_model_tests(owner);
             std::cout << "Real discovery\n"; real_discovery(owner, directory);
             std::cout << "Binding menus\n"; binding_menus(directory);

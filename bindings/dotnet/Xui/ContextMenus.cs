@@ -57,7 +57,9 @@ public sealed unsafe partial class DataGrid
     }
     /// <summary>Displays real Shell commands in XUI's styled native context menu or the Windows Shell menu.</summary>
     /// <remarks>XUI menus always include a Windows menu fallback. Native-only entries use that fallback.
-    /// Labeled bitmap-backed leaves display their text and invoke the original Shell verb.
+    /// Shell commands display supported native icons. Commands without a supported icon remain iconless.
+    /// Supplied icons use theme-colored glyphs for disabled commands and high-contrast menus.
+    /// Labeled bitmap-backed leaves invoke the original Shell verb.
     /// Native Shell submenus, unreadable entries, and owner-drawn commands use the Windows fallback.
     /// Empty paths use the existing app-only menu. XUI menus accept at most 4092 app entries.
     /// XUI menus show app commands immediately, then add Shell commands after asynchronous discovery.

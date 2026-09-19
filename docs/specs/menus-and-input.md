@@ -66,6 +66,21 @@ Its item factory receives the targeted row ID.
 The C ABI supplies the row ID in the menu's `XUI_REQUEST` event.
 Navigation menus reuse collection source checks, Shell discovery, and cancellation.
 
+XUI-style Shell menus show supported icons supplied by Shell commands.
+The discovery worker copies supported native bitmaps. No Shell bitmap handle crosses to the UI thread.
+Missing, callback, owner-drawn, unreadable, and oversized icons leave the icon space empty.
+The Windows-menu fallback also has no icon.
+For supplied icons, disabled commands and high-contrast menus use a theme-colored command glyph.
+Icons fit a 16-DIP square and retain their aspect ratio. Checkmarks use a separate column when icons are present.
+Native-only commands still open the Windows menu.
+
+For C++ menus, `MenuItem::icon` accepts a shared, immutable `MenuIcon`.
+An empty `MenuIcon` selects the generic glyph. A null pointer leaves the icon space empty.
+Bitmap data uses top-down, premultiplied BGRA pixels, with dimensions from 1 through 64 pixels.
+The pixel count must equal width times height. Invalid dimensions or pixel counts cause an argument error.
+Shell discovery limits copied bitmap data to 4 MiB per menu.
+These icons do not change command labels, shortcuts, accessibility names, or command identities.
+
 PNG copies permit image review without changes to the BMP capture tests.
 The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
 If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.
