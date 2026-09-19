@@ -21,6 +21,7 @@ internal static class Program
             ViewModeTests(fixture);
             PaneTests(fixture);
             TabCommandTests(fixture);
+            PartitionTests(fixture);
             assertions += TabDragTests.Run(fixture);
             StateTests(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
@@ -437,6 +438,79 @@ internal static class Program
         Equal(alpha.FullPath, pane.Active.Path);
         pane.CloseTab(first.Id);
         True(ReferenceEquals(second, pane.Active));
+    }
+
+    private static void PartitionTests(string fixture)
+    {
+        FileEntry[] entries =
+        [
+            new("d", "d.txt", false, 40, DateTime.UnixEpoch.AddDays(4)),
+            new("b", "b", true, 0, DateTime.UnixEpoch.AddDays(2)),
+            new("a", "a.txt", false, 10, DateTime.UnixEpoch.AddDays(1)),
+            new("c", "c", true, 0, DateTime.UnixEpoch.AddDays(3))
+        ];
+        foreach (var partition in Enum.GetValues<ExplorerPartition>())
+        foreach (bool descending in new[] { false, true })
+        foreach (int column in Enumerable.Range(0, 4))
+        {
+            IOrderedEnumerable<FileEntry> Within(IEnumerable<FileEntry> group)
+            {
+                IOrderedEnumerable<FileEntry> sorted = column switch
+                {
+                    1 => descending ? group.OrderByDescending(e => e.ModifiedUtc) : group.OrderBy(e => e.ModifiedUtc),
+                    2 => descending ? group.OrderByDescending(e => e.Kind, StringComparer.OrdinalIgnoreCase)
+                        : group.OrderBy(e => e.Kind, StringComparer.OrdinalIgnoreCase),
+                    3 => descending ? group.OrderByDescending(e => e.Size) : group.OrderBy(e => e.Size),
+                    _ => descending ? group.OrderByDescending(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                        : group.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                };
+                return sorted.ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.FullPath, StringComparer.Ordinal);
+            }
+            var expected = partition == ExplorerPartition.Mixed ? Within(entries) :
+                Within(entries.Where(e => e.IsDirectory == (partition == ExplorerPartition.FoldersFirst)))
+                    .Concat(Within(entries.Where(e => e.IsDirectory != (partition == ExplorerPartition.FoldersFirst))));
+            Sequence(expected, FileSystemService.FilterAndSort(entries, "", column, descending, partition));
+            Equal(1, FileSystemService.FilterAndSort(entries, "A.TXT", column, descending, partition).Count);
+            Equal(0, FileSystemService.FilterAndSort(entries, "absent", column, descending, partition).Count);
+            Equal(0, FileSystemService.FilterAndSort([], "", column, descending, partition).Count);
+        }
+        Sequence(new[] { "d", "b", "a", "c" }, entries.Select(e => e.FullPath));
+        Throws<ArgumentOutOfRangeException>(() => FileSystemService.FilterAndSort(entries, "", 0, false, (ExplorerPartition)99));
+
+        var pane = new ExplorerPane(fixture);
+        var first = pane.Active;
+        Equal(ExplorerPartition.FoldersFirst, first.Partition);
+        first.SetPartition(ExplorerPartition.FilesFirst);
+        var second = pane.AddTab(fixture);
+        Equal(ExplorerPartition.FilesFirst, second.Partition);
+        second.SetPartition(ExplorerPartition.Mixed);
+        Equal(ExplorerPartition.FilesFirst, first.Partition);
+        var copy = pane.DuplicateTab(first);
+        Equal(ExplorerPartition.FilesFirst, copy.Partition);
+        copy.SetPartition(ExplorerPartition.Mixed);
+        Equal(ExplorerPartition.FilesFirst, first.Partition);
+        True(pane.SelectTab(first.Id));
+        Equal(ExplorerPartition.FilesFirst, pane.AddTab(fixture).Partition);
+        foreach (var mode in Enum.GetValues<ExplorerViewMode>())
+        {
+            first.SetViewMode(mode);
+            first.Commit(new(fixture, entries));
+            Equal(ExplorerPartition.FilesFirst, first.Partition);
+            first.Commit(new(Path.Combine(fixture, "next"), []));
+            first.CommitHistory(new(fixture, entries), -1);
+            Equal(ExplorerPartition.FilesFirst, first.Partition);
+        }
+        var other = new ExplorerPane(fixture);
+        other.ResetTabs(first);
+        Equal(first.Partition, other.Active.Partition);
+        other.ResetTabs(fixture, ExplorerPartition.Mixed);
+        Equal(ExplorerPartition.Mixed, other.Active.Partition);
+        True(pane.TransferTab(first.Id, other, 0));
+        Equal(ExplorerPartition.FilesFirst, other.Active.Partition);
+        pane.ReplaceTabs(other);
+        Equal(ExplorerPartition.FilesFirst, pane.Active.Partition);
+        Throws<ArgumentOutOfRangeException>(() => first.SetPartition((ExplorerPartition)99));
+        Equal(ExplorerPartition.FilesFirst, first.Partition);
     }
 
     private static void ViewModeTests(string fixture)

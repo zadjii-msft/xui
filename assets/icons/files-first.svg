@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+  <title>Files, then folders</title>
+  <path d="M3 2H7L9 4V10H3Z M7 2V4H9 M15 2H19L21 4V10H15Z M19 2V4H21"/>
+  <path d="M2 15H5L6.5 16.5H10V21H2Z M14 15H17L18.5 16.5H22V21H14Z"/>
+</svg>

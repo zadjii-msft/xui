@@ -105,6 +105,31 @@ void document_icons(Fixture& fixture) {
     }
     fixture.drawing.set_visual_style(VisualStyle::classic);
 }
+void partition_icons(Fixture& fixture) {
+    constexpr std::array icons{ButtonIcon::folders_first, ButtonIcon::files_first, ButtonIcon::mixed};
+    for (const auto size : {16.0f, 20.0f, 24.0f, 32.0f}) {
+        for (const auto color : {0x202020u, 0xffffffu, 0xffff00u}) {
+            std::array<std::vector<uint32_t>, icons.size()> classic;
+            for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+                fixture.drawing.set_visual_style(style);
+                for (std::size_t i = 0; i < icons.size(); ++i) {
+                    const auto pixels = fixture.render([&] {
+                        fixture.drawing.button_icon({20, 20, size, size}, D2D1::ColorF(color), icons[i]);
+                    });
+                    require(count(pixels, 0x101010) < pixels.size(), "Partition icons paint visible pixels at toolbar sizes");
+                    if (style == VisualStyle::classic) classic[i] = pixels;
+                    else require(pixels == classic[i], "Partition SVG geometry is identical in both visual styles");
+                    for (std::size_t previous = 0; previous < i; ++previous)
+                        require(pixels != classic[previous], "Each partition has a distinct vector icon");
+                    for (int y = 0; y < 100; ++y) for (int x = 0; x < 200; ++x)
+                        if (x < 20 || y < 20 || x >= 20 + size || y >= 20 + size)
+                            require(pixels[y * 200 + x] == 0x101010, "Partition strokes stay inside their icon bounds");
+                }
+            }
+        }
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
 void typography_cache(Fixture& fixture) {
     auto& drawing = fixture.drawing;
     const auto baseline = fixture.render([&] { drawing.text(L"Default path", {10, 10, 180, 50}, D2D1::ColorF(0xffffff)); });
@@ -408,7 +433,7 @@ void clear_glyph_and_state(Fixture& fixture) {
 }
 }
 int main() {
-    try { Fixture fixture; document_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
+    try { Fixture fixture; document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";
 }

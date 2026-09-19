@@ -4,12 +4,16 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition }
 
 internal static class ExplorerSmoke
 {
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint GetFocus();
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint SetFocus(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern nint GetForegroundWindow();
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
     [DllImport("user32.dll", EntryPoint = "SendMessageW", ExactSpelling = true, CharSet = CharSet.Unicode)]
@@ -106,6 +110,13 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                if (mode == ExplorerSmokeMode.Partition)
+                {
+                    await PartitionChecks();
+                    Console.WriteLine("Explorer partition smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.Views)
                 {
                     await AdditionalViewsChecks();
@@ -546,6 +557,7 @@ internal static class ExplorerSmoke
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
                 await ViewSwitchChecks();
                 await ColumnsChecks();
+                await PartitionChecks();
                 await PerColumnFindChecks();
                 await Transfers(fixture);
                 await FeedbackChecks();
@@ -553,7 +565,7 @@ internal static class ExplorerSmoke
                 await TabDragChecks();
                 await TabMenuChecks(fixture);
                 await DetachedLifetimeChecks();
-                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, reversible hover joins, tear-out rollback, same-Application merge, filtering, sorting, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
+                Console.WriteLine("Explorer smoke passed: navigation, completion, panes, tabs, tab menus, tab drag handlers, reversible hover joins, tear-out rollback, same-Application merge, filtering, sorting, partitions, columns, commands, detached previews, opener-first lifetime, native copy, image reuse, and file transfers.");
             }
             catch (Exception error)
             {
@@ -2205,6 +2217,272 @@ internal static class ExplorerSmoke
                                 $"filesFocused={pane.FilesFocused}, selected={pane.SelectedEntry?.FullPath}, expected={selected}, offset={pane.Model.Active.ScrollOffset}, timer={SendMessageW(owner, 0x803C, 33, 0)}.");
                         return Stopwatch.GetElapsedTime(started) >= TimeSpan.FromMilliseconds(240);
                     });
+                }
+            }
+
+            async Task PartitionChecks()
+            {
+                var pane = app.Left;
+                bool restoreSplit = false;
+                string root = Path.Combine(fixture, "partition");
+                string folder = Path.Combine(root, "b-folder");
+                Directory.CreateDirectory(Path.Combine(folder, "b-child"));
+                await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "a");
+                await File.WriteAllTextAsync(Path.Combine(root, "c.txt"), "ccc");
+                await File.WriteAllTextAsync(Path.Combine(folder, "a-child.txt"), "a");
+                await File.WriteAllTextAsync(Path.Combine(folder, "c-child.txt"), "ccc");
+                await Ui(() =>
+                {
+                    restoreSplit = app.SecondPaneVisible;
+                    pane.Focus();
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                    pane.Model.Active.SortColumn = 0;
+                    pane.Model.Active.SortDescending = false;
+                    pane.SetPartition(ExplorerPartition.FoldersFirst);
+                    pane.Navigate(root);
+                });
+                await Ready(pane);
+                foreach (var mode in Enum.GetValues<ExplorerViewMode>())
+                {
+                    await Ui(() =>
+                    {
+                        pane.SetViewMode(mode);
+                        pane.Navigate(root);
+                    });
+                    await Ready(pane);
+                    if (mode == ExplorerViewMode.Columns)
+                    {
+                        await Ui(() => pane.SelectColumnPath(0, folder));
+                        await Ready(pane);
+                        await Check(() => pane.Columns.ColumnCount == 2, "Partition fixture opens a retained parent and child column");
+                    }
+                    foreach (var partition in Enum.GetValues<ExplorerPartition>())
+                    {
+                        await Ui(pane.PartitionButton.Invoke);
+                        await Check(() => pane.PartitionMenu.IsOpen
+                            && pane.PartitionButton.GetBounds().X >= pane.ViewModeButton.GetBounds().X + pane.ViewModeButton.GetBounds().Width
+                            && pane.PartitionMenu.GetBounds().Y + pane.PartitionMenu.GetBounds().Height <= pane.PartitionButton.GetBounds().Y,
+                            "Partition button beside View opens an upward flyout");
+                        await Check(() => pane.PartitionMenu.Menu.GetBounds().Height >= 96
+                            && pane.PartitionMenu.GetBounds().Height <= 112
+                            && pane.PartitionCommands().Select(c => c.Icon).SequenceEqual(
+                                new[] { ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
+                            && pane.PartitionCommands().Count(c => c.Checked == true) == 1,
+                            "Partition flyout uses compact checked menu rows with icons");
+                        await Ui(() =>
+                        {
+                            var menu = FocusPartitionMenu();
+                            if (!PostMessageW(menu, 0x100, 0x24, 0))
+                                throw new InvalidOperationException("Could not post Home to the partition menu.");
+                            for (int row = 0; row < (int)partition; ++row)
+                                if (!PostMessageW(menu, 0x100, 0x28, 0))
+                                    throw new InvalidOperationException("Could not post Down to the partition menu.");
+                            if (!PostMessageW(menu, 0x100, 0x0d, 0))
+                                throw new InvalidOperationException("Could not post Enter to the partition menu.");
+                        });
+                        await Until(() => !pane.PartitionMenu.IsOpen);
+                        await Ready(pane);
+                        await Check(() => pane.Model.Active.Partition == partition && !pane.PartitionMenu.IsOpen && pane.FilesFocused
+                            && PartitionIconMatches(pane) && pane.PartitionButton.GetBounds().Width == 32
+                            && pane.PartitionButton.GetBounds().Height == 32,
+                            "Choosing a partition stores it and restores file focus");
+                        await CheckOrder(partition);
+                        if (pane.IsTree)
+                        {
+                            await Ui(() =>
+                            {
+                                pane.SelectPath(folder);
+                                pane.Tree.Expand(pane.Tree.Selection.Focused!.Value);
+                            });
+                            await Until(() => pane.TreeController.PendingCount == 0 && !pane.TreeController.Restoring);
+                            await Ui(() =>
+                            {
+                                pane.SelectPath(folder);
+                                pane.Tree.Focus();
+                                string[] expected = partition switch
+                                {
+                                    ExplorerPartition.FoldersFirst => ["b-child", "a-child.txt", "c-child.txt"],
+                                    ExplorerPartition.FilesFirst => ["a-child.txt", "c-child.txt", "b-child"],
+                                    _ => ["a-child.txt", "b-child", "c-child.txt"]
+                                };
+                                foreach (string name in expected)
+                                {
+                                    SendMessageW(GetFocus(), 0x100, 0x28, 0);
+                                    if (pane.SelectedEntry?.Name != name)
+                                        throw new InvalidOperationException("Lazy Tree children must use the active partition order.");
+                                }
+                                pane.SelectPath(folder);
+                                pane.Tree.Expand(pane.Tree.Selection.Focused!.Value, false);
+                            });
+                        }
+                    }
+                    await Ui(() =>
+                    {
+                        pane.SetPartition(ExplorerPartition.FilesFirst);
+                        pane.SetPartition(ExplorerPartition.FoldersFirst);
+                        pane.SetPartition(ExplorerPartition.Mixed);
+                    });
+                    await Ready(pane);
+                    await CheckOrder(ExplorerPartition.Mixed);
+                    bool restoresFocus = false;
+                    await Ui(() =>
+                    {
+                        restoresFocus = GetForegroundWindow() == GetAncestor(GetFocus(), 2);
+                        pane.PartitionButton.Invoke();
+                        FocusPartitionMenu();
+                        if (!PostMessageW(GetFocus(), 0x100, 0x1b, 0))
+                            throw new InvalidOperationException("Could not post Escape to the partition flyout.");
+                    });
+                    await Until(() => !pane.PartitionMenu.IsOpen);
+                    await Check(() => pane.Model.Active.Partition == ExplorerPartition.Mixed
+                        && (!restoresFocus || pane.FilesFocused),
+                        "Escape preserves the partition and restores foreground-window file focus");
+                    await Ui(pane.Focus);
+                }
+                nint FocusPartitionMenu()
+                {
+                    var owner = GetAncestor(GetFocus(), 2);
+                    if (GetForegroundWindow() != owner)
+                    {
+                        // Native popups do not take focus in an inactive smoke window.
+                        var peer = FindMenu(owner);
+                        if (peer == 0) throw new InvalidOperationException("The partition menu has no native input peer.");
+                        SetFocus(peer);
+                    }
+                    if (GetFocus() == 0 || pane.FilesFocused)
+                        throw new InvalidOperationException("The partition menu did not receive keyboard focus.");
+                    return GetFocus();
+                }
+
+                static nint FindMenu(nint owner)
+                {
+                    for (nint child = GetWindow(owner, 5); child != 0; child = GetWindow(child, 2))
+                    {
+                        var name = new System.Text.StringBuilder(128);
+                        GetWindowTextW(child, name, name.Capacity);
+                        if (name.ToString() == "Folder and file order in pane 1" && GetWindow(child, 5) == 0)
+                            return child;
+                        nint nested = FindMenu(child);
+                        if (nested != 0) return nested;
+                    }
+                    return 0;
+                }
+
+                ExplorerTab original = null!;
+                await Ui(() =>
+                {
+                    original = pane.Model.Active;
+                    pane.NewTab(root);
+                });
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Partition == ExplorerPartition.Mixed && PartitionIconMatches(pane),
+                    "New tab inherits active partition and icon");
+                await Ui(() =>
+                {
+                    pane.SetPartition(ExplorerPartition.FilesFirst);
+                    pane.DuplicateTab(original);
+                });
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Partition == ExplorerPartition.Mixed
+                    && original.Partition == ExplorerPartition.Mixed, "Duplicate inherits its non-active source rather than the active tab");
+                await Ui(() =>
+                {
+                    pane.SetPartition(ExplorerPartition.FoldersFirst);
+                    pane.SelectTab(original.Id);
+                });
+                await Ready(pane);
+                await Check(() => pane.Model.Active.Partition == ExplorerPartition.Mixed && PartitionIconMatches(pane),
+                    "Tab changes remain independent and restore their icon");
+                await Ui(() =>
+                {
+                    pane.PartitionButton.Invoke();
+                    if (pane.PartitionCommands().Single(c => c.Checked == true) is not { Id: 3, Label: "Mixed", Icon: ButtonIcon.Mixed })
+                        throw new InvalidOperationException("Partition flyout must identify the current tab's setting.");
+                    pane.SelectTab(pane.Model.Tabs.First(tab => tab.Id != original.Id).Id);
+                });
+                await Ready(pane);
+                await Check(() => !pane.PartitionMenu.IsOpen, "Tab switch dismisses stale partition flyout");
+                await Ui(() =>
+                {
+                    if (app.SecondPaneVisible) app.ClosePane(app.Right);
+                    pane.SetPartition(ExplorerPartition.FilesFirst);
+                    app.ToggleSplit();
+                });
+                await Ready(app.Right);
+                await Check(() => app.Right.Model.Active.Partition == ExplorerPartition.FilesFirst && PartitionIconMatches(app.Right),
+                    "A newly opened pane inherits the active partition");
+                await Ui(() =>
+                {
+                    app.Right.SetPartition(ExplorerPartition.FoldersFirst);
+                    app.DuplicateInNewPane(pane, original);
+                });
+                await Ready(app.Right);
+                await Check(() => app.Right.Model.Active.Partition == ExplorerPartition.Mixed
+                    && pane.Model.Active.Partition == ExplorerPartition.FilesFirst,
+                    "A pane duplicate inherits its source and leaves the other tab unchanged");
+                foreach (bool duplicate in new[] { true, false })
+                {
+                    ExplorerApplication? created = null;
+                    await Ui(() =>
+                    {
+                        pane.Focus();
+                        app.NewWindow(root, duplicate ? original : null);
+                        created = app.ExplorerWindows.Last();
+                    });
+                    if (created is null || ReferenceEquals(created, app))
+                        throw new InvalidOperationException("Partition smoke could not create another window.");
+                    await Ready(created.Left);
+                    await Check(() => created.Left.Model.Active.Partition ==
+                        (duplicate ? ExplorerPartition.Mixed : ExplorerPartition.FilesFirst) && PartitionIconMatches(created.Left),
+                        "New windows inherit the source or active partition");
+                    await Ui(created.Window.Close);
+                    await Until(() => created.IsDisposed);
+                }
+                Directory.Delete(root, recursive: true);
+                await Ui(() =>
+                {
+                    app.ClosePane(app.Right);
+                    pane.ResetTabs(fixture);
+                    pane.Navigate(fixture);
+                    if (restoreSplit) app.ToggleSplit();
+                    pane.Focus();
+                });
+                await Ready(pane);
+                if (restoreSplit) await Ready(app.Right);
+
+                Task CheckOrder(ExplorerPartition partition) => Check(() =>
+                {
+                    if (!PartitionIconMatches(pane)) return false;
+                    string[] names = partition switch
+                    {
+                        ExplorerPartition.FoldersFirst => ["b-folder", "a.txt", "c.txt"],
+                        ExplorerPartition.FilesFirst => ["a.txt", "c.txt", "b-folder"],
+                        _ => ["a.txt", "b-folder", "c.txt"]
+                    };
+                    if (!pane.DisplayedPaths().Select(Path.GetFileName).SequenceEqual(names))
+                        throw new InvalidOperationException($"Unexpected {pane.Model.Active.ViewMode}/{partition} order: " +
+                            string.Join(", ", pane.DisplayedPaths().Select(Path.GetFileName)));
+                    if (!pane.IsColumns) return true;
+                    string[] childNames = partition switch
+                    {
+                        ExplorerPartition.FoldersFirst => ["b-child", "a-child.txt", "c-child.txt"],
+                        ExplorerPartition.FilesFirst => ["a-child.txt", "c-child.txt", "b-child"],
+                        _ => ["a-child.txt", "b-child", "c-child.txt"]
+                    };
+                    return pane.Columns.ColumnCount == 2
+                        && pane.DisplayedPaths(1).Select(Path.GetFileName).SequenceEqual(childNames)
+                        && pane.Model.Active.Columns[0].SelectedPath == folder;
+                }, "Partition order applies to every displayed source without losing the parent selection");
+
+                static bool PartitionIconMatches(FilePaneView view)
+                {
+                    var (icon, label) = view.Model.Active.Partition switch
+                    {
+                        ExplorerPartition.FoldersFirst => (ButtonIcon.FoldersFirst, "Folders, then files"),
+                        ExplorerPartition.FilesFirst => (ButtonIcon.FilesFirst, "Files, then folders"),
+                        _ => (ButtonIcon.Mixed, "Mixed")
+                    };
+                    return view.PartitionButton.Icon == icon && view.PartitionButton.Text == label;
                 }
             }
 

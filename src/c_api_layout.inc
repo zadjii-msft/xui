@@ -156,9 +156,10 @@ xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint32_t* sty
 
 xui_status XUI_CALL xui_popup_placement(xui_handle target, uint32_t placement) noexcept {
     return boundary([&] {
-        auto n = get(target, XUI_POPUP); editable(n->owner);
+        auto n = get(target); editable(n->owner);
+        require(n->kind == XUI_POPUP || n->kind == XUI_COMMAND_SURFACE, XUI_WRONG_KIND, "Expected a popup or command surface.");
         require(placement <= 6, XUI_INVALID_ARGUMENT, "Invalid popup placement.");
-        as<xui::Popup>(n).set_placement(static_cast<xui::PopupPlacement>(placement));
+        feature<xui::Popup>(n).set_placement(static_cast<xui::PopupPlacement>(placement));
     });
 }
 xui_status XUI_CALL xui_popup_window_background(xui_handle target, uint32_t enabled) noexcept {

@@ -390,3 +390,25 @@ The shared ABI menu subscription passes the target ID and guards the tab revisio
 Closing a pane cancels its pending work. Closing the left pane copies the surviving pane before hiding the right pane.
 `FileExplorer.Tests` covers model copies and ordering.
 `ExplorerSmoke` covers native context targeting, commands, shortcuts, stale snapshots, and pane closure.
+
+## Per-tab partitions
+
+`ExplorerTab.Partition` stores folder-first, file-first, or mixed order.
+`FileSystemService.FilterAndSort` applies the partition before the selected sort.
+`FilePaneView` captures the partition for each asynchronous sort and includes it in the retained column cache key.
+Partition changes cancel obsolete filter work without canceling folder navigation.
+`FilePaneView` creates the footer menu beside View with `Window.MenuFlyout`.
+The three command rows have icons, labels, and a checkmark for the active partition.
+The retained `CommandMenu` supplies keyboard navigation and menu accessibility. It replaces the original popup with three buttons.
+New tabs inherit the active partition. Copies inherit their source partition.
+`ExplorerApplication.InitializeRight` copies the active partition when a new pane opens.
+The model suite covers every sort column and direction with each partition.
+`ExplorerSmoke` includes the focused `--partition-smoke` mode for all views, lazy Tree children, and inheritance.
+
+The partition button displays the active `ButtonIcon` instead of text.
+`FilePaneView.UpdatePartitionButton` updates its icon, accessible label, and tooltip on setting changes and tab rendering.
+The three original SVGs are in `assets/icons`.
+`Drawing::button_icon` renders matching vector geometry without font glyphs or asynchronous image loading.
+The icon values append to the existing C++, C, C#, and Rust contracts.
+`style_basic_render_tests.cpp` checks distinct shapes, bounds, size scaling, foreground colors, and Classic/WinUI parity.
+The partition smoke also checks icon updates after setting changes, tab switches, and inheritance.

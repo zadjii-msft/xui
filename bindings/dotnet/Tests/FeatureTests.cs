@@ -384,6 +384,23 @@ internal static class FeatureTests
             var bar = w.CommandBar("Commands"); bar.SetCommands([command]); bar.Bind(1, 'K', KeyModifiers.Control);
             int actions = 0; bar.Event += e => { if (e.Kind == EventKind.Action) ++actions; }; bar.Invoke(1, true); Expect(actions == 1);
             var surface = w.CommandSurface("Palette"); surface.SetCommands([command]);
+            foreach (var icon in new[] { ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
+            {
+                bar.SetCommands([command with { Icon = icon }]);
+                Expect(bar.CommandButton(1).Icon == icon);
+            }
+            var flyout = w.MenuFlyout("Order").SetPlacement(PopupPlacement.Above);
+            flyout.SetCommands([new(1, "Folders, then files", Checked: true, Icon: ButtonIcon.FoldersFirst),
+                new(2, "Files, then folders", Checked: false, Icon: ButtonIcon.FilesFirst),
+                new(3, "Mixed", Checked: false, Icon: ButtonIcon.Mixed)]);
+            flyout.Menu.SetControlStyle(new ControlStyle(StyleTarget.CommandMenu, [new(StylePart.Root, new() { RowHeight = 32 })]));
+            Expect(flyout.Menu.GetControlStyleValues(StylePart.Root, true).RowHeight == 32);
+            Fails(() => _ = flyout.Editor);
+            Fails(() => flyout.SetPlacement((PopupPlacement)99));
+            Fails(() => flyout.SetCommands([new(1, "Invalid icon", Icon: (ButtonIcon)33)]));
+            int order = 0;
+            flyout.OnCommand((id, pin) => { Expect(!pin); order = (int)id; });
+            flyout.Invoke(3); Expect(order == 3);
             w.Breadcrumb("Path").SetSegments(choices);
             var pane = w.NavigationPane("Navigation"); pane.SetSource(source); pane.Items.Select(new(2, 7));
             var location = w.LocationPicker("Choose"); location.Editor.Text = "Local"; location.Navigation.SetSource(source);
@@ -506,18 +523,18 @@ internal static class FeatureTests
                     (uint)ButtonIcon.Save == 23 && (uint)ButtonIcon.SaveAs == 24 &&
                     (uint)ButtonIcon.Undo == 25 && (uint)ButtonIcon.Redo == 26 &&
                     (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28 &&
-                    (uint)ButtonIcon.ChevronRight == 29);
+                    (uint)ButtonIcon.ChevronRight == 29 && (uint)ButtonIcon.FoldersFirst == 30 && (uint)ButtonIcon.FilesFirst == 31 && (uint)ButtonIcon.Mixed == 32);
                 foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
                     ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
-                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight })
+                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight, ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
                     w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
-                Fails(() => iconButton.SetIcon((ButtonIcon)30));
-                Expect(iconButton.Icon == ButtonIcon.ChevronRight);
+                Fails(() => iconButton.SetIcon((ButtonIcon)33));
+                Expect(iconButton.Icon == ButtonIcon.Mixed);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
                 ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };

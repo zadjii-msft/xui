@@ -27,6 +27,8 @@ Switching to another application leaves the palette and its query open.
 Searchable palettes center horizontally in the available window area, with a stable search position near the top.
 Their height follows the results, up to the configured popup height. Longer results scroll; empty results retain one message row.
 Menus without search remain anchored to their invoking control.
+In C#, `Window.MenuFlyout(name)` creates a compact menu without palette controls or a keyboard footer.
+Its command rows show icons beside labels and checkmarks for checked commands.
 
 Up and Down move the selection. Right opens a submenu. Left and Escape close the current submenu.
 Enter runs the selected command. F2 runs only its pin action.

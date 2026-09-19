@@ -21,6 +21,7 @@ The existing C++ explorer remains available as `xui_demo.exe`.
 `SidebarLayout.xui` defines the navigation control.
 `PaletteLayout.xui` defines the folder and command palette.
 `ViewMenuLayout.xui` defines the footer's view-choice flyout.
+`FilePaneView` creates a compact command menu for folder and file order beside it.
 `PreviewLayout.xui` defines the content of an independent preview window.
 Its content parameters accept the image, native text, and status controls from `PreviewSession`.
 `PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
@@ -109,7 +110,7 @@ Shift extends the selection. Ctrl+Home and Ctrl+End select the first and last ma
 Left, Right, Home, and End retain their text-editing behavior.
 Mouse Back and Forward use the history of the pane under the pointer, including its native Find field and title tabs.
 Outside either pane, these buttons use the active pane. An open palette blocks mouse history navigation.
-Each tab retains its folder, filter, sort order, selection, and scroll position.
+Each tab retains its folder, filter, sort order, partition, selection, and scroll position.
 Right-clicking a tab opens its context menu without selecting it.
 The menu contains tab shifting, duplication, path copying, and closing commands.
 Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
@@ -224,6 +225,28 @@ The flyout identifies the current view. Escape closes it without a view change.
 The command palette contains a **Use ... view** command for each choice.
 Each tab retains its own view choice.
 New tabs start in Details. Tab duplication and window transfers retain the source view choice.
+
+The partition icon beside **Choose view** opens an upward flyout.
+It offers **Folders, then files**, **Files, then folders**, and **Mixed**.
+Each menu item shows its partition icon beside the label. A checkmark identifies the current partition.
+Arrow keys move between the items. Enter applies the choice, and Escape dismisses the menu without a change.
+The button shows the active partition: folders above files, files above folders, or an alternating arrangement.
+Its accessible name and tooltip identify the active setting.
+The original SVGs are [Folders first](../../assets/icons/folders-first.svg),
+[Files first](../../assets/icons/files-first.svg), and [Mixed](../../assets/icons/mixed.svg).
+Native vector paths render these designs in the button's foreground color, including high contrast.
+Folders first remains the default.
+Details, List, icon galleries, Tree, and every column in Columns view use the tab's partition.
+Tree applies the same order to each folder's children when it loads them.
+The selected sort applies within each partition, or across all entries for Mixed.
+Descending sort does not reverse the folder and file partitions.
+
+Each tab retains its own partition across navigation, refresh, and view changes.
+A new tab or pane inherits the active tab's partition.
+A duplicate inherits its source tab's partition, even when that source is not active.
+Changes to a new tab do not affect its source.
+Tab transfers preserve the partition.
+New windows also inherit the active or duplicated source tab's partition.
 
 View changes do not animate. The selected view appears in its final position.
 The old view loses input immediately through the native update.

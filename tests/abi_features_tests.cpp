@@ -363,6 +363,29 @@ void retained_facade_style_contracts() {
     ok(xui_stack_create(window, 0, &body));
     const auto dialog = create(window, XUI_CONTENT_DIALOG, body);
     const auto commands = create(window, XUI_COMMAND_SURFACE);
+    xui_feature_options menu_options{sizeof(menu_options), XUI_FEATURE_VERSION, text("Order"), 0, 0, 1};
+    xui_handle flyout{};
+    ok(xui_feature_create(window, XUI_COMMAND_SURFACE, &menu_options, &flyout));
+    ok(xui_popup_placement(flyout, 1));
+    expect(xui_popup_placement(flyout, 7) == XUI_INVALID_ARGUMENT);
+    for (const auto index : {0u, 1u, 3u}) {
+        xui_handle absent{};
+        expect(xui_feature_child(flyout, index, &absent) == XUI_WRONG_KIND && !absent);
+    }
+    xui_handle menu_status{};
+    ok(xui_feature_child(flyout, 2, &menu_status));
+    expect(read_value(menu_status, XUI_F_VISIBLE).first == 0);
+    xui_command_record order_commands[]{
+        {sizeof(xui_command_record), 0, 1, 0, text("Folders, then files"), {}, {}, 6, XUI_BUTTON_ICON_FOLDERS_FIRST},
+        {sizeof(xui_command_record), 0, 2, 0, text("Files, then folders"), {}, {}, 4, XUI_BUTTON_ICON_FILES_FIRST},
+        {sizeof(xui_command_record), 0, 3, 0, text("Mixed"), {}, {}, 4, XUI_BUTTON_ICON_MIXED}};
+    ok(xui_commands_set(flyout, order_commands, 3));
+    ok(xui_command_invoke(flyout, 3, 0));
+    order_commands[2].icon = XUI_BUTTON_ICON_MIXED + 1;
+    expect(xui_commands_set(flyout, order_commands, 3) == XUI_INVALID_ARGUMENT);
+    menu_options.mode = 2;
+    xui_handle invalid_flyout{};
+    expect(xui_feature_create(window, XUI_COMMAND_SURFACE, &menu_options, &invalid_flyout) == XUI_INVALID_ARGUMENT && !invalid_flyout);
     const auto location = create(window, XUI_LOCATION_PICKER);
     const auto items = create(window, XUI_ITEMS_VIEW);
     const auto view = create(window, XUI_VIEW_PICKER, items);
@@ -976,7 +999,7 @@ void explorer_contracts() {
     visuals[1].size = sizeof(xui_item_visual);
     static_assert(XUI_BUTTON_ICON_DRIVE == 21 && XUI_BUTTON_ICON_OPEN == 22);
     static_assert(XUI_BUTTON_ICON_SAVE == 23 && XUI_BUTTON_ICON_CHEVRON_DOWN == 28 && XUI_BUTTON_ICON_CHEVRON_RIGHT == 29);
-    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_CHEVRON_RIGHT; ++icon) {
+    for (uint32_t icon = 19; icon <= XUI_BUTTON_ICON_MIXED; ++icon) {
         visuals[1].icon = icon;
         ok(xui_navigation_items_visual(navigation, entries, visuals, 2));
         tab_visuals[0].icon = icon;
@@ -986,15 +1009,15 @@ void explorer_contracts() {
         button_icon = value();
         ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &button_icon)); expect(button_icon.first == icon);
     }
-    auto invalid_icon = value(); invalid_icon.first = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
+    auto invalid_icon = value(); invalid_icon.first = XUI_BUTTON_ICON_MIXED + 1;
     expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
     invalid_icon.first = UINT64_MAX;
     expect(xui_feature_set(leading, XUI_F_BUTTON_ICON, &invalid_icon) == XUI_INVALID_ARGUMENT);
     auto retained_icon = value();
-    ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &retained_icon)); expect(retained_icon.first == XUI_BUTTON_ICON_CHEVRON_RIGHT);
-    tab_visuals[0].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
+    ok(xui_feature_get(leading, XUI_F_BUTTON_ICON, &retained_icon)); expect(retained_icon.first == XUI_BUTTON_ICON_MIXED);
+    tab_visuals[0].icon = XUI_BUTTON_ICON_MIXED + 1;
     expect(xui_tab_items_visual(tabs, tab_items, tab_visuals, 2, 71, 1) == XUI_INVALID_ARGUMENT);
-    visuals[1].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
+    visuals[1].icon = XUI_BUTTON_ICON_MIXED + 1;
     expect(xui_navigation_items_visual(navigation, entries, visuals, 2) == XUI_INVALID_ARGUMENT);
     visuals[1].icon = 15;
     const std::string oversized(32768, 'x');
@@ -1415,7 +1438,7 @@ int main(int argc, char** argv) {
     expect(xui_map_complete(othermap,token,nullptr,0)==XUI_INVALID_ARGUMENT);ok(xui_request_cancel(token));
     xui_command_record commands[]{{sizeof(xui_command_record),0,1,0,text("Action"),text("Ctrl+K"),text("Pin"),0,0}};
     auto bar=handles[XUI_COMMAND_BAR];ok(xui_commands_set(bar,commands,1));xui_event action{};ok(xui_subscribe(bar,event,&action));
-    for (uint32_t icon = 14; icon <= XUI_BUTTON_ICON_CHEVRON_RIGHT; ++icon) {
+    for (uint32_t icon = 14; icon <= XUI_BUTTON_ICON_MIXED; ++icon) {
         commands[0].icon = icon;
         ok(xui_commands_set(bar, commands, 1));
         xui_handle command_button{}; ok(xui_command_bar_button(bar, 1, &command_button));
@@ -1423,7 +1446,7 @@ int main(int argc, char** argv) {
         ok(xui_feature_get(command_button, XUI_F_BUTTON_ICON, &command_icon));
         expect(command_icon.first == icon);
     }
-    commands[0].icon = XUI_BUTTON_ICON_CHEVRON_RIGHT + 1;
+    commands[0].icon = XUI_BUTTON_ICON_MIXED + 1;
     expect(xui_commands_set(bar, commands, 1) == XUI_INVALID_ARGUMENT);
     commands[0].icon = 0;
     ok(xui_commands_set(bar, commands, 1));

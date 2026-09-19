@@ -12,6 +12,7 @@ internal sealed class FileTreeView
     private string query = "";
     private int sort;
     private bool descending;
+    private ExplorerPartition partition;
     private string? restorePath;
     private string? restoreFolder;
     private double restoreOffset;
@@ -45,6 +46,7 @@ internal sealed class FileTreeView
         query = owner.Filter;
         sort = owner.SortColumn;
         descending = owner.SortDescending;
+        partition = owner.Partition;
         restorePath = owner.SelectedPath;
         restoreFolder = null;
         restoreOffset = owner.ScrollOffset;
@@ -103,11 +105,12 @@ internal sealed class FileTreeView
         string filter = query;
         int column = sort;
         bool reverse = descending;
+        var order = partition;
         app.Work.Start(async token =>
         {
             var snapshot = await app.Files.ReadDirectoryAsync(folder.FullPath, folder.FullPath, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            return FileSystemService.FilterAndSort(snapshot.Entries, filter, column, reverse);
+            return FileSystemService.FilterAndSort(snapshot.Entries, filter, column, reverse, order);
         }, loading.Token, children => Complete(request, children, ""), failure =>
             Complete(request, [], $"Cannot open {folder.FullPath}: {failure.Message}"));
     }

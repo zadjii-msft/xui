@@ -34,6 +34,8 @@ component FilePaneLayout {
                 Text("Loading folder...", ref: Status, id: $"pane-{Number}-status");
                 Button("Choose view", ref: ViewMode, id: $"pane-{Number}-view-mode",
                     icon: global::Xui.ButtonIcon.Library, size: (32, 32), help: "Choose icons, List, Tree, Details, or Columns");
+                Button("Folders, then files", ref: Partition, id: $"pane-{Number}-partition",
+                    icon: global::Xui.ButtonIcon.FoldersFirst, size: (32, 32), help: "Choose folder and file order");
             }
         }
     }

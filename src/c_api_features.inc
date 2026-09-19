@@ -330,7 +330,7 @@ xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_nav
             entry.label = decode(item.label); entry.keywords = decode(item.keywords);
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::mixed));
                 entry.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 entry.image_path = decode(visuals[i].image_path);
                 require(entry.image_path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
@@ -462,7 +462,8 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         const bool one = kind == XUI_EXPANDER || kind == XUI_POPUP || kind == XUI_CONTENT_DIALOG;
         const bool two = kind == XUI_ADAPTIVE_LAYOUT || kind == XUI_SPLIT_VIEW;
         require((one || two || kind == XUI_VIEW_PICKER) == bool(o->content) && two == bool(o->second), XUI_INVALID_ARGUMENT, "Invalid composition children.");
-        require((kind == XUI_COMBO_BOX && o->mode <= 1) || (kind == XUI_DATE_TIME_PICKER && o->mode <= 2) || !o->mode,
+        require(((kind == XUI_COMBO_BOX || kind == XUI_COMMAND_SURFACE) && o->mode <= 1) ||
+            (kind == XUI_DATE_TIME_PICKER && o->mode <= 2) || !o->mode,
             XUI_INVALID_ARGUMENT, "Invalid creation mode.");
         std::shared_ptr<Node> c, s;
         if (o->content) {
@@ -492,7 +493,19 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         case XUI_WRAP: e = std::make_shared<xui::Wrap>(); break;
         case XUI_ADAPTIVE_LAYOUT: e = std::make_shared<xui::AdaptiveLayout>(c->element, s->element); break;
         case XUI_COMMAND_BAR: e = std::make_shared<xui::CommandBar>(name); break;
-        case XUI_COMMAND_SURFACE: { auto v = std::make_shared<xui::CommandSurface>(name); e = v->popup(); r = v; break; }
+        case XUI_COMMAND_SURFACE: {
+            auto v = std::make_shared<xui::CommandSurface>(name, o->mode == 0);
+            if (o->mode == 1) {
+                v->content()->set_control_style_values(xui::StylePart::root,
+                    xui::PartStyleValues{.padding = xui::Insets{4, 4, 4, 4}});
+                v->content()->set_spacing(0);
+                v->results()->set_separator_after(false);
+                v->status()->set_visible(false);
+                v->menu()->set_item_size({272, 32});
+                v->popup()->set_preferred_size({280, 328});
+            }
+            e = v->popup(); r = v; break;
+        }
         case XUI_BREADCRUMB: e = std::make_shared<xui::Breadcrumb>(name); break;
         case XUI_NAVIGATION_PANE: e = std::make_shared<xui::NavigationPane>(name); break;
         case XUI_LOCATION_PICKER: { auto v = std::make_shared<xui::LocationPicker>(name); e = v->popup(); r = v; break; }
@@ -582,7 +595,7 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
-        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::chevron_right)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::mixed)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
         case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
         case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
@@ -821,7 +834,7 @@ xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* it
             xui::TabItem tab{items[i].id, decode(items[i].text)};
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::mixed));
                 tab.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 tab.image_path = decode(visuals[i].image_path);
             }
@@ -1147,7 +1160,7 @@ struct ForeignSource final : xui::ItemsSource {
                 state->callback_failure = status; state->window->close();
                 throw Failure{XUI_CALLBACK_FAILED, "An immutable visual callback failed."};
             }
-            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right) && required <= XUI_MAX_STRING_BYTES,
+            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::mixed) && required <= XUI_MAX_STRING_BYTES,
                 XUI_INVALID_ARGUMENT, "Invalid visual callback output.");
         };
         query(nullptr, 0);
@@ -1508,7 +1521,7 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
         for (uint32_t i = 0; i < count; ++i) {
             const auto& v = commands[i];
             require(v.size == sizeof(v), XUI_VERSION_MISMATCH, "Command size mismatch.");
-            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right),
+            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::mixed),
                 XUI_INVALID_ARGUMENT, "Invalid command enum.");
             if (n->kind == XUI_MENU_BAR && !v.parent)
                 require(v.kind == static_cast<uint32_t>(xui::CommandKind::submenu), XUI_INVALID_ARGUMENT, "MenuBar roots must be submenu groups.");

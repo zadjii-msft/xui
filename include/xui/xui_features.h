@@ -13,7 +13,8 @@ enum {
     XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
     XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
     XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
-    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28, XUI_BUTTON_ICON_CHEVRON_RIGHT = 29
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28, XUI_BUTTON_ICON_CHEVRON_RIGHT = 29,
+    XUI_BUTTON_ICON_FOLDERS_FIRST = 30, XUI_BUTTON_ICON_FILES_FIRST = 31, XUI_BUTTON_ICON_MIXED = 32
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -307,7 +308,8 @@ typedef struct xui_item_visual {
    none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
    minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
    folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
-   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28, chevron_right=29.
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28, chevron_right=29,
+   folders_first=30, files_first=31, mixed=32.
    This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
    Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */
@@ -378,6 +380,9 @@ typedef struct xui_feature_options {
     xui_handle content, second;
     uint32_t mode, reserved;
 } xui_feature_options;
+/* XUI_COMMAND_SURFACE mode: 0 creates a searchable palette; 1 creates a compact
+   menu flyout without a title, editor, close button, or keyboard footer.
+   Both modes accept checked commands with icons. Other mode values are invalid. */
 /* Numeric fields have operation-specific meanings. All unused fields must be zero.
    TextSelection offsets count UTF-16 code units. Split surrogate pairs are rejected.
    XUI_F_SELECTION_STATE is read-only: a indicates focus; b counts compact terms.

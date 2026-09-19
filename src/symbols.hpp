@@ -57,6 +57,9 @@ constexpr Symbol button_symbol(ButtonIcon icon) {
     case ButtonIcon::chevron_down: return Symbol::chevron_down;
     case ButtonIcon::chevron_right: return Symbol::chevron_right;
     case ButtonIcon::open: return Symbol::open;
+    case ButtonIcon::folders_first:
+    case ButtonIcon::files_first:
+    case ButtonIcon::mixed: throw std::invalid_argument("Partition icons use vector paths, not font symbols");
     }
     throw std::invalid_argument("Invalid button icon");
 }

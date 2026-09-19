@@ -295,6 +295,9 @@ FileExplorer `--smoke` covers the actual navigation, tab, pane, and Find composi
 FileExplorer `--view-switch-smoke` checks stationary view switches, native ownership, retained selection and scrolling, and the absence of an animation timer.
 The earlier `--view-entry-smoke` flag is an alias for this check.
 FileExplorer `--views-smoke` isolates the view menu, icon galleries, List, compact Tree rows, lazy child loading, Find, selection, tab state, and cancellation.
+FileExplorer `--partition-smoke` covers the partition flyout, all views, lazy Tree children, rapid changes, and tab, pane, and window inheritance.
+The flyout checks cover menu keyboard input, command icons, checked state, and dismissal.
+Run `dotnet run --project bindings\dotnet\Tests -c Release -- --features` for feature bindings, including compact menu creation and command icons.
 FileExplorer `--pane-animation-smoke` isolates split entry and reports observer timing and native clock delivery.
 These modes create temporary fixtures and close their own window.
 

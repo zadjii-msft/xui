@@ -77,7 +77,9 @@ enums!(
     ButtonBehavior {Momentary=0,Repeat=1,Toggle=2,Dropdown=3},
     ButtonIcon {None=0,Back=1,Forward=2,Up=3,Refresh=4,Split=5,Theme=6,Add=7,
         Minimize=8,Maximize=9,Restore=10,Close=11,More=12,Navigation=13,Home=14,
-        Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22,ChevronRight=29},
+        Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22,
+        Save=23,SaveAs=24,Undo=25,Redo=26,ChevronUp=27,ChevronDown=28,ChevronRight=29,
+        FoldersFirst=30,FilesFirst=31,Mixed=32},
     TrackSizing {Fixed=0,Automatic=1,Star=2},
     CommandKind {Action=0,Submenu=1,Separator=2}
 );
@@ -111,14 +113,16 @@ impl ProgressState {
 }
 impl ButtonIcon {
     pub(crate) fn from_native(value: u64) -> Result<Self> {
-        if value == Self::ChevronRight as u64 { return Ok(Self::ChevronRight); }
-        const ICONS: [ButtonIcon; 23] = [
+        const ICONS: [ButtonIcon; 33] = [
             ButtonIcon::None, ButtonIcon::Back, ButtonIcon::Forward, ButtonIcon::Up,
             ButtonIcon::Refresh, ButtonIcon::Split, ButtonIcon::Theme, ButtonIcon::Add,
             ButtonIcon::Minimize, ButtonIcon::Maximize, ButtonIcon::Restore, ButtonIcon::Close,
             ButtonIcon::More, ButtonIcon::Navigation, ButtonIcon::Home, ButtonIcon::Folder,
             ButtonIcon::Settings, ButtonIcon::Search, ButtonIcon::Library, ButtonIcon::History,
             ButtonIcon::Bookmark, ButtonIcon::Drive, ButtonIcon::Open,
+            ButtonIcon::Save, ButtonIcon::SaveAs, ButtonIcon::Undo, ButtonIcon::Redo,
+            ButtonIcon::ChevronUp, ButtonIcon::ChevronDown, ButtonIcon::ChevronRight,
+            ButtonIcon::FoldersFirst, ButtonIcon::FilesFirst, ButtonIcon::Mixed,
         ];
         usize::try_from(value).ok().and_then(|index| ICONS.get(index).copied())
             .ok_or_else(|| invalid("Invalid button icon."))

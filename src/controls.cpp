@@ -863,7 +863,7 @@ void TabStrip::set_colors(TabColors colors) {
 }
 void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected) {
     for (std::size_t i = 0; i < tabs.size(); ++i) {
-        if (tabs[i].icon < ButtonIcon::none || tabs[i].icon > ButtonIcon::chevron_right ||
+        if (tabs[i].icon < ButtonIcon::none || tabs[i].icon > ButtonIcon::mixed ||
             tabs[i].image_path.size() > 32767 || tabs[i].image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid tab icon or image path");
         if (!tabs[i].id || tabs[i].id > static_cast<std::uint64_t>(std::numeric_limits<std::intptr_t>::max()) - 100)
