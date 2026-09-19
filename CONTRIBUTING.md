@@ -139,6 +139,74 @@ Use Android Studio's layout and memory tools for native identity and Activity-re
 Use an authored handler breakpoint for the silent-setter check.
 Record the device, Android version, density, font scale, keyboard, and TalkBack version with acceptance results.
 
+## Experimental DOM web
+
+The [DOM backend](docs/specs/experimental-dom-web.md) uses local .NET WebAssembly and real DOM controls.
+The sample compiles the exact shared `Greeting.xui` file.
+It requires the .NET 10 SDK, but no native XUI runtime or additional browser workload.
+
+Build the sample and run the bounded dispatcher checks:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\WebDemo\WebDemo.csproj -c Debug
+dotnet run --project bindings\dotnet\Experimental\Xui.Web.Tests\Xui.Web.Tests.csproj -c Release
+```
+
+Start the development server on loopback:
+
+```powershell
+dotnet run --no-build --project bindings\dotnet\Experimental\WebDemo\WebDemo.csproj -c Debug --urls http://127.0.0.1:5187
+```
+
+Open `http://127.0.0.1:5187` in a browser.
+Use Ctrl+C to stop this server before the automated tests.
+The test runner starts its own loopback server and rejects an occupied test port.
+
+Install the scoped browser-test dependencies:
+
+```powershell
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests ci
+```
+
+For an installed Microsoft Edge browser, run:
+
+```powershell
+$env:XUI_BROWSER_CHANNEL = "msedge"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests test
+```
+
+For Playwright's isolated Chromium browser, run:
+
+```powershell
+Remove-Item Env:XUI_BROWSER_CHANNEL -ErrorAction SilentlyContinue
+Push-Location bindings\dotnet\Experimental\WebDemo.Tests
+npx playwright install chromium --only-shell
+npm test
+Pop-Location
+```
+
+The tests use one worker, isolated profiles, and native headless browser layout.
+They exercise actual generated C# through Wasm, not only a JavaScript model.
+The Debug-only `?test` bridge exposes state and lifecycle probes.
+The suite fails on unexpected console errors, page errors, or callback failures.
+
+The [recorded browser evidence](docs/llm/dom-web.md#browser-shutdown-limitation) includes a Windows ARM64 browser shutdown limitation.
+All application assertions passed, but the final browser process did not exit.
+The same shutdown timeout occurred on an independent blank page.
+This record is not a successful test-runner exit.
+
+Build or publish the Release application:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\WebDemo\WebDemo.csproj -c Release
+dotnet publish bindings\dotnet\Experimental\WebDemo\WebDemo.csproj -c Release
+```
+
+The static site is in `bindings\dotnet\Experimental\WebDemo\bin\Release\net10.0\publish\wwwroot`.
+The static host must serve `.wasm` files with the `application/wasm` MIME type.
+Release builds exclude the C# test bridge.
+The optional `wasm-tools` optimization recommendation does not prevent ordinary interpreted Wasm publication.
+
 ## Build the native code
 
 ```powershell

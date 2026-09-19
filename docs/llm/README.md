@@ -28,6 +28,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Portable foundation handoff](portable-foundation.md): Experimental managed host, generator profile, shared sample, and platform adapter boundary.
 - [Android experiment handoff](android-experiment.md): Native adapter source map, Android reference checks, device tests, and platform execution blockers.
+- [DOM web implementation and evidence](dom-web.md): Wasm bootstrap, DOM peers, browser acceptance checks, and the recorded browser-tooling limitation.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.

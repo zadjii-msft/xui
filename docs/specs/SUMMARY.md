@@ -39,6 +39,7 @@
 * [Declarative language](xui-language.md)
 * [Experimental portable XUI](experimental-portable-xui.md)
 * [Experimental Android backend](experimental-android.md)
+* [Experimental DOM web backend](experimental-dom-web.md)
 * [C ABI and binding contracts](bindings.md)
 * [Control styles and resources](control-styling.md)
 * [Control styling inventory](control-styling-inventory.md)

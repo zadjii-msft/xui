@@ -234,3 +234,6 @@ Actual browser and Android execution require separate platform implementation an
 
 The [Android adapter](experimental-android.md) implements this subset with native widgets and a shared-source Activity sample.
 Its reference-only compilation and arithmetic tests do not establish Android device execution.
+
+The [experimental DOM backend](experimental-dom-web.md) implements this subset with local .NET WebAssembly and native DOM controls.
+Its public contract describes browser layout, event ordering, input identity, and page lifetime.
