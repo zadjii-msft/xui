@@ -81,6 +81,9 @@ Shared [control styles](docs/specs/control-styling.md) customize colors, typogra
 
 ## Documentation
 
+The opt-in [portable `.xui` experiment](docs/specs/experimental-portable-xui.md) shares a limited C# UI subset across platform hosts.
+It does not change the supported Windows API.
+
 [Packages and deployment](docs/specs/packages.md) covers NuGet, Cargo, and runnable release samples.
 
 [XUI handbook](docs/specs/README.md) · [Tutorials](docs/specs/tutorials/README.md) · [All controls](docs/specs/controls/README.md) · [Language guides](docs/specs/languages/README.md)
