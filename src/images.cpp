@@ -506,7 +506,7 @@ std::shared_ptr<const ImagePixels> RowImages::pixels(ItemKey key) const {
 static void validate_row_visuals(const std::vector<RowVisual>& rows) {
     if (rows.size() > RowImages::maximum_rows) throw std::length_error("Too many visible row visuals");
     for (const auto& row : rows) {
-        if (row.visual.icon < ButtonIcon::none || row.visual.icon > ButtonIcon::chevron_down ||
+        if (row.visual.icon < ButtonIcon::none || row.visual.icon > ButtonIcon::chevron_right ||
             row.visual.image_path.size() > 32767 || row.visual.image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid row visual icon or image path");
         if (!std::isfinite(row.image_dips) || row.image_dips < 0 || row.image_dips > ImageLimits::output_dimension)

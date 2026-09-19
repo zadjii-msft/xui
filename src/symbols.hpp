@@ -55,6 +55,7 @@ constexpr Symbol button_symbol(ButtonIcon icon) {
     case ButtonIcon::redo: return Symbol::redo;
     case ButtonIcon::chevron_up: return Symbol::chevron_up;
     case ButtonIcon::chevron_down: return Symbol::chevron_down;
+    case ButtonIcon::chevron_right: return Symbol::chevron_right;
     case ButtonIcon::open: return Symbol::open;
     }
     throw std::invalid_argument("Invalid button icon");

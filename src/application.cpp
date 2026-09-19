@@ -4765,11 +4765,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (auto* menu = dynamic_cast<CommandMenu*>(collection)) { menu->execute(item_key.id); return 0; }
                     peer.collection_before = collection->selection();
                     const bool ctrl = (wparam & MK_CONTROL) != 0, shift = (wparam & MK_SHIFT) != 0;
-                    if (collection->wraps_items() && !shift) {
+                    const auto* items = dynamic_cast<ItemsView*>(collection);
+                    const bool single_click = items && items->single_click_activation() && !ctrl && !shift && !info.group;
+                    if (collection->wraps_items() && !shift && !single_click) {
                         peer.collection_drag = true; peer.collection_anchor = item_key; peer.collection_additive = ctrl; SetCapture(hwnd);
                     }
-                    collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
+                    const bool selected = collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
                         ctrl ? SelectionGesture::toggle : SelectionGesture::replace);
+                    if (single_click && selected && !closing && visible(peer) && enabled(peer) &&
+                        items->single_click_activation() && collection->source() == source)
+                        collection->activate_item(item_key);
                 }
                 return 0;
             }
@@ -4969,6 +4974,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_LBUTTONDBLCLK:
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
+                if (auto* items = dynamic_cast<ItemsView*>(collection); items && items->single_click_activation()) return 0;
                 if (const auto row = collection->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
                     const auto item_key = collection->source()->key(*row); const auto info = collection->source()->hierarchy(*row);
                     if (info.expandable) collection->disclose(item_key, !info.expanded);

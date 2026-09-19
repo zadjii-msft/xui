@@ -328,6 +328,53 @@ void layouts() {
     require(adaptive.overlay_active() && nav->bounds().x == detail->bounds().x && detail->focused() && nav->selection().contains({3, 1}), "Overlay reuses retained navigation and selection");
     adaptive.set_navigation_open(false); adaptive.arrange({0, 0, 400, 300});
     require(!adaptive.overlay_active() && nav->bounds().width == 0 && detail->bounds().width == 400, "Compact navigation closes without removing its model");
+    auto ancestor = std::make_shared<Button>(L"dev");
+    ancestor->set_auto_size(true);
+    ancestor->set_text_measurer([](std::wstring_view, TextStyle) { return Size{35, 18}; });
+    auto leaf = std::make_shared<Button>(L"bin");
+    leaf->set_auto_size(true);
+    leaf->set_text_measurer([](std::wstring_view, TextStyle) { return Size{21, 18}; });
+    AdaptiveLayout measured(ancestor, leaf);
+    measured.set_auto_size(true); measured.set_spacing(0); measured.set_padding({});
+    measured.set_compact_navigation(CompactNavigation::overlay); measured.set_navigation_open(false);
+    require(!measured.content_sized(), "Fixed breakpoint sizing remains the default");
+    measured.set_content_sized(true);
+    const auto parent_width = ancestor->measure({1000, 36}).width;
+    const auto leaf_width = leaf->measure({1000, 36}).width;
+    const auto full = measured.measure({1000, 36});
+    require(full.width == parent_width + leaf_width, "Content sizing measures both labels rather than counting characters");
+    measured.arrange({0, 0, full.width, 36});
+    require(!measured.compact() && ancestor->bounds().width == parent_width && leaf->bounds().width == leaf_width,
+        "Exact-fit ancestors retain their natural width, even when wider than half the layout");
+    measured.arrange({0, 0, full.width - 1, 36});
+    require(measured.compact() && ancestor->bounds().width == 0 && leaf->bounds().width == full.width - 1,
+        "Overflow hides the ancestor instead of squeezing its label");
+    measured.measure({1000, 36});
+    require(measured.compact(), "Natural-size probes do not toggle the arranged compact state");
+    measured.set_navigation_open(true);
+    measured.arrange({0, 0, full.width - 1, 36});
+    require(measured.overlay_active() && ancestor->bounds().width == parent_width &&
+        leaf->bounds().width == full.width - 1, "Content-sized overlays retain the measured navigation width");
+    measured.set_navigation_open(false);
+    measured.set_compact_navigation(CompactNavigation::stacked);
+    measured.arrange({0, 0, full.width - 1, 100});
+    require(measured.compact() && leaf->bounds().y == ancestor->bounds().height,
+        "Content-sized compact stacking uses the measured navigation height");
+    measured.set_compact_navigation(CompactNavigation::overlay);
+    ancestor->set_text_measurer([](std::wstring_view, TextStyle) { return Size{60, 18}; });
+    measured.arrange({0, 0, full.width + 25, 36});
+    require(!measured.compact() && ancestor->bounds().width == parent_width + 25,
+        "New font metrics update the measured breakpoint and ancestor width");
+    measured.set_padding({3, 0, 5, 0}); measured.set_spacing(7);
+    const auto padded = measured.measure({1000, 36});
+    require(padded.width == full.width + 25 + 8 + 7, "Content sizing includes authored insets and spacing");
+    measured.arrange({0, 0, padded.width, 36});
+    require(!measured.compact() && ancestor->bounds().x == 3 &&
+        leaf->bounds().x == 3 + parent_width + 25 + 7, "Measured arrange matches measured size including chrome");
+    measured.set_padding({}); measured.set_spacing(0);
+    measured.set_content_sized(false);
+    measured.arrange({0, 0, 900, 36});
+    require(!measured.compact() && ancestor->bounds().width == 220, "Disabling content sizing restores the configured navigation extent");
 }
 }
 int main() {

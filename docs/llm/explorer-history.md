@@ -55,6 +55,53 @@ The complete explorer smoke stopped at the existing palette Escape focus asserti
 An archive of commit `bce8588bb8174a291c29fe9da430db853b2d5988`, with its own unchanged native build, failed at the same assertion.
 This comparison does not identify the cause of that existing failure.
 
+## Breadcrumb address composition, 2026-09-18
+
+`BreadcrumbAddressBar.cs` replaces the C# pane's address button with a demo-local composition.
+`FilePaneLayout.xui` accepts its root as an element parameter.
+`Models/BreadcrumbPath.cs` separates drive, UNC, and extended roots from their descendant components without filesystem access.
+The shared native `Breadcrumb` contract remains unchanged.
+
+Each path segment has independent name and subfolder buttons.
+Nested `AdaptiveLayout` elements hide earlier segments as available width decreases.
+Their content-sized mode measures both children for each breakpoint and navigation extent.
+The original character-count estimate truncated `dev` despite sufficient space.
+Each segment now uses a horizontal stack with measured name and chevron widths.
+The ancestor menu retains the complete path, including components outside the 64-pair retained limit.
+One `ContentHost` owns each generation of segment controls.
+Button actions use application dispatch because a content-scoped callback cannot replace its own content.
+The generation check rejects queued actions from retired segments.
+
+The dropdown and its source belong to the window, not the replaceable path content.
+The dropdown uses the stable path presentation as its anchor because popup and anchor handles must share an ownership scope.
+`UiWork` and a request cancellation token reject late directory results.
+`FilePaneView` retains responsibility for navigation commits, errors, history, and tab state.
+
+The flyout list opts into `ItemsView.SetSingleClickActivation(true)`.
+Pointer activation remains separate from selection, so arrow keys and initial selection do not navigate.
+The native handler rejects activation if a selection callback replaces the source or hides the control.
+
+The current name has measured width and two DIPs of horizontal padding on each side.
+The remaining space contains a separate named button with a zero-size icon.
+This keeps the empty area accessible without a visible label or glyph.
+The current name, trailing space, Ctrl+L, Alt+D, and Ctrl+G open the existing navigation palette.
+The initial inline editor was removed after maintainer feedback.
+`ButtonIcon::chevron_right` appends ABI value 29 and uses the existing Fluent symbol or two Classic strokes.
+
+The ARM64 Release build, model suite, and focused `--address-smoke` passed.
+The refined address smoke checks native mouse activation of trailing space and stable current-name width after resize.
+The focused pane-animation smoke also passed.
+Native control, image, Fluent lifecycle, and software-rendering checks passed.
+The pixel checks cover right chevrons and the blank trailing button in Classic and WinUI.
+The focused Rust icon test and the managed feature assertions passed.
+
+The full native window run stopped at the unchanged page composition-buffer growth assertion.
+The full managed runner stopped at the style-cleanup error-message assertion.
+Unmodified `HEAD` managed sources reproduced the style-cleanup assertion with the same native runtime.
+The complete `--smoke` run stopped at the palette's native Escape focus-restoration assertion.
+An exported, unmodified `HEAD` demo reproduced that assertion with the same native runtime.
+This run did not include File Pilot pixel comparison or physical IME interaction.
+
 ## Navigation filter appearance, 2026-09-18
 
 `ExplorerStyles.NavigationFilter` gives the retained search editor a surface that matches the WinUI window background, with only a thin bottom border.

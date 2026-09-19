@@ -13,6 +13,7 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            BreadcrumbTests();
             await PreviewTests(fixture);
             assertions += await FolderMetadataTests.Run(fixture);
             TabTests(fixture);
@@ -37,6 +38,32 @@ internal static class Program
             if (!Directory.EnumerateFileSystemEntries(parent).Any())
                 Directory.Delete(parent);
         }
+    }
+
+    private static void BreadcrumbTests()
+    {
+        foreach (string path in new[]
+        {
+            @"C:\", @"C:\Users\Example\Documents\", @"\\server\share",
+            @"\\server\share\Folder\Child", @"\\?\C:\Folder\Child",
+            @"\\?\UNC\server\share\Folder", @"C:\space here\資😀", @"C:/one/two"
+        })
+        {
+            var parts = BreadcrumbPath.Create(path);
+            string normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            Equal(normalized, Path.TrimEndingDirectorySeparator(parts[^1].Path));
+            Equal(Path.GetPathRoot(normalized)!, parts[0].Path);
+            True(parts.All(part => part.Name.Length != 0 && Path.IsPathFullyQualified(part.Path)));
+            for (int i = 1; i < parts.Count; i++)
+                Equal(Path.Combine(parts[i - 1].Path, parts[i].Name), parts[i].Path);
+        }
+        Equal(1, BreadcrumbPath.Create(@"C:\").Count);
+        Equal(1, BreadcrumbPath.Create(@"\\server\share\").Count);
+        Equal(@"C:\two", BreadcrumbPath.Create(@"C:\one\..\two")[^1].Path);
+        var deep = BreadcrumbPath.Create(@"C:\" + string.Join('\\', Enumerable.Repeat("folder", 100)));
+        Equal(101, deep.Count);
+        Throws<ArgumentException>(() => BreadcrumbPath.Create(@"relative\path"));
+        Throws<ArgumentException>(() => BreadcrumbPath.Create(@"C:relative"));
     }
 
     private static async Task PreviewTests(string fixture)

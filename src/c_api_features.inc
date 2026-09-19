@@ -330,7 +330,7 @@ xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_nav
             entry.label = decode(item.label); entry.keywords = decode(item.keywords);
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_down));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
                 entry.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 entry.image_path = decode(visuals[i].image_path);
                 require(entry.image_path.size() <= 32767, XUI_INVALID_ARGUMENT, "Image path exceeds 32767 UTF-16 units.");
@@ -582,7 +582,7 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
         case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
         case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
-        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::chevron_down)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::chevron_right)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
         case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
         case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
         case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
@@ -630,6 +630,8 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
                 XUI_INVALID_ARGUMENT, "Gallery presentation requires ItemsView.");
             collection.set_presentation(static_cast<xui::ItemsPresentation>(v.first)); break;
         }
+        case XUI_F_SINGLE_CLICK_ACTIVATION: fields(v, 16); limit(v.first, 1); feature<xui::ItemsView>(n).set_single_click_activation(v.first != 0); break;
+        case XUI_F_CONTENT_SIZED: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_content_sized(v.first != 0); break;
         case XUI_F_OFFSET:
             fields(v, 1);
             if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).set_offset(v.a, as<xui::DataGrid>(n).horizontal_offset());
@@ -687,6 +689,8 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
         case XUI_F_BADGE_KIND: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).kind()); break;
         case XUI_F_BADGE_COUNT: v->first = feature<xui::InfoBadge>(n).count(); break;
         case XUI_F_BADGE_ICON: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).icon()); break;
+        case XUI_F_SINGLE_CLICK_ACTIVATION: v->first = feature<xui::ItemsView>(n).single_click_activation(); break;
+        case XUI_F_CONTENT_SIZED: v->first = feature<xui::AdaptiveLayout>(n).content_sized(); break;
         case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::Progress>(n).state()); break;
         case XUI_F_TEXT_SELECTION: { auto s = feature<xui::DocumentText>(n).selection(); v->first = s.start; v->second = s.end; break; }
         case XUI_F_READ_ONLY: v->first = feature<xui::DocumentText>(n).read_only(); break;
@@ -817,7 +821,7 @@ xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* it
             xui::TabItem tab{items[i].id, decode(items[i].text)};
             if (visuals) {
                 require(visuals[i].size == sizeof(xui_item_visual), XUI_VERSION_MISMATCH, "Visual record size mismatch.");
-                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_down));
+                limit(visuals[i].icon, static_cast<uint64_t>(xui::ButtonIcon::chevron_right));
                 tab.icon = static_cast<xui::ButtonIcon>(visuals[i].icon);
                 tab.image_path = decode(visuals[i].image_path);
             }
@@ -1143,7 +1147,7 @@ struct ForeignSource final : xui::ItemsSource {
                 state->callback_failure = status; state->window->close();
                 throw Failure{XUI_CALLBACK_FAILED, "An immutable visual callback failed."};
             }
-            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_down) && required <= XUI_MAX_STRING_BYTES,
+            require(icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right) && required <= XUI_MAX_STRING_BYTES,
                 XUI_INVALID_ARGUMENT, "Invalid visual callback output.");
         };
         query(nullptr, 0);
@@ -1504,7 +1508,7 @@ xui_status XUI_CALL xui_commands_set(xui_handle target, const xui_command_record
         for (uint32_t i = 0; i < count; ++i) {
             const auto& v = commands[i];
             require(v.size == sizeof(v), XUI_VERSION_MISMATCH, "Command size mismatch.");
-            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_down),
+            require(v.kind <= 2 && v.flags <= 7 && v.icon <= static_cast<uint32_t>(xui::ButtonIcon::chevron_right),
                 XUI_INVALID_ARGUMENT, "Invalid command enum.");
             if (n->kind == XUI_MENU_BAR && !v.parent)
                 require(v.kind == static_cast<uint32_t>(xui::CommandKind::submenu), XUI_INVALID_ARGUMENT, "MenuBar roots must be submenu groups.");

@@ -63,12 +63,12 @@ void row_image_tests() {
     std::vector<RowVisual> rows;
     std::vector<uint64_t> retained;
     for (const auto icon : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
-        ButtonIcon::chevron_up, ButtonIcon::chevron_down}) {
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::chevron_right}) {
         first.sync(source, {{source->key(0), {icon, {}}}}, 96, wake, retained);
         check(first.visual(source->key(0)).icon == icon && !first.count(),
             "Document row icons retain their value without image requests");
     }
-    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(29)}) {
+    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(30)}) {
         bool rejected{};
         try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained); }
         catch (const std::invalid_argument&) { rejected = true; }

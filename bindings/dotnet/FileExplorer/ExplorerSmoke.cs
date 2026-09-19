@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address }
 
 internal static class ExplorerSmoke
 {
@@ -113,6 +113,13 @@ internal static class ExplorerSmoke
                     await Ui(app.Window.Close);
                     return;
                 }
+                if (mode == ExplorerSmokeMode.Address)
+                {
+                    await AddressChecks();
+                    Console.WriteLine("Explorer address smoke passed: compact chevrons, content-sized current folder, trailing-space palette activation, shortcuts, folder menus, cancellation, overflow, and pane isolation.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.ViewSwitch)
                 {
                     await CreateViewportFixture();
@@ -167,6 +174,7 @@ internal static class ExplorerSmoke
                 await Ready(app.Left);
                 await Check(() => app.Left.VisibleCount == 4, "Folder rows");
                 await Check(() => app.Left.Model.Active.Path == fixture, "Committed address");
+                await AddressChecks();
                 await CaptionCheck(app.Left);
                 await NavigationMenuChecks();
                 await AdditionalViewsChecks();
@@ -338,7 +346,7 @@ internal static class ExplorerSmoke
                     "Failed navigation preserves committed view");
                 await DriveNavigationChecks(fixture);
 
-                await Ui(() => Shortcut(0x4c, KeyModifiers.Control));
+                await Ui(() => Shortcut(0x47, KeyModifiers.Control));
                 await Until(() => !app.Palettes.Pending);
                 await Check(() => app.Palettes.IsOpen && app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar && app.Palettes.ResultCount == 4,
                     "Navigation palette opens at CWD");
@@ -554,6 +562,224 @@ internal static class ExplorerSmoke
             finally
             {
                 if (Directory.Exists(fixture)) Directory.Delete(fixture, recursive: true);
+            }
+
+            async Task AddressChecks()
+            {
+                void ClickFirstFolder()
+                {
+                    nint target = GetFocus();
+                    int point = (int)(12 * GetDpiForWindow(target) / 96);
+                    SendMessageW(target, 0x0201, 1, (point << 16) | point);
+                    SendMessageW(target, 0x0202, 0, (point << 16) | point);
+                }
+                var pane = app.Left;
+                var bar = pane.AddressBar;
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Check(() => bar.Segments.Count > 1 && bar.Segments[^1].Path == fixture,
+                    "Breadcrumbs reflect the committed folder");
+                foreach (string folder in new[] { "dev", "WWW", "\u8cc7\u6599" })
+                {
+                    string parent = Path.Combine(Path.GetPathRoot(fixture)!, folder);
+                    await Ui(() => bar.SetPath(parent));
+                    await Until(() => bar.Segments[^1].Name.GetBounds().Width > 0);
+                    float naturalWidth = 0;
+                    await Ui(() => naturalWidth = bar.Segments[^1].Name.GetBounds().Width);
+                    await Ui(() => bar.SetPath(Path.Combine(parent, "bin", "terminal-releases")));
+                    await Until(() => bar.Segments.Single(segment => segment.Path == parent).Name.GetBounds().Width > 0);
+                    await Check(() => bar.Segments.Single(segment => segment.Path == parent).Name.GetBounds().Width >= naturalWidth,
+                        $"Ancestor '{folder}' retains its measured name width instead of a character-count estimate");
+                }
+                await Ui(() => bar.SetPath(fixture));
+                await Ui(() => Shortcut(0x4c, KeyModifiers.Control));
+                await Until(() => !app.Palettes.Pending);
+                await Check(() => app.Palettes.IsOpen && app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar,
+                    "Ctrl+L opens the existing navigation palette");
+                await Ui(() =>
+                {
+                    SendMessageTextW(GetFocus(), 0x000c, 0, "draft \u8cc7\U0001f600");
+                    if (app.Palettes.QueryText != "draft \u8cc7\U0001f600")
+                        throw new InvalidOperationException("The navigation palette must retain native Unicode text input.");
+                    Shortcut(0x1b);
+                });
+                await Check(() => !app.Palettes.IsOpen && pane.Model.Active.Path == fixture,
+                    "Escape closes the palette without navigating");
+                await Ui(() => Shortcut(0x44, KeyModifiers.Alt));
+                await Check(() => app.Palettes.IsOpen, "Alt+D opens the navigation palette");
+                await Ui(() =>
+                {
+                    app.Palettes.Dismiss();
+                    pane.Navigate(Path.Combine(fixture, "alpha"));
+                });
+                await Ready(pane);
+                float currentWidth = 0;
+                await Ui(() => currentWidth = bar.Segments[^1].Name.GetBounds().Width);
+                await Check(() => currentWidth is > 0 and < 80 && bar.TrailingSpace.GetBounds().Width > 0
+                    && bar.Segments.All(segment => segment.Children.Icon == ButtonIcon.ChevronRight)
+                    && bar.Segments[^1].Name.EffectiveStyleValues.Padding == new Insets(2, 0, 2, 0),
+                    "Short current names use their measured width, compact padding, and right chevrons");
+                await Ui(() => bar.Root.MaximumSize(400, 36));
+                await Until(() => bar.Root.GetBounds().Width <= 400);
+                await Check(() => bar.Segments[^1].Name.GetBounds().Width == currentWidth,
+                    "The current name does not expand with the address slot");
+                await Ui(() => bar.Root.MaximumSize(float.MaxValue, float.MaxValue));
+                await Until(() => bar.TrailingSpace.GetBounds().Width > 0);
+                await Ui(() =>
+                {
+                    bar.TrailingSpace.Focus();
+                    nint target = GetFocus();
+                    SendMessageW(target, 0x0201, 1, (12 << 16) | 4);
+                    SendMessageW(target, 0x0202, 0, (12 << 16) | 4);
+                });
+                await Until(() => app.Palettes.IsOpen && !app.Palettes.Pending);
+                await Check(() => app.Palettes.QueryText == Path.Combine(fixture, "alpha") + Path.DirectorySeparatorChar,
+                    "Clicking past the final segment opens the palette for that pane");
+                await Ui(app.Palettes.Dismiss);
+                await Ui(() => bar.Segments.Single(segment => segment.Path == fixture).Name.Invoke());
+                await Until(() => pane.Model.Active.Path == fixture && !pane.IsLoading && !pane.IsFiltering);
+                await Ui(() => bar.Segments[^1].Children.Invoke());
+                await Until(() => bar.MenuOpen && !bar.Pending);
+                await Check(() => bar.FolderCount == 2 && pane.Model.Active.Path == fixture,
+                    "The separator lists child folders without files or implicit navigation");
+                await Ui(ClickFirstFolder);
+                await Until(() => pane.Model.Active.Path == Path.Combine(fixture, "alpha") && !pane.IsLoading && !pane.IsFiltering);
+                await Check(() => !bar.MenuOpen && pane.FilesFocused,
+                    "One click activates the already-selected first folder and closes its flyout");
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Ui(() => bar.Segments[^1].Children.Invoke());
+                await Until(() => bar.MenuOpen && !bar.Pending);
+                await Ui(() => SendMessageW(GetFocus(), 0x0100, 0x28, 1));
+                await Check(() => bar.MenuOpen && pane.Model.Active.Path == fixture,
+                    "Arrow selection does not activate a flyout folder");
+                await Ui(() => SendMessageW(GetFocus(), 0x0100, 0x26, 1));
+                await Ui(() =>
+                {
+                    if (!PostMessageW(GetFocus(), 0x0100, 0x0d, 1))
+                        throw new InvalidOperationException("Could not activate a folder with native Enter.");
+                });
+                await Until(() => pane.Model.Active.Path == Path.Combine(fixture, "alpha") && !pane.IsLoading && !pane.IsFiltering);
+                await Check(() => !bar.MenuOpen && pane.FilesFocused, "Folder activation closes the menu and focuses its pane");
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Ui(() => bar.Segments[^1].Name.Invoke());
+                await Until(() => app.Palettes.IsOpen);
+                await Check(() => app.Palettes.QueryText == fixture + Path.DirectorySeparatorChar,
+                    "The current folder name opens the navigation palette");
+                await Ui(() => Shortcut(0x1b));
+                await Ui(() =>
+                {
+                    var name = bar.Segments[^1].Name;
+                    name.Focus();
+                    if (app.Window.KeyHandler?.Invoke(new(0x28, KeyModifiers.None, name.Id)) != true)
+                        throw new InvalidOperationException("Down must open the focused breadcrumb's folder menu.");
+                });
+                await Until(() => bar.MenuOpen && !bar.Pending);
+                await Ui(() => Shortcut(0x1b));
+                await Check(() => !bar.MenuOpen, "Escape dismisses the folder dropdown");
+                await Ui(() =>
+                {
+                    bar.ShowChildren(Path.Combine(fixture, "missing"));
+                });
+                await Until(() => !bar.Pending);
+                await Check(() => bar.MenuOpen && bar.FolderCount == 0 && bar.MenuMessage.StartsWith("Cannot list folders:"),
+                    "Folder enumeration errors remain explicit");
+                await Ui(() => bar.ShowChildren(Path.Combine(fixture, "beta")));
+                await Until(() => !bar.Pending);
+                await Check(() => bar.FolderCount == 0 && bar.MenuMessage == "No subfolders.",
+                    "An empty directory is distinct from a failed enumeration");
+                await Ui(() =>
+                {
+                    bar.ShowChildren(fixture);
+                    bar.ShowChildren(Path.Combine(fixture, "beta"));
+                });
+                await Until(() => !bar.Pending);
+                await Task.Delay(100);
+                await Check(() => bar.FolderCount == 0 && bar.MenuMessage == "No subfolders.",
+                    "A canceled folder request cannot replace a newer result");
+                await Ui(() =>
+                {
+                    bar.ShowChildren(fixture);
+                    bar.DismissMenu();
+                });
+                await Task.Delay(100);
+                await Check(() => !bar.Pending && !bar.MenuOpen, "Dismissal cancels late folder results");
+                await Ui(bar.ShowAncestors);
+                await Check(() => bar.MenuOpen && bar.FolderCount == BreadcrumbPath.Create(fixture).Count,
+                    "Ancestor overflow retains every location");
+                await Ui(ClickFirstFolder);
+                await Until(() => pane.Model.Active.Path == BreadcrumbPath.Create(fixture)[0].Path && !pane.IsLoading && !pane.IsFiltering);
+                await Check(() => !bar.MenuOpen, "One click activates an ancestor and closes its flyout");
+                await Ui(() => pane.Navigate(fixture));
+                await Ready(pane);
+                await Ui(() =>
+                {
+                    bar.DismissMenu();
+                    bar.Root.MaximumSize(180, 36);
+                });
+                await Until(() => bar.Root.GetBounds().Width <= 180);
+                await Check(() => bar.Segments[^1].Name.GetBounds().Width > 0
+                    && bar.Segments.Take(bar.Segments.Count - 1).Any(segment => segment.Name.GetBounds().Width == 0)
+                    && bar.Segments[^1].Name.GetBounds().X + bar.Segments[^1].Name.GetBounds().Width
+                        <= bar.Root.GetBounds().X + bar.Root.GetBounds().Width,
+                    "Narrow layout keeps the current folder inside the address slot");
+                await Ui(() =>
+                {
+                    bar.Root.MaximumSize(float.MaxValue, float.MaxValue);
+                    bar.ShowChildren(fixture);
+                    pane.NewTab(fixture);
+                });
+                await Ready(pane);
+                await Check(() => !bar.MenuOpen, "Tab switching cancels the folder dropdown");
+                await Ui(() => pane.CloseTab());
+                await Ready(pane);
+                await Ui(() => pane.SetViewMode(ExplorerViewMode.Columns));
+                await Ready(pane);
+                await Ui(() =>
+                {
+                    bar.ShowNavigation();
+                });
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() => app.Palettes.EditQuery(Path.Combine(fixture, "alpha")));
+                await Until(() => !app.Palettes.Pending);
+                await Ui(() => app.Palettes.Accept(false));
+                await Ready(pane);
+                await Check(() => pane.IsColumns && !app.Palettes.IsOpen && pane.FilesFocused
+                    && pane.Model.Active.Path == Path.Combine(fixture, "alpha"),
+                    "Palette navigation preserves Columns view and its focus");
+                await Ui(() =>
+                {
+                    pane.SetViewMode(ExplorerViewMode.Details);
+                    pane.Navigate(fixture);
+                });
+                await Ready(pane);
+                await Ui(() => app.ToggleSplit());
+                await Ready(app.Right);
+                await Until(() => app.SecondPaneVisible);
+                await Ui(() =>
+                {
+                    app.Right.AddressBar.ShowNavigation();
+                });
+                await Check(() => app.Palettes.IsOpen
+                    && ReferenceEquals(app.Active, app.Right),
+                    "Address palette activation uses its owning pane");
+                await Ui(() =>
+                {
+                    app.Palettes.Dismiss();
+                    app.ToggleSplit();
+                    pane.Focus();
+                    Shortcut(0x47, KeyModifiers.Control);
+                });
+                await Until(() => !app.Palettes.Pending);
+                await Check(() => app.Palettes.IsOpen, "Ctrl+G retains the searchable navigation palette");
+                await Ui(() =>
+                {
+                    app.Palettes.Dismiss();
+                    pane.Navigate(fixture);
+                    pane.Focus();
+                });
+                await Ready(pane);
             }
 
             async Task HoverJoinChecks()

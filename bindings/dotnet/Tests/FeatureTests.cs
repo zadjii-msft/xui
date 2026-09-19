@@ -505,18 +505,19 @@ internal static class FeatureTests
                     (uint)ButtonIcon.Bookmark == 20 && (uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 &&
                     (uint)ButtonIcon.Save == 23 && (uint)ButtonIcon.SaveAs == 24 &&
                     (uint)ButtonIcon.Undo == 25 && (uint)ButtonIcon.Redo == 26 &&
-                    (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28);
+                    (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28 &&
+                    (uint)ButtonIcon.ChevronRight == 29);
                 foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
                     ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
-                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown })
+                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
                     w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
-                Fails(() => iconButton.SetIcon((ButtonIcon)29));
-                Expect(iconButton.Icon == ButtonIcon.ChevronDown);
+                Fails(() => iconButton.SetIcon((ButtonIcon)30));
+                Expect(iconButton.Icon == ButtonIcon.ChevronRight);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
                 ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };

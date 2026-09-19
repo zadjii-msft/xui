@@ -43,18 +43,17 @@ internal sealed class FilePaneView
         Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
-        layout = new(window, number, path, attach: false);
+        AddressBar = new(app, this, number);
+        layout = new(window, number, AddressBar.Root, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
         BackButton = back = layout.Back;
         forward = layout.Forward;
         up = layout.Up;
-        Address = layout.Address;
         WireButton(back, () => MoveHistory(-1));
         WireButton(forward, () => MoveHistory(1));
         WireButton(up, Up);
-        WireButton(Address, () => app.Palettes.ShowNavigation(this));
         WireButton(layout.Refresh, Refresh);
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
@@ -122,7 +121,6 @@ internal sealed class FilePaneView
         Grid.FocusEntered += Activate;
         Items.FocusEntered += Activate;
         Tree.FocusEntered += Activate;
-        Address.FocusEntered += Activate;
         find.FocusEntered += Activate;
         find.Changed += text =>
         {
@@ -174,7 +172,8 @@ internal sealed class FilePaneView
     public Grid Root { get; }
     public TabStrip Tabs { get; }
     internal TabContextMenu TabMenu { get; }
-    public Button Address { get; }
+    public BreadcrumbAddressBar AddressBar { get; }
+    public Button Address => AddressBar.AncestorsButton;
     public Button BackButton { get; }
     public DataGrid Grid { get; }
     public ItemsView Items { get; }
@@ -384,6 +383,7 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        AddressBar.DismissMenu();
         SaveViewport();
         navigation.Cancel();
         navigation.Dispose();
@@ -507,7 +507,8 @@ internal sealed class FilePaneView
 
     private void SetPaneControlsVisible(bool visible)
     {
-        foreach (var control in new Control[] { back, forward, up, Address, layout.Refresh,
+        AddressBar.SetVisible(visible);
+        foreach (var control in new Control[] { back, forward, up, layout.Refresh,
             layout.Commands, layout.ViewMode, layout.Feedback, status })
             control.Visible(visible);
     }
@@ -900,6 +901,7 @@ internal sealed class FilePaneView
 
     public void DisposeSources()
     {
+        AddressBar.Dispose();
         feedback.Cancel();
         feedback.Dispose();
         foreach (var column in columnViews) column.Source.Dispose();
@@ -927,7 +929,7 @@ internal sealed class FilePaneView
 
     private void UpdateNavigation()
     {
-        Address.Text = Model.Active.Path;
+        AddressBar.SetPath(Model.Active.Path);
         back.Enabled = Model.Active.CanBack;
         forward.Enabled = Model.Active.CanForward;
         up.Enabled = Directory.GetParent(Model.Active.Path) is not null;
@@ -937,6 +939,7 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         navigation.Cancel();
         filtering.Cancel();

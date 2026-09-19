@@ -286,6 +286,12 @@ The style target is `wrap`, with frame, separator, padding, and spacing.
 Use `AdaptiveLayout` for navigation and content that share a row at wide widths.
 Compact mode can stack the same children or show a navigation overlay.
 
+C# `SetContentSized(true)` uses the measured child widths for the breakpoint and the navigation extent.
+C++ and Rust expose `set_content_sized(true)`. The C ABI property is `XUI_F_CONTENT_SIZED` (55).
+The default is false, which retains the configured breakpoint and extent.
+This mode suits content-sized buttons and labels, not children that request all available width.
+`AutoSize(true)` also makes the layout report its measured size to its parent.
+
 {% tabs %}
 {% tab title=".xui" %}
 

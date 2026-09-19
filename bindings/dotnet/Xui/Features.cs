@@ -497,8 +497,15 @@ public sealed unsafe partial class DataGrid
     public DataGrid SetColumnOrder(ReadOnlySpan<uint> order)
     { Window.Guard(); if (order.Length > 256) throw new ArgumentOutOfRangeException(nameof(order)); fixed (uint* p = order) Window.Check(Native.GridColumnOrder(Handle, p, (uint)order.Length)); return this; }
 }
+public sealed partial class AdaptiveLayout
+{
+    public bool ContentSized => Features.Get(this, 55).First != 0;
+    public AdaptiveLayout SetContentSized(bool enabled) { Features.Set(this, 55, first: enabled ? 1u : 0u); return this; }
+}
 public sealed partial class ItemsView
 {
+    public bool SingleClickActivation => Features.Get(this, 54).First != 0;
+    public ItemsView SetSingleClickActivation(bool enabled) { Features.Set(this, 54, first: enabled ? 1u : 0u); return this; }
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
     public ItemsView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
@@ -616,7 +623,7 @@ public sealed unsafe partial class Window
             try
             {
                 var item = pin.Source.Item(index, column);
-                if ((uint)item.Icon > (uint)ButtonIcon.ChevronDown) throw new ArgumentException("Invalid item icon.");
+                if ((uint)item.Icon > (uint)ButtonIcon.ChevronRight) throw new ArgumentException("Invalid item icon.");
                 if (item.ImagePath.Length > 32767) throw new ArgumentException("Image path exceeds 32767 UTF-16 units.");
                 var bytes = Utf8(item.ImagePath);
                 *icon = (uint)item.Icon; *required = (uint)bytes.Length;

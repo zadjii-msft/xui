@@ -76,9 +76,10 @@ Invalid strings, wrong-thread calls, and native title failures throw exceptions.
 `ButtonIcon::save`, `save_as`, `undo`, and `redo` provide document command icons.
 C# exposes `ButtonIcon.Save`, `SaveAs`, `Undo`, and `Redo` through `Button.SetIcon`.
 Their ABI values are 23, 24, 25, and 26. Existing icon values, including Open at 22, remain unchanged.
-`ButtonIcon::chevron_up` and `chevron_down` provide disclosure icons with ABI values 27 and 28.
-C# exposes these as `ButtonIcon.ChevronUp` and `ChevronDown`.
-Classic draws two strokes; WinUI uses the existing ChevronUp and ChevronDown symbols.
+`ButtonIcon::chevron_up`, `chevron_down`, and `chevron_right` provide disclosure icons with ABI values 27, 28, and 29.
+C# exposes these as `ButtonIcon.ChevronUp`, `ChevronDown`, and `ChevronRight`.
+Rust exposes the right chevron as `ButtonIcon::ChevronRight`.
+Classic draws two strokes. WinUI uses the corresponding ChevronUp, ChevronDown, and ChevronRight symbols.
 The same icons work in navigation entries, tabs, command records, and collection visuals.
 Classic draws vector shapes. WinUI uses the Save, SaveAs, Undo, and Redo symbols from [Segoe Fluent Icons](https://learn.microsoft.com/en-us/windows/apps/design/iconography/segoe-fluent-icons-font).
 The [Segoe MDL2 Assets](https://learn.microsoft.com/en-us/windows/apps/design/iconography/segoe-ui-symbol-font) fallback uses the same codepoints: E74E, E792, E7A7, and E7A6.
