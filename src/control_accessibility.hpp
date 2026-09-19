@@ -65,6 +65,7 @@ struct ControlSnapshot {
     std::shared_ptr<const detail::CollectionPresentation> collection_presentation;
     CollectionSelection selection;
     std::size_t collection_columns{1};
+    std::vector<GridColumn> collection_details;
     double collection_item_height{56}, collection_offset{}, collection_width{}, collection_height{};
     double collection_viewport_x{}, collection_viewport_y{};
     std::vector<std::wstring> grid_filters;

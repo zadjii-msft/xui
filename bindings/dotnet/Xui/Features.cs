@@ -16,7 +16,7 @@ public readonly record struct RgbaColor(byte Red, byte Green, byte Blue, byte Al
     internal static RgbaColor FromPacked(ulong value) => new((byte)value, (byte)(value >> 8), (byte)(value >> 16), (byte)(value >> 24));
 }
 public enum ProgressState : uint { Determinate, Indeterminate, Paused, Error, Unknown }
-public enum ItemsPresentation : uint { List, Tiles, Grouped }
+public enum ItemsPresentation : uint { List, Tiles, Grouped, Gallery }
 public enum CompactNavigation : uint { Stacked, Overlay }
 public enum DateTimePresentation : uint { Date, Time, Calendar }
 public enum TextCommand : uint { Undo, Redo, Copy, Cut, Paste, SelectAll }
@@ -528,6 +528,15 @@ public sealed partial class NavigationPane
 }
 public sealed unsafe partial class TreeView
 {
+    public TreeView SetColumns(ReadOnlySpan<GridColumn> columns)
+    {
+        Window.Guard(); if (columns.Length > 64) throw new ArgumentOutOfRangeException(nameof(columns));
+        using var pins = new Window.Pins(); var values = new Native.Column[columns.Length];
+        for (int i = 0; i < values.Length; ++i) values[i] = new() { Size = (uint)sizeof(Native.Column), Name = pins.Text(columns[i].Name), Width = columns[i].Width,
+            Flags = (columns[i].Numeric ? 1u : 0u) | (columns[i].Filterable ? 2u : 0u) | (columns[i].Checkable ? 4u : 0u) };
+        fixed (Native.Column* p = values) Window.Check(Native.GridColumns(Handle, p, (uint)values.Length));
+        return this;
+    }
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
     public TreeView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }

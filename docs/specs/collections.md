@@ -238,7 +238,7 @@ Sources are immutable and thread-safe. Identity lookup must not scan all rows.
 `ItemsSource::item(index)` supplies primary text, secondary text, an icon, optional progress, and an optional inline action.
 The shared row renderer requests only visible content. It omits secondary text and inline buttons when the available space is too small.
 
-`ItemsView` supports list, tile, and grouped presentations through `set_presentation`.
+`ItemsView` supports list, tile, grouped, and gallery presentations through `set_presentation`.
 Groups describe ordered, nonoverlapping source ranges. Group IDs must not collide with item IDs.
 Group headers receive focus but do not join item selection. Filtered select-all includes data in collapsed groups.
 Collapse changes a small range projection, not an array of item controls.
@@ -255,9 +255,36 @@ items->set_select_all_scope(xui::SelectAllScope::filtered);
 items->on_action(open_inline_details);
 ```
 
+`ItemsPresentation::gallery` places a large image or fallback icon above a centered filename.
+`tiles` keeps its existing horizontal row content in a wrapped layout.
+Gallery uses the same native peer, virtualization, selection, and UIA item identities as the other presentations.
+Changing the presentation preserves the source and selection.
+Gallery is available only on `ItemsView`, not `TreeView` or navigation lists.
+
+```cpp
+items->set_presentation(xui::ItemsPresentation::gallery);
+items->set_item_size({160, 192});
+```
+
+Item dimensions use DIPs, not physical pixels.
+The width determines the column count. Each column receives an equal share of the available viewport width.
+Gallery centers a square image area within each item, with room for a two-line primary label beneath it.
+An optional secondary label occupies a separate line. A short item clips labels to its available height.
+The image extent cannot exceed the requested item width minus 16 DIPs or the available image area.
+An inline action retains its existing right-side lane. Check marks and progress remain available.
+Gallery treats secondary text as a label, not as trailing shortcut badges.
+The `tile`, `icon`, `primary_text`, and `secondary_text` style parts apply to gallery items.
+Authored text alignment overrides the centered default. Authored icon size cannot exceed the available image area.
+
+Gallery uses the existing asynchronous image pipeline and fallback icons.
+Image requests use the image extent at the current DPI, not the full item height.
+Size changes cancel obsolete requests. Hidden items and detached controls release their requests through the existing image lifecycle.
+Suggested item sizes are `{256, 288}`, `{160, 192}`, and `{96, 128}` for large, medium, and small galleries.
+These are application choices, not named framework presets.
+
 `CollectionSelection` separates focus, anchor, and membership.
 Ctrl+click and Space toggle membership. Shift extends a range. Ctrl+arrows move focus without replacing membership.
-A tile drag selects a rectangle. Escape cancels the drag.
+A tile or gallery drag selects a rectangle. Escape cancels the drag.
 F2 invokes the focused inline action without activating the row.
 Ctrl+A uses the configured `SelectAllScope`.
 Full-source scope requires an explicit index that contains every displayed identity.
@@ -296,10 +323,73 @@ tree->on_request([weak_tree, start_query](xui::TreeRequest request) {
 ```
 
 Applications start their own asynchronous work. They must deliver `complete` on the UI thread.
+An error completion remains retryable even when the application supplies a nonnull empty child source.
+Right arrow or a new expansion requests children again. A successful empty source stays cached.
 Requests carry an owner-specific cancellation token and generation.
 Collapse, cancellation, focus departure during a pending request, disable, hide, source replacement, and owner closure cancel affected work.
 Late delivery returns `false`. Error text stays visible and accessible. Right retries a failed branch.
 Source methods must not perform filesystem or network work on the UI thread.
+
+### Compact tree details
+
+`TreeView::set_columns` opts into headless detail columns with alternating row backgrounds.
+An empty column vector restores ordinary tree rows.
+This change preserves the tree source, expanded branches, selection, and native item identities.
+The mode does not create a control for each row or cell.
+It does not change `ItemsView`, `DataGrid`, or trees without detail columns.
+
+```cpp
+tree->set_columns({
+    {L"Name", 280},
+    {L"Date modified", 160},
+    {L"Type", 125},
+    {L"Size", 100, true}
+});
+xui::PartStyleValues root;
+root.row_height = 24;
+root.font_size = 12;
+root.indentation = 16;
+xui::PartStyleValues row;
+row.padding = xui::Insets{};
+xui::PartStyleValues icon;
+icon.size = 16;
+tree->set_control_style(xui::ControlStyle::create(xui::StyleTarget::tree_view,
+    {{xui::StylePart::root, root}, {xui::StylePart::row, row},
+     {xui::StylePart::icon, icon}}, {}));
+```
+
+Column dimensions, row height, indentation, and icon size use DIPs.
+The first column contains the item name, disclosure indicator, and icon.
+Only this column receives hierarchy indentation.
+Files without children reserve no disclosure space.
+Metadata columns keep their declared widths. The first column receives extra viewport width.
+When the viewport is narrower than the declared columns, text clips at the viewport boundary.
+There is no horizontal scrollbar for tree detail columns.
+Names and metadata use single-line text. Numeric columns align text to the right.
+
+`ItemsSource::cell(index, column)` supplies nonblocking metadata text.
+The default implementation returns the primary name for column zero and empty text for other columns.
+Detail columns use source ordinals in the supplied order, starting with column zero.
+Lazy tree projections delegate metadata reads to the immutable source for each branch.
+The renderer requests metadata only for visible rows and a boundary row.
+There is no full-source scan or retained cell cache.
+
+The mode accepts at most 64 columns with widths from 48 to 2,000 DIPs.
+Filterable and checkable column flags are not supported.
+Invalid configuration leaves the previous columns unchanged.
+Columns have no header, sorting, resize handle, or drag behavior.
+`detail_columns()` returns the current configuration.
+Pending and error messages replace the first metadata cell until the request completes.
+A one-column configuration shows the status after the name.
+
+The `TreeView` icon style part accepts `Size`, including on ordinary tree rows.
+Painting and asynchronous image requests use the configured extent at the current DPI.
+Detail images also fit within the available row and name-column bounds.
+Tree items retain their names, hierarchy, selection, expansion, and scrolling patterns in UIA.
+Their HelpText includes metadata with the configured column names.
+The tree does not advertise a table or create separate cell providers.
+
+### Collection layouts and grid filtering
 
 `Grid` supports fixed, automatic, and weighted tracks, cell spans, gaps, padding, and child size constraints.
 `Wrap` derives its column count from available width and measures each retained child.

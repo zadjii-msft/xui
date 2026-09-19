@@ -769,13 +769,19 @@ void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
         BYTE shift[256]{}; std::copy(std::begin(keyboard), std::end(keyboard), std::begin(shift)); shift[VK_SHIFT] = 0x80; SetKeyboardState(shift);
         SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0); restore();
         require(items->selection().contains({2, 1}) && items->selection().contains({3, 1}), "Native Shift+arrow selects range");
-        items->set_presentation(ItemsPresentation::tiles); items->set_offset(0); flush(hwnd);
+        for (const auto presentation : {ItemsPresentation::tiles, ItemsPresentation::gallery}) {
+        items->set_item_size(presentation == ItemsPresentation::gallery ? Size{96, 128} : Size{180, 56});
+        items->set_presentation(presentation); items->set_offset(0); flush(hwnd);
         const auto cols = items->columns(); require(cols >= 2, "Wide items have tile columns");
         const auto start = items->item_bounds(0), finish = items->item_bounds(cols + 1);
         SendMessageW(items_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(static_cast<int>((start.x + 35) * dpi / 96), static_cast<int>((start.y + 10) * dpi / 96)));
         SendMessageW(items_hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(static_cast<int>((finish.x + 35) * dpi / 96), static_cast<int>((finish.y + 10) * dpi / 96)));
         SendMessageW(items_hwnd, WM_LBUTTONUP, 0, 0);
         require(items->selection().contains(source->key(cols + 1)) && items->selection().storage_size() == 1, "Native rectangle uses one selection term");
+        SendMessageW(items_hwnd, WM_KEYDOWN, VK_HOME, 0); SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0);
+        require(items->selection().focused() == source->key(cols), "Native tile and gallery arrows use the shared column count");
+        }
+        items->set_item_size({180, 56});
         items->set_presentation(ItemsPresentation::list);
         require(window.focus(*tree), "Tree receives native focus"); SendMessageW(tree_hwnd, WM_KEYDOWN, VK_HOME, 0);
         SendMessageW(tree_hwnd, WM_KEYDOWN, VK_RIGHT, 0); SendMessageW(tree_hwnd, WM_KEYDOWN, VK_RIGHT, 0);

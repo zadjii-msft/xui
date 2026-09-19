@@ -4,11 +4,16 @@ component ViewMenuLayout {
     param int Number;
 
     view {
-        Popup("Choose view", id: $"pane-{Number}-view-menu", preferredSize: (192, 92),
+        Popup("Choose view", id: $"pane-{Number}-view-menu", preferredSize: (208, 292),
             placement: global::Xui.PopupPlacement.Above, windowBackground: true) {
             VStack(padding: 8, spacing: 4) {
-                Button("Details", ref: Details, id: $"pane-{Number}-view-details", preferredSize: (176, 36));
-                Button("Columns", ref: Columns, id: $"pane-{Number}-view-columns", preferredSize: (176, 36));
+                Button("XL Icons", ref: ExtraLargeIcons, id: $"pane-{Number}-view-xl-icons", preferredSize: (192, 36));
+                Button("L Icons", ref: LargeIcons, id: $"pane-{Number}-view-l-icons", preferredSize: (192, 36));
+                Button("M Icons", ref: MediumIcons, id: $"pane-{Number}-view-m-icons", preferredSize: (192, 36));
+                Button("List", ref: List, id: $"pane-{Number}-view-list", preferredSize: (192, 36));
+                Button("Tree", ref: Tree, id: $"pane-{Number}-view-tree", preferredSize: (192, 36));
+                Button("Details", ref: Details, id: $"pane-{Number}-view-details", preferredSize: (192, 36));
+                Button("Columns", ref: Columns, id: $"pane-{Number}-view-columns", preferredSize: (192, 36));
             }
         }
     }

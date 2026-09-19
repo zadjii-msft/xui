@@ -696,6 +696,10 @@ The verified Explorer preview remains unchanged while the separate palette-entry
 
 #### Explorer view entry, September 18, 2026
 
+This section records the earlier animation experiment.
+Later user feedback removed the view Reveal and replaced this check with `--view-switch-smoke`.
+The current check requires stationary content and no animation timer.
+
 Details and Columns now share a fixed Reveal in `FilePaneLayout.xui`.
 The controller opts into 180 ms after initial construction.
 A deliberate mode change requests entry when its filtered rows arrive.

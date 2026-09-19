@@ -23,6 +23,7 @@ internal static class Tests
             if (args is ["--tab-animation"]) { TabAnimationTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
+            if (args is ["--features"]) { FeatureTests.Run(); return 0; }
             if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }
             if (args is ["--parity-controls"]) { FeatureTests.ParityControls(); return 0; }
             if (args is ["--styling-definitions"]) return 0;

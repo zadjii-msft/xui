@@ -52,6 +52,13 @@ internal static class ExplorerStyles
         new(StylePart.Icon, new() { Size = 16 })
     ]);
 
+    internal static readonly ControlStyle FileTree = new(StyleTarget.TreeView,
+    [
+        new(StylePart.Root, new() { RowHeight = 24, FontSize = 12, Indentation = 16, Padding = new(0) }),
+        new(StylePart.Row, new() { Padding = new(0), CornerRadius = 0 }),
+        new(StylePart.Icon, new() { Size = 16 })
+    ]);
+
     internal static readonly ButtonStyle IconButton = new(new()
     {
         Background = Background,
