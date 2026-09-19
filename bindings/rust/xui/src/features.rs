@@ -68,7 +68,7 @@ enums!(
     CheckState {Unchecked=0,Checked=1,Indeterminate=2},
     InfoBadgeKind {Dot=0,Count=1,Icon=2},
     ProgressState {Determinate=0,Indeterminate=1,Paused=2,Error=3,Unknown=4},
-    ItemsPresentation {List=0,Tiles=1,Grouped=2},
+    ItemsPresentation {List=0,Tiles=1,Grouped=2,Gallery=3},
     CompactNavigation {Stacked=0,Overlay=1},
     DateTimePresentation {Date=0,Time=1,Calendar=2},
     TextCommand {Undo=0,Redo=1,Copy=2,Cut=3,Paste=4,SelectAll=5},
@@ -1308,6 +1308,26 @@ impl ItemsView {
     }
 }
 impl TreeView {
+    pub fn set_columns(&self, columns: &[GridColumn]) -> Result<()> {
+        if columns.len() > 64 {
+            return Err(invalid("A tree supports at most 64 detail columns."));
+        }
+        let values = columns
+            .iter()
+            .map(|c| {
+                Ok(sys::Column {
+                    size: size_of::<sys::Column>() as u32,
+                    flags: c.numeric as u32
+                        | (c.filterable as u32) << 1
+                        | (c.checkable as u32) << 2,
+                    name: text(&c.name)?,
+                    width: c.width,
+                    reserved: 0,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        check(unsafe { sys::xui_grid_columns(self.handle, values.as_ptr(), values.len() as u32) })
+    }
     pub fn selection(&self) -> Result<SelectionInfo> {
         self.collection_selection()
     }

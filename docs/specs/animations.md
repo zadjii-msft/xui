@@ -372,16 +372,12 @@ Rapid switching retires the previous entry and starts the latest page from its e
 This is incoming entry, not simultaneous page presentation or an outgoing crossfade.
 `PageView` has no duration property. The application explicitly configures the surrounding Reveal.
 
-Explorer also composes a fixed Reveal around its Details and Columns views.
-A deliberate mode change starts 180 ms entry after the filtered rows arrive.
-Columns enters from the right. Details enters from the left.
-The mode changes immediately, and the previous view loses input through the normal native update.
-The toolbar, footer, and content allocation stay stationary.
-Selection, saved scroll offset, and native view identity retain their existing ownership.
-Rapid mode changes cancel obsolete filtering and enter only the final mode.
-Navigation, tab retirement, and subsequent filtering settle active entry.
-Initial population and mode changes without a committed snapshot remain immediate.
-This composition does not animate Miller-column insertion or removal.
+Explorer view changes do not animate.
+The selected file view appears in its final position without a Reveal wrapper or an entry timer.
+The previous view loses input through the normal native update.
+The toolbar, footer, content allocation, selection, and saved scroll offset retain their existing ownership.
+Rapid mode changes cancel obsolete filter work and display only the final mode.
+This policy does not change the separate Find, navigation-pane, split-pane, or preview transitions.
 
 The `document-motion` page moves retained `MultilineText` and `RichText` controls through an expanding top reveal.
 Native RichEdit keeps text, selection, caret, and undo ownership.
@@ -505,7 +501,7 @@ The normal demo uses short durations. Diagnostic durations are not production de
 | A11 | Adaptive navigation | Overlay entry, dismissal, and breakpoint settlement | Planned |
 | A12 | Reveal playground | Four directions, fixed and expanding layouts, nested clips, and native text input | Delivered |
 | A13 | Page and view switching | Directional transitions between retained pages without simultaneous input owners | Delivered: gallery PageView incoming entry with retained native editors; outgoing presentation remains separate |
-| A14 | Explorer Details and Columns | Deliberate view-mode transition with retained selection and viewport | Delivered: incoming view entry; Miller-column topology remains separate |
+| A14 | Explorer file views | Immediate view changes with retained selection and viewport | Entry animation removed after user feedback; Miller-column topology remains separate |
 | A15 | Miller columns | Column insertion and removal with stable sibling selection | Planned |
 | A16 | Expanders | Content expansion with neighboring form layout and native field height | Delivered |
 | A17 | Tree nodes | Branch expansion and collapse with bounded visible-row work | Planned |
@@ -547,7 +543,7 @@ System menus, native file dialogs, and OS caption behavior remain under Windows 
 - [ ] Define a whole-palette pop-in for A23 without moving results independently or replacing native input.
 - [ ] Add A26 and evaluate independent overlay exit presentation.
 - [x] Add retained entry and state examples for A13 and A20 through A22.
-- [x] Add A14 incoming view entry with retained selection and viewport.
+- [x] Keep A14 Explorer view changes immediate, with retained selection and viewport.
 - [ ] Evaluate A15 and A17 through A19 with stable identity and virtualized data.
 - [x] Keep A27 tied to truthful logical values and system accessibility preferences.
 - [ ] Define A28 indicator transitions without delaying logical state.

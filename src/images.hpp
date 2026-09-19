@@ -45,6 +45,7 @@ struct RowVisual {
     ItemKey key;
     ItemVisual visual;
     bool directory{};
+    float image_dips{}; // Zero uses the collection's default request size.
 };
 class RowImages {
 public:
@@ -64,6 +65,7 @@ private:
         ItemKey key;
         std::wstring path;
         ImageKind kind{};
+        UINT pixels_size{};
         std::shared_ptr<ImageRequest> request;
         std::shared_ptr<const ImagePixels> pixels;
         bool failed{};

@@ -125,6 +125,94 @@ void miller_contracts() {
     ok(xui_window_destroy(window)); ok(xui_window_destroy(other));
     expect(data.refs == 1);
 }
+void collection_navigation_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Collection navigation"), 600, 400};
+    xui_handle window{}; ok(xui_window_create(&options, &window));
+    Source data; data.count = 20;
+    xui_source_options source_options{sizeof(source_options), XUI_FEATURE_VERSION, data.count, &data, query, retain, release};
+    xui_handle source{}; ok(xui_source_create(window, &source_options, &source));
+    for (const auto kind : {XUI_ITEMS_VIEW, XUI_TREE_VIEW}) {
+        const auto collection = create(window, kind);
+        ok(xui_source_attach(collection, source));
+        const auto focus = GetFocus();
+        const auto navigate = [&](uint64_t direction, uint64_t modifiers = 0) {
+            ok(xui_feature_action(collection, XUI_A_GRID_NAVIGATE, direction, modifiers));
+            expect(GetFocus() == focus);
+            return read_value(collection, XUI_F_SELECTION_STATE).first;
+        };
+        const auto contains = [&](uint64_t key) {
+            uint32_t selected{}; ok(xui_collection_contains(collection, key, 7, &selected)); return selected != 0;
+        };
+        expect(navigate(4) == 1 && contains(1));
+        expect(navigate(1, 1) == 2 && contains(1) && !contains(2));
+        expect(navigate(1, 2) == 3 && contains(1) && contains(2) && contains(3));
+        expect(navigate(5, 3) == 20 && contains(1) && contains(20));
+        expect(navigate(0) == 19 && contains(19) && !contains(20));
+        expect(navigate(2) < 19);
+        expect(navigate(5) == 20 && navigate(4, 1) == 1 && contains(20) && !contains(1));
+        expect(navigate(1, 3) == 2 && contains(20) && !contains(1) && contains(2));
+        expect(xui_feature_action(collection, XUI_A_GRID_NAVIGATE, 6, 0) == XUI_INVALID_ARGUMENT);
+        expect(xui_feature_action(collection, XUI_A_GRID_NAVIGATE, 0, 4) == XUI_INVALID_ARGUMENT);
+        expect(read_value(collection, XUI_F_SELECTION_STATE).first == 2);
+    }
+    ok(xui_source_release(source)); ok(xui_window_destroy(window)); expect(data.refs == 1);
+}
+void tree_details_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Tree detail cells"), 600, 400};
+    xui_handle window{}, root{}; ok(xui_window_create(&options, &window)); ok(xui_stack_create(window, 1, &root));
+    const auto tree = create(window, XUI_TREE_VIEW);
+    ok(xui_stack_add(root, tree, 1)); ok(xui_window_content(window, root));
+    xui_column columns[]{
+        {sizeof(xui_column), 0, text("Name"), 280},
+        {sizeof(xui_column), 0, text("Date modified"), 160},
+        {sizeof(xui_column), 0, text("Type"), 125},
+        {sizeof(xui_column), 1, text("Size"), 100}
+    };
+    ok(xui_grid_columns(tree, columns, 4));
+    auto bad = columns[0]; bad.flags = 2;
+    expect(xui_grid_columns(tree, &bad, 1) == XUI_INVALID_ARGUMENT);
+    bad = columns[0]; bad.width = 47;
+    expect(xui_grid_columns(tree, &bad, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_grid_columns(tree, columns, 65) == XUI_INVALID_ARGUMENT);
+    expect(xui_grid_columns(tree, nullptr, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_grid_columns(create(window, XUI_ITEMS_VIEW), columns, 4) == XUI_WRONG_KIND);
+    ok(xui_grid_columns(tree, nullptr, 0)); ok(xui_grid_columns(tree, columns, 4));
+    struct Cells { uint64_t first; unsigned refs{1}, seen{}, reads{}; } roots{1}, children{100};
+    const auto make_source = [&](Cells& cells) {
+        xui_source_options source_options{sizeof(source_options), XUI_FEATURE_VERSION, 3, &cells,
+            [](void* context, uint32_t op, uint64_t first, uint64_t second, xui_source_row* row) -> xui_status {
+                auto& cells = *static_cast<Cells*>(context);
+                if (op == 0) { row->id = cells.first + first; row->version = 1; }
+                if (op == 1) {
+                    ++cells.reads; if (second < 32) cells.seen |= 1u << second;
+                    const auto value = std::to_string(cells.first + first) + " column " + std::to_string(second);
+                    row->primary_length = static_cast<uint32_t>(value.size());
+                    std::memcpy(row->primary, value.data(), value.size());
+                }
+                if (op == 2) row->index = second == 1 && first >= cells.first && first - cells.first < 3 ? first - cells.first : UINT64_MAX;
+                if (op == 3) row->index = first == 1;
+                return XUI_OK;
+            },
+            [](void* context) { ++static_cast<Cells*>(context)->refs; },
+            [](void* context) { --static_cast<Cells*>(context)->refs; }};
+        xui_handle source{}; ok(xui_source_create(window, &source_options, &source)); return source;
+    };
+    const auto source = make_source(roots), child_source = make_source(children);
+    ok(xui_source_attach(tree, source));
+    xui_event request{}; ok(xui_subscribe(tree, event, &request));
+    ok(xui_tree_expand(tree, 1, 1, 1)); expect(request.kind == XUI_REQUEST);
+    ok(xui_tree_complete(tree, request.value, child_source, text("")));
+    std::thread close([&] {
+        Sleep(300);
+        ok(xui_window_post(window, [](void* context, uint32_t execute) -> xui_status {
+            return execute ? xui_window_close(*static_cast<xui_handle*>(context)) : XUI_OK;
+        }, &window));
+    });
+    const auto status = xui_window_run(window); close.join(); ok(status);
+    expect(roots.seen == 15 && children.seen == 15 && roots.reads < 500 && children.reads < 500);
+    ok(xui_source_release(source)); ok(xui_source_release(child_source)); ok(xui_window_destroy(window));
+    expect(roots.refs == 1 && children.refs == 1);
+}
 xui_status XUI_CALL posted(void* c, uint32_t execute) {
     auto& counts = *static_cast<std::pair<unsigned, unsigned>*>(c);
     if (execute) ++counts.first; else ++counts.second;
@@ -1180,6 +1268,8 @@ int main(int argc, char** argv) {
     control_style_contracts();
     tooltip_style_contracts();
     miller_contracts();
+    collection_navigation_contracts();
+    tree_details_contracts();
     explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);
@@ -1220,6 +1310,10 @@ int main(int argc, char** argv) {
     xui_source_options source_options{sizeof(source_options),XUI_FEATURE_VERSION,1000000,&source,query,retain,release};
     xui_handle snapshot{};ok(xui_source_create(w,&source_options,&snapshot));expect(source.refs==2);
     ok(xui_source_attach(handles[XUI_ITEMS_VIEW],snapshot));
+    v=value();v.first=3;ok(xui_feature_set(handles[XUI_ITEMS_VIEW],XUI_F_PRESENTATION,&v));
+    expect(xui_feature_set(handles[XUI_TREE_VIEW],XUI_F_PRESENTATION,&v)==XUI_INVALID_ARGUMENT);
+    v.first=4;expect(xui_feature_set(handles[XUI_ITEMS_VIEW],XUI_F_PRESENTATION,&v)==XUI_INVALID_ARGUMENT);
+    v.first=0;ok(xui_feature_set(handles[XUI_ITEMS_VIEW],XUI_F_PRESENTATION,&v));
     ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, 1, 0));
     v=value();ok(xui_feature_get(handles[XUI_ITEMS_VIEW],XUI_F_SELECTION_STATE,&v));expect(v.a && v.first==2);
     ok(xui_feature_action(handles[XUI_ITEMS_VIEW], XUI_A_COLLECTION_STEP, 1, 0));
@@ -1269,6 +1363,10 @@ int main(int argc, char** argv) {
     xui_event menu_event{};
     ok(xui_context_menu_bind(handles[XUI_DATA_GRID], event, &menu_event));
     ok(xui_context_menu_bind(handles[XUI_ITEMS_VIEW], event, &menu_event));
+    ok(xui_context_menu_bind(handles[XUI_TREE_VIEW], event, &menu_event));
+    expect(xui_context_menu_items(handles[XUI_TREE_VIEW], nullptr, 0) == XUI_BUSY);
+    expect(xui_context_menu_shell_paths(handles[XUI_TREE_VIEW], nullptr, 0) == XUI_BUSY);
+    ok(xui_context_menu_bind(handles[XUI_TREE_VIEW], nullptr, nullptr));
     const auto navigation_menu = create(w, XUI_NAVIGATION_VIEW);
     for (uint32_t section = 2; section <= 4; ++section) {
         xui_handle list{}; ok(xui_feature_child(navigation_menu, section, &list));

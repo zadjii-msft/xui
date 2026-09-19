@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewEntry, PaneAnimation, Hover }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views }
 
 internal static class ExplorerSmoke
 {
@@ -106,11 +106,18 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
-                if (mode == ExplorerSmokeMode.ViewEntry)
+                if (mode == ExplorerSmokeMode.Views)
+                {
+                    await AdditionalViewsChecks();
+                    Console.WriteLine("Explorer views passed: gallery sizes, List, lazy Tree, view menu, filtering, selection, focus, tab state, and cancellation.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.ViewSwitch)
                 {
                     await CreateViewportFixture();
-                    await ViewEntryChecks();
-                    Console.WriteLine("Explorer view entry passed: directional movement, immediate mode ownership, retained selection/viewport/native peer, cancellation, rapid switching, and zero duration.");
+                    await ViewSwitchChecks();
+                    Console.WriteLine("Explorer view switches passed: no animation timer, stationary content and native peers, immediate ownership, retained selection/viewport, and rapid switching.");
                     await Ui(app.Window.Close);
                     return;
                 }
@@ -162,6 +169,7 @@ internal static class ExplorerSmoke
                 await Check(() => app.Left.Model.Active.Path == fixture, "Committed address");
                 await CaptionCheck(app.Left);
                 await NavigationMenuChecks();
+                await AdditionalViewsChecks();
                 await TypeToFindChecks(app.Left);
                 await RevealChecks(app.Left);
                 await RevealChecks(app.Left, animate: false);
@@ -528,7 +536,7 @@ internal static class ExplorerSmoke
                 });
                 await Ready(app.Left);
                 await Check(() => app.Left.Model.Active.Path == Path.Combine(fixture, "beta"), "Latest navigation wins");
-                await ViewEntryChecks();
+                await ViewSwitchChecks();
                 await ColumnsChecks();
                 await PerColumnFindChecks();
                 await Transfers(fixture);
@@ -1657,115 +1665,319 @@ internal static class ExplorerSmoke
                 return many;
             }
 
-            async Task ViewEntryChecks()
+            async Task AdditionalViewsChecks()
+            {
+                var pane = app.Left;
+                string root = Path.Combine(fixture, "view-modes");
+                string folder = Path.Combine(root, "folder");
+                string nested = Path.Combine(folder, "nested");
+                string missing = Path.Combine(folder, "missing");
+                string leaf = Path.Combine(nested, "leaf.txt");
+                Directory.CreateDirectory(nested);
+                Directory.CreateDirectory(missing);
+                await File.WriteAllTextAsync(leaf, "nested leaf");
+                for (int i = 0; i < 80; i++)
+                    await File.WriteAllTextAsync(Path.Combine(root, $"file-{i:D3}.txt"), "file");
+                string selected = Path.Combine(root, "file-010.txt");
+                try
+                {
+                    await Ui(() => pane.Navigate(root));
+                    await Ready(pane);
+                    await Ui(() => pane.SelectPath(selected));
+                    ExplorerViewMode[] modes = [ExplorerViewMode.ExtraLargeIcons, ExplorerViewMode.LargeIcons,
+                        ExplorerViewMode.MediumIcons, ExplorerViewMode.List, ExplorerViewMode.Tree,
+                        ExplorerViewMode.Details, ExplorerViewMode.Columns];
+                    await Ui(pane.ViewModeButton.Invoke);
+                    await Ui(() =>
+                    {
+                        double previous = double.NegativeInfinity;
+                        foreach (var view in modes)
+                        {
+                            double y = pane.ViewOption(view).GetBounds().Y;
+                            if (y <= previous) throw new InvalidOperationException("The view menu must keep Columns below Details.");
+                            previous = y;
+                        }
+                        pane.ViewMenu.Dismiss();
+                    });
+                    foreach (var view in modes)
+                    {
+                        await Ui(pane.ViewModeButton.Invoke);
+                        await Check(() => pane.ViewMenu.IsOpen, "View menu opens for each presentation");
+                        await Ui(() => pane.ViewOption(view).Invoke());
+                        await Ready(pane);
+                        await Check(() => !pane.ViewMenu.IsOpen && pane.Model.Active.ViewMode == view
+                            && pane.VisibleCount == 81 && pane.FilesFocused
+                            && pane.SelectedEntry?.FullPath == selected,
+                            $"{view} keeps the folder, selection, and native focus");
+                        if (view == ExplorerViewMode.Tree)
+                            await Ui(() =>
+                            {
+                                var style = pane.Tree.GetControlStyleValues(StylePart.Root, effective: true);
+                                if (!ReferenceEquals(pane.Tree.ControlStyle, ExplorerStyles.FileTree)
+                                    || style.RowHeight != 24 || style.FontSize != 12 || style.Indentation != 16
+                                    || pane.Tree.GetControlStyleValues(StylePart.Icon, effective: true).Size != 16)
+                                    throw new InvalidOperationException("Tree must use compact single-line rows, small icons, and shallow nesting.");
+                                pane.Tree.Offset = 0;
+                                pane.Tree.Focus();
+                                nint peer = GetFocus();
+                                double scale = GetDpiForWindow(peer) / 96.0;
+                                nint point = ((int)(36 * scale) << 16) | (int)((pane.Tree.GetBounds().Width - 32) * scale);
+                                SendMessageW(peer, 0x201, 1, point);
+                                SendMessageW(peer, 0x202, 0, point);
+                                if (pane.SelectedEntry?.Name != "file-000.txt" || pane.Model.Active.Path != root)
+                                    throw new InvalidOperationException("Tree metadata cells must share the 24-DIP row selection target without opening a folder.");
+                                pane.SelectPath(selected);
+                            });
+                        if (view is ExplorerViewMode.MediumIcons or ExplorerViewMode.LargeIcons or ExplorerViewMode.ExtraLargeIcons)
+                            await Ui(() =>
+                            {
+                                var (width, height) = view switch
+                                {
+                                    ExplorerViewMode.ExtraLargeIcons => (256, 288),
+                                    ExplorerViewMode.LargeIcons => (160, 192),
+                                    _ => (96, 128)
+                                };
+                                pane.Items.Offset = 0;
+                                pane.Items.Focus();
+                                nint peer = GetFocus();
+                                double scale = GetDpiForWindow(peer) / 96.0;
+                                int columns = Math.Max(1, (int)((pane.Items.GetBounds().Width - 12) / width));
+                                nint point = ((int)((height + 10) * scale) << 16) | (int)(10 * scale);
+                                SendMessageW(peer, 0x201, 1, point);
+                                SendMessageW(peer, 0x202, 0, point);
+                                if (pane.SelectedEntry?.Name != $"file-{columns - 1:D3}.txt")
+                                    throw new InvalidOperationException($"{view} must use its gallery tile dimensions for pointer selection.");
+                                pane.SelectPath(selected);
+                            });
+                        await Ui(() => pane.ShowFind());
+                        await Ui(() => pane.SetFilter("file-01"));
+                        await Ready(pane);
+                        await Check(() => pane.VisibleCount == 10 && pane.FindInput.Focused,
+                            $"{view} shares native Find without taking focus");
+                        await Ui(() => Shortcut(0x23, KeyModifiers.Control));
+                        await Check(() => pane.SelectedEntry?.Name == "file-019.txt" && pane.FindInput.Focused,
+                            $"{view} Find navigation reaches the last match");
+                        await Ui(pane.HideFind);
+                        await Ready(pane);
+                        await Ui(() => pane.SelectPath(selected));
+                        if (pane.Model.Active.ViewMode != ExplorerViewMode.Columns)
+                            await Ui(() =>
+                            {
+                                if (pane.IsItems) pane.Items.SelectAll();
+                                else if (pane.IsTree) pane.Tree.SelectAll();
+                                else pane.Grid.SelectAll();
+                                if (pane.SelectedEntries.Length != 81 || !pane.HasSelection)
+                                    throw new InvalidOperationException($"{view} must retain exact multiselection.");
+                                pane.SelectPath(selected);
+                            });
+                    }
+                    await Ui(() =>
+                    {
+                        pane.SetViewMode(ExplorerViewMode.ExtraLargeIcons);
+                        pane.SetViewMode(ExplorerViewMode.Tree);
+                        pane.SetViewMode(ExplorerViewMode.MediumIcons);
+                    });
+                    await Ready(pane);
+                    await Check(() => pane.Model.Active.ViewMode == ExplorerViewMode.MediumIcons
+                        && pane.SelectedEntry?.FullPath == selected && pane.Items.Focused,
+                        "Rapid view changes keep only the latest presentation without losing selection");
+                    await Ui(() =>
+                    {
+                        pane.Items.Offset = 128;
+                        pane.CaptureViewport();
+                        pane.NewTab(root);
+                    });
+                    await Ready(pane);
+                    await Check(() => pane.Model.Active.ViewMode == ExplorerViewMode.Details,
+                        "New tabs default to Details");
+                    await Ui(() => pane.CloseTab());
+                    await Ready(pane);
+                    await Check(() => pane.Model.Active.ViewMode == ExplorerViewMode.MediumIcons
+                        && pane.SelectedEntry?.FullPath == selected && pane.Items.Offset == 128,
+                        "Returning to a tab restores its gallery, selection, and scroll");
+
+                    await Ui(() => pane.SetViewMode(ExplorerViewMode.Tree));
+                    await Ready(pane);
+                    await Ui(() =>
+                    {
+                        pane.SelectPath(folder);
+                        var key = pane.Tree.Selection.Focused!.Value;
+                        pane.Tree.Expand(key);
+                        pane.Tree.Expand(key, false);
+                    });
+                    await Until(() => pane.TreeController.PendingCount == 0);
+                    await Check(() => pane.SelectedEntry?.FullPath == folder && pane.TreeController.PendingCount == 0,
+                        "Collapsing an in-flight Tree branch rejects its obsolete result");
+                    await Ui(() => pane.Tree.Expand(pane.Tree.Selection.Focused!.Value));
+                    await Until(() => pane.TreeController.PendingCount == 0);
+                    await Ui(() =>
+                    {
+                        pane.Tree.Offset = 0;
+                        pane.Tree.Focus();
+                        nint peer = GetFocus();
+                        double scale = GetDpiForWindow(peer) / 96.0;
+                        nint point = ((int)(36 * scale) << 16) | (int)((pane.Tree.GetBounds().Width - 32) * scale);
+                        SendMessageW(peer, 0x201, 1, point);
+                        SendMessageW(peer, 0x202, 0, point);
+                        if (pane.SelectedEntry?.FullPath != missing || pane.Model.Active.Path != root
+                            || pane.TreeController.PendingCount != 0)
+                            throw new InvalidOperationException("Expanded children must use the same compact full-row metadata selection as root entries.");
+                    });
+                    await Ui(() =>
+                    {
+                        pane.SelectPath(nested);
+                        if (pane.SelectedEntry?.FullPath != nested)
+                            throw new InvalidOperationException("Tree expansion must expose child folders without navigating.");
+                        pane.Tree.Expand(pane.Tree.Selection.Focused!.Value);
+                    });
+                    await Until(() => pane.TreeController.PendingCount == 0);
+                    await Ui(() => pane.SelectPath(leaf));
+                    await Check(() => pane.Model.Active.Path == root && pane.SelectedEntry?.FullPath == leaf
+                        && pane.ContextMenu.GetCommands().Any(command => command.Id == FileContextMenu.Copy),
+                        "Nested Tree selection drives file commands without changing the committed folder");
+                    await Ui(pane.Refresh);
+                    await Ready(pane);
+                    await Until(() => pane.TreeController.PendingCount == 0 && !pane.TreeController.Restoring);
+                    await Check(() => pane.SelectedEntry?.FullPath == leaf,
+                        "Tree refresh restores the selected descendant through lazy ancestor expansion");
+                    Directory.Delete(missing);
+                    await Ui(() =>
+                    {
+                        pane.SelectPath(missing);
+                        pane.Tree.Expand(pane.Tree.Selection.Focused!.Value);
+                    });
+                    await Until(() => pane.TreeController.PendingCount == 0);
+                    await Check(() => app.Notification.Text.Contains($"Cannot open {missing}", StringComparison.Ordinal)
+                        && pane.Model.Active.Path == root,
+                        "Tree read errors remain explicit without navigating or replacing the folder");
+                    Directory.CreateDirectory(missing);
+                    string recovered = Path.Combine(missing, "recovered.txt");
+                    await File.WriteAllTextAsync(recovered, "retry");
+                    await Ui(() => pane.Tree.Expand(pane.Tree.Selection.Focused!.Value));
+                    await Until(() => pane.TreeController.PendingCount == 0);
+                    await Ui(() => pane.SelectPath(recovered));
+                    await Check(() => pane.SelectedEntry?.FullPath == recovered,
+                        "Tree branches can retry a failed directory read");
+                    await Ui(() =>
+                    {
+                        pane.SelectPath(folder);
+                        var key = pane.Tree.Selection.Focused!.Value;
+                        pane.Tree.Expand(key, false);
+                        pane.Tree.Expand(key);
+                        pane.SetViewMode(ExplorerViewMode.List);
+                    });
+                    await Ready(pane);
+                    await Check(() => pane.TreeController.PendingCount == 0 && pane.Items.Focused,
+                        "Leaving Tree retires its requests and native focus");
+                    await Ui(() => pane.SetFilter("no-such-file"));
+                    await Ready(pane);
+                    await Check(() => pane.VisibleCount == 0 && !pane.HasSelection && pane.SelectedEntry is null,
+                        "An empty List filter cannot activate stale files");
+                }
+                finally
+                {
+                    await Ui(() =>
+                    {
+                        pane.SetViewMode(ExplorerViewMode.Details);
+                        pane.Navigate(fixture);
+                    });
+                    await Ready(pane);
+                    Directory.Delete(root, recursive: true);
+                    await Ui(pane.Refresh);
+                    await Ready(pane);
+                }
+            }
+
+            async Task ViewSwitchChecks()
             {
                 var pane = app.Left;
                 string path = Path.Combine(fixture, "many");
                 string selected = Path.Combine(path, "item-015.txt");
-                uint duration = 0;
+                // Keep the saved offset inside even the shortest gallery's scroll range.
+                const double scrollOffset = 128;
                 nint gridPeer = 0, owner = 0;
-                bool motion = false;
                 ElementBounds slot = default, address = default, footer = default;
                 await Ui(() => { pane.SetViewMode(ExplorerViewMode.Details); pane.Navigate(path); });
                 await Ready(pane);
                 await Ui(() =>
                 {
-                    duration = pane.ViewReveal.Duration;
-                    pane.ViewReveal.Duration = 1200;
                     pane.SelectPath(selected);
-                    pane.Grid.Offset = 320;
+                    pane.Grid.Offset = scrollOffset;
                     pane.Focus();
                     gridPeer = GetFocus();
                     owner = GetAncestor(gridPeer, 2);
                     SendMessageW(owner, 0x800C, 0, 0);
-                    slot = pane.ViewReveal.GetBounds();
+                    slot = pane.ViewBounds;
                     address = pane.Address.GetBounds();
                     footer = pane.Footer.GetBounds();
-                    if (gridPeer == 0 || !SystemParametersInfoW(0x1042, 0, out int enabled, 0))
-                        throw new InvalidOperationException("View entry requires a native file peer and readable motion policy.");
-                    motion = enabled != 0;
-                    pane.SetViewMode(ExplorerViewMode.Columns);
-                    SendMessageW(owner, 0x800C, 0, 0);
-                    if (!pane.IsColumns || pane.Grid.Focused)
-                        throw new InvalidOperationException("View selection and outgoing input retirement must be immediate.");
+                    if (gridPeer == 0) throw new InvalidOperationException("View switches require a native file peer.");
                 });
-                await Ready(pane);
-                await ObserveEntry(columns: true);
-                await Ui(() => pane.SetViewMode(ExplorerViewMode.Details));
-                await Ready(pane);
-                await ObserveEntry(columns: false);
-                await Check(() => GetFocus() == gridPeer && pane.Grid.Offset == 320,
-                    "Details entry retains the original native file peer and saved scroll offset");
+                await Until(() => SendMessageW(owner, 0x803C, 33, 0) == 0);
+                foreach (var view in new[] { ExplorerViewMode.Columns, ExplorerViewMode.Details,
+                    ExplorerViewMode.MediumIcons, ExplorerViewMode.LargeIcons, ExplorerViewMode.ExtraLargeIcons,
+                    ExplorerViewMode.List, ExplorerViewMode.Tree, ExplorerViewMode.Details })
+                {
+                    await Ui(() =>
+                    {
+                        pane.SetViewMode(view);
+                        SendMessageW(owner, 0x800C, 0, 0);
+                        if (pane.Model.Active.ViewMode != view || pane.ViewBounds != slot
+                            || SendMessageW(owner, 0x803C, 33, 0) != 0)
+                            throw new InvalidOperationException("A view switch must update immediately without starting an animation.");
+                    });
+                    await Ready(pane);
+                    await ObserveStationaryView();
+                }
+                await Check(() => GetFocus() == gridPeer && pane.Grid.Offset == scrollOffset,
+                    "Returning to Details retains its native file peer and saved scroll offset");
                 await Ui(() =>
                 {
                     pane.SetViewMode(ExplorerViewMode.Columns);
-                    pane.SetViewMode(ExplorerViewMode.Details);
+                    pane.SetViewMode(ExplorerViewMode.ExtraLargeIcons);
                     pane.SetViewMode(ExplorerViewMode.Columns);
                 });
                 await Ready(pane);
                 await Check(() => pane.IsColumns && pane.FilesFocused && pane.SelectedEntry?.FullPath == selected,
                     "Rapid view changes publish only the latest mode and selection");
-                await Ui(() =>
-                {
-                    pane.ViewReveal.Duration = 0;
-                    pane.SetViewMode(ExplorerViewMode.Details);
-                });
-                await Ready(pane);
-                await Check(() => !pane.IsColumns && !pane.ViewReveal.Animating && pane.ViewReveal.Progress == 1
-                    && pane.Grid.Focused && pane.SelectedEntry?.FullPath == selected,
-                    "Zero-duration view changes preserve immediate focus and selection");
-                await Ui(() =>
-                {
-                    pane.ViewReveal.Duration = 1200;
-                    pane.SetViewMode(ExplorerViewMode.Columns);
-                });
-                await Ready(pane);
+                await ObserveStationaryView();
                 await Ui(() => pane.Navigate(fixture));
                 await Ready(pane);
-                await Check(() => !pane.ViewReveal.Animating && pane.ViewReveal.Progress == 1
-                    && pane.Model.Active.Path == fixture,
-                    "Navigation settles entry and cannot replay a retired view request");
-                await Ui(() =>
-                {
-                    pane.ViewReveal.Duration = 0;
-                    pane.SetViewMode(ExplorerViewMode.Details);
-                });
+                await Check(() => pane.Model.Active.Path == fixture,
+                    "Navigation cannot replay a retired view request");
+                await Ui(() => pane.SetViewMode(ExplorerViewMode.Details));
                 await Ready(pane);
-                await Ui(() => pane.ViewReveal.Duration = duration);
 
-                async Task ObserveEntry(bool columns)
+                async Task ObserveStationaryView()
                 {
-                    var positions = new List<float>();
+                    nint peer = 0;
+                    NativePoint position = default;
+                    long started = 0;
                     await Ui(() =>
                     {
                         SendMessageW(owner, 0x800C, 0, 0);
-                        if (pane.ViewReveal.Animating != motion || !pane.FilesFocused
-                            || pane.SelectedEntry?.FullPath != selected || pane.Model.Active.ScrollOffset != 320)
-                            throw new InvalidOperationException(
-                                $"View entry must use system motion and retain focus/selection/viewport: columns={columns}, " +
-                                $"active={pane.ViewReveal.Animating}, motion={motion}, focus={pane.FilesFocused}, " +
-                                $"selected={pane.SelectedEntry?.FullPath}, offset={pane.Model.Active.ScrollOffset}.");
-                        if (columns && IsWindowVisible(gridPeer))
-                            throw new InvalidOperationException("The outgoing Details peer must not remain visible during Columns entry.");
-                        positions.Add((columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X);
+                        peer = GetFocus();
+                        if (peer == 0 || !ClientToScreen(peer, ref position))
+                            throw new InvalidOperationException("The selected view must have its native peer immediately.");
+                        if (pane.Model.Active.ViewMode != ExplorerViewMode.Details && IsWindowVisible(gridPeer))
+                            throw new InvalidOperationException("The outgoing Details peer must be hidden immediately.");
+                        started = Stopwatch.GetTimestamp();
                     });
                     await Until(() =>
                     {
-                        positions.Add((columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X);
-                        if (pane.ViewReveal.GetBounds() != slot || pane.Address.GetBounds() != address
-                            || pane.Footer.GetBounds() != footer)
-                            throw new InvalidOperationException("View entry must keep the toolbar, footer, and content slot stationary.");
-                        return !pane.ViewReveal.Animating;
-                    });
-                    await Ui(() =>
-                    {
-                        float end = (columns ? pane.Columns.GetBounds() : pane.Grid.GetBounds()).X;
-                        if (motion && !positions.Any(x => columns ? x > end + 0.1f : x < end - 0.1f))
+                        NativePoint current = default;
+                        ElementBounds content = pane.IsColumns ? pane.Columns.GetBounds() :
+                            pane.IsTree ? pane.Tree.GetBounds() : pane.IsItems ? pane.Items.GetBounds() : pane.Grid.GetBounds();
+                        if (pane.ViewBounds != slot || content != slot || pane.Address.GetBounds() != address
+                            || pane.Footer.GetBounds() != footer || GetFocus() != peer || !ClientToScreen(peer, ref current)
+                            || current.X != position.X || current.Y != position.Y || !pane.FilesFocused
+                            || pane.SelectedEntry?.FullPath != selected || pane.Model.Active.ScrollOffset != scrollOffset
+                            || SendMessageW(owner, 0x803C, 33, 0) != 0)
                             throw new InvalidOperationException(
-                                $"The incoming view must traverse intermediate directional positions: columns={columns}, " +
-                                $"positions=[{string.Join(", ", positions)}], end={end}, width={slot.Width}.");
-                        if (!pane.FilesFocused || pane.SelectedEntry?.FullPath != selected)
-                            throw new InvalidOperationException("The incoming view must retain its selected file and focus throughout entry.");
+                                $"View changes must stay stationary without an animation timer: mode={pane.Model.Active.ViewMode}, " +
+                                $"slot={slot}, view={pane.ViewBounds}, content={content}, toolbarStable={pane.Address.GetBounds() == address}, footerStable={pane.Footer.GetBounds() == footer}, " +
+                                $"peer={peer:X}, focus={GetFocus():X}, position={position.X},{position.Y}, current={current.X},{current.Y}, " +
+                                $"filesFocused={pane.FilesFocused}, selected={pane.SelectedEntry?.FullPath}, expected={selected}, offset={pane.Model.Active.ScrollOffset}, timer={SendMessageW(owner, 0x803C, 33, 0)}.");
+                        return Stopwatch.GetElapsedTime(started) >= TimeSpan.FromMilliseconds(240);
                     });
                 }
             }

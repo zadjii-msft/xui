@@ -126,6 +126,46 @@ void trees() {
     { TreeView owner; owner.set_tree(std::make_shared<Tree>()); owner.on_request([&](TreeRequest r) { late = r; }); owner.disclose({1, 1}, true); }
     require(late->cancellation.stop_requested(), "Tree destruction cancels external work");
 }
+void gallery_contracts() {
+    static_assert(static_cast<int>(ItemsPresentation::list) == 0 && static_cast<int>(ItemsPresentation::tiles) == 1 &&
+        static_cast<int>(ItemsPresentation::grouped) == 2 && static_cast<int>(ItemsPresentation::gallery) == 3);
+    auto source = std::make_shared<Items>();
+    ItemsView view; view.set_items(source); view.set_presentation(ItemsPresentation::gallery);
+    view.set_item_size({96, 128}); view.arrange({0, 0, 312, 270});
+    require(view.columns() == 3 && view.wraps_items(), "Gallery wraps through shared tile geometry");
+    const auto rows = view.visible_content();
+    require(rows.size() <= 12 && source->reads <= 12, "Million-item gallery materializes only visible rows");
+    for (const auto& row : rows) {
+        if (row.bounds.y >= view.content_viewport().height) continue;
+        require(view.hit_test({row.bounds.x + 1, row.bounds.y + 1}) == row.index,
+            "Gallery hit testing matches painted tile bounds");
+    }
+    for (const auto size : {Size{96, 128}, Size{160, 192}, Size{256, 288}}) {
+        view.set_item_size(size); view.arrange({0, 0, size.width * 3 + 12, size.height * 2});
+        auto row = view.visible_content().front(); row.content.secondary.clear(); row.content.action.clear();
+        const auto layout = view.gallery_layout(row);
+        require(layout.image.width == layout.image.height && layout.image.width > size.width / 2 &&
+            layout.image.width <= size.width - 16, "Gallery image extent follows the requested DIP size, not the viewport");
+        require(layout.image.y + layout.image.height < layout.primary.y &&
+            layout.image.x + layout.image.width / 2 == row.bounds.x + row.bounds.width / 2 &&
+            layout.primary.x + layout.primary.width / 2 == row.bounds.x + row.bounds.width / 2,
+            "Gallery centers the image above the filename");
+    }
+    view.select({2, 1}); view.step(static_cast<int>(view.columns()));
+    require(view.selection().focused() == ItemKey{5, 1}, "Gallery vertical navigation advances one tile row");
+    view.horizontal(true, SelectionGesture::replace);
+    require(view.selection().focused() == ItemKey{6, 1}, "Gallery horizontal navigation advances one item");
+    view.select_rectangle({2, 1}, {6, 1});
+    require(view.selection().contains({2, 1}) && view.selection().contains({6, 1}) && !view.selection().contains({4, 1}),
+        "Gallery rectangle selection uses wrapped columns");
+    view.select({1000000, 1});
+    require(view.visible_items().end == source->size(), "Gallery reveals the last item without enumeration");
+    view.set_presentation(ItemsPresentation::list);
+    require(view.columns() == 1 && view.selection().contains({1000000, 1}), "Gallery-to-list retains stable selection");
+    bool rejected{};
+    try { TreeView tree; tree.set_presentation(ItemsPresentation::gallery); } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected, "Gallery is opt-in for ItemsView only");
+}
 void tree_collapse_notifications() {
     auto tree = std::make_unique<TreeView>();
     tree->set_tree(std::make_shared<Tree>());
@@ -164,6 +204,78 @@ void tree_collapse_notifications() {
     tree->on_selection([&] { ++changes; tree.reset(); });
     tree->disclose({1, 1}, false);
     require(changes == 3 && !tree, "Collapse callback can delete its owner");
+}
+void tree_error_retry_contract() {
+    TreeView tree; tree.set_tree(std::make_shared<Tree>()); tree.arrange({0, 0, 400, 240});
+    std::vector<TreeRequest> requests; tree.on_request([&](TreeRequest request) { requests.push_back(request); });
+    const auto empty = std::make_shared<Items>(0);
+    tree.disclose({1, 1}, true);
+    const auto failed = requests.back();
+    require(tree.complete(failed, empty, L"Folder disappeared") && tree.visible_content().front().error,
+        "Failed child delivery can include the nonnull empty source required by bindings");
+    tree.select({1, 1}); tree.horizontal(true, SelectionGesture::replace);
+    require(requests.size() == 2 && requests.back().generation != failed.generation &&
+        tree.visible_content().front().pending && !tree.visible_content().front().error,
+        "Right arrow retries an open failed branch instead of reusing its empty source");
+    require(!tree.complete(failed, empty), "An old error completion cannot replace the retry");
+    require(tree.complete(requests.back(), empty, L"Still unavailable"), "Retry can report another error");
+    tree.disclose({1, 1}, false); tree.disclose({1, 1}, true);
+    require(requests.size() == 3 && tree.visible_content().front().pending,
+        "Reopening a failed branch also retries instead of using cached children");
+    require(tree.complete(requests.back(), empty), "An empty successful child source is valid");
+    tree.horizontal(true, SelectionGesture::replace);
+    tree.disclose({1, 1}, false); tree.disclose({1, 1}, true);
+    require(requests.size() == 3 && !tree.visible_content().front().error,
+        "Successful empty child sources stay cached across expansion gestures");
+}
+void tree_details_contract() {
+    auto source = std::make_shared<DetailTree>(); source->top = std::make_shared<DetailItems>(1000000);
+    TreeView tree; tree.set_tree(source); compact_tree(tree); tree.arrange({0, 0, 912, 240});
+    auto rows = tree.visible_content();
+    require(rows.size() <= 11 && source->top->reads <= 11 && source->top->cell_reads <= 33,
+        "Million-row details read only visible metadata cells");
+    const auto folder = tree.details_layout(rows[0]), file = tree.details_layout(rows[1]);
+    require(folder.columns[0].width == 515 && folder.columns[1].x == 515 &&
+        folder.columns[2].x == 675 && folder.columns[3].x == 800,
+        "Extra viewport width belongs to Name, with fixed metadata columns");
+    require(folder.icon.width == 16 && folder.icon.height == 16 && folder.icon.y == 4 &&
+        folder.disclosure.width == 16 && file.disclosure.width == 0 && file.icon.x == 4,
+        "Compact tree icons are centered at 16 DIPs and files reserve no disclosure slot");
+    require(tree.disclosure_hit(0, {8, 12}) && !tree.disclosure_hit(1, {8, 36}),
+        "Shared compact disclosure geometry distinguishes folders and files");
+    std::optional<TreeRequest> pending;
+    tree.on_request([&](TreeRequest request) { pending = request; });
+    tree.disclose({1, 1}, true);
+    const auto children = std::make_shared<DetailItems>(1000000, 2000001);
+    require(tree.complete(*pending, children), "Details accepts a virtual lazy child source");
+    rows = tree.visible_content();
+    require(rows[1].depth == 1 && rows[1].cells[0] == L"C1:2000001" &&
+        rows[2].cells[2] == L"C3:2000002" && children->cell_reads <= 30,
+        "Projection delegates metadata reads to the correct immutable child source");
+    const auto child_file = tree.details_layout(rows[2]);
+    require(child_file.icon.x == file.icon.x + 16 && child_file.columns[1].x == folder.columns[1].x,
+        "Only the Name column receives hierarchy indentation");
+    tree.select({2000002, 1});
+    const auto columns = tree.detail_columns();
+    bool rejected{};
+    try { tree.set_columns({{L"Bad", 20}}); } catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected && tree.detail_columns() == columns && tree.selection().contains({2000002, 1}),
+        "Invalid detail columns preserve configuration and selection");
+    tree.arrange({0, 0, 120, 240}); rows = tree.visible_content();
+    for (const auto& row : rows) {
+        const auto layout = tree.details_layout(row);
+        for (const auto& cell : layout.columns)
+            require(cell.width >= 0 && cell.x + cell.width <= tree.content_viewport().width,
+                "Narrow metadata columns clip without negative widths or out-of-row bounds");
+        require(layout.name.width >= 0 && layout.name.x + layout.name.width <= tree.content_viewport().width,
+            "Deep names stay within the first column");
+    }
+    const auto projected = tree.source();
+    const auto reads = children->cell_reads;
+    tree.set_columns({}); rows = tree.visible_content();
+    require(tree.source() == projected && tree.selection().contains({2000002, 1}) && rows[1].cells.empty() &&
+        children->cell_reads == reads && rows[1].content.secondary == L"Ordinary subtitle",
+        "Clearing columns restores ordinary rows without replacing the source or selection");
 }
 void grids() {
     DataGrid grid; grid.set_columns({{L"Name", 240, false, true, true}, {L"Value", 120, true, true}});
@@ -219,6 +331,6 @@ void layouts() {
 }
 }
 int main() {
-    try { allocation_contract(); selection_contracts(); items_contracts(); trees(); tree_collapse_notifications(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n"; }
+    try { allocation_contract(); selection_contracts(); items_contracts(); gallery_contracts(); trees(); tree_collapse_notifications(); tree_error_retry_contract(); tree_details_contract(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

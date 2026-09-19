@@ -87,6 +87,13 @@ struct ItemGroup {
     std::wstring name;
     std::size_t first{}, count{};
 };
+struct GridColumn {
+    std::wstring name;
+    float width{120};
+    bool numeric{};
+    bool filterable{}, checkable{};
+    bool operator==(const GridColumn&) const = default;
+};
 struct ItemHierarchy {
     std::optional<ItemKey> parent;
     std::size_t depth{};
@@ -98,6 +105,10 @@ enum class CollectionNavigation { parent, first_child, last_child, next, previou
 class ItemsSource : public CollectionIndex {
 public:
     virtual ItemContent item(std::size_t index) const = 0;
+    // Nonblocking text access for optional details columns. Column zero is the item name.
+    virtual std::wstring cell(std::size_t index, std::size_t column) const {
+        return column == 0 ? item(index).primary : std::wstring{};
+    }
     virtual ItemVisual visual(std::size_t) const { return {}; }
     // List geometry shared by painting, hit testing, scrolling, and UIA. size() is the end boundary.
     virtual double row_start(std::size_t index, double row_height) const;
@@ -107,7 +118,10 @@ public:
     virtual std::optional<std::size_t> navigate(std::optional<std::size_t> row, CollectionNavigation direction) const;
 };
 
-enum class ItemsPresentation { list, tiles, grouped };
+enum class ItemsPresentation { list, tiles, grouped, gallery };
+struct CollectionGalleryLayout {
+    Rect image, primary, secondary;
+};
 struct CollectionRow {
     ItemKey key;
     ItemContent content;
@@ -116,6 +130,7 @@ struct CollectionRow {
     std::optional<ItemKey> parent;
     bool group{}, expandable{}, expanded{}, pending{};
     bool navigation{}, compact{}, selected_descendant{}, hovered{}, error{};
+    std::vector<std::wstring> cells;
 };
 // The caller supplies actual peer focus and pointer state, never container hover.
 StyleStateMask collection_row_style_state(const CollectionRow& row, bool selected, bool focused,
@@ -139,6 +154,7 @@ public:
     void on_action(std::function<void(ItemKey)> callback) { action_ = std::move(callback); }
     virtual void set_presentation(ItemsPresentation value);
     ItemsPresentation presentation() const { return presentation_; }
+    bool wraps_items() const { return presentation_ == ItemsPresentation::tiles || presentation_ == ItemsPresentation::gallery; }
     void set_item_size(Size size);
     Size item_size() const;
     float scrollbar_width() const;
@@ -150,6 +166,8 @@ public:
     void set_offset(double offset);
     void reveal(ItemKey key);
     Rect item_bounds(std::size_t index) const;
+    // Shared DIP geometry for gallery painting and asynchronous image requests.
+    CollectionGalleryLayout gallery_layout(const CollectionRow& row, StyleStateMask state = 0) const;
     Rect disclosure_bounds(const CollectionRow& row, bool hovered = false) const;
     bool disclosure_hit(std::size_t index, Point point) const;
     std::optional<std::size_t> hit_test(Point point) const;
@@ -217,6 +235,10 @@ struct TreeRequest {
     std::uint64_t generation{};
     std::stop_token cancellation;
 };
+struct TreeDetailsLayout {
+    std::vector<Rect> columns;
+    Rect disclosure, icon, name;
+};
 // Data access is cached and nonblocking. The request callback starts application-owned I/O.
 class TreeSource {
 public:
@@ -229,6 +251,10 @@ public:
     explicit TreeView(std::wstring name = L"Tree");
     ~TreeView() override;
     void set_tree(std::shared_ptr<const TreeSource> source);
+    // Empty columns restore ordinary tree rows. Metadata columns are headless and read-only.
+    void set_columns(std::vector<GridColumn> columns);
+    const std::vector<GridColumn>& detail_columns() const { return detail_columns_; }
+    TreeDetailsLayout details_layout(const CollectionRow& row, StyleStateMask state = 0) const;
     void on_request(std::function<void(TreeRequest)> callback) { request_ = std::move(callback); }
     // UI-thread delivery only. False means stale, canceled, or no longer owned by this tree.
     bool complete(TreeRequest request, std::shared_ptr<const ItemsSource> children, std::wstring error = {});
@@ -251,6 +277,7 @@ private:
     void rebuild();
     bool descendant(ItemKey key, ItemKey ancestor) const;
     std::shared_ptr<const TreeSource> tree_;
+    std::vector<GridColumn> detail_columns_;
     std::map<ItemKey, Branch> branches_;
     std::uint64_t generation_{};
     std::function<void(TreeRequest)> request_;

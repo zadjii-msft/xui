@@ -72,6 +72,15 @@ public sealed partial class SplitView
 public sealed partial class ItemsView
 {
     public ItemsView Step(int delta) { Features.Action(this, 16, unchecked((uint)delta)); return this; }
+    /// <summary>Moves vertical selection without moving input focus. Supports Control and Shift selection gestures.</summary>
+    public ItemsView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
+    { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }
+}
+public sealed partial class TreeView
+{
+    /// <summary>Moves visible row selection without moving input focus. Supports Control and Shift selection gestures.</summary>
+    public TreeView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
+    { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }
 }
 public sealed partial class DataGrid
 {

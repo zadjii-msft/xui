@@ -509,6 +509,8 @@ static void validate_row_visuals(const std::vector<RowVisual>& rows) {
         if (row.visual.icon < ButtonIcon::none || row.visual.icon > ButtonIcon::chevron_down ||
             row.visual.image_path.size() > 32767 || row.visual.image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid row visual icon or image path");
+        if (!std::isfinite(row.image_dips) || row.image_dips < 0 || row.image_dips > ImageLimits::output_dimension)
+            throw std::invalid_argument("Invalid row visual image size");
     }
 }
 bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
@@ -542,8 +544,12 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
     const auto kind = [](const RowVisual& row) {
         return thumbnail_kind(row.visual.image_path, row.directory || row.visual.icon == ButtonIcon::folder);
     };
+    const auto size = [&](const RowVisual& row) {
+        return row.image_dips == 0 ? pixels : static_cast<UINT>(std::clamp(
+            std::round(row.image_dips * dpi / 96.0), 1.0, double(ImageLimits::output_dimension)));
+    };
     const auto matches = [&](const Slot& slot, const RowVisual& row) {
-        return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row);
+        return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row) && slot.pixels_size == size(row);
     };
     // Navigation and tabs retain visual identity; ordinary source refreshes reload changed files.
     const auto removed = std::erase_if(slots_, [&](const auto& slot) {
@@ -555,11 +561,12 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         if (found == slots_.end()) {
             auto slot = std::make_unique<Slot>();
             slot->key = row->key; slot->path = row->visual.image_path; slot->kind = kind(*row);
+            slot->pixels_size = size(*row);
             slots_.push_back(std::move(slot)); found = std::prev(slots_.end());
         }
         auto& slot = **found;
         if (!slot.request && !slot.pixels && !slot.failed)
-            slot.request = try_request_image(slot.path, {pixels, pixels}, wake, slot.kind);
+            slot.request = try_request_image(slot.path, {slot.pixels_size, slot.pixels_size}, wake, slot.kind);
         if (const auto request = slot.request) {
             std::lock_guard lock(request->mutex);
             if (request->done && !request->cancelled) {
