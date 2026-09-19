@@ -19,8 +19,8 @@ enum class ActivationKey { space, enter };
 enum class TextTone { normal, secondary, accent, error };
 enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
     menu, home, folder, settings, search, library, history, bookmark, drive, open,
-    save = 23, save_as = 24, undo = 25, redo = 26, chevron_up = 27, chevron_down = 28,
-    folders_first = 29, files_first = 30, mixed = 31 };
+    save = 23, save_as = 24, undo = 25, redo = 26, chevron_up = 27, chevron_down = 28, chevron_right = 29,
+    folders_first = 30, files_first = 31, mixed = 32 };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 enum class CheckState { unchecked, checked, indeterminate };
 enum class InfoBadgeKind { dot, count, icon };

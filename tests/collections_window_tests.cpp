@@ -652,6 +652,59 @@ void miller_window() {
     std::cout << "Miller native focus, context selection, viewport and lifecycle contracts passed\n";
 }
 
+void single_click_activation(Window& window, HWND hwnd, ItemsView& items, UINT dpi) {
+    const auto peer = native(hwnd, L"Items");
+    const auto source = items.source();
+    int activations = 0;
+    items.on_activate([&](ItemKey) { ++activations; });
+    const auto click = [&](WPARAM modifiers = 0) {
+        const auto row = items.item_bounds(0);
+        const auto point = MAKELPARAM(static_cast<int>((row.x + 12) * dpi / 96),
+            static_cast<int>((row.y + 12) * dpi / 96));
+        SendMessageW(peer, WM_LBUTTONDOWN, MK_LBUTTON | modifiers, point);
+        SendMessageW(peer, WM_LBUTTONUP, modifiers, point);
+    };
+    require(!items.single_click_activation(), "Ordinary items require explicit activation by default");
+    click();
+    require(activations == 0, "Default single clicks only select");
+    SendMessageW(peer, WM_LBUTTONDBLCLK, MK_LBUTTON, MAKELPARAM(12, 12));
+    require(activations == 1, "Default double clicks still activate");
+    items.set_single_click_activation(true);
+    activations = 0;
+    items.select(source->key(1));
+    window.focus(items);
+    SendMessageW(peer, WM_KEYDOWN, VK_HOME, 0);
+    SendMessageW(peer, WM_KEYDOWN, VK_DOWN, 0);
+    require(activations == 0, "Opt-in activation does not turn selection or arrow keys into activation");
+    click(); click();
+    require(activations == 2, "Single clicks activate both a new and an already-selected row");
+    SendMessageW(peer, WM_LBUTTONDBLCLK, MK_LBUTTON, MAKELPARAM(12, 12));
+    require(activations == 2, "The double-click message does not repeat single-click activation");
+    SendMessageW(peer, WM_KEYDOWN, VK_RETURN, 0);
+    require(activations == 3, "Enter still activates");
+    click(MK_CONTROL); click(MK_SHIFT);
+    require(activations == 3, "Modified clicks retain selection gestures without activation");
+    items.set_enabled(false); click(); items.set_enabled(true);
+    require(activations == 3, "Disabled items reject single clicks");
+    items.on_selection([&] {
+        items.on_selection({});
+        items.set_items(std::make_shared<Items>(3));
+    });
+    click();
+    require(activations == 3, "A selection callback cannot activate a row from a replaced snapshot");
+    items.on_selection([&] {
+        items.on_selection({});
+        items.set_visible(false);
+    });
+    click();
+    require(activations == 3, "A selection callback that hides the control cancels activation");
+    items.set_visible(true);
+    items.on_activate({});
+    items.set_single_click_activation(false);
+    items.set_items(source, source);
+    items.set_offset(0);
+    flush(hwnd);
+}
 void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
     Window window({L"XUI collection contracts", {920, 760}, theme});
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_spacing(6); root->set_padding({10, 10, 10, 10});
@@ -708,6 +761,7 @@ void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
             native_done = true; driver_done = true; window.close(); return true;
         }
         const auto items_hwnd = native(hwnd, L"Items"), tree_hwnd = native(hwnd, L"Tree"), grid_hwnd = native(hwnd, L"Table");
+        single_click_activation(window, hwnd, *items, dpi);
         require(window.focus(*items), "Owned items receive native focus");
         SendMessageW(items_hwnd, WM_KEYDOWN, VK_HOME, 0); SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0);
         require(items->selection().focused() == ItemKey{2, 1}, "Native arrows select item IDs");
@@ -715,13 +769,19 @@ void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
         BYTE shift[256]{}; std::copy(std::begin(keyboard), std::end(keyboard), std::begin(shift)); shift[VK_SHIFT] = 0x80; SetKeyboardState(shift);
         SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0); restore();
         require(items->selection().contains({2, 1}) && items->selection().contains({3, 1}), "Native Shift+arrow selects range");
-        items->set_presentation(ItemsPresentation::tiles); items->set_offset(0); flush(hwnd);
+        for (const auto presentation : {ItemsPresentation::tiles, ItemsPresentation::gallery}) {
+        items->set_item_size(presentation == ItemsPresentation::gallery ? Size{96, 128} : Size{180, 56});
+        items->set_presentation(presentation); items->set_offset(0); flush(hwnd);
         const auto cols = items->columns(); require(cols >= 2, "Wide items have tile columns");
         const auto start = items->item_bounds(0), finish = items->item_bounds(cols + 1);
         SendMessageW(items_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(static_cast<int>((start.x + 35) * dpi / 96), static_cast<int>((start.y + 10) * dpi / 96)));
         SendMessageW(items_hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(static_cast<int>((finish.x + 35) * dpi / 96), static_cast<int>((finish.y + 10) * dpi / 96)));
         SendMessageW(items_hwnd, WM_LBUTTONUP, 0, 0);
         require(items->selection().contains(source->key(cols + 1)) && items->selection().storage_size() == 1, "Native rectangle uses one selection term");
+        SendMessageW(items_hwnd, WM_KEYDOWN, VK_HOME, 0); SendMessageW(items_hwnd, WM_KEYDOWN, VK_DOWN, 0);
+        require(items->selection().focused() == source->key(cols), "Native tile and gallery arrows use the shared column count");
+        }
+        items->set_item_size({180, 56});
         items->set_presentation(ItemsPresentation::list);
         require(window.focus(*tree), "Tree receives native focus"); SendMessageW(tree_hwnd, WM_KEYDOWN, VK_HOME, 0);
         SendMessageW(tree_hwnd, WM_KEYDOWN, VK_RIGHT, 0); SendMessageW(tree_hwnd, WM_KEYDOWN, VK_RIGHT, 0);

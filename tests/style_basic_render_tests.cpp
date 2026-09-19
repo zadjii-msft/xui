@@ -64,7 +64,7 @@ std::size_t count(const std::vector<uint32_t>& pixels, uint32_t value) {
 }
 void document_icons(Fixture& fixture) {
     constexpr std::array icons{ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
-        ButtonIcon::chevron_up, ButtonIcon::chevron_down};
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::chevron_right};
     for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
         fixture.drawing.set_visual_style(style);
         for (const auto size : {16.0f, 20.0f, 32.0f}) {
@@ -77,12 +77,18 @@ void document_icons(Fixture& fixture) {
                     "Every document icon paints visible pixels in both visual styles");
                 for (std::size_t previous = 0; previous < i; ++previous)
                     require(images[i] != images[previous], "Document command icons have distinct shapes");
-                if (icons[i] == ButtonIcon::chevron_up || icons[i] == ButtonIcon::chevron_down) {
+                if (icons[i] == ButtonIcon::chevron_up || icons[i] == ButtonIcon::chevron_down || icons[i] == ButtonIcon::chevron_right) {
                     const bool up = icons[i] == ButtonIcon::chevron_up;
+                    const bool right = icons[i] == ButtonIcon::chevron_right;
                     const auto expected = fixture.render([&] {
                         if (style == VisualStyle::winui) {
-                            fixture.drawing.symbol(up ? Symbol::chevron_up : Symbol::chevron_down,
+                            fixture.drawing.symbol(right ? Symbol::chevron_right : up ? Symbol::chevron_up : Symbol::chevron_down,
                                 {20, 20, size, size}, D2D1::ColorF(0xffffff), size);
+                        } else if (right) {
+                            fixture.drawing.line(20 + 5 * size / 16, 20 + 3 * size / 16,
+                                20 + 11 * size / 16, 20 + 8 * size / 16, D2D1::ColorF(0xffffff), 1.5f);
+                            fixture.drawing.line(20 + 11 * size / 16, 20 + 8 * size / 16,
+                                20 + 5 * size / 16, 20 + 13 * size / 16, D2D1::ColorF(0xffffff), 1.5f);
                         } else {
                             const float tip = 20 + (up ? 5 : 11) * size / 16;
                             const float tail = 20 + (up ? 11 : 5) * size / 16;
@@ -218,6 +224,21 @@ void open_icon(Fixture& fixture) {
             fixture.drawing.button_icon({20, 20, 32, 32}, D2D1::ColorF(0xffffff), ButtonIcon::open);
         });
         require(count(glyph, 0xffffff) > 10, "Open paints visible Fluent and Classic fallback strokes");
+        Button space(L"Go to folder");
+        space.set_icon(ButtonIcon::folder);
+        PartStyleValues hidden_icon;
+        hidden_icon.size = 0.0f;
+        space.set_control_style_values(StylePart::icon, hidden_icon);
+        const auto named_space = fixture.render([&] {
+            fixture.drawing.styled_button(space, {10, 10, 160, 70}, palette, true, false);
+        });
+        require(space.name() == L"Go to folder", "An empty address surface retains its accessible name");
+        space.set_icon(ButtonIcon::none);
+        space.set_name(L"");
+        const auto empty_space = fixture.render([&] {
+            fixture.drawing.styled_button(space, {10, 10, 160, 70}, palette, true, false);
+        });
+        require(named_space == empty_space, "Zero-size icons leave the trailing address surface visually empty");
     }
     fixture.drawing.set_visual_style(VisualStyle::classic);
 }

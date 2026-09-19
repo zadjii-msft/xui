@@ -5,13 +5,30 @@ fn partition_button_icons() -> Result<()> {
     let window = Window::new("Partition icons", 300., 200.)?;
     let button = window.button("Choose folder and file order")?;
     for (index, icon) in [ButtonIcon::FoldersFirst, ButtonIcon::FilesFirst, ButtonIcon::Mixed].into_iter().enumerate() {
-        assert_eq!(icon as u32, 29 + index as u32);
+        assert_eq!(icon as u32, 30 + index as u32);
         button.set_icon(icon)?;
         assert_eq!(button.feature_get(45)?.first, icon as u64);
         assert_eq!(ButtonIcon::from_native(icon as u64)?, icon);
     }
-    assert!(ButtonIcon::from_native(32).is_err());
+    assert!(ButtonIcon::from_native(33).is_err());
     assert!(ButtonIcon::from_native(u64::MAX).is_err());
+    Ok(())
+}
+#[test]
+fn items_single_click_activation() -> Result<()> {
+    let window = Window::new("Flyout items", 400., 300.)?;
+    let items = window.items_view("Folders")?;
+    assert!(!items.single_click_activation()?);
+    let measured = window.adaptive_layout("Measured", &*window.stack(Axis::Vertical)?, &*window.stack(Axis::Vertical)?)?;
+    assert!(!measured.content_sized()?);
+    measured.set_content_sized(true)?;
+    assert!(measured.content_sized()?);
+    measured.set_content_sized(false)?;
+    assert!(!measured.content_sized()?);
+    items.set_single_click_activation(true)?;
+    assert!(items.single_click_activation()?);
+    items.set_single_click_activation(false)?;
+    assert!(!items.single_click_activation()?);
     Ok(())
 }
 #[test]
@@ -278,6 +295,10 @@ fn shell_image_and_open_icon() -> Result<()> {
     let button = window.button("Open")?;
     button.set_icon(ButtonIcon::Open)?;
     assert_eq!(button.feature_get(45)?.first, 22);
+    button.set_icon(ButtonIcon::ChevronRight)?;
+    assert_eq!(button.feature_get(45)?.first, 29);
+    assert_eq!(ButtonIcon::from_native(29)?, ButtonIcon::ChevronRight);
+    assert!(ButtonIcon::from_native(33).is_err());
     Ok(())
 }
 #[test]

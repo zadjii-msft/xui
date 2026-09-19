@@ -2794,7 +2794,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         if (visual.image_path.empty()) visual.image_path = row.content.image_path;
                         if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none)
                             visual.icon = ButtonIcon::folder;
-                        rows.push_back({row.key, std::move(visual), row.navigation});
+                        float image_dips{};
+                        const auto* tree = dynamic_cast<const TreeView*>(collection);
+                        if (collection->presentation() == ItemsPresentation::gallery || tree) {
+                            const auto state = collection_row_style_state(row, collection->selection().contains(row.key),
+                                collection->focused() && collection->selection().focused() == row.key, enabled(*peer),
+                                !GetCapture() && collection->hovered() && peer->command_pointer &&
+                                    collection->hit_test(*peer->command_pointer) == row.index);
+                            if (collection->presentation() == ItemsPresentation::gallery)
+                                image_dips = std::clamp(collection->gallery_layout(row, state).image.width,
+                                    1.0f, float(ImageLimits::output_dimension));
+                            else if (!tree->detail_columns().empty()) {
+                                auto visual_row = row;
+                                visual_row.content.icon = visual.icon; visual_row.content.image_path = visual.image_path;
+                                image_dips = std::clamp(tree->details_layout(visual_row, state).icon.width,
+                                    1.0f, float(ImageLimits::output_dimension));
+                            } else if (tree->has_control_styling()) {
+                                if (const auto extent = tree->row_style_values(StylePart::icon, row, state).size)
+                                    image_dips = std::clamp(*extent, 1.0f, float(ImageLimits::output_dimension));
+                            }
+                        }
+                        rows.push_back({row.key, std::move(visual), row.navigation, image_dips});
                     }
                     if (const auto& frame = detail::CollectionPresentationAccess::get(*collection)) {
                         const auto viewport = collection->content_viewport();
@@ -4745,11 +4765,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (auto* menu = dynamic_cast<CommandMenu*>(collection)) { menu->execute(item_key.id); return 0; }
                     peer.collection_before = collection->selection();
                     const bool ctrl = (wparam & MK_CONTROL) != 0, shift = (wparam & MK_SHIFT) != 0;
-                    if (collection->presentation() == ItemsPresentation::tiles && !shift) {
+                    const auto* items = dynamic_cast<ItemsView*>(collection);
+                    const bool single_click = items && items->single_click_activation() && !ctrl && !shift && !info.group;
+                    if (collection->wraps_items() && !shift && !single_click) {
                         peer.collection_drag = true; peer.collection_anchor = item_key; peer.collection_additive = ctrl; SetCapture(hwnd);
                     }
-                    collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
+                    const bool selected = collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
                         ctrl ? SelectionGesture::toggle : SelectionGesture::replace);
+                    if (single_click && selected && !closing && visible(peer) && enabled(peer) &&
+                        items->single_click_activation() && collection->source() == source)
+                        collection->activate_item(item_key);
                 }
                 return 0;
             }
@@ -4949,6 +4974,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         case WM_LBUTTONDBLCLK:
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
+                if (auto* items = dynamic_cast<ItemsView*>(collection); items && items->single_click_activation()) return 0;
                 if (const auto row = collection->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
                     const auto item_key = collection->source()->key(*row); const auto info = collection->source()->hierarchy(*row);
                     if (info.expandable) collection->disclose(item_key, !info.expanded);

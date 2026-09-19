@@ -63,12 +63,12 @@ void row_image_tests() {
     std::vector<RowVisual> rows;
     std::vector<uint64_t> retained;
     for (const auto icon : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
-        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::folders_first, ButtonIcon::files_first, ButtonIcon::mixed}) {
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::chevron_right, ButtonIcon::folders_first, ButtonIcon::files_first, ButtonIcon::mixed}) {
         first.sync(source, {{source->key(0), {icon, {}}}}, 96, wake, retained);
         check(first.visual(source->key(0)).icon == icon && !first.count(),
             "Document row icons retain their value without image requests");
     }
-    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(32)}) {
+    for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(33)}) {
         bool rejected{};
         try { first.sync(source, {{source->key(0), {invalid, {}}}}, 96, wake, retained); }
         catch (const std::invalid_argument&) { rejected = true; }
@@ -443,6 +443,40 @@ void tab_image_tests() {
         !idle.active && !idle.queued, "Settled tabs do not queue image work on repeated reconciliation");
     images.clear(); empty();
 }
+void gallery_image_tests() {
+    RowImages images;
+    auto wake = std::make_shared<TaskWake>();
+    std::vector<std::uint64_t> retained;
+    const auto sync = [&](float extent, UINT dpi = 96) {
+        retained.clear();
+        images.sync_visuals({{{1, 1}, {ButtonIcon::none, path(0)}, false, extent}}, dpi, wake, retained);
+    };
+    {
+        Gate gate(ImageDecodeStage::before_delivery);
+        sync(228); gate.await();
+        const auto large = RowImagesTestAccess::request(images, {1, 1});
+        check(large && large->size == ImageSize{228, 228}, "Gallery requests the icon extent, not the item height");
+        sync(228);
+        check(RowImagesTestAccess::request(images, {1, 1}) == large && !large->cancelled,
+            "Unchanged gallery geometry retains its pending image");
+        sync(68, 144);
+        const auto medium = RowImagesTestAccess::request(images, {1, 1});
+        check(large->cancelled && medium && medium->size == ImageSize{102, 102},
+            "Gallery size and DPI changes cancel stale requests and use physical image pixels");
+        sync(16, 144);
+        const auto compact = RowImagesTestAccess::request(images, {1, 1});
+        check(medium->cancelled && compact && compact->size == ImageSize{24, 24},
+            "Compact tree icon extents request 16 DIPs at the current DPI");
+        sync(0);
+        const auto list = RowImagesTestAccess::request(images, {1, 1});
+        check(compact->cancelled && list && list->size == ImageSize{24, 24},
+            "Leaving gallery restores the existing small row image request");
+        images.clear();
+        check(list->cancelled && images.count() == 0, "Gallery teardown cancels pending images");
+        gate.release();
+    }
+    empty();
+}
 void ordinary_row_image_refresh_test() {
     struct Source final : ItemsSource {
         size_t size() const override { return 1; }
@@ -717,7 +751,7 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
         decode_tests(); cancellation_tests(); shell_image_tests(); row_image_queue_tests(); row_image_tests(); ordinary_row_image_refresh_test();
-        navigation_row_image_tests(); tab_image_tests(); gpu_tests();
+        navigation_row_image_tests(); tab_image_tests(); gallery_image_tests(); gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted
             << " rejected=" << s.rejected << " cancelled=" << s.cancelled << " cpu_peak=" << s.cpu_peak

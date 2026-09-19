@@ -6,6 +6,7 @@
 #include "xui/navigation.hpp"
 #ifdef _WIN32
 #include "../src/drawing.hpp"
+#include "../src/images.hpp"
 #include "../src/control_accessibility.hpp"
 #include <UIAutomation.h>
 #endif
@@ -119,6 +120,9 @@ void sparse_state_and_locals() {
     require(view.row_style_values(StylePart::icon, tile, 0).foreground == ThemeColor{70} &&
         view.row_style_values(StylePart::primary_text, tile, 0).foreground == ThemeColor{70},
         "Tile-local foreground inherits into icon and primary text");
+    view.set_presentation(ItemsPresentation::gallery);
+    require(view.row_style_values(StylePart::icon, tile, 0).foreground == ThemeColor{70},
+        "Gallery shares tile style inheritance");
     view.set_control_style_values(StylePart::primary_text, ink(80));
     require(view.row_style_values(StylePart::primary_text, tile, 0).foreground == ThemeColor{80},
         "Text local overrides tile inheritance");
@@ -528,6 +532,62 @@ void provider_geometry_contract() {
     view.reveal(source->key(source->size() - 1)); publish_control(state, nullptr, view, window);
     auto final = find(source->size() - 1); expect_bounds(final.Get(), source->size() - 1);
     require(SUCCEEDED(scroll->get_VerticalScrollPercent(&percent)) && coordinates_match(percent, 100), "Final item reveal agrees with UIA scroll range");
+    view.set_presentation(ItemsPresentation::gallery);
+    view.set_item_size({96, 128});
+    view.set_control_style_values(StylePart::root, {});
+    for (const float width : {arranged.width, 100.0f}) {
+        view.arrange({0, 0, width, arranged.height}); view.set_offset(0);
+        publish_control(state, nullptr, view, window);
+        auto gallery = find(0);
+        expect_bounds(gallery.Get(), 0);
+        viewport = view.content_viewport();
+        expect_hit({viewport.x + 5, viewport.y + 5});
+        require(runtime_id(gallery.Get()) == identity, "Gallery keeps stable UIA identity across presentation changes");
+        view.reveal(source->key(source->size() - 1)); publish_control(state, nullptr, view, window);
+        expect_bounds(final.Get(), source->size() - 1);
+        require(SUCCEEDED(scroll->get_VerticalScrollPercent(&percent)) && coordinates_match(percent, 100),
+            "Gallery last-item reveal agrees with UIA in wrapped and single-column layouts");
+    }
+#endif
+}
+void tree_details_provider_contract() {
+#ifdef _WIN32
+    using Microsoft::WRL::ComPtr;
+    const auto window = CreateWindowExW(WS_EX_NOACTIVATE, L"STATIC", L"Tree details provider", WS_POPUP,
+        0, 0, 700, 240, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    require(window != nullptr, "Create tree details provider fixture");
+    struct Cleanup { HWND window; ~Cleanup() { DestroyWindow(window); } } cleanup{window};
+    TreeView tree; tree.set_tree(std::make_shared<collections_test::DetailTree>()); collections_test::compact_tree(tree);
+    tree.arrange({0, 0, 700, 240});
+    tree.on_request([&](TreeRequest request) { tree.complete(request, std::make_shared<collections_test::DetailItems>(2, 2000001)); });
+    tree.disclose({1, 1}, true);
+    auto state = std::make_shared<ControlAccessibility>(); publish_control(state, nullptr, tree, window);
+    ComPtr<IRawElementProviderSimple> root; root.Attach(create_collection_provider(state));
+    ComPtr<IItemContainerProvider> container; require(SUCCEEDED(root.As(&container)), "Details retains virtual item container");
+    VARIANT match{}; match.vt = VT_BSTR; match.bstrVal = SysAllocString(L"2000002:1");
+    ComPtr<IRawElementProviderSimple> item;
+    const auto found = container->FindItemByProperty(nullptr, UIA_AutomationIdPropertyId, match, &item); VariantClear(&match);
+    require(SUCCEEDED(found) && item, "Find lazy detail child by stable identity");
+    const auto text = [&](PROPERTYID property) {
+        VARIANT value{}; require(SUCCEEDED(item->GetPropertyValue(property, &value)), "Read detail tree accessibility text");
+        const std::wstring result = value.vt == VT_BSTR && value.bstrVal ? value.bstrVal : L"";
+        VariantClear(&value); return result;
+    };
+    require(text(UIA_NamePropertyId) == L"Entry 2000002" &&
+        text(UIA_HelpTextPropertyId).find(L"Date modified: C1:2000002; Type: C2:2000002; Size: C3:2000002") != std::wstring::npos,
+        "Tree items retain their name and expose labeled metadata in HelpText");
+    VARIANT level{}, role{};
+    require(SUCCEEDED(item->GetPropertyValue(UIA_LevelPropertyId, &level)) && level.lVal == 2 &&
+        SUCCEEDED(item->GetPropertyValue(UIA_ControlTypePropertyId, &role)) && role.lVal == UIA_TreeItemControlTypeId,
+        "Detail metadata does not replace native tree hierarchy semantics");
+    VariantClear(&level); VariantClear(&role);
+    ComPtr<IUnknown> selection;
+    require(SUCCEEDED(item->GetPatternProvider(UIA_SelectionItemPatternId, &selection)) && selection,
+        "Detail tree items retain selection patterns");
+    ComPtr<IUnknown> table;
+    require(SUCCEEDED(root->GetPatternProvider(UIA_GridPatternId, &table)) && !table, "Headless tree details do not advertise a table");
+    tree.set_columns({}); publish_control(state, nullptr, tree, window);
+    require(text(UIA_HelpTextPropertyId) == L"Ordinary subtitle", "Clearing columns updates metadata on retained tree providers");
 #endif
 }
 void render_contract() {
@@ -585,6 +645,96 @@ void render_contract() {
     require(DrawingTestAccess::pixel(drawing, 200, 20) == 0x7755aa, "Expanded group header paints its own part");
     require(drawing.end(), "End group part frame");
 
+    view.set_presentation(ItemsPresentation::gallery); view.set_item_size({140, 160}); view.set_offset(0);
+    auto thumbnail = std::make_shared<ImagePixels>();
+    thumbnail->id = UINT64_MAX - 1; thumbnail->size = {4, 4};
+    thumbnail->pixels.resize(4 * 4 * 4);
+    for (std::size_t i = 0; i < thumbnail->pixels.size(); i += 4) {
+        thumbnail->pixels[i] = thumbnail->pixels[i + 2] = thumbnail->pixels[i + 3] = std::byte{255};
+    }
+    for (const bool styled : {false, true}) {
+        view.set_control_style(nullptr);
+        if (styled) view.set_control_style(ControlStyle::create(StyleTarget::items_view,
+            {{StylePart::tile, fill(0x102030, 0x102030)}}, {}));
+        auto gallery = view.visible_content().front();
+        gallery.content = {L"Gallery\nfilename", L"", ButtonIcon::folder};
+        gallery.content.image_path = L"gallery-image";
+        const auto geometry = view.gallery_layout(gallery);
+        require(drawing.begin(window, 96, palette.background), "Begin gallery image frame");
+        drawing.collection_row(gallery, false, false, true, palette, false, thumbnail, false, false, &view);
+        const auto center = static_cast<int>(geometry.image.x + geometry.image.width / 2);
+        const auto image_y = static_cast<int>(geometry.image.y + geometry.image.height / 2);
+        require(DrawingTestAccess::pixel(drawing, center, image_y) == 0xff00ff &&
+            DrawingTestAccess::pixel(drawing, center - 30, image_y) == 0xff00ff,
+            "Gallery paints a large centered thumbnail in styled and default presentations");
+        const auto background = DrawingTestAccess::pixel(drawing, 5, 80);
+        int text_left = 320, text_right = -1;
+        bool second_line{};
+        for (int y = static_cast<int>(geometry.primary.y); y < static_cast<int>(geometry.primary.y + geometry.primary.height); ++y)
+            for (int x = static_cast<int>(geometry.primary.x); x < static_cast<int>(geometry.primary.x + geometry.primary.width); ++x)
+                if (DrawingTestAccess::pixel(drawing, x, y) != background) {
+                    text_left = std::min(text_left, x); text_right = std::max(text_right, x);
+                    second_line = second_line || y >= geometry.primary.y + 20;
+                }
+        require(text_right >= text_left && std::abs((text_left + text_right) / 2 - center) <= 3,
+            "Gallery paints the filename centered beneath the thumbnail");
+        require(second_line, "Gallery reserves a second filename line below the image");
+        require(drawing.end(), "End gallery image frame");
+        require(drawing.begin(window, 96, palette.background), "Begin gallery fallback frame");
+        drawing.collection_row(gallery, false, false, true, palette, false, {}, false, false, &view);
+        bool fallback{};
+        for (int x = center - 35; x < center + 35; ++x)
+            for (int y = static_cast<int>(geometry.image.y); y < static_cast<int>(geometry.image.y + geometry.image.height); ++y)
+                fallback = fallback || DrawingTestAccess::pixel(drawing, x, y) != background;
+        require(fallback, "Gallery retains the fallback icon while image work is pending or failed");
+        require(drawing.end(), "End gallery fallback frame");
+    }
+    drawing.keep_images({});
+
+    TreeView details; details.set_tree(std::make_shared<collections_test::DetailTree>()); collections_test::compact_tree(details);
+    details.set_columns({{L"Name", 120}, {L"Date", 60}, {L"Type", 60}, {L"Size", 60, true}});
+    details.arrange({0, 0, 320, 180});
+    details.on_request([&](TreeRequest request) { details.complete(request, std::make_shared<collections_test::DetailItems>(2, 2000001)); });
+    details.disclose({1, 1}, true);
+    const auto detail_rows = details.visible_content();
+    const auto rgb = [](D2D1_COLOR_F color) {
+        return (uint32_t(color.r * 255 + .5f) << 16) | (uint32_t(color.g * 255 + .5f) << 8) | uint32_t(color.b * 255 + .5f);
+    };
+    for (const auto mode : {ThemeMode::light, ThemeMode::dark, ThemeMode::high_contrast}) {
+        auto colors = Palette::system(mode);
+        if (mode != ThemeMode::high_contrast) colors.high_contrast = false;
+        require(drawing.begin(window, 96, colors.background), "Begin compact tree frame");
+        for (const auto& detail : detail_rows)
+            drawing.collection_row(detail, detail.index == 3, false, true, colors, false, thumbnail, false, false, &details);
+        require(DrawingTestAccess::pixel(drawing, 306, 12) == rgb(colors.background) &&
+            DrawingTestAccess::pixel(drawing, 306, 36) == rgb(colors.high_contrast ? colors.background : colors.surface) &&
+            DrawingTestAccess::pixel(drawing, 306, 84) == rgb(colors.selection),
+            "Compact detail rows have full-width 24-DIP stripes and visible selection");
+        const auto first = details.details_layout(detail_rows[0]);
+        const auto child = details.details_layout(detail_rows[2]);
+        require(first.icon.width == 16 && first.icon.y == 4 && child.icon.x == 20 &&
+            first.columns[1].x == child.columns[1].x, "Compact name geometry reserves no file chevron and keeps metadata aligned");
+        require(DrawingTestAccess::pixel(drawing, int(first.icon.x + 8), 12) == 0xff00ff &&
+            DrawingTestAccess::pixel(drawing, int(first.icon.x + 8), 2) == rgb(colors.background),
+            "Tree thumbnails use a 16-DIP slot without a header or second text line");
+        const auto size = first.columns.back();
+        int right = -1;
+        for (int y = 0; y < 24; ++y)
+            for (int x = int(size.x + 6); x < int(size.x + size.width - 6); ++x)
+                if (DrawingTestAccess::pixel(drawing, x, y) != rgb(colors.background)) right = std::max(right, x);
+        require(right >= int(size.x + size.width - 10) && right < int(size.x + size.width - 6),
+            "Numeric tree metadata aligns to the right edge of its column");
+        require(drawing.end(), "End compact tree frame");
+    }
+    details.arrange({0, 0, 80, 180});
+    require(drawing.begin(window, 96, palette.background), "Begin narrow compact tree frame");
+    for (const auto& detail : details.visible_content())
+        drawing.collection_row(detail, false, false, true, palette, false, {}, false, false, &details);
+    require(DrawingTestAccess::pixel(drawing, 100, 36) == rgb(palette.background),
+        "Narrow tree metadata cannot paint outside the row viewport");
+    require(drawing.end(), "End narrow compact tree frame");
+    drawing.keep_images({});
+
     NavigationView navigation;
     NavigationItem folder{{1, 1}, {}, L"Folder"};
     folder.icon = ButtonIcon::folder;
@@ -627,6 +777,8 @@ int main(int argc, char* argv[]) {
         if (desktop) {
             stage = "provider_geometry_contract";
             provider_geometry_contract();
+            stage = "tree_details_provider_contract";
+            tree_details_provider_contract();
             stage = "render_contract";
             render_contract();
         }

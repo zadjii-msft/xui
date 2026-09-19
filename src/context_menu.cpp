@@ -31,6 +31,8 @@ struct Menu {
     HMENU handle{};
     HFONT font{};
     HBRUSH background{}, border{}, selection{};
+    HRGN outline{};
+    SIZE frame_size{};
     HHOOK hook{}, input_hook{};
     std::exception_ptr failure;
     std::function<bool()> current;
@@ -58,6 +60,7 @@ struct Menu {
         if (background) DeleteObject(background);
         if (border) DeleteObject(border);
         if (selection) DeleteObject(selection);
+        if (outline) DeleteObject(outline);
     }
     int px(int value) const { return MulDiv(value, static_cast<int>(dpi), 96); }
     void remember_failure() noexcept {
@@ -203,10 +206,52 @@ struct Menu {
                 complete = LineTo(dc, x + px(11), y - px(4)) && complete;
             }
         }
+        if (popup && outline) {
+            // Native menus can buffer item drawing. Keep the curved border in that same buffer.
+            RECT bounds{};
+            POINT origin{};
+            if (GetWindowRect(popup, &bounds) && ClientToScreen(popup, &origin)) {
+                complete = IntersectClipRect(dc, rect.left, rect.top, rect.right, rect.bottom) != ERROR && complete;
+                complete = OffsetViewportOrgEx(dc, bounds.left - origin.x, bounds.top - origin.y, nullptr) != FALSE && complete;
+                complete = FrameRgn(dc, outline, border, 1, 1) != FALSE && complete;
+            } else complete = false;
+        }
         complete = RestoreDC(dc, saved) != FALSE && complete;
         win32_require(complete, "Draw context menu command");
         painted = true;
         if (const auto observer = ContextMenuTestAccess::paint.load()) observer(handle, owner);
+    }
+    void shape(HWND window) {
+        RECT bounds{};
+        win32_require(GetWindowRect(window, &bounds) != FALSE, "Read context menu size");
+        const SIZE size{bounds.right - bounds.left, bounds.bottom - bounds.top};
+        if (size.cx <= 0 || size.cy <= 0 ||
+            (size.cx == frame_size.cx && size.cy == frame_size.cy)) return;
+        struct Region {
+            HRGN handle{};
+            ~Region() { if (handle) DeleteObject(handle); }
+        };
+        const int diameter = palette.high_contrast ? 0 : px(16);
+        Region next{diameter ? CreateRoundRectRgn(0, 0, size.cx + 1, size.cy + 1, diameter, diameter) :
+            CreateRectRgn(0, 0, size.cx, size.cy)};
+        Region clip{CreateRectRgn(0, 0, 0, 0)};
+        win32_require(next.handle && clip.handle, "Create context menu outline");
+        win32_require(CombineRgn(clip.handle, next.handle, nullptr, RGN_COPY) != ERROR, "Copy context menu outline");
+        frame_size = size; // SetWindowRgn can send another WM_WINDOWPOSCHANGED.
+        win32_require(SetWindowRgn(window, clip.handle, FALSE) != 0, "Set context menu outline");
+        clip.handle = nullptr; // Windows owns the region after SetWindowRgn succeeds.
+        if (outline) DeleteObject(outline);
+        outline = next.handle;
+        next.handle = nullptr;
+        win32_require(RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME) != FALSE,
+            "Invalidate context menu outline");
+    }
+    void paint_frame(HWND window) {
+        const HDC dc = GetWindowDC(window);
+        win32_require(dc != nullptr, "Acquire context menu frame context");
+        try { frame(window, dc); }
+        catch (...) { ReleaseDC(window, dc); throw; }
+        win32_require(ReleaseDC(window, dc) != 0, "Release context menu frame context");
     }
     void frame(HWND window, HDC dc) {
         RECT outer{}, client{};
@@ -218,9 +263,12 @@ struct Menu {
         const int saved = SaveDC(dc);
         win32_require(saved != 0, "Save context menu frame context");
         ExcludeClipRect(dc, client.left, client.top, client.right, client.bottom);
-        const bool complete = FillRect(dc, &outer, background) && FrameRect(dc, &outer, border);
+        const bool filled = FillRect(dc, &outer, background) != FALSE;
         const bool restored = RestoreDC(dc, saved) != FALSE;
-        win32_require(complete && restored, "Draw context menu frame");
+        // The curved border can cross into the client area at higher DPI.
+        const bool edged = outline ? FrameRgn(dc, outline, border, 1, 1) != FALSE :
+            FrameRect(dc, &outer, border) != FALSE;
+        win32_require(filled && restored && edged, "Draw context menu frame");
     }
     LRESULT character(wchar_t key) {
         if (key == 0xfffe || key == 0xffff) {
@@ -296,21 +344,38 @@ struct Menu {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& self = *reinterpret_cast<Menu*>(data);
         try {
+            if (message == WM_WINDOWPOSCHANGED) {
+                const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
+                self.shape(hwnd);
+                return result;
+            }
             if (message == WM_NCPAINT) {
-                const HDC dc = GetWindowDC(hwnd);
-                win32_require(dc != nullptr, "Acquire context menu frame context");
-                try { self.frame(hwnd, dc); }
-                catch (...) { ReleaseDC(hwnd, dc); throw; }
-                win32_require(ReleaseDC(hwnd, dc) != 0, "Release context menu frame context");
+                self.paint_frame(hwnd);
                 return 0;
             }
             if (message == WM_PRINT) {
+                const auto dc = reinterpret_cast<HDC>(wparam);
+                const int saved = SaveDC(dc);
+                win32_require(saved != 0, "Save context menu print context");
+                if (self.outline && ExtSelectClipRgn(dc, self.outline, RGN_AND) == ERROR) {
+                    RestoreDC(dc, saved);
+                    win32_require(false, "Clip context menu print outline");
+                }
                 const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
-                if (lparam & PRF_NONCLIENT) self.frame(hwnd, reinterpret_cast<HDC>(wparam));
+                try { if (lparam & PRF_NONCLIENT) self.frame(hwnd, dc); }
+                catch (...) { RestoreDC(dc, saved); throw; }
+                win32_require(RestoreDC(dc, saved) != FALSE, "Restore context menu print context");
+                return result;
+            }
+            if (message == WM_PAINT) {
+                const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
+                self.paint_frame(hwnd);
                 return result;
             }
             if (message == WM_NCDESTROY) {
                 self.popup = nullptr;
+                self.frame_size = {};
+                if (self.outline) { DeleteObject(self.outline); self.outline = nullptr; }
                 RemoveWindowSubclass(hwnd, popup_proc, id);
             }
         } catch (...) { self.remember_failure(); return 0; }

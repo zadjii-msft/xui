@@ -21,8 +21,8 @@ public enum ButtonIcon : uint
 {
     None, Back, Forward, Up, Refresh, Split, Theme, Add, Minimize, Maximize, Restore, Close, More,
     Navigation, Home, Folder, Settings, Search, Library, History, Bookmark, Drive, Open,
-    Save = 23, SaveAs = 24, Undo = 25, Redo = 26, ChevronUp = 27, ChevronDown = 28,
-    FoldersFirst = 29, FilesFirst = 30, Mixed = 31
+    Save = 23, SaveAs = 24, Undo = 25, Redo = 26, ChevronUp = 27, ChevronDown = 28, ChevronRight = 29,
+    FoldersFirst = 30, FilesFirst = 31, Mixed = 32
 }
 
 public sealed unsafe partial class NavigationView
@@ -73,6 +73,15 @@ public sealed partial class SplitView
 public sealed partial class ItemsView
 {
     public ItemsView Step(int delta) { Features.Action(this, 16, unchecked((uint)delta)); return this; }
+    /// <summary>Moves vertical selection without moving input focus. Supports Control and Shift selection gestures.</summary>
+    public ItemsView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
+    { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }
+}
+public sealed partial class TreeView
+{
+    /// <summary>Moves visible row selection without moving input focus. Supports Control and Shift selection gestures.</summary>
+    public TreeView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
+    { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }
 }
 public sealed partial class DataGrid
 {

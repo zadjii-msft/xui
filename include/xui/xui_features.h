@@ -13,8 +13,8 @@ enum {
     XUI_BUTTON_ICON_DRIVE = 21, XUI_BUTTON_ICON_OPEN = 22,
     XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
     XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
-    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28,
-    XUI_BUTTON_ICON_FOLDERS_FIRST = 29, XUI_BUTTON_ICON_FILES_FIRST = 30, XUI_BUTTON_ICON_MIXED = 31
+    XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28, XUI_BUTTON_ICON_CHEVRON_RIGHT = 29,
+    XUI_BUTTON_ICON_FOLDERS_FIRST = 30, XUI_BUTTON_ICON_FILES_FIRST = 31, XUI_BUTTON_ICON_MIXED = 32
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -249,6 +249,8 @@ enum {
     XUI_F_PASSWORD, XUI_F_PASSWORD_REVEAL, XUI_F_DATE, XUI_F_COLOR,
     XUI_F_STATUS, XUI_F_DISMISSIBLE, XUI_F_MAP_VIEW, XUI_F_MEDIA_SOURCE,
     XUI_F_VOLUME, XUI_F_WEB_HTML, XUI_F_WEB_PROFILE, XUI_F_ITEM_SIZE,
+    /* first: List=0, Tiles=1, Grouped=2, Gallery=3 (ItemsView only).
+       XUI_F_ITEM_SIZE uses scalar DIP width (a) and height (b). */
     XUI_F_PRESENTATION, XUI_F_OFFSET, XUI_F_WRAP_WIDTH, XUI_F_BREAKPOINT,
     XUI_F_NAVIGATION_EXTENT, XUI_F_NAVIGATION_OPEN, XUI_F_COMPACT_NAVIGATION,
     XUI_F_SPLIT_RATIO, XUI_F_PAGE, XUI_F_VISIBLE, XUI_F_HOST_STATE,
@@ -256,8 +258,15 @@ enum {
     XUI_F_SECOND_VISIBLE, XUI_F_BUTTON_ICON,
     XUI_F_CHECKED, XUI_F_PROGRESS_CAPACITY,
     XUI_F_CHECK_STATE, XUI_F_THREE_STATE, XUI_F_SELECTED,
-    XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON
+    XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON,
+    XUI_F_SINGLE_CLICK_ACTIVATION = 54,
+    XUI_F_CONTENT_SIZED = 55
 };
+/* CONTENT_SIZED: first = boolean, for AdaptiveLayout, default false.
+   Measure both children to choose the breakpoint and navigation extent instead of fixed values. */
+/* SINGLE_CLICK_ACTIVATION: first = boolean, for ItemsView, default false.
+   Unmodified primary presses select and activate enabled rows, as in command menus.
+   Keyboard and programmatic selection do not activate rows. */
 /* CHECKED: first = boolean, for Toggle and ToggleSwitch.
    PROGRESS_CAPACITY: a = used, b = total, text = unit, for Progress and ProgressRing.
    ToggleButton uses BUTTON_CHECKED; its toggle notification is CHANGE (boolean).
@@ -277,7 +286,12 @@ enum {
     XUI_A_SELECT = 1, XUI_A_CHANGE_VALUE, XUI_A_STEP, XUI_A_TEXT_COMMAND,
     XUI_A_DISMISS, XUI_A_SHOW, XUI_A_ACCEPT, XUI_A_CANCEL, XUI_A_PLAY,
     XUI_A_PAUSE, XUI_A_STOP, XUI_A_UNLOAD, XUI_A_RELOAD, XUI_A_FOCUS,
-    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP, XUI_A_GRID_NAVIGATE, XUI_A_SET_DOT
+    XUI_A_SELECT_ALL, XUI_A_COLLECTION_STEP,
+    /* DataGrid or VirtualCollection. first: Previous=0, Next=1, PagePrevious=2,
+       PageNext=3, First=4, Last=5. second: Control=1, Shift=2.
+       Wrapped collections move by columns, and pages use the visible row count.
+       Selection navigation does not move native input focus. */
+    XUI_A_GRID_NAVIGATE, XUI_A_SET_DOT
 };
 /* GRID_NAVIGATE: first = previous/next/page previous/page next/first/last (0..5),
    second = control (1) | shift (2). Moves selection without moving input focus. */
@@ -294,8 +308,8 @@ typedef struct xui_item_visual {
    none=0, back=1, forward=2, up=3, refresh=4, split=5, theme=6, add=7,
    minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
    folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
-   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28,
-   folders_first=29, files_first=30, mixed=31.
+   open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28, chevron_right=29,
+   folders_first=30, files_first=31, mixed=32.
    This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
    Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */
@@ -504,6 +518,9 @@ typedef struct xui_column {
     float width;
     uint32_t reserved;
 } xui_column;
+/* DataGrid configures columns as before. TreeView accepts 0..64 headless detail
+   columns with numeric flags only. Empty columns restore ordinary tree rows.
+   Tree column ordinals use source query operation 1's second (column) argument. */
 XUI_API xui_status XUI_CALL xui_grid_columns(xui_handle target,
     const xui_column* columns, uint32_t count) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_grid_column_width(xui_handle target,

@@ -52,8 +52,8 @@ Existing checks still cover page selection, navigation, local links, code exampl
 
 ## Historical evidence
 
-- [Explorer history](explorer-history.md): Folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
-- [Rendering history](rendering-history.md): Complete text frames and native context menus.
+- [Explorer history](explorer-history.md): File views, lazy Tree requests, breadcrumb address composition, folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
+- [Rendering history](rendering-history.md): Complete text frames, native context menus, and shared rounded menu frames.
 - [Task Manager history](task-manager-history.md): Grid delivery, retained resources, and graphics-memory investigations.
 - [Earlier milestones](milestone-history.md): Suggestions, navigation, images, Windows integration, layout, and performance baselines.
 - [Binding history](bindings-history.md): ABI compatibility, independent failures, deployment sizes, and measurements.

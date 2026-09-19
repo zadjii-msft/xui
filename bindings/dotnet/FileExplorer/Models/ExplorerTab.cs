@@ -1,6 +1,6 @@
 namespace Xui.FileExplorer.Models;
 
-public enum ExplorerViewMode { Details, Columns }
+public enum ExplorerViewMode { Details, Columns, List, Tree, MediumIcons, LargeIcons, ExtraLargeIcons }
 public enum ExplorerPartition { FoldersFirst, FilesFirst, Mixed }
 
 public sealed class ExplorerColumn(DirectorySnapshot snapshot)

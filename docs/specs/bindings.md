@@ -441,6 +441,62 @@ They contain no second renderer or retained row array.
 `include\xui\xui_features.h` declares the extension through `xui.h`.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
+
+`ItemsView` supports the opt-in `ItemsPresentation.Gallery` mode in C# and `ItemsPresentation::Gallery` in Rust.
+The enum values remain `List = 0`, `Tiles = 1`, and `Grouped = 2`. `Gallery = 3` is appended.
+The C ABI accepts `first = 3` for `XUI_F_PRESENTATION` on an `ItemsView`.
+Other collection types reject gallery presentation.
+The generated presentation setters use the handwritten enum definitions. This addition does not change their signatures.
+
+```csharp
+items.SetPresentation(ItemsPresentation.Gallery).ItemSize(160, 192);
+```
+
+The scalar dimensions use DIPs.
+Gallery places a centered image above a centered filename and retains native selection, virtualization, and accessibility.
+The [collection contract](collections.md#shared-collection-model) defines image sizing, style parts, and secondary labels.
+
+`ItemsView.Navigate` and `TreeView.Navigate` accept the same `GridNavigation` and modifier arguments as `DataGrid.Navigate`.
+These methods move selection without moving native input focus, so a Find field can keep keyboard focus.
+`Previous` and `Next` move one visible row. A wrapped tile or gallery row contains `columns()` items.
+Page navigation uses the viewport height and item height, multiplied by the column count.
+`First` and `Last` move to the first or last visible source identity.
+Control moves only selection focus. Shift extends the selection. Control+Shift adds a range.
+Alt and undefined direction values return an argument error.
+The existing C ABI action `XUI_A_GRID_NAVIGATE` also accepts virtual collection handles with these semantics.
+
+`TreeView.OnContextMenu` and `ClearContextMenu` use the same subscription contract as the `ItemsView` extensions.
+The menu factory can supply application commands and optional Shell paths.
+Source replacement, selection changes, subscription changes, or owner closure cancel stale menu actions.
+
+`TreeView.SetColumns(ReadOnlySpan<GridColumn>)` opts into compact, headless detail columns.
+An empty span restores ordinary tree rows.
+The method returns the same `TreeView` for fluent configuration:
+
+```csharp
+tree.SetColumns([
+    new("Name", 280),
+    new("Date modified", 160),
+    new("Type", 125),
+    new("Size", 100, Numeric: true)
+]);
+tree.SetControlStyleValues(StylePart.Root,
+    new() { RowHeight = 24, FontSize = 12, Indentation = 16 });
+tree.SetControlStyleValues(StylePart.Row, new() { Padding = new(0, 0, 0, 0) });
+tree.SetControlStyleValues(StylePart.Icon, new() { Size = 16 });
+```
+
+`IReadOnlyImmutableSource.Item(index, column)` supplies each metadata column through the existing immutable source callback.
+The first column uses the primary text from `Item(index, 0)`.
+Root rows and lazy descendants use their own immutable sources.
+UIA HelpText exposes metadata without replacing tree hierarchy or selection patterns.
+The [compact tree contract](collections.md#compact-tree-details) defines widths, clipping, stripes, status text, and style behavior.
+
+The existing `xui_grid_columns` export accepts both `DataGrid` and `TreeView` handles.
+TreeView accepts zero to 64 columns, with widths from 48 to 2,000 DIPs and the numeric flag only.
+Invalid spans or unsupported flags return `XUI_INVALID_ARGUMENT` without changes.
+DataGrid column behavior remains unchanged.
+Rust exposes the same opt-in operation as `TreeView::set_columns(&[GridColumn])`.
 The handwritten feature modules implement collections, scoped secrets, request ownership, and typed records.
 The handwritten C# `TreeView.Select(ItemKey)` method uses the native collection selection action.
 It retains the source identity, version checks, and selection callback behavior.
@@ -1097,7 +1153,7 @@ Rust provides `ButtonIcon::Open` and `Button::set_icon`.
 WinUI uses the Segoe Fluent glyph U+E8A7. Classic uses vector strokes.
 A button with an icon displays only the icon, but retains its accessible name.
 
-`ButtonIcon.FoldersFirst`, `ButtonIcon.FilesFirst`, and `ButtonIcon.Mixed` have values 29, 30, and 31.
+`ButtonIcon.FoldersFirst`, `ButtonIcon.FilesFirst`, and `ButtonIcon.Mixed` have values 30, 31, and 32.
 Existing icon values remain unchanged.
 The C constants are `XUI_BUTTON_ICON_FOLDERS_FIRST`, `XUI_BUTTON_ICON_FILES_FIRST`, and `XUI_BUTTON_ICON_MIXED`.
 Rust uses the same PascalCase names under `ButtonIcon`.

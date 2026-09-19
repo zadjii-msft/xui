@@ -13,10 +13,12 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            BreadcrumbTests();
             await PreviewTests(fixture);
             assertions += await FolderMetadataTests.Run(fixture);
             TabTests(fixture);
             ColumnTests(fixture);
+            ViewModeTests(fixture);
             PaneTests(fixture);
             TabCommandTests(fixture);
             PartitionTests(fixture);
@@ -37,6 +39,32 @@ internal static class Program
             if (!Directory.EnumerateFileSystemEntries(parent).Any())
                 Directory.Delete(parent);
         }
+    }
+
+    private static void BreadcrumbTests()
+    {
+        foreach (string path in new[]
+        {
+            @"C:\", @"C:\Users\Example\Documents\", @"\\server\share",
+            @"\\server\share\Folder\Child", @"\\?\C:\Folder\Child",
+            @"\\?\UNC\server\share\Folder", @"C:\space here\資😀", @"C:/one/two"
+        })
+        {
+            var parts = BreadcrumbPath.Create(path);
+            string normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            Equal(normalized, Path.TrimEndingDirectorySeparator(parts[^1].Path));
+            Equal(Path.GetPathRoot(normalized)!, parts[0].Path);
+            True(parts.All(part => part.Name.Length != 0 && Path.IsPathFullyQualified(part.Path)));
+            for (int i = 1; i < parts.Count; i++)
+                Equal(Path.Combine(parts[i - 1].Path, parts[i].Name), parts[i].Path);
+        }
+        Equal(1, BreadcrumbPath.Create(@"C:\").Count);
+        Equal(1, BreadcrumbPath.Create(@"\\server\share\").Count);
+        Equal(@"C:\two", BreadcrumbPath.Create(@"C:\one\..\two")[^1].Path);
+        var deep = BreadcrumbPath.Create(@"C:\" + string.Join('\\', Enumerable.Repeat("folder", 100)));
+        Equal(101, deep.Count);
+        Throws<ArgumentException>(() => BreadcrumbPath.Create(@"relative\path"));
+        Throws<ArgumentException>(() => BreadcrumbPath.Create(@"C:relative"));
     }
 
     private static async Task PreviewTests(string fixture)
@@ -483,6 +511,62 @@ internal static class Program
         Equal(ExplorerPartition.FilesFirst, pane.Active.Partition);
         Throws<ArgumentOutOfRangeException>(() => first.SetPartition((ExplorerPartition)99));
         Equal(ExplorerPartition.FilesFirst, first.Partition);
+    }
+
+    private static void ViewModeTests(string fixture)
+    {
+        var root = Path.Combine(fixture, "views");
+        var file = new FileEntry(Path.Combine(root, "file.txt"), "file.txt", false, 42, DateTime.UnixEpoch);
+        foreach (var mode in Enum.GetValues<ExplorerViewMode>())
+        {
+            var pane = new ExplorerPane(root);
+            var tab = pane.Active;
+            tab.Commit(new(root, [file]));
+            tab.Filter = "file";
+            tab.FindOpen = true;
+            tab.SortColumn = 3;
+            tab.SortDescending = true;
+            tab.SelectedPath = file.FullPath;
+            tab.ScrollOffset = 48;
+            tab.SetViewMode(mode);
+            Equal(mode, tab.ViewMode);
+            Equal(mode == ExplorerViewMode.Columns ? 1 : 0, tab.Columns.Count);
+            Equal("file", tab.Filter);
+            Equal(file.FullPath, tab.SelectedPath);
+            Equal(48d, tab.ScrollOffset);
+            Equal(3, tab.SortColumn);
+            True(tab.SortDescending && tab.FindOpen);
+            tab.Commit(new(root, [file]));
+            Equal(mode, tab.ViewMode);
+            Equal("file", tab.Filter);
+            var copy = pane.DuplicateTab(tab);
+            Equal(mode, copy.ViewMode);
+            Equal(file.FullPath, copy.SelectedPath);
+            var target = new ExplorerPane(root);
+            True(pane.TransferTab(copy.Id, target, 0));
+            Equal(mode, target.Active.ViewMode);
+            True(ReferenceEquals(copy, target.Active));
+            pane.AddTab(root);
+            Equal(ExplorerViewMode.Details, pane.Active.ViewMode);
+            pane.SelectTab(tab.Id);
+            Equal(mode, pane.Active.ViewMode);
+            Throws<ArgumentOutOfRangeException>(() => tab.SetViewMode((ExplorerViewMode)999));
+            Equal(mode, tab.ViewMode);
+            foreach (var next in Enum.GetValues<ExplorerViewMode>())
+            {
+                tab.SetViewMode(next);
+                Equal(next, tab.ViewMode);
+                Equal(root, tab.Path);
+                Equal("file", tab.Filter);
+                Equal(file.FullPath, tab.SelectedPath);
+                True(!tab.CanBack);
+            }
+            tab.SetViewMode(mode);
+            tab.Commit(new(Path.Combine(root, "child"), []));
+            Equal(mode, tab.ViewMode);
+            Equal("", tab.Filter);
+            True(tab.SelectedPath is null && tab.ScrollOffset == 0);
+        }
     }
 
     private static void TabTests(string fixture)

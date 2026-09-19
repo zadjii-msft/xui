@@ -88,6 +88,13 @@ public:
                     id == UIA_NamePropertyId ? (!key_ ? s.name : action_ ? item.action : item.primary) :
                     id == UIA_HelpTextPropertyId ? (!key_ ? s.help_text : item.secondary) :
                     !key_ ? s.automation_id : std::to_wstring(key_->id) + L":" + std::to_wstring(key_->version) + (action_ ? L":action" : L"");
+                if (id == UIA_HelpTextPropertyId && index && !action_)
+                    for (std::size_t column = 1; column < s.collection_details.size(); ++column) {
+                        const auto cell = s.collection->cell(*index, column);
+                        if (cell.empty()) continue;
+                        if (!text.empty()) text += L"; ";
+                        text += s.collection_details[column].name + L": " + cell;
+                    }
                 value->vt = VT_BSTR; value->bstrVal = SysAllocString(text.c_str()); return value->bstrVal ? S_OK : E_OUTOFMEMORY;
             }
             if (id == UIA_ControlTypePropertyId || id == UIA_LevelPropertyId || id == UIA_PositionInSetPropertyId || id == UIA_SizeOfSetPropertyId) {
@@ -408,7 +415,8 @@ public:
 }
 IRawElementProviderSimple* create_collection_provider(std::shared_ptr<ControlAccessibility> state) { return new CollectionProvider(std::move(state)); }
 void raise_collection_changes(IRawElementProviderSimple* provider, const ControlSnapshot& before, const ControlSnapshot& after) {
-    if (before.collection_columns != after.collection_columns || before.collection_item_height != after.collection_item_height ||
+    if (before.collection_columns != after.collection_columns || before.collection_details != after.collection_details ||
+        before.collection_item_height != after.collection_item_height ||
         before.collection_width != after.collection_width || before.collection_height != after.collection_height ||
         before.collection_viewport_x != after.collection_viewport_x || before.collection_viewport_y != after.collection_viewport_y ||
         before.collection_offset != after.collection_offset || before.collection_presentation != after.collection_presentation)

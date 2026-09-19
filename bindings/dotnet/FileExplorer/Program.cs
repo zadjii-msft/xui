@@ -9,21 +9,26 @@ internal static class Program
         {
             string initialPath = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))
                 ?? Environment.CurrentDirectory;
-            bool viewEntrySmoke = args.Contains("--view-entry-smoke");
+            bool viewSwitchSmoke = args.Contains("--view-switch-smoke") || args.Contains("--view-entry-smoke");
             bool paneAnimationSmoke = args.Contains("--pane-animation-smoke");
             bool hoverSmoke = args.Contains("--smoke-hover");
             bool partitionSmoke = args.Contains("--partition-smoke");
-            if ((viewEntrySmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) > 1)
+            bool viewsSmoke = args.Contains("--views-smoke");
+            bool addressSmoke = args.Contains("--address-smoke");
+            if ((viewSwitchSmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0)
+                + (viewsSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) > 1)
                 throw new ArgumentException("Choose one focused smoke mode.");
-            bool smoke = args.Contains("--smoke") || viewEntrySmoke || paneAnimationSmoke || hoverSmoke || partitionSmoke;
+            bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke;
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
             using var windows = new ExplorerWindows(application, previews, smoke);
             var app = windows.Create(initialPath);
-            app.Run(viewEntrySmoke ? ExplorerSmokeMode.ViewEntry :
+            app.Run(viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
                 paneAnimationSmoke ? ExplorerSmokeMode.PaneAnimation :
                 hoverSmoke ? ExplorerSmokeMode.Hover :
-                partitionSmoke ? ExplorerSmokeMode.Partition : ExplorerSmokeMode.Full);
+                partitionSmoke ? ExplorerSmokeMode.Partition :
+                viewsSmoke ? ExplorerSmokeMode.Views :
+                addressSmoke ? ExplorerSmokeMode.Address : ExplorerSmokeMode.Full);
             return 0;
         }
         catch (Exception error)

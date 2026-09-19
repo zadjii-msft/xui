@@ -16,7 +16,7 @@ public readonly record struct RgbaColor(byte Red, byte Green, byte Blue, byte Al
     internal static RgbaColor FromPacked(ulong value) => new((byte)value, (byte)(value >> 8), (byte)(value >> 16), (byte)(value >> 24));
 }
 public enum ProgressState : uint { Determinate, Indeterminate, Paused, Error, Unknown }
-public enum ItemsPresentation : uint { List, Tiles, Grouped }
+public enum ItemsPresentation : uint { List, Tiles, Grouped, Gallery }
 public enum CompactNavigation : uint { Stacked, Overlay }
 public enum DateTimePresentation : uint { Date, Time, Calendar }
 public enum TextCommand : uint { Undo, Redo, Copy, Cut, Paste, SelectAll }
@@ -507,8 +507,15 @@ public sealed unsafe partial class DataGrid
     public DataGrid SetColumnOrder(ReadOnlySpan<uint> order)
     { Window.Guard(); if (order.Length > 256) throw new ArgumentOutOfRangeException(nameof(order)); fixed (uint* p = order) Window.Check(Native.GridColumnOrder(Handle, p, (uint)order.Length)); return this; }
 }
+public sealed partial class AdaptiveLayout
+{
+    public bool ContentSized => Features.Get(this, 55).First != 0;
+    public AdaptiveLayout SetContentSized(bool enabled) { Features.Set(this, 55, first: enabled ? 1u : 0u); return this; }
+}
 public sealed partial class ItemsView
 {
+    public bool SingleClickActivation => Features.Get(this, 54).First != 0;
+    public ItemsView SetSingleClickActivation(bool enabled) { Features.Set(this, 54, first: enabled ? 1u : 0u); return this; }
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
     public ItemsView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }
@@ -531,6 +538,15 @@ public sealed partial class NavigationPane
 }
 public sealed unsafe partial class TreeView
 {
+    public TreeView SetColumns(ReadOnlySpan<GridColumn> columns)
+    {
+        Window.Guard(); if (columns.Length > 64) throw new ArgumentOutOfRangeException(nameof(columns));
+        using var pins = new Window.Pins(); var values = new Native.Column[columns.Length];
+        for (int i = 0; i < values.Length; ++i) values[i] = new() { Size = (uint)sizeof(Native.Column), Name = pins.Text(columns[i].Name), Width = columns[i].Width,
+            Flags = (columns[i].Numeric ? 1u : 0u) | (columns[i].Filterable ? 2u : 0u) | (columns[i].Checkable ? 4u : 0u) };
+        fixed (Native.Column* p = values) Window.Check(Native.GridColumns(Handle, p, (uint)values.Length));
+        return this;
+    }
     public SelectionInfo Selection => Features.Selection(this);
     public bool Contains(ItemKey key) => Features.Contains(this, key);
     public TreeView SetSource(ImmutableSource source) { Features.Source(this, source); return this; }

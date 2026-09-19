@@ -342,8 +342,37 @@ internal static class FeatureTests
             var items = w.ItemsView("Million rows"); items.SetSource(source); items.SelectAll();
             Expect(items.Selection.StorageTerms == 1 && items.Contains(new(999999, 7)));
             items.Select(new(999999, 7)); Expect(items.Selection.Focused == new ItemKey(999999, 7)); items.Presentation = ItemsPresentation.Tiles;
+            Expect((uint)ItemsPresentation.List == 0 && (uint)ItemsPresentation.Tiles == 1 &&
+                (uint)ItemsPresentation.Grouped == 2 && (uint)ItemsPresentation.Gallery == 3);
+            items.SetPresentation(ItemsPresentation.Gallery).ItemSize(96, 128);
+            Expect(items.Selection.Focused == new ItemKey(999999, 7));
+            Fails(() => items.Presentation = (ItemsPresentation)4);
+            items.Presentation = ItemsPresentation.List;
             items.ItemSize(180, 60); Expect(data.Calls < 100 && data.Rows < 100);
+            items.Navigate(GridNavigation.First).Navigate(GridNavigation.Next, KeyModifiers.Control);
+            Expect(items.Selection.Focused == new ItemKey(2, 7) && items.Contains(new(1, 7)) && !items.Contains(new(2, 7)));
+            items.Navigate(GridNavigation.Next, KeyModifiers.Shift);
+            Expect(items.Selection.Focused == new ItemKey(3, 7) && items.Contains(new(1, 7)) && items.Contains(new(3, 7)));
+            Fails(() => items.Navigate(GridNavigation.Next, KeyModifiers.Alt));
+            Fails(() => items.Navigate((GridNavigation)6));
             var tree = w.TreeView("Tree"); tree.SetSource(source); TreeRequest? pending = null;
+            Expect(ReferenceEquals(tree.SetColumns([new("Name", 280), new("Date modified", 160),
+                new("Type", 125), new("Size", 100, Numeric: true)]), tree));
+            tree.SetControlStyleValues(StylePart.Icon, new() { Size = 16 });
+            Fails(() => tree.SetColumns([new("Invalid", 47)]));
+            Fails(() => tree.SetColumns([new("Invalid", Filterable: true)]));
+            tree.SetColumns([]);
+            Expect(ReferenceEquals(tree.OnContextMenu(() => [new(1, "Inspect")], _ => { },
+                () => [], ShellMenuPresentation.Xui), tree));
+            tree.ClearContextMenu();
+            bool rejectedMenuPresentation = false;
+            try { tree.OnContextMenu(() => [], _ => { }, presentation: (ShellMenuPresentation)2); }
+            catch (ArgumentOutOfRangeException) { rejectedMenuPresentation = true; }
+            Expect(rejectedMenuPresentation);
+            tree.Navigate(GridNavigation.First).Navigate(GridNavigation.Next, KeyModifiers.Control);
+            Expect(tree.Selection.Focused == new ItemKey(2, 7) && tree.Contains(new(1, 7)) && !tree.Contains(new(2, 7)));
+            tree.Navigate(GridNavigation.Last, KeyModifiers.Control | KeyModifiers.Shift);
+            Expect(tree.Selection.Focused == new ItemKey(1000000, 7) && tree.Contains(new(1, 7)) && tree.Contains(new(1000000, 7)));
             tree.OnRequest(r => pending = r); tree.Expand(new(1, 7)); Expect(pending is not null);
             Expect(pending!.Node == new ItemKey(1,7)); pending.Complete(w.ImmutableSource(new MillionSource(0))); pending.Dispose();
             var grid = w.Grid("Grid"); grid.SetTracks([new GridTrack(TrackSizing.Star, 1)], [new GridTrack(TrackSizing.Star, 1)]);
@@ -368,7 +397,7 @@ internal static class FeatureTests
             Expect(flyout.Menu.GetControlStyleValues(StylePart.Root, true).RowHeight == 32);
             Fails(() => _ = flyout.Editor);
             Fails(() => flyout.SetPlacement((PopupPlacement)99));
-            Fails(() => flyout.SetCommands([new(1, "Invalid icon", Icon: (ButtonIcon)32)]));
+            Fails(() => flyout.SetCommands([new(1, "Invalid icon", Icon: (ButtonIcon)33)]));
             int order = 0;
             flyout.OnCommand((id, pin) => { Expect(!pin); order = (int)id; });
             flyout.Invoke(3); Expect(order == 3);
@@ -494,17 +523,17 @@ internal static class FeatureTests
                     (uint)ButtonIcon.Save == 23 && (uint)ButtonIcon.SaveAs == 24 &&
                     (uint)ButtonIcon.Undo == 25 && (uint)ButtonIcon.Redo == 26 &&
                     (uint)ButtonIcon.ChevronUp == 27 && (uint)ButtonIcon.ChevronDown == 28 &&
-                    (uint)ButtonIcon.FoldersFirst == 29 && (uint)ButtonIcon.FilesFirst == 30 && (uint)ButtonIcon.Mixed == 31);
+                    (uint)ButtonIcon.ChevronRight == 29 && (uint)ButtonIcon.FoldersFirst == 30 && (uint)ButtonIcon.FilesFirst == 31 && (uint)ButtonIcon.Mixed == 32);
                 foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
                     ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
-                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
+                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight, ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
                     w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
-                Fails(() => iconButton.SetIcon((ButtonIcon)32));
+                Fails(() => iconButton.SetIcon((ButtonIcon)33));
                 Expect(iconButton.Icon == ButtonIcon.Mixed);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);

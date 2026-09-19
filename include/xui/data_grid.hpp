@@ -5,13 +5,6 @@
 
 namespace xui {
 using RowKey = ItemKey;
-struct GridColumn {
-    std::wstring name;
-    float width{120};
-    bool numeric{};
-    bool filterable{}, checkable{};
-    bool operator==(const GridColumn&) const = default;
-};
 // Implementations are immutable and thread-safe. A key must never identify a different item.
 // Providers and the renderer retain a source, not a visual or string cache for each row.
 class GridSource : public CollectionIndex {

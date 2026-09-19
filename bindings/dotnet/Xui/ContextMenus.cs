@@ -90,6 +90,13 @@ public static unsafe class CollectionContextMenus
         return control;
     }
     public static void ClearContextMenu(this ItemsView control) => control.Window.SetMenuSubscription(control.Handle, null);
+    public static TreeView OnContextMenu(this TreeView control, Func<Command[]> items, Action<ulong> invoked,
+        Func<string[]>? shellPaths = null, ShellMenuPresentation presentation = ShellMenuPresentation.Windows)
+    {
+        Bind(control, items, invoked, shellPaths, presentation);
+        return control;
+    }
+    public static void ClearContextMenu(this TreeView control) => control.Window.SetMenuSubscription(control.Handle, null);
 
     internal static void Bind(Control control, Func<Command[]> items, Action<ulong> invoked, Func<string[]>? shellPaths,
         ShellMenuPresentation presentation)
