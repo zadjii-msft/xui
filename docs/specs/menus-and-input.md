@@ -15,7 +15,10 @@ System high contrast overrides dark and light colors.
 The backend keeps `HMENU` and the native `#32768` popup.
 Owner drawing supplies Segoe UI text, DPI-scaled padding, a checkmark column, right-aligned shortcut labels, separators, and selection colors.
 The popup uses the shared surface color and a one-pixel border.
-Its outer frame is square. Selected rows have rounded corners outside high contrast.
+Its outer frame has eight-DIP rounded corners, scaled with the menu DPI.
+The window region and border use the same outline. The corners outside that outline remain transparent.
+Selected rows retain their smaller rounded corners. High contrast keeps square outer corners and square selected rows.
+This shared menu appearance applies to both Classic and WinUI controls, without application-specific styling.
 Windows retains menu placement, capture, dismissal, and accessibility.
 
 ```cpp
