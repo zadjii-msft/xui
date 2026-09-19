@@ -135,6 +135,17 @@ It has no capture-disabled mode.
 
 ### Native foreground acceptance
 
+The menu geometry check does not activate its host or inject keyboard or mouse input:
+
+```powershell
+cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
+cmake --build $build --config Release --target xui_menu_tests
+ctest --test-dir $build -C Release -R "^xui_menu_geometry_tests$" --output-on-failure
+```
+
+This check covers rounded regions, border pixels, high contrast, DPI scaling, resize, repaint, and resource cleanup.
+The separate `xui_menu_tests` check requires an uninterrupted foreground window for native keyboard and accessibility behavior.
+
 Run the fixed batch without clicking, typing, or switching desktop windows:
 
 ```powershell

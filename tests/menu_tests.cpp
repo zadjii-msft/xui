@@ -49,6 +49,12 @@ HWND popup_for(DWORD thread) {
     return result;
 }
 void key(HWND host, WORD value, bool shift = false) {
+    if (GetForegroundWindow() != host) {
+        DWORD process{};
+        GetWindowThreadProcessId(GetForegroundWindow(), &process);
+        std::cerr << "key=" << value << " foreground_process=" << process <<
+            " fixture_process=" << GetCurrentProcessId() << '\n';
+    }
     require(GetForegroundWindow() == host, "Input belongs to the owned menu host");
     INPUT inputs[4]{};
     UINT count{};
@@ -87,6 +93,62 @@ template<class T> ComPtr<T> pattern(IUIAutomationElement* item, PATTERNID id) {
     return result;
 }
 COLORREF native(D2D1_COLOR_F c) { return RGB(std::lround(c.r * 255), std::lround(c.g * 255), std::lround(c.b * 255)); }
+void corners(HWND popup, const xui::Palette& palette, UINT dpi) {
+    RECT bounds{};
+    require(GetWindowRect(popup, &bounds) != FALSE, "Read menu corner bounds");
+    const int width = bounds.right - bounds.left, height = bounds.bottom - bounds.top;
+    struct Region {
+        HRGN handle = CreateRectRgn(0, 0, 0, 0);
+        ~Region() { if (handle) DeleteObject(handle); }
+    } region;
+    require(region.handle && GetWindowRgn(popup, region.handle) != ERROR, "Popup has an explicit corner silhouette");
+    const int radius = MulDiv(8, dpi, 96);
+    for (const POINT point : {POINT{0, 0}, POINT{width - 1, 0},
+        POINT{0, height - 1}, POINT{width - 1, height - 1}}) {
+        require((PtInRegion(region.handle, point.x, point.y) != FALSE) == palette.high_contrast,
+            "All four outer corners are cut out except in high contrast");
+    }
+    require(PtInRegion(region.handle, width / 2, 0) && PtInRegion(region.handle, width / 2, height - 1) &&
+        PtInRegion(region.handle, 0, height / 2) && PtInRegion(region.handle, width - 1, height / 2),
+        "The outline retains all four straight edges");
+    if (!palette.high_contrast) {
+        require(!PtInRegion(region.handle, radius / 4, radius / 4), "The outer radius scales with menu DPI");
+        require(PtInRegion(region.handle, radius / 2, radius / 2), "Rounded corners retain the inner surface");
+    }
+    struct Image {
+        HDC dc = CreateCompatibleDC(nullptr);
+        HBITMAP bitmap{};
+        HGDIOBJ previous{};
+        ~Image() {
+            if (previous) SelectObject(dc, previous);
+            if (bitmap) DeleteObject(bitmap);
+            if (dc) DeleteDC(dc);
+        }
+    } image;
+    BITMAPINFO info{};
+    info.bmiHeader = {sizeof(BITMAPINFOHEADER), width, -height, 1, 32, BI_RGB};
+    void* bits{};
+    image.bitmap = CreateDIBSection(image.dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    require(image.dc && image.bitmap, "Create menu corner capture");
+    image.previous = SelectObject(image.dc, image.bitmap);
+    require(image.previous && image.previous != HGDI_ERROR, "Select menu corner capture");
+    const COLORREF outside = RGB(255, 0, 255);
+    SetDCBrushColor(image.dc, outside);
+    RECT rect{0, 0, width, height};
+    require(FillRect(image.dc, &rect, static_cast<HBRUSH>(GetStockObject(DC_BRUSH))) != FALSE,
+        "Prepare menu corner backdrop");
+    SendMessageW(popup, WM_PRINT, reinterpret_cast<WPARAM>(image.dc), PRF_NONCLIENT | PRF_CLIENT | PRF_ERASEBKGND);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const bool inside = PtInRegion(region.handle, x, y) != FALSE;
+            const bool edge = inside && (!PtInRegion(region.handle, x - 1, y) ||
+                !PtInRegion(region.handle, x + 1, y) || !PtInRegion(region.handle, x, y - 1) ||
+                !PtInRegion(region.handle, x, y + 1));
+            if (!inside) require(GetPixel(image.dc, x, y) == outside, "Corner cutouts do not paint an opaque rectangle");
+            if (edge) require(GetPixel(image.dc, x, y) == native(palette.border), "Border follows the complete menu silhouette");
+        }
+    }
+}
 struct Fixture {
     std::atomic<HWND> host{}, edit{};
     std::atomic<int> chosen{}, completed{}, failures{}, paints{};
@@ -96,7 +158,7 @@ struct Fixture {
     UINT dpi{96};
     bool baseline{};
     std::jthread ui;
-    Fixture() {
+    explicit Fixture(bool foreground = true) {
         control.on_context_menu([this] {
             return std::vector<xui::MenuItem>{
                 {L"&Open\tEnter", [this] { chosen = 1; }},
@@ -108,7 +170,7 @@ struct Fixture {
                 {L"&Refresh\tF5", [this] { chosen = 5; }}
             };
         });
-        ui = std::jthread([this] {
+        ui = std::jthread([this, foreground] {
             thread = GetCurrentThreadId();
             CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
             WNDCLASSW cls{};
@@ -118,10 +180,12 @@ struct Fixture {
             cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
             RegisterClassW(&cls);
             host = CreateWindowExW(0, cls.lpszClassName, L"XUI owned menu test",
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE, 80, 80, 660, 510, nullptr, nullptr, cls.hInstance, this);
+                WS_OVERLAPPEDWINDOW | (foreground ? WS_VISIBLE : 0), 80, 80, 660, 510, nullptr, nullptr, cls.hInstance, this);
             edit = CreateWindowExW(0, L"EDIT", L"Native focus and selection", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                 24, 24, 360, 28, host, nullptr, cls.hInstance, nullptr);
-            SetFocus(edit); SendMessageW(edit, EM_SETSEL, 2, 9);
+            if (foreground) SetFocus(edit);
+            else ShowWindow(host, SW_SHOWNOACTIVATE);
+            SendMessageW(edit, EM_SETSEL, 2, 9);
             MSG message{};
             while (GetMessageW(&message, nullptr, 0, 0) > 0) {
                 TranslateMessage(&message); DispatchMessageW(&message);
@@ -129,6 +193,7 @@ struct Fixture {
             CoUninitialize();
         });
         require(wait([&] { return host && edit; }), "Create owned menu fixture");
+        if (!foreground) return;
         SetWindowPos(host, HWND_TOPMOST, 80, 80, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
         activate(host, edit);
         ComPtr<IUIAutomation> automation;
@@ -185,6 +250,9 @@ struct Fixture {
                 EndPaint(h, &ps); ++self->paints; return 0;
             }
             if (m == WM_DESTROY) { self->host = nullptr; PostQuitMessage(0); return 0; }
+        } catch (const std::exception& error) {
+            std::cerr << "Menu fixture failure: " << error.what() << '\n';
+            ++self->failures; ++self->completed; return 0;
         } catch (...) { ++self->failures; ++self->completed; return 0; }
         return DefWindowProcW(h, m, w, l);
     }
@@ -209,9 +277,45 @@ struct Fixture {
         require(SendMessageW(host, WM_APP + 3, 0, 0) == 1, "Menu restores native EDIT focus");
         DWORD start{}, end{};
         SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        if (start != 2 || end != 9) std::cerr << "edit selection=" << start << ',' << end << '\n';
         require(start == 2 && end == 9, "Menu preserves native EDIT selection");
     }
 };
+void geometry() {
+    const HWND foreground = GetForegroundWindow();
+    Fixture fixture(false);
+    const auto dismiss = [&] {
+        const auto before = fixture.completed.load();
+        SendMessageW(fixture.host, WM_CANCELMODE, 0, 0);
+        require(wait([&] { return fixture.completed > before && !popup_for(fixture.thread); }), "Dismiss background menu");
+        require(fixture.chosen == 0 && fixture.failures == 0, "Geometry checks do not invoke commands or hide menu failures");
+        require(GetForegroundWindow() == foreground, "Geometry checks preserve the foreground window");
+    };
+    for (auto mode : {xui::ThemeMode::dark, xui::ThemeMode::light, xui::ThemeMode::high_contrast}) {
+        for (UINT dpi : {96u, 144u, 192u}) {
+            SendMessageW(fixture.host, WM_APP + 1, static_cast<WPARAM>(mode), dpi);
+            const auto popup = fixture.open();
+            const auto palette = xui::Palette::system(mode);
+            corners(popup, palette, dpi);
+            RECT bounds{};
+            require(GetWindowRect(popup, &bounds) != FALSE, "Read menu geometry before resize");
+            require(SetWindowPos(popup, nullptr, 0, 0, bounds.right - bounds.left + 40,
+                bounds.bottom - bounds.top + 24, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+                "Resize the background menu");
+            require(RedrawWindow(popup, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW) != FALSE,
+                "Repaint background menu geometry");
+            corners(popup, palette, dpi);
+            dismiss();
+        }
+    }
+    SendMessageW(fixture.host, WM_APP + 1, static_cast<WPARAM>(xui::ThemeMode::dark), 144);
+    fixture.open(); dismiss();
+    const auto gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    const auto user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    for (int i = 0; i < 50; ++i) { fixture.open(); dismiss(); }
+    require(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) <= gdi, "Background menu cycles release GDI regions and brushes");
+    require(GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) <= user, "Background menu cycles release USER resources");
+}
 void visuals_and_input(const std::filesystem::path& directory) {
     Fixture fixture;
     ComPtr<IUIAutomation> automation;
@@ -250,13 +354,20 @@ void visuals_and_input(const std::filesystem::path& directory) {
             HDC dc = GetWindowDC(popup);
             require(dc != nullptr, "Read visible menu pixels");
             const auto frame = GetPixel(dc, 0, (bounds.bottom - bounds.top) / 2);
-            const auto margin = GetPixel(dc, 2, 2);
+            const auto margin = GetPixel(dc, (bounds.right - bounds.left) / 2, 1);
             const auto highlight = GetPixel(dc, row.left - bounds.left + MulDiv(28, dpi, 96),
                 (row.top + row.bottom) / 2 - bounds.top);
             ReleaseDC(popup, dc);
             require(frame == native(palette.border), "Actual popup frame uses shared palette, not a native white border");
             require(margin == native(palette.surface), "Actual popup margin uses shared surface");
             require(highlight == native(palette.selection), "Actual focused row uses shared selection color");
+            corners(popup, palette, dpi);
+            key(fixture.host, VK_END);
+            corners(popup, palette, dpi);
+            key(fixture.host, VK_HOME);
+            require(RedrawWindow(popup, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW) != FALSE,
+                "Repaint the native menu without losing its curved border");
+            corners(popup, palette, dpi);
             const auto file = std::wstring(mode == xui::ThemeMode::dark ? L"dark-" :
                 mode == xui::ThemeMode::light ? L"light-" : L"contrast-") + std::to_wstring(dpi) + L".bmp";
             suggestion_capture::bitmap(popup, nullptr, directory / file);
@@ -265,6 +376,16 @@ void visuals_and_input(const std::filesystem::path& directory) {
         }
     }
     SendMessageW(fixture.host, WM_APP + 1, static_cast<WPARAM>(xui::ThemeMode::dark), 96);
+    popup = fixture.open();
+    RECT original{};
+    require(GetWindowRect(popup, &original) != FALSE, "Read menu bounds before resize");
+    require(SetWindowPos(popup, nullptr, 0, 0, original.right - original.left + 40,
+        original.bottom - original.top + 24, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE,
+        "Resize the owned menu");
+    require(RedrawWindow(popup, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW) != FALSE,
+        "Paint the resized menu");
+    corners(popup, xui::Palette::system(xui::ThemeMode::dark), 96);
+    fixture.escape();
     popup = fixture.open();
     auto copy = find(automation.Get(), popup, L"Copy path");
     check(pattern<IUIAutomationInvokePattern>(copy.Get(), UIA_InvokePatternId)->Invoke(), "Invoke menu command through UIA");
@@ -516,6 +637,12 @@ int wmain(int argc, wchar_t** argv) {
     try {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "Initialize menu test COM");
+        if (argc > 1 && std::wstring_view(argv[1]) == L"--geometry") {
+            geometry();
+            CoUninitialize();
+            std::cout << "Menu geometry tests passed: " << assertions << " assertions\n";
+            return 0;
+        }
         if (argc < 3 || std::wstring_view(argv[2]) != L"--routes")
             visuals_and_input(argc > 1 ? argv[1] : L"build\\menus\\captures");
         CoUninitialize();

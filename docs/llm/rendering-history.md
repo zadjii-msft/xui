@@ -7,6 +7,46 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
 ### Menu checks and captures
 
+#### Shared rounded frame
+
+`src/context_menu.cpp` owns the frame for all `Control::on_context_menu` popups, including the C# FileExplorer menus.
+The backend disables the native theme so that Windows does not paint a conflicting frame.
+The earlier replacement used `FrameRect`, which left the outer frame square despite rounded selection highlights.
+
+The replacement uses an eight-DIP rounded window region and a matching one-pixel `FrameRgn` border.
+High contrast retains a rectangular region.
+`WM_WINDOWPOSCHANGED` updates the region after native menu placement and size changes.
+The size cache prevents recursion through `SetWindowRgn`.
+Windows owns the clipping region. The active menu owns a separate border region and releases it after dismissal.
+
+The border can extend into the client area at higher DPI.
+Item drawing includes the border in the native item DC, including buffered drawing.
+`WM_PAINT` restores the complete border after native row painting.
+`WM_PRINT` intersects its destination clip with the same outline and restores the caller's drawing context.
+The backend still uses `HMENU`, the native popup, and the native menu loop.
+It does not add a layered window, a Direct2D target, or an idle timer.
+
+`tests/menu_tests.cpp` checks all four cutouts, DPI-scaled geometry, and the complete painted border.
+Its capture checks retain an external backdrop outside the region, including after first-row and last-row selection.
+The existing fixture also covers menu input, accessibility, cancellation, resource cleanup, and native EDIT selection.
+The `--geometry` mode opens menus without activation and uses no keyboard or mouse injection.
+It covers all three palettes, injected DPI scales, resize, repaint, and repeated resource cleanup.
+It checks the real window region and `WM_PRINT` pixels, not compositor antialiasing or shadow parity.
+
+September 18, 2026 evidence uses the ARM64 Release build in `build\menu-corners`, with Windows SDK 10.0.26100.0.
+The final build of `xui`, `xui_menu_tests`, and `xui_shell_menu_tests` succeeded.
+The `xui_menu_geometry_tests`, `xui_shell_menu_tests`, and `xui_shell_menu_latency_tests` checks passed.
+The geometry check includes fifty open/close cycles without retained GDI or USER resources.
+Its foreground-window assertion also passed.
+
+The full foreground fixture did not complete on the final implementation.
+Its input guard reported an Edge process as the foreground owner, rather than the fixture process.
+The guard remains unchanged. These results do not establish complete foreground keyboard acceptance.
+Experimental compositor capture attempts also failed to provide a complete result, including process termination and an EDIT-selection failure.
+The committed geometry check does not use those attempts as visual evidence.
+
+#### Earlier square-frame baseline
+
 The ARM64 menu test covers three palettes and 96, 144, and 192 DPI.
 Pixel assertions read the visible popup border, margin, and selected row.
 The test also covers UIA names, focus, disabled invocation, checked state, native EDIT focus, IME messages, and pending suggestion cancellation.
