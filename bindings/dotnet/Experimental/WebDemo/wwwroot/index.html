@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="/">
+    <title>XUI DOM experiment</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="_content/Xui.Web/xui-dom.css">
+    <style>
+        body { margin: 0; font: 16px system-ui, sans-serif; color: #202124; background: #fafafa; }
+        #app { width: 100%; height: 100dvh; }
+        #errors { position: fixed; bottom: 0; padding: 12px; color: #900; background: #fff0f0; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <main id="app" aria-label="XUI shared demo"></main>
+    <div id="errors" role="alert" hidden></div>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>
