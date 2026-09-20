@@ -11,6 +11,7 @@
 #include "list_peer.hpp"
 #include "layout_styling.hpp"
 #include "context_menu.hpp"
+#include "shell_commands_internal.hpp"
 #include "file_transfer.hpp"
 #include "async.hpp"
 #include "images.hpp"
@@ -236,6 +237,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::uint64_t paints{}, layouts{};
     std::shared_ptr<TaskWake> wake = std::make_shared<TaskWake>();
     WindowIcon window_icon;
+    std::shared_ptr<AsyncShellMenu> shell_prefetch;
     std::vector<std::shared_ptr<ViewTask::Impl>> tasks;
     std::vector<std::shared_ptr<SampleTask::Impl>> samples;
     std::function<bool(const KeyEvent&)> key;
@@ -277,6 +279,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     void close_posts() {
+        shell_prefetch.reset();
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
         content_picking.clear();
@@ -6150,6 +6153,15 @@ void Window::show_shell_commands(Control& anchor, const std::vector<std::wstring
     RECT bounds{}; GetWindowRect(peer->window, &bounds);
     if (!PtInRect(&bounds, point)) point = {bounds.left + 12, bounds.top + 12};
     track_shell_commands(impl->window, paths, {static_cast<float>(point.x), static_cast<float>(point.y)});
+}
+void Window::prefetch_shell_commands(std::wstring path) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread) throw std::logic_error("Prefetch Shell commands on the window UI thread");
+    if (!impl->ready || impl->closing) throw std::logic_error("Shell prefetch requires an open Window");
+    if (path.size() > 32767 || path.find(L'\0') != std::wstring::npos)
+        throw std::invalid_argument("Invalid Shell prefetch path");
+    impl->shell_prefetch.reset();
+    if (!path.empty()) impl->shell_prefetch = AsyncShellMenu::prefetch(impl->window, std::move(path));
 }
 void Window::close() {
     auto impl = impl_;

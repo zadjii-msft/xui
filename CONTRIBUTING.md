@@ -583,6 +583,90 @@ $process.ExitCode
 
 The complete `--smoke` run includes the same preview checks.
 
+#### Shell menu prefetch experiment
+
+The native probe uses the same asynchronous Shell worker as the C# explorer.
+It discovers commands without displaying a menu or invoking a Shell verb.
+It does not change directory navigation.
+Each probe process starts with a fresh worker. Windows and external Shell services can retain their caches between processes.
+
+Build the probe:
+
+```powershell
+cmake --build $build --config Release --target xui_shell_menu_tests --parallel 4
+$probe = ".\$build\Release\xui_shell_menu_tests.exe"
+$target = ".\bindings\dotnet\FileExplorer\Models"
+$warmup = ".\bindings\dotnet\FileExplorer"
+```
+
+Run the control and the completed-prefetch case in separate processes:
+
+```powershell
+& $probe $target --prefetch-probe - 0
+& $probe $target --prefetch-probe $warmup 0
+```
+
+The arguments are `TARGET --prefetch-probe WARMUP_OR_DASH DELAY_MS`.
+A dash disables prefetch. The delay accepts integers from 0 through 60000.
+The probe waits for prefetch completion and handler release before the delay starts.
+It then discovers the target twice, with fresh handlers for each request.
+This is the best case for hidden prefetch cost, not a measurement of a click during unfinished prefetch.
+
+For the idle-timeout comparison, use `11000` for both commands.
+The worker exits after ten idle seconds.
+For other target types, use `.\build\ARM64\CMakeCache.txt` or `.\assets\branding\generated\zoey-32.png`.
+Replace `ARM64` with the configured architecture.
+For a text warmup, use `.\CMakeLists.txt`.
+Repeat each pair in alternating order to reduce order effects.
+
+The CSV output reports `phase`, `ready_ms`, `cleanup_ms`, `entries`, and `foreground_changed`.
+The phases are `prefetch`, `target-first`, and `target-repeat`.
+Ready time includes worker startup, provider construction, and top-level metadata discovery.
+Cleanup time includes the metadata snapshot and cancellation through handler release.
+Polling adds scheduler-dependent overhead. These times do not measure menu painting or C# navigation.
+The foreground flag reports a change between samples, not its cause or the absence of transient activation.
+Discovery errors, missing paths, invalid delays, and waits beyond the deadline produce a nonzero exit code.
+Installed Shell extensions determine the results. This probe is not a fixed latency gate.
+
+The [experiment notes](docs/llm/shell-menu-discovery.md#prefetch-experiment-september-19-2026) record the initial measurements and limitations.
+
+#### Try prefetch inside FileExplorer
+
+Build the matching DLL and explorer:
+
+```powershell
+cmake --build $build --config Release --target xui --parallel 4
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$PWD\$build\Release"
+$exe = ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe"
+```
+
+Run the experiment:
+
+```powershell
+& $exe "$PWD" --prefetch-shell-menus
+```
+
+The title includes `[menu prefetch]`.
+Each successful directory navigation requests one hidden menu for that directory.
+The request runs outside the UI thread and retains no menu commands.
+New navigation, tab changes, pane closure, and window closure cancel obsolete work.
+Interactive menu requests take priority, but an extension already inside COM can delay them.
+Discovery failures and skipped requests produce Windows debugger diagnostics.
+This mode does not guarantee faster menus.
+
+For the control, run the same executable without the flag:
+
+```powershell
+& $exe "$PWD"
+```
+
+For a navigation smoke with prefetch enabled, run:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--address-smoke", "--prefetch-shell-menus" -PassThru -Wait
+$process.ExitCode
+```
+
 ### NativeAOT and deployment
 
 ```powershell

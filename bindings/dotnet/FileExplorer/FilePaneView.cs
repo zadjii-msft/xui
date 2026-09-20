@@ -459,6 +459,7 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        app.CancelShellMenuPrefetch(this);
         AddressBar.DismissMenu();
         SaveViewport();
         navigation.Cancel();
@@ -480,6 +481,7 @@ internal sealed class FilePaneView
             IsLoading = false;
             Render();
             app.LocationChanged(this);
+            app.PrefetchShellMenu(this, snapshot.Path);
         }, failure =>
         {
             IsLoading = false;
@@ -1018,6 +1020,7 @@ internal sealed class FilePaneView
 
     public void Cancel()
     {
+        app.CancelShellMenuPrefetch(this);
         AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         if (partitionMenu.IsOpen) partitionMenu.Dismiss();

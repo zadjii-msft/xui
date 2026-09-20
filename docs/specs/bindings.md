@@ -10,6 +10,10 @@ Rust has no typed wrapper. The host does not implement terminal input or termina
 
 ## Feature bindings (1.1 extension)
 
+`Window.PrefetchShellCommands(path)` exposes [experimental Shell warmup](menus-and-input.md#experimental-shell-warmup) in C#.
+The C ABI and Rust FFI expose `xui_shell_prefetch(window, path)`. Rust has no typed wrapper.
+The operation requires an open window and retains no menu commands.
+
 ### Independent windows
 
 `Application` owns one UI-thread dispatcher for several ownerless document windows.

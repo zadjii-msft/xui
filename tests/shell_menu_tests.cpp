@@ -1,6 +1,7 @@
 #include "../src/shell_commands_internal.hpp"
 #include "../src/context_menu.hpp"
 #include "xui/xui.h"
+#include "xui/xui_layout.h"
 #include <commctrl.h>
 #include <algorithm>
 #include <filesystem>
@@ -711,6 +712,111 @@ template<class F> void pump_until(F done, DWORD limit = 8000) {
         Sleep(2);
     }
 }
+void prefetch_probe(HWND owner, const std::filesystem::path& target, const std::filesystem::path& warmup, DWORD delay) {
+    check(std::filesystem::exists(target), "The probe target must exist");
+    if (!warmup.empty()) check(std::filesystem::exists(warmup), "The warmup target must exist");
+    const auto discover = [&](const char* phase, const std::filesystem::path& path) {
+        const auto foreground = GetForegroundWindow();
+        const auto start = std::chrono::steady_clock::now();
+        auto request = AsyncShellMenu::start(owner, {std::filesystem::absolute(path).wstring()});
+        pump_until([&] { return request->ready(); }, 60000);
+        const auto ready = std::chrono::steady_clock::now();
+        const auto error = request->discovery_error();
+        const auto commands = request->commands();
+        request->cancel();
+        pump_until([&] { return request->finished(); }, 60000);
+        const auto finished = std::chrono::steady_clock::now();
+        check(!request->result(), "Discovery must not dispatch an application action");
+        if (!error.empty()) throw std::runtime_error(error);
+        check(!commands.empty(), "Real Shell discovery must return commands");
+        std::cout << phase << ','
+            << std::chrono::duration<double, std::milli>(ready - start).count() << ','
+            << std::chrono::duration<double, std::milli>(finished - ready).count()
+            << ',' << commands.size() << ',' << (GetForegroundWindow() != foreground) << '\n';
+    };
+    std::cout << "phase,ready_ms,cleanup_ms,entries,foreground_changed\n";
+    if (!warmup.empty()) discover("prefetch", warmup);
+    const auto resume = GetTickCount64() + delay;
+    pump_until([&] { return GetTickCount64() >= resume; }, delay + 1000);
+    discover("target-first", target);
+    discover("target-repeat", target);
+}
+void prefetch_tests(HWND owner) {
+    require_first_frame = false;
+    ShellMenuTestAccess::create = slow_provider;
+    slow_context = std::make_shared<Context>();
+    const auto initial_creates = worker_creates.load();
+    auto warmup = AsyncShellMenu::prefetch(owner, L"fake-selection");
+    pump_until([&] { return warmup->finished(); });
+    check(worker_creates == initial_creates + 1 &&
+        warmup->ready() && warmup->discovery_error().empty() && warmup->commands().empty() &&
+        !warmup->result() && slow_context->refs == 1 && !slow_context->invokes,
+        "Prefetch releases handlers automatically without retaining commands or invoking verbs");
+    slow_context->fail = true;
+    auto failed = AsyncShellMenu::prefetch(owner, L"fake-selection");
+    pump_until([&] { return failed->finished(); });
+    check(!failed->discovery_error().empty() && slow_context->refs == 1,
+        "Prefetch errors retain diagnostics and release their handler");
+    slow_context->fail = false;
+    auto interactive = AsyncShellMenu::start(owner, {L"fake-selection"});
+    pump_until([&] { return interactive->ready(); });
+    const auto creates = worker_creates.load();
+    auto skipped = AsyncShellMenu::prefetch(owner, L"other-selection");
+    check(skipped->finished() && !interactive->finished() && worker_creates == creates,
+        "Speculative work cannot replace or delay an active interactive request");
+    interactive->cancel();
+    pump_until([&] { return interactive->finished(); });
+
+    slow_context = std::make_shared<Context>();
+    slow_context->query_delay = 200;
+    auto blocked = AsyncShellMenu::prefetch(owner, L"fake-selection");
+    pump_until([] { return slow_context->queries != 0; });
+    auto pending = AsyncShellMenu::start(owner, {L"other-selection"});
+    auto later = AsyncShellMenu::prefetch(owner, L"fake-selection");
+    check(later->finished(), "Prefetch cannot replace a pending interactive request");
+    pump_until([&] { return pending->ready(); });
+    check(blocked->finished() && pending->discovery_error().empty() &&
+        pending->commands().front().label == L"Other fixture",
+        "A real request cancels speculative work and discovers its own exact selection");
+    pending->cancel();
+    pump_until([&] { return pending->finished(); });
+    check(slow_context->refs == 1 && !slow_context->invokes, "All prefetch handlers retire on the owning STA");
+
+    xui_handle application{}, window{}, root{};
+    ok(xui_application_create(&application));
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Shell prefetch lifetime"), 300, 200};
+    ok(xui_application_window_create(application, &options, 0, &window));
+    ok(xui_stack_create(window, 1, &root));
+    ok(xui_window_content(window, root));
+    check(xui_shell_prefetch(root, text("fake-selection")) == XUI_WRONG_KIND,
+        "Prefetch requires a window, not a control");
+    check(xui_shell_prefetch(window, text("fake-selection")) == XUI_NATIVE_ERROR,
+        "Prefetch requires an open native owner");
+    std::thread wrong_thread([&] {
+        check(xui_shell_prefetch(window, text("fake-selection")) == XUI_WRONG_THREAD,
+            "Prefetch rejects calls from a foreign thread");
+    });
+    wrong_thread.join();
+    ok(xui_window_show_activated(window, 0));
+    ok(xui_application_show(application, window));
+    const auto queries = slow_context->queries.load();
+    ok(xui_shell_prefetch(window, text("fake-selection")));
+    pump_until([&] { return slow_context->queries > queries; });
+    ok(xui_shell_prefetch(window, text("")));
+    pump_until([] { return slow_context->refs == 1; });
+    ok(xui_shell_prefetch(window, text("other-selection")));
+    pump_until([&] { return slow_context->queries > queries + 1; });
+    ok(xui_window_close(window));
+    ok(xui_application_run(application));
+    check(xui_shell_prefetch(window, text("fake-selection")) == XUI_CLOSED,
+        "Closed windows cannot start another prefetch");
+    ok(xui_window_destroy(window));
+    ok(xui_application_destroy(application));
+    pump_until([] { return slow_context->refs == 1; });
+    check(!slow_context->invokes, "Cancellation and window closure never invoke a prefetched command");
+    ShellMenuTestAccess::create = nullptr;
+    slow_context.reset();
+}
 void latency_tests(HWND owner) {
     {
         Context delayed; delayed.query_delay = 2000; delayed.verb_delay = 5;
@@ -887,13 +993,32 @@ int wmain(int argc, wchar_t** argv) {
     HWND owner{};
     try {
         std::cout << std::unitbuf;
-        check(argc == 2 || (argc == 3 && std::wstring_view(argv[2]) == L"--latency-only"), "Pass a project-local fixture directory and optional --latency-only");
+        const bool probe = argc == 5 && std::wstring_view(argv[2]) == L"--prefetch-probe";
+        check(argc == 2 || (argc == 3 && std::wstring_view(argv[2]) == L"--latency-only") || probe,
+            "Pass a fixture directory and optional --latency-only, or TARGET --prefetch-probe WARMUP_OR_DASH DELAY_MS");
+        DWORD delay{};
+        if (probe) {
+            const std::wstring value(argv[4]);
+            check(!value.empty() && value.find_first_not_of(L"0123456789") == std::wstring::npos,
+                "Probe delay must be an integer from 0 to 60000 milliseconds");
+            const auto parsed = std::stoul(value);
+            check(parsed <= 60000, "Probe delay must be at most 60000 milliseconds");
+            delay = static_cast<DWORD>(parsed);
+        }
         check(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), "Initialize Shell STA");
         owner = CreateWindowExW(0, L"STATIC", L"Shell menu fixture", WS_OVERLAPPEDWINDOW, 0, 0, 300, 200,
             nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         check(owner != nullptr, "Create hidden fixture owner");
+        if (probe) {
+            prefetch_probe(owner, argv[1], std::wstring_view(argv[3]) == L"-" ? std::filesystem::path{} : argv[3], delay);
+            DestroyWindow(owner);
+            CoUninitialize();
+            return 0;
+        }
         ShellMenuTestAccess::track = track;
         const auto directory = std::filesystem::absolute(argv[1]);
+        std::cout << "Prefetch lifecycle\n";
+        prefetch_tests(owner);
         if (argc == 2) {
             std::cout << "Mock menus\n"; mock_tests(owner);
             std::cout << "Bitmap menus\n"; bitmap_leaf_tests(owner);
