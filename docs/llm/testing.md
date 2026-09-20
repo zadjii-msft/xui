@@ -114,6 +114,18 @@ The terminal palette exposed a hidden `ScrollView` that still reserved its prefe
 `xui_control_tests` reproduced the failure before the visibility guard in `ScrollView::measure`.
 The regression covers normal and passthrough scroll hosts, plus restored visible content.
 
+### Retained scroll performance
+
+`xui_scroll_tests --retained-only` exercises a large retained form without foreground activation.
+The fixture checks native geometry, editor state, root measurements, and individual editor placements during scrolling.
+It also covers a stationary popup and synchronous paint timing.
+
+The FileExplorer `--settings-scroll-smoke` check uses the complete inline settings editor with both file panes open.
+It requires real movement, stable editor HWNDs, native focus, unsaved drafts, search results, and a subsequent settings update.
+It reports wheel dispatch separately from wheel dispatch plus pending native paint work.
+These measurements exclude compositor presentation latency.
+[CONTRIBUTING](../../CONTRIBUTING.md) supplies the command and acceptance budgets.
+
 ### Split axes and divider input
 
 `xui_split_axis_window_tests` uses an owned, non-activating window.

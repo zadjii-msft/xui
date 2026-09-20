@@ -18,6 +18,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Retained scrolling](architecture.md#retained-scrolling): Offset-only native placement, editor identity, popup layout, and clipped paint work.
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
 - [Test coverage and protocols](testing.md): Regression scope, sample and Designer release checks, fixture behavior, and measurement methods.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
@@ -53,7 +54,8 @@ Existing checks still cover page selection, navigation, local links, code exampl
 ## Historical evidence
 
 - [Explorer history](explorer-history.md): File views, lazy Tree requests, breadcrumb address composition, folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
-- Explorer customization: `ExplorerCustomizationController.cs` owns command dispatch and transactional settings updates. `CustomizationController.cs` owns the searchable editor. `Models\KeySequenceTracker.cs` owns sequence state. The [public contract](../specs/file-explorers.md#customization) describes the application behavior.
+- Explorer customization: `ExplorerCustomizationController.cs` owns command dispatch and transactional settings updates. `CustomizationController.cs` owns the searchable editor. `CustomizationSettingRow.cs` owns retained inline controls and text drafts. `Models\KeySequenceTracker.cs` owns sequence state. The [public contract](../specs/file-explorers.md#customization) describes the application behavior.
+- Settings scrolling: `SettingsScrollSmoke.cs` measures native wheel dispatch and pending paint work in the complete inline editor. It also checks native focus, drafts, search, and settings updates. [CONTRIBUTING](../../CONTRIBUTING.md) describes the performance budgets and command.
 - [Rendering history](rendering-history.md): Complete text frames, native context menus, and shared rounded menu frames.
 - [Task Manager history](task-manager-history.md): Grid delivery, retained resources, and graphics-memory investigations.
 - [Earlier milestones](milestone-history.md): Suggestions, navigation, images, Windows integration, layout, and performance baselines.

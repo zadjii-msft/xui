@@ -177,7 +177,7 @@ internal sealed class NavigationSidebar : IDisposable
         View.Search.SetControlStyle(ExplorerPresentation.NavigationFilter(app.State.Customization));
         foreach (var items in new[] { View.Items, View.HeaderItems, View.FooterItems })
             ExplorerPresentation.ApplyNavigationItems(items, app.State.Customization);
-        if (wasOpen && !IsOpen) app.Active.Focus();
+        if (wasOpen && !IsOpen && app.CustomizationEditor?.IsOpen != true) app.Active.Focus();
         Refresh();
     }
 

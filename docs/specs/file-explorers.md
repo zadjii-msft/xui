@@ -145,8 +145,17 @@ Tab changes invalidate an open menu instead of changing its target.
 
 The **Customize Explorer** command opens a searchable settings editor.
 The command palette includes this command even when the toolbar or sidebar is hidden.
-Each settings row has a value field and an **Apply value** button.
-**Reset selected** restores one default. **Reset all** restores all customization defaults.
+Each settings row has its own control beside its name and description.
+Switches control visibility and behavior. Dropdowns select the theme and thumbnail fit.
+A slider controls row spacing. A numeric stepper controls font size.
+Sidebar sections and command rows have a visibility switch and a position stepper.
+These controls save changes immediately.
+
+Font, date, and keyboard rows have native text fields.
+Press **Enter** or the row's **Save** button to apply a text value.
+Search and unrelated settings changes preserve text drafts.
+An invalid value stays in its field with an error message. Saved settings do not change.
+Each row's **Reset** button restores its default. **Reset all** restores all customization defaults.
 
 Keyboard rows support multiple aliases and sequences of up to three strokes.
 For example, `Ctrl+K, Ctrl+R; Ctrl+Shift+R` assigns a sequence and a separate alias.
@@ -165,8 +174,8 @@ File actions never replace native editor shortcuts.
 Toolbar and sidebar command rows accept a position.
 Position `0` hides the command. Other positions select its place in the command order.
 Toolbar labels are optional.
-The sidebar section row accepts an ordered list of section names.
-An omitted section stays hidden.
+Each sidebar section has its own visibility switch and position stepper.
+A hidden section returns at the end of the list when enabled.
 The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
 
 File rows use the configured row height and font size.

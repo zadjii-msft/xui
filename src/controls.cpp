@@ -291,7 +291,7 @@ void ScrollView::set_offset(float value) {
     value = std::isnan(value) ? 0.0f : std::clamp(value, 0.0f, maximum_offset());
     if (offset_ == value) return;
     offset_ = value;
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::scroll);
 }
 void ScrollView::reveal(Rect target) {
     const auto view = viewport();

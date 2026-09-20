@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll }
 
 internal static class ExplorerSmoke
 {
@@ -114,6 +114,13 @@ internal static class ExplorerSmoke
                 {
                     await ContextActionsSmoke.Run(app, Ui, Until, fixture);
                     Console.WriteLine("Explorer context actions smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsScroll)
+                {
+                    await SettingsScrollSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings scroll smoke passed.");
                     await Ui(app.Window.Close);
                     return;
                 }

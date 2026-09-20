@@ -585,6 +585,26 @@ if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
 The desktop check applies settings to both panes and opens the searchable settings editor.
 The smoke uses isolated state and does not change the normal saved settings.
 
+The settings scroll check measures the complete inline editor with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-scroll-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-scroll.out" -RedirectStandardError "settings-scroll.err"
+Get-Content "settings-scroll.out"
+Get-Content "settings-scroll.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings scroll smoke failed." }
+```
+
+Run this check without a debugger or concurrent performance tests.
+Use normal line-based Windows wheel scrolling.
+The check uses isolated state, eight warmup messages, and forty measured wheel messages.
+It requires actual movement and checks round-trip geometry, native editor identity, focus, unsaved drafts, search, and a subsequent settings update.
+The wheel-handler budgets are 16 ms median and 32 ms p95.
+The combined wheel-handler and native-paint budgets are 32 ms median and 64 ms p95.
+The combined measurement flushes pending paint messages before each sample ends.
+Neither measurement includes compositor presentation latency or measures display frame rate.
+The output also includes the row count and the native child-window count for the entire Explorer window.
+
 The context-action check opens the search popup against real Shell metadata.
 It covers the native editor, captured paths, canonical favorites, hidden app actions, and stale selection cancellation.
 It does not run real Shell commands.

@@ -42,6 +42,7 @@ constexpr UINT metrics_message = WM_APP + 60;
 constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42, animation_timer = 43, progress_timer = 44;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
+constexpr wchar_t scroll_content_class[] = L"Xui.ScrollContent.1";
 thread_local bool running{};
 thread_local bool application_context{};
 D2D1_COLOR_F argb_color(uint32_t value) {
@@ -111,6 +112,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         Rect paint_bounds{};
         RECT placed_bounds{};
         bool placed{};
+        HWND scroll_content{};
+        RECT scroll_placed_bounds{};
+        bool scroll_placed{};
+        Rect arranged_bounds{};
+        Rect absolute_bounds{};
+        bool arranged{};
         Peer* parent{};
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         bool dragging{};
@@ -139,6 +146,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         AdaptiveLayout* adaptive{};
         Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
         ~Peer() {
+            host.peer_lookup.erase(control.get());
             if (file_target && window) RevokeDragDrop(window);
             file_target.Reset();
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
@@ -160,6 +168,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     std::shared_ptr<Stack> root;
     std::shared_ptr<TitleBar> titlebar;
     bool caption_active{};
+    std::unordered_map<const Control*, Peer*> peer_lookup;
     std::vector<std::unique_ptr<Peer>> peers;
     std::vector<AdaptiveLayout*> adaptive_layouts;
     std::vector<HWND> focus_targets;
@@ -226,6 +235,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     HFONT font{};
     bool used{}, pending{}, layout_pending{}, ready{}, syncing{}, failed{}, quit_posted{}, attached{}, closing{}, destroying{}, replacing{};
     bool placement_pending{}, animation_timer_running{};
+    bool scroll_pending{}, state_pending{};
     std::uint64_t animation_tick_count{};
     std::uint64_t split_intermediate_paints{};
     std::uint64_t reveal_intermediate_paints{};
@@ -392,7 +402,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         detach();
         ready = false;
         destroy();
-        if (!input_depth && !dispatch_depth) peers.clear();
+        if (!input_depth && !dispatch_depth) {
+            peer_lookup.clear();
+            peers.clear();
+        }
         root_drawing.release();
         if (background) { DeleteObject(background); background = nullptr; }
         if (field) { DeleteObject(field); field = nullptr; }
@@ -453,6 +466,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void invalidate(Invalidation kind) {
         layout_pending = layout_pending || kind == Invalidation::layout;
         placement_pending = placement_pending || kind == Invalidation::placement;
+        scroll_pending = scroll_pending || kind == Invalidation::scroll;
+        state_pending = state_pending || kind != Invalidation::scroll;
         if (!window || !ready) return;
         if (progress_animating && !syncing) sync_progress_animation();
         if (!pending) {
@@ -587,6 +602,28 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         InputScope scope(*host);
         try { return peer->host.control_message(*peer, hwnd, message, wparam, lparam); }
         catch (...) { host->fail(); return 0; }
+    }
+    static LRESULT CALLBACK scroll_content_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+        auto* peer = reinterpret_cast<Peer*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            peer = static_cast<Peer*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(peer));
+        }
+        if (!peer) return DefWindowProcW(hwnd, message, wparam, lparam);
+        InputScope scope(peer->host);
+        try {
+            if (message == WM_ERASEBKGND) return 1;
+            if (message == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
+            if (message == WM_LBUTTONDOWN && peer->host.focus_edit_at(hwnd, lparam)) return 0;
+            if (message == WM_MOUSEWHEEL) {
+                peer->host.scroll_wheel(*peer, wparam);
+                return 0;
+            }
+            if (message == WM_COMMAND || message == WM_NOTIFY || message == WM_CTLCOLOREDIT ||
+                message == WM_CTLCOLORSTATIC || message == WM_NEXTDLGCTL)
+                return SendMessageW(peer->window, message, wparam, lparam);
+        } catch (...) { peer->host.fail(); return 0; }
+        return DefWindowProcW(hwnd, message, wparam, lparam);
     }
     static LRESULT CALLBACK native_clip_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR id, DWORD_PTR data) noexcept {
@@ -874,8 +911,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
         control->set_visual_style(options.visual_style);
         bind_menu_bar(control);
-        for (size_t i = 0; i < peers.size(); ++i) if (peers[i]->control == control) {
-            auto* peer = peers[i].get();
+        if (auto* peer = find_peer(control.get())) {
             prepare_popup_surface(*peer);
             peer->surface = surface;
             peer->adaptive = adaptive;
@@ -894,7 +930,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         peer->surface = surface;
         peer->adaptive = adaptive;
         peer->parent = parent;
-        const HWND native_parent = parent ? parent->window : window;
+        const HWND native_parent = parent ? (parent->scroll_content ? parent->scroll_content : parent->window) : window;
         const auto role = peer->control->role();
         if (role == ControlRole::file_list) {
             auto list = std::dynamic_pointer_cast<FileList>(peer->control);
@@ -1040,6 +1076,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return measured;
             });
         peers.push_back(std::move(peer));
+        peer_lookup.emplace(added->control.get(), added);
+        if (role == ControlRole::scroll_view) {
+            added->scroll_content = CreateWindowExW(WS_EX_TRANSPARENT, scroll_content_class, L"",
+                WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, added->window, nullptr, GetModuleHandleW(nullptr), added);
+            win32_require(added->scroll_content != nullptr, "Create scroll content window");
+            win32_require(SetWindowSubclass(added->scroll_content, navigation_procedure, 1,
+                reinterpret_cast<DWORD_PTR>(added)) != 0, "Attach scroll content navigation");
+        }
         if (auto scroll = std::dynamic_pointer_cast<ScrollView>(added->control))
             collect(scroll->content(), surface, added, adaptive);
         if (auto content = std::dynamic_pointer_cast<ContentView>(added->control))
@@ -1116,8 +1160,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
     }
     Peer* find_peer(const Control* control) const {
-        for (const auto& peer : peers) if (peer->control.get() == control) return peer.get();
-        return nullptr;
+        const auto found = peer_lookup.find(control);
+        return found == peer_lookup.end() ? nullptr : found->second;
     }
     std::uint64_t popup_owner(const Peer* peer) const {
         for (; peer; peer = peer->parent) if (peer->control->role() == ControlRole::popup) return peer->control->id();
@@ -1190,6 +1234,26 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         struct Region { HRGN handle; ~Region() { if (handle) DeleteObject(handle); } };
         for (const auto& peer : peers) {
             if (!peer->native() || (popups.empty() && adaptive_layouts.empty() && !tooltip_shown && !peer->native_occluded)) continue;
+            const auto owner = popup_owner(peer.get());
+            if (!peer->native_occluded) {
+                const auto bounds = clipped_bounds(*peer);
+                if (bounds.width <= 0 || bounds.height <= 0) continue;
+                const auto overlaps = [&](Rect overlay) {
+                    return overlay.width > 0 && overlay.height > 0 &&
+                        bounds.x < overlay.x + overlay.width && overlay.x < bounds.x + bounds.width &&
+                        bounds.y < overlay.y + overlay.height && overlay.y < bounds.y + bounds.height;
+                };
+                bool covered = tooltip_shown && overlaps(tooltip_bounds);
+                for (const auto* layout : adaptive_layouts)
+                    if (layout->overlay_active() && adaptive_owner(layout) == owner && peer->adaptive != layout)
+                        covered = covered || overlaps(layout->navigation()->bounds());
+                bool above = owner == 0;
+                for (const auto& entry : popups) {
+                    if (above) covered = covered || overlaps(popup_occlusion(entry));
+                    if (entry.popup->id() == owner) above = true;
+                }
+                if (!covered) continue;
+            }
             bool clipped{};
             for (const auto hwnd : {peer->window, peer->caption}) {
                 if (!hwnd) continue;
@@ -1212,7 +1276,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     win32_require(CombineRgn(region.handle, region.handle, cut.handle, RGN_DIFF) != ERROR, "Clip native window under popup");
                     occluded = true;
                 };
-                const auto owner = popup_owner(peer.get());
                 for (const auto* layout : adaptive_layouts)
                     if (layout->overlay_active() && adaptive_owner(layout) == owner && peer->adaptive != layout) subtract(layout->navigation()->bounds());
                 bool above = owner == 0;
@@ -1527,7 +1590,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         // Keep all retired parents alive until their children have been destroyed.
         std::vector<std::unique_ptr<Peer>> removed;
         removed.reserve(retired.size());
-        for (auto& peer : peers) if (retired.contains(peer.get())) removed.push_back(std::move(peer));
+        for (auto& peer : peers) if (retired.contains(peer.get())) {
+            peer_lookup.erase(peer->control.get());
+            removed.push_back(std::move(peer));
+        }
         std::erase_if(peers, [](const auto& peer) { return !peer; });
         while (!removed.empty()) removed.pop_back();
         release_claims(&live);
@@ -1551,6 +1617,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         cls.lpszClassName = control_class;
         if (!RegisterClassExW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
             win32_require(false, "Register control window");
+        cls.lpfnWndProc = scroll_content_procedure;
+        cls.lpszClassName = scroll_content_class;
+        if (!RegisterClassExW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+            win32_require(false, "Register scroll content window");
         const auto extent = [](float value, int fallback) {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
@@ -1646,7 +1716,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         syncing = true;
         struct Reset { bool& value; ~Reset() { value = false; } } reset{syncing};
         pending = false;
-        prune_popups();
+        if (scroll_pending && animation_timer_running) layout_pending = true;
+        bool scroll_only = scroll_pending && !layout_pending && !placement_pending && !state_pending;
+        const bool arrange_scroll = std::exchange(scroll_pending, false);
+        state_pending = false;
+        if (!scroll_only) prune_popups();
         InputScope input_scope(*this);
         for (const auto& entry : popups) if (!command_popup_current(entry)) {
             auto popup = entry.popup;
@@ -1655,15 +1729,39 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (!ready || !window || closing) return;
         const auto focus_before_layout = GetFocus();
-        const auto before = peers.size();
-        adaptive_layouts.clear();
-        collect(root);
-        for (const auto& entry : popups) {
-            if (entry.dialog) entry.dialog->set_visual_style(options.visual_style);
-            collect(entry.popup, !entry.popup->window_background());
+        if (!scroll_only) {
+            const auto before = peers.size();
+            adaptive_layouts.clear();
+            collect(root);
+            for (const auto& entry : popups) {
+                if (entry.dialog) entry.dialog->set_visual_style(options.visual_style);
+                collect(entry.popup, !entry.popup->window_background());
+            }
+            if (peers.size() != before) apply_theme();
+            sync_animations();
         }
-        if (peers.size() != before) apply_theme();
-        sync_animations();
+        if (arrange_scroll && !layout_pending) {
+            std::vector<Rect> anchors;
+            for (const auto& entry : popups) anchors.push_back(entry.anchor->bounds());
+            for (const auto& peer : peers) {
+                const auto* scroll = dynamic_cast<const ScrollView*>(peer->control.get());
+                if (!scroll || scroll->passthrough()) continue;
+                const auto view = scroll->viewport();
+                const auto content = scroll->content()->bounds();
+                if (content.x != view.x || content.y != view.y - scroll->offset())
+                    scroll->content()->arrange({view.x, view.y - scroll->offset(), view.width, scroll->extent()});
+            }
+            // A stationary popup can contain a scrolling viewport without changing its placement.
+            // Only a moved anchor requires layout outside the scrolled subtree.
+            for (std::size_t i = 0; i < popups.size(); ++i) {
+                const auto bounds = popups[i].anchor->bounds();
+                if (i >= anchors.size() || bounds.x != anchors[i].x || bounds.y != anchors[i].y ||
+                    bounds.width != anchors[i].width || bounds.height != anchors[i].height)
+                    layout_pending = true;
+            }
+            // Custom layout callbacks may have invalidated layout or state during arrangement.
+            if (layout_pending || state_pending) scroll_only = false;
+        }
         const bool arrange_layout = layout_pending;
         if (layout_pending) {
             layout_pending = false;
@@ -1729,7 +1827,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             ++layouts;
         }
-        if (arrange_layout || placement_pending) {
+        if (arrange_layout || placement_pending || arrange_scroll) {
             if (!arrange_layout) {
                 for (const auto& peer : peers)
                     if (dynamic_cast<Animation*>(peer->control.get()))
@@ -1756,11 +1854,42 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (const auto& peer : peers) if (peer->clear_button) sync_clear_button(*peer);
             for (const auto& peer : peers) {
                 auto bounds = peer->control->bounds();
+                if (peer->edit && peer->arranged &&
+                    (bounds.x != peer->absolute_bounds.x || bounds.y != peer->absolute_bounds.y))
+                    peer->edit->dismiss_suggestions();
+                peer->absolute_bounds = bounds;
+                if (peer->scroll_content) {
+                    // One native translation moves the retained editors without recreating them
+                    // or sending placement notifications to every descendant.
+                    const auto& scroll = static_cast<const ScrollView&>(*peer->control);
+                    const auto content = scroll.content()->bounds();
+                    const float scale = dpi / 96.0f;
+                    const RECT target{static_cast<LONG>(std::lround((content.x - bounds.x) * scale)),
+                        static_cast<LONG>(std::lround((content.y - bounds.y) * scale)),
+                        static_cast<LONG>(std::lround(content.width * scale)),
+                        static_cast<LONG>(std::lround(content.height * scale))};
+                    if (!peer->scroll_placed || !EqualRect(&target, &peer->scroll_placed_bounds)) {
+                        auto& group = batch.for_parent(peer->window);
+                        group = DeferWindowPos(group, peer->scroll_content, nullptr,
+                            target.left, target.top, target.right, target.bottom,
+                            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOCOPYBITS);
+                        win32_require(group != nullptr, "Arrange scroll content window");
+                        peer->scroll_placed_bounds = target;
+                        peer->scroll_placed = true;
+                    }
+                }
                 if (peer->parent) {
-                    const auto parent = peer->parent->control->bounds();
+                    const auto parent = peer->parent->scroll_content ?
+                        static_cast<const ScrollView&>(*peer->parent->control).content()->bounds() :
+                        peer->parent->control->bounds();
                     bounds.x -= parent.x;
                     bounds.y -= parent.y;
                 }
+                if (scroll_only && peer->arranged && bounds.x == peer->arranged_bounds.x &&
+                    bounds.y == peer->arranged_bounds.y && bounds.width == peer->arranged_bounds.width &&
+                    bounds.height == peer->arranged_bounds.height) continue;
+                peer->arranged_bounds = bounds;
+                peer->arranged = true;
                 if (peer->control->role() == ControlRole::tab_strip) {
                     // Round the shared bottom edge, not the height, so tabs meet their content at fractional DPI.
                     const float scale = dpi / 96.0f;
@@ -1816,7 +1945,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         else if (peer->clear_button && peer->clear_button->visible()) insets.right += 30;
                     }
                     peer->edit->set_insets(insets);
-                    ShowWindow(peer->caption, !input.caption_visible() || !visible(*peer) ? SW_HIDE : SW_SHOWNA);
+                    const bool caption_visible = input.caption_visible() && visible(*peer);
+                    if (((GetWindowLongPtrW(peer->caption, GWL_STYLE) & WS_VISIBLE) != 0) != caption_visible)
+                        ShowWindow(peer->caption, caption_visible ? SW_SHOWNA : SW_HIDE);
                     if (input.caption_visible()) {
                         const float caption_height = input.caption_height();
                         platform::place(peer->caption, {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
@@ -1832,7 +1963,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         static_cast<LONG>(std::lround(bounds.height * scale))};
                     if (!peer->placed || !EqualRect(&target, &peer->placed_bounds)) {
                         // Win32 requires every deferred group to have the same native parent.
-                        auto& group = batch.for_parent(peer->parent ? peer->parent->window : window);
+                        auto& group = batch.for_parent(GetParent(peer->window));
                         group = DeferWindowPos(group, peer->window, nullptr,
                             target.left, target.top, target.right, target.bottom,
                             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
@@ -1843,7 +1974,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     platform::place(peer->window, bounds, dpi);
                     peer->placed = false;
                 }
-                ShowWindow(peer->window, visible(*peer) ? SW_SHOWNA : SW_HIDE);
+                const bool shown = visible(*peer);
+                if (((GetWindowLongPtrW(peer->window, GWL_STYLE) & WS_VISIBLE) != 0) != shown)
+                    ShowWindow(peer->window, shown ? SW_SHOWNA : SW_HIDE);
             }
             batch.finish();
             // Match native hit testing to the back-to-front popup composition order.
@@ -1871,7 +2004,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             update_paint_bounds();
         }
         if (arrange_layout) sync_animations();
-        focus_targets.clear();
+        if (!scroll_only) focus_targets.clear();
         sync_images();
         HWND disabled_focus{};
         std::vector<Peer*> update_peers;
@@ -1896,6 +2029,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 peer->swap_chain->sync(shown, dpi, clip);
                 if (!window || closing) return;
                 if (peer->swap_chain->active()) hide_tooltip();
+            }
+            if (scroll_only) {
+                // UIA reads native bounds on demand. Only scroll state changed; do not rewrite
+                // native text, fonts, selection, or the unchanged accessibility snapshots.
+                if (control.role() == ControlRole::scroll_view)
+                    publish_control(peer->accessibility, peer->provider, control, peer->window);
+                continue;
             }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
                 static_cast<MapView&>(*peer->control).cancel_request();
@@ -2221,8 +2361,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto bounds = reveal->bounds();
         return reveal->vertical() ? bounds.width > 0 : bounds.height > 0;
     }
-    Rect clipped_bounds(const Peer& peer) const {
+    Rect clipped_bounds(const Peer& peer, float outset = 0) const {
         auto result = peer.control->bounds();
+        result = {result.x - outset, result.y - outset, result.width + 2 * outset, result.height + 2 * outset};
         const auto intersect = [&](Rect clip) {
             const auto right = std::min(result.x + result.width, clip.x + clip.width);
             const auto bottom = std::min(result.y + result.height, clip.y + clip.height);
@@ -2493,6 +2634,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         split_middle |= split->progress() > 0 && split->progress() < 1;
                     if (const auto* reveal = dynamic_cast<Reveal*>(peer->control.get()))
                         reveal_middle |= reveal->progress() > 0 && reveal->progress() < 1;
+                    // Preserve focus rings and slider thumbs outside the control's own bounds.
+                    const auto paint_clip = clipped_bounds(*peer, 16);
+                    if (paint_clip.width <= 0 || paint_clip.height <= 0) return;
                     for (auto* parent = peer->parent; parent; parent = parent->parent)
                         drawing().push_clip(viewport(*parent));
                     std::size_t host_clips{};
@@ -2616,7 +2760,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (external_focus && !popup_owner(external_focus) && !(external_focus->adaptive && external_focus->adaptive->overlay_active()))
                     paint_peer(external_focus, PeerPaint::focus);
                 std::vector<Drawing::NativeWindow> native;
-                for (const auto& peer : peers) if (peer->native() && visible(*peer) && !in_popup_surface(*peer)) {
+                for (const auto& peer : peers) if (peer->native() && onscreen(*peer) && !in_popup_surface(*peer)) {
                     RECT clip{};
                     GetClientRect(window, &clip);
                     for (auto* parent = peer->parent; parent; parent = parent->parent) {
@@ -2655,7 +2799,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         std::vector<HWND> overlay_native;
                         for (const auto& peer : peers) if (peer->adaptive == layout && popup_owner(peer.get()) == owner) {
                             paint_peer(peer.get());
-                            if (peer->native()) overlay_native.push_back(peer->window);
+                            if (peer->native() && onscreen(*peer)) overlay_native.push_back(peer->window);
                         }
                         if (external_focus && external_focus->adaptive == layout && popup_owner(external_focus) == owner)
                             paint_peer(external_focus, PeerPaint::focus);
@@ -2708,7 +2852,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     std::vector<HWND> popup_native;
                     for (const auto& peer : peers) if (popup_owner(peer.get()) == entry.popup->id()) {
                         paint_peer(peer.get());
-                        if (peer->native()) {
+                        if (peer->native() && onscreen(*peer)) {
                             popup_native.push_back(peer->window);
                         }
                     }
@@ -2767,7 +2911,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (!drawing().begin(surface->window, static_cast<float>(dpi),
                         entry.popup->window_background() ? palette.background : palette.surface, {-bounds.x, -bounds.y})) continue;
                     std::vector<Drawing::NativeWindow> popup_native;
-                    for (const auto& peer : peers) if (peer->native() && visible(*peer) &&
+                    for (const auto& peer : peers) if (peer->native() && onscreen(*peer) &&
                         popup_owner(peer.get()) == entry.popup->id()) {
                         auto clip = clipped_bounds(*peer);
                         const float scale = dpi / 96.0f;
@@ -5678,7 +5822,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (const auto& peer : peers) if (peer->edit) peer->edit->dismiss_suggestions();
             for (const auto& peer : peers) if (peer->list) peer->list->publish();
             return 0;
-        case update_message: update(); return 0;
+        case update_message: if (pending) update(); return 0;
         case WM_DPICHANGED: {
             cancel_input();
             dpi = HIWORD(wparam);

@@ -167,6 +167,25 @@ Those checks require a desktop interaction with FileExplorer.
 
 ## Performance design
 
+### Retained scrolling
+
+`ScrollView::set_offset` requests `Invalidation::scroll` instead of a full layout.
+`Window::Impl::update` translates an internal `Xui.ScrollContent.1` HWND when only the offset changes.
+The logical bounds change with the native geometry, but individual editor HWNDs do not move within that layer.
+This preserves native selection, composition, drafts, and editor identity.
+Native child enumeration must account for this internal layer rather than assume that editors are direct children of the viewport.
+
+The offset-only path avoids repeated tree collection, typography updates, and root measurement.
+Indexed peer lookup replaces repeated linear searches.
+Mixed mutations and active animations retain the full update path.
+Stationary popups do not force root layout during scrolling.
+Clipped controls skip drawing and native pixel capture.
+Native controls without popup overlap skip occlusion-region allocation.
+
+Wheel dispatch still completes the update synchronously, and the Windows wheel-distance setting stays unchanged.
+`tests\scroll_tests.cpp --retained-only` covers the native path.
+The FileExplorer `--settings-scroll-smoke` check measures both dispatch and pending paint work with the complete inline settings editor.
+
 ### Opt-in reveal
 
 `include\xui\reveal.hpp` and `src\reveal.cpp` define the retained four-edge reveal.

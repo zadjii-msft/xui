@@ -2,18 +2,18 @@ namespace Xui.FileExplorer;
 
 component CustomizationLayout {
     view {
-        Popup("Customize Explorer", id: "explorer-customization", preferredSize: (860, 670),
+        Popup("Customize Explorer", id: "explorer-customization", preferredSize: (960, 720),
             placement: global::Xui.PopupPlacement.Center, windowBackground: true) {
             VStack(padding: 16, spacing: 8) {
                 Text("Customize Explorer");
                 TextInput("Search settings and commands", ref: Search, id: "customization-search", captionVisible: false,
                     placeholder: "Search settings, keyboard commands, toolbar, sidebar, Home", preferredSize: (800, 40));
-                ItemsView("Settings", ref: Results, id: "customization-results", flex: 1);
-                Text("", ref: Help, id: "customization-help");
-                TextInput("Value", ref: Value, id: "customization-value", captionVisible: false, preferredSize: (800, 40));
+                ScrollView("Settings", ref: Scroller, id: "customization-results", flex: 1) {
+                    VStack(ref: Rows, spacing: 0) {
+                        Text("No matching settings.", ref: Empty, id: "customization-empty", visible: false);
+                    }
+                }
                 HStack(spacing: 8) {
-                    Button("Apply value", ref: Apply, id: "customization-apply");
-                    Button("Reset selected", ref: ResetSelected);
                     Button("Reset all", ref: ResetAll);
                     Button("Import", ref: Import);
                     Button("Export", ref: Export);
