@@ -16,8 +16,63 @@ internal static class ExplorerCustomizationSmoke
     internal static async Task Run(ExplorerApplication app, Func<Action, Task> ui, Func<Func<bool>, Task> until, string fixture)
     {
         static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
+        static void Click(Button button)
+        {
+            button.Focus();
+            Check(button.Focused, "The button did not receive native focus.");
+            nint target = GetFocus();
+            Check(PostMessageKeyW(target, 0x0201, 1, (16 << 16) | 16), "Could not press the native button.");
+            Check(PostMessageKeyW(target, 0x0202, 0, (16 << 16) | 16), "Could not release the native button.");
+        }
         await ui(() => app.Left.Navigate(fixture));
         await until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+        await ui(() =>
+        {
+            var options = app.State.Customization.Clone();
+            options.ToolbarCommands = [.. options.ToolbarCommands, "toggle-light-dark-theme"];
+            options.Theme = "system";
+            app.SetCustomization(options);
+            if (!app.SecondPaneVisible) app.ToggleSplit();
+        });
+        await until(() => !app.Right.IsLoading && !app.Right.IsFiltering);
+        await ui(() =>
+        {
+            Check(app.Left.ToolbarButton("toggle-light-dark-theme").Icon == ButtonIcon.Theme &&
+                app.Left.ToolbarButton("commands").Icon == ButtonIcon.More,
+                "The theme command must not masquerade as the Commands menu.");
+            Click(app.Left.ToolbarButton("commands"));
+        });
+        await until(() => app.Palettes.IsOpen);
+        await ui(app.Palettes.Dismiss);
+        await ui(() => Click(app.Left.ToolbarButton("toggle-light-dark-theme")));
+        await until(() => app.State.Customization.Theme == "light");
+        await ui(() => Click(app.Left.ToolbarButton("toggle-light-dark-theme")));
+        await until(() => app.State.Customization.Theme == "dark");
+        await ui(() => Click(app.Window.TitlebarLeading));
+        await until(() => !app.State.Customization.ShowSidebar);
+        await ui(() => Click(app.Window.TitlebarLeading));
+        await until(() => app.State.Customization.ShowSidebar);
+        await ui(() => Click(app.Left.ToolbarButton("commands")));
+        await until(() => app.Palettes.IsOpen);
+        await ui(() => { app.Palettes.EditQuery("Toggle light / dark theme"); app.Palettes.Accept(false); });
+        await until(() => app.State.Customization.Theme == "light" && !app.Palettes.IsOpen);
+        await ui(() => Click(app.Right.ToolbarButton("commands")));
+        await until(() => app.Palettes.IsOpen);
+        await ui(() =>
+        {
+            Check(ReferenceEquals(app.Active, app.Right), "A toolbar command lost its originating pane.");
+            app.Palettes.Dismiss();
+        });
+        await ui(() => Click(app.Right.ToolbarButton("toggle-light-dark-theme")));
+        await until(() => app.State.Customization.Theme == "dark");
+        bool available = true, executed = false;
+        await ui(() =>
+        {
+            app.PostToolbarCommand(new("Queued availability", "", () => executed = true, () => available), app.Left);
+            available = false;
+        });
+        await ui(() => Check(!executed, "A queued toolbar command did not recheck availability."));
+        await ui(() => app.SetCustomization(new()));
         await ui(() =>
         {
             var original = app.State.Customization.Clone();
@@ -32,9 +87,9 @@ internal static class ExplorerCustomizationSmoke
             Check(app.Left.Model.Tabs.Count == tabs + 1, "Sequence did not create a tab.");
             Check(app.ShortcutHint(app.Commands.Single(c => c.StableId == "new-tab")).Contains("Ctrl+K, Ctrl+T"),
                 "Palette hints must show remapped sequences.");
-            bool executed = false;
-            app.ExecuteCommand(new("Unavailable", "", () => executed = true, () => false));
-            Check(!executed, "Disabled command was executed.");
+            bool disabledExecuted = false;
+            app.ExecuteCommand(new("Unavailable", "", () => disabledExecuted = true, () => false));
+            Check(!disabledExecuted, "Disabled command was executed.");
             var conflicting = changed.Clone();
             conflicting.Keybindings["close-tab"] = ["Ctrl+K"];
             try { app.SetCustomization(conflicting); throw new InvalidOperationException("Conflicting shortcut accepted."); }
@@ -69,7 +124,7 @@ internal static class ExplorerCustomizationSmoke
             options.Theme = "light";
             options.SingleClick = true;
             app.SetCustomization(options);
-            app.ToggleSplit();
+            if (!app.SecondPaneVisible) app.ToggleSplit();
         });
         await until(() => !app.Right.IsLoading && !app.Right.IsFiltering);
         var editor = app.CustomizationEditor!;
@@ -117,7 +172,11 @@ internal static class ExplorerCustomizationSmoke
                 "The editor changed settings after a conflict.");
             Check(shortcut.Text!.Text == "Ctrl+W" && shortcut.Error.Length > 0,
                 "A rejected shortcut must retain its draft and show a row error.");
-            shortcut.Reset.Invoke();
+        });
+        await ui(() => Click(shortcut.Reset));
+        await until(() => !app.State.Customization.Keybindings.ContainsKey("new-tab"));
+        await ui(() =>
+        {
             Check(!app.State.Customization.Keybindings.ContainsKey("new-tab") && shortcut.Error.Length == 0,
                 "The inline shortcut reset did not restore defaults.");
             editor.SearchInput.Focus(selectAll: true);
@@ -200,9 +259,15 @@ internal static class ExplorerCustomizationSmoke
             SendMessageTextW(GetFocus(), 0x000c, 0, "date");
             Check(date.Root.Open && date.Text!.Text == "%", "Search discarded an invalid draft.");
             date.Reset.Invoke();
+        });
+        await ui(() =>
+        {
             Check(date.Text!.Text == new ExplorerCustomization().DateFormat && date.Error.Length == 0,
                 "Per-setting reset did not clear the invalid draft.");
             section.Reset.Invoke();
+        });
+        await ui(() =>
+        {
             Check(app.State.Customization.SidebarSections.SequenceEqual(["bookmarks", "recents", "tree"]),
                 "Resetting a section must work when earlier default sections are hidden.");
         });
@@ -255,6 +320,22 @@ internal static class ExplorerCustomizationSmoke
                 "The number stepper did not grow for the largest supported font.");
             Check(app.Window.KeyHandler!(new(0x1b, KeyModifiers.None, 0)), "Customization editor did not dismiss.");
             app.SetCustomization(new());
+        });
+        await ui(() =>
+        {
+            var options = app.State.Customization.Clone();
+            options.ToolbarCommands.Add("toggle-light-dark-theme");
+            app.SetCustomization(options);
+            app.ShowCustomization();
+            app.ShowCustomization();
+        });
+        await until(() => editor.ResetAllButton.GetBounds().Height > 20);
+        await ui(() => Click(editor.ResetAllButton));
+        await until(() => app.State.Customization.ToolbarCommands.SequenceEqual(new ExplorerCustomization().ToolbarCommands));
+        await ui(() =>
+        {
+            Check(editor.IsOpen, "Reset all must preserve the settings popup.");
+            editor.Dismiss();
         });
     }
 }

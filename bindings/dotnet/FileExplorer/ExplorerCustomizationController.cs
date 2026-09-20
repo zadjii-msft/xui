@@ -46,6 +46,22 @@ internal sealed partial class ExplorerApplication
         command.Execute();
     }
 
+    internal void PostToolbarCommand(ExplorerCommand command, FilePaneView pane)
+    {
+        if (!Application.Post(() =>
+        {
+            if (CloseRequested || IsDisposed) return;
+            if (!customizablePanes.Contains(pane) || pane.Model.Tabs.Count == 0)
+            {
+                Report("The command's pane is no longer available.");
+                return;
+            }
+            Activate(pane);
+            ExecuteCommand(command);
+        }))
+            throw new InvalidOperationException("The application rejected a toolbar command.");
+    }
+
     internal bool CanExecuteInPane(ExplorerCommand command, FilePaneView pane)
     {
         var previous = active;
@@ -72,6 +88,16 @@ internal sealed partial class ExplorerApplication
     }
 
     public void SaveCustomization() => SetCustomization(State.Customization.Clone());
+
+    internal void PostCustomization(Action update)
+    {
+        // Replacing command surfaces is not permitted inside a native control callback.
+        if (!Application.Post(() =>
+        {
+            if (!CloseRequested && !IsDisposed) update();
+        }))
+            throw new InvalidOperationException("The application rejected a settings update.");
+    }
 
     public void SetCustomization(ExplorerCustomization options)
     {

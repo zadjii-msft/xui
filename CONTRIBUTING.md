@@ -583,6 +583,8 @@ if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
 ```
 
 The desktop check applies settings to both panes and opens the searchable settings editor.
+It clicks native toolbar buttons after customization and checks palette ownership, repeated theme changes, navigation toggles, and settings resets.
+Queued toolbar commands must retain their pane and check availability again before execution.
 The smoke uses isolated state and does not change the normal saved settings.
 
 The settings scroll check measures the complete inline editor with both panes open:

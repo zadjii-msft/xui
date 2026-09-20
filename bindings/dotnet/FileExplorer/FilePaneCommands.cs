@@ -4,6 +4,7 @@ internal sealed partial class FilePaneView
 {
     private ContentHost? customToolbar;
     private readonly List<(Button Button, ExplorerCommand Command)> customToolbarButtons = [];
+    internal Button ToolbarButton(string id) => customToolbarButtons.Single(item => item.Command.StableId == id).Button;
     internal void RefreshCommandAvailability()
     {
         foreach (var (button, command) in customToolbarButtons)
@@ -41,13 +42,18 @@ internal sealed partial class FilePaneView
                 {
                     "back" => ButtonIcon.Back, "forward" => ButtonIcon.Forward,
                     "up-to-parent-folder" => ButtonIcon.Up, "refresh-folder" => ButtonIcon.Refresh,
-                    "new-tab" => ButtonIcon.Add, _ => ButtonIcon.More
+                    "new-tab" => ButtonIcon.Add,
+                    "toggle-light-dark-theme" => ButtonIcon.Theme,
+                    "customization" => ButtonIcon.Settings,
+                    "toggle-navigation-pane" or "filter-navigation" => ButtonIcon.Navigation,
+                    _ => ButtonIcon.More
                 });
                 button.SetStyle(ExplorerStyles.IconButton);
                 button.FixedSize(options.ToolbarLabels ? 156 : 36, 36);
                 button.SetEnabled(app.CanExecuteInPane(command, this));
                 customToolbarButtons.Add((button, command));
-                button.Click += () => { Activate(); app.ExecuteCommand(command); };
+                // A toolbar content scope must not own resources created by application commands.
+                button.Click += () => app.PostToolbarCommand(command, this);
                 if (options.ToolbarLabels) button.SetIcon(ButtonIcon.None);
                 row.Add(button);
             }

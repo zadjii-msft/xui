@@ -61,7 +61,7 @@ internal sealed partial class ExplorerApplication : IDisposable
             Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
                 .Help("Show or collapse navigation");
             Window.TitlebarLeading.SetStyle(ExplorerStyles.IconButton);
-            Window.TitlebarLeading.Click += Sidebar.Toggle;
+            Window.TitlebarLeading.Click += () => PostCustomization(Sidebar.Toggle);
             Window.SetTitlebarLayout(Left.Root, Right.Root);
             Commands = CreateCommands();
             Transfers = new(this);
@@ -132,6 +132,12 @@ internal sealed partial class ExplorerApplication : IDisposable
         Left.Navigate(Left.Model.Active.Path);
         Task? smokeTask = smoke ? ExplorerSmoke.Start(this, smokeMode) : null;
         try { Application.Show(Window); Application.Run(); }
+        catch (Exception error) when (smokeTask is not null)
+        {
+            // Smoke shutdown can also fail; keep the original callback error in the log.
+            Console.Error.WriteLine(error);
+            throw;
+        }
         finally
         {
             Work.Dispose();
@@ -373,15 +379,15 @@ internal sealed partial class ExplorerApplication : IDisposable
         new("Find in this folder", "Ctrl+F", () => Active.ShowFind(), Id: "find-in-this-folder"),
         new("Clear folder filter", "Escape", () => Active.HideFind(),
             () => Active.Model.Active.FindOpen, Id: "clear-folder-filter"),
-        new("Filter navigation", "Alt+F", Sidebar.FocusFilter, Id: "filter-navigation"),
-        new("Toggle navigation pane", "", Sidebar.Toggle, Id: "toggle-navigation-pane"),
+        new("Filter navigation", "Alt+F", () => PostCustomization(Sidebar.FocusFilter), Id: "filter-navigation"),
+        new("Toggle navigation pane", "", () => PostCustomization(Sidebar.Toggle), Id: "toggle-navigation-pane"),
         new("Add or remove folder bookmark", "Ctrl+D", Bookmark, Id: "add-or-remove-folder-bookmark"),
         new("Open selected folder in new tab", "", () => { if (Active.SelectedEntry is { IsDirectory: true } e) Active.NewTab(e.FullPath); },
             () => Active.SelectedEntry is { IsDirectory: true }, Id: "open-selected-folder-in-new-tab"),
         new("Open selected item in other pane", "Ctrl+Enter", () =>
             { if (Active.SelectedEntry is { } e && OtherPane(Active, show: true) is { } target) Open(e, target); },
             () => Active.SelectedEntry is not null, Id: "open-selected-item-in-other-pane"),
-        new("Toggle light / dark theme", "Ctrl+F6", ToggleTheme, Id: "toggle-light-dark-theme"),
+        new("Toggle light / dark theme", "Ctrl+F6", () => PostCustomization(ToggleTheme), Id: "toggle-light-dark-theme"),
         new("Close window", "Alt+F4", Window.Close, Id: "close-window")
     ];
 

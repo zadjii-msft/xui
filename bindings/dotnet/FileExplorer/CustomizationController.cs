@@ -26,19 +26,19 @@ internal sealed class CustomizationController
         foreach (var setting in settings)
         {
             var row = new CustomizationSettingRow(app.Window, setting,
-                value => Apply(setting, value), () => Reset(setting));
+                value => Apply(setting, value), () => app.PostCustomization(() => Reset(setting)));
             rows.Add(row);
             layout.Rows.Add(row.Root);
         }
         layout.Search.Changed += _ => Search();
-        layout.ResetAll.Click += () => Guard(() =>
+        layout.ResetAll.Click += () => app.PostCustomization(() => Guard(() =>
         {
             app.SetCustomization(new());
             Synchronize(discardDrafts: true);
             ClearErrors();
-        });
-        layout.Import.Click += Import;
-        layout.Export.Click += Export;
+        }));
+        layout.Import.Click += () => app.PostCustomization(Import);
+        layout.Export.Click += () => app.PostCustomization(Export);
         layout.Close.Click += Dismiss;
         app.CustomizationChanged += () => Synchronize();
         Synchronize();
@@ -51,13 +51,14 @@ internal sealed class CustomizationController
     internal int ResultCount { get; private set; }
     internal CustomizationSettingRow Row(string id) => rows.Single(row => row.Setting.Id == id);
     internal ScrollView Scroller => layout.Scroller;
+    internal Button ResetAllButton => layout.ResetAll;
     public void Dismiss() => layout.Root.Dismiss();
     public void Show()
     {
         app.Palettes.Dismiss();
         Synchronize();
         Search();
-        layout.Root.Show(app.Window.TitlebarLeading);
+        if (!IsOpen) layout.Root.Show(app.Window.TitlebarLeading);
         layout.Search.Focus();
     }
 
@@ -156,12 +157,7 @@ internal sealed class CustomizationController
     private void Apply(CustomizationSetting setting, string value)
     {
         if (synchronizing) return;
-        // Settings can replace toolbar content, which must run outside native input callbacks.
-        if (!app.Application.Post(() =>
-        {
-            if (!app.CloseRequested && !app.IsDisposed) Commit(setting, value);
-        }))
-            throw new InvalidOperationException("The application rejected a settings update.");
+        app.PostCustomization(() => Commit(setting, value));
     }
 
     private void Commit(CustomizationSetting setting, string value)
