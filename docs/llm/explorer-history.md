@@ -7,6 +7,10 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
 ## Declarative presentation refactor, 2026-09-19
 
+`FilePaneView` configures every retained Columns list with a 32-DIP row height to match Details.
+The framework default remains 40 DIPs.
+`--views-smoke` checks compact row hit targets and selection after vertical scrolling.
+
 The refactor uses the existing compiler without new language features.
 `BreadcrumbAddressLayout`, `BreadcrumbMenuLayout`, `BreadcrumbSegmentLayout`, and `BreadcrumbSpaceLayout` own the fixed address presentation.
 `BreadcrumbAddressBar` retains the dynamic adaptive chain, scoped replacement, dispatch guard, cancellation, and 64-segment limit.

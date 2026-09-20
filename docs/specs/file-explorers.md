@@ -304,6 +304,7 @@ Native file drag and drop remains available in Details.
 ### Columns view
 
 Columns view starts at the committed folder.
+Its rows use the same 32-DIP height as Details, with unchanged icons and text.
 A single selection of a folder loads its children in the next column.
 Ancestor columns remain visible. A sibling selection replaces the columns to its right.
 A file selection does not open the file.
