@@ -110,6 +110,8 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                await Check(() => app.PrefetchShellMenus ? app.ShellMenuPrefetchRequests > 0 : app.ShellMenuPrefetchRequests == 0,
+                    "Navigation requests Shell prefetch only when the experiment is enabled");
                 if (mode == ExplorerSmokeMode.Preview)
                 {
                     await PreviewChecks();
@@ -3587,7 +3589,7 @@ internal static class ExplorerSmoke
                 string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
                 var title = new System.Text.StringBuilder(32768);
                 if (GetWindowTextW(hwnd, title, title.Capacity) == 0 ||
-                    title.ToString() != $"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui")
+                    title.ToString() != $"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui{(app.PrefetchShellMenus ? " [menu prefetch]" : "")}")
                     throw new InvalidOperationException("The HWND caption must identify the active folder and full path.");
             });
             await Until(() => SendMessageW(hwnd, 0x7f, 0, 0) != 0 && SendMessageW(hwnd, 0x7f, 1, 0) != 0);

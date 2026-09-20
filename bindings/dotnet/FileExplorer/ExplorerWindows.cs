@@ -1,13 +1,13 @@
 namespace Xui.FileExplorer;
 
-internal sealed class ExplorerWindows(Application application, PreviewController preview, bool smoke) : IDisposable
+internal sealed class ExplorerWindows(Application application, PreviewController preview, bool smoke, bool prefetchShellMenus = false) : IDisposable
 {
     private readonly List<ExplorerApplication> windows = [];
     internal IReadOnlyList<ExplorerApplication> Windows => windows;
 
     internal ExplorerApplication Create(string path)
     {
-        var controller = new ExplorerApplication(this, application, preview, path, smoke);
+        var controller = new ExplorerApplication(this, application, preview, path, smoke, prefetchShellMenus);
         windows.Add(controller);
         return controller;
     }

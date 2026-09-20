@@ -232,6 +232,14 @@ Open in this pane keeps folder navigation in the demo. Shell Open uses Windows b
 Files omit folder-only commands and duplicate Open actions.
 Selection or source changes cancel pending menu actions instead of changing their target.
 
+`--prefetch-shell-menus` enables an experimental background warmup after each successful directory navigation.
+The title includes `[menu prefetch]`. Without the flag, navigation does not request a menu.
+The warmup discovers one menu for the destination directory, releases its handlers, and retains no commands.
+Navigation changes and closure cancel obsolete warmups.
+Interactive requests take priority, but cannot interrupt a Shell extension inside COM.
+Failures and busy-worker skips produce Windows debugger diagnostics.
+The [contributor procedure](../../CONTRIBUTING.md#try-prefetch-inside-fileexplorer) describes the comparison build.
+
 The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
 Canceled or obsolete requests cannot replace the current view.

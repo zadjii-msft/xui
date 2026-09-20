@@ -81,6 +81,28 @@ The pixel count must equal width times height. Invalid dimensions or pixel count
 Shell discovery limits copied bitmap data to 4 MiB per menu.
 These icons do not change command labels, shortcuts, accessibility names, or command identities.
 
+### Experimental Shell warmup
+
+`Window::prefetch_shell_commands(path)` requests best-effort background discovery for one filesystem path.
+C# exposes `Window.PrefetchShellCommands(path)`. The C ABI exposes `xui_shell_prefetch(window, path)`.
+The call requires an open window on its UI thread.
+An empty path cancels the window's previous request. A new path replaces that request.
+Window closure also cancels it without waiting for a Shell extension.
+
+Warmup never displays a menu, invokes a verb, or retains command metadata for later menus.
+The shared STA releases the handlers after discovery.
+It skips speculative work while an interactive request is active or pending.
+An interactive request cancels active speculative work, but cancellation cannot interrupt an extension inside COM.
+The worker retains at most one active request and one pending request across windows.
+It exits after ten idle seconds.
+
+Invalid arguments and unavailable windows produce the usual synchronous errors.
+Asynchronous discovery failures and busy-worker skips produce Windows debugger diagnostics.
+This experimental API does not guarantee faster menus.
+The [C# explorer](file-explorers.md) opts in only with `--prefetch-shell-menus`.
+
+### Window and input details
+
 PNG copies permit image review without changes to the BMP capture tests.
 The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
 If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.

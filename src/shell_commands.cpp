@@ -337,7 +337,7 @@ struct AsyncShellMenu::State {
     std::optional<size_t> app;
     std::mutex mutex;
     HWND owner{};
-    bool started{};
+    bool started{}, prefetch{};
     enum class Action { none, invoke, windows } action{};
     ItemKey key{};
     Point point{};
@@ -403,12 +403,15 @@ class ShellWorker {
         try {
             provider = create(state);
             if (!state->stop.stop_requested()) {
+                std::vector<ShellCommandInfo> commands;
                 if (auto native = std::dynamic_pointer_cast<NativeShellProvider>(provider))
-                    state->commands = native->gallery_commands(state->stop.get_token());
-                else state->commands = provider->discover(state->stop.get_token());
+                    commands = native->gallery_commands(state->stop.get_token());
+                else commands = provider->discover(state->stop.get_token());
+                if (!state->prefetch) state->commands = std::move(commands);
             }
         } catch (const std::exception& error) { state->discovery_error = error.what(); }
         state->ready.store(true, std::memory_order_release);
+        if (state->prefetch) return;
         for (;;) {
             if (state->stop.stop_requested()) return;
             AsyncShellMenu::State::Action action;
@@ -462,6 +465,11 @@ class ShellWorker {
                 state->discovery_error = "Shell worker could not discover commands";
                 state->ready.store(true, std::memory_order_release);
             }
+            if (state->prefetch && !state->stop.stop_requested() && !state->discovery_error.empty()) {
+                OutputDebugStringA("XUI Shell menu prefetch failed: ");
+                OutputDebugStringA(state->discovery_error.c_str());
+                OutputDebugStringA("\n");
+            }
             state->finished.store(true, std::memory_order_release);
             { std::lock_guard lock(mutex_); active_.reset(); }
         }
@@ -496,6 +504,16 @@ public:
     bool submit(const std::shared_ptr<AsyncShellMenu::State>& state) {
         std::lock_guard lock(mutex_);
         if (stopping_) return false;
+        if (state->prefetch &&
+            ((active_ && !active_->prefetch && !active_->finished.load(std::memory_order_acquire)) ||
+                (pending_ && !pending_->prefetch))) {
+            state->cancel();
+            state->ready.store(true, std::memory_order_release);
+            state->finished.store(true, std::memory_order_release);
+            OutputDebugStringW(L"XUI Shell menu prefetch skipped: an interactive request has priority.\n");
+            return true;
+        }
+        if (!state->prefetch && active_ && active_->prefetch) active_->cancel();
         if (pending_) {
             pending_->discovery_error = "A newer Shell menu request replaced this request";
             pending_->cancel();
@@ -510,6 +528,12 @@ public:
 }
 std::shared_ptr<AsyncShellMenu> AsyncShellMenu::start(HWND owner, std::vector<std::wstring> paths) {
     auto request = prepare(owner, std::move(paths));
+    request->begin();
+    return request;
+}
+std::shared_ptr<AsyncShellMenu> AsyncShellMenu::prefetch(HWND owner, std::wstring path) {
+    auto request = prepare(owner, {std::move(path)});
+    request->state_->prefetch = true;
     request->begin();
     return request;
 }

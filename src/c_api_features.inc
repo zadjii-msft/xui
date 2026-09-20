@@ -1572,6 +1572,14 @@ xui_status XUI_CALL xui_shell_show(xui_handle anchor, const xui_string* paths, u
         n->owner->window->show_shell_commands(control(n), values);
     });
 }
+xui_status XUI_CALL xui_shell_prefetch(xui_handle window, xui_string path) noexcept {
+    return boundary([&] {
+        auto n = get(window, XUI_WINDOW); editable(n->owner);
+        auto value = decode(path);
+        require(value.size() <= 32767, XUI_INVALID_ARGUMENT, "Shell prefetch path is too long.");
+        n->owner->window->prefetch_shell_commands(std::move(value));
+    });
+}
 xui_status XUI_CALL xui_canvas_scene(xui_handle target, const xui_shape* shapes, uint32_t count) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_VECTOR_CANVAS); editable(n->owner);

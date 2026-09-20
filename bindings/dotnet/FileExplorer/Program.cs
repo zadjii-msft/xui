@@ -22,7 +22,7 @@ internal static class Program
             bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke || previewSmoke;
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
-            using var windows = new ExplorerWindows(application, previews, smoke);
+            using var windows = new ExplorerWindows(application, previews, smoke, args.Contains("--prefetch-shell-menus"));
             var app = windows.Create(initialPath);
             app.Run(viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
                 paneAnimationSmoke ? ExplorerSmokeMode.PaneAnimation :

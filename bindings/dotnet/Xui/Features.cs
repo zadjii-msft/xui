@@ -131,6 +131,18 @@ public sealed unsafe partial class Window
         for (int i = 0; i < paths.Length; ++i) values[i] = pins.Text(paths[i]);
         fixed (Native.Text* p = values) Check(Native.ShellShow(anchor.Handle, p, (uint)values.Length));
     }
+    /// <summary>Requests experimental background Shell warmup for one path. An empty path cancels it.</summary>
+    /// <remarks>Requires an open window. Commands are never cached or invoked.
+    /// Interactive requests take priority, but cannot interrupt an extension inside COM.
+    /// Discovery failures and busy-worker skips emit debugger diagnostics. Closure cancels the request.</remarks>
+    public void PrefetchShellCommands(string path)
+    {
+        Guard();
+        ArgumentNullException.ThrowIfNull(path);
+        if (path.Length > 32767) throw new ArgumentOutOfRangeException(nameof(path));
+        using var pins = new Pins();
+        Check(Native.ShellPrefetch(Handle, pins.Text(path)));
+    }
 }
 public static class ControlFeatures
 {
