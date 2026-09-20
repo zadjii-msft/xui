@@ -107,6 +107,7 @@ internal sealed class FilePaneView
         {
             uint index = i;
             var list = Columns.Column(index);
+            list.ItemSize(240, 32);
             list.FocusEntered += () =>
             {
                 Activate();

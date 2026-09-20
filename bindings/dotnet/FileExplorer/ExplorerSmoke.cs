@@ -127,7 +127,7 @@ internal static class ExplorerSmoke
                 if (mode == ExplorerSmokeMode.Views)
                 {
                     await AdditionalViewsChecks();
-                    Console.WriteLine("Explorer views passed: gallery sizes, List, lazy Tree, view menu, filtering, selection, focus, tab state, and cancellation.");
+                    Console.WriteLine("Explorer views passed: gallery sizes, List, lazy Tree, compact Columns, view menu, filtering, selection, focus, tab state, and cancellation.");
                     await Ui(app.Window.Close);
                     return;
                 }
@@ -1993,6 +1993,31 @@ internal static class ExplorerSmoke
                             && pane.VisibleCount == 81 && pane.FilesFocused
                             && pane.SelectedEntry?.FullPath == selected,
                             $"{view} keeps the folder, selection, and native focus");
+                        if (view == ExplorerViewMode.Columns)
+                            await Ui(() =>
+                            {
+                                var list = pane.Columns.Column(0);
+                                list.Offset = 0;
+                                pane.Columns.FocusColumn(0);
+                                nint peer = GetFocus();
+                                double scale = GetDpiForWindow(peer) / 96.0;
+                                foreach (int row in new[] { 1, 2 })
+                                {
+                                    nint point = ((int)((row * 32 + 4) * scale) << 16) | (int)(48 * scale);
+                                    SendMessageW(peer, 0x201, 1, point);
+                                    SendMessageW(peer, 0x202, 0, point);
+                                    if (pane.SelectedEntry?.Name != $"file-{row - 1:D3}.txt"
+                                        || pane.Model.Active.Path != root || pane.Columns.ColumnCount != 1)
+                                        throw new InvalidOperationException("Columns must use 32-DIP row selection targets like Details without opening files.");
+                                }
+                                list.Offset = 32;
+                                nint scrolledPoint = ((int)(4 * scale) << 16) | (int)(48 * scale);
+                                SendMessageW(peer, 0x201, 1, scrolledPoint);
+                                SendMessageW(peer, 0x202, 0, scrolledPoint);
+                                if (pane.SelectedEntry?.Name != "file-000.txt")
+                                    throw new InvalidOperationException("Column scrolling must use the compact row height.");
+                                pane.SelectPath(selected);
+                            });
                         if (view == ExplorerViewMode.Tree)
                             await Ui(() =>
                             {
