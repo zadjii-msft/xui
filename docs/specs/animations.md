@@ -14,6 +14,10 @@ Unchecked items in the roadmap are not supported APIs.
 A reveal retains one child and a native clipping window.
 Its content stays at full size while its position changes.
 It does not replace native text input with a bitmap snapshot.
+Closed reveals defer native child-window creation until their content opens.
+Retained controls keep their values, ownership, and typography before native creation.
+Once created, native editors retain their identity while an attached reveal closes and opens.
+Popup dismissal and content retirement still release their native windows.
 
 ## Reveal contract
 

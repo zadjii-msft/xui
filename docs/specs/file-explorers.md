@@ -14,6 +14,30 @@ The explorer selects `VisualStyle.WinUI` for both light and dark themes.
 Other applications retain the classic style unless they explicitly select WinUI.
 The existing C++ explorer remains available as `xui_demo.exe`.
 
+### Search and customize context actions
+
+File and folder menus include **Search / customize context actions**.
+Built-in app actions show their current configured shortcut hints, including aliases and removed bindings.
+The popup searches app actions and supported Windows Shell leaves by label or canonical verb.
+Its native text editor retains standard text selection and keyboard input.
+**Run** uses the paths captured when the context menu opened.
+Selection, tab, or folder changes cancel stale Shell actions.
+
+**Pin** saves an explicit app identity or a unique canonical Shell verb.
+The popup explains when a Shell entry does not support pinning.
+No temporary Shell command ID enters the saved state.
+Pinned app actions appear first in the app portion of the context menu.
+**Pinned context actions** shows favorites against a fresh Shell snapshot.
+Unavailable favorites remain visible and can be unpinned.
+
+**Hide app action** removes a built-in app action from the context menu.
+The search popup retains hidden actions and provides **Show app action** to restore them.
+These preferences persist in the Explorer customization state.
+**Show Windows menu** retains native submenus, dynamic commands, and owner-drawn Shell extensions.
+**Customize Explorer** always remains in the context menu, including menus for empty space.
+Hidden-action preferences cannot remove this recovery command.
+It opens customization even if the toolbar, sidebar, and command-palette keybinding are disabled.
+
 ### Edit the markup
 
 `ExplorerLayout.xui` composes the sidebar, file panes, and notification.
@@ -134,6 +158,73 @@ The menu contains tab shifting, duplication, path copying, and closing commands.
 Closing commands affect the target tab, other tabs, tabs to either side, or all tabs in its pane.
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
+
+### Customization
+
+The **Customize Explorer** command opens a searchable settings editor.
+The command palette includes this command even when the toolbar or sidebar is hidden.
+The editor has **General**, **Toolbar**, **Navigation**, and **Keyboard** pages.
+Toolbar and navigation pages group visibility controls, sections, and commands.
+Command rows show their names and icons. Shared instructions appear once above each group.
+Search finds settings across all pages. Selecting a page clears the search without discarding text drafts.
+Opening the popup creates native controls for the current page, not every hidden settings page.
+Search and page changes create additional native controls when those rows become visible.
+Each settings row has its own control beside its name and description.
+Switches control visibility and behavior. Dropdowns select the theme and thumbnail fit.
+A slider controls row spacing. A numeric stepper controls font size.
+Sidebar sections and command rows have a visibility switch and a position stepper.
+These controls save changes immediately.
+
+Font, date, and keyboard rows have native text fields.
+Press **Enter** or the row's **Save** button to apply a text value.
+Search and unrelated settings changes preserve text drafts.
+An invalid value stays in its field with an error message. Saved settings do not change.
+Each row has a borderless reset icon with an accessible name and a tooltip.
+The icon appears only when the saved value or a text draft differs from the default.
+Hidden reset icons do not change the field width. Reset restores the default and clears the row's draft and error.
+**Reset all** restores all customization defaults.
+
+Keyboard rows support multiple aliases and sequences of up to three strokes.
+For example, `Ctrl+K, Ctrl+R; Ctrl+Shift+R` assigns a sequence and a separate alias.
+An empty value removes all mappings for that command.
+The value `default` restores its default mappings.
+The editor rejects duplicate shortcuts, conflicting sequence prefixes, reserved Windows shortcuts, and AltGr combinations.
+The command palette shows the current mappings.
+
+A sequence expires after 1.8 seconds between strokes.
+Escape cancels an incomplete sequence.
+An invalid continuation returns the key to normal input.
+Custom mappings and sequences run only while a file view has focus.
+Default global navigation and tab shortcuts retain their normal behavior.
+File actions never replace native editor shortcuts.
+
+Toolbar and sidebar command rows accept a position.
+Position `0` hides the command. Other positions select its place in the command order.
+Toolbar labels are optional.
+Commands use the same icons in the toolbar, navigation pane, command palette, and settings rows.
+For example, the folder bookmark command uses the bookmark icon rather than the overflow icon.
+Each sidebar section has its own visibility switch and position stepper.
+A hidden section returns at the end of the list when enabled.
+The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
+
+File rows use the configured row height and font size.
+Tree rows stay compact: their height is 8 DIPs less, with a minimum of 20 DIPs.
+Navigation rows use 4 DIPs less, with the same minimum.
+Tree and navigation fonts use 2 DIPs less, with a minimum of 9 DIPs.
+The defaults remain 24/12 DIPs for Tree rows and 28/12 DIPs for navigation rows.
+Gallery heights add the configured row height to the image area.
+
+Import and export use a versioned JSON document.
+An absent field uses its default.
+Import rejects invalid values, duplicate identities, unsupported versions, unknown fields, and shortcut conflicts.
+A failed import leaves the current settings and other saved state unchanged.
+Settings use the optional `Customization` field in `state.json`.
+Older state files remain valid.
+
+Commands retain stable identities independently of their display names when they supply an explicit `Id`.
+The existing `ExplorerCommand(Name, Shortcut, Execute, CanExecute)` constructor remains valid.
+Extensions can supply the optional `Id` and `Aliases` arguments.
+Every command runs through an availability check immediately before execution.
 
 ### Breadcrumb address bar
 
@@ -370,6 +461,7 @@ Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
+The preview keeps this document font when the UI font changes, but uses the configured font size.
 An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights supported source files, including `.xui`, C#, C++, JSON, and Python.
 Unknown extensions remain plain text.
 Highlighting does not change the preview's file-read restrictions, content limit, or cancellation scope.
@@ -516,6 +608,9 @@ Both palettes appear at the center of the window, independent of the active pane
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
 The palette frame and results share one background color.
 Command shortcuts use separate keycaps on the right, beside each command title.
+Font customization preserves this layout. Commands without a shortcut have no empty keycap.
+Aliases and key sequences retain their separators between keycap groups.
+Long shortcut groups can use an ellipsis in narrow palettes. Accessible text retains the complete shortcut.
 Command rows capture their labels, shortcuts, and enabled state when the palette opens or its query changes.
 Row callbacks read that snapshot without querying native controls.
 The controller checks current availability again before it executes a command.

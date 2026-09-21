@@ -574,7 +574,90 @@ The complete `--smoke` run includes these address-bar checks.
 The address-bar checks also cover shared declarative styles, unchanged-path identity, and the 64-segment limit.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
-The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes:
+The customization checks cover key sequences, shortcut conflicts, import errors, legacy state, and native editor shortcut ownership:
+
+```powershell
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--customization-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
+```
+
+The desktop check applies settings to both panes and opens the searchable settings editor.
+It clicks native toolbar buttons after customization and checks palette ownership, repeated theme changes, navigation toggles, and settings resets.
+It also clicks settings page buttons and checks global search, retained drafts, conditional reset visibility, stable field widths, and command icons.
+Queued toolbar commands must retain their pane and check availability again before execution.
+The smoke uses isolated state and does not change the normal saved settings.
+
+The native palette appearance check covers separate shortcut keycaps with and without font customization:
+
+```powershell
+& ".\$build\Release\xui_collections_window_tests.exe" --palette-only
+if ($LASTEXITCODE -ne 0) { throw "Palette appearance check failed." }
+```
+
+It captures only its own nonactivating windows.
+The checks cover empty shortcuts, aliases, key sequences, custom fonts, selection, disabled commands, narrow widths, themes, and DPI scales.
+
+The settings opening check measures the first opening and seven repeated openings with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-open-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-open.out" -RedirectStandardError "settings-open.err"
+Get-Content "settings-open.out"
+Get-Content "settings-open.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings opening smoke failed." }
+```
+
+Run this check without concurrent desktop tests or a debugger.
+The popup must be visible, arranged, and ready for native input before each sample completes.
+The check reports handler time and handler time plus pending native painting.
+The handler budget is 250 ms for the warm median and 500 ms for the first opening and maximum.
+With native painting, these budgets are 350 ms and 650 ms.
+The General page must add fewer than 180 native child windows.
+The check also covers draft retention, deferred page inputs, global search, dismissal cleanup, and reopening after all pages were visited.
+These measurements exclude compositor presentation latency.
+The native deferred-reveal check covers ownership, typography, focus, undo state, hidden content replacement, and popup cleanup:
+
+```powershell
+& ".\$build\Release\xui_reveal_window_tests.exe" --deferred-only
+if ($LASTEXITCODE -ne 0) { throw "Deferred reveal check failed." }
+```
+
+The settings scroll check measures global search across all settings pages with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-scroll-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-scroll.out" -RedirectStandardError "settings-scroll.err"
+Get-Content "settings-scroll.out"
+Get-Content "settings-scroll.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings scroll smoke failed." }
+```
+
+Run this check without a debugger or concurrent performance tests.
+Use normal line-based Windows wheel scrolling.
+The check uses isolated state, eight warmup messages, and forty measured wheel messages.
+It requires actual movement and checks round-trip geometry, native editor identity, focus, unsaved drafts, search, and a subsequent settings update.
+The wheel-handler budgets are 16 ms median and 32 ms p95.
+The combined wheel-handler and native-paint budgets are 32 ms median and 64 ms p95.
+The combined measurement flushes pending paint messages before each sample ends.
+Neither measurement includes compositor presentation latency or measures display frame rate.
+The output also includes the row count and the native child-window count for the entire Explorer window.
+
+The context-action check opens the search popup against real Shell metadata.
+It covers the native editor, captured paths, canonical favorites, hidden app actions, and stale selection cancellation.
+It does not run real Shell commands.
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--context-actions-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer context actions smoke failed." }
+```
+
+`xui_shell_menu_tests` separately checks command invocation with a fixture COM provider.
+Its snapshot checks cover canonical verbs, original command IDs, cancellation, and stale handle rejection.
+
+The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes.
+It also checks date preferences after declarative metadata becomes visible and after preferences change:
 
 ```powershell
 $process = Start-Process -FilePath $exe -ArgumentList "--preview-smoke" -PassThru -Wait

@@ -8,7 +8,7 @@
 
 namespace xui {
 
-enum class ThemeMode { dark, light, high_contrast };
+enum class ThemeMode { dark, light, high_contrast, system };
 enum class VisualStyle { classic, winui };
 enum class ButtonAppearance { standard, accent, subtle };
 

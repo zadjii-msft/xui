@@ -1631,7 +1631,7 @@ xui_status XUI_CALL xui_window_create_features(const xui_window_options* options
     return boundary([&] {
         require(out != nullptr, XUI_INVALID_ARGUMENT, "Missing window output."); *out = 0;
         require(options && options->size == sizeof(*options) && options->version == XUI_ABI_VERSION, XUI_VERSION_MISMATCH, "Window options version mismatch.");
-        require(custom_titlebar <= 1 && !options->reserved && options->theme <= 2 && std::isfinite(options->width) &&
+        require(custom_titlebar <= 1 && !options->reserved && options->theme <= 3 && std::isfinite(options->width) &&
             std::isfinite(options->height) && options->width > 0 && options->height > 0 && options->width <= 32768 && options->height <= 32768,
             XUI_INVALID_ARGUMENT, "Invalid window options.");
         auto state = std::make_shared<State>();

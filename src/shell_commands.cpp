@@ -243,6 +243,9 @@ public:
         thread();
         if (key.version != epoch_ || key.id > 0x7fff || !verbs_.contains(static_cast<UINT>(key.id)))
             throw std::invalid_argument("Stale Shell command");
+        std::size_t count{};
+        if (!enabled_command(menu_, static_cast<UINT>(key.id), 0, count).value_or(tracking_))
+            throw std::logic_error("Shell command is no longer enabled");
         CMINVOKECOMMANDINFOEX info{sizeof(info)};
         info.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE; info.hwnd = owner_;
         info.lpVerb = MAKEINTRESOURCEA(key.id - 1); info.lpVerbW = MAKEINTRESOURCEW(key.id - 1);
@@ -338,6 +341,7 @@ struct AsyncShellMenu::State {
     std::mutex mutex;
     HWND owner{};
     bool started{}, prefetch{};
+    bool canonical_verbs{};
     enum class Action { none, invoke, windows } action{};
     ItemKey key{};
     Point point{};
@@ -404,7 +408,7 @@ class ShellWorker {
             provider = create(state);
             if (!state->stop.stop_requested()) {
                 std::vector<ShellCommandInfo> commands;
-                if (auto native = std::dynamic_pointer_cast<NativeShellProvider>(provider))
+                if (auto native = std::dynamic_pointer_cast<NativeShellProvider>(provider); native && !state->canonical_verbs)
                     commands = native->gallery_commands(state->stop.get_token());
                 else commands = provider->discover(state->stop.get_token());
                 if (!state->prefetch) state->commands = std::move(commands);
@@ -424,7 +428,25 @@ class ShellWorker {
                         [&](const auto& item) { return item.key == state->key; });
                     if (found == state->commands.end() || !found->enabled || found->separator ||
                         found->native_only || !found->children.empty()) throw std::logic_error("Shell command is not invocable");
-                    if (state->current()) provider->invoke(state->key);
+                    auto key = state->key;
+                    const auto same_verb = [&](const ShellCommandInfo& item) {
+                        return !item.separator && !item.native_only && item.children.empty() &&
+                            CompareStringOrdinal(item.verb.c_str(), -1, found->verb.c_str(), -1, TRUE) == CSTR_EQUAL;
+                    };
+                    if (state->canonical_verbs && !found->verb.empty() &&
+                        std::count_if(state->commands.begin(), state->commands.end(), same_verb) == 1) {
+                        if (!state->current()) return;
+                        auto fresh = create(state);
+                        const auto commands = fresh->discover(state->stop.get_token());
+                        if (state->stop.stop_requested()) return;
+                        if (std::count_if(commands.begin(), commands.end(), same_verb) != 1)
+                            throw std::logic_error("The Shell canonical action is no longer uniquely available");
+                        const auto resolved = std::find_if(commands.begin(), commands.end(), same_verb);
+                        if (!resolved->enabled) throw std::logic_error("The Shell canonical action is no longer enabled");
+                        key = resolved->key;
+                        provider = std::move(fresh);
+                    }
+                    if (state->current()) provider->invoke(key);
                 } else {
                     if (!provider) provider = create(state);
                     if (state->current())
@@ -537,10 +559,10 @@ std::shared_ptr<AsyncShellMenu> AsyncShellMenu::prefetch(HWND owner, std::wstrin
     request->begin();
     return request;
 }
-std::shared_ptr<AsyncShellMenu> AsyncShellMenu::prepare(HWND owner, std::vector<std::wstring> paths) {
+std::shared_ptr<AsyncShellMenu> AsyncShellMenu::prepare(HWND owner, std::vector<std::wstring> paths, bool canonical_verbs) {
     win32_require(shell_validation_message() != 0, "Register Shell selection validation");
     auto state = std::make_shared<State>();
-    state->parent = owner; state->paths = std::move(paths);
+    state->parent = owner; state->paths = std::move(paths); state->canonical_verbs = canonical_verbs;
     return std::shared_ptr<AsyncShellMenu>(new AsyncShellMenu(std::move(state)));
 }
 void AsyncShellMenu::begin() {

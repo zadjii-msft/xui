@@ -1,7 +1,10 @@
 #include "xui/application.hpp"
 #include "../src/drawing.hpp"
 #include "../src/list_peer.hpp"
+#include "../src/control_accessibility.hpp"
+#include "native_focus_diagnostics.hpp"
 #include <windows.h>
+#include <commctrl.h>
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <atomic>
@@ -10,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <algorithm>
 
 using namespace xui;
 using Microsoft::WRL::ComPtr;
@@ -79,6 +83,228 @@ void pump() {
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+}
+class MeasuredStack final : public Stack {
+public:
+    MeasuredStack() : Stack(Axis::vertical) {}
+    Size measure(Size available) override {
+        ++measurements;
+        return Stack::measure(available);
+    }
+    unsigned measurements{};
+};
+struct NativeMoveCounter {
+    explicit NativeMoveCounter(HWND value) : window(value) {
+        require(SetWindowSubclass(window, procedure, 91, reinterpret_cast<DWORD_PTR>(this)) != FALSE, "Observe owned editor placement");
+    }
+    ~NativeMoveCounter() { RemoveWindowSubclass(window, procedure, 91); }
+    static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR data) {
+        if (message == WM_WINDOWPOSCHANGING) ++reinterpret_cast<NativeMoveCounter*>(data)->moves;
+        return DefSubclassProc(hwnd, message, wparam, lparam);
+    }
+    HWND window;
+    unsigned moves{};
+};
+void retained_scroll_window() {
+    native_focus_diagnostics::Trace trace("Retained settings scroll");
+    WindowOptions options;
+    options.title = L"XUI retained scroll tests";
+    options.size = {1000, 650};
+    options.show_activated = false;
+    options.visual_style = VisualStyle::winui;
+    Window window(options);
+    auto root = std::make_shared<MeasuredStack>();
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    std::shared_ptr<TextInput> draft;
+    std::shared_ptr<Button> anchor;
+    for (unsigned i = 0; i < 138; ++i) {
+        auto row = std::make_shared<Stack>(Axis::horizontal);
+        row->set_spacing(4);
+        for (unsigned j = 0; j < 4; ++j)
+            row->add(std::make_shared<Label>(L"Setting"));
+        for (unsigned j = 0; j < 4; ++j) {
+            auto button = std::make_shared<Button>(L"Action");
+            if (!anchor) anchor = button;
+            row->add(button);
+        }
+        row->add(std::make_shared<Toggle>(L"Enabled"));
+        auto input = std::make_shared<TextInput>(L"Draft " + std::to_wstring(i));
+        input->set_text(L"Uncommitted draft");
+        if (!draft) draft = input;
+        row->add(input, 1);
+        content->add(row);
+    }
+    auto nested_content = std::make_shared<Stack>(Axis::vertical);
+    for (unsigned i = 0; i < 8; ++i)
+        nested_content->add(std::make_shared<Button>(L"Nested action"));
+    auto nested_scroll = std::make_shared<ScrollView>(nested_content, L"Nested retained settings");
+    nested_scroll->set_preferred_size({300, 120});
+    content->add(nested_scroll);
+    auto host = std::make_shared<ContentHost>(content);
+    auto scroll = std::make_shared<ScrollView>(host, L"Retained settings");
+    root->add(scroll, 1);
+    window.set_content(root);
+    bool completed{};
+    window.post([&] {
+        const auto hwnd = FindWindowW(L"Xui.Window.1", options.title.c_str());
+        const auto native = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Retained settings");
+        const auto native_content = FindWindowExW(native, nullptr, L"Xui.ScrollContent.1", nullptr);
+        const auto edit = FindWindowExW(native_content, nullptr, L"EDIT", nullptr);
+        require(hwnd && native && edit, "Retained scroll native tree exists");
+        unsigned windows{};
+        EnumChildWindows(
+            hwnd,
+            [](HWND, LPARAM data) -> BOOL {
+                ++*reinterpret_cast<unsigned*>(data);
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&windows));
+        require(windows >= 1500, "Performance fixture retains more than 1500 native windows");
+        const auto flush = [&] { SendMessageW(hwnd, WM_APP + 12, 0, 0); };
+        SendMessageW(edit, EM_SETSEL, 0, -1);
+        SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"Edited retained draft"));
+        require(draft->text() == L"Edited retained draft", "Translated layer forwards native editor notifications");
+        flush();
+        SendMessageW(edit, EM_SETSEL, 2, 9);
+        const auto selection = SendMessageW(edit, EM_GETSEL, 0, 0);
+        const auto focus = GetFocus();
+        const auto measurements = root->measurements;
+        const auto first_y = anchor->bounds().y;
+        NativeMoveCounter editor_moves(edit);
+        std::vector<double> timings;
+        std::vector<double> painted_timings;
+        for (unsigned i = 0; i < 40; ++i) {
+            const auto start = std::chrono::steady_clock::now();
+            SendMessageW(native, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA)), 0);
+            timings.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            require(RedrawWindow(hwnd, nullptr, nullptr, RDW_UPDATENOW | RDW_ALLCHILDREN), "Present retained scroll pixels synchronously");
+            painted_timings.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+            flush();
+        }
+        require(root->measurements == measurements, "Offset-only scroll never measures the root");
+        require(editor_moves.moves == 0, "Offset-only scrolling moves the content layer, not native editors");
+        require(scroll->offset() > 0 && anchor->bounds().y == first_y - scroll->offset(),
+                "Offset-only scroll updates retained hit-test geometry");
+        require(GetFocus() == focus && SendMessageW(edit, EM_GETSEL, 0, 0) == selection, "Scrolling preserves native focus and selection");
+        wchar_t text[80]{};
+        GetWindowTextW(edit, text, 80);
+        require(std::wstring_view(text) == draft->text(), "Scrolling preserves the native draft");
+        std::sort(timings.begin(), timings.end());
+        std::sort(painted_timings.begin(), painted_timings.end());
+        std::cout << "retained_scroll hwnds=" << windows << " median_ms=" << timings[20] << " p95_ms=" << timings[38]
+                  << " painted_median_ms=" << painted_timings[20] << " painted_p95_ms=" << painted_timings[38]
+                  << " root_measures=" << root->measurements - measurements << '\n';
+        require(timings[38] < 16, "Retained wheel p95 stays below one frame");
+        pump();
+        trace.verify_passive();
+        auto state = std::make_shared<ControlAccessibility>();
+        publish_control(state, nullptr, *scroll, native);
+        ComPtr<IRawElementProviderSimple> provider;
+        provider.Attach(create_control_provider(state));
+        ComPtr<IScrollProvider> scroller;
+        check(provider.As(&scroller), "Get retained scroll provider");
+        check(scroller->SetScrollPercent(-1, 0), "Scroll retained content to the top through its provider");
+        const auto top_clip = clipped_bounds(edit);
+        require(scroll->offset() == 0 && !IsRectEmpty(&top_clip), "Provider scroll reveals native input");
+        check(scroller->SetScrollPercent(-1, 100), "Scroll retained content to the end through its provider");
+        const auto first_clip = clipped_bounds(edit);
+        require(scroll->offset() == scroll->maximum_offset() && IsRectEmpty(&first_clip),
+                "Provider scroll clips native input without retiring it");
+        HWND last_edit = edit;
+        while (const auto next = FindWindowExW(native_content, last_edit, L"EDIT", nullptr))
+            last_edit = next;
+        const auto last_clip = clipped_bounds(last_edit), view_clip = clipped_bounds(native);
+        require(!IsRectEmpty(&last_clip) && last_clip.top >= view_clip.top && last_clip.bottom <= view_clip.bottom,
+                "Native accessibility bounds follow the translated layer");
+        require(GetFocus() == focus && SendMessageW(edit, EM_GETSEL, 0, 0) == selection,
+                "UIA scrolling preserves native focus and selection");
+        const auto nested_native = FindWindowExW(native_content, nullptr, L"Xui.Control.1", L"Nested retained settings");
+        require(nested_native != nullptr, "Nested scroll retains its native viewport");
+        const auto before_nested = root->measurements;
+        nested_scroll->set_offset(16);
+        flush();
+        require(root->measurements == before_nested && nested_scroll->offset() == 16, "Nested offsets also avoid root measurement");
+        const auto nested_layer = FindWindowExW(nested_native, nullptr, L"Xui.ScrollContent.1", nullptr);
+        RECT nested_rect{};
+        require(GetWindowRect(nested_layer, &nested_rect), "Read nested native content geometry");
+        MapWindowPoints(nullptr, nested_native, reinterpret_cast<POINT*>(&nested_rect), 2);
+        require(nested_rect.top == -MulDiv(16, GetDpiForWindow(hwnd), 96), "Nested native translation matches the retained offset");
+        draft->set_text(L"Updated during scrolling");
+        scroll->scroll_by(-16);
+        flush();
+        GetWindowTextW(edit, text, 80);
+        require(std::wstring_view(text) == draft->text(), "Mixed text and offset invalidations synchronize the native editor");
+        SendMessageW(edit, WM_IME_STARTCOMPOSITION, 0, 0);
+        flush();
+        scroll->scroll_by(-16);
+        flush();
+        bool composing{};
+        try { draft->set_selection({0, 0}); }
+        catch (const std::logic_error&) { composing = true; }
+        require(composing && GetFocus() == focus, "Scrolling retains native composition and does not transfer focus");
+        SendMessageW(edit, WM_IME_ENDCOMPOSITION, 0, 0);
+        flush();
+        GetWindowTextW(edit, text, 80);
+        require(std::wstring_view(text) == draft->text(), "Native composition completion crosses the content layer");
+        content->set_spacing(7);
+        SendMessageW(native, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA)), 0);
+        require(root->measurements > measurements, "Pending content changes force full layout before scrolling");
+        scroll->set_offset(0);
+        flush();
+        auto popup_rows = std::make_shared<Stack>(Axis::vertical);
+        for (unsigned i = 0; i < 30; ++i) popup_rows->add(std::make_shared<Button>(L"Popup setting"));
+        auto popup_scroll = std::make_shared<ScrollView>(popup_rows, L"Popup retained settings");
+        popup_scroll->set_preferred_size({300, 180});
+        auto stationary_popup = std::make_shared<Popup>(popup_scroll);
+        window.show_popup(stationary_popup, *anchor);
+        flush();
+        const auto before_popup_scroll = root->measurements;
+        const auto popup_bounds = stationary_popup->bounds();
+        popup_scroll->set_offset(48);
+        flush();
+        require(root->measurements == before_popup_scroll && popup_scroll->offset() == 48,
+                "Scrolling inside a stationary popup avoids root measurement");
+        require(stationary_popup->bounds().x == popup_bounds.x && stationary_popup->bounds().y == popup_bounds.y &&
+                stationary_popup->is_open(), "Scrolling popup content preserves popup placement and lifetime");
+        require(RedrawWindow(hwnd, nullptr, nullptr, RDW_UPDATENOW | RDW_ALLCHILDREN), "Present scrolled popup pixels synchronously");
+        window.dismiss_popup(*stationary_popup);
+        flush();
+        auto popup = std::make_shared<Popup>(std::make_shared<Button>(L"Popup child"));
+        window.show_popup(popup, *anchor);
+        scroll->set_offset(scroll->maximum_offset());
+        flush();
+        require(!popup->is_open(), "Scrolling an anchor offscreen dismisses its popup");
+        flush();
+        RECT suggested{};
+        require(GetWindowRect(hwnd, &suggested), "Read owned DPI fixture bounds");
+        const auto before_dpi = root->measurements;
+        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(120, 120), reinterpret_cast<LPARAM>(&suggested));
+        flush();
+        scroll->set_offset(32);
+        flush();
+        RECT translated{};
+        require(GetWindowRect(native_content, &translated), "Read DPI-scaled native content geometry");
+        MapWindowPoints(nullptr, native, reinterpret_cast<POINT*>(&translated), 2);
+        require(root->measurements > before_dpi && translated.top == -40,
+                "DPI changes invalidate placement caches before offset-only scrolling resumes");
+        auto replacement = std::make_shared<Label>(L"Replacement");
+        replacement->set_preferred_size({300, 1200});
+        window.replace_content(*host, replacement);
+        flush();
+        require(!IsWindow(edit), "ContentHost replacement retires old native editors");
+        const auto replaced_measures = root->measurements;
+        scroll->set_offset(100);
+        flush();
+        require(root->measurements == replaced_measures && replacement->bounds().y == scroll->viewport().y - 100,
+                "Replacement content participates in offset-only placement");
+        trace.verify_passive();
+        completed = true;
+        window.close();
+    });
+    const auto result = Application::run(window);
+    if (result != 0) std::wcerr << window.error() << '\n';
+    require(result == 0 && completed, "Retained scroll fixture completes");
+    trace.verify_passive();
 }
 // A screen reader keeps its COM apartment alive across window changes.
 class AutomationRunner {
@@ -229,8 +455,9 @@ void scroll_window(int cycle, AutomationRunner& runner) {
             // STATIC labels and EDIT controls share names. Resolve the native EDIT by HWND.
             const auto scroll_hwnd = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Form viewport");
             require(scroll_hwnd != nullptr, "Viewport owns an input HWND");
-            const auto top_hwnd = FindWindowExW(scroll_hwnd, nullptr, L"EDIT", nullptr);
-            const auto bottom_hwnd = FindWindowExW(scroll_hwnd, top_hwnd, L"EDIT", nullptr);
+            const auto scroll_content = FindWindowExW(scroll_hwnd, nullptr, L"Xui.ScrollContent.1", nullptr);
+            const auto top_hwnd = FindWindowExW(scroll_content, nullptr, L"EDIT", nullptr);
+            const auto bottom_hwnd = FindWindowExW(scroll_content, top_hwnd, L"EDIT", nullptr);
             require(top_hwnd && bottom_hwnd, "Native inputs belong to their viewport");
             top_edit.Reset();
             bottom_edit.Reset();
@@ -272,7 +499,7 @@ void scroll_window(int cycle, AutomationRunner& runner) {
             const auto list_bounds = bounds(list_element.Get());
             require(list_bounds.top >= view_bounds.top && list_bounds.bottom <= view_bounds.bottom,
                 "Embedded FileList bounds respect the outer viewport");
-            const auto list_hwnd = FindWindowExW(scroll_hwnd, nullptr, L"Xui.FileList.1", nullptr);
+            const auto list_hwnd = FindWindowExW(scroll_content, nullptr, L"Xui.FileList.1", nullptr);
             require(list_hwnd != nullptr, "Embedded FileList retains one HWND");
             const auto previous_paints = metric(0);
             SendMessageW(list_hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(20, 15));
@@ -351,8 +578,8 @@ void scroll_window(int cycle, AutomationRunner& runner) {
                 const auto visible = bounds(last_element.Get());
                 require(visible.top >= clip.top && visible.bottom <= clip.bottom, "DPI-scaled UIA clipping");
                 if (dpi == 120) {
-                    const auto first_caption = FindWindowExW(scroll_hwnd, nullptr, L"STATIC", nullptr);
-                    const auto bottom_caption = FindWindowExW(scroll_hwnd, first_caption, L"STATIC", nullptr);
+                    const auto first_caption = FindWindowExW(scroll_content, nullptr, L"STATIC", nullptr);
+                    const auto bottom_caption = FindWindowExW(scroll_content, first_caption, L"STATIC", nullptr);
                     require(bottom_caption != nullptr, "Find native caption in contrast mode");
                     RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
                     RECT caption_bounds{};
@@ -394,11 +621,13 @@ void scroll_window(int cycle, AutomationRunner& runner) {
     require(Drawing::live_targets() == 0, "Scroll destruction releases the shared target");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     const auto initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(initialized)) return 1;
     struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
     try {
+        retained_scroll_window();
+        if (argc > 1 && std::string_view(argv[1]) == "--retained-only") return 0;
         AutomationRunner runner;
         DWORD gdi{}, user{};
         for (int cycle = 0; cycle < 8; ++cycle) {

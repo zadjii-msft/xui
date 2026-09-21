@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Preview }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll, SettingsOpen, Preview }
 
 internal static class ExplorerSmoke
 {
@@ -75,7 +75,7 @@ internal static class ExplorerSmoke
         commands.Clear();
         for (int i = 0; i < 3; i++)
             if (rows.Count != 1 || rows.Find(rows.Key(0)) != 0 ||
-                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true) ||
+                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true, Icon: command.Icon) ||
                 evaluations != 1 || executions != 0)
                 throw new InvalidOperationException("Command source callbacks must read only the captured row snapshot.");
         var refreshed = new CommandRows([command]);
@@ -112,6 +112,34 @@ internal static class ExplorerSmoke
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
                 await Check(() => app.PrefetchShellMenus ? app.ShellMenuPrefetchRequests > 0 : app.ShellMenuPrefetchRequests == 0,
                     "Navigation requests Shell prefetch only when the experiment is enabled");
+                if (mode == ExplorerSmokeMode.ContextActions)
+                {
+                    await ContextActionsSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer context actions smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsOpen)
+                {
+                    await SettingsOpenSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings opening smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsScroll)
+                {
+                    await SettingsScrollSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings scroll smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.Customization)
+                {
+                    await ExplorerCustomizationSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer customization smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.Preview)
                 {
                     await PreviewChecks();
@@ -534,7 +562,8 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     var emptyMenu = app.Left.ContextMenu.GetCommands();
-                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste }.Order())
+                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste,
+                        ContextActionsController.SearchCommand, ContextActionsController.CustomizeCommand }.Order())
                         || app.Left.ContextMenu.GetShellPaths().Length != 0)
                         throw new InvalidOperationException("Empty-area menus must not target an old selection.");
                     app.Left.SelectPath(Path.Combine(fixture, "small.txt"));
@@ -1580,6 +1609,20 @@ internal static class ExplorerSmoke
                     }
                     if (name is "folder" or "unsupported.pdf")
                     {
+                        await Ui(() =>
+                        {
+                            var preview = app.Preview.Current!;
+                            var original = app.State.Customization.Clone();
+                            if (preview.MetadataModified != $"Date Modified: {ExplorerPresentation.FormatDate(preview.Target.ModifiedUtc, original.DateFormat)}")
+                                throw new InvalidOperationException("Metadata visibility must retain the configured date format.");
+                            var changed = original.Clone();
+                            changed.DateFormat = "yyyy/MM/dd";
+                            app.SetCustomization(changed);
+                            if (preview.MetadataModified != $"Date Modified: {ExplorerPresentation.FormatDate(preview.Target.ModifiedUtc, changed.DateFormat)}"
+                                || preview.MetadataName != name)
+                                throw new InvalidOperationException("Declarative metadata must refresh the date preference without losing its target.");
+                            app.SetCustomization(original);
+                        });
                         await Check(() => app.Preview.MetadataIcon.GetBounds().Width == 160
                             && app.Preview.MetadataIcon.GetBounds().Height == 160
                             && app.Preview.MetadataNameBounds.X >= app.Preview.MetadataIcon.GetBounds().X + 192,

@@ -5,6 +5,31 @@ See the [reference index](README.md) for related APIs.
 Examples in this reference use C++ unless stated otherwise.
 For C# and Rust coverage, use the [binding reference](bindings.md).
 
+## Searchable Shell snapshots in C#
+
+`ShellActionSession` exposes real Windows Shell leaves for an application-authored search interface.
+Its constructor copies one selection of 1–256 paths.
+The paths must have the same parent.
+`Read()` returns labels, enabled state, canonical verbs, and session-scoped `ItemKey` values.
+The shared Shell STA owns the extension objects and their native menus.
+No COM objects cross into the application UI thread.
+
+`Invoke()` resolves a unique canonical verb against a fresh menu for the captured paths.
+It rejects missing, ambiguous, or disabled matches.
+The provider runs the fresh menu's original command identity, not a command label or a reconstructed command line.
+Entries without a unique canonical verb retain their session-scoped identity.
+The application supplies a current-selection callback.
+The native worker calls that callback on the UI thread before an action.
+The provider also checks the current enabled state.
+`Dispose()` cancels without a wait for the Shell extension.
+Window closure also cancels the session.
+
+Only a nonempty, unique canonical verb can identify a saved favorite.
+The numeric command ID and version apply only to the current session.
+Dynamic submenus, owner-drawn commands, and unlabeled entries remain in `ShowWindowsMenu()`.
+Discovery and action errors remain explicit.
+The C ABI equivalent is in `xui_shell_actions.h`.
+
 ## Shared context menus
 
 Every `Control::on_context_menu` callback uses the same Windows menu backend.

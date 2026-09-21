@@ -10,6 +10,39 @@ Rust has no typed wrapper. The host does not implement terminal input or termina
 
 ## Feature bindings (1.1 extension)
 
+### Window presentation
+
+C# `Window.SetPresentation(fontFamily, fontSize, smoothScrolling, animations)` applies typography to current and future controls in that window.
+The font family accepts up to 128 UTF-16 units. The font size accepts 8–32 DIPs.
+This explicit window policy replaces the local font family and font size on supported style parts.
+`Element.SetPresentationFontSize(size)` overrides the window font size for a control, including its text parts.
+The size accepts 8–32 DIPs. Pass `null` to restore the window font size.
+The C equivalent is `xui_control_presentation_font_size`, where zero restores the window font size.
+`Element.SetPresentationFontFamily(family)` preserves a control-specific family when the window policy changes.
+Pass `null` to restore the window family.
+The C equivalent is `xui_control_presentation_font_family`, where an empty span restores the window family.
+Native text inputs keep their native editing behavior.
+
+`Theme.System` follows the Windows application theme, including later theme changes.
+`Theme.Light` and `Theme.Dark` select explicit themes.
+Windows high contrast takes precedence over these themes and custom colors.
+Windows reduced motion and high contrast disable smooth scrolling and decorative animations.
+
+`Control.SetPresentation(singleClick, thumbnailFill)` applies to virtual collections, data grids, and images.
+Single-click activation changes pointer input only. Ctrl and Shift retain their selection behavior.
+For grids with file dragging, release activates only the pressed item from the original source.
+A source or focused-item change cancels that pending activation.
+Thumbnail fill crops the image to its bounds without a change to its aspect ratio.
+Fit remains the default.
+Smooth scrolling applies to vertical wheel input in virtual collections and data grids.
+Keyboard scrolling and horizontal scrolling remain immediate.
+
+The C ABI supplies `xui_window_set_presentation` and `xui_control_set_presentation` in `xui.h`.
+Theme value `3` selects the system theme.
+These additive APIs require a matching native runtime. Rust has no typed presentation wrapper.
+
+### Experimental Shell warmup
+
 `Window.PrefetchShellCommands(path)` exposes [experimental Shell warmup](menus-and-input.md#experimental-shell-warmup) in C#.
 The C ABI and Rust FFI expose `xui_shell_prefetch(window, path)`. Rust has no typed wrapper.
 The operation requires an open window and retains no menu commands.

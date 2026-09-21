@@ -167,6 +167,25 @@ Those checks require a desktop interaction with FileExplorer.
 
 ## Performance design
 
+### Retained scrolling
+
+`ScrollView::set_offset` requests `Invalidation::scroll` instead of a full layout.
+`Window::Impl::update` translates an internal `Xui.ScrollContent.1` HWND when only the offset changes.
+The logical bounds change with the native geometry, but individual editor HWNDs do not move within that layer.
+This preserves native selection, composition, drafts, and editor identity.
+Native child enumeration must account for this internal layer rather than assume that editors are direct children of the viewport.
+
+The offset-only path avoids repeated tree collection, typography updates, and root measurement.
+Indexed peer lookup replaces repeated linear searches.
+Mixed mutations and active animations retain the full update path.
+Stationary popups do not force root layout during scrolling.
+Clipped controls skip drawing and native pixel capture.
+Native controls without popup overlap skip occlusion-region allocation.
+
+Wheel dispatch still completes the update synchronously, and the Windows wheel-distance setting stays unchanged.
+`tests\scroll_tests.cpp --retained-only` covers the native path.
+The FileExplorer `--settings-scroll-smoke` check measures both dispatch and pending paint work with the complete inline settings editor.
+
 ### Layout and frame hot paths
 
 `Window::Impl::update` collects the retained tree and synchronizes peers.
@@ -255,6 +274,13 @@ The focus and visibility paths permit zero-extent opening clips without changing
 
 Reveal uses the existing `content_view` role and retained-child traversal.
 Its native parent supplies clipping for the editor and button.
+`collect` defers native children of closed, settled reveals.
+`claim_deferred_tree` still claims their retained models and applies window typography.
+The deferred tree uses the same supported-control validation as replacement content.
+Opening a reveal collects its children before layout and native focus.
+Existing peers remain during reveal closure, so native selection and undo state survive reopening.
+Replacement of a hidden ContentHost bypasses deferral for its containing reveal.
+Popup dismissal still prunes its peers and releases claims. This path does not cache closed popups.
 The closing target disables interaction before the exit ends.
 SplitView also rejects interaction in its outgoing secondary ContentView.
 Its secondary content retains the complete target width and moves inside the split viewport.

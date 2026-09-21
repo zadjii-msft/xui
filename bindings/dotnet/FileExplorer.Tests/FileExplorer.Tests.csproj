@@ -8,6 +8,7 @@
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\FileExplorer\ContextActionCatalog.cs" Link="ContextActionCatalog.cs" />
     <Compile Include="..\FileExplorer\Models\**\*.cs" Link="Models\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

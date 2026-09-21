@@ -28,13 +28,23 @@ internal sealed class PreviewController(Application application, bool smoke) : I
         {
             ++OpenCount;
             LastOpenedPath = selected.FullPath;
-        });
+        }, target.PresentationSettings);
         sessions.Add(session);
         Current = session;
-        session.Window.Closed += _ => sessions.Remove(session);
+        void ApplyPresentation() => session.ApplyCustomization(target.PresentationSettings);
+        target.PresentationChanged += ApplyPresentation;
+        session.Window.Closed += _ =>
+        {
+            target.PresentationChanged -= ApplyPresentation;
+            sessions.Remove(session);
+        };
         session.Show();
     }
     public void Dismiss() => Current?.Dismiss();
+    internal void ApplyCustomization(ExplorerCustomization settings)
+    {
+        foreach (var session in sessions) session.ApplyCustomization(settings);
+    }
     internal void Open() => Current?.Open();
     internal void CloseAll()
     {

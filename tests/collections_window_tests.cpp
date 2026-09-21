@@ -26,15 +26,16 @@ HWND native(HWND root, const wchar_t* name) {
     }, reinterpret_cast<LPARAM>(&search));
     require(search.result != nullptr, "Owned native peer exists"); return search.result;
 }
-void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode theme, UINT dpi) {
+void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode theme, UINT dpi, bool styled = false) {
     struct Commands final : ItemsSource {
+        std::wstring shortcut = L"Ctrl+T";
         std::size_t size() const override { return 3; }
         ItemKey key(std::size_t row) const override { return {row + 1, 1}; }
         std::optional<std::size_t> find(ItemKey key) const override {
             return key.version == 1 && key.id && key.id <= size() ? std::optional{std::size_t(key.id - 1)} : std::nullopt;
         }
         ItemContent item(std::size_t row) const override {
-            if (row == 0) return {L"New tab", L"Ctrl+T"};
+            if (row == 0) return {L"New tab", shortcut};
             if (row == 1) {
                 ItemContent item{L"Previous tab", L"Ctrl+Shift+Tab"}; item.enabled = false; return item;
             }
@@ -42,6 +43,12 @@ void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode th
         }
     };
     auto items = std::make_shared<ItemsView>(L"Shortcut rows");
+    if (styled) {
+        PartStyleValues typography;
+        typography.font_family = make_style_font_family("Segoe UI");
+        typography.font_size = 12;
+        items->set_control_style_values(StylePart::root, typography);
+    }
     items->set_items(std::make_shared<Commands>());
     items->set_item_size({180, 56});
     require(!items->trailing_shortcut_badges(), "Ordinary items retain subtitle presentation by default");
@@ -124,6 +131,10 @@ void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode th
     require(ink_in({b.x + 10, b.y + 56 + 14, 110, 28}, color(palette.background)), "Disabled commands retain a readable title");
     const auto second = right - t_width;
     require(sample(b.x + second + 2, b.y + 28) == color(palette.field), "Each shortcut key has a separate filled keycap");
+    require(sample(b.x + second - 2, b.y + 28) == color(palette.background),
+        "Modifier and key have a visible gap rather than one full-width rectangle");
+    require(!ink_in({b.x + first + 2, b.y + 4, ctrl_width - 4, 9}, color(palette.background)),
+        "Keycaps stay compact and vertically centered");
     require(ink_in({b.x + right - 1, b.y + 20, 2, 16}, color(palette.background))
         && ink_in({b.x + right - 1, b.y + 56 + 20, 2, 16}, color(palette.background)),
         "Short and long shortcut groups share the same right edge");
@@ -138,6 +149,76 @@ void palette_appearance(Window& window, HWND hwnd, Control& anchor, ThemeMode th
     items->set_selection({}); flush(hwnd);
     require(ink_in({b.x + 10, b.y + 30, 90, 22}, color(palette.background)), "Disabling keycaps restores ordinary secondary text");
     items->set_trailing_shortcut_badges(true);
+    if (styled) {
+        for (float font_size : {12.0f, 18.0f, 32.0f}) {
+            PartStyleValues font;
+            font.font_size = font_size;
+            font.font_family = make_style_font_family("Consolas");
+            items->set_control_style_values(StylePart::shortcut, font);
+            std::vector<std::vector<std::wstring>> cases{
+                {L"Ctrl", L"W", L";", L"Ctrl", L"F4"},
+                {L"Ctrl", L"K", L",", L"Ctrl", L"T"},
+                {L"Ctrl", L"+"},
+                {L"Ctrl", L"Shift", L"PageDown"}
+            };
+            if (font_size > 12) cases = {{L"Ctrl", L"T"}, {L"Ctrl", L"+"}};
+            for (const auto& tokens : cases) {
+                auto remapped = std::make_shared<Commands>();
+                remapped->shortcut.clear();
+                bool previous_key{};
+                for (const auto& token : tokens) {
+                    const bool key = token != L"," && token != L";";
+                    if (key && previous_key) remapped->shortcut += L'+';
+                    remapped->shortcut += token;
+                    if (!key) remapped->shortcut += L' ';
+                    previous_key = key;
+                }
+                items->set_items(remapped); flush(hwnd);
+                struct Token { float width, height; bool key; };
+                std::vector<Token> measured;
+                float total{};
+                for (const auto& token : tokens) {
+                    const bool key = token != L"," && token != L";";
+                    Size size{};
+                    measure.styled_layout(token, TextStyle::caption, font, size);
+                    const auto width = key ? std::max(24.0f, size.width + 12) : size.width;
+                    measured.push_back({width, std::max(24.0f, size.height + 6), key});
+                    total += width + (measured.size() > 1 ? 4 : 0);
+                }
+                auto bounds = items->bounds();
+                // Pixel checks use the rounded native origin, not fractional retained coordinates.
+                POINT origin{};
+                MapWindowPoints(native(hwnd, L"Shortcut rows"), hwnd, &origin, 1);
+                bounds.x = origin.x * 96.0f / dpi;
+                bounds.y = origin.y * 96.0f / dpi;
+                const auto row_right = bounds.x + items->item_bounds(0).width - 10;
+                float x = row_right - total;
+                require(x > bounds.x + bounds.width / 2, "Remapped shortcuts retain the title lane at custom font sizes");
+                for (const auto& token : measured) {
+                    const float top = bounds.y + (56 - token.height) / 2;
+                    if (token.key) {
+                        require(ink_in({x - 1, top + 7, 3, token.height - 14}, color(palette.background)),
+                            "Every remapped modifier and key has its own outline at the measured font width");
+                        require(sample(x + token.width / 2, top + 2) == color(palette.field),
+                            "Keycap faces grow with customized typography");
+                    } else {
+                        require(ink_in({x, bounds.y + 14, token.width, 32}, color(palette.background)),
+                            "Aliases and sequence separators remain visible");
+                    }
+                    x += token.width + 4;
+                }
+                require(items->source()->item(0).secondary == remapped->shortcut,
+                    "Keycap rendering preserves the full accessible shortcut text");
+            }
+        }
+        items->set_control_style_values(StylePart::shortcut, {});
+        items->set_items(std::make_shared<Commands>());
+        flush(hwnd);
+        wchar_t executable[32768]{}; GetModuleFileNameW(nullptr, executable, 32768);
+        const auto path = std::filesystem::path(executable).parent_path().parent_path() / L"collection-captures";
+        suggestion_capture::bitmap(hwnd, nullptr, path / (L"palette-keycaps-" +
+            std::to_wstring(static_cast<int>(theme)) + L"-" + std::to_wstring(dpi) + L".bmp"));
+    }
     popup->set_preferred_size({180, 280}); flush(hwnd);
     require(frame_color() == color(palette.background) && result_color() == frame_color(),
         "Narrow shortcut rows remain clipped inside the palette");
@@ -707,6 +788,7 @@ void single_click_activation(Window& window, HWND hwnd, ItemsView& items, UINT d
 }
 void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
     Window window({L"XUI collection contracts", {920, 760}, theme});
+    if (palette_only) window.set_show_activated(false);
     auto root = std::make_shared<Stack>(Axis::vertical); root->set_spacing(6); root->set_padding({10, 10, 10, 10});
     auto source = std::make_shared<Items>();
     auto items = std::make_shared<ItemsView>(L"Items"); items->set_automation_id(L"items"); items->set_items(source, source);
@@ -738,6 +820,7 @@ void run(ThemeMode theme, UINT dpi, bool palette_only = false) {
         // PrintWindow also prints native EDIT children; isolate the palette geometry capture.
         overlay_edit->set_visible(false); edit->set_visible(false); flush(hwnd);
         palette_appearance(window, hwnd, *anchor, theme, dpi);
+        palette_appearance(window, hwnd, *anchor, theme, dpi, true);
         overlay_edit->set_visible(true); edit->set_visible(true); flush(hwnd);
     };
     std::atomic<bool> native_done{}, driver_done{}, driver_exited{}; std::wstring driver_error;

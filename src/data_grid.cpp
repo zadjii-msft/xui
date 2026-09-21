@@ -212,6 +212,7 @@ bool DataGrid::reorder_column(std::size_t from, std::size_t to) {
 void DataGrid::set_source(std::shared_ptr<const GridSource> value) {
     if (value && value->size() > INT_MAX) throw std::invalid_argument("Grid supports at most INT_MAX rows");
     if (source_ == value) return;
+    end_file_press(false);
     if (filter_pending_) { filter_stop_.request_stop(); filter_pending_ = false; ++filter_generation_; }
     source_ = std::move(value);
     // Keep the old identity even when filtered out; actions require a visible match.
@@ -223,6 +224,7 @@ bool DataGrid::select(RowKey key, bool reveal) {
 }
 bool DataGrid::select(RowKey key, SelectionGesture gesture, bool reveal) {
     if (!enabled() || !source_ || !source_->find(key)) return false;
+    if (file_press_key_ && file_press_key_ != key) end_file_press(false);
     const auto before = selection_;
     const bool changed = selected_ != key;
     selected_ = key;
@@ -234,6 +236,7 @@ bool DataGrid::select(RowKey key, SelectionGesture gesture, bool reveal) {
     return true;
 }
 void DataGrid::clear_selection() {
+    end_file_press(false);
     if (!selected_ && selection_.empty()) return;
     selected_.reset();
     selection_.clear(); selection_.set_focus({});
@@ -264,6 +267,7 @@ void DataGrid::sort(std::size_t column) {
     if (sort_callback_) { auto callback = sort_callback_; callback(sort_, descending_); }
 }
 void DataGrid::set_selection(CollectionSelection value) {
+    if (file_press_key_ && file_press_key_ != value.focused()) end_file_press(false);
     selection_ = std::move(value); selected_ = selection_.focused(); invalidate(Invalidation::paint);
 }
 void DataGrid::select_all() {

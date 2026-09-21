@@ -355,8 +355,8 @@ internal sealed partial class ExplorerApplication
             remainder = windows.Create(tab.Path);
             remainder.Window.Placement = state.Placement;
             remainder.Window.SetShowActivated(false);
-            remainder.light = light;
-            remainder.Window.SetTheme(light ? Theme.Light : Theme.Dark);
+            remainder.State.Customization = State.Customization.Clone();
+            remainder.ApplyCustomization();
             if (remainder.Sidebar.IsOpen != Sidebar.IsOpen) remainder.Sidebar.Toggle();
             Palettes.Dismiss();
             Left.CancelForTransfer();

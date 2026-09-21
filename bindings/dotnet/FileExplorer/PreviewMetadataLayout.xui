@@ -4,6 +4,7 @@ component PreviewMetadataLayout {
     param global::Xui.Element Icon;
     param global::Xui.FileExplorer.Models.FileEntry Target;
     state bool MetadataVisible = false;
+    state string DateFormat = "g";
 
     style Heading for Label {
         fontSize: 28;
@@ -29,7 +30,7 @@ component PreviewMetadataLayout {
                 Text(Target.IsDirectory ? "Size: Not calculated"
                     : $"Size: {FileRows.FormatSize(Target.Size)} ({Target.Size:N0} bytes)",
                     ref: Size, id: "preview-file-size", style: Detail, visible: MetadataVisible);
-                Text($"Date Modified: {Target.ModifiedUtc.ToLocalTime():g}",
+                Text($"Date Modified: {ExplorerPresentation.FormatDate(Target.ModifiedUtc, DateFormat)}",
                     ref: Modified, id: "preview-file-modified", style: Detail, visible: MetadataVisible);
             }
         }

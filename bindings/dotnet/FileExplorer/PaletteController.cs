@@ -81,7 +81,7 @@ internal sealed class PaletteController
         history.Clear();
         historyIndex = -1;
         SetQuery(WithTrailingSeparator(target.Model.Active.Path), remember: true);
-        Show(target.Address);
+        Show(app.Window.TitlebarLeading);
     }
 
     public void ShowCommands()
@@ -93,7 +93,7 @@ internal sealed class PaletteController
         results.SetTrailingShortcutBadges(true).ItemSize(180, 40);
         editor.SetName("Search commands").SetPlaceholder("Search commands");
         SetQuery("", remember: false);
-        Show(app.Active.Address);
+        Show(app.Window.TitlebarLeading);
     }
 
     private void Show(Control anchor)
@@ -150,8 +150,9 @@ internal sealed class PaletteController
             results.Enabled = true;
             string query = editor.Text.Trim();
             commands = app.Commands.Where(c => c.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || c.Shortcut.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
-            SetSource(new CommandRows(commands));
+                || c.StableId.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || app.ShortcutHint(c).Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+            SetSource(new CommandRows(commands, app.ShortcutHint));
             SelectFirst();
             ShowStatus(commands.Count == 0 ? "No matching commands." : "");
             return;
@@ -266,7 +267,7 @@ internal sealed class PaletteController
             if (selected < 0 || !commands[selected].Enabled) return;
             var command = commands[selected];
             Dismiss();
-            command.Execute();
+            app.ExecuteCommand(command);
             return;
         }
 
