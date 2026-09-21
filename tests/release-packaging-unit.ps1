@@ -15,6 +15,10 @@ param($Version, $NativeRoot, $OutputDirectory)
 Set-Content "$OutputDirectory\xui-sys-$Version.crate" 'Cargo sys fixture'
 Set-Content "$OutputDirectory\xui-$Version.crate" 'Cargo wrapper fixture'
 '@
+Set-Content "$fixture\scripts\Pack-Templates.ps1" @'
+param($Version, $OutputDirectory)
+Set-Content "$OutputDirectory\Xui.Templates.$Version.nupkg" 'Template fixture'
+'@
 function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
@@ -65,7 +69,7 @@ foreach ($rid in 'win-x64', 'win-arm64') {
     Assert (!(Compare-Object @('LICENSE', 'README.md', 'manifest.json', 'Designer.exe', 'coreclr.dll') $files)) 'Designer archive contains unexpected files or another architecture.'
 }
 $checksums = @(Get-Content "$work\assets\SHA256SUMS.txt")
-Assert ($checksums.Count -eq 7) 'Expected a checksum for every asset.'
+Assert ($checksums.Count -eq 8) 'Expected a checksum for every asset.'
 foreach ($asset in Get-XuiReleaseAssetNames '1.2.3') {
     $expected = "$((Get-FileHash "$work\assets\$asset").Hash.ToLowerInvariant())  $asset"
     Assert ($checksums -ccontains $expected) "Missing or incorrect checksum: $asset"

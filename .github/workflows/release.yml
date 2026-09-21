@@ -139,6 +139,7 @@ jobs:
           RELEASE_ARCH: ${{ matrix.arch }}
         run: |
           .\tests\packages.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
+          .\tests\templates.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
           .\tests\release-samples.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets
           .\tests\release-designer.ps1 -Version $env:RELEASE_VERSION -AssetDirectory build\assets -Architecture $env:RELEASE_ARCH
       - name: Check NativeAOT explorer state and models

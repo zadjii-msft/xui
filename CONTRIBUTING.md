@@ -718,6 +718,7 @@ For local builds, select the matching SDK through `PATH` before each architectur
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture ARM64 -StageDirectory build\release-stage
 .\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
+.\tests\templates.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
 .\tests\release-designer.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-workflow.ps1
@@ -735,7 +736,7 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, the release samples, the Designer, the NuGet package, and both Cargo crates.
+It builds both architectures, the release samples, the Designer, both NuGet packages, and both Cargo crates.
 The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
 Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
 No separate .NET installation is necessary.
@@ -770,7 +771,39 @@ git push origin release/0.1.0
 
 Before publication, review the draft assets and generated notes.
 XUI uses the root MIT license.
-The NuGet package, both Cargo crates, and both sample ZIPs include that license.
+Both NuGet packages, both Cargo crates, and all sample and Designer ZIPs include that license.
+
+### Project template package
+
+`templates\xui` contains the application source and `.template.config\template.json`.
+`packaging\Xui.Templates.nuspec` defines the template package.
+`scripts\Pack-Templates.ps1` sets the generated `Xui` reference to the package version in a staging directory.
+It does not edit the tracked template source or require a native build.
+
+```powershell
+.\scripts\Pack-Templates.ps1 -Version 0.1.0 -OutputDirectory build\template-assets
+.\tests\templates.ps1
+```
+
+The standalone test packs, installs, generates, and uninstalls the template in an isolated template directory.
+It checks package contents, version substitution, project names, current-directory generation, and preservation of C# preprocessor directives.
+The test does not change the user's installed templates or package sources.
+The `Project template` workflow runs this test for template changes.
+
+With `-AssetDirectory`, the test also builds generated projects against the matching `Xui` release package.
+These checks cover Debug hot reload, the explicit opt-out, Release output, and publish output.
+The release workflow runs this mode for x64 and ARM64 before draft creation.
+`-FrameworkSource` selects an alternate feed for Microsoft framework packages.
+
+The C# template disables template-engine condition processing with `cnd` directives.
+Without those directives, `dotnet new` removes the `XUI_HOT_RELOAD` branches before compilation.
+Keep those directives in the template source.
+They do not appear in generated applications.
+
+The release assets include `Xui.Templates.<version>.nupkg` and its checksum.
+Registry publication remains a maintainer action.
+Before distribution through a registry, publish the matching `Xui` package to the same configured source.
+The [template guide](docs/specs/packages.md#create-a-project-with-dotnet-new) contains installation and application commands.
 
 ## Tests
 

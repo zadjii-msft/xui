@@ -1,0 +1,16 @@
+namespace XuiApp;
+
+component Counter {
+    state int Count = 0;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text($"Count: {Count}", id: "count");
+            Button("Increment", click: Increment, id: "increment");
+        }
+    }
+
+    code csharp {
+        void Increment() => Count++;
+    }
+}

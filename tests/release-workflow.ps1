@@ -42,7 +42,7 @@ function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 try {
-    $expectedAssets = @('Xui.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate',
+    $expectedAssets = @('Xui.1.2.3.nupkg', 'Xui.Templates.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate',
         'Xui.Samples.1.2.3.win-x64.zip', 'Xui.Samples.1.2.3.win-arm64.zip',
         'Xui.Designer.1.2.3.win-x64.zip', 'Xui.Designer.1.2.3.win-arm64.zip')
     Assert (!(Compare-Object $expectedAssets (Get-XuiReleaseAssetNames '1.2.3'))) 'Incorrect release asset inventory.'
@@ -57,7 +57,7 @@ try {
     & "$repo\scripts\New-DraftRelease.ps1" -Tag 'release/1.2.3' -Repository 'fixture/xui' -AssetDirectory $work
     Assert (@($calls | Where-Object { $_ -like 'release create *' -and $_ -match '--draft' -and $_ -match '--verify-tag' }).Count -eq 1) 'New release was not a verified-tag draft.'
     $uploads = @($calls | Where-Object { $_ -like 'release upload *' })
-    Assert ($uploads.Count -eq 8) 'Expected one upload per asset.'
+    Assert ($uploads.Count -eq 9) 'Expected one upload per asset.'
     foreach ($name in (Get-XuiReleaseAssetNames '1.2.3') + 'SHA256SUMS.txt') {
         $upload = @($uploads | Where-Object { $_.Contains($name) })
         Assert ($upload.Count -eq 1) "Asset must upload exactly once: $name"
@@ -68,7 +68,7 @@ try {
     $releaseTestState.existing = $true
     & "$repo\scripts\New-DraftRelease.ps1" -Tag 'release/1.2.3' -Repository 'fixture/xui' -AssetDirectory $work
     Assert (@($calls | Where-Object { $_ -like 'release create *' }).Count -eq 0) 'Rerun created a second release.'
-    Assert (@($calls | Where-Object { $_ -like 'release upload *' }).Count -eq 8) 'Rerun did not update draft assets.'
+    Assert (@($calls | Where-Object { $_ -like 'release upload *' }).Count -eq 9) 'Rerun did not update draft assets.'
 
     $failedAsset = 'Xui.Samples.1.2.3.win-arm64.zip'
     foreach ($failureCount in 1, 4, 5) {
@@ -89,17 +89,17 @@ try {
         for ($i = 0; $i -lt $releaseTestState.delays.Count; $i++) {
             Assert ($releaseTestState.delays[$i] -eq (5 * [Math]::Pow(2, $i))) 'Incorrect upload retry backoff.'
         }
-        foreach ($name in 'Xui.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate', 'Xui.Samples.1.2.3.win-x64.zip') {
+        foreach ($name in 'Xui.1.2.3.nupkg', 'Xui.Templates.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate', 'Xui.Samples.1.2.3.win-x64.zip') {
             Assert (@($uploads | Where-Object { $_.Contains($name) }).Count -eq 1) "Retry repeated a successful upload: $name"
         }
         Assert (@($calls | Where-Object { $_ -like 'release create *' }).Count -eq 0) 'Upload retry created another release.'
         if ($exhausted) {
             Assert ($failureMessage.Contains($failedAsset) -and $failureMessage.Contains('5 attempts') -and $failureMessage.Contains('exit code 1')) 'Upload exhaustion must report the asset, attempts, and exit code.'
-            Assert ($uploads.Count -eq 9) 'Upload continued after retry exhaustion.'
+            Assert ($uploads.Count -eq 10) 'Upload continued after retry exhaustion.'
             Assert (@($calls | Where-Object { $_ -like 'release view *' }).Count -eq 0) 'Failed uploads reached the success check.'
         } else {
             Assert ($failureMessage -eq '') "Transient upload failure was not recovered: $failureMessage"
-            Assert ($uploads.Count -eq (8 + $failureCount)) 'Recovery did not upload all assets.'
+            Assert ($uploads.Count -eq (9 + $failureCount)) 'Recovery did not upload all assets.'
             Assert (@($calls | Where-Object { $_ -like 'release view *' }).Count -eq 1) 'Recovered uploads skipped the draft check.'
         }
     }
@@ -107,7 +107,7 @@ try {
     $releaseTestState.delays.Clear()
     & "$repo\scripts\New-DraftRelease.ps1" -Tag 'release/1.2.3' -Repository 'fixture/xui' -AssetDirectory $work
     Assert (@($calls | Where-Object { $_ -like 'release create *' }).Count -eq 0) 'Rerun after upload exhaustion created another release.'
-    Assert (@($calls | Where-Object { $_ -like 'release upload *' }).Count -eq 8) 'Rerun after upload exhaustion did not update all assets.'
+    Assert (@($calls | Where-Object { $_ -like 'release upload *' }).Count -eq 9) 'Rerun after upload exhaustion did not update all assets.'
     Assert ($releaseTestState.delays.Count -eq 0) 'Rerun retained an exhausted retry budget.'
     Assert $PSNativeCommandUseErrorActionPreference 'Release script changed the caller native error preference.'
     foreach ($failure in 'published', 'list') {
@@ -123,7 +123,7 @@ try {
         Assert $rejected "Release operation did not reject $failure."
         Assert (@($calls | Where-Object { $_ -like 'release *' }).Count -eq 0) "Release mutation after $failure."
     }
-    foreach ($name in $expectedAssets | Where-Object { $_.EndsWith('.zip') }) {
+    foreach ($name in $expectedAssets) {
         $calls.Clear()
         $path = Join-Path $work $name
         Remove-Item $path

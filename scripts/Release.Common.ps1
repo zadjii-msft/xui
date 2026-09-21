@@ -8,7 +8,7 @@ function Assert-ReleaseVersion([string]$Version) {
 }
 
 function Get-XuiReleaseAssetNames([string]$Version) {
-    @("Xui.$Version.nupkg", "xui-sys-$Version.crate", "xui-$Version.crate",
+    @("Xui.$Version.nupkg", "Xui.Templates.$Version.nupkg", "xui-sys-$Version.crate", "xui-$Version.crate",
         "Xui.Samples.$Version.win-x64.zip", "Xui.Samples.$Version.win-arm64.zip",
         "Xui.Designer.$Version.win-x64.zip", "Xui.Designer.$Version.win-arm64.zip")
 }
