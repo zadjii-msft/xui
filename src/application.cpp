@@ -885,6 +885,34 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             element.set_control_style_values(part.part, std::move(values));
         }
     }
+    void claim_deferred_tree(const std::shared_ptr<Element>& element) {
+        claim(element);
+        apply_typography(*element);
+        if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
+            for (std::size_t i = 0; i < stack->child_count(); ++i) claim_deferred_tree(stack->child_at(i));
+            return;
+        }
+        const auto control = std::dynamic_pointer_cast<Control>(element);
+        if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
+        control->set_visual_style(options.visual_style);
+        if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) claim_deferred_tree(scroll->content());
+        if (auto content = std::dynamic_pointer_cast<ContentView>(control)) claim_deferred_tree(content->content());
+        if (auto split = std::dynamic_pointer_cast<SplitView>(control)) {
+            claim_deferred_tree(split->first());
+            claim_deferred_tree(split->second());
+        }
+        for (const auto& child : control->retained_children()) claim_deferred_tree(child);
+    }
+    bool defer_reveal_children(const std::shared_ptr<Control>& control) {
+        const auto* reveal = dynamic_cast<const Reveal*>(control.get());
+        if (!reveal || reveal->open() || reveal->animating()) return false;
+        std::set<std::uint64_t> ids;
+        content_ids(reveal->content(), ids, true);
+        if (replacement_host && ids.contains(replacement_host->id())) return false;
+        // Keep ownership and typography, but do not allocate HWNDs for unopened content.
+        claim_deferred_tree(reveal->content());
+        return true;
+    }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
         claim(element);
         apply_typography(*element);
@@ -921,8 +949,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 collect(split->first(), surface, peer, adaptive);
                 collect(split->second(), surface, peer, adaptive);
             }
-            for (const auto& child : control->retained_children())
-                collect(child, surface || (options.visual_style == VisualStyle::winui && control->role() == ControlRole::expander), peer, adaptive);
+            if (!defer_reveal_children(control))
+                for (const auto& child : control->retained_children())
+                    collect(child, surface || (options.visual_style == VisualStyle::winui && control->role() == ControlRole::expander), peer, adaptive);
             collect_clear_button(*peer);
             return;
         }
@@ -1092,8 +1121,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             collect(split->first(), surface, added, adaptive);
             collect(split->second(), surface, added, adaptive);
         }
-        for (const auto& child : added->control->retained_children())
-            collect(child, surface || (options.visual_style == VisualStyle::winui && role == ControlRole::expander), added, adaptive);
+        if (!defer_reveal_children(added->control))
+            for (const auto& child : added->control->retained_children())
+                collect(child, surface || (options.visual_style == VisualStyle::winui && role == ControlRole::expander), added, adaptive);
         if (auto* columns = dynamic_cast<MillerColumns*>(added->control.get())) {
             const std::weak_ptr<Impl> host = weak_from_this();
             columns->on_focus_column([host](const std::shared_ptr<VirtualCollection>& list) {

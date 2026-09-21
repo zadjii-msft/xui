@@ -71,4 +71,10 @@ internal static class ExplorerStyles
         new(ButtonStyleState.Pressed, new() { Background = new(0xE1E1E1, 0x292929) }),
         new(ButtonStyleState.Disabled, new() { Background = Background })
     ]);
+
+    internal static readonly ControlStyle CommandIcon = new(StyleTarget.InlineStatus,
+    [
+        new(StylePart.Root, new() { Background = Background, BorderThickness = new(0), CornerRadius = 0 }),
+        new(StylePart.Icon, new() { Size = 20, Foreground = new(0x1A1A1A, 0xF3F3F3) })
+    ]);
 }

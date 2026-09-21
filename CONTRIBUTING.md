@@ -584,10 +584,46 @@ if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
 
 The desktop check applies settings to both panes and opens the searchable settings editor.
 It clicks native toolbar buttons after customization and checks palette ownership, repeated theme changes, navigation toggles, and settings resets.
+It also clicks settings page buttons and checks global search, retained drafts, conditional reset visibility, stable field widths, and command icons.
 Queued toolbar commands must retain their pane and check availability again before execution.
 The smoke uses isolated state and does not change the normal saved settings.
 
-The settings scroll check measures the complete inline editor with both panes open:
+The native palette appearance check covers separate shortcut keycaps with and without font customization:
+
+```powershell
+& ".\$build\Release\xui_collections_window_tests.exe" --palette-only
+if ($LASTEXITCODE -ne 0) { throw "Palette appearance check failed." }
+```
+
+It captures only its own nonactivating windows.
+The checks cover empty shortcuts, aliases, key sequences, custom fonts, selection, disabled commands, narrow widths, themes, and DPI scales.
+
+The settings opening check measures the first opening and seven repeated openings with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-open-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-open.out" -RedirectStandardError "settings-open.err"
+Get-Content "settings-open.out"
+Get-Content "settings-open.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings opening smoke failed." }
+```
+
+Run this check without concurrent desktop tests or a debugger.
+The popup must be visible, arranged, and ready for native input before each sample completes.
+The check reports handler time and handler time plus pending native painting.
+The handler budget is 250 ms for the warm median and 500 ms for the first opening and maximum.
+With native painting, these budgets are 350 ms and 650 ms.
+The General page must add fewer than 180 native child windows.
+The check also covers draft retention, deferred page inputs, global search, dismissal cleanup, and reopening after all pages were visited.
+These measurements exclude compositor presentation latency.
+The native deferred-reveal check covers ownership, typography, focus, undo state, hidden content replacement, and popup cleanup:
+
+```powershell
+& ".\$build\Release\xui_reveal_window_tests.exe" --deferred-only
+if ($LASTEXITCODE -ne 0) { throw "Deferred reveal check failed." }
+```
+
+The settings scroll check measures global search across all settings pages with both panes open:
 
 ```powershell
 $process = Start-Process -FilePath $exe -ArgumentList "--settings-scroll-smoke" -PassThru -Wait `

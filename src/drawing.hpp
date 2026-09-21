@@ -145,6 +145,8 @@ public:
     std::size_t native_bitmap_bytes() const;
     std::size_t scene_paths() const;
 private:
+    float shortcut_keycaps(std::wstring_view shortcut, Rect lane, const Palette& palette,
+        D2D1_COLOR_F ink, const PartStyleValues& values = {});
     void rounded_border(Rect bounds, D2D1_COLOR_F color, float radius, float thickness);
     VisualStyle visual_style_{VisualStyle::classic};
     bool variable_font_{};

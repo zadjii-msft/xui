@@ -5,6 +5,41 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Settings popup opening, 2026-09-21
+
+The ARM64 Release settings popup created native children for every hidden page.
+Stage timing attributed almost all opening time to `Popup.Show`, not managed synchronization or search.
+Each dismissal released those children, so reopening repeated the cost.
+The native fix deferred children of closed, settled reveals without caching dismissed popups.
+
+The same managed `--settings-open-smoke` fixture ran with the old and new native DLLs.
+Each run used two panes, one first opening, and seven repeated openings.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| First opening handler | 2253.54 ms | 155.68 ms |
+| Repeated opening median | 2171.62 ms | 160.93 ms |
+| First opening with native paint | 2280.65 ms | 165.83 ms |
+| Repeated opening median with native paint | 2183.36 ms | 173.60 ms |
+| Added native child windows | 1364 | 116 |
+
+The final fixture also visited every page and opened global search across all settings.
+Reopening General then took 180.02 ms with native painting and added 116 native child windows.
+Draft retention, deferred native text input, and saved keyboard edits passed.
+The customization, address, partition, views, and context-action desktop checks also passed.
+The settings scroll check recorded 4.65 ms for median dispatch and 14.38 ms with native painting.
+The ContentHost suite passed, including 200 replacements and native editor state.
+The complete reveal suite passed, including deferred peers, native undo state, ownership, popup cleanup, and hidden content replacement.
+Popup fixtures preserved the foreground owner and explicitly requested local editor focus when Windows did not activate their window.
+The foundation suite reached its existing high-contrast ring assertion after six successful popup cleanup runs.
+The same assertion failed with the two new deferral guards disabled.
+The assertion expected the Windows animation preference alone, while the existing runtime also disabled motion in high contrast.
+The fixture flushed pending native painting, but did not measure compositor presentation or physical display latency.
+These are local measurements, not performance guarantees for other computers.
+
+Artifacts: `build\settings-open-comparison.out`, `build\settings-open-final.out`, and `build\settings-open-native-final-build.log`.
+The matching executable was `build\settings-open-validation\FileExplorer.exe`.
+
 ## Immediate switches and compact Tree rows, 2026-09-18
 
 User feedback removed the incoming animation for file-view changes.

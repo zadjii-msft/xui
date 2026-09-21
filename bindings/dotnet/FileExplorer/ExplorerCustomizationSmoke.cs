@@ -16,7 +16,7 @@ internal static class ExplorerCustomizationSmoke
     internal static async Task Run(ExplorerApplication app, Func<Action, Task> ui, Func<Func<bool>, Task> until, string fixture)
     {
         static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
-        static void Click(Button button)
+        static void Click(Control button)
         {
             button.Focus();
             Check(button.Focused, "The button did not receive native focus.");
@@ -73,6 +73,7 @@ internal static class ExplorerCustomizationSmoke
         });
         await ui(() => Check(!executed, "A queued toolbar command did not recheck availability."));
         await ui(() => app.SetCustomization(new()));
+        await SettingsPages(app, ui, until, Click);
         await ui(() =>
         {
             var original = app.State.Customization.Clone();
@@ -270,6 +271,7 @@ internal static class ExplorerCustomizationSmoke
         {
             Check(app.State.Customization.SidebarSections.SequenceEqual(["bookmarks", "recents", "tree"]),
                 "Resetting a section must work when earlier default sections are hidden.");
+            Check(!section.ResetVisible, "A clamped default position must hide its reset icon.");
         });
         await Change(() => section.Number!.ChangeValue(1), () =>
         {
@@ -335,7 +337,122 @@ internal static class ExplorerCustomizationSmoke
         await ui(() =>
         {
             Check(editor.IsOpen, "Reset all must preserve the settings popup.");
+            foreach (var id in new[] { "theme", "font", "font-size", "date", "density", "fill", "smooth", "toolbar:back", "key:new-tab" })
+                Check(!editor.Row(id).ResetVisible, "Reset all left a default setting's reset visible: " + id);
             editor.Dismiss();
+        });
+    }
+
+    private static async Task SettingsPages(ExplorerApplication app, Func<Action, Task> ui,
+        Func<Func<bool>, Task> until, Action<Control> click)
+    {
+        static void Check(bool condition, string message)
+        {
+            if (!condition) throw new InvalidOperationException(message);
+        }
+        var editor = app.CustomizationEditor!;
+        nint fontPeer = 0;
+        float fieldWidth = 0;
+        await ui(() =>
+        {
+            app.ShowCustomization();
+            Check(editor.CurrentPage == SettingsPage.General && editor.Row("font").Root.Open &&
+                !editor.Row("toolbar:new-tab").Root.Open && !editor.Row("key:new-tab").Root.Open,
+                "General settings must not include toolbar and keyboard command rows.");
+            foreach (var id in new[] { "theme", "font", "font-size", "date", "smooth", "toolbar:back", "toolbar:new-tab", "key:new-tab" })
+                Check(!editor.Row(id).ResetVisible, "A default setting exposed its reset button: " + id);
+            var reset = editor.Row("font").Reset;
+            Check(reset.Text == "" && reset.Icon == ButtonIcon.Undo &&
+                reset.EffectiveStyleValues.BorderThickness == new Insets(0),
+                "Inline reset must be an icon-only, borderless button.");
+        });
+        await until(() => editor.Row("font").Text!.GetBounds().Height > 20);
+        await ui(() =>
+        {
+            var font = editor.Row("font");
+            fieldWidth = font.Text!.GetBounds().Width;
+            font.Text!.Focus();
+            fontPeer = GetFocus();
+            SendMessageTextW(fontPeer, 0x000c, 0, "Consolas draft");
+            Check(font.ResetVisible, "An unsaved nondefault text draft must expose reset.");
+            Check(app.State.Customization.FontFamily == new ExplorerCustomization().FontFamily,
+                "Typing a draft must not save the value.");
+            SendMessageTextW(fontPeer, 0x000c, 0, new ExplorerCustomization().FontFamily);
+            Check(!font.ResetVisible, "Typing the default value must hide reset.");
+            SendMessageTextW(fontPeer, 0x000c, 0, "Consolas draft");
+        });
+        await until(() => editor.Row("font").Reset.GetBounds().Height > 20);
+        await ui(() =>
+        {
+            Check(Math.Abs(editor.Row("font").Text!.GetBounds().Width - fieldWidth) < 1,
+                "Conditional reset changed the editor width.");
+            click(editor.PageButton(SettingsPage.Toolbar));
+        });
+        await until(() => editor.CurrentPage == SettingsPage.Toolbar);
+        await ui(() =>
+        {
+            Check(editor.CurrentPage == SettingsPage.Toolbar && editor.Row("toolbar:new-tab").Root.Open &&
+                !editor.Row("font").Root.Open && !editor.Row("sidebar:new-tab").Root.Open,
+                "Toolbar page contains settings from another page.");
+            Check(editor.Row("toolbar:new-tab").Setting.DisplayName == "New tab",
+                "Command rows must not repeat their surface prefix.");
+            click(editor.PageButton(SettingsPage.Navigation));
+        });
+        await until(() => editor.CurrentPage == SettingsPage.Navigation);
+        await ui(() =>
+        {
+            Check(editor.Row("section:tree").Root.Open && editor.Row("sidebar:new-tab").Root.Open &&
+                !editor.Row("toolbar:new-tab").Root.Open, "Navigation page did not isolate its sections and commands.");
+            click(editor.PageButton(SettingsPage.Keyboard));
+        });
+        await until(() => editor.CurrentPage == SettingsPage.Keyboard);
+        await ui(() =>
+        {
+            Check(editor.Row("key:new-tab").Root.Open && !editor.Row("sidebar:new-tab").Root.Open,
+                "Keyboard page did not isolate its command rows.");
+            click(editor.PageButton(SettingsPage.General));
+        });
+        await until(() => editor.CurrentPage == SettingsPage.General);
+        await until(() => editor.Row("font").Text!.GetBounds().Height > 20);
+        await ui(() =>
+        {
+            var font = editor.Row("font");
+            font.Text!.Focus();
+            Check(GetFocus() == fontPeer && font.Text!.Text == "Consolas draft",
+                "Page navigation recreated the native editor or discarded its draft.");
+            click(font.Reset);
+        });
+        await until(() => !editor.Row("font").ResetVisible);
+        await ui(() =>
+        {
+            Check(editor.Row("font").Text!.Focused, "Hiding a clicked reset button must return focus to its editor.");
+            editor.Row("smooth").Toggle!.Invoke();
+        });
+        await until(() => editor.Row("smooth").ResetVisible);
+        await ui(() => editor.Row("smooth").Toggle!.Invoke());
+        await until(() => !editor.Row("smooth").ResetVisible);
+        await ui(() =>
+        {
+            editor.SearchInput.Focus();
+            var command = app.Commands.Single(command => command.StableId == "add-or-remove-folder-bookmark");
+            SendMessageTextW(GetFocus(), 0x000c, 0, command.Name);
+            Check(editor.ResultCount == 3, "Global search must find a command on all three command pages.");
+            Check(command.Icon == ButtonIcon.Bookmark, "Bookmark folder needs its bookmark icon.");
+            foreach (var prefix in new[] { "key:", "toolbar:", "sidebar:" })
+                Check(editor.Row(prefix + command.StableId).Icon?.Icon == command.Icon,
+                    "Settings command icons differ across pages.");
+            var options = app.State.Customization.Clone();
+            options.ToolbarCommands.Add(command.StableId);
+            options.SidebarCommands.Add(command.StableId);
+            app.SetCustomization(options);
+            Check(app.Left.ToolbarButton(command.StableId).Icon == command.Icon &&
+                app.Right.ToolbarButton(command.StableId).Icon == command.Icon,
+                "Pinned commands must use the shared icon in both toolbars.");
+            editor.SelectPage(SettingsPage.General);
+            Check(editor.SearchInput.Text == "" && editor.Row("font").Root.Open,
+                "Choosing a page must leave global search.");
+            editor.Dismiss();
+            app.SetCustomization(new());
         });
     }
 }

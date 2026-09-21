@@ -7,7 +7,9 @@ component CustomizationLayout {
             VStack(padding: 16, spacing: 8) {
                 Text("Customize Explorer");
                 TextInput("Search settings and commands", ref: Search, id: "customization-search", captionVisible: false,
-                    placeholder: "Search settings, keyboard commands, toolbar, sidebar, Home", preferredSize: (800, 40));
+                    placeholder: "Search all settings and commands", preferredSize: (800, 40));
+                HStack(ref: Pages, spacing: 8) {}
+                Text("", ref: SearchScope, visible: false);
                 ScrollView("Settings", ref: Scroller, id: "customization-results", flex: 1) {
                     VStack(ref: Rows, spacing: 0) {
                         Text("No matching settings.", ref: Empty, id: "customization-empty", visible: false);

@@ -224,6 +224,13 @@ The focus and visibility paths permit zero-extent opening clips without changing
 
 Reveal uses the existing `content_view` role and retained-child traversal.
 Its native parent supplies clipping for the editor and button.
+`collect` defers native children of closed, settled reveals.
+`claim_deferred_tree` still claims their retained models and applies window typography.
+The deferred tree uses the same supported-control validation as replacement content.
+Opening a reveal collects its children before layout and native focus.
+Existing peers remain during reveal closure, so native selection and undo state survive reopening.
+Replacement of a hidden ContentHost bypasses deferral for its containing reveal.
+Popup dismissal still prunes its peers and releases claims. This path does not cache closed popups.
 The closing target disables interaction before the exit ends.
 SplitView also rejects interaction in its outgoing secondary ContentView.
 Its secondary content retains the complete target width and moves inside the split viewport.

@@ -23,6 +23,7 @@ internal sealed partial class FilePaneView
         {
             var command = app.Commands.Single(c => c.StableId == id);
             string hint = app.ShortcutHint(command);
+            button.SetIcon(command.Icon);
             button.Help(hint.Length == 0 ? command.Name : $"{command.Name} ({hint})");
         }
         status.Visible(options.ShowStatus);
@@ -38,16 +39,7 @@ internal sealed partial class FilePaneView
                 var command = app.Commands.FirstOrDefault(c => c.StableId == id);
                 if (command is null) continue;
                 var button = window.Button(command.Name).Help($"{command.Name} ({app.ShortcutHint(command)})");
-                button.SetIcon(id switch
-                {
-                    "back" => ButtonIcon.Back, "forward" => ButtonIcon.Forward,
-                    "up-to-parent-folder" => ButtonIcon.Up, "refresh-folder" => ButtonIcon.Refresh,
-                    "new-tab" => ButtonIcon.Add,
-                    "toggle-light-dark-theme" => ButtonIcon.Theme,
-                    "customization" => ButtonIcon.Settings,
-                    "toggle-navigation-pane" or "filter-navigation" => ButtonIcon.Navigation,
-                    _ => ButtonIcon.More
-                });
+                button.SetIcon(command.Icon);
                 button.SetStyle(ExplorerStyles.IconButton);
                 button.FixedSize(options.ToolbarLabels ? 156 : 36, 36);
                 button.SetEnabled(app.CanExecuteInPane(command, this));

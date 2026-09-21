@@ -45,7 +45,13 @@ internal static class SettingsScrollSmoke
         });
         await until(() => !app.Left.IsLoading && !app.Right.IsLoading && !app.Left.IsFiltering && !app.Right.IsFiltering);
         var editor = app.CustomizationEditor!;
-        await ui(app.ShowCustomization);
+        await ui(() =>
+        {
+            app.ShowCustomization();
+            editor.SearchInput.Focus();
+            // Global search retains a worst-case all-settings scrolling fixture after pagination.
+            SendTextW(GetFocus(), 0x000c, 0, ":");
+        });
         await until(() => editor.Row("font").Text!.GetBounds().Height > 20);
         nint hwnd = 0, searchPeer = 0, fontPeer = 0;
         int children = 0, rows = 0;

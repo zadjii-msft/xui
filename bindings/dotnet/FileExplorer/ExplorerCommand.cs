@@ -5,12 +5,14 @@ internal sealed record ExplorerCommand(string Name, string Shortcut, Action Exec
 {
     public bool Enabled => CanExecute?.Invoke() ?? true;
     public string StableId => Id ?? string.Join('-', Name.ToLowerInvariant().Split([' ', '/'], StringSplitOptions.RemoveEmptyEntries));
+    public ButtonIcon Icon => ExplorerCommandIcons.For(StableId);
 }
 
 internal sealed class CommandRows(IReadOnlyList<ExplorerCommand> commands, Func<ExplorerCommand, string>? shortcut = null) : IReadOnlyImmutableSource
 {
     private readonly ItemContent[] items = commands
-        .Select(command => new ItemContent(command.Name, shortcut?.Invoke(command) ?? command.Shortcut, command.Enabled)).ToArray();
+        .Select(command => new ItemContent(command.Name, shortcut?.Invoke(command) ?? command.Shortcut,
+            command.Enabled, Icon: command.Icon)).ToArray();
 
     public ulong Count => (ulong)items.Length;
     public ItemKey Key(ulong index) => new(index + 1);

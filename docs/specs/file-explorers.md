@@ -145,6 +145,12 @@ Tab changes invalidate an open menu instead of changing its target.
 
 The **Customize Explorer** command opens a searchable settings editor.
 The command palette includes this command even when the toolbar or sidebar is hidden.
+The editor has **General**, **Toolbar**, **Navigation**, and **Keyboard** pages.
+Toolbar and navigation pages group visibility controls, sections, and commands.
+Command rows show their names and icons. Shared instructions appear once above each group.
+Search finds settings across all pages. Selecting a page clears the search without discarding text drafts.
+Opening the popup creates native controls for the current page, not every hidden settings page.
+Search and page changes create additional native controls when those rows become visible.
 Each settings row has its own control beside its name and description.
 Switches control visibility and behavior. Dropdowns select the theme and thumbnail fit.
 A slider controls row spacing. A numeric stepper controls font size.
@@ -155,7 +161,10 @@ Font, date, and keyboard rows have native text fields.
 Press **Enter** or the row's **Save** button to apply a text value.
 Search and unrelated settings changes preserve text drafts.
 An invalid value stays in its field with an error message. Saved settings do not change.
-Each row's **Reset** button restores its default. **Reset all** restores all customization defaults.
+Each row has a borderless reset icon with an accessible name and a tooltip.
+The icon appears only when the saved value or a text draft differs from the default.
+Hidden reset icons do not change the field width. Reset restores the default and clears the row's draft and error.
+**Reset all** restores all customization defaults.
 
 Keyboard rows support multiple aliases and sequences of up to three strokes.
 For example, `Ctrl+K, Ctrl+R; Ctrl+Shift+R` assigns a sequence and a separate alias.
@@ -174,6 +183,8 @@ File actions never replace native editor shortcuts.
 Toolbar and sidebar command rows accept a position.
 Position `0` hides the command. Other positions select its place in the command order.
 Toolbar labels are optional.
+Commands use the same icons in the toolbar, navigation pane, command palette, and settings rows.
+For example, the folder bookmark command uses the bookmark icon rather than the overflow icon.
 Each sidebar section has its own visibility switch and position stepper.
 A hidden section returns at the end of the list when enabled.
 The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
@@ -566,6 +577,9 @@ Both palettes appear at the center of the window, independent of the active pane
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
 The palette frame and results share one background color.
 Command shortcuts use separate keycaps on the right, beside each command title.
+Font customization preserves this layout. Commands without a shortcut have no empty keycap.
+Aliases and key sequences retain their separators between keycap groups.
+Long shortcut groups can use an ellipsis in narrow palettes. Accessible text retains the complete shortcut.
 Command rows capture their labels, shortcuts, and enabled state when the palette opens or its query changes.
 Row callbacks read that snapshot without querying native controls.
 The controller checks current availability again before it executes a command.

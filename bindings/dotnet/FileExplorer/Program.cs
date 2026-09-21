@@ -17,16 +17,17 @@ internal static class Program
             bool addressSmoke = args.Contains("--address-smoke");
             bool customizationSmoke = args.Contains("--customization-smoke");
             bool settingsScrollSmoke = args.Contains("--settings-scroll-smoke");
+            bool settingsOpenSmoke = args.Contains("--settings-open-smoke");
             bool contextActionsSmoke = args.Contains("--context-actions-smoke");
             if ((viewSwitchSmoke ? 1 : 0) + (paneAnimationSmoke ? 1 : 0) + (hoverSmoke ? 1 : 0)
-                + (viewsSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) + (customizationSmoke ? 1 : 0) + (settingsScrollSmoke ? 1 : 0) + (contextActionsSmoke ? 1 : 0) > 1)
+                + (viewsSmoke ? 1 : 0) + (addressSmoke ? 1 : 0) + (partitionSmoke ? 1 : 0) + (customizationSmoke ? 1 : 0) + (settingsScrollSmoke ? 1 : 0) + (settingsOpenSmoke ? 1 : 0) + (contextActionsSmoke ? 1 : 0) > 1)
                 throw new ArgumentException("Choose one focused smoke mode.");
-            bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke || customizationSmoke || settingsScrollSmoke || contextActionsSmoke;
+            bool smoke = args.Contains("--smoke") || viewSwitchSmoke || paneAnimationSmoke || hoverSmoke || viewsSmoke || addressSmoke || partitionSmoke || customizationSmoke || settingsScrollSmoke || settingsOpenSmoke || contextActionsSmoke;
             using var application = new Xui.Application();
             using var previews = new PreviewController(application, smoke);
             using var windows = new ExplorerWindows(application, previews, smoke);
             var app = windows.Create(initialPath);
-            app.Run(settingsScrollSmoke ? ExplorerSmokeMode.SettingsScroll : contextActionsSmoke ? ExplorerSmokeMode.ContextActions : customizationSmoke ? ExplorerSmokeMode.Customization : viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
+            app.Run(settingsOpenSmoke ? ExplorerSmokeMode.SettingsOpen : settingsScrollSmoke ? ExplorerSmokeMode.SettingsScroll : contextActionsSmoke ? ExplorerSmokeMode.ContextActions : customizationSmoke ? ExplorerSmokeMode.Customization : viewSwitchSmoke ? ExplorerSmokeMode.ViewSwitch :
                 paneAnimationSmoke ? ExplorerSmokeMode.PaneAnimation :
                 hoverSmoke ? ExplorerSmokeMode.Hover :
                 partitionSmoke ? ExplorerSmokeMode.Partition :

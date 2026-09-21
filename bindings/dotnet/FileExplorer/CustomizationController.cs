@@ -4,11 +4,42 @@ using Xui.FileExplorer.Models;
 namespace Xui.FileExplorer;
 
 internal enum SettingKind { Text, Toggle, Number, Slider, Choice, Position }
+internal enum SettingsPage { General, Toolbar, Navigation, Keyboard }
+internal enum SettingsSection { Appearance, Interaction, Home, Toolbar, ToolbarCommands, Navigation, NavigationSections, NavigationCommands, Keyboard }
 
 internal sealed record CustomizationSetting(string Id, string Name, string Help, SettingKind Kind,
     Func<ExplorerCustomization, string> Get, Action<ExplorerCustomization, string> Set,
     double Minimum = 0, double Maximum = 0, string[]? Choices = null,
-    Func<ExplorerCustomization, int>? PositionLimit = null);
+    Func<ExplorerCustomization, int>? PositionLimit = null)
+{
+    internal string DisplayName => Name[(Name.IndexOf(':') + 1)..].Trim();
+    internal SettingsSection Section => Id switch
+    {
+        "toolbar" or "labels" => SettingsSection.Toolbar,
+        "sidebar" => SettingsSection.Navigation,
+        "single-click" or "status" => SettingsSection.Interaction,
+        _ when Id.StartsWith("toolbar:", StringComparison.Ordinal) => SettingsSection.ToolbarCommands,
+        _ when Id.StartsWith("sidebar:", StringComparison.Ordinal) => SettingsSection.NavigationCommands,
+        _ when Id.StartsWith("section:", StringComparison.Ordinal) => SettingsSection.NavigationSections,
+        _ when Id.StartsWith("key:", StringComparison.Ordinal) => SettingsSection.Keyboard,
+        _ when Id.StartsWith("home-", StringComparison.Ordinal) => SettingsSection.Home,
+        _ => SettingsSection.Appearance
+    };
+    internal SettingsPage Page => Section switch
+    {
+        SettingsSection.Toolbar or SettingsSection.ToolbarCommands => SettingsPage.Toolbar,
+        SettingsSection.Navigation or SettingsSection.NavigationSections or SettingsSection.NavigationCommands => SettingsPage.Navigation,
+        SettingsSection.Keyboard => SettingsPage.Keyboard,
+        _ => SettingsPage.General
+    };
+    internal string DefaultValue(ExplorerCustomization current)
+    {
+        string value = Get(new());
+        return Kind == SettingKind.Position
+            ? Math.Min(int.Parse(value, CultureInfo.InvariantCulture), PositionLimit!(current)).ToString(CultureInfo.InvariantCulture)
+            : value;
+    }
+}
 
 internal sealed class CustomizationController
 {
@@ -16,6 +47,8 @@ internal sealed class CustomizationController
     private readonly CustomizationLayout layout;
     private readonly List<CustomizationSetting> settings = [];
     private readonly List<CustomizationSettingRow> rows = [];
+    private readonly Dictionary<SettingsPage, ToggleButton> pages = [];
+    private readonly List<(Reveal Root, List<CustomizationSettingRow> Rows)> groups = [];
     private bool synchronizing;
 
     public CustomizationController(ExplorerApplication app)
@@ -23,12 +56,37 @@ internal sealed class CustomizationController
         this.app = app;
         layout = new(app.Window, attach: false);
         AddSettings();
-        foreach (var setting in settings)
+        foreach (var page in Enum.GetValues<SettingsPage>())
         {
-            var row = new CustomizationSettingRow(app.Window, setting,
-                value => Apply(setting, value), () => app.PostCustomization(() => Reset(setting)));
-            rows.Add(row);
-            layout.Rows.Add(row.Root);
+            var button = app.Window.ToggleButton(page.ToString()).SetAutomationId($"settings-page-{page}")
+                .PreferredSize(140, 36);
+            button.Changed += _ => SelectPage(page);
+            pages.Add(page, button);
+            layout.Pages.Add(button, flex: 1);
+        }
+        foreach (var section in settings.GroupBy(setting => setting.Section).OrderBy(group => group.Key))
+        {
+            var (title, help) = SectionDescription(section.Key);
+            var contents = app.Window.Stack().Spacing(0);
+            var heading = app.Window.Stack().Padding(10).Spacing(4);
+            heading.Add(app.Window.Label(title));
+            if (help.Length > 0) heading.Add(app.Window.Label(help).SetPresentationFontSize(12));
+            contents.Add(heading);
+            var groupRows = new List<CustomizationSettingRow>();
+            foreach (var setting in section)
+            {
+                var command = setting.Section is SettingsSection.ToolbarCommands or SettingsSection.NavigationCommands or SettingsSection.Keyboard
+                    ? app.Commands.Single(command => setting.Id[(setting.Id.IndexOf(':') + 1)..] == command.StableId)
+                    : null;
+                var row = new CustomizationSettingRow(app.Window, setting,
+                    value => Apply(setting, value), () => app.PostCustomization(() => Reset(setting)), command?.Icon ?? ButtonIcon.None);
+                rows.Add(row);
+                groupRows.Add(row);
+                contents.Add(row.Root);
+            }
+            var root = app.Window.Reveal(contents, title).SetDuration(0).SetLayout(RevealLayout.Expand);
+            groups.Add((root, groupRows));
+            layout.Rows.Add(root);
         }
         layout.Search.Changed += _ => Search();
         layout.ResetAll.Click += () => app.PostCustomization(() => Guard(() =>
@@ -42,7 +100,7 @@ internal sealed class CustomizationController
         layout.Close.Click += Dismiss;
         app.CustomizationChanged += () => Synchronize();
         Synchronize();
-        Search();
+        SelectPage(SettingsPage.General);
     }
 
     public bool IsOpen => layout.Root.IsOpen;
@@ -52,6 +110,24 @@ internal sealed class CustomizationController
     internal CustomizationSettingRow Row(string id) => rows.Single(row => row.Setting.Id == id);
     internal ScrollView Scroller => layout.Scroller;
     internal Button ResetAllButton => layout.ResetAll;
+    internal SettingsPage CurrentPage { get; private set; }
+    internal ToggleButton PageButton(SettingsPage page) => pages[page];
+    internal void SelectPage(SettingsPage page)
+    {
+        CurrentPage = page;
+        foreach (var (key, button) in pages) button.SetChecked(key == page);
+        layout.Search.Text = "";
+        Search();
+    }
+
+    private static (string Title, string Help) SectionDescription(SettingsSection section) => section switch
+    {
+        SettingsSection.ToolbarCommands => ("Toolbar commands", "Choose visible commands. Use the position number to change their order."),
+        SettingsSection.NavigationSections => ("Navigation sections", "Choose visible sections. Use the position number to change their order."),
+        SettingsSection.NavigationCommands => ("Navigation commands", "Choose visible commands. Use the position number to change their order."),
+        SettingsSection.Keyboard => ("Keyboard shortcuts", "Enter or Save applies. Separate aliases with ; and sequence strokes with commas. Empty removes bindings."),
+        _ => (section.ToString(), "")
+    };
     public void Dismiss() => layout.Root.Dismiss();
     public void Show()
     {
@@ -132,16 +208,21 @@ internal sealed class CustomizationController
     private void Search()
     {
         string query = layout.Search.Text.Trim();
+        layout.SearchScope.Text = query.Length == 0 ? "" : "Search results across all pages";
+        layout.SearchScope.Visible(query.Length != 0);
         ResultCount = 0;
         foreach (var row in rows)
         {
             var setting = row.Setting;
-            bool visible = setting.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            bool matches = setting.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 setting.Id.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                setting.Help.Contains(query, StringComparison.OrdinalIgnoreCase);
+                setting.Help.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                (setting.Page + ": " + setting.DisplayName).Contains(query, StringComparison.OrdinalIgnoreCase);
+            bool visible = query.Length == 0 ? setting.Page == CurrentPage : matches;
             row.Root.SetOpen(visible);
             if (visible) ++ResultCount;
         }
+        foreach (var group in groups) group.Root.SetOpen(group.Rows.Any(row => row.Root.Open));
         layout.Empty.Visible(ResultCount == 0);
         layout.Scroller.SetOffset(0);
     }
@@ -150,7 +231,11 @@ internal sealed class CustomizationController
     {
         if (synchronizing) return;
         synchronizing = true;
-        try { foreach (var row in rows) row.Synchronize(app.State.Customization, discardDrafts); }
+        try
+        {
+            foreach (var button in pages.Values) button.PreferredSize(140, Math.Max(36, app.State.Customization.FontSize + 18));
+            foreach (var row in rows) row.Synchronize(app.State.Customization, discardDrafts);
+        }
         finally { synchronizing = false; }
     }
 
@@ -179,10 +264,7 @@ internal sealed class CustomizationController
         if (setting.Id.StartsWith("key:", StringComparison.Ordinal)) copy.Keybindings.Remove(setting.Id[4..]);
         else
         {
-            string value = setting.Get(new());
-            if (setting.Kind == SettingKind.Position)
-                value = Math.Min(int.Parse(value, CultureInfo.InvariantCulture), setting.PositionLimit!(copy)).ToString(CultureInfo.InvariantCulture);
-            setting.Set(copy, value);
+            setting.Set(copy, setting.DefaultValue(copy));
         }
         app.SetCustomization(copy);
         Row(setting.Id).Synchronize(app.State.Customization, discardDraft: true);

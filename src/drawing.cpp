@@ -224,6 +224,92 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
     }
     pop_clip();
 }
+float Drawing::shortcut_keycaps(std::wstring_view shortcut, Rect lane, const Palette& palette,
+    D2D1_COLOR_F ink, const PartStyleValues& values) {
+    if (shortcut.empty() || lane.width < 24 || lane.height <= 8) return 0;
+    const auto padding = values.padding.value_or(Insets{5, 2, 5, 2});
+    const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
+    const float inset_left = padding.left + border.left, inset_right = padding.right + border.right;
+    const float inset_top = padding.top + border.top, inset_bottom = padding.bottom + border.bottom;
+    auto typography = values;
+    typography.wrapping = false;
+    typography.maximum_lines = 1;
+    if (!typography.horizontal_alignment) typography.horizontal_alignment = StyleAlignment::center;
+    if (!typography.vertical_alignment) typography.vertical_alignment = StyleAlignment::center;
+    struct Keycap {
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> label;
+        float width{}, height{};
+        bool key{};
+    };
+    std::vector<Keycap> keys;
+    float total{};
+    const auto measured_key = [&](std::wstring_view label, bool key) {
+        Size size{};
+        auto text = styled_layout(label, TextStyle::caption, typography, size);
+        return Keycap{std::move(text), key ? std::max(24.0f, size.width + inset_left + inset_right) : size.width,
+            std::max(24.0f, size.height + inset_top + inset_bottom), key};
+    };
+    const auto append = [&](std::wstring_view label, bool key) {
+        auto token = measured_key(label, key);
+        const auto gap = keys.empty() ? 0.0f : 4.0f;
+        if (total + gap + token.width <= lane.width) {
+            total += gap + token.width;
+            keys.push_back(std::move(token));
+            return true;
+        }
+        auto overflow = measured_key(L"\u2026", false);
+        while (!keys.empty() && (!keys.back().key || total + 4 + overflow.width > lane.width)) {
+            total -= keys.back().width + (keys.size() > 1 ? 4 : 0);
+            keys.pop_back();
+        }
+        if (overflow.width <= lane.width) {
+            total += (keys.empty() ? 0 : 4) + overflow.width;
+            keys.push_back(std::move(overflow));
+        }
+        return false;
+    };
+    bool fits = true;
+    for (std::size_t group_start = 0; fits && group_start < shortcut.size();) {
+        auto delimiter = shortcut.find_first_of(L",;", group_start);
+        while (delimiter != std::wstring_view::npos) {
+            auto previous = delimiter;
+            while (previous > group_start && shortcut[previous - 1] == L' ') --previous;
+            // Ctrl+, and Ctrl+; name punctuation keys, not sequence separators.
+            if (previous > group_start && (shortcut[previous - 1] != L'+' ||
+                (previous > group_start + 1 && shortcut[previous - 2] == L'+'))) break;
+            delimiter = shortcut.find_first_of(L",;", delimiter + 1);
+        }
+        const auto group_end = delimiter == std::wstring_view::npos ? shortcut.size() : delimiter;
+        const auto group = shortcut.substr(group_start, group_end - group_start);
+        for (std::size_t start = 0; fits && start < group.size();) {
+            auto end = group.find(L'+', start);
+            // Preserve a literal '+' key, including Ctrl++.
+            if (end == std::wstring_view::npos || end == start) end = group.size();
+            auto key = group.substr(start, end - start);
+            while (!key.empty() && key.front() == L' ') key.remove_prefix(1);
+            while (!key.empty() && key.back() == L' ') key.remove_suffix(1);
+            if (!key.empty()) fits = append(key, true);
+            start = end == group.size() ? end : end + 1;
+        }
+        if (fits && delimiter != std::wstring_view::npos && !keys.empty())
+            fits = append(shortcut.substr(delimiter, 1), false);
+        group_start = group_end == shortcut.size() ? group_end : group_end + 1;
+    }
+    if (values.foreground && !palette.high_contrast) ink = D2D1::ColorF(values.foreground->resolve(palette.mode));
+    float x = lane.x + lane.width - total;
+    for (const auto& key : keys) {
+        const float height = std::min(key.height, lane.height - 8);
+        const Rect badge{x, lane.y + (lane.height - height) / 2, key.width, height};
+        if (key.key) {
+            styled_surface(badge, palette, values, palette.field, palette.high_contrast ? ink : palette.border, 4, {1, 1, 1, 1});
+            text_layout(key.label.Get(), {badge.x + inset_left, badge.y + inset_top,
+                std::max(0.0f, badge.width - inset_left - inset_right),
+                std::max(0.0f, badge.height - inset_top - inset_bottom)}, ink);
+        } else text_layout(key.label.Get(), badge, ink);
+        x += key.width + 4;
+    }
+    return total;
+}
 void Drawing::styled_collection_row(const VirtualCollection &owner, const CollectionRow &row, bool selected, bool focused, bool enabled,
                                     const Palette &palette, bool hovered, const std::shared_ptr<const ImagePixels> &pixels,
                                     bool trailing_shortcut_badges, bool command_menu) {
@@ -431,13 +517,17 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
             right -= width + 6;
         }
         const bool shortcuts = trailing_shortcut_badges || (command_menu && !row.content.secondary.empty());
-        if (shortcuts) {
+        if (trailing_shortcut_badges) {
+            const auto width = std::max(0.0f, (right - left - 12) / 2);
+            const auto used = shortcut_keycaps(row.content.secondary, {right - width, content.y, width, content.height},
+                palette, disabled ? palette.disabled : palette.text, resolve(StylePart::shortcut));
+            if (used > 0) right -= used + 12;
+        } else if (shortcuts) {
             const auto width = std::min(144.0f, std::max(0.0f, (right - left - 12) / 2));
             const Rect shortcut{right - width, content.y + 4, width, std::max(0.0f, content.height - 8)};
             const auto values = resolve(StylePart::shortcut);
-            if (values.background || values.border_brush || trailing_shortcut_badges)
-                styled_surface(shortcut, palette, values, palette.field, palette.border, 4,
-                               trailing_shortcut_badges ? Insets{1, 1, 1, 1} : Insets{});
+            if (values.background || values.border_brush)
+                styled_surface(shortcut, palette, values, palette.field, palette.border, 4, {});
             draw_text(row.content.secondary, shortcut, StylePart::shortcut, disabled ? palette.disabled : palette.secondary,
                       TextStyle::caption);
             right -= width + 12;
@@ -577,43 +667,10 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
     float right = b.x + b.width - (action_visible ? 74 : row.content.submenu ? 34 : 10);
     if (trailing_shortcut_badges) {
         const float gap = std::min(12.0f, std::max(0.0f, right - left));
-        const float lane = std::min(144.0f, std::max(0.0f, (right - left - gap) / 2));
-        const float height = std::min(24.0f, std::max(0.0f, b.height - 8));
+        const float lane = std::max(0.0f, (right - left - gap) / 2);
         const auto badge_ink = enabled && row.content.enabled ? palette.text : palette.disabled;
-        const std::wstring_view shortcut = row.content.secondary;
-        struct Keycap {
-            Microsoft::WRL::ComPtr<IDWriteTextLayout> label;
-            float width{}, text_width{};
-        };
-        std::vector<Keycap> keys;
-        float total_width{};
-        for (std::size_t start = 0; start < shortcut.size() && total_width + (keys.empty() ? 0 : 4) + 12 < lane;) {
-            auto end = shortcut.find(L'+', start);
-            // A final '+' is the key in shortcuts such as Ctrl++.
-            if (end == std::wstring_view::npos || end == start) end = shortcut.size();
-            auto key = shortcut.substr(start, end - start);
-            while (!key.empty() && key.front() == L' ') key.remove_prefix(1);
-            while (!key.empty() && key.back() == L' ') key.remove_suffix(1);
-            if (!key.empty()) {
-                Size measured{};
-                auto label = layout(key, TextStyle::caption, measured);
-                if (!keys.empty()) total_width += 4;
-                const float key_width = std::min(std::max(24.0f, measured.width + 12), lane - total_width);
-                keys.push_back({std::move(label), key_width, measured.width});
-                total_width += key_width;
-            }
-            start = end == shortcut.size() ? end : end + 1;
-        }
-        float x = right - total_width;
-        for (const auto& key : keys) {
-            const Rect badge{x, b.y + (b.height - height) / 2, key.width, height};
-            rounded(badge, palette.field, 4);
-            rounded(badge, palette.high_contrast ? badge_ink : palette.border, 4, true);
-            const float inset = std::max(6.0f, (key.width - key.text_width) / 2);
-            text_layout(key.label.Get(), {x + inset, badge.y, std::max(0.0f, key.width - 2 * inset), height}, badge_ink);
-            x += key.width + 4;
-        }
-        if (!keys.empty()) right -= total_width + gap;
+        const auto used = shortcut_keycaps(row.content.secondary, {right - lane, b.y, lane, b.height}, palette, badge_ink);
+        if (used > 0) right -= used + gap;
     }
     const float width = std::max(0.0f, right - left);
     text(row.content.primary, {left, b.y + 3, width, secondary_visible ? 26 : b.height - 6}, ink);

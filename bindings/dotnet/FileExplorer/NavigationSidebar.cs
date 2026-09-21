@@ -134,7 +134,7 @@ internal sealed class NavigationSidebar : IDisposable
             if (command is null) continue;
             ulong key = Identify("command:" + id);
             actionCommands[key] = command;
-            ordered.Add(new(key, command.Name, Keywords: app.ShortcutHint(command), Enabled: command.Enabled, Icon: ButtonIcon.More));
+            ordered.Add(new(key, command.Name, Keywords: app.ShortcutHint(command), Enabled: command.Enabled, Icon: command.Icon));
         }
         foreach (string section in app.State.Customization.SidebarSections)
         {

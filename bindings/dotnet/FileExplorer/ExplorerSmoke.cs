@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll, SettingsOpen }
 
 internal static class ExplorerSmoke
 {
@@ -75,7 +75,7 @@ internal static class ExplorerSmoke
         commands.Clear();
         for (int i = 0; i < 3; i++)
             if (rows.Count != 1 || rows.Find(rows.Key(0)) != 0 ||
-                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true) ||
+                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true, Icon: command.Icon) ||
                 evaluations != 1 || executions != 0)
                 throw new InvalidOperationException("Command source callbacks must read only the captured row snapshot.");
         var refreshed = new CommandRows([command]);
@@ -114,6 +114,13 @@ internal static class ExplorerSmoke
                 {
                     await ContextActionsSmoke.Run(app, Ui, Until, fixture);
                     Console.WriteLine("Explorer context actions smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsOpen)
+                {
+                    await SettingsOpenSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings opening smoke passed.");
                     await Ui(app.Window.Close);
                     return;
                 }
