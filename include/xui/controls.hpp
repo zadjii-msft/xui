@@ -24,12 +24,18 @@ enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, min
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 enum class CheckState { unchecked, checked, indeterminate };
 enum class InfoBadgeKind { dot, count, icon };
+struct MenuIcon {
+    // Top-down premultiplied BGRA. An empty image selects the theme-colored command glyph.
+    std::uint32_t width{}, height{};
+    std::vector<std::uint32_t> pixels;
+};
 struct MenuItem {
     // Use '&' for a mnemonic, '&&' for a literal '&', and '\t' before a shortcut label.
     // Shortcut labels do not register application keyboard shortcuts.
     std::wstring text;
     std::function<void()> action;
     bool enabled{true}, checked{}, separator{};
+    std::shared_ptr<const MenuIcon> icon;
 };
 enum class ShellMenuPresentation { windows, xui };
 struct ContextMenuContent {
@@ -50,6 +56,8 @@ public:
     void set_single_click_activation(bool value) { single_click_activation_ = value; }
     float presentation_font_size() const { return presentation_font_size_; }
     void set_presentation_font_size(float value);
+    const std::shared_ptr<const StyleFontFamily>& presentation_font_family() const { return presentation_font_family_; }
+    void set_presentation_font_family(std::string_view value);
     // Backend presentation context. Changing style preserves the control model.
     void set_visual_style(VisualStyle style);
     const std::wstring& name() const { return name_; }
@@ -124,6 +132,7 @@ private:
     bool tab_stop_{true};
     bool thumbnail_fill_{}, single_click_activation_{};
     float presentation_font_size_{};
+    std::shared_ptr<const StyleFontFamily> presentation_font_family_;
     std::function<ContextMenuContent()> menu_;
     std::function<void()> focus_;
     TextMeasurer measurer_;

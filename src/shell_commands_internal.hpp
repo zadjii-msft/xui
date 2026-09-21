@@ -22,6 +22,7 @@ public:
     struct State;
     static std::shared_ptr<AsyncShellMenu> prepare(HWND owner, std::vector<std::wstring> paths, bool canonical_verbs = false);
     static std::shared_ptr<AsyncShellMenu> start(HWND owner, std::vector<std::wstring> paths);
+    static std::shared_ptr<AsyncShellMenu> prefetch(HWND owner, std::wstring path);
     ~AsyncShellMenu();
     bool ready() const;
     void begin();

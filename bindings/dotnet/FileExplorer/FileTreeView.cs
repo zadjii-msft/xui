@@ -23,7 +23,6 @@ internal sealed class FileTreeView
         this.identify = identify;
         View = app.Window.TreeView($"Tree in pane {number}");
         View.SetAutomationId($"pane-{number}-tree");
-        View.SetControlStyle(ExplorerStyles.FileTree);
         View.SetColumns(FileRows.Columns);
         View.OnRequest(LoadChildren);
     }

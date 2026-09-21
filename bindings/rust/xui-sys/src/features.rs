@@ -596,6 +596,7 @@ unsafe extern "C" {
     pub fn xui_command_invoke(target: u64, id: u64, pin: u32) -> i32;
     pub fn xui_command_bind(target: u64, id: u64, key: u32, modifiers: u32) -> i32;
     pub fn xui_shell_show(anchor: u64, paths: *const Text, count: u32) -> i32;
+    pub fn xui_shell_prefetch(window: u64, path: Text) -> i32;
     pub fn xui_canvas_scene(target: u64, shapes: *const Shape, count: u32) -> i32;
     pub fn xui_map_markers(target: u64, markers: *const MapMarker, count: u32) -> i32;
     pub fn xui_map_request(target: u64, request: *mut u64) -> i32;

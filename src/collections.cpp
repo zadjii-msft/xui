@@ -153,11 +153,19 @@ std::optional<std::size_t> ItemsSource::navigate(std::optional<std::size_t> row,
     return {};
 }
 bool CollectionSelection::contains(ItemKey key) const {
+    const CollectionIndex* previous{};
+    std::optional<std::size_t> row;
+    bool selectable{};
     for (auto it = terms_.rbegin(); it != terms_.rend(); ++it) {
         if (!it->index) { if (it->key == key) return it->selected; continue; }
-        const auto index = it->index->find(key);
-        if (index && it->index->selectable(*index) && *index >= it->first && *index <= it->last &&
-            (!it->columns || (*index % it->columns >= it->left && *index % it->columns <= it->right))) return it->selected;
+        // Range terms retain immutable snapshots; point exceptions do not change the lookup domain.
+        if (previous != it->index.get()) {
+            previous = it->index.get();
+            row = previous->find(key);
+            selectable = row && previous->selectable(*row);
+        }
+        if (selectable && *row >= it->first && *row <= it->last &&
+            (!it->columns || (*row % it->columns >= it->left && *row % it->columns <= it->right))) return it->selected;
     }
     return false;
 }
@@ -268,6 +276,7 @@ struct Span {
     std::optional<ItemKey> parent;
     std::optional<ItemGroup> group;
     bool collapsed{};
+    std::size_t offset{};
 };
 class Projection final : public ItemsSource {
 public:
@@ -278,14 +287,16 @@ public:
     std::map<ItemKey, std::wstring> messages;
     void add(Span span) {
         if (span.count > INT_MAX - count) throw std::length_error("Collection supports at most INT_MAX items");
-        count += span.count; if (span.count) spans.push_back(std::move(span));
+        if (!span.count) return;
+        span.offset = count;
+        spans.push_back(std::move(span));
+        count += spans.back().count;
     }
     std::pair<const Span&, std::size_t> at(std::size_t row) const {
-        for (const auto& span : spans) {
-            if (row < span.count) return {span, span.first + row};
-            row -= span.count;
-        }
-        throw std::out_of_range("Collection index");
+        if (row >= count) throw std::out_of_range("Collection index");
+        const auto& span = *std::prev(std::upper_bound(spans.begin(), spans.end(), row,
+            [](std::size_t index, const Span& span) { return index < span.offset; }));
+        return {span, span.first + row - span.offset};
     }
     std::size_t size() const override { return count; }
     bool selectable(std::size_t row) const override { return !at(row).first.group; }
@@ -294,10 +305,16 @@ public:
     }
     std::optional<std::size_t> find(ItemKey key) const override {
         std::size_t base{};
+        const ItemsSource* previous{};
+        std::optional<std::size_t> found;
         for (const auto& span : spans) {
             if (span.group) { if (span.group->key == key) return base; }
             else {
-                const auto found = span.source->find(key);
+                // Group headers do not change the immutable source lookup domain.
+                if (previous != span.source.get()) {
+                    previous = span.source.get();
+                    found = previous->find(key);
+                }
                 if (found && *found >= span.first && *found - span.first < span.count) return base + *found - span.first;
             }
             base += span.count;

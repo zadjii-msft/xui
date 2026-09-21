@@ -108,8 +108,10 @@ CustomShellMenu::CustomShellMenu(std::shared_ptr<ShellCommandProvider> provider,
     state_->session = std::make_shared<ShellCommandSession>(std::move(provider));
     std::vector<CommandRecord> records;
     const auto fallback = [state = state_] { state->fallback(); };
-    const auto append = [&](CommandRecord record) {
-        record.id = records.size() + 1; records.push_back(std::move(record)); return records.back().id;
+    const auto append = [&](CommandRecord record, std::shared_ptr<const MenuIcon> icon = {}) {
+        record.id = records.size() + 1;
+        if (icon) icons_.emplace(record.id, std::move(icon));
+        records.push_back(std::move(record)); return records.back().id;
     };
     bool overflow{};
     const auto budget = CommandSet::maximum_commands - apps.size() - 4;
@@ -128,15 +130,16 @@ CustomShellMenu::CustomShellMenu(std::shared_ptr<ShellCommandProvider> provider,
                 record.label = menu_label(item.label); record.shortcut_hints = item.shortcut_hints;
                 record.icon = item.icon;
                 if (item.separator) { record.kind = CommandKind::separator; record.checked.reset(); append(std::move(record)); continue; }
+                const auto icon = item.native_icon;
                 const bool incompatible = item.native_only || record.label.empty() || depth >= 7;
                 if (incompatible) {
                     if (record.label.empty()) record.label = L"Windows command";
                     if (record.label.size() > 990) record.label = L"Long command label";
                     record.label += L" (Windows menu...)"; record.action = fallback;
-                    append(std::move(record));
+                    append(std::move(record), icon);
                 } else if (!item.children.empty()) {
                     record.kind = CommandKind::submenu;
-                    const auto index = records.size(), id = append(std::move(record));
+                    const auto index = records.size(), id = append(std::move(record), icon);
                     self(self, item.children, id, depth + 1);
                     if (records.size() == index + 1) {
                         records[index].kind = CommandKind::action; records[index].action = fallback;
@@ -144,7 +147,7 @@ CustomShellMenu::CustomShellMenu(std::shared_ptr<ShellCommandProvider> provider,
                     }
                 } else {
                     record.action = [state = state_, key = item.key] { state->shell(key); };
-                    append(std::move(record));
+                    append(std::move(record), icon);
                 }
             }
         };
@@ -168,7 +171,7 @@ CustomShellMenu::CustomShellMenu(std::shared_ptr<ShellCommandProvider> provider,
             if (item.checked) record.checked = true;
             record.action = [state = state_, action = item.action] { state->app(action); };
         }
-        append(std::move(record));
+        append(std::move(record), item.separator ? nullptr : item.icon);
     }
     if (!records.empty()) separator();
     CommandRecord native; native.label = L"Show Windows menu..."; native.action = fallback; append(std::move(native));
@@ -201,6 +204,7 @@ std::vector<MenuItem> CustomShellMenu::menu_items() const {
         item.enabled = record.enabled && record.kind != CommandKind::section;
         item.checked = record.checked.value_or(false);
         item.separator = record.kind == CommandKind::separator;
+        if (const auto icon = icons_.find(record.id); icon != icons_.end()) item.icon = icon->second;
         items.push_back(std::move(item));
     }
     return items;

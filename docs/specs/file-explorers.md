@@ -41,16 +41,34 @@ It opens customization even if the toolbar, sidebar, and command-palette keybind
 ### Edit the markup
 
 `ExplorerLayout.xui` composes the sidebar, file panes, and notification.
-`FilePaneLayout.xui` defines each pane, including its toolbar, file grid, Find row, and status.
+`FilePaneLayout.xui` defines each pane, including its toolbar, file-view placement, compact Tree style, Find row, and status.
+It creates the Details and Items controls and accepts the controller-owned Tree and Columns controls through `Content`.
+
+`BreadcrumbAddressLayout.xui` defines the address container and its parent-folder button.
+`BreadcrumbMenuLayout.xui` defines the folder popup, list, and message.
+`BreadcrumbSegmentLayout.xui` defines each name-and-chevron pair and its name-button style.
+`BreadcrumbSpaceLayout.xui` defines the keyboard-accessible trailing button without a visible glyph.
+
 `SidebarLayout.xui` defines the navigation control.
-`PaletteLayout.xui` defines the folder and command palette.
+`PaletteLayout.xui` defines the folder and command palette, including its reactive status text, visibility, and height.
 `ViewMenuLayout.xui` defines the footer's view-choice flyout.
 `FilePaneView` creates a compact command menu for folder and file order beside it.
+
 `PreviewLayout.xui` defines the content of an independent preview window.
-Its content parameters accept the image, native text, and status controls from `PreviewSession`.
+Its overlay grid accepts the image, native text, and status controls from `PreviewSession`.
+It also defines the native text and image styles.
 `PreviewMetadataLayout.xui` defines the large icon and file details for folders and unsupported formats.
+Its constructor receives the file entry, and its state controls metadata visibility.
+
 Generated control references connect these layouts to their C# controllers.
 The `FindOpen` state controls the [bottom reveal](animations.md) for the Find row.
+
+The controllers retain event handlers, filesystem work, cancellation, and immutable collection sources.
+They also configure native features without a declarative argument.
+Shared styles for title-bar icons and nested navigation controls remain in `ExplorerStyles`.
+Dynamic breadcrumb composition retains its `ContentHost` ownership and 64-segment limit.
+An unchanged path does not rebuild its controls.
+The generated components share immutable styles and create the existing native controls without a runtime parser or per-frame reconciliation.
 
 After the native build, use the [restart-on-save command](../../CONTRIBUTING.md#c-file-explorer) for markup changes.
 
@@ -296,11 +314,22 @@ The XUI menu combines supported Windows Shell commands with folder navigation, b
 It uses the same styled native context menu as the gallery's Menus and confirmation page, not a `CommandSurface` popup.
 Shell commands still run through their original Windows handlers.
 The Show Windows menu... item opens the full native menu for extension-specific content that requires native handling.
-Labeled commands with native bitmaps remain available as text in XUI.
+Shell commands in the XUI menu show their supported native icons.
+Commands without a supported bitmap have no icon. The Windows-menu fallback also has no icon.
+Supplied icons retain their colors. Disabled commands and high-contrast menus use theme-colored glyphs instead of bitmap colors.
+Checkmarks remain visible beside the icons.
 Native submenus and owner-drawn entries use the Windows menu fallback.
 Open in this pane keeps folder navigation in the demo. Shell Open uses Windows behavior.
 Files omit folder-only commands and duplicate Open actions.
 Selection or source changes cancel pending menu actions instead of changing their target.
+
+`--prefetch-shell-menus` enables an experimental background warmup after each successful directory navigation.
+The title includes `[menu prefetch]`. Without the flag, navigation does not request a menu.
+The warmup discovers one menu for the destination directory, releases its handlers, and retains no commands.
+Navigation changes and closure cancel obsolete warmups.
+Interactive requests take priority, but cannot interrupt a Shell extension inside COM.
+Failures and busy-worker skips produce Windows debugger diagnostics.
+The [contributor procedure](../../CONTRIBUTING.md#try-prefetch-inside-fileexplorer) describes the comparison build.
 
 The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
@@ -374,6 +403,7 @@ Native file drag and drop remains available in Details.
 ### Columns view
 
 Columns view starts at the committed folder.
+Its rows use the same 32-DIP height as Details, with unchanged icons and text.
 A single selection of a folder loads its children in the next column.
 Ancestor columns remain visible. A sibling selection replaces the columns to its right.
 A file selection does not open the file.
@@ -431,6 +461,7 @@ Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
+The preview keeps this document font when the UI font changes, but uses the configured font size.
 An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights supported source files, including `.xui`, C#, C++, JSON, and Python.
 Unknown extensions remain plain text.
 Highlighting does not change the preview's file-read restrictions, content limit, or cancellation scope.

@@ -21,6 +21,17 @@ public sealed unsafe partial class Window
 
 public abstract partial class Element
 {
+    public unsafe Element SetPresentationFontFamily(string? family)
+    {
+        Window.Guard();
+        if (family is not null && (family.Length == 0 || family.Length > 128))
+            throw new ArgumentOutOfRangeException(nameof(family));
+        var bytes = Window.Utf8(family ?? "");
+        fixed (byte* p = bytes)
+            Window.Check(Native.ControlPresentationFontFamily(Handle, Window.Span(p, bytes)));
+        return this;
+    }
+
     public Element SetPresentationFontSize(float? fontSize)
     {
         Window.Guard();
@@ -50,4 +61,6 @@ internal static partial class Native
     internal static partial int ControlSetPresentation(ulong control, uint singleClick, uint thumbnailFill);
     [LibraryImport("xui", EntryPoint = "xui_control_presentation_font_size")]
     internal static partial int ControlPresentationFontSize(ulong control, float fontSize);
+    [LibraryImport("xui", EntryPoint = "xui_control_presentation_font_family")]
+    internal static partial int ControlPresentationFontFamily(ulong control, Text fontFamily);
 }

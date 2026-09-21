@@ -571,6 +571,7 @@ dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
 ```
 
 The complete `--smoke` run includes these address-bar checks.
+The address-bar checks also cover shared declarative styles, unchanged-path identity, and the 64-segment limit.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
 The customization checks cover key sequences, shortcut conflicts, import errors, legacy state, and native editor shortcut ownership:
@@ -655,6 +656,100 @@ if ($process.ExitCode -ne 0) { throw "Explorer context actions smoke failed." }
 `xui_shell_menu_tests` separately checks command invocation with a fixture COM provider.
 Its snapshot checks cover canonical verbs, original command IDs, cancellation, and stale handle rejection.
 
+The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes.
+It also checks date preferences after declarative metadata becomes visible and after preferences change:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--preview-smoke" -PassThru -Wait
+$process.ExitCode
+```
+
+The complete `--smoke` run includes the same preview checks.
+
+#### Shell menu prefetch experiment
+
+The native probe uses the same asynchronous Shell worker as the C# explorer.
+It discovers commands without displaying a menu or invoking a Shell verb.
+It does not change directory navigation.
+Each probe process starts with a fresh worker. Windows and external Shell services can retain their caches between processes.
+
+Build the probe:
+
+```powershell
+cmake --build $build --config Release --target xui_shell_menu_tests --parallel 4
+$probe = ".\$build\Release\xui_shell_menu_tests.exe"
+$target = ".\bindings\dotnet\FileExplorer\Models"
+$warmup = ".\bindings\dotnet\FileExplorer"
+```
+
+Run the control and the completed-prefetch case in separate processes:
+
+```powershell
+& $probe $target --prefetch-probe - 0
+& $probe $target --prefetch-probe $warmup 0
+```
+
+The arguments are `TARGET --prefetch-probe WARMUP_OR_DASH DELAY_MS`.
+A dash disables prefetch. The delay accepts integers from 0 through 60000.
+The probe waits for prefetch completion and handler release before the delay starts.
+It then discovers the target twice, with fresh handlers for each request.
+This is the best case for hidden prefetch cost, not a measurement of a click during unfinished prefetch.
+
+For the idle-timeout comparison, use `11000` for both commands.
+The worker exits after ten idle seconds.
+For other target types, use `.\build\ARM64\CMakeCache.txt` or `.\assets\branding\generated\zoey-32.png`.
+Replace `ARM64` with the configured architecture.
+For a text warmup, use `.\CMakeLists.txt`.
+Repeat each pair in alternating order to reduce order effects.
+
+The CSV output reports `phase`, `ready_ms`, `cleanup_ms`, `entries`, and `foreground_changed`.
+The phases are `prefetch`, `target-first`, and `target-repeat`.
+Ready time includes worker startup, provider construction, and top-level metadata discovery.
+Cleanup time includes the metadata snapshot and cancellation through handler release.
+Polling adds scheduler-dependent overhead. These times do not measure menu painting or C# navigation.
+The foreground flag reports a change between samples, not its cause or the absence of transient activation.
+Discovery errors, missing paths, invalid delays, and waits beyond the deadline produce a nonzero exit code.
+Installed Shell extensions determine the results. This probe is not a fixed latency gate.
+
+The [experiment notes](docs/llm/shell-menu-discovery.md#prefetch-experiment-september-19-2026) record the initial measurements and limitations.
+
+#### Try prefetch inside FileExplorer
+
+Build the matching DLL and explorer:
+
+```powershell
+cmake --build $build --config Release --target xui --parallel 4
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$PWD\$build\Release"
+$exe = ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe"
+```
+
+Run the experiment:
+
+```powershell
+& $exe "$PWD" --prefetch-shell-menus
+```
+
+The title includes `[menu prefetch]`.
+Each successful directory navigation requests one hidden menu for that directory.
+The request runs outside the UI thread and retains no menu commands.
+New navigation, tab changes, pane closure, and window closure cancel obsolete work.
+Interactive menu requests take priority, but an extension already inside COM can delay them.
+Discovery failures and skipped requests produce Windows debugger diagnostics.
+This mode does not guarantee faster menus.
+
+For the control, run the same executable without the flag:
+
+```powershell
+& $exe "$PWD"
+```
+
+For a navigation smoke with prefetch enabled, run:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--address-smoke", "--prefetch-shell-menus" -PassThru -Wait
+$process.ExitCode
+```
+
 ### NativeAOT and deployment
 
 ```powershell
@@ -706,6 +801,7 @@ For local builds, select the matching SDK through `PATH` before each architectur
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture ARM64 -StageDirectory build\release-stage
 .\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
+.\tests\templates.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
 .\tests\release-designer.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-workflow.ps1
@@ -723,7 +819,7 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, the release samples, the Designer, the NuGet package, and both Cargo crates.
+It builds both architectures, the release samples, the Designer, both NuGet packages, and both Cargo crates.
 The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
 Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
 No separate .NET installation is necessary.
@@ -758,9 +854,43 @@ git push origin release/0.1.0
 
 Before publication, review the draft assets and generated notes.
 XUI uses the root MIT license.
-The NuGet package, both Cargo crates, and both sample ZIPs include that license.
+Both NuGet packages, both Cargo crates, and all sample and Designer ZIPs include that license.
+
+### Project template package
+
+`templates\xui` contains the application source and `.template.config\template.json`.
+`packaging\Xui.Templates.nuspec` defines the template package.
+`scripts\Pack-Templates.ps1` sets the generated `Xui` reference to the package version in a staging directory.
+It does not edit the tracked template source or require a native build.
+
+```powershell
+.\scripts\Pack-Templates.ps1 -Version 0.1.0 -OutputDirectory build\template-assets
+.\tests\templates.ps1
+```
+
+The standalone test packs, installs, generates, and uninstalls the template in an isolated template directory.
+It checks package contents, version substitution, project names, current-directory generation, and preservation of C# preprocessor directives.
+The test does not change the user's installed templates or package sources.
+The `Project template` workflow runs this test for template changes.
+
+With `-AssetDirectory`, the test also builds generated projects against the matching `Xui` release package.
+These checks cover Debug hot reload, the explicit opt-out, Release output, and publish output.
+The release workflow runs this mode for x64 and ARM64 before draft creation.
+`-FrameworkSource` selects an alternate feed for Microsoft framework packages.
+
+The C# template disables template-engine condition processing with `cnd` directives.
+Without those directives, `dotnet new` removes the `XUI_HOT_RELOAD` branches before compilation.
+Keep those directives in the template source.
+They do not appear in generated applications.
+
+The release assets include `Xui.Templates.<version>.nupkg` and its checksum.
+Registry publication remains a maintainer action.
+Before distribution through a registry, publish the matching `Xui` package to the same configured source.
+The [template guide](docs/specs/packages.md#create-a-project-with-dotnet-new) contains installation and application commands.
 
 ## Tests
+
+### Native regression checks
 
 Run the registered native tests after a build:
 
@@ -792,6 +922,38 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+### Performance regression checks
+
+Build the layout, collection, and text-cache fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui_layout_performance_tests xui_collections_tests xui_collection_presentation_tests xui_style_collections_tests xui_style_grid_tests xui_style_basic_render_tests xui_style_navigation_render_tests
+ctest --test-dir $build -C Release -R "^xui_(layout_performance|collections|collection_presentation|style_collections|style_grid)_tests$" --output-on-failure
+& ".\$build\Release\xui_style_basic_render_tests.exe"
+& ".\$build\Release\xui_style_navigation_render_tests.exe"
+```
+
+The layout fixture requires zero scratch allocations after its initial pass.
+It also covers reentrant layout, exceptions, changed constraints, child growth, and styled alignment.
+The collection fixtures cover projection boundaries, source lookup counts, identity, collapse, exceptions, and grid geometry.
+The rendering fixtures cover text-cache identity, ownership, allocation counts, cache limits, and pixels.
+The rendering fixtures create their own Windows rendering surfaces.
+
+After other builds and tests stop, run the microbenchmarks:
+
+```powershell
+& ".\$build\Release\xui_style_basic_render_tests.exe" --benchmark
+& ".\$build\Release\xui_collections_tests.exe" --benchmark
+```
+
+The text benchmark reports median lookup time for small and full caches.
+It also reports the size of each retained cache entry.
+The collection benchmark reports selection and projection workloads with source lookup counts.
+These results describe lookup work, not application frame time.
+The [maintainer report](docs/llm/testing.md#framework-performance-pass-september-19-2026) records the measurement scope.
+
+### Native presentation checks
+
 For scroll-frame changes, build and run the presentation fixtures:
 
 ```powershell
@@ -803,6 +965,8 @@ These fixtures require `XUI_DESKTOP_TESTS=ON` and an interactive desktop.
 The existing flicker fixtures also require an unobscured window.
 The scroll-frame fixtures use owned-window capture without cursor pixels.
 The scroll-frame fixtures save diagnostic BMP files under `scroll-frames` or `winui-scroll-frames` in the build directory after a pixel mismatch.
+
+### Binding and compiler checks
 
 Compiler and model checks do not need a native window:
 

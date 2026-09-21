@@ -63,6 +63,9 @@ XUI_API xui_status XUI_CALL xui_control_set_presentation(xui_handle control,
 /* Overrides window presentation typography for this control. Zero inherits the window;
    otherwise font_size must be a finite value in [8,32] DIPs. */
 XUI_API xui_status XUI_CALL xui_control_presentation_font_size(xui_handle control, float font_size) XUI_NOEXCEPT;
+/* Overrides the window font family for this control. An empty span restores inheritance.
+   The UTF-8 family name must contain at most 128 UTF-16 units. */
+XUI_API xui_status XUI_CALL xui_control_presentation_font_family(xui_handle control, xui_string font_family) XUI_NOEXCEPT;
 typedef struct xui_window_options {
     uint32_t size;
     uint32_t version;

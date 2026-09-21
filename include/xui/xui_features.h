@@ -567,6 +567,11 @@ XUI_API xui_status XUI_CALL xui_command_bind(xui_handle target,
     uint64_t id, uint32_t key, uint32_t modifiers) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_shell_show(xui_handle anchor,
     const xui_string* paths, uint32_t count) XUI_NOEXCEPT;
+/* Experimental, open-window UI thread only. Empty path cancels this window's warmup.
+   Best-effort discovery for one path, never menu display, command caching, or invocation.
+   Interactive requests take priority. COM calls already in progress cannot be interrupted.
+   Discovery failures and busy-worker skips emit debugger diagnostics. Closure cancels. */
+XUI_API xui_status XUI_CALL xui_shell_prefetch(xui_handle window, xui_string path) XUI_NOEXCEPT;
 typedef struct xui_scene_point { float x, y; } xui_scene_point;
 typedef struct xui_shape {
     uint32_t size, flags; /* closed=1, interactive=2, has-clip=4 */

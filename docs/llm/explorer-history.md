@@ -5,6 +5,14 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Customization and declarative presentation integration, 2026-09-21
+
+The merge retains canonical Shell actions and the opt-in Shell prefetch experiment.
+`PreviewMetadataLayout.DateFormat` binds the date preference instead of replacing generated label text.
+Metadata visibility changes therefore preserve the selected date format.
+Text previews use a control-specific presentation family to preserve Cascadia Mono under the window typography policy.
+The document font size still follows customization.
+
 ## Settings popup opening, 2026-09-21
 
 The ARM64 Release settings popup created native children for every hidden page.
@@ -39,6 +47,55 @@ These are local measurements, not performance guarantees for other computers.
 
 Artifacts: `build\settings-open-comparison.out`, `build\settings-open-final.out`, and `build\settings-open-native-final-build.log`.
 The matching executable was `build\settings-open-validation\FileExplorer.exe`.
+
+## Declarative presentation refactor, 2026-09-19
+
+`FilePaneView` configures every retained Columns list with a 32-DIP row height to match Details.
+The framework default remains 40 DIPs.
+`--views-smoke` checks compact row hit targets and selection after vertical scrolling.
+
+The refactor uses the existing compiler without new language features.
+`BreadcrumbAddressLayout`, `BreadcrumbMenuLayout`, `BreadcrumbSegmentLayout`, and `BreadcrumbSpaceLayout` own the fixed address presentation.
+`BreadcrumbAddressBar` retains the dynamic adaptive chain, scoped replacement, dispatch guard, cancellation, and 64-segment limit.
+An unchanged path preserves its controls.
+Generated segment and trailing-space styles share immutable definitions across replacements and panes.
+
+`FilePaneLayout` owns the complete file-view placement and compact Tree style.
+Tree and Columns constructors remain in C# because the language has no native nodes for those controls.
+Their immutable sources, lazy requests, selection, and context menus remain in the controllers.
+`PreviewLayout` owns the overlay grid and text/image styles.
+`PreviewMetadataLayout` receives the file entry and controls metadata visibility without temporary label arrays.
+`PaletteLayout` owns status text, visibility, and height.
+
+Shared title-bar button styles and nested navigation styles remain in `ExplorerStyles`.
+The language cannot reference external named styles or configure those existing nested controls without changing their ownership.
+Native-only properties, event handlers, image decode limits, and generic vector scenes remain in C#.
+No collection row moved into a generated component.
+The refactor adds no native controls, per-frame bindings, runtime parser, or view-replacement loop.
+
+The comparison baseline was `6ef78129de43555027c755f18d7c6043190b7125`.
+A local probe compared `BreadcrumbAddressBar.SetPath` against an archived baseline with the same ARM64 native DLL.
+It used hidden windows, warmup, and five batches of 300 alternating paths.
+Six-segment updates allocated 25,252 bytes before and 29,164 bytes after the refactor.
+The 64-segment case allocated approximately 350 KB before and 388 KB after the refactor.
+These are temporary construction allocations, not per-frame or per-row costs.
+
+Observed timings overlapped across runs, with variable host load.
+The probe does not measure visible layout, painting, or filesystem latency, and does not establish a speed improvement.
+
+The ARM64 Release build passed without warnings.
+The final `--address-smoke`, `--views-smoke`, `--view-switch-smoke`, and `--preview-smoke` runs passed.
+The address checks cover style sharing, unchanged-path identity, the retained bound, geometry, input, and cancellation.
+The preview checks cover native style values, metadata, decoding, text input, and previews after the Explorer window closes.
+The model suite passed 78,695 assertions.
+The documentation adapter suite passed 24 tests.
+
+The complete smoke did not pass.
+It stopped at the existing footer-feedback assertion after the earlier scenarios.
+The unmodified baseline stopped earlier at native palette Escape focus restoration.
+A temporary baseline harness ran only its existing address and feedback checks and reproduced the same footer assertion.
+Address error scenarios leave persistent notifications, but the feedback assertion requires a zero-height notification.
+The refactor does not change this notification behavior or weaken either assertion.
 
 ## Immediate switches and compact Tree rows, 2026-09-18
 

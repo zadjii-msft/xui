@@ -166,6 +166,9 @@ public:
     void show_location_picker(std::shared_ptr<LocationPicker> picker, Control& anchor);
     // Explicit native fallback for third-party Shell extensions. No verbs run during discovery.
     void show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths);
+    // Experimental best-effort warmup for one path. Empty cancels. No commands are cached or invoked.
+    // Requires an open Window. Discovery failures and busy-worker skips emit debugger diagnostics.
+    void prefetch_shell_commands(std::wstring path);
     void on_key(std::function<bool(const KeyEvent&)> callback);
     // Runs on the UI thread. Returns false after close. Close discards queued work.
     // Worker threads can post while the Window lives. Posted exceptions close the Window.

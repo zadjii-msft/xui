@@ -8,12 +8,58 @@
 #include <wrl/client.h>
 #include <atomic>
 #include <mutex>
+#include <algorithm>
 
 namespace xui {
 std::atomic<ShellMenuTestAccess::Track> ShellMenuTestAccess::track{};
 std::atomic<ShellMenuTestAccess::Create> ShellMenuTestAccess::create{};
 namespace {
 using Microsoft::WRL::ComPtr;
+std::shared_ptr<const MenuIcon> copy_menu_icon(HBITMAP bitmap, std::size_t& remaining) {
+    // HBMMENU_* values are pseudo-handles, not bitmaps. Never call an extension to paint them.
+    const auto value = reinterpret_cast<INT_PTR>(bitmap);
+    if (value >= -1 && value <= 12) return {};
+    BITMAP source{};
+    if (GetObjectW(bitmap, sizeof(source), &source) != sizeof(source)) {
+        OutputDebugStringW(L"XUI Shell menu: unreadable icon; omitting icon.\n");
+        return {};
+    }
+    if (source.bmWidth <= 0 || source.bmHeight <= 0 || source.bmWidth > 64 || source.bmHeight > 64) {
+        OutputDebugStringW(L"XUI Shell menu: icon exceeds 64x64 limit; omitting icon.\n");
+        return {};
+    }
+    const auto bytes = std::size_t(source.bmWidth) * source.bmHeight * 4;
+    if (bytes > remaining) {
+        OutputDebugStringW(L"XUI Shell menu: icon budget exceeded; omitting icon.\n");
+        return {};
+    }
+    struct Context {
+        HDC dc{CreateCompatibleDC(nullptr)};
+        ~Context() { if (dc) DeleteDC(dc); }
+    } context;
+    win32_require(context.dc != nullptr, "Copy Shell menu icon");
+    auto icon = std::make_shared<MenuIcon>();
+    icon->width = source.bmWidth; icon->height = source.bmHeight;
+    icon->pixels.resize(bytes / 4);
+    BITMAPINFO info{};
+    info.bmiHeader = {sizeof(BITMAPINFOHEADER), source.bmWidth, -source.bmHeight, 1, 32, BI_RGB};
+    if (GetDIBits(context.dc, bitmap, 0, icon->height, icon->pixels.data(), &info, DIB_RGB_COLORS) != source.bmHeight) {
+        OutputDebugStringW(L"XUI Shell menu: cannot copy icon pixels; omitting icon.\n");
+        return {};
+    }
+    const bool alpha = source.bmBitsPixel == 32 &&
+        std::any_of(icon->pixels.begin(), icon->pixels.end(), [](auto pixel) { return (pixel >> 24) != 0; });
+    for (auto& pixel : icon->pixels) {
+        if (!alpha) pixel |= 0xff000000;
+        else {
+            const auto a = pixel >> 24;
+            pixel = (a << 24) | (std::min((pixel >> 16) & 255, a) << 16) |
+                (std::min((pixel >> 8) & 255, a) << 8) | std::min(pixel & 255, a);
+        }
+    }
+    remaining -= bytes;
+    return icon;
+}
 struct ActiveShellMenu {
     HWND root{};
     explicit ActiveShellMenu(HWND owner) {
@@ -100,7 +146,8 @@ class NativeShellProvider final : public ShellCommandProvider {
         if (message == WM_NCDESTROY) { RemoveWindowSubclass(hwnd, forward, id); self->owner_ = nullptr; }
         return DefSubclassProc(hwnd, message, w, l);
     }
-    std::vector<ShellCommandInfo> read(HMENU menu, std::stop_token stop, unsigned depth, std::size_t& count, bool gallery = false) {
+    std::vector<ShellCommandInfo> read(HMENU menu, std::stop_token stop, unsigned depth, std::size_t& count,
+        std::size_t& icon_budget, bool gallery = false) {
         if (depth > 8) throw std::length_error("Shell menu nesting exceeds eight");
         std::vector<ShellCommandInfo> result;
         const int total = GetMenuItemCount(menu);
@@ -122,6 +169,8 @@ class NativeShellProvider final : public ShellCommandProvider {
             entry.has_native_icon = item.hbmpItem != nullptr;
             entry.checked = (item.fState & MFS_CHECKED) != 0; entry.separator = (item.fType & MFT_SEPARATOR) != 0;
             entry.native_only = item.hSubMenu || (item.fType & MFT_OWNERDRAW) || entry.label.empty();
+            if (!entry.separator && !(item.fType & MFT_OWNERDRAW) && item.hbmpItem)
+                entry.native_icon = copy_menu_icon(item.hbmpItem, icon_budget);
             if (!item.hSubMenu && !entry.separator && item.wID >= 1 && item.wID <= 0x7fff) {
                 verbs_.insert(item.wID);
                 if (!gallery) {
@@ -130,7 +179,7 @@ class NativeShellProvider final : public ShellCommandProvider {
                         entry.verb = verb;
                 }
             }
-            if (item.hSubMenu && !gallery) entry.children = read(item.hSubMenu, stop, depth + 1, count);
+            if (item.hSubMenu && !gallery) entry.children = read(item.hSubMenu, stop, depth + 1, count, icon_budget);
             result.push_back(std::move(entry));
         }
         return result;
@@ -184,11 +233,11 @@ public:
     }
     std::vector<ShellCommandInfo> discover(std::stop_token cancellation) override {
         thread(); verbs_.clear(); next_synthetic_ = 0x10000;
-        std::size_t count{}; return read(menu_, cancellation, 0, count);
+        std::size_t count{}, icon_budget{4 * 1024 * 1024}; return read(menu_, cancellation, 0, count, icon_budget);
     }
     std::vector<ShellCommandInfo> gallery_commands(std::stop_token cancellation) {
         thread(); verbs_.clear(); next_synthetic_ = 0x10000;
-        std::size_t count{}; return read(menu_, cancellation, 0, count, true);
+        std::size_t count{}, icon_budget{4 * 1024 * 1024}; return read(menu_, cancellation, 0, count, icon_budget, true);
     }
     void invoke(ItemKey key) override {
         thread();
@@ -291,7 +340,7 @@ struct AsyncShellMenu::State {
     std::optional<size_t> app;
     std::mutex mutex;
     HWND owner{};
-    bool started{};
+    bool started{}, prefetch{};
     bool canonical_verbs{};
     enum class Action { none, invoke, windows } action{};
     ItemKey key{};
@@ -358,12 +407,15 @@ class ShellWorker {
         try {
             provider = create(state);
             if (!state->stop.stop_requested()) {
+                std::vector<ShellCommandInfo> commands;
                 if (auto native = std::dynamic_pointer_cast<NativeShellProvider>(provider); native && !state->canonical_verbs)
-                    state->commands = native->gallery_commands(state->stop.get_token());
-                else state->commands = provider->discover(state->stop.get_token());
+                    commands = native->gallery_commands(state->stop.get_token());
+                else commands = provider->discover(state->stop.get_token());
+                if (!state->prefetch) state->commands = std::move(commands);
             }
         } catch (const std::exception& error) { state->discovery_error = error.what(); }
         state->ready.store(true, std::memory_order_release);
+        if (state->prefetch) return;
         for (;;) {
             if (state->stop.stop_requested()) return;
             AsyncShellMenu::State::Action action;
@@ -435,6 +487,11 @@ class ShellWorker {
                 state->discovery_error = "Shell worker could not discover commands";
                 state->ready.store(true, std::memory_order_release);
             }
+            if (state->prefetch && !state->stop.stop_requested() && !state->discovery_error.empty()) {
+                OutputDebugStringA("XUI Shell menu prefetch failed: ");
+                OutputDebugStringA(state->discovery_error.c_str());
+                OutputDebugStringA("\n");
+            }
             state->finished.store(true, std::memory_order_release);
             { std::lock_guard lock(mutex_); active_.reset(); }
         }
@@ -469,6 +526,16 @@ public:
     bool submit(const std::shared_ptr<AsyncShellMenu::State>& state) {
         std::lock_guard lock(mutex_);
         if (stopping_) return false;
+        if (state->prefetch &&
+            ((active_ && !active_->prefetch && !active_->finished.load(std::memory_order_acquire)) ||
+                (pending_ && !pending_->prefetch))) {
+            state->cancel();
+            state->ready.store(true, std::memory_order_release);
+            state->finished.store(true, std::memory_order_release);
+            OutputDebugStringW(L"XUI Shell menu prefetch skipped: an interactive request has priority.\n");
+            return true;
+        }
+        if (!state->prefetch && active_ && active_->prefetch) active_->cancel();
         if (pending_) {
             pending_->discovery_error = "A newer Shell menu request replaced this request";
             pending_->cancel();
@@ -483,6 +550,12 @@ public:
 }
 std::shared_ptr<AsyncShellMenu> AsyncShellMenu::start(HWND owner, std::vector<std::wstring> paths) {
     auto request = prepare(owner, std::move(paths));
+    request->begin();
+    return request;
+}
+std::shared_ptr<AsyncShellMenu> AsyncShellMenu::prefetch(HWND owner, std::wstring path) {
+    auto request = prepare(owner, {std::move(path)});
+    request->state_->prefetch = true;
     request->begin();
     return request;
 }

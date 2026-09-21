@@ -16,6 +16,9 @@ The Designer retains managed assemblies and Roslyn for runtime compilation, with
 Its SDK must match the target architecture because the Designer references the SDK's Roslyn assemblies.
 `packaging\DESIGNER.md` supplies the [archive instructions](../../packaging/DESIGNER.md).
 `packaging\Xui.nuspec` defines the combined NuGet layout.
+`packaging\Xui.Templates.nuspec` defines the separate `dotnet new xui` package.
+[`packaging\TEMPLATES.md`](../../packaging/TEMPLATES.md) supplies the template package instructions.
+`scripts\Pack-Templates.ps1` sets the generated package reference version without a native build or tracked source edits.
 The native and managed imports have separate framework directories.
 `bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
 
@@ -33,6 +36,13 @@ The Cargo checks build extracted archives offline through a checksum-backed loca
 The consumer checks also build the Rust sample and run a window-free ABI probe with the DLL beside its executable.
 `FrameworkSource` selects an alternate configured feed for Microsoft runtime packages.
 The XUI package always comes from the local release assets.
+
+`tests\templates.ps1` checks the template archive and uses an isolated template directory outside the checkout.
+It checks installation, removal, default output, explicit names, namespace substitution, and preservation of hot-reload preprocessor branches.
+With release assets, it builds generated projects in Debug and Release, checks the hot-reload opt-out, and checks published native files.
+The release workflow runs these consumer checks on x64 and ARM64.
+The standalone template workflow checks package generation without native inputs.
+The test does not exercise interactive window behavior.
 
 `tests\release-samples.ps1` extracts both sample ZIPs.
 It checks the manifests, file hashes, exact C# inventory, native inventory, PE architectures, and imported PE dependencies.
@@ -54,7 +64,7 @@ The workflow runs these checks before the release builds.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
 It also checks per-asset upload retries, exponential delays, recovery on the last attempt, retry exhaustion, and a subsequent run.
 Successful uploads must not repeat during retries, and retry exhaustion must stop further uploads.
-It also requires both sample archives and both Designer archives before any GitHub request.
+It also requires every package and both sample and Designer archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
 It also publishes and runs the FileExplorer model tests with NativeAOT on each architecture.
@@ -1143,6 +1153,62 @@ Windows memory counters report private bytes and the working set.
 The memory sample includes source items, cached names, indices, views, and allocator retention.
 It excludes the directory identity map, graphics resources, and external UIA clients.
 Refreshes can temporarily retain both old and new sources.
+
+### Framework performance pass, September 19, 2026
+
+The baseline was `6ef78129de43555027c755f18d7c6043190b7125` with the new benchmark harness.
+The working-tree build used Windows ARM64, MSVC 19.44.35228, and Release configuration in `build\performance`.
+The [contributor procedure](../../CONTRIBUTING.md#performance-regression-checks) describes the focused checks and benchmark commands.
+The [architecture notes](architecture.md#layout-and-frame-hot-paths) describe the implementation boundaries.
+
+The layout fixture uses eight nested stacks and 64 leaf elements.
+It changes the available bounds over 10,000 root measurement and arrangement pairs.
+The baseline made 260,000 scratch allocations. The optimized path made zero after the initial pass.
+Both paths still measured each leaf three times per pair.
+Separate checks cover reentrant calls, measurement exceptions, child growth, geometry, and alignment on both axes.
+Scratch storage remains proportional to child count.
+
+The drawing fixture checks every typography field, equivalent font-family names, normalized wrapping, and mutable layout bounds.
+It also checks ownership release, long-text exclusion, entry limits, and allocation-free cache hits.
+On ARM64, a retained format entry decreased from 256 to 80 bytes.
+A retained layout entry decreased from 312 to 136 bytes.
+At the existing cache limits, these changes remove 33,792 bytes of live-entry payload per renderer.
+This total excludes vector spare capacity, text buffers, and DirectWrite resources.
+
+The selection fixture uses 128 ranges with intervening point terms over a million-row source.
+For 20,000 membership queries, source lookups decreased from 2,560,000 to 20,000.
+The projection fixture uses 4,096 groups, 12,289 spans, and 1,052,672 projected rows.
+Its row benchmark performs 60,000 span resolutions across 20,000 iterations.
+Separate final-item identity searches decreased from 1,638,600 source lookups to 200 for 200 queries.
+The span index adds eight bytes per span on ARM64.
+
+Initial timing runs overlapped other work on this shared machine.
+Those runs do not establish an application speedup.
+The deterministic allocation and operation counts are the regression gates.
+No result in this pass establishes application frame rate, idle CPU, or total process-memory limits.
+
+After all agent builds stopped, three sequential baseline/optimized pairs measured the text caches.
+Each result used the median of seven samples, with 200,000 lookups per sample.
+The table shows the median across the three runs, in nanoseconds per lookup.
+
+| Lookup | Cache entries | Baseline | Optimized |
+| --- | ---: | ---: | ---: |
+| Format | 1 | 21.259 | 7.718 |
+| Format | 64 | 177.565 | 161.361 |
+| Layout | 1 | 73.810 | 53.026 |
+| Layout | 128 | 236.727 | 216.032 |
+
+These microbenchmarks measure cache hits, not text shaping or complete frames.
+The final collection run reported 7.224 ms for membership queries and 5.216 ms for projection row access.
+No sequential collection timing baseline remained, so these times do not establish a relative speedup.
+The local output is `build\performance\sequential-benchmarks.txt`.
+
+The first incremental integration run used a stale collection object and failed the projection lookup-count assertion.
+A clean integrated rebuild removed that artifact.
+All 14 selected CTest fixtures then passed, including native Stack geometry, focus, identity, and undo checks.
+The basic and navigation rendering executables also passed their DirectWrite and software-pixel checks.
+The native DLL built from the same final sources.
+The local build log is `build\performance\clean-integrated-build.log`.
 
 ### Binding validation and measurement scope
 

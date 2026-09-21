@@ -460,6 +460,14 @@ xui_status XUI_CALL xui_control_presentation_font_size(xui_handle target, float 
         control(n).set_presentation_font_size(font_size);
     });
 }
+xui_status XUI_CALL xui_control_presentation_font_family(xui_handle target, xui_string font_family) noexcept {
+    return boundary([&] {
+        auto n = get(target); editable(n->owner);
+        const auto text = decode(font_family);
+        require(text.size() <= 128, XUI_INVALID_ARGUMENT, "Invalid font family.");
+        control(n).set_presentation_font_family(encode(text));
+    });
+}
 xui_status XUI_CALL xui_window_file_type_icon(xui_handle window, xui_string extension, uint32_t directory) noexcept {
     return boundary([&] {
         require(directory <= 1, XUI_INVALID_ARGUMENT, "Invalid directory flag.");

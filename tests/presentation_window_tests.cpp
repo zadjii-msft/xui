@@ -1,8 +1,11 @@
 #include "collections_fixture.hpp"
 #include "xui/application.hpp"
+#include "xui/documents.hpp"
+#include "xui/reveal.hpp"
 #include "../src/drawing.hpp"
 #include "../src/images.hpp"
 #include <windows.h>
+#include <richedit.h>
 #include <cmath>
 #include <iostream>
 
@@ -86,6 +89,24 @@ int main() {
         window->set_presentation("Consolas", 18, true, false);
         auto root = std::make_shared<Stack>(Axis::vertical);
         auto text = std::make_shared<TextInput>(L"Native presentation input");
+        require(!text->presentation_font_family(), "Presentation family inherits by default");
+        text->set_presentation_font_family("Cascadia Mono");
+        const auto retained_family = text->presentation_font_family();
+        text->set_presentation_font_family("Cascadia Mono");
+        require(text->presentation_font_family() == retained_family, "An unchanged family keeps shared ownership");
+        for (const auto& invalid : {std::string(129, 'a'), std::string("\xed\xa0\x80", 3), std::string("a\0b", 3)}) {
+            bool rejected{};
+            try { text->set_presentation_font_family(invalid); }
+            catch (const std::invalid_argument&) { rejected = true; }
+            require(rejected && text->presentation_font_family() == retained_family,
+                "Invalid native font families leave the current override unchanged");
+        }
+        auto deferred = std::make_shared<MultilineText>(L"Deferred preview");
+        deferred->set_read_only(true);
+        deferred->set_presentation_font_family("Cascadia Mono");
+        auto preview_host = std::make_shared<ContentHost>(deferred);
+        auto reveal = std::make_shared<Reveal>(preview_host);
+        reveal->set_duration(0);
         auto items = std::make_shared<ItemsView>(L"Presentation items");
         items->set_items(std::make_shared<collections_test::DetailItems>(100));
         auto grid = std::make_shared<DataGrid>(L"Presentation grid");
@@ -104,12 +125,17 @@ int main() {
         items->on_activate([&](ItemKey) { ++item_activations; });
         grid->on_activate([&] { ++grid_activations; });
         root->add(text); root->add(items, 1); root->add(grid, 1); root->add(tree);
+        root->add(reveal);
         window->set_content(root);
         app.show(*window);
         HWND hwnd = FindWindowW(nullptr, L"XUI presentation regression");
         require(hwnd != nullptr, "Presentation window exists");
         window->post([&] {
             flush(hwnd);
+            require(text->control_style_values(StylePart::text).font_family == retained_family &&
+                text->control_style_values(StylePart::text).font_size == 18 &&
+                deferred->control_style_values(StylePart::text).font_family == deferred->presentation_font_family(),
+                "Current and deferred controls preserve family overrides while inheriting window font size");
             require(items->item_size().height == 42 && grid->effective_row_height() == 42,
                 "Typography does not erase collection density");
             const auto& cell = grid->control_style_values(StylePart::cell);
@@ -156,6 +182,23 @@ int main() {
             flush(hwnd);
             require(grid->control_style_values(StylePart::cell).font_size == 16,
                 "Live font changes reach existing controls");
+            require(grid->control_style_values(StylePart::cell).font_family->name == L"Segoe UI" &&
+                text->control_style_values(StylePart::text).font_family == retained_family &&
+                deferred->control_style_values(StylePart::text).font_family->name == L"Cascadia Mono" &&
+                deferred->control_style_values(StylePart::text).font_size == 16,
+                "Global customization changes inherited fonts without replacing explicit families");
+            text->set_presentation_font_family("Consolas");
+            flush(hwnd);
+            require(text->control_style_values(StylePart::text).font_family->name == L"Consolas",
+                "A live family change updates the current control");
+            text->set_presentation_font_family({});
+            deferred->set_presentation_font_family({});
+            flush(hwnd);
+            require(!text->presentation_font_family() && !deferred->presentation_font_family() &&
+                text->control_style_values(StylePart::text).font_family->name == L"Segoe UI" &&
+                deferred->control_style_values(StylePart::text).font_family->name == L"Segoe UI" &&
+                retained_family->name == L"Cascadia Mono",
+                "Clearing current and deferred overrides restores inheritance without invalidating retained families");
             require(tree->control_style_values(StylePart::root).font_size == 14 &&
                 tree->control_style_values(StylePart::primary_text).font_size == 14,
                 "Live compact font changes survive repeated collection");
@@ -189,6 +232,34 @@ int main() {
             items->set_offset(0);
             SendMessageW(item_peer, WM_MOUSEWHEEL, wheel, 0);
             require(items->offset() == 126, "High contrast disables smooth scrolling");
+            auto future = std::make_shared<MultilineText>(L"Future preview");
+            future->set_text(L"Future preview contents");
+            future->set_read_only(true);
+            future->set_presentation_font_family("Cascadia Mono");
+            window->replace_content(*preview_host, future);
+            flush(hwnd);
+            require(!reveal->open() && future->control_style_values(StylePart::text).font_family->name == L"Cascadia Mono" &&
+                future->control_style_values(StylePart::text).font_size == 16,
+                "Future controls receive explicit families while their native peers remain deferred");
+            reveal->set_open(true);
+            flush(hwnd);
+            const HWND preview_peer = child(hwnd, L"Future preview contents");
+            require(future->control_style_values(StylePart::text).font_family == future->presentation_font_family(),
+                "Realizing a deferred preview preserves its family override");
+            CHARFORMAT2W format{sizeof(format)};
+            SendMessageW(preview_peer, EM_GETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
+            require(std::wstring_view(format.szFaceName) == L"Cascadia Mono" && format.yHeight == 16 * 15,
+                "The read-only native preview uses the explicit family and customized window font size");
+            future->set_presentation_font_family({});
+            window->set_presentation("Consolas", 14, true, false);
+            flush(hwnd);
+            require(future->control_style_values(StylePart::text).font_family->name == L"Consolas" &&
+                future->control_style_values(StylePart::text).font_size == 14 &&
+                text->control_style_values(StylePart::text).font_family->name == L"Consolas",
+                "Restored current and future controls follow subsequent window policy changes");
+            SendMessageW(preview_peer, EM_GETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
+            require(std::wstring_view(format.szFaceName) == L"Consolas" && format.yHeight == 14 * 15,
+                "Restoring inheritance updates the retained native preview font");
             window->close();
         });
         const int result = app.run();

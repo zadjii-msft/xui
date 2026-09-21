@@ -5,10 +5,10 @@ namespace Xui.FileExplorer;
 internal sealed class PaletteController
 {
     private readonly ExplorerApplication app;
+    private readonly PaletteLayout layout;
     private readonly Popup popup;
     private readonly TextInput editor;
     private readonly ItemsView results;
-    private readonly Label message;
     private readonly ScrollView statusHost;
     private readonly List<string> history = [];
     private readonly Dictionary<string, ulong> identities = new(StringComparer.OrdinalIgnoreCase);
@@ -25,10 +25,9 @@ internal sealed class PaletteController
     public PaletteController(ExplorerApplication app)
     {
         this.app = app;
-        var layout = new PaletteLayout(app.Window, attach: false);
+        layout = new PaletteLayout(app.Window, attach: false);
         editor = layout.Editor;
         results = layout.Results;
-        message = layout.Message;
         statusHost = layout.StatusHost;
         popup = layout.Root;
         popup.Event += e =>
@@ -134,11 +133,7 @@ internal sealed class PaletteController
         Query();
     }
 
-    private void ShowStatus(string text)
-    {
-        message.Text = text;
-        statusHost.PreferredSize(740, text.Length == 0 ? 0 : 32).Visible(text.Length != 0);
-    }
+    private void ShowStatus(string text) => layout.StatusText = text;
 
     private void Query()
     {

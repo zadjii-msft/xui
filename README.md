@@ -10,6 +10,18 @@ The core framework needs no bundled browser or third-party runtime.
 **Prototype:** APIs are still evolving. Windows ARM64 and x64 are supported.
 C# and Rust use a versioned C ABI, with less coverage than the C++ API.
 
+## Create a C# project
+
+Download the matching `Xui` and `Xui.Templates` packages and configure a source as described in the [package guide](docs/specs/packages.md#create-a-project-with-dotnet-new).
+
+```powershell
+dotnet new install D:\packages\xui\Xui.Templates.1.2.3.nupkg
+dotnet new xui -n MyApp
+dotnet run --project MyApp
+```
+
+Replace `1.2.3` with the downloaded release version. Windows and the .NET 10 SDK are required.
+
 ## Describe a UI with C#
 
 Write the layout in a `.xui` file and keep behavior in C#:

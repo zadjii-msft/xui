@@ -91,6 +91,43 @@ Its item factory receives the targeted row ID.
 The C ABI supplies the row ID in the menu's `XUI_REQUEST` event.
 Navigation menus reuse collection source checks, Shell discovery, and cancellation.
 
+XUI-style Shell menus show supported icons supplied by Shell commands.
+The discovery worker copies supported native bitmaps. No Shell bitmap handle crosses to the UI thread.
+Missing, callback, owner-drawn, unreadable, and oversized icons leave the icon space empty.
+The Windows-menu fallback also has no icon.
+For supplied icons, disabled commands and high-contrast menus use a theme-colored command glyph.
+Icons fit a 16-DIP square and retain their aspect ratio. Checkmarks use a separate column when icons are present.
+Native-only commands still open the Windows menu.
+
+For C++ menus, `MenuItem::icon` accepts a shared, immutable `MenuIcon`.
+An empty `MenuIcon` selects the generic glyph. A null pointer leaves the icon space empty.
+Bitmap data uses top-down, premultiplied BGRA pixels, with dimensions from 1 through 64 pixels.
+The pixel count must equal width times height. Invalid dimensions or pixel counts cause an argument error.
+Shell discovery limits copied bitmap data to 4 MiB per menu.
+These icons do not change command labels, shortcuts, accessibility names, or command identities.
+
+### Experimental Shell warmup
+
+`Window::prefetch_shell_commands(path)` requests best-effort background discovery for one filesystem path.
+C# exposes `Window.PrefetchShellCommands(path)`. The C ABI exposes `xui_shell_prefetch(window, path)`.
+The call requires an open window on its UI thread.
+An empty path cancels the window's previous request. A new path replaces that request.
+Window closure also cancels it without waiting for a Shell extension.
+
+Warmup never displays a menu, invokes a verb, or retains command metadata for later menus.
+The shared STA releases the handlers after discovery.
+It skips speculative work while an interactive request is active or pending.
+An interactive request cancels active speculative work, but cancellation cannot interrupt an extension inside COM.
+The worker retains at most one active request and one pending request across windows.
+It exits after ten idle seconds.
+
+Invalid arguments and unavailable windows produce the usual synchronous errors.
+Asynchronous discovery failures and busy-worker skips produce Windows debugger diagnostics.
+This experimental API does not guarantee faster menus.
+The [C# explorer](file-explorers.md) opts in only with `--prefetch-shell-menus`.
+
+### Window and input details
+
 PNG copies permit image review without changes to the BMP capture tests.
 The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
 If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.

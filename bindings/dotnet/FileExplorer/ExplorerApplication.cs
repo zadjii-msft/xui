@@ -17,13 +17,17 @@ internal sealed partial class ExplorerApplication : IDisposable
     private bool rightInitialized;
     private bool disposed;
     private string? iconPath;
+    private readonly bool prefetchShellMenus;
+    private FilePaneView? prefetchPane;
 
-    public ExplorerApplication(ExplorerWindows windows, Application application, PreviewController preview, string initialPath, bool smoke = false)
+    public ExplorerApplication(ExplorerWindows windows, Application application, PreviewController preview, string initialPath,
+        bool smoke = false, bool prefetchShellMenus = false)
     {
         this.windows = windows;
         Application = application;
         Preview = preview;
         this.smoke = smoke;
+        this.prefetchShellMenus = prefetchShellMenus;
         initialPath = FileSystemService.ResolvePath(initialPath, Environment.CurrentDirectory);
         Window = application.CreateWindow("XUI / Files", 1320, 840, customTitlebar: true, visualStyle: VisualStyle.WinUI);
         try
@@ -126,6 +130,8 @@ internal sealed partial class ExplorerApplication : IDisposable
     internal string? NewWindowPath { get; private set; }
     internal bool CloseRequested { get; private set; }
     internal bool IsDisposed => disposed;
+    internal bool PrefetchShellMenus => prefetchShellMenus;
+    internal int ShellMenuPrefetchRequests { get; private set; }
 
     public void Run(ExplorerSmokeMode smokeMode = ExplorerSmokeMode.Full)
     {
@@ -173,11 +179,26 @@ internal sealed partial class ExplorerApplication : IDisposable
         }
     }
 
+    internal void PrefetchShellMenu(FilePaneView pane, string path)
+    {
+        if (!prefetchShellMenus) return;
+        Window.PrefetchShellCommands(path);
+        prefetchPane = pane;
+        ShellMenuPrefetchRequests++;
+    }
+
+    internal void CancelShellMenuPrefetch(FilePaneView pane)
+    {
+        if (!ReferenceEquals(prefetchPane, pane)) return;
+        if (Window.State == WindowState.Open) Window.PrefetchShellCommands("");
+        prefetchPane = null;
+    }
+
     private void UpdateTitle()
     {
         string path = Active.Model.Active.Path;
         string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
-        Window.SetTitle($"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui");
+        Window.SetTitle($"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui{(prefetchShellMenus ? " [menu prefetch]" : "")}");
         if (!string.Equals(iconPath, path, StringComparison.Ordinal))
         {
             try { Window.SetIconSource(path); iconPath = path; }

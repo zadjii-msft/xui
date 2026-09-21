@@ -46,7 +46,12 @@ internal sealed partial class FilePaneView
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         AddressBar = new(app, this, number);
-        layout = new(window, number, AddressBar.Root, attach: false);
+        Columns = window.MillerColumns($"Columns in pane {number}");
+        Columns.SetAutomationId($"pane-{number}-columns");
+        Columns.Visible(false);
+        tree = new(app, number, Identify);
+        Tree.Visible(false);
+        layout = new(window, number, AddressBar.Root, Columns, Tree, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
             button.SetStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
@@ -59,17 +64,7 @@ internal sealed partial class FilePaneView
         WireButton(layout.Refresh, Refresh);
         WireButton(layout.Commands, () => app.Palettes.ShowCommands());
         Grid = layout.Files;
-        Columns = window.MillerColumns($"Columns in pane {number}");
-        Columns.SetAutomationId($"pane-{number}-columns");
-        Columns.Visible(false);
-        layout.ContentHost.Add(Columns);
-        Items = window.ItemsView($"Items in pane {number}");
-        Items.SetAutomationId($"pane-{number}-items");
-        Items.Visible(false);
-        layout.ContentHost.Add(Items);
-        tree = new(app, number, Identify);
-        Tree.Visible(false);
-        layout.ContentHost.Add(Tree);
+        Items = layout.Items;
         viewMenu = new(window, number, attach: false);
         viewOptions =
         [
@@ -112,6 +107,7 @@ internal sealed partial class FilePaneView
         {
             uint index = i;
             var list = Columns.Column(index);
+            list.ItemSize(240, 32);
             list.FocusEntered += () =>
             {
                 Activate();
@@ -473,6 +469,7 @@ internal sealed partial class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        app.CancelShellMenuPrefetch(this);
         AddressBar.DismissMenu();
         SaveViewport();
         navigation.Cancel();
@@ -495,6 +492,7 @@ internal sealed partial class FilePaneView
             IsLoading = false;
             Render();
             app.LocationChanged(this);
+            app.PrefetchShellMenu(this, snapshot.Path);
         }, failure =>
         {
             IsLoading = false;
@@ -1036,6 +1034,7 @@ internal sealed partial class FilePaneView
 
     public void Cancel()
     {
+        app.CancelShellMenuPrefetch(this);
         AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         if (partitionMenu.IsOpen) partitionMenu.Dismiss();

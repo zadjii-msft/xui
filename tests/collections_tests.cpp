@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <new>
+#include <chrono>
 
 namespace allocation_probe {
 thread_local bool active{};
@@ -25,6 +26,111 @@ void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 namespace {
 using namespace xui;
 using namespace collections_test;
+class GroupedItems final : public ItemsSource {
+public:
+    mutable std::size_t lookups{};
+    explicit GroupedItems(std::size_t groups) : groups_(groups) {}
+    std::size_t size() const override { return groups_ * 256; }
+    ItemKey key(std::size_t row) const override {
+        require(row < size(), "Grouped source row is bounded");
+        return {row + 1, 1};
+    }
+    std::optional<std::size_t> find(ItemKey key) const override {
+        ++lookups;
+        return key.version == 1 && key.id && key.id <= size() ? std::optional<std::size_t>{key.id - 1} : std::nullopt;
+    }
+    ItemContent item(std::size_t row) const override { return {std::to_wstring(key(row).id)}; }
+    std::vector<ItemGroup> groups() const override {
+        std::vector<ItemGroup> result;
+        result.reserve(groups_);
+        for (std::size_t i = 0; i < groups_; ++i)
+            result.push_back({{9000000000 + i, 1}, L"Group", i * 256 + 1, 254});
+        return result;
+    }
+private:
+    std::size_t groups_;
+};
+void collection_hot_paths(bool benchmark) {
+    using Clock = std::chrono::steady_clock;
+    const auto elapsed = [](Clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    };
+    auto source = std::make_shared<Items>();
+    CollectionSelection selection;
+    for (std::size_t i = 0; i < 128; ++i) {
+        selection.range(source, i * 4, i * 4 + 1, true);
+        selection.set({10000 + i, 1}, true);
+    }
+    source->lookups = 0;
+    allocation_probe::calls = 0; allocation_probe::active = true;
+    auto start = Clock::now();
+    std::size_t selected{};
+    for (std::size_t i = 0; i < 20000; ++i) selected += selection.contains({999999, 1});
+    const auto selection_ms = elapsed(start);
+    allocation_probe::active = false;
+    require(!selected && !allocation_probe::calls, "Range membership has no allocations");
+    std::cout << "selection_128_ranges_20000_ms=" << selection_ms << " lookups=" << source->lookups << '\n';
+    if (!benchmark) require(source->lookups == 20000, "Membership resolves each consecutive snapshot once, across point exceptions");
+    require(selection.contains({1, 1}) && !selection.contains({3, 1}) && selection.contains({10000, 1}),
+        "Lookup reuse preserves range boundaries and point exceptions");
+    selection.set({1, 1}, false);
+    require(!selection.contains({1, 1}), "Newest point exception overrides older ranges");
+    auto even = std::make_shared<Items>(500000, 2, 2);
+    selection.range(even, 0, 99, true);
+    require(selection.contains({6, 1}) && !selection.contains({3, 1}) && !selection.contains({1, 1}),
+        "A different snapshot resolves its own ordinal and preserves older exclusions");
+    require(!selection.contains({6, 2}), "Lookup reuse preserves identity versions");
+    selection.rectangle(source, 13, 37, 10, true);
+    require(selection.contains({14, 1}) && !selection.contains({1000, 1}),
+        "Returning to an earlier snapshot recomputes its row and preserves rectangle bounds");
+
+    ItemsView view;
+    const auto grouped = std::make_shared<GroupedItems>(4096);
+    view.set_items(grouped);
+    view.set_presentation(ItemsPresentation::grouped);
+    view.arrange({0, 0, 600, 280});
+    const auto projection = view.source();
+    require(projection->size() == 4096 * 257, "Projection keeps gaps and adds group headers");
+    start = Clock::now();
+    std::uint64_t checksum{};
+    allocation_probe::calls = 0; allocation_probe::active = true;
+    for (std::size_t i = 0; i < 20000; ++i) {
+        const auto row = (i * 7919) % projection->size();
+        const auto group = row / 257, slot = row % 257;
+        const auto expected = slot == 1 ? ItemKey{9000000000 + group, 1} :
+            ItemKey{group * 256 + slot + (slot == 0 ? 1 : 0), 1};
+        require(projection->key(row) == expected && projection->selectable(row) == (slot != 1),
+            "Span lookup preserves source rows, gaps, and nonselectable group headings");
+        checksum += projection->key(row).id;
+    }
+    const auto projection_ms = elapsed(start);
+    allocation_probe::active = false;
+    require(!allocation_probe::calls, "Projection row lookup allocates nothing");
+    std::cout << "projection_4096_groups_20000_ms=" << projection_ms << " checksum=" << checksum << '\n';
+    grouped->lookups = 0;
+    for (std::size_t i = 0; i < 200; ++i)
+        require(projection->find({1048576, 1}) == projection->size() - 1, "Projection resolves the final source identity");
+    std::cout << "projection_4096_groups_200_find_lookups=" << grouped->lookups << '\n';
+    if (!benchmark) require(grouped->lookups == 200, "Projection reuses source lookup across group headings and gaps");
+    require(!projection->find({1048577, 1}) && !projection->find({1048576, 2}) &&
+        projection->find({9000004095, 1}) == 4095 * 257 + 1,
+        "Projection lookup preserves missing identities, versions, and group identities");
+    bool rejected{};
+    try { projection->key(projection->size()); } catch (const std::out_of_range&) { rejected = true; }
+    require(rejected, "Projection rejects out-of-range row lookup");
+    view.set_offset(view.maximum_offset());
+    const auto rows = view.visible_content();
+    require(!rows.empty() && rows.size() <= 6 && rows.back().key == ItemKey{1048576, 1},
+        "Last grouped rows stay virtual with thousands of spans");
+    view.select({1048575, 1});
+    view.disclose({9000004095, 1}, false);
+    require(!view.source()->find({1048575, 1}) && view.selection().contains({1048575, 1}) &&
+        projection->key(projection->size() - 2) == ItemKey{1048575, 1},
+        "Collapse preserves selected identity and immutable older projection offsets");
+    view.disclose({9000004095, 1}, true);
+    require(view.source()->find({1048575, 1}) == projection->size() - 2,
+        "Reopening reconstructs the correct projection offsets");
+}
 void allocation_contract() {
     const auto measure = [](std::size_t count) {
         struct Scope {
@@ -377,7 +483,12 @@ void layouts() {
     require(!measured.compact() && ancestor->bounds().width == 220, "Disabling content sizing restores the configured navigation extent");
 }
 }
-int main() {
-    try { allocation_contract(); selection_contracts(); items_contracts(); gallery_contracts(); trees(); tree_collapse_notifications(); tree_error_retry_contract(); tree_details_contract(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n"; }
+int main(int argc, char** argv) {
+    try {
+        const bool benchmark = argc > 1 && std::string_view(argv[1]) == "--benchmark";
+        collection_hot_paths(benchmark);
+        if (benchmark) return 0;
+        allocation_contract(); selection_contracts(); items_contracts(); gallery_contracts(); trees(); tree_collapse_notifications(); tree_error_retry_contract(); tree_details_contract(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n";
+    }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

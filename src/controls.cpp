@@ -55,6 +55,16 @@ void Control::set_presentation_font_size(float value) {
     invalidate(Invalidation::layout);
 }
 
+void Control::set_presentation_font_family(std::string_view value) {
+    auto family = value.empty() ? std::shared_ptr<const StyleFontFamily>{} : make_style_font_family(value);
+    if (family && family->name.size() > 128)
+        throw std::invalid_argument("Font family exceeds 128 UTF-16 units");
+    if ((!family && !presentation_font_family_) ||
+        (family && presentation_font_family_ && family->name == presentation_font_family_->name)) return;
+    presentation_font_family_ = std::move(family);
+    invalidate(Invalidation::layout);
+}
+
 void Control::set_name(std::wstring name) {
     if (name_ == name) return;
     name_ = std::move(name);

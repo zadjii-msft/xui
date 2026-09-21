@@ -3,8 +3,19 @@ namespace Xui.FileExplorer;
 component FilePaneLayout {
     param int Number;
     param global::Xui.Element AddressBar;
+    param global::Xui.Element ColumnsContent;
+    param global::Xui.Element TreeContent;
     state bool FindOpen = false;
     state bool ToolbarOpen = true;
+
+    style FileTree for TreeView {
+        rowHeight: 24;
+        fontSize: 12;
+        indentation: 16;
+        padding: 0;
+        part row { padding: 0; cornerRadius: 0; }
+        part icon { size: 16; }
+    }
 
     view {
         Grid($"Pane {Number} layout",
@@ -23,6 +34,9 @@ component FilePaneLayout {
             Grid($"File views in pane {Number}", ref: ContentHost, row: 1) {
                 DataGrid($"Files in pane {Number}", ref: Files, id: $"pane-{Number}-files",
                     columns: FileRows.Columns);
+                Content(ColumnsContent);
+                ItemsView($"Items in pane {Number}", ref: Items, id: $"pane-{Number}-items", visible: false);
+                Content(TreeContent, style: FileTree);
             }
             Reveal("Find", open: FindOpen, duration: 180, layout: global::Xui.RevealLayout.Expand, ref: FindReveal, row: 2) {
                 HStack(ref: FindHost, padding: 6, spacing: 8) {

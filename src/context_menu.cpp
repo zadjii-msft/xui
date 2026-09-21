@@ -7,6 +7,7 @@
 #include <uxtheme.h>
 #include <windowsx.h>
 #include <algorithm>
+#include <array>
 #include <exception>
 #include <iterator>
 #include <limits>
@@ -37,7 +38,7 @@ struct Menu {
     std::exception_ptr failure;
     std::function<bool()> current;
     std::function<bool()> refresh;
-    int label_width{}, shortcut_width{}, row_height{};
+    int label_width{}, shortcut_width{}, row_height{}, icon_offset{};
     bool owner_attached{}, root_attached{}, marked{}, timer{}, refreshing{}, cancelled{}, painted{};
     // The CBT callback has no user-data parameter. This pointer exists only inside
     // TrackPopupMenuEx on this thread, and never supplies another window's palette.
@@ -69,6 +70,15 @@ struct Menu {
     }
     void initialize() {
         win32_require(items.size() < std::numeric_limits<UINT>::max(), "Create context menu commands");
+        const bool icons = std::any_of(items.begin(), items.end(), [](const auto& item) { return !item.separator && item.icon; });
+        if (icons && std::any_of(items.begin(), items.end(), [](const auto& item) { return !item.separator && item.checked; }))
+            icon_offset = px(22);
+        for (const auto& item : items) if (item.icon) {
+            const auto& icon = *item.icon;
+            if (icon.width > 64 || icon.height > 64 || (icon.width == 0) != (icon.height == 0) ||
+                icon.pixels.size() != std::size_t(icon.width) * icon.height)
+                throw std::invalid_argument("Invalid context menu icon");
+        }
         handle = CreatePopupMenu();
         win32_require(handle != nullptr, "Create context menu");
         background = CreateSolidBrush(color(palette.surface));
@@ -187,7 +197,7 @@ struct Menu {
             SelectObject(dc, font);
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, ink);
-            RECT label{rect.left + px(36), rect.top, rect.right - px(14) -
+            RECT label{rect.left + px(36) + icon_offset, rect.top, rect.right - px(14) -
                 (shortcut_width ? shortcut_width + px(28) : 0), rect.bottom};
             UINT flags = DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS;
             if (draw.itemState & ODS_NOACCEL) flags |= DT_HIDEPREFIX;
@@ -197,6 +207,42 @@ struct Menu {
             SetTextColor(dc, color(!item.enabled ? palette.disabled : selected ? palette.selection_text : palette.secondary));
             if (!entry.shortcut.empty()) complete = DrawTextW(dc, entry.shortcut.c_str(),
                 static_cast<int>(entry.shortcut.size()), &shortcut, DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX) != 0 && complete;
+            if (item.icon) {
+                const int x = rect.left + px(12) + icon_offset, y = (rect.top + rect.bottom - px(16)) / 2;
+                const auto& icon = *item.icon;
+                if (item.enabled && !palette.high_contrast && !icon.pixels.empty()) {
+                    const auto backdrop = color(selected ? palette.selection : palette.surface);
+                    std::array<std::uint32_t, 64 * 64> pixels;
+                    std::copy(icon.pixels.begin(), icon.pixels.end(), pixels.begin());
+                    for (std::size_t i = 0; i < icon.pixels.size(); ++i) {
+                        auto& pixel = pixels[i];
+                        const auto inverse = 255 - (pixel >> 24);
+                        const auto blend = [inverse](auto channel, auto background) {
+                            return std::min(255u, channel + (background * inverse + 127) / 255);
+                        };
+                        pixel = blend(pixel & 255, GetBValue(backdrop)) |
+                            (blend((pixel >> 8) & 255, GetGValue(backdrop)) << 8) |
+                            (blend((pixel >> 16) & 255, GetRValue(backdrop)) << 16);
+                    }
+                    BITMAPINFO info{};
+                    info.bmiHeader = {sizeof(BITMAPINFOHEADER), static_cast<LONG>(icon.width),
+                        -static_cast<LONG>(icon.height), 1, 32, BI_RGB};
+                    const auto extent = std::max(icon.width, icon.height);
+                    const int width = std::max(1, MulDiv(px(16), icon.width, extent));
+                    const int height = std::max(1, MulDiv(px(16), icon.height, extent));
+                    complete = StretchDIBits(dc, x + (px(16) - width) / 2, y + (px(16) - height) / 2, width, height,
+                        0, 0, icon.width, icon.height, pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY) > 0 && complete;
+                } else {
+                    SelectObject(dc, GetStockObject(DC_PEN));
+                    SelectObject(dc, GetStockObject(NULL_BRUSH));
+                    SetDCPenColor(dc, ink);
+                    complete = Rectangle(dc, x + px(2), y + px(1), x + px(14), y + px(15)) != FALSE && complete;
+                    for (int line : {5, 8, 11}) {
+                        complete = MoveToEx(dc, x + px(5), y + px(line), nullptr) != FALSE && complete;
+                        complete = LineTo(dc, x + px(11), y + px(line)) != FALSE && complete;
+                    }
+                }
+            }
             if (item.checked) {
                 SelectObject(dc, GetStockObject(DC_PEN));
                 SetDCPenColor(dc, ink);
@@ -318,7 +364,7 @@ struct Menu {
             if (message == WM_MEASUREITEM) {
                 auto& item = *reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
                 if (item.CtlType == ODT_MENU && item.itemID > 0 && item.itemID <= self.items.size()) {
-                    item.itemWidth = self.px(50) + self.label_width +
+                    item.itemWidth = self.px(50) + self.icon_offset + self.label_width +
                         (self.shortcut_width ? self.shortcut_width + self.px(28) : 0);
                     item.itemHeight = self.items[item.itemID - 1].separator ? self.px(9) : self.row_height;
                     return TRUE;

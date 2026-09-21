@@ -2,6 +2,9 @@ namespace Xui.FileExplorer;
 
 component PreviewMetadataLayout {
     param global::Xui.Element Icon;
+    param global::Xui.FileExplorer.Models.FileEntry Target;
+    state bool MetadataVisible = false;
+    state string DateFormat = "g";
 
     style Heading for Label {
         fontSize: 28;
@@ -19,12 +22,16 @@ component PreviewMetadataLayout {
             columns: [new(global::Xui.TrackSizing.Fixed, 12), new(global::Xui.TrackSizing.Fixed, 160),
                 new(global::Xui.TrackSizing.Fixed, 32), new(global::Xui.TrackSizing.Star),
                 new(global::Xui.TrackSizing.Fixed, 12)]) {
-            Content(Icon, row: 1, column: 1);
+            Content(Icon, preferredSize: (160, 160), row: 1, column: 1);
             VStack(spacing: 6, row: 1, column: 3) {
-                Text("", ref: Name, id: "preview-file-name", style: Heading);
-                Text("", ref: Kind, id: "preview-file-kind", style: Detail);
-                Text("", ref: Size, id: "preview-file-size", style: Detail);
-                Text("", ref: Modified, id: "preview-file-modified", style: Detail);
+                Text(Target.Name, ref: Name, id: "preview-file-name", style: Heading, visible: MetadataVisible);
+                Text($"File Type: {(Target.IsDirectory ? "File folder" : Target.Kind)}",
+                    ref: Kind, id: "preview-file-kind", style: Detail, visible: MetadataVisible);
+                Text(Target.IsDirectory ? "Size: Not calculated"
+                    : $"Size: {FileRows.FormatSize(Target.Size)} ({Target.Size:N0} bytes)",
+                    ref: Size, id: "preview-file-size", style: Detail, visible: MetadataVisible);
+                Text($"Date Modified: {ExplorerPresentation.FormatDate(Target.ModifiedUtc, DateFormat)}",
+                    ref: Modified, id: "preview-file-modified", style: Detail, visible: MetadataVisible);
             }
         }
     }
