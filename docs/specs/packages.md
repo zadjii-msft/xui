@@ -7,14 +7,60 @@ GitHub releases remain drafts until a maintainer publishes them.
 The workflow does not publish packages to a package registry.
 
 XUI uses the [MIT license](../../LICENSE).
-The NuGet package and both Cargo crates declare MIT in their package metadata.
+Both NuGet packages and both Cargo crates declare MIT in their package metadata.
 Each package, sample ZIP, and Designer ZIP contain the root `LICENSE` file.
 Third-party components retain their own license terms.
 
-Each release includes one `Xui` NuGet package, `xui-sys` and `xui` Cargo crates, two sample ZIPs, two Designer ZIPs, and SHA-256 checksums.
-The NuGet download contains both native architectures, headers, static libraries, the C ABI runtime, .NET bindings, and the `.xui` compiler.
+Each release includes `Xui` and `Xui.Templates` NuGet packages, `xui-sys` and `xui` Cargo crates, sample and Designer ZIPs, and SHA-256 checksums.
+The `Xui` download contains both native architectures, headers, static libraries, the C ABI runtime, .NET bindings, and the `.xui` compiler.
 Native C++ deployment does not include managed assemblies.
 The compiler is a build-time dependency, not part of release application output.
+
+## Create a project with dotnet new
+
+The `Xui.Templates` package supplies the `xui` project template.
+The template requires Windows x64 or ARM64 and the .NET 10 SDK.
+It creates a C# desktop application with a declarative counter and Debug hot reload.
+
+Download `Xui.Templates.<version>.nupkg` and `Xui.<version>.nupkg` from the same release.
+Place both files in `D:\packages\xui`.
+Replace `1.2.3` with the downloaded version:
+
+```powershell
+dotnet nuget add source D:\packages\xui --name XuiLocal
+dotnet new install D:\packages\xui\Xui.Templates.1.2.3.nupkg
+dotnet new xui -n MyApp
+cd MyApp
+dotnet run
+```
+
+If the local source already exists, omit the `dotnet nuget add source` command.
+The release workflow does not publish either package to NuGet.org.
+After a maintainer publishes both packages to a configured feed, `dotnet new install Xui.Templates::<version>` can replace the local installation command.
+
+`dotnet new xui` uses the current directory name.
+`-n MyApp` creates a `MyApp` directory, and `-o <directory>` selects an explicit destination.
+Project names also replace the C# and `.xui` namespaces.
+The template does not restore packages during generation.
+The first build or run restores the exact `Xui` version that matches the template package.
+
+The project selects the host Windows architecture.
+`dotnet run -r win-x64` or `dotnet run -r win-arm64` overrides that selection.
+`Counter.xui` contains the layout, state, and click handler.
+`Program.cs` creates the window and selects the Debug hot-reload host.
+
+Use `dotnet watch` for development.
+Use `dotnet publish -c Release -r win-x64 --self-contained true` for a self-contained x64 deployment.
+Replace `win-x64` with `win-arm64` for ARM64.
+The package supplies the application manifest and native runtime without repository imports.
+Release builds exclude the development host.
+`XuiHotReload=false` also disables the host in Debug builds.
+
+To remove the template:
+
+```powershell
+dotnet new uninstall Xui.Templates
+```
 
 ## .NET applications
 

@@ -16,6 +16,9 @@ The Designer retains managed assemblies and Roslyn for runtime compilation, with
 Its SDK must match the target architecture because the Designer references the SDK's Roslyn assemblies.
 `packaging\DESIGNER.md` supplies the [archive instructions](../../packaging/DESIGNER.md).
 `packaging\Xui.nuspec` defines the combined NuGet layout.
+`packaging\Xui.Templates.nuspec` defines the separate `dotnet new xui` package.
+[`packaging\TEMPLATES.md`](../../packaging/TEMPLATES.md) supplies the template package instructions.
+`scripts\Pack-Templates.ps1` sets the generated package reference version without a native build or tracked source edits.
 The native and managed imports have separate framework directories.
 `bindings\dotnet\Xui.Declarative.Common.targets` shares compiler input tracking between source and package consumers.
 
@@ -33,6 +36,13 @@ The Cargo checks build extracted archives offline through a checksum-backed loca
 The consumer checks also build the Rust sample and run a window-free ABI probe with the DLL beside its executable.
 `FrameworkSource` selects an alternate configured feed for Microsoft runtime packages.
 The XUI package always comes from the local release assets.
+
+`tests\templates.ps1` checks the template archive and uses an isolated template directory outside the checkout.
+It checks installation, removal, default output, explicit names, namespace substitution, and preservation of hot-reload preprocessor branches.
+With release assets, it builds generated projects in Debug and Release, checks the hot-reload opt-out, and checks published native files.
+The release workflow runs these consumer checks on x64 and ARM64.
+The standalone template workflow checks package generation without native inputs.
+The test does not exercise interactive window behavior.
 
 `tests\release-samples.ps1` extracts both sample ZIPs.
 It checks the manifests, file hashes, exact C# inventory, native inventory, PE architectures, and imported PE dependencies.
@@ -54,7 +64,7 @@ The workflow runs these checks before the release builds.
 It checks numeric versions, draft creation, complete asset uploads, repeat runs, and refusal to change a published release.
 It also checks per-asset upload retries, exponential delays, recovery on the last attempt, retry exhaustion, and a subsequent run.
 Successful uploads must not repeat during retries, and retry exhaustion must stop further uploads.
-It also requires both sample archives and both Designer archives before any GitHub request.
+It also requires every package and both sample and Designer archives before any GitHub request.
 It makes no GitHub requests.
 The release workflow checks package consumers on both architectures before the draft job receives write permission.
 It also publishes and runs the FileExplorer model tests with NativeAOT on each architecture.
