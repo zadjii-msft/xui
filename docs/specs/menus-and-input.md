@@ -197,6 +197,8 @@ The system drag threshold separates clicks from drags.
 
 One native Windows move-size loop handles each gesture.
 Within the source strip, `reorder` requests a new position while the window stays stationary.
+If the window has only one visible tab, dragging that tab moves the window without a reorder phase.
+Tabs in a collapsed pane do not prevent this movement.
 Outside that strip, `tear_out` asks the application to separate the dragged tab.
 Until an accepted `join`, the dragged tab stays on the original HWND, in the same strip, with the same identity.
 The application creates another window for the remaining models and content.

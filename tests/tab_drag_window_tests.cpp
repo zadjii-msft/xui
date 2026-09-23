@@ -362,7 +362,8 @@ void gesture(bool tear, bool merge, bool cancel, bool reject, UINT cancellation 
     app.shutdown();
     require(app.run() == 0, "All windows retire without callback failures");
 }
-void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool disable_target = false) {
+void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool disable_target = false,
+    bool single = false) {
     BOOL full_drag{};
     require(SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0) != 0, "Read hover drag mode");
     if (!full_drag) {
@@ -379,7 +380,16 @@ void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool di
         window->set_show_activated(false);
         auto root = std::make_shared<Stack>(Axis::vertical);
         auto editor = std::make_shared<TextInput>(L"Stable native owner");
-        root->add(editor);
+        if (single && window == source) {
+            auto second = std::make_shared<TextInput>(L"Dormant pane");
+            auto split = std::make_shared<SplitView>(editor, second);
+            split->set_secondary_visible(false);
+            root->add(split, 1);
+            window->titlebar()->set_tab_panes(editor, second);
+            window->titlebar()->secondary_tabs()->set_visible(true);
+            window->titlebar()->secondary_tabs()->set_enabled(false);
+            window->titlebar()->secondary_tabs()->set_tabs({{3, L"Dormant tab"}}, 3);
+        } else root->add(editor);
         window->set_content(root);
         window->titlebar()->tabs()->on_activate([weak = std::weak_ptr<Window>(window), editor](std::uint64_t) {
             if (const auto host = weak.lock()) require(host->focus(*editor), "Tab activation focuses its native content");
@@ -387,16 +397,21 @@ void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool di
         window->titlebar()->set_title_visible(false);
         window->set_placement({point.x - 100, point.y + 150, 800, 440});
     }
-    source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
+    if (single) {
+        source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}}, 1);
+        source->set_placement({point.x - 100, point.y - MulDiv(24, dpi, 96), 800, 440});
+    } else source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
     target->titlebar()->tabs()->set_tabs({{7, L"Destination"}}, 7);
     target->on_tab_drag([](const auto&) { return false; });
     std::shared_ptr<Window> remainder;
     HWND source_hwnd{}, remainder_hwnd{};
-    int joins{}, leaves{}, drops{}, cancellations{}, completions{};
+    int tears{}, joins{}, leaves{}, drops{}, cancellations{}, completions{};
     source->on_tab_drag([&](const TabDragEvent& event) {
         require(event.source_strip == 0 && event.tab_id == 1, "Hosted tab keeps its gesture identity");
         switch (event.kind) {
         case TabDragKind::tear_out: {
+            ++tears;
+            if (single) return true;
             remainder = app.create_window({L"XUI hover remainder", {700, 400}, ThemeMode::dark, {}, true});
             remainder->set_show_activated(false);
             auto placement = source->placement();
@@ -439,7 +454,7 @@ void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool di
             return !reject_drop;
         case TabDragKind::cancel:
             require(source->titlebar()->tabs()->tabs().size() == 1, "Leave precedes rollback");
-            source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
+            if (!single) source->titlebar()->tabs()->set_tabs({{1, L"Dragged"}, {2, L"Remaining"}}, 1);
             ++cancellations;
             return true;
         case TabDragKind::completed:
@@ -470,7 +485,8 @@ void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool di
         RECT rect{}; GetWindowRect(hwnd, &rect);
         OffsetRect(&rect, 12, 12);
         apply_move(hwnd, rect);
-        require(remainder && IsWindowVisible(hwnd), "First movement tears out before hover");
+        require(tears == 1 && IsWindowVisible(hwnd), "First movement tears out before hover");
+        require(single ? !remainder : remainder != nullptr, "A single tab does not create a remainder window");
         check_anchor();
         auto move_target = [&](bool over) {
             require(SetWindowPos(target_hwnd, HWND_TOPMOST, point.x - 100,
@@ -542,8 +558,15 @@ void hover_join(bool cancel, bool reject_drop, bool maximized_remainder, bool di
     require(app.run() == 0, "Hover fixture retires all HWNDs");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        hover_join(false, false, false, false, true);
+        hover_join(true, false, false, false, true);
+        hover_join(false, true, false, false, true);
+        if (argc == 2 && std::string_view(argv[1]) == "--single-tab") {
+            std::cout << "Single-tab hover merge, cancellation and rejection passed\n";
+            return 0;
+        }
         geometry();
         placement_contracts();
         secondary_only();
