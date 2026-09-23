@@ -577,6 +577,7 @@ The compiler does not prove the purity of arbitrary external C# code.
 ## Configure a project
 
 The `Xui` NuGet package includes the compiler and runtime.
+The [`dotnet new xui` template](packages.md#create-a-project-with-dotnet-new) creates a package-based project with a counter and Debug hot reload.
 The [package guide](packages.md#net-applications) describes package-based integration.
 For source development, use the projects in this repository:
 

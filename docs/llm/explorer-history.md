@@ -5,7 +5,79 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Deletion and directory watches
+
+`FileContextMenu.DeleteSelection` captures the active selection for the registered `delete-files` command.
+`ContextActionsController.InvokeCanonical` resolves the enabled Shell `delete` verb through the existing asynchronous Shell session.
+Selection checks remain active until native execution. The controller retains an invoked session until Shell completion, even after the directory changes.
+`FileTransfers.Busy` also covers pending and invoked context operations.
+
+`Models/DirectoryChangeMonitor.cs` combines filesystem events with a bounded timer.
+`FilePaneView.Watching.cs` posts notifications to the UI thread and serializes background refreshes with navigation, filtering, and file operations.
+Watch generations reject callbacks after navigation, pane closure, or window closure.
+Each new watch requests a scan to cover changes between the original scan and watch registration.
+Tree watches descendants. Columns watches each displayed directory without a recursive scan.
+
+`ExplorerTab.RefreshSnapshots` updates surviving column models without a navigation commit.
+Column presentation reuse also compares the immutable directory snapshot.
+This comparison prevents a retained column model from keeping obsolete rows.
+`DirectoryChangeTests` covers notifications and model updates.
+`DirectoryChangesSmoke` covers the native Delete key and Shell deletion against disposable fixtures.
+
+On September 23, 2026, the ARM64 Release build passed the model suite and the directory-change, views, context-actions, and customization smoke checks.
+The directory-change smoke also passed with multi-selection retention, stale-command cancellation, and retained-column checks.
+The complete `--smoke` run stopped at the existing navigation-filter style assertion.
+An unchanged HEAD export failed at the same assertion with the same native DLL.
+The logs are `build/directory-changes.out`, `build/explorer-full.err`, and `build/explorer-baseline.err`.
+
+## Customization and declarative presentation integration, 2026-09-21
+
+The merge retains canonical Shell actions and the opt-in Shell prefetch experiment.
+`PreviewMetadataLayout.DateFormat` binds the date preference instead of replacing generated label text.
+Metadata visibility changes therefore preserve the selected date format.
+Text previews use a control-specific presentation family to preserve Cascadia Mono under the window typography policy.
+The document font size still follows customization.
+
+## Settings popup opening, 2026-09-21
+
+The ARM64 Release settings popup created native children for every hidden page.
+Stage timing attributed almost all opening time to `Popup.Show`, not managed synchronization or search.
+Each dismissal released those children, so reopening repeated the cost.
+The native fix deferred children of closed, settled reveals without caching dismissed popups.
+
+The same managed `--settings-open-smoke` fixture ran with the old and new native DLLs.
+Each run used two panes, one first opening, and seven repeated openings.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| First opening handler | 2253.54 ms | 155.68 ms |
+| Repeated opening median | 2171.62 ms | 160.93 ms |
+| First opening with native paint | 2280.65 ms | 165.83 ms |
+| Repeated opening median with native paint | 2183.36 ms | 173.60 ms |
+| Added native child windows | 1364 | 116 |
+
+The final fixture also visited every page and opened global search across all settings.
+Reopening General then took 180.02 ms with native painting and added 116 native child windows.
+Draft retention, deferred native text input, and saved keyboard edits passed.
+The customization, address, partition, views, and context-action desktop checks also passed.
+The settings scroll check recorded 4.65 ms for median dispatch and 14.38 ms with native painting.
+The ContentHost suite passed, including 200 replacements and native editor state.
+The complete reveal suite passed, including deferred peers, native undo state, ownership, popup cleanup, and hidden content replacement.
+Popup fixtures preserved the foreground owner and explicitly requested local editor focus when Windows did not activate their window.
+The foundation suite reached its existing high-contrast ring assertion after six successful popup cleanup runs.
+The same assertion failed with the two new deferral guards disabled.
+The assertion expected the Windows animation preference alone, while the existing runtime also disabled motion in high contrast.
+The fixture flushed pending native painting, but did not measure compositor presentation or physical display latency.
+These are local measurements, not performance guarantees for other computers.
+
+Artifacts: `build\settings-open-comparison.out`, `build\settings-open-final.out`, and `build\settings-open-native-final-build.log`.
+The matching executable was `build\settings-open-validation\FileExplorer.exe`.
+
 ## Declarative presentation refactor, 2026-09-19
+
+`FilePaneView` configures every retained Columns list with a 32-DIP row height to match Details.
+The framework default remains 40 DIPs.
+`--views-smoke` checks compact row hit targets and selection after vertical scrolling.
 
 The refactor uses the existing compiler without new language features.
 `BreadcrumbAddressLayout`, `BreadcrumbMenuLayout`, `BreadcrumbSegmentLayout`, and `BreadcrumbSpaceLayout` own the fixed address presentation.

@@ -44,7 +44,9 @@ int main() {
             "xui_window_run", "xui_window_close", "xui_create", "xui_stack_create", "xui_stack_add",
             "xui_window_content", "xui_update", "xui_subscribe", "xui_text_copy", "xui_focus",
             "xui_invoke", "xui_image_source", "xui_image_shell_source", "xui_image_state", "xui_list_items", "xui_list_filter",
-            "xui_list_select", "xui_list_state", "xui_window_callback_error"}) expect(GetProcAddress(dll, name) != nullptr);
+            "xui_list_select", "xui_list_state", "xui_window_callback_error",
+            "xui_window_set_presentation", "xui_control_set_presentation",
+            "xui_control_presentation_font_size", "xui_control_presentation_font_family"}) expect(GetProcAddress(dll, name) != nullptr);
         auto o = options(); xui_handle invalid = 99;
         o.version++; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH); expect(invalid == 0);
         o = options(); o.size--; expect(xui_window_create(&o, &invalid) == XUI_VERSION_MISMATCH);
@@ -60,7 +62,38 @@ int main() {
         ok(xui_error_copy(error, 1024, &count, &code)); expect(code == XUI_INVALID_HANDLE);
         {
             Window w, other;
+            ok(xui_window_set_presentation(w.h, s("Segoe UI"), 16, 1, 0));
+            expect(xui_window_set_presentation(w.h, s(""), 16, 1, 0) == XUI_INVALID_ARGUMENT);
+            expect(xui_window_set_presentation(w.h, s("Segoe UI"), 33, 1, 0) == XUI_INVALID_ARGUMENT);
+            expect(xui_window_set_presentation(w.h, s("Segoe UI"), 16, 2, 0) == XUI_INVALID_ARGUMENT);
+            xui_property theme{sizeof(xui_property), XUI_THEME, w.h, {}, 0, 0, 0, 0, 3};
+            ok(xui_update(w.h, &theme, 1));
+            theme.integer = 4;
+            expect(xui_update(w.h, &theme, 1) == XUI_INVALID_ARGUMENT);
             auto label = w.control(XUI_LABEL, "日本語 😀");
+            ok(xui_control_presentation_font_size(label, 12));
+            ok(xui_control_presentation_font_size(label, 0));
+            expect(xui_control_presentation_font_size(label, 7) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_size(label, 33) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_size(0, 12) == XUI_INVALID_HANDLE);
+            expect(xui_control_presentation_font_size(w.h, 12) == XUI_WRONG_KIND);
+            ok(xui_control_presentation_font_family(label, s("Cascadia Mono")));
+            ok(xui_control_presentation_font_family(label, {}));
+            ok(xui_control_presentation_font_family(label, s("")));
+            const std::string family_limit(128, 'a'), family_over_limit(129, 'a');
+            ok(xui_control_presentation_font_family(label, s(family_limit.c_str())));
+            expect(xui_control_presentation_font_family(label, s(family_over_limit.c_str())) == XUI_INVALID_ARGUMENT);
+            std::string supplementary_family;
+            for (int i = 0; i < 64; ++i) supplementary_family += "\xf0\x9f\x98\x80";
+            ok(xui_control_presentation_font_family(label, s(supplementary_family.c_str())));
+            supplementary_family += "a";
+            expect(xui_control_presentation_font_family(label, s(supplementary_family.c_str())) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_family(label, {nullptr, 1, 0}) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_family(label, {"x", UINT32_MAX, 0}) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_family(label, {"x", 1, 1}) == XUI_INVALID_ARGUMENT);
+            expect(xui_control_presentation_font_family(0, s("Consolas")) == XUI_INVALID_HANDLE);
+            expect(xui_control_presentation_font_family(w.h, s("Consolas")) == XUI_WRONG_KIND);
+            expect(xui_control_set_presentation(label, 1, 0) == XUI_WRONG_KIND);
             expect(read(label) == "日本語 😀");
             const auto input = w.control(XUI_TEXT_INPUT);
             const auto named_button = w.control(XUI_BUTTON);
@@ -78,11 +111,15 @@ int main() {
             std::atomic<int> wrong{};
             std::thread worker([&] { wrong = xui_text_copy(label, nullptr, 0, &count); });
             worker.join(); expect(wrong == XUI_WRONG_THREAD);
+            std::thread font_worker([&] { wrong = xui_control_presentation_font_family(label, s("Consolas")); });
+            font_worker.join(); expect(wrong == XUI_WRONG_THREAD);
             for (const auto bytes : {std::string("\xc0\xaf", 2), std::string("\xed\xa0\x80", 3),
                 std::string("\xf4\x90\x80\x80", 4), std::string("\xe2\x82", 2), std::string("a\0b", 3)}) {
                 xui_handle result{};
                 expect(xui_create(w.h, XUI_LABEL, {bytes.data(), static_cast<uint32_t>(bytes.size()), 0}, 0, &result) == XUI_INVALID_ARGUMENT);
                 expect(result == 0);
+                expect(xui_control_presentation_font_family(label,
+                    {bytes.data(), static_cast<uint32_t>(bytes.size()), 0}) == XUI_INVALID_ARGUMENT);
             }
             expect(xui_create(w.h, XUI_LABEL, {nullptr, 1, 0}, 0, &invalid) == XUI_INVALID_ARGUMENT);
             expect(xui_create(w.h, XUI_LABEL, {"x", UINT32_MAX, 0}, 0, &invalid) == XUI_INVALID_ARGUMENT);
@@ -103,6 +140,8 @@ int main() {
             auto child = other.control(XUI_LABEL);
             expect(xui_stack_add(stack, child, 0) == XUI_INVALID_ARGUMENT);
             auto image = w.control(XUI_IMAGE);
+            ok(xui_control_set_presentation(image, 0, 1));
+            expect(xui_control_set_presentation(image, 0, 2) == XUI_INVALID_ARGUMENT);
             expect(xui_image_source(image, s("x"), 0, 144) == XUI_INVALID_ARGUMENT);
             ok(xui_image_source(image, s(""), 192, 144));
             expect(xui_image_shell_source(label, s("."), 160, 160) == XUI_WRONG_KIND);

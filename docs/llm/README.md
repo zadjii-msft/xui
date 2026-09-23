@@ -18,11 +18,12 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Retained scrolling](architecture.md#retained-scrolling): Offset-only native placement, editor identity, popup layout, and clipped paint work.
 - [Layout and frame hot paths](architecture.md#layout-and-frame-hot-paths): Reusable layout storage, reentrant measurements, and native frame boundaries.
 - [Text cache lookup](architecture.md#text-cache-lookup): Compact typography keys, cache limits, and retained ownership.
 - [Collection hot paths](architecture.md#collection-projection-and-selection): Indexed projection spans and per-call source lookup reuse.
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
-- [Test coverage and protocols](testing.md): Regression scope, sample and Designer release checks, fixture behavior, and measurement methods.
+- [Test coverage and protocols](testing.md): Regression scope, project templates, sample and Designer release checks, fixture behavior, and measurement methods.
 - [Framework performance evidence](testing.md#framework-performance-pass-september-19-2026): Allocation counts, retained cache sizes, and measurement limits.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
@@ -33,7 +34,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
-- [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, and safe menu replacement.
+- [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, safe menu replacement, and the [prefetch experiment](shell-menu-discovery.md#prefetch-experiment-september-19-2026).
 - [Control styling implementation and evidence](control-styling.md): Shared styles, binding lifetimes, family coverage, native paint checks, and performance evidence.
 
 The language guide describes the current syntax.
@@ -61,6 +62,13 @@ Existing checks still cover page selection, navigation, local links, code exampl
 ## Historical evidence
 
 - [Explorer history](explorer-history.md): Declarative presentation source map, file views, lazy Tree requests, breadcrumbs, folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
+- [Explorer deletion and directory watches](explorer-history.md#deletion-and-directory-watches): Shell deletion, watcher ownership, background refresh, and retained column snapshots.
+- Explorer customization: `ExplorerCustomizationController.cs` owns command dispatch and transactional settings updates. `CustomizationController.cs` owns the searchable editor. `CustomizationSettingRow.cs` owns retained inline controls and text drafts. `Models\KeySequenceTracker.cs` owns sequence state. The [public contract](../specs/file-explorers.md#customization) describes the application behavior.
+- Settings pages: `CustomizationController.cs` groups retained rows by page and section. Search spans all pages without replacing native editors. `CustomizationSettingRow.cs` reserves a reset slot and compares saved values and drafts with defaults. Command glyphs come from `ExplorerCommand.Icon`.
+- Settings opening: `SettingsOpenSmoke.cs` measures popup dispatch and native painting, counts native peers, and checks deferred page inputs. [Opening measurements](explorer-history.md#settings-popup-opening-2026-09-21) identify eager native creation as the original bottleneck.
+- Settings scrolling: `SettingsScrollSmoke.cs` measures native wheel dispatch and pending paint work in the complete inline editor. It also checks native focus, drafts, search, and settings updates. [CONTRIBUTING](../../CONTRIBUTING.md) describes the performance budgets and command.
+- Custom toolbar callbacks: `PostToolbarCommand` leaves the toolbar content scope before application commands create palette sources or change settings. `PostCustomization` defers settings changes from native input callbacks. `ExplorerCustomizationSmoke.cs` covers native button clicks, originating panes, availability checks, and resets.
+- Palette shortcut rendering: `Drawing::shortcut_keycaps` supplies shared content-sized keycaps for styled and unstyled rows. `xui_collections_window_tests --palette-only` checks pixels with root typography, shortcut font overrides, aliases, sequences, and empty mappings.
 - [Rendering history](rendering-history.md): Complete text frames, native context menus, and shared rounded menu frames.
 - [Task Manager history](task-manager-history.md): Grid delivery, retained resources, and graphics-memory investigations.
 - [Earlier milestones](milestone-history.md): Suggestions, navigation, images, Windows integration, layout, and performance baselines.

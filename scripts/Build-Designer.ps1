@@ -12,6 +12,7 @@ $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (!$BuildDirectory) { $BuildDirectory = Join-Path $repo "build\$Architecture" }
 $build = [IO.Path]::GetFullPath($BuildDirectory)
 if (!$CMakePath) { $CMakePath = Get-XuiCMake }
+$generator = Get-XuiGenerator
 $rid = if ($Architecture -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 
 if ($PSCmdlet.ParameterSetName -eq 'Feed') {
@@ -27,7 +28,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Feed') {
 }
 $lsh = (Resolve-Path -LiteralPath $LshPackageDirectory).Path
 Invoke-Checked {
-    & $CMakePath -S $repo -B $build -G 'Visual Studio 17 2022' -A $Architecture `
+    & $CMakePath -S $repo -B $build -G $generator -A $Architecture `
         '-DXUI_ENABLE_LSH=ON' '-DXUI_REQUIRE_LSH=ON' "-DXUI_LSH_PACKAGE_DIR=$lsh"
 }
 Invoke-Checked { & $CMakePath --build $build --config Release --target xui --parallel 4 }

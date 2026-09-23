@@ -1,4 +1,3 @@
-using System.Globalization;
 using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
@@ -14,11 +13,13 @@ internal sealed class FileRows : IReadOnlyImmutableSource
     private readonly bool suggestions;
     private readonly bool tree;
 
-    public FileRows(IReadOnlyList<FileEntry> entries, Func<string, ulong> identify, bool suggestions = false, bool tree = false)
+    public FileRows(IReadOnlyList<FileEntry> entries, Func<string, ulong> identify, bool suggestions = false,
+        bool tree = false, string dateFormat = "yyyy-MM-dd HH:mm")
     {
         this.entries = entries;
         this.suggestions = suggestions;
         this.tree = tree;
+        DateFormat = dateFormat;
         keys = new ItemKey[entries.Count];
         for (int i = 0; i < entries.Count; i++)
         {
@@ -28,6 +29,7 @@ internal sealed class FileRows : IReadOnlyImmutableSource
     }
 
     public ulong Count => (ulong)entries.Count;
+    internal string DateFormat { get; }
     // TreeSource asks the root snapshot about descendants too. Directory keys carry that immutable bit.
     public bool HasChildren(ItemKey key) => tree ? key.Version == 1 : Entry(key.Id)?.IsDirectory == true;
     public ItemKey Key(ulong index) => keys[checked((int)index)];
@@ -51,7 +53,7 @@ internal sealed class FileRows : IReadOnlyImmutableSource
         return column switch
         {
             0 => new(entry.Name, Icon: entry.IsDirectory ? ButtonIcon.Folder : ButtonIcon.Library, ImagePath: entry.FullPath),
-            1 => new(entry.ModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)),
+            1 => new(ExplorerPresentation.FormatDate(entry.ModifiedUtc, DateFormat)),
             2 => new(entry.Kind),
             3 => new(entry.IsDirectory ? "" : FormatSize(entry.Size)),
             _ => new("")

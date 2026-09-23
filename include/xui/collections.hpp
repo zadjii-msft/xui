@@ -217,8 +217,6 @@ public:
         trailing_shortcut_badges_ = value; invalidate(Invalidation::paint);
     }
     bool trailing_shortcut_badges() const { return trailing_shortcut_badges_; }
-    void set_single_click_activation(bool value) { single_click_activation_ = value; }
-    bool single_click_activation() const { return single_click_activation_; }
     void set_items(std::shared_ptr<const ItemsSource> source, std::shared_ptr<const CollectionIndex> full = {});
     void select_all() override;
     bool disclose(ItemKey group, bool expanded) override;
@@ -226,7 +224,6 @@ public:
     void set_presentation(ItemsPresentation value) override;
 private:
     bool trailing_shortcut_badges_{};
-    bool single_click_activation_{};
     void rebuild();
     std::shared_ptr<const ItemsSource> items_;
     std::vector<ItemGroup> groups_;

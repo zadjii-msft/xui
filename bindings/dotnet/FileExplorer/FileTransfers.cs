@@ -2,7 +2,9 @@ namespace Xui.FileExplorer;
 
 internal sealed class FileTransfers(ExplorerApplication app)
 {
-    public bool Busy { get; private set; }
+    private bool transferring;
+    public bool Busy => transferring || app.Left.ContextMenu.Customization.Executing ||
+        app.Right.ContextMenu.Customization.Executing;
 
     public bool CanTransfer(FilePaneView pane) =>
         !Busy && !app.Palettes.IsOpen && pane.HasCurrentRows;
@@ -84,7 +86,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
     {
         if (!CanTransfer(pane)) return;
         destination ??= pane.TransferDirectory;
-        Busy = true;
+        transferring = true;
         try
         {
             pane.ShowFeedback("Pasting...");
@@ -98,7 +100,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
         }
         finally
         {
-            Busy = false;
+            transferring = false;
             RefreshPanes();
         }
     }
@@ -106,7 +108,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
     internal bool Transfer(FilePaneView pane, string[] paths, string destination, FileTransferEffect effect)
     {
         if (Busy) return false;
-        Busy = true;
+        transferring = true;
         try
         {
             pane.ShowFeedback(effect == FileTransferEffect.Move ? "Moving..." : "Copying...");
@@ -122,7 +124,7 @@ internal sealed class FileTransfers(ExplorerApplication app)
         }
         finally
         {
-            Busy = false;
+            transferring = false;
             RefreshPanes();
         }
     }

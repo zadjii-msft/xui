@@ -14,6 +14,30 @@ The explorer selects `VisualStyle.WinUI` for both light and dark themes.
 Other applications retain the classic style unless they explicitly select WinUI.
 The existing C++ explorer remains available as `xui_demo.exe`.
 
+### Search and customize context actions
+
+File and folder menus include **Search / customize context actions**.
+Built-in app actions show their current configured shortcut hints, including aliases and removed bindings.
+The popup searches app actions and supported Windows Shell leaves by label or canonical verb.
+Its native text editor retains standard text selection and keyboard input.
+**Run** uses the paths captured when the context menu opened.
+Selection, tab, or folder changes cancel stale Shell actions.
+
+**Pin** saves an explicit app identity or a unique canonical Shell verb.
+The popup explains when a Shell entry does not support pinning.
+No temporary Shell command ID enters the saved state.
+Pinned app actions appear first in the app portion of the context menu.
+**Pinned context actions** shows favorites against a fresh Shell snapshot.
+Unavailable favorites remain visible and can be unpinned.
+
+**Hide app action** removes a built-in app action from the context menu.
+The search popup retains hidden actions and provides **Show app action** to restore them.
+These preferences persist in the Explorer customization state.
+**Show Windows menu** retains native submenus, dynamic commands, and owner-drawn Shell extensions.
+**Customize Explorer** always remains in the context menu, including menus for empty space.
+Hidden-action preferences cannot remove this recovery command.
+It opens customization even if the toolbar, sidebar, and command-palette keybinding are disabled.
+
 ### Edit the markup
 
 `ExplorerLayout.xui` composes the sidebar, file panes, and notification.
@@ -135,6 +159,73 @@ Closing commands affect the target tab, other tabs, tabs to either side, or all 
 Unavailable directions and duplication at the tab limit appear disabled.
 Tab changes invalidate an open menu instead of changing its target.
 
+### Customization
+
+The **Customize Explorer** command opens a searchable settings editor.
+The command palette includes this command even when the toolbar or sidebar is hidden.
+The editor has **General**, **Toolbar**, **Navigation**, and **Keyboard** pages.
+Toolbar and navigation pages group visibility controls, sections, and commands.
+Command rows show their names and icons. Shared instructions appear once above each group.
+Search finds settings across all pages. Selecting a page clears the search without discarding text drafts.
+Opening the popup creates native controls for the current page, not every hidden settings page.
+Search and page changes create additional native controls when those rows become visible.
+Each settings row has its own control beside its name and description.
+Switches control visibility and behavior. Dropdowns select the theme and thumbnail fit.
+A slider controls row spacing. A numeric stepper controls font size.
+Sidebar sections and command rows have a visibility switch and a position stepper.
+These controls save changes immediately.
+
+Font, date, and keyboard rows have native text fields.
+Press **Enter** or the row's **Save** button to apply a text value.
+Search and unrelated settings changes preserve text drafts.
+An invalid value stays in its field with an error message. Saved settings do not change.
+Each row has a borderless reset icon with an accessible name and a tooltip.
+The icon appears only when the saved value or a text draft differs from the default.
+Hidden reset icons do not change the field width. Reset restores the default and clears the row's draft and error.
+**Reset all** restores all customization defaults.
+
+Keyboard rows support multiple aliases and sequences of up to three strokes.
+For example, `Ctrl+K, Ctrl+R; Ctrl+Shift+R` assigns a sequence and a separate alias.
+An empty value removes all mappings for that command.
+The value `default` restores its default mappings.
+The editor rejects duplicate shortcuts, conflicting sequence prefixes, reserved Windows shortcuts, and AltGr combinations.
+The command palette shows the current mappings.
+
+A sequence expires after 1.8 seconds between strokes.
+Escape cancels an incomplete sequence.
+An invalid continuation returns the key to normal input.
+Custom mappings and sequences run only while a file view has focus.
+Default global navigation and tab shortcuts retain their normal behavior.
+File actions never replace native editor shortcuts.
+
+Toolbar and sidebar command rows accept a position.
+Position `0` hides the command. Other positions select its place in the command order.
+Toolbar labels are optional.
+Commands use the same icons in the toolbar, navigation pane, command palette, and settings rows.
+For example, the folder bookmark command uses the bookmark icon rather than the overflow icon.
+Each sidebar section has its own visibility switch and position stepper.
+A hidden section returns at the end of the list when enabled.
+The settings also control toolbar commands, sidebar visibility, item status, and the three Home widgets.
+
+File rows use the configured row height and font size.
+Tree rows stay compact: their height is 8 DIPs less, with a minimum of 20 DIPs.
+Navigation rows use 4 DIPs less, with the same minimum.
+Tree and navigation fonts use 2 DIPs less, with a minimum of 9 DIPs.
+The defaults remain 24/12 DIPs for Tree rows and 28/12 DIPs for navigation rows.
+Gallery heights add the configured row height to the image area.
+
+Import and export use a versioned JSON document.
+An absent field uses its default.
+Import rejects invalid values, duplicate identities, unsupported versions, unknown fields, and shortcut conflicts.
+A failed import leaves the current settings and other saved state unchanged.
+Settings use the optional `Customization` field in `state.json`.
+Older state files remain valid.
+
+Commands retain stable identities independently of their display names when they supply an explicit `Id`.
+The existing `ExplorerCommand(Name, Shortcut, Execute, CanExecute)` constructor remains valid.
+Extensions can supply the optional `Id` and `Aliases` arguments.
+Every command runs through an availability check immediately before execution.
+
 ### Breadcrumb address bar
 
 The C# demo uses `BreadcrumbAddressBar`, a demo-local control inspired by the File Pilot address bar.
@@ -175,6 +266,8 @@ Another window receives the remaining workspace.
 Before showing that remainder window, the application disables initial activation with `SetShowActivated(false)`.
 The framework places it immediately below the moving window, without taking activation from the drag.
 A single-tab workspace does not create an empty remainder window.
+Dragging its tab moves the window, even while the pointer remains inside the original strip.
+The tab can join another window that already contains tabs.
 
 Dragging onto another visible strip shows an insertion marker.
 With full-window dragging, an accepted hover join temporarily hosts the tab in that destination.
@@ -231,6 +324,14 @@ Native submenus and owner-drawn entries use the Windows menu fallback.
 Open in this pane keeps folder navigation in the demo. Shell Open uses Windows behavior.
 Files omit folder-only commands and duplicate Open actions.
 Selection or source changes cancel pending menu actions instead of changing their target.
+
+`--prefetch-shell-menus` enables an experimental background warmup after each successful directory navigation.
+The title includes `[menu prefetch]`. Without the flag, navigation does not request a menu.
+The warmup discovers one menu for the destination directory, releases its handlers, and retains no commands.
+Navigation changes and closure cancel obsolete warmups.
+Interactive requests take priority, but cannot interrupt a Shell extension inside COM.
+Failures and busy-worker skips produce Windows debugger diagnostics.
+The [contributor procedure](../../CONTRIBUTING.md#try-prefetch-inside-fileexplorer) describes the comparison build.
 
 The size column sorts by byte count, not by the formatted text.
 Folder scans and palette suggestions run outside the UI thread.
@@ -304,6 +405,7 @@ Native file drag and drop remains available in Details.
 ### Columns view
 
 Columns view starts at the committed folder.
+Its rows use the same 32-DIP height as Details, with unchanged icons and text.
 A single selection of a folder loads its children in the next column.
 Ancestor columns remain visible. A sibling selection replaces the columns to its right.
 A file selection does not open the file.
@@ -361,6 +463,7 @@ Tab moves between preview controls. Enter activates a focused button.
 A held Space cannot activate the preview's Open or Close button.
 Native text selection, scrolling, and copying remain available.
 The text preview uses Cascadia Mono and has no editor border or read-only banner.
+The preview keeps this document font when the UI font changes, but uses the configured font size.
 An [LSH-enabled build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) highlights supported source files, including `.xui`, C#, C++, JSON, and Python.
 Unknown extensions remain plain text.
 Highlighting does not change the preview's file-read restrictions, content limit, or cancellation scope.
@@ -455,8 +558,33 @@ There is no animated palette entry.
 | Ctrl+F6 | Switch between dark and light themes |
 | Ctrl+C / Ctrl+Insert with file-view focus | Copy the selected files and folders |
 | Ctrl+X with file-view focus | Cut the selected files and folders for a later move |
+| Delete with file-view focus | Delete the selected files and folders through Windows Shell |
 | Ctrl+V / Shift+Insert with file-view focus | Paste files into the current folder |
 | Ctrl+Shift+C with file-view focus | Copy quoted full paths, one per line |
+
+### Deletion and directory changes
+
+Delete uses the Windows Shell Delete action for the current selection.
+Windows controls confirmation, cancellation, and Recycle Bin behavior.
+The command does not force permanent deletion or delete files through a separate filesystem API.
+Delete retains its native text-editing behavior in Find, address, and other text fields.
+The command palette also contains **Delete selected items**.
+Shell deletion supports up to 256 selected paths. Larger selections produce an explicit message.
+A changed selection, tab, or view cancels a pending command before Shell execution.
+
+Visible panes watch their active directories for file creation, deletion, renames, and metadata changes.
+Changes through either Shell context menu and changes from other applications update the rows automatically.
+The watcher combines nearby events before a background scan.
+An active scan, filter, or app file operation delays the next scan until that work finishes.
+Watch errors appear in the notification area. Manual Refresh remains available.
+Hidden panes and inactive tabs do not retain watches. Navigation and window closure retire the previous watches.
+
+Automatic refresh retains the folder filter and sort order.
+Details, List, and icon views retain selections for surviving items.
+Columns watches each directory in its displayed path.
+Automatic refresh retains surviving columns, their queries, and their scroll offsets.
+Deletion of an open child folder removes its column and later columns.
+Tree watches descendants and uses the existing refresh behavior for expanded branches.
 
 ### File transfers
 
@@ -507,6 +635,9 @@ Both palettes appear at the center of the window, independent of the active pane
 They contain a query field and results, without duplicate headings, navigation buttons, or shortcut footers.
 The palette frame and results share one background color.
 Command shortcuts use separate keycaps on the right, beside each command title.
+Font customization preserves this layout. Commands without a shortcut have no empty keycap.
+Aliases and key sequences retain their separators between keycap groups.
+Long shortcut groups can use an ellipsis in narrow palettes. Accessible text retains the complete shortcut.
 Command rows capture their labels, shortcuts, and enabled state when the palette opens or its query changes.
 Row callbacks read that snapshot without querying native controls.
 The controller checks current availability again before it executes a command.
@@ -544,7 +675,7 @@ Navigation errors preserve the committed folder and its rows.
 `FileTransfers` connects clipboard commands and pane drops to the Windows transfer APIs.
 These classes use explicit model updates rather than a separate MVVM package.
 
-The demo does not provide dedicated rename, delete, or recursive-search commands.
+The demo does not provide dedicated rename or recursive-search commands.
 It does not claim full File Pilot parity.
 The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
 The details view still exposes all entries from the folder scan.

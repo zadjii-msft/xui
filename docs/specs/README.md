@@ -24,7 +24,7 @@ No hosted site is required to read these pages.
 
 ## Start here
 
-- [Packages and deployment](packages.md): NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
+- [Packages and deployment](packages.md): `dotnet new xui`, NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, project integration, hot reload, and VS Code or Microsoft Edit syntax support.
 - [Experimental portable XUI](experimental-portable-xui.md): An opt-in managed subset, shared demo, and backend contract for local C# execution.
 - [Experimental Android backend](experimental-android.md): Native Android widgets, shared-source application startup, input, layout, and Activity lifetime.

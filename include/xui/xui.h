@@ -52,6 +52,20 @@ typedef struct xui_string {
     uint32_t length;
     uint32_t reserved;
 } xui_string;
+/* Applies UI typography to current and future controls. Font size: [8,32] DIPs.
+   Motion preferences cannot override Windows reduced motion or high contrast. */
+XUI_API xui_status XUI_CALL xui_window_set_presentation(xui_handle window, xui_string font_family,
+    float font_size, uint32_t smooth_scrolling, uint32_t animations) XUI_NOEXCEPT;
+/* Pointer-only activation; modifier selection and keyboard behavior are unchanged.
+   Thumbnail fill crops images without changing their aspect ratio. */
+XUI_API xui_status XUI_CALL xui_control_set_presentation(xui_handle control,
+    uint32_t single_click, uint32_t thumbnail_fill) XUI_NOEXCEPT;
+/* Overrides window presentation typography for this control. Zero inherits the window;
+   otherwise font_size must be a finite value in [8,32] DIPs. */
+XUI_API xui_status XUI_CALL xui_control_presentation_font_size(xui_handle control, float font_size) XUI_NOEXCEPT;
+/* Overrides the window font family for this control. An empty span restores inheritance.
+   The UTF-8 family name must contain at most 128 UTF-16 units. */
+XUI_API xui_status XUI_CALL xui_control_presentation_font_family(xui_handle control, xui_string font_family) XUI_NOEXCEPT;
 typedef struct xui_window_options {
     uint32_t size;
     uint32_t version;

@@ -9,6 +9,8 @@
 #include <exception>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
+#include <vector>
 
 namespace {
 using namespace xui;
@@ -471,20 +473,31 @@ void popup_entry_contract() {
     auto popup = std::make_shared<Popup>(reveal);
     popup->set_preferred_size({360, 160});
     bool reopen{}, ran{};
+    HWND owner{};
     popup->on_dismiss([&](auto) {
         reveal->set_open(false);
         reveal->settle();
         if (reopen) {
             reopen = false;
             reveal->set_open(true);
+            const auto foreground = GetForegroundWindow();
             window.show_popup(popup, *anchor, input.get());
+            if (foreground != owner) {
+                require(GetForegroundWindow() == foreground, "Reentrant popup entry does not steal foreground activation");
+                require(window.focus(*input), "Background reentrant popup accepts explicit local editor focus");
+            }
         }
     });
     window.post([&] {
         require(window.focus(*anchor), "Popup entry fixture receives focus");
-        const auto owner = GetAncestor(GetFocus(), GA_ROOT);
+        owner = GetAncestor(GetFocus(), GA_ROOT);
         reveal->set_open(true);
+        const auto foreground = GetForegroundWindow();
         window.show_popup(popup, *anchor, input.get());
+        if (foreground != owner) {
+            require(GetForegroundWindow() == foreground, "Popup entry does not steal foreground activation");
+            require(window.focus(*input), "Background popup accepts explicit local editor focus");
+        }
         const auto editor = GetFocus();
         wchar_t kind[32]{};
         GetClassNameW(editor, kind, 32);
@@ -527,6 +540,195 @@ void popup_entry_contract() {
     require(result == 0 && ran, "Popup entry fixture completed");
 }
 
+std::vector<HWND> native_editors(HWND owner) {
+    std::vector<HWND> result;
+    EnumChildWindows(owner, [](HWND child, LPARAM context) -> BOOL {
+        wchar_t kind[32]{};
+        GetClassNameW(child, kind, 32);
+        if (_wcsicmp(kind, L"EDIT") == 0)
+            reinterpret_cast<std::vector<HWND>*>(context)->push_back(child);
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&result));
+    return result;
+}
+
+void deferred_popup_peers_contract(bool expand) {
+    Window window({L"Deferred popup reveal peers", {640, 480}});
+    window.set_presentation("Consolas", 18, true, false);
+    auto anchor = std::make_shared<Button>(L"Settings");
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(anchor);
+    window.set_content(root);
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    auto action = std::make_shared<Button>(L"Popup focus target");
+    content->add(action);
+    constexpr unsigned row_count = 64;
+    std::vector<std::shared_ptr<Reveal>> reveals;
+    std::vector<std::shared_ptr<TextInput>> inputs;
+    for (unsigned row = 0; row < row_count; ++row) {
+        auto children = std::make_shared<Stack>(Axis::vertical);
+        auto input = std::make_shared<TextInput>(L"Setting " + std::to_wstring(row));
+        input->set_caption_visible(false);
+        input->set_preferred_size({320, 44});
+        children->add(input);
+        children->add(std::make_shared<Label>(L"Setting description"));
+        children->add(std::make_shared<Button>(L"Reset setting"));
+        auto reveal = std::make_shared<Reveal>(children);
+        reveal->set_duration(0);
+        if (expand) reveal->set_layout(RevealLayout::expand);
+        content->add(reveal);
+        reveals.push_back(reveal);
+        inputs.push_back(input);
+    }
+    auto popup = std::make_shared<Popup>(content);
+    popup->set_preferred_size({400, 280});
+    bool ran{};
+    window.post([&] {
+        require(window.focus(*anchor), "Deferred popup fixture receives focus");
+        const auto owner = GetAncestor(GetFocus(), GA_ROOT);
+        const auto peers = [&] { return SendMessageW(owner, metrics, 14, 0); };
+        const auto baseline = peers();
+        require(native_editors(owner).empty(), "Popup fixture starts without native editors");
+        window.show_popup(popup, *anchor, action.get());
+        const auto hidden_peers = peers();
+        require(hidden_peers == baseline + row_count + 2 && native_editors(owner).empty(),
+            "Closed reveals retain 192 model controls without creating their native peers");
+        require(!window.focus(*inputs.front()) && peers() == hidden_peers,
+            "Focusing a closed reveal cannot realize its hidden editor");
+        auto& reveal = reveals.front();
+        auto& input = inputs.front();
+        reveal->set_open(true);
+        require(window.focus(*input), "Opening synchronously realizes the editor before assigning focus");
+        const auto editor = GetFocus();
+        require(native_editors(owner) == std::vector<HWND>{editor} && peers() == hidden_peers + 3,
+            "Opening one row realizes only that row's three controls");
+        LOGFONTW font{};
+        require(GetObjectW(reinterpret_cast<HFONT>(SendMessageW(editor, WM_GETFONT, 0, 0)), sizeof(font), &font) != 0 &&
+            std::wstring(font.lfFaceName) == L"Consolas" &&
+            std::abs(font.lfHeight + std::lround(18 * GetDpiForWindow(editor) / 96.0f)) <= 1,
+            "Deferred native editors inherit the current window typography");
+        SendMessageW(editor, WM_CHAR, L'a', 0);
+        SendMessageW(editor, WM_CHAR, L'b', 0);
+        SendMessageW(editor, WM_CHAR, L'c', 0);
+        require(input->text() == L"abc" && SendMessageW(editor, EM_CANUNDO, 0, 0),
+            "The newly realized editor accepts native typing and records undo");
+        SendMessageW(editor, EM_SETSEL, 1, 2);
+        const auto opened_peers = peers();
+        reveal->set_open(false);
+        require(window.focus(*action), "Closing the row returns focus within the same popup");
+        SendMessageW(owner, update, 0, 0);
+        require(popup->is_open() && IsWindow(editor) && !IsWindowVisible(editor) &&
+            !window.focus(*input) && peers() == opened_peers,
+            "Closing a realized reveal retains its peers without permitting hidden input");
+        reveal->set_open(true);
+        require(window.focus(*input) && GetFocus() == editor && peers() == opened_peers,
+            "Reopening an attached reveal preserves native editor identity");
+        DWORD start{}, end{};
+        SendMessageW(editor, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        POINT caret{};
+        require(start == 1 && end == 2 && GetCaretPos(&caret) && input->text() == L"abc" &&
+            SendMessageW(editor, EM_CANUNDO, 0, 0),
+            "Reopening preserves native selection, caret, model text, and undo history");
+        require(SendMessageW(editor, EM_UNDO, 0, 0) && input->text().empty(),
+            "Preserved undo reverses the original native typing");
+        SendMessageW(editor, WM_CHAR, L'z', 0);
+        reveal->set_open(false);
+        require(window.focus(*action), "Return focus before dismissing the settings popup");
+        window.dismiss_popup(*popup);
+        SendMessageW(owner, update, 0, 0);
+        require(!popup->is_open() && !IsWindow(editor) && native_editors(owner).empty() && peers() == baseline,
+            "Dismissal destroys even closed reveal peers and restores the baseline");
+        require(input->text() == L"z", "Popup dismissal retains edited model text");
+        window.show_popup(popup, *anchor, action.get());
+        require(peers() == hidden_peers && native_editors(owner).empty(),
+            "Fresh popup opening defers previously realized closed rows instead of caching peers");
+        reveal->set_open(true);
+        require(window.focus(*input), "A fresh popup can realize its retained editor again");
+        const auto fresh_editor = GetFocus();
+        wchar_t text[8]{};
+        GetWindowTextW(fresh_editor, text, 8);
+        require(std::wstring(text) == L"z" && input->text() == L"z" &&
+            !SendMessageW(fresh_editor, EM_CANUNDO, 0, 0),
+            "A fresh native editor receives model text, not the dismissed peer's undo history");
+        window.dismiss_popup(*popup);
+        SendMessageW(owner, update, 0, 0);
+        require(peers() == baseline && native_editors(owner).empty() &&
+            SendMessageW(owner, metrics, 33, 0) == 0,
+            "Repeated popup dismissal leaves no peers or animation timer");
+        ran = true;
+        window.close();
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    require(result == 0 && ran, "Deferred popup peer contract completed");
+}
+
+void deferred_hidden_replacement_contract() {
+    Window window({L"Deferred nested content replacement", {600, 400}});
+    auto anchor = std::make_shared<Button>(L"Outside focus");
+    auto old_content = std::make_shared<Stack>(Axis::vertical);
+    old_content->add(std::make_shared<TextInput>(L"Never realized"));
+    std::weak_ptr<Element> retired = old_content;
+    auto host = std::make_shared<ContentHost>(old_content);
+    old_content.reset();
+    auto inner = std::make_shared<Reveal>(host);
+    auto outer = std::make_shared<Reveal>(inner);
+    inner->set_duration(0);
+    outer->set_duration(0);
+    auto slot = std::make_shared<ContentHost>(outer);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(anchor);
+    root->add(slot);
+    window.set_content(root);
+    bool ran{};
+    window.post([&] {
+        require(window.focus(*anchor), "Hidden replacement fixture receives focus");
+        const auto owner = GetAncestor(GetFocus(), GA_ROOT);
+        const auto baseline = SendMessageW(owner, metrics, 14, 0);
+        require(native_editors(owner).empty(), "Nested closed reveals have no editor peers");
+        Window other;
+        other.set_content(host);
+        bool rejected{};
+        try { other.replace_content(*host, {}); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected && host->content() && !retired.expired(),
+            "Hidden descendants remain claimed by their live window without native peers");
+        other.set_content(std::make_shared<Stack>(Axis::vertical));
+        auto replacement = std::make_shared<TextInput>(L"Replacement editor");
+        replacement->set_caption_visible(false);
+        replacement->set_text(L"Retained replacement");
+        window.replace_content(*host, replacement);
+        require(host->content() == replacement && retired.expired() &&
+            !outer->open() && !inner->open() && !window.focus(*replacement),
+            "Replacing nested hidden content retires the old model without opening its ancestors");
+        outer->set_open(true);
+        inner->set_open(true);
+        require(window.focus(*replacement), "Nested replacement realizes synchronously when opened");
+        const auto editor = GetFocus();
+        wchar_t text[64]{};
+        GetWindowTextW(editor, text, 64);
+        require(native_editors(owner) == std::vector<HWND>{editor} && std::wstring(text) == L"Retained replacement",
+            "Opening nested reveals realizes only the replacement model");
+        outer->set_open(false);
+        require(window.focus(*anchor), "Retirement leaves focus outside the hidden subtree");
+        SendMessageW(owner, update, 0, 0);
+        require(IsWindow(editor), "Closing the nested ancestor retains its realized editor");
+        window.replace_content(*slot, {});
+        require(!IsWindow(editor) && native_editors(owner).empty() &&
+            SendMessageW(owner, metrics, 14, 0) == baseline - 1,
+            "Retiring a closed subtree destroys its retained peers");
+        other.set_content(host);
+        other.replace_content(*host, {});
+        require(!host->content(),
+            "Retired hidden descendants release their live-window claims for another window");
+        ran = true;
+        window.close();
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    require(result == 0 && ran, "Deferred hidden replacement contract completed");
+}
+
 void modal_entry_contract(VisualStyle style) {
     WindowOptions options{L"Modal content entry", {600, 440}};
     options.visual_style = style;
@@ -556,7 +758,12 @@ void modal_entry_contract(VisualStyle style) {
         const auto anchor_hwnd = GetFocus();
         const auto owner = GetAncestor(anchor_hwnd, GA_ROOT);
         reveal->set_open(true);
+        const auto foreground = GetForegroundWindow();
         window.show_dialog(dialog, *anchor, input.get());
+        if (foreground != owner) {
+            require(GetForegroundWindow() == foreground, "Modal entry does not steal foreground activation");
+            require(window.focus(*input), "Background modal accepts explicit local editor focus");
+        }
         const auto editor = GetFocus();
         require(editor != anchor_hwnd && !IsWindowEnabled(anchor_hwnd) && !window.focus(*anchor),
             "Modal exclusion applies before the first animation frame");
@@ -695,13 +902,23 @@ void pane_pixel_contract() {
     require(result == 0 && ran, "Pane pixel fixture completed");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         // Keep cached Graphics Capture factories in one apartment across fixture windows.
         winrt::init_apartment(winrt::apartment_type::single_threaded);
         struct Apartment {
             ~Apartment() { winrt::clear_factory_cache(); winrt::uninit_apartment(); }
         } apartment;
+        if (argc == 2 && std::string_view(argv[1]) == "--popup-only") {
+            popup_entry_contract();
+            std::cout << "Reveal popup entry passed\n";
+            return 0;
+        }
+        deferred_popup_peers_contract(false);
+        deferred_popup_peers_contract(true);
+        deferred_hidden_replacement_contract();
+        std::cerr << "Reveal deferred peers, popup cleanup, and hidden replacement passed\n";
+        if (argc == 2 && std::string_view(argv[1]) == "--deferred-only") return 0;
         for (const bool expand : {false, true}) {
             std::cerr << "Reveal window layout=" << (expand ? "expand" : "fixed") << '\n';
             Fixture fixture(expand);

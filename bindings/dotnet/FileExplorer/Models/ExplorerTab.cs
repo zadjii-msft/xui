@@ -5,7 +5,7 @@ public enum ExplorerPartition { FoldersFirst, FilesFirst, Mixed }
 
 public sealed class ExplorerColumn(DirectorySnapshot snapshot)
 {
-    public DirectorySnapshot Snapshot { get; } = snapshot;
+    public DirectorySnapshot Snapshot { get; internal set; } = snapshot;
     public string Filter { get; set; } = "";
     public string? SelectedPath { get; set; }
     public double ScrollOffset { get; set; }
@@ -130,6 +130,35 @@ public sealed class ExplorerTab
             historyIndex = history.Count - 1;
         }
         Apply(snapshot.Path, entries);
+    }
+
+    internal void RefreshSnapshots(IReadOnlyList<DirectorySnapshot> snapshots)
+    {
+        if (snapshots.Count == 0) throw new ArgumentException("A refresh needs a directory snapshot.", nameof(snapshots));
+        var entries = snapshots.Select(ValidateAndCopy).ToArray();
+        if (ViewMode != ExplorerViewMode.Columns)
+        {
+            if (snapshots.Count != 1 || !PathsEqual(Path, snapshots[0].Path))
+                throw new InvalidOperationException("The refresh does not match this folder.");
+            Entries = entries[0];
+            return;
+        }
+        if (snapshots.Count > columns.Count || snapshots.Where((snapshot, index) =>
+            !PathsEqual(snapshot.Path, columns[index].Snapshot.Path)).Any())
+            throw new InvalidOperationException("The refresh does not match these columns.");
+        for (int i = 0; i < snapshots.Count; i++)
+        {
+            columns[i].Snapshot = new(snapshots[i].Path, entries[i]);
+            if (!entries[i].Any(entry => PathsEqual(entry.FullPath, columns[i].SelectedPath ?? snapshots[i].Path)))
+                columns[i].SelectedPath = null;
+        }
+        columns.RemoveRange(snapshots.Count, columns.Count - snapshots.Count);
+        ActiveColumn = Math.Clamp(ActiveColumn, 0, columns.Count - 1);
+        Path = columns[^1].Snapshot.Path;
+        Entries = columns[^1].Snapshot.Entries;
+        Filter = columns[^1].Filter;
+        SelectedPath = columns[^1].SelectedPath;
+        ScrollOffset = columns[^1].ScrollOffset;
     }
 
     public bool TryGetHistory(int delta, out string path)

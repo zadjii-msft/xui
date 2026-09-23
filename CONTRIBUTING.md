@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Native builds require Windows 10 version 1703 or later, CMake 3.24 or later, and Visual Studio 2022.
+Native builds require Windows 10 version 1703 or later, CMake 3.24 or later, and Visual Studio 2022 or 2026 (including Preview/Insiders).
 Install the C++ desktop workload and a Windows SDK.
 For ARM64 builds, include the ARM64 C++ tools.
 The Windows backend requires a 64-bit build.
@@ -254,8 +254,10 @@ The optional `wasm-tools` optimization recommendation does not prevent ordinary 
 $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") { "ARM64" } else { "x64" }
 $rid = if ($arch -eq "ARM64") { "win-arm64" } else { "win-x64" }
 $build = "build\$arch"
-cmake -S . -B $build -G "Visual Studio 17 2022" -A $arch -DBUILD_TESTING=ON
-cmake --build $build --config Release --parallel 4
+. .\scripts\Release.Common.ps1
+$cmake = Get-XuiCMake
+& $cmake -S . -B $build -G (Get-XuiGenerator) -A $arch -DBUILD_TESTING=ON
+& $cmake --build $build --config Release --parallel 4
 ```
 
 The architecture selection avoids x64 emulation on ARM64 Windows.
@@ -264,15 +266,16 @@ Close executables from this build directory before relinking them.
 Native builds enable syntax highlighting from the checked-in `dep` package by default.
 See [repository-local packages](#repository-local-packages) for package updates and [LSH configuration](#lsh-highlighting-in-xui-applications) for the opt-out.
 
-If CMake is absent from `PATH`, find the Visual Studio copy:
+The helpers discover prerelease installations and prefer Visual Studio 2022 when both versions are installed, preserving existing 2022 build directories. Use a fresh build directory when switching generators. To use CMake and CTest from the selected Visual Studio in subsequent commands:
 
 ```powershell
-$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
-$tools = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+. .\scripts\Release.Common.ps1
+$tools = Split-Path (Get-XuiCMake)
 $env:PATH = "$tools;$env:PATH"
 ```
 
 Then run the native build commands.
+Run `.\tests\build-toolchain.ps1` to check Visual Studio discovery, CMake, and x64/ARM64 compiler environments.
 
 ## Native samples
 
@@ -808,7 +811,104 @@ The complete `--smoke` run includes these address-bar checks.
 The address-bar checks also cover shared declarative styles, unchanged-path identity, and the 64-segment limit.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
-The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes:
+The directory-change smoke deletes disposable fixture files and folders through Windows Shell.
+It covers the Delete key in every file view, context-action deletion, native text input, and automatic updates in both panes.
+It also covers external renames, external deletion, retained Columns paths, navigation, and hidden-pane recovery.
+The smoke checks multi-selection retention and cancellation after a selection change.
+Windows can show its normal deletion confirmation dialog.
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--directory-changes-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer directory changes smoke failed." }
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+The model suite covers filesystem notifications, watcher disposal, and column snapshot updates.
+
+The customization checks cover key sequences, shortcut conflicts, import errors, legacy state, and native editor shortcut ownership:
+
+```powershell
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+$exe = (Resolve-Path "bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe").Path
+$process = Start-Process -FilePath $exe -ArgumentList "--customization-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer customization smoke failed." }
+```
+
+The desktop check applies settings to both panes and opens the searchable settings editor.
+It clicks native toolbar buttons after customization and checks palette ownership, repeated theme changes, navigation toggles, and settings resets.
+It also clicks settings page buttons and checks global search, retained drafts, conditional reset visibility, stable field widths, and command icons.
+Queued toolbar commands must retain their pane and check availability again before execution.
+The smoke uses isolated state and does not change the normal saved settings.
+
+The native palette appearance check covers separate shortcut keycaps with and without font customization:
+
+```powershell
+& ".\$build\Release\xui_collections_window_tests.exe" --palette-only
+if ($LASTEXITCODE -ne 0) { throw "Palette appearance check failed." }
+```
+
+It captures only its own nonactivating windows.
+The checks cover empty shortcuts, aliases, key sequences, custom fonts, selection, disabled commands, narrow widths, themes, and DPI scales.
+
+The settings opening check measures the first opening and seven repeated openings with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-open-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-open.out" -RedirectStandardError "settings-open.err"
+Get-Content "settings-open.out"
+Get-Content "settings-open.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings opening smoke failed." }
+```
+
+Run this check without concurrent desktop tests or a debugger.
+The popup must be visible, arranged, and ready for native input before each sample completes.
+The check reports handler time and handler time plus pending native painting.
+The handler budget is 250 ms for the warm median and 500 ms for the first opening and maximum.
+With native painting, these budgets are 350 ms and 650 ms.
+The General page must add fewer than 180 native child windows.
+The check also covers draft retention, deferred page inputs, global search, dismissal cleanup, and reopening after all pages were visited.
+These measurements exclude compositor presentation latency.
+The native deferred-reveal check covers ownership, typography, focus, undo state, hidden content replacement, and popup cleanup:
+
+```powershell
+& ".\$build\Release\xui_reveal_window_tests.exe" --deferred-only
+if ($LASTEXITCODE -ne 0) { throw "Deferred reveal check failed." }
+```
+
+The settings scroll check measures global search across all settings pages with both panes open:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--settings-scroll-smoke" -PassThru -Wait `
+    -RedirectStandardOutput "settings-scroll.out" -RedirectStandardError "settings-scroll.err"
+Get-Content "settings-scroll.out"
+Get-Content "settings-scroll.err"
+if ($process.ExitCode -ne 0) { throw "Explorer settings scroll smoke failed." }
+```
+
+Run this check without a debugger or concurrent performance tests.
+Use normal line-based Windows wheel scrolling.
+The check uses isolated state, eight warmup messages, and forty measured wheel messages.
+It requires actual movement and checks round-trip geometry, native editor identity, focus, unsaved drafts, search, and a subsequent settings update.
+The wheel-handler budgets are 16 ms median and 32 ms p95.
+The combined wheel-handler and native-paint budgets are 32 ms median and 64 ms p95.
+The combined measurement flushes pending paint messages before each sample ends.
+Neither measurement includes compositor presentation latency or measures display frame rate.
+The output also includes the row count and the native child-window count for the entire Explorer window.
+
+The context-action check opens the search popup against real Shell metadata.
+It covers the native editor, captured paths, canonical favorites, hidden app actions, and stale selection cancellation.
+It does not run real Shell commands.
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--context-actions-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer context actions smoke failed." }
+```
+
+`xui_shell_menu_tests` separately checks command invocation with a fixture COM provider.
+Its snapshot checks cover canonical verbs, original command IDs, cancellation, and stale handle rejection.
+
+The focused preview smoke covers metadata, native text, images, cancellation, and preview windows after their Explorer window closes.
+It also checks date preferences after declarative metadata becomes visible and after preferences change:
 
 ```powershell
 $process = Start-Process -FilePath $exe -ArgumentList "--preview-smoke" -PassThru -Wait
@@ -816,6 +916,90 @@ $process.ExitCode
 ```
 
 The complete `--smoke` run includes the same preview checks.
+
+#### Shell menu prefetch experiment
+
+The native probe uses the same asynchronous Shell worker as the C# explorer.
+It discovers commands without displaying a menu or invoking a Shell verb.
+It does not change directory navigation.
+Each probe process starts with a fresh worker. Windows and external Shell services can retain their caches between processes.
+
+Build the probe:
+
+```powershell
+cmake --build $build --config Release --target xui_shell_menu_tests --parallel 4
+$probe = ".\$build\Release\xui_shell_menu_tests.exe"
+$target = ".\bindings\dotnet\FileExplorer\Models"
+$warmup = ".\bindings\dotnet\FileExplorer"
+```
+
+Run the control and the completed-prefetch case in separate processes:
+
+```powershell
+& $probe $target --prefetch-probe - 0
+& $probe $target --prefetch-probe $warmup 0
+```
+
+The arguments are `TARGET --prefetch-probe WARMUP_OR_DASH DELAY_MS`.
+A dash disables prefetch. The delay accepts integers from 0 through 60000.
+The probe waits for prefetch completion and handler release before the delay starts.
+It then discovers the target twice, with fresh handlers for each request.
+This is the best case for hidden prefetch cost, not a measurement of a click during unfinished prefetch.
+
+For the idle-timeout comparison, use `11000` for both commands.
+The worker exits after ten idle seconds.
+For other target types, use `.\build\ARM64\CMakeCache.txt` or `.\assets\branding\generated\zoey-32.png`.
+Replace `ARM64` with the configured architecture.
+For a text warmup, use `.\CMakeLists.txt`.
+Repeat each pair in alternating order to reduce order effects.
+
+The CSV output reports `phase`, `ready_ms`, `cleanup_ms`, `entries`, and `foreground_changed`.
+The phases are `prefetch`, `target-first`, and `target-repeat`.
+Ready time includes worker startup, provider construction, and top-level metadata discovery.
+Cleanup time includes the metadata snapshot and cancellation through handler release.
+Polling adds scheduler-dependent overhead. These times do not measure menu painting or C# navigation.
+The foreground flag reports a change between samples, not its cause or the absence of transient activation.
+Discovery errors, missing paths, invalid delays, and waits beyond the deadline produce a nonzero exit code.
+Installed Shell extensions determine the results. This probe is not a fixed latency gate.
+
+The [experiment notes](docs/llm/shell-menu-discovery.md#prefetch-experiment-september-19-2026) record the initial measurements and limitations.
+
+#### Try prefetch inside FileExplorer
+
+Build the matching DLL and explorer:
+
+```powershell
+cmake --build $build --config Release --target xui --parallel 4
+dotnet build bindings\dotnet\FileExplorer -c Release -r $rid "-p:XuiNativeDir=$PWD\$build\Release"
+$exe = ".\bindings\dotnet\FileExplorer\bin\Release\net10.0\$rid\FileExplorer.exe"
+```
+
+Run the experiment:
+
+```powershell
+& $exe "$PWD" --prefetch-shell-menus
+```
+
+The title includes `[menu prefetch]`.
+Each successful directory navigation requests one hidden menu for that directory.
+The request runs outside the UI thread and retains no menu commands.
+New navigation, tab changes, pane closure, and window closure cancel obsolete work.
+Interactive menu requests take priority, but an extension already inside COM can delay them.
+Discovery failures and skipped requests produce Windows debugger diagnostics.
+This mode does not guarantee faster menus.
+
+For the control, run the same executable without the flag:
+
+```powershell
+& $exe "$PWD"
+```
+
+For a navigation smoke with prefetch enabled, run:
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--address-smoke", "--prefetch-shell-menus" -PassThru -Wait
+$process.ExitCode
+```
 
 ### NativeAOT and deployment
 
@@ -861,19 +1045,22 @@ The [package guide](docs/specs/packages.md) describes consumption and deployment
 Release builds require both x64 and ARM64 C++ tools and Rust targets.
 Each GitHub runner builds its own architecture.
 The Designer requires a .NET SDK that matches its target architecture because it bundles the SDK's Roslyn assemblies.
-For local builds, select the matching SDK through `PATH` before each architecture command:
+For local builds, select the matching SDK through `PATH` before each architecture command. An x64-only .NET SDK cannot publish the ARM64 Designer; use an ARM64 host with an ARM64 .NET 10 SDK for that release:
 
 ```powershell
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture x64 -StageDirectory build\release-stage
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture ARM64 -StageDirectory build\release-stage
 .\scripts\New-ReleaseAssets.ps1 -Version 0.1.0 -StageDirectory build\release-stage -OutputDirectory build\release-assets
 .\tests\packages.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
+.\tests\templates.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-samples.ps1 -Version 0.1.0 -AssetDirectory build\release-assets
 .\tests\release-designer.ps1 -Version 0.1.0 -AssetDirectory build\release-assets -Architecture $arch
 .\tests\release-workflow.ps1
 .\tests\release-packaging-unit.ps1
 .\tests\native-copy.ps1 -Architecture $arch
 ```
+
+NativeAOT release publishes and Rust/MSBuild consumers enter the selected Visual Studio developer environment automatically, including the installer directory needed by `vcvars` on machines without `vswhere` in `PATH`.
 
 Use a fresh staging directory for each release build.
 The scripts preserve existing staging directories and stop instead of mixing old and new outputs.
@@ -885,7 +1072,7 @@ Application builds must not use that escape hatch.
 
 The workflow runs for tag pushes under `release/`.
 It accepts only `release/Major.minor.rev`, with three numeric components and no leading zeroes.
-It builds both architectures, the release samples, the Designer, the NuGet package, and both Cargo crates.
+It builds both architectures, the release samples, the Designer, both NuGet packages, and both Cargo crates.
 The sample assets are `Xui.Samples.<version>.win-x64.zip` and `Xui.Samples.<version>.win-arm64.zip`.
 Each archive contains native dependencies and size-optimized NativeAOT deployments without .NET debug symbols.
 No separate .NET installation is necessary.
@@ -920,7 +1107,39 @@ git push origin release/0.1.0
 
 Before publication, review the draft assets and generated notes.
 XUI uses the root MIT license.
-The NuGet package, both Cargo crates, and both sample ZIPs include that license.
+Both NuGet packages, both Cargo crates, and all sample and Designer ZIPs include that license.
+
+### Project template package
+
+`templates\xui` contains the application source and `.template.config\template.json`.
+`packaging\Xui.Templates.nuspec` defines the template package.
+`scripts\Pack-Templates.ps1` sets the generated `Xui` reference to the package version in a staging directory.
+It does not edit the tracked template source or require a native build.
+
+```powershell
+.\scripts\Pack-Templates.ps1 -Version 0.1.0 -OutputDirectory build\template-assets
+.\tests\templates.ps1
+```
+
+The standalone test packs, installs, generates, and uninstalls the template in an isolated template directory.
+It checks package contents, version substitution, project names, current-directory generation, and preservation of C# preprocessor directives.
+The test does not change the user's installed templates or package sources.
+The `Project template` workflow runs this test for template changes.
+
+With `-AssetDirectory`, the test also builds generated projects against the matching `Xui` release package.
+These checks cover Debug hot reload, the explicit opt-out, Release output, and publish output.
+The release workflow runs this mode for x64 and ARM64 before draft creation.
+`-FrameworkSource` selects an alternate feed for Microsoft framework packages.
+
+The C# template disables template-engine condition processing with `cnd` directives.
+Without those directives, `dotnet new` removes the `XUI_HOT_RELOAD` branches before compilation.
+Keep those directives in the template source.
+They do not appear in generated applications.
+
+The release assets include `Xui.Templates.<version>.nupkg` and its checksum.
+Registry publication remains a maintainer action.
+Before distribution through a registry, publish the matching `Xui` package to the same configured source.
+The [template guide](docs/specs/packages.md#create-a-project-with-dotnet-new) contains installation and application commands.
 
 ## Tests
 
@@ -1045,6 +1264,8 @@ Its output reports that condition.
 Dedicated hover cases use temporary topmost fixture windows without activation.
 They check native hide and show transitions, reversible transfer, transparent overlays, and remainder Z-order.
 The Explorer smoke checks model transfer through the managed drag handler.
+`xui_tab_drag_window_tests.exe --single-tab` selects the single-tab native hover cases.
+`FileExplorer.exe --smoke-hover` includes single-tab merges into a window with multiple tabs, cancellation, and deferred source retirement.
 
 For physical drag coverage, press Ctrl+N in FileExplorer to create another window in the same application.
 Drag tabs within a strip, outside the window, and onto the other window.
@@ -1452,7 +1673,7 @@ python bindings\generate_control_styles.py
 python bindings\generate_control_styles.py --check
 ```
 
-The ARM64 integration scripts currently assume Visual Studio 2022 Preview at its standard installation path.
+The ARM64 integration scripts discover the installed Visual Studio CMake and ARM64 C++ tools, including prerelease installations.
 `binding-features.ps1` also publishes with `--no-restore`.
 Before its first run, restore both managed projects for the required publish modes:
 

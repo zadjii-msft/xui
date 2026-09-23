@@ -90,6 +90,7 @@ public:
     FileTransferEffect drop_files(Point point, const std::vector<std::wstring>& paths, FileTransferEffect effect);
     // A press on selected rows preserves membership until release or the system drag threshold.
     bool begin_file_press(Point point, SelectionGesture gesture);
+    std::optional<RowKey> pending_file_press() const { return file_press_key_; }
     bool file_drag_threshold(Point point, Size threshold) const;
     void end_file_press(bool click);
     void step(int delta, SelectionGesture gesture = SelectionGesture::replace);

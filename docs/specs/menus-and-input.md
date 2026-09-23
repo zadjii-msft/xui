@@ -5,6 +5,31 @@ See the [reference index](README.md) for related APIs.
 Examples in this reference use C++ unless stated otherwise.
 For C# and Rust coverage, use the [binding reference](bindings.md).
 
+## Searchable Shell snapshots in C#
+
+`ShellActionSession` exposes real Windows Shell leaves for an application-authored search interface.
+Its constructor copies one selection of 1–256 paths.
+The paths must have the same parent.
+`Read()` returns labels, enabled state, canonical verbs, and session-scoped `ItemKey` values.
+The shared Shell STA owns the extension objects and their native menus.
+No COM objects cross into the application UI thread.
+
+`Invoke()` resolves a unique canonical verb against a fresh menu for the captured paths.
+It rejects missing, ambiguous, or disabled matches.
+The provider runs the fresh menu's original command identity, not a command label or a reconstructed command line.
+Entries without a unique canonical verb retain their session-scoped identity.
+The application supplies a current-selection callback.
+The native worker calls that callback on the UI thread before an action.
+The provider also checks the current enabled state.
+`Dispose()` cancels without a wait for the Shell extension.
+Window closure also cancels the session.
+
+Only a nonempty, unique canonical verb can identify a saved favorite.
+The numeric command ID and version apply only to the current session.
+Dynamic submenus, owner-drawn commands, and unlabeled entries remain in `ShowWindowsMenu()`.
+Discovery and action errors remain explicit.
+The C ABI equivalent is in `xui_shell_actions.h`.
+
 ## Shared context menus
 
 Every `Control::on_context_menu` callback uses the same Windows menu backend.
@@ -81,6 +106,28 @@ The pixel count must equal width times height. Invalid dimensions or pixel count
 Shell discovery limits copied bitmap data to 4 MiB per menu.
 These icons do not change command labels, shortcuts, accessibility names, or command identities.
 
+### Experimental Shell warmup
+
+`Window::prefetch_shell_commands(path)` requests best-effort background discovery for one filesystem path.
+C# exposes `Window.PrefetchShellCommands(path)`. The C ABI exposes `xui_shell_prefetch(window, path)`.
+The call requires an open window on its UI thread.
+An empty path cancels the window's previous request. A new path replaces that request.
+Window closure also cancels it without waiting for a Shell extension.
+
+Warmup never displays a menu, invokes a verb, or retains command metadata for later menus.
+The shared STA releases the handlers after discovery.
+It skips speculative work while an interactive request is active or pending.
+An interactive request cancels active speculative work, but cancellation cannot interrupt an extension inside COM.
+The worker retains at most one active request and one pending request across windows.
+It exits after ten idle seconds.
+
+Invalid arguments and unavailable windows produce the usual synchronous errors.
+Asynchronous discovery failures and busy-worker skips produce Windows debugger diagnostics.
+This experimental API does not guarantee faster menus.
+The [C# explorer](file-explorers.md) opts in only with `--prefetch-shell-menus`.
+
+### Window and input details
+
 PNG copies permit image review without changes to the BMP capture tests.
 The menu test reports sampled popup visibility latency, not an isolated rendering benchmark.
 If Windows still maps an executable from a previous fixture run, Shell thumbnail tests need a fresh fixture directory.
@@ -150,6 +197,8 @@ The system drag threshold separates clicks from drags.
 
 One native Windows move-size loop handles each gesture.
 Within the source strip, `reorder` requests a new position while the window stays stationary.
+If the window has only one visible tab, dragging that tab moves the window without a reorder phase.
+Tabs in a collapsed pane do not prevent this movement.
 Outside that strip, `tear_out` asks the application to separate the dragged tab.
 Until an accepted `join`, the dragged tab stays on the original HWND, in the same strip, with the same identity.
 The application creates another window for the remaining models and content.

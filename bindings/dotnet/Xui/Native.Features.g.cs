@@ -405,6 +405,8 @@ internal static partial int CommandInvoke(ulong @target, ulong @id, uint @pin);
 internal static partial int CommandBind(ulong @target, ulong @id, uint @key, uint @modifiers);
 [LibraryImport("xui", EntryPoint = "xui_shell_show")]
 internal static partial int ShellShow(ulong @anchor, Text* @paths, uint @count);
+[LibraryImport("xui", EntryPoint = "xui_shell_prefetch")]
+internal static partial int ShellPrefetch(ulong @window, Text @path);
 [LibraryImport("xui", EntryPoint = "xui_canvas_scene")]
 internal static partial int CanvasScene(ulong @target, Shape* @shapes, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_map_markers")]

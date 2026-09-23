@@ -58,7 +58,7 @@ internal sealed class FileTreeView
     private FileRows Rows(IReadOnlyList<FileEntry> items)
     {
         foreach (var entry in items) entries[identify(entry.FullPath)] = entry;
-        return new(items, identify, tree: true);
+        return new(items, identify, tree: true, dateFormat: app.State.Customization.DateFormat);
     }
 
     public void SelectPath(string path)

@@ -19,7 +19,8 @@ internal sealed class PreviewSession : IDisposable
     private readonly CancellationTokenSource request = new();
     private bool disposed;
 
-    public PreviewSession(Application application, FileEntry target, bool smoke, Action opened)
+    public PreviewSession(Application application, FileEntry target, bool smoke, Action opened,
+        ExplorerCustomization presentation)
     {
         this.application = application;
         this.smoke = smoke;
@@ -39,6 +40,7 @@ internal sealed class PreviewSession : IDisposable
         work = new(Window);
         Text = Window.MultilineText("File contents");
         Text.SetReadOnly(true).SetMaximumLength(FilePreviewService.MaximumTextLength);
+        Text.SetPresentationFontFamily("Cascadia Mono");
         Text.SetAutomationId("preview-text").Visible(false);
         Image = Window.Image("Image preview");
         Image.SetAutomationId("preview-image").Visible(false);
@@ -59,6 +61,7 @@ internal sealed class PreviewSession : IDisposable
         status.SetDismissible(false);
         layout = new(Window, Text, Image, metadata.Root, status);
         body = layout.Body;
+        ApplyCustomization(presentation);
         Window.KeyHandler = HandleKey;
         Window.Closed += e =>
         {
@@ -89,6 +92,7 @@ internal sealed class PreviewSession : IDisposable
     internal string MetadataName => metadata.Name.Text;
     internal string MetadataKind => metadata.Kind.Text;
     internal string MetadataSize => metadata.Size.Text;
+    internal string MetadataModified => metadata.Modified.Text;
     internal ElementBounds MetadataNameBounds => metadata.Name.GetBounds();
     internal bool StatusVisible { get; private set; }
 
@@ -117,6 +121,7 @@ internal sealed class PreviewSession : IDisposable
             {
                 ShowMetadata(true);
             }
+
             else
             {
                 Text.Text = result.Text;
@@ -138,6 +143,14 @@ internal sealed class PreviewSession : IDisposable
             OpenButton.Enabled = true;
             SetMessage($"Cannot preview this item: {error.Message}", StatusSeverity.Error);
         });
+    }
+
+    internal void ApplyCustomization(ExplorerCustomization settings)
+    {
+        ExplorerPresentation.Apply(Window, settings);
+        Image.SetPresentation(thumbnailFill: settings.ThumbnailFill);
+        layout.EntryReveal.Duration = settings.Animations ? 180u : 0u;
+        metadata.DateFormat = settings.DateFormat;
     }
 
     private void SetMessage(string message, StatusSeverity severity = StatusSeverity.Information)

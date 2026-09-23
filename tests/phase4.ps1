@@ -1,6 +1,7 @@
 param([switch]$SkipNativeTests, [switch]$SkipMeasurements, [int]$Runs = 5)
 $ErrorActionPreference = "Stop"
-$cmake = "C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+. "$PSScriptRoot\..\scripts\Release.Common.ps1"
+$cmake = Get-XuiCMake
 $ctest = Join-Path (Split-Path $cmake) "ctest.exe"
 $root = (Get-Location).Path
 New-Item -ItemType Directory -Force build\phase4 | Out-Null
@@ -20,20 +21,20 @@ Run "dotnet-fdd-build.log" {
     dotnet publish bindings\dotnet\Sample\Sample.csproj -c Release -r win-arm64 -p:SelfContained=false "-p:PublishDir=$root\build\phase4\dotnet\" --nologo
 }
 Run "dotnet-aot-build.log" {
-    dotnet publish bindings\dotnet\Sample\Sample.csproj -c Release -r win-arm64 -p:PublishAot=true "-p:PublishDir=$root\build\phase4\aot\" --nologo
+    Invoke-XuiVcVarsCommand ARM64 "dotnet publish bindings\dotnet\Sample\Sample.csproj -c Release -r win-arm64 -p:PublishAot=true -p:PublishDir=`"$root\build\phase4\aot\`" --nologo"
 }
 Run "dotnet-fdd-test-build.log" {
     dotnet publish bindings\dotnet\Tests\Tests.csproj -c Release -r win-arm64 -p:SelfContained=false "-p:PublishDir=$root\build\phase4\dotnet-tests\" --nologo
 }
 Run "dotnet-aot-test-build.log" {
-    dotnet publish bindings\dotnet\Tests\Tests.csproj -c Release -r win-arm64 -p:PublishAot=true "-p:PublishDir=$root\build\phase4\aot-tests\" --nologo
+    Invoke-XuiVcVarsCommand ARM64 "dotnet publish bindings\dotnet\Tests\Tests.csproj -c Release -r win-arm64 -p:PublishAot=true -p:PublishDir=`"$root\build\phase4\aot-tests\`" --nologo"
 }
 Push-Location bindings\rust
 try {
-    Run "rust-build.log" { cargo build --workspace --release }
+    Run "rust-build.log" { Invoke-XuiVcVarsCommand ARM64 'cargo build --workspace --release' }
     Copy-Item "$root\build\arm64\Release\xui.dll" target\aarch64-pc-windows-msvc\release\deps\
-    Run "rust-tests.log" { cargo test --workspace --release }
-    Run "rust-clippy.log" { cargo clippy --workspace --all-targets --release -- -D warnings }
+    Run "rust-tests.log" { Invoke-XuiVcVarsCommand ARM64 'cargo test --workspace --release' }
+    Run "rust-clippy.log" { Invoke-XuiVcVarsCommand ARM64 'cargo clippy --workspace --all-targets --release -- -D warnings' }
     Run "rust-format.log" { cargo fmt --all --check }
 } finally { Pop-Location }
 foreach ($directory in @("cpp-static","cpp-abi","rust")) {

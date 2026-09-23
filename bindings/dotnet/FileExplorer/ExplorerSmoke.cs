@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Preview }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll, SettingsOpen, Preview, DirectoryChanges }
 
 internal static class ExplorerSmoke
 {
@@ -75,7 +75,7 @@ internal static class ExplorerSmoke
         commands.Clear();
         for (int i = 0; i < 3; i++)
             if (rows.Count != 1 || rows.Find(rows.Key(0)) != 0 ||
-                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true) ||
+                rows.Item(0) != new ItemContent("Snapshot command", "Ctrl+T", true, Icon: command.Icon) ||
                 evaluations != 1 || executions != 0)
                 throw new InvalidOperationException("Command source callbacks must read only the captured row snapshot.");
         var refreshed = new CommandRows([command]);
@@ -110,6 +110,43 @@ internal static class ExplorerSmoke
                 await File.WriteAllTextAsync(Path.Combine(fixture, "small.txt"), "abc");
                 await File.WriteAllTextAsync(Path.Combine(fixture, "large.txt"), new string('x', 4000));
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
+                await Check(() => app.PrefetchShellMenus ? app.ShellMenuPrefetchRequests > 0 : app.ShellMenuPrefetchRequests == 0,
+                    "Navigation requests Shell prefetch only when the experiment is enabled");
+                if (mode == ExplorerSmokeMode.DirectoryChanges)
+                {
+                    await DirectoryChangesSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer directory changes smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.ContextActions)
+                {
+                    await ContextActionsSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer context actions smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsOpen)
+                {
+                    await SettingsOpenSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings opening smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.SettingsScroll)
+                {
+                    await SettingsScrollSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer settings scroll smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
+                if (mode == ExplorerSmokeMode.Customization)
+                {
+                    await ExplorerCustomizationSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer customization smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.Preview)
                 {
                     await PreviewChecks();
@@ -127,7 +164,7 @@ internal static class ExplorerSmoke
                 if (mode == ExplorerSmokeMode.Views)
                 {
                     await AdditionalViewsChecks();
-                    Console.WriteLine("Explorer views passed: gallery sizes, List, lazy Tree, view menu, filtering, selection, focus, tab state, and cancellation.");
+                    Console.WriteLine("Explorer views passed: gallery sizes, List, lazy Tree, compact Columns, view menu, filtering, selection, focus, tab state, and cancellation.");
                     await Ui(app.Window.Close);
                     return;
                 }
@@ -532,7 +569,8 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     var emptyMenu = app.Left.ContextMenu.GetCommands();
-                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste }.Order())
+                    if (!emptyMenu.Select(c => c.Id).Order().SequenceEqual(new[] { FileContextMenu.Refresh, FileContextMenu.Paste,
+                        ContextActionsController.SearchCommand, ContextActionsController.CustomizeCommand }.Order())
                         || app.Left.ContextMenu.GetShellPaths().Length != 0)
                         throw new InvalidOperationException("Empty-area menus must not target an old selection.");
                     app.Left.SelectPath(Path.Combine(fixture, "small.txt"));
@@ -836,6 +874,49 @@ internal static class ExplorerSmoke
                 });
                 await Ready(source.Left);
                 await Ready(target.Left);
+                await Ui(() => target.Left.NewTab(fixture));
+                await Ready(target.Left);
+                ExplorerTab lone = null!;
+                await Ui(() =>
+                {
+                    lone = source.Left.Model.Active;
+                    var targetOrder = target.Left.Model.Tabs.ToArray();
+                    var targetActive = target.Left.Model.Active;
+                    var placement = source.Window.Placement;
+                    if (!Send(source, TabDragKind.TearOut, 0, lone.Id) || source.DragRemainder is not null
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || source.Left.Model.Tabs.Count != 0 || target.Left.Model.Tabs[1] != lone
+                        || source.CloseRequested)
+                        throw new InvalidOperationException($"A fresh single-tab window must join without a remainder: {source.Notification.Text}");
+                    if (!Send(source, TabDragKind.Leave, 0, lone.Id, target)
+                        || source.Left.Model.Active != lone || !target.Left.Model.Tabs.SequenceEqual(targetOrder)
+                        || target.Left.Model.Active != targetActive
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || !Send(source, TabDragKind.Cancel, 0, lone.Id)
+                        || !Send(source, TabDragKind.Completed, 0, lone.Id)
+                        || source.Left.Model.Active != lone || source.Window.Placement != placement
+                        || !target.Left.Model.Tabs.SequenceEqual(targetOrder))
+                        throw new InvalidOperationException("A single-tab hover gesture must leave, rejoin, and cancel without losing either workspace.");
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.TearOut, 0, lone.Id)
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || !Send(source, TabDragKind.Drop, 0, lone.Id, target, 0, 1)
+                        || source.CloseRequested || target.Left.Model.Tabs[1] != lone
+                        || !Send(source, TabDragKind.Completed, 0, lone.Id) || !source.CloseRequested)
+                        throw new InvalidOperationException("A single-tab merge must retire its empty source only after completion.");
+                });
+                await Until(() => source.IsDisposed);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
                 await Ui(() =>
                 {
                     source.Left.NewTab(fixture);
@@ -1578,6 +1659,20 @@ internal static class ExplorerSmoke
                     }
                     if (name is "folder" or "unsupported.pdf")
                     {
+                        await Ui(() =>
+                        {
+                            var preview = app.Preview.Current!;
+                            var original = app.State.Customization.Clone();
+                            if (preview.MetadataModified != $"Date Modified: {ExplorerPresentation.FormatDate(preview.Target.ModifiedUtc, original.DateFormat)}")
+                                throw new InvalidOperationException("Metadata visibility must retain the configured date format.");
+                            var changed = original.Clone();
+                            changed.DateFormat = "yyyy/MM/dd";
+                            app.SetCustomization(changed);
+                            if (preview.MetadataModified != $"Date Modified: {ExplorerPresentation.FormatDate(preview.Target.ModifiedUtc, changed.DateFormat)}"
+                                || preview.MetadataName != name)
+                                throw new InvalidOperationException("Declarative metadata must refresh the date preference without losing its target.");
+                            app.SetCustomization(original);
+                        });
                         await Check(() => app.Preview.MetadataIcon.GetBounds().Width == 160
                             && app.Preview.MetadataIcon.GetBounds().Height == 160
                             && app.Preview.MetadataNameBounds.X >= app.Preview.MetadataIcon.GetBounds().X + 192,
@@ -1993,6 +2088,31 @@ internal static class ExplorerSmoke
                             && pane.VisibleCount == 81 && pane.FilesFocused
                             && pane.SelectedEntry?.FullPath == selected,
                             $"{view} keeps the folder, selection, and native focus");
+                        if (view == ExplorerViewMode.Columns)
+                            await Ui(() =>
+                            {
+                                var list = pane.Columns.Column(0);
+                                list.Offset = 0;
+                                pane.Columns.FocusColumn(0);
+                                nint peer = GetFocus();
+                                double scale = GetDpiForWindow(peer) / 96.0;
+                                foreach (int row in new[] { 1, 2 })
+                                {
+                                    nint point = ((int)((row * 32 + 4) * scale) << 16) | (int)(48 * scale);
+                                    SendMessageW(peer, 0x201, 1, point);
+                                    SendMessageW(peer, 0x202, 0, point);
+                                    if (pane.SelectedEntry?.Name != $"file-{row - 1:D3}.txt"
+                                        || pane.Model.Active.Path != root || pane.Columns.ColumnCount != 1)
+                                        throw new InvalidOperationException("Columns must use 32-DIP row selection targets like Details without opening files.");
+                                }
+                                list.Offset = 32;
+                                nint scrolledPoint = ((int)(4 * scale) << 16) | (int)(48 * scale);
+                                SendMessageW(peer, 0x201, 1, scrolledPoint);
+                                SendMessageW(peer, 0x202, 0, scrolledPoint);
+                                if (pane.SelectedEntry?.Name != "file-000.txt")
+                                    throw new InvalidOperationException("Column scrolling must use the compact row height.");
+                                pane.SelectPath(selected);
+                            });
                         if (view == ExplorerViewMode.Tree)
                             await Ui(() =>
                             {
@@ -3562,7 +3682,7 @@ internal static class ExplorerSmoke
                 string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
                 var title = new System.Text.StringBuilder(32768);
                 if (GetWindowTextW(hwnd, title, title.Capacity) == 0 ||
-                    title.ToString() != $"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui")
+                    title.ToString() != $"{(name.Length == 0 ? path : name)} ({path}) - FileExplorer.xui{(app.PrefetchShellMenus ? " [menu prefetch]" : "")}")
                     throw new InvalidOperationException("The HWND caption must identify the active folder and full path.");
             });
             await Until(() => SendMessageW(hwnd, 0x7f, 0, 0) != 0 && SendMessageW(hwnd, 0x7f, 1, 0) != 0);

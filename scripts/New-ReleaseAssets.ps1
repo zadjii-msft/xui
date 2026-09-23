@@ -19,6 +19,7 @@ foreach ($rid in 'win-x64', 'win-arm64') {
     }
 }
 & "$PSScriptRoot\Pack-NuGet.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
+& "$PSScriptRoot\Pack-Templates.ps1" -Version $Version -OutputDirectory $output
 & "$PSScriptRoot\Pack-Cargo.ps1" -Version $Version -NativeRoot "$stage\native" -OutputDirectory $output
 foreach ($rid in 'win-x64', 'win-arm64') {
     foreach ($kind in 'Samples', 'Designer') {

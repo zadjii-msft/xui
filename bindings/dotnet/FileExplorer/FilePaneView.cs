@@ -2,7 +2,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal sealed class FilePaneView
+internal sealed partial class FilePaneView
 {
     private readonly ExplorerApplication app;
     private readonly Window window;
@@ -30,7 +30,7 @@ internal sealed class FilePaneView
     private bool focusColumnsAfterRender;
     private ExplorerColumn? findColumn;
 
-    private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
+    private sealed record ColumnPresentation(ExplorerColumn Model, DirectorySnapshot Snapshot, string Query, int Sort, bool Descending,
         ExplorerPartition Partition, FileRows Rows, ImmutableSource Source);
 
     public FilePaneView(ExplorerApplication app, int number, string path, TabStrip tabs)
@@ -107,6 +107,7 @@ internal sealed class FilePaneView
         {
             uint index = i;
             var list = Columns.Column(index);
+            list.ItemSize(240, 32);
             list.FocusEntered += () =>
             {
                 Activate();
@@ -170,7 +171,10 @@ internal sealed class FilePaneView
             if (e.Kind == EventKind.Click && rows.Entry(e.Value) is { } item)
                 app.Open(item, this);
             else if (e.Kind == EventKind.Selection)
+            {
                 Model.Active.SelectedPath = Grid.Selection.Focused is { } key ? rows.Entry(key.Id)?.FullPath : null;
+                RefreshCommandAvailability();
+            }
             else if (e.Kind == EventKind.View)
             {
                 SaveViewport();
@@ -180,6 +184,8 @@ internal sealed class FilePaneView
             }
         };
         UpdateTabs();
+        ApplyCustomization();
+        app.RegisterCustomizablePane(this);
     }
 
     public ExplorerPane Model { get; private set; }
@@ -273,7 +279,10 @@ internal sealed class FilePaneView
         if (kind == EventKind.Click && HasCurrentRows && Entry(new(id)) is { } entry)
             app.Open(entry, this);
         else if (kind == EventKind.Selection)
+        {
             Model.Active.SelectedPath = SelectedEntry?.FullPath;
+            RefreshCommandAvailability();
+        }
     }
 
     private void WireButton(Button button, Action action)
@@ -431,6 +440,7 @@ internal sealed class FilePaneView
                 Cancel();
                 error = $"A path can contain at most {ExplorerTab.ColumnLimit} columns. Open the folder directly to start a new path.";
                 status.Text = error;
+                RefreshCommandAvailability();
                 return;
             }
             Navigate(entry.FullPath, parentColumn: (int)column);
@@ -459,6 +469,8 @@ internal sealed class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        StopDirectoryWatch();
+        app.CancelShellMenuPrefetch(this);
         AddressBar.DismissMenu();
         SaveViewport();
         navigation.Cancel();
@@ -471,6 +483,7 @@ internal sealed class FilePaneView
         IsLoading = true;
         error = null;
         status.Text = $"Opening {path}...";
+        RefreshCommandAvailability();
         app.Work.Start(token => app.Files.ReadDirectoryAsync(path, tab.Path, token), navigation.Token, snapshot =>
         {
             if (!ReferenceEquals(tab, Model.Active)) return;
@@ -480,12 +493,14 @@ internal sealed class FilePaneView
             IsLoading = false;
             Render();
             app.LocationChanged(this);
+            app.PrefetchShellMenu(this, snapshot.Path);
         }, failure =>
         {
             IsLoading = false;
             error = $"Cannot open {path}: {failure.Message}";
             status.Text = error;
             UpdateNavigation();
+            UpdateDirectoryWatch();
         });
     }
 
@@ -767,7 +782,7 @@ internal sealed class FilePaneView
         Model.Active.SelectedPath = SelectedEntry?.FullPath;
     }
 
-    private void Render()
+    private void Render(bool preserveSelection = false)
     {
         var retained = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         var allEntries = IsColumns ? Model.Active.Columns.SelectMany(c => c.Snapshot.Entries) : Model.Active.Entries;
@@ -797,14 +812,7 @@ internal sealed class FilePaneView
             if (IsItems)
             {
                 Items.Presentation = Model.Active.ViewMode == ExplorerViewMode.List ? ItemsPresentation.List : ItemsPresentation.Gallery;
-                var (width, height) = Model.Active.ViewMode switch
-                {
-                    ExplorerViewMode.ExtraLargeIcons => (256, 288),
-                    ExplorerViewMode.LargeIcons => (160, 192),
-                    ExplorerViewMode.MediumIcons => (96, 128),
-                    _ => (180, 32)
-                };
-                Items.ItemSize(width, height);
+                ApplyItemSize();
             }
             if (!IsTree) tree.Clear();
             layout.ViewMode.Help($"Current view: {viewOptions.Single(option => option.Mode == Model.Active.ViewMode).Name}. Choose a view.");
@@ -829,12 +837,13 @@ internal sealed class FilePaneView
             }
         }
         finally { rendering = false; }
-        ApplyFilter();
+        ApplyFilter(preserveSelection);
+        UpdateDirectoryWatch();
     }
 
     private void SetFindVisible(bool visible) => layout.FindOpen = visible;
 
-    private void ApplyFilter()
+    private void ApplyFilter(bool preserveSelection = false)
     {
         if (IsColumns) { ApplyColumnFilter(); return; }
         tree.Cancel();
@@ -842,6 +851,7 @@ internal sealed class FilePaneView
         filtering.Dispose();
         filtering = new();
         IsFiltering = true;
+        RefreshCommandAvailability();
         var tab = Model.Active;
         var entries = tab.Entries;
         string query = tab.Filter;
@@ -858,7 +868,7 @@ internal sealed class FilePaneView
         {
             if (!ReferenceEquals(tab, Model.Active)) return;
             IsFiltering = false;
-            rows = new(result, Identify);
+            rows = new(result, Identify, dateFormat: PresentationSettings.DateFormat);
             rendering = true;
             try
             {
@@ -869,7 +879,7 @@ internal sealed class FilePaneView
                     using var source = window.ImmutableSource(rows);
                     if (IsItems) Items.SetSource(source);
                     else Grid.SetSource(source);
-                    if (tab.SelectedPath is { } path) SelectPath(path);
+                    if (!preserveSelection && tab.SelectedPath is { } path) SelectPath(path);
                     FlatOffset = tab.ScrollOffset;
                 }
             }
@@ -879,12 +889,16 @@ internal sealed class FilePaneView
         {
             IsFiltering = false;
             status.Text = $"Cannot filter this folder: {failure.Message}";
+            RefreshCommandAvailability();
         });
     }
 
     private void UpdateStatus(int count, int total, string query)
-        => status.Text = error ?? (IsLoading ? "Opening folder..." : query.Length == 0
+    {
+        status.Text = error ?? (IsLoading ? "Opening folder..." : query.Length == 0
             ? $"{count:N0} items" : $"{count:N0} of {total:N0} items match \"{query}\"");
+        RefreshCommandAvailability();
+    }
 
     private void ApplyColumnFilter()
     {
@@ -892,15 +906,18 @@ internal sealed class FilePaneView
         filtering.Dispose();
         filtering = new();
         IsFiltering = true;
+        RefreshCommandAvailability();
         var tab = Model.Active;
         var chain = tab.Columns.ToArray();
+        var snapshots = chain.Select(column => column.Snapshot).ToArray();
         var queries = chain.Select(column => column.Filter).ToArray();
         int sort = tab.SortColumn;
         bool descending = tab.SortDescending;
         var partition = tab.Partition;
         var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
-            ReferenceEquals(view.Model, column) && view.Query == queries[i]
-            && view.Sort == sort && view.Descending == descending && view.Partition == partition)).ToArray();
+            ReferenceEquals(view.Model, column) && ReferenceEquals(view.Snapshot, snapshots[i]) && view.Query == queries[i]
+            && view.Sort == sort && view.Descending == descending && view.Partition == partition
+            && view.Rows.DateFormat == PresentationSettings.DateFormat)).ToArray();
         app.Work.Start(token => Task.Run(() =>
         {
             var results = new IReadOnlyList<FileEntry>?[chain.Length];
@@ -908,13 +925,14 @@ internal sealed class FilePaneView
             {
                 token.ThrowIfCancellationRequested();
                 if (reusable[i] is null)
-                    results[i] = FileSystemService.FilterAndSort(chain[i].Snapshot.Entries,
+                    results[i] = FileSystemService.FilterAndSort(snapshots[i].Entries,
                         queries[i], sort, descending, partition);
             }
             return results;
         }, token), filtering.Token, results =>
         {
             if (!ReferenceEquals(tab, Model.Active) || !IsColumns || !chain.SequenceEqual(tab.Columns) ||
+                !snapshots.SequenceEqual(tab.Columns.Select(column => column.Snapshot)) ||
                 !queries.SequenceEqual(tab.Columns.Select(column => column.Filter))) return;
             IsFiltering = false;
             var next = new List<ColumnPresentation>();
@@ -925,8 +943,8 @@ internal sealed class FilePaneView
                     if (reusable[i] is { } existing) next.Add(existing);
                     else
                     {
-                        var sourceRows = new FileRows(results[i]!, Identify);
-                        next.Add(new(chain[i], queries[i], sort, descending, partition,
+                        var sourceRows = new FileRows(results[i]!, Identify, dateFormat: PresentationSettings.DateFormat);
+                        next.Add(new(chain[i], snapshots[i], queries[i], sort, descending, partition,
                             sourceRows, window.ImmutableSource(sourceRows)));
                     }
                 }
@@ -967,6 +985,7 @@ internal sealed class FilePaneView
             IsFiltering = false;
             error = $"Cannot filter this folder: {failure.Message}";
             status.Text = error;
+            RefreshCommandAvailability();
         });
     }
 
@@ -980,6 +999,8 @@ internal sealed class FilePaneView
 
     public void DisposeSources()
     {
+        StopDirectoryWatch();
+        app.UnregisterCustomizablePane(this);
         AddressBar.Dispose();
         feedback.Cancel();
         feedback.Dispose();
@@ -1012,12 +1033,15 @@ internal sealed class FilePaneView
         back.Enabled = Model.Active.CanBack;
         forward.Enabled = Model.Active.CanForward;
         up.Enabled = Directory.GetParent(Model.Active.Path) is not null;
+        RefreshCommandAvailability();
     }
 
     internal void Report(string message) => app.Report(message);
 
     public void Cancel()
     {
+        StopDirectoryWatch();
+        app.CancelShellMenuPrefetch(this);
         AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();
         if (partitionMenu.IsOpen) partitionMenu.Dismiss();

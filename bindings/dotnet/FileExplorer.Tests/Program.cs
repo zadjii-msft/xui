@@ -13,9 +13,11 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            assertions += await DirectoryChangeTests.Run(fixture);
             BreadcrumbTests();
             await PreviewTests(fixture);
             assertions += await FolderMetadataTests.Run(fixture);
+            assertions += ContextActionTests.Run();
             TabTests(fixture);
             ColumnTests(fixture);
             ViewModeTests(fixture);
@@ -24,6 +26,7 @@ internal static class Program
             PartitionTests(fixture);
             assertions += TabDragTests.Run(fixture);
             StateTests(fixture);
+            assertions += CustomizationTests.Run(fixture);
             Console.WriteLine($"PASS: {assertions} assertions.");
             return 0;
         }
@@ -795,7 +798,7 @@ internal static class Program
         store.Save(state);
         using (var saved = JsonDocument.Parse(File.ReadAllBytes(path)))
         {
-            Equal(2, saved.RootElement.EnumerateObject().Count());
+            True(saved.RootElement.TryGetProperty("Customization", out _));
             Equal(unicode, saved.RootElement.GetProperty("Bookmarks")[0].GetString());
             Equal(ExplorerState.RecentLimit, saved.RootElement.GetProperty("Recents").GetArrayLength());
         }

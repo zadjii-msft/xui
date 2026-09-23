@@ -179,7 +179,16 @@ void sizing_and_scroll() {
     require(scroll->extent() == 445 && scroll->maximum_offset() == 325,
         "Scroll measures content unbounded vertically; flex takes natural size");
     require(content->bounds().width == 208, "Scrollbar reserves viewport width");
+    std::vector<Invalidation> scroll_invalidations;
+    root.set_invalidator([&](Invalidation kind) { scroll_invalidations.push_back(kind); });
     scroll->set_offset(9999);
+    require(scroll_invalidations.size() == 1 && scroll_invalidations.back() == Invalidation::scroll,
+        "Offset changes request scrolling rather than root layout");
+    scroll->set_offset(9999);
+    require(scroll_invalidations.size() == 1, "Clamped offset no-op does not invalidate");
+    content->set_spacing(5);
+    content->child_at(0)->set_preferred_size({100, 40});
+    require(scroll_invalidations.size() == 1, "Unchanged content leaves scroll invalidation isolated");
     root.arrange({0, 0, 220, 120});
     require(scroll->offset() == 325 && content->bounds().y == -325, "Scroll clamps and translates content");
     scroll->reveal(content->child_at(0)->bounds());

@@ -8,7 +8,7 @@ public sealed class XuiException(int status, string message, Exception? inner = 
 {
     public int Status { get; } = status;
 }
-public enum Theme : uint { Dark, Light, HighContrast }
+public enum Theme : uint { Dark, Light, HighContrast, System }
 public enum VisualStyle : uint { Classic, WinUI }
 public enum Axis : uint { Horizontal, Vertical }
 public enum EventKind : uint { Click = 1, Change, Submit, Key, Selection, View, Preview, Cancel, Action, Dismiss, Request, FilterOpen, FocusEntered }

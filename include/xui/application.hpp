@@ -148,6 +148,7 @@ public:
     void on_icon_error(std::function<void(const std::wstring&)> callback);
     const std::shared_ptr<TitleBar>& titlebar() const;
     void set_theme(ThemeMode theme);
+    void set_presentation(std::string_view font_family, float font_size, bool smooth_scrolling, bool animations);
     ThemeMode theme() const;
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
@@ -165,6 +166,9 @@ public:
     void show_location_picker(std::shared_ptr<LocationPicker> picker, Control& anchor);
     // Explicit native fallback for third-party Shell extensions. No verbs run during discovery.
     void show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths);
+    // Experimental best-effort warmup for one path. Empty cancels. No commands are cached or invoked.
+    // Requires an open Window. Discovery failures and busy-worker skips emit debugger diagnostics.
+    void prefetch_shell_commands(std::wstring path);
     void on_key(std::function<bool(const KeyEvent&)> callback);
     // Runs on the UI thread. Returns false after close. Close discards queued work.
     // Worker threads can post while the Window lives. Posted exceptions close the Window.

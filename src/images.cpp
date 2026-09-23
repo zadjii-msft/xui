@@ -624,7 +624,7 @@ void ImagePeer::detach() {
 }
 void ImagePeer::paint(Drawing& drawing, Rect bounds) {
     if (!pixels || revision != control.revision() || bounds.width <= 0 || bounds.height <= 0) return;
-    if (!drawing.image(pixels, bounds)) control.publish(ImageStatus::error, L"The bitmap budget is full or the upload failed.");
+    if (!drawing.image(pixels, bounds, control.thumbnail_fill())) control.publish(ImageStatus::error, L"The bitmap budget is full or the upload failed.");
     else control.publish(ImageStatus::ready);
 }
 ImageStatistics ImageResources::statistics() {

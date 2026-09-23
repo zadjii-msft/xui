@@ -125,7 +125,8 @@ void workload(const std::filesystem::path& directory) {
             const auto rect = image->bounds();
             const float dpi = GetDpiForWindow(hwnd) / 96.0f;
             auto native_scroll = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Thumbnails");
-            auto native_image = FindWindowExW(native_scroll, nullptr, L"Xui.Control.1", L"Image");
+            const auto native_content = FindWindowExW(native_scroll, nullptr, L"Xui.ScrollContent.1", nullptr);
+            auto native_image = FindWindowExW(native_content, nullptr, L"Xui.Control.1", L"Image");
             check(native_image != nullptr, "Find the first recycled native image peer");
             RECT actual{};
             GetWindowRect(native_image, &actual);
