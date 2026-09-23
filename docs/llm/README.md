@@ -26,6 +26,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Framework performance evidence](testing.md#framework-performance-pass-september-19-2026): Allocation counts, retained cache sizes, and measurement limits.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
+- [Cross-platform roadmap and developer handoff](cross-platform-roadmap.md): Published branch map, new-machine starting point, platform blockers, and staged delivery gates.
 - [Portable foundation handoff](portable-foundation.md): Experimental managed host, generator profile, shared sample, and platform adapter boundary.
 - [Android experiment handoff](android-experiment.md): Native adapter source map, Android reference checks, device tests, and platform execution blockers.
 - [DOM web implementation and evidence](dom-web.md): Wasm bootstrap, DOM peers, browser acceptance checks, and the recorded browser-tooling limitation.

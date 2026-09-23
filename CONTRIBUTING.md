@@ -14,6 +14,47 @@ Binding generation uses Python.
 Run the commands from the repository root in Visual Studio Developer PowerShell.
 The commands use a separate build directory, so they do not replace another build's executables.
 
+## Continue cross-platform development
+
+The [cross-platform roadmap](docs/llm/cross-platform-roadmap.md) records the branch map, remaining work, and acceptance gates.
+The complete experiment is on `zadjii-msft-xui-cross-platform`, not on either historical platform branch.
+The original preview server is no longer active.
+
+For a new checkout, run:
+
+```powershell
+git clone --branch zadjii-msft-xui-cross-platform https://github.com/zadjii-msft/xui.git
+Set-Location xui
+git fetch origin
+git log -1 --format="%H %s"
+git branch --remotes --list "origin/zadjii-msft-*"
+```
+
+The foundation, Android, and DOM snapshot branches are available for historical inspection.
+Their changes already exist on the integration branch.
+Do not merge or cherry-pick those snapshots again.
+
+In an existing clone, first preserve local changes and use a separate worktree:
+
+```powershell
+git fetch origin
+git worktree add -b xui-portable-next ..\xui-portable-next origin/zadjii-msft-xui-cross-platform
+Set-Location ..\xui-portable-next
+```
+
+Use another unused branch and directory name if either already exists.
+The new worktree starts at the complete integration branch.
+It does not depend on branches or files from the original developer's machine.
+
+Start with the SDK-only commands in the following sections.
+Then complete the Android device and browser acceptance procedures.
+Native Windows execution requires the Windows C++ tools and a matching native build.
+Android execution requires approved Android SDK, JDK, and workload installation.
+The browser demo requires .NET 10, with Node.js and npm for browser tests.
+The recorded tool versions and known environment blockers are in the roadmap.
+Install missing tools through the receiving machine's approved procedures.
+Do not copy local package caches or disable certificate checks.
+
 ## Experimental portable foundation
 
 The portable runtime and headless tests require only the .NET 10 SDK.
