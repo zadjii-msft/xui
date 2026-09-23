@@ -64,19 +64,17 @@ Invoke-Checked { & "$work\published\Consumer.exe" }
 
 Copy-Item "$PSScriptRoot\packaging\native" "$work\native" -Recurse
 $cmake = Get-XuiCMake
-Invoke-Checked { & $cmake -S "$work\native" -B "$work\native-build" -G 'Visual Studio 17 2022' -A $Architecture "-DXui_DIR=$expanded\build\native" }
+$generator = Get-XuiGenerator
+Invoke-Checked { & $cmake -S "$work\native" -B "$work\native-build" -G $generator -A $Architecture "-DXui_DIR=$expanded\build\native" }
 Invoke-Checked { & $cmake --build "$work\native-build" --config Release --parallel 2 }
 New-Item -ItemType Directory "$work\static-only" | Out-Null
 Copy-Item "$work\native-build\Release\static_consumer.exe" "$work\static-only"
 Invoke-Checked { & "$work\static-only\static_consumer.exe" }
 Invoke-Checked { & "$work\native-build\Release\abi_consumer.exe" }
 
-$vcvars = Get-XuiVcVars $Architecture
 foreach ($linkage in 'Static', 'CAbi') {
     $destination = "$work\vc-$linkage"
-    Invoke-Checked {
-        & $env:ComSpec /d /c "call `"$vcvars`" >nul && msbuild `"$work\native\Consumer.vcxproj`" /nologo /v:minimal /p:Configuration=Release /p:Platform=$Architecture /p:XuiNativeLinkage=$linkage /p:XuiPackageRoot=`"$expanded`" /p:XuiTestOutput=`"$destination`""
-    }
+    Invoke-XuiVcVarsCommand $Architecture "msbuild `"$work\native\Consumer.vcxproj`" /nologo /v:minimal /p:Configuration=Release /p:Platform=$Architecture /p:XuiNativeLinkage=$linkage /p:XuiPackageRoot=`"$expanded`" /p:XuiTestOutput=`"$destination`""
     if ((Test-Path "$destination\xui.dll") -ne ($linkage -eq 'CAbi')) { throw "Incorrect native package deployment: $linkage" }
     if (Get-ChildItem $destination -Filter '*Managed*') { throw "Managed files leaked into native output: $linkage" }
     Invoke-Checked { & "$destination\Consumer.exe" }

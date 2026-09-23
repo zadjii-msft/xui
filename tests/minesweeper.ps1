@@ -5,6 +5,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+. "$PSScriptRoot\..\scripts\Release.Common.ps1"
 $root = Split-Path $PSScriptRoot
 $native = (Resolve-Path (Join-Path $root $NativeDirectory)).Path
 $probe = Join-Path $native "xui_language_probe.exe"
@@ -178,8 +179,8 @@ try {
     $watch = $null
 
     $publishDirectory = Join-Path $run "publish"
-    $output = & dotnet publish (Join-Path $sample "Minesweeper.csproj") -c Release -r $RuntimeIdentifier `
-        -p:PublishAot=true "-p:XuiNativeDir=$native" -o $publishDirectory --nologo -v:q 2>&1
+    $architecture = if ($RuntimeIdentifier -eq 'win-arm64') { 'ARM64' } elseif ($RuntimeIdentifier -eq 'win-x64') { 'x64' } else { throw "Unsupported runtime identifier: $RuntimeIdentifier" }
+    $output = Invoke-XuiVcVarsCommand $architecture "dotnet publish `"$sample\Minesweeper.csproj`" -c Release -r $RuntimeIdentifier -p:PublishAot=true -p:XuiNativeDir=`"$native`" -o `"$publishDirectory`" --nologo -v:q" 2>&1
     $output | Set-Content (Join-Path $run "publish.log")
     Assert ($LASTEXITCODE -eq 0) "NativeAOT publish failed: $output"
     $published = Start-Process -FilePath (Join-Path $publishDirectory "Minesweeper.exe") `

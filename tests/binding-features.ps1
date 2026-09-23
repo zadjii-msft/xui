@@ -4,7 +4,8 @@ $root = (Get-Location).Path
 $build = Join-Path $root $BuildDirectory
 $output = Join-Path $build "bindings-validation"
 New-Item -ItemType Directory -Force $output | Out-Null
-$cmake = "C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+. "$PSScriptRoot\..\scripts\Release.Common.ps1"
+$cmake = Get-XuiCMake
 $env:XUI_LIB_DIR = Join-Path $build "Release"
 function Run([string]$name, [scriptblock]$body) {
     & $body 2>&1 | Tee-Object -FilePath (Join-Path $output "$name.log")
@@ -19,16 +20,20 @@ if (!$SkipBuild) {
             $destination = Join-Path $output "$project-$flavor"
             $aotFlag = if ($aot) {"true"} else {"false"}
             Run "$project-$flavor-build" {
-                dotnet publish "bindings\dotnet\$project\$project.csproj" -c Release -r win-arm64 --no-restore "-p:PublishAot=$aotFlag" "-p:SelfContained=$aotFlag" "-p:XuiNativeDir=$env:XUI_LIB_DIR" "-p:PublishDir=$destination\" --nologo
+                if ($aot) {
+                    Invoke-XuiVcVarsCommand ARM64 "dotnet publish `"bindings\dotnet\$project\$project.csproj`" -c Release -r win-arm64 --no-restore -p:PublishAot=true -p:SelfContained=true -p:XuiNativeDir=`"$env:XUI_LIB_DIR`" -p:PublishDir=`"$destination\`" --nologo"
+                } else {
+                    dotnet publish "bindings\dotnet\$project\$project.csproj" -c Release -r win-arm64 --no-restore "-p:PublishAot=$aotFlag" "-p:SelfContained=$aotFlag" "-p:XuiNativeDir=$env:XUI_LIB_DIR" "-p:PublishDir=$destination\" --nologo
+                }
             }
         }
     }
-    $rustCommand = 'call "C:\Program Files\Microsoft Visual Studio\2022\Preview\VC\Auxiliary\Build\vcvarsarm64.bat" >nul && cd /d "' + $root + '\bindings\rust" && '
-    Run "rust-build" { & $env:ComSpec /c ($rustCommand + 'cargo build --workspace --release') }
+    $rustCommand = 'cd /d "' + $root + '\bindings\rust" && '
+    Run "rust-build" { Invoke-XuiVcVarsCommand ARM64 ($rustCommand + 'cargo build --workspace --release') }
     Copy-Item (Join-Path $env:XUI_LIB_DIR "xui.dll") bindings\rust\target\aarch64-pc-windows-msvc\release\deps\
-    Run "rust-tests" { & $env:ComSpec /c ($rustCommand + 'cargo test --workspace --release') }
-    Run "rust-clippy" { & $env:ComSpec /c ($rustCommand + 'cargo clippy --workspace --all-targets --release -- -D warnings') }
-    Run "rust-format" { & $env:ComSpec /c ($rustCommand + 'cargo fmt --all --check') }
+    Run "rust-tests" { Invoke-XuiVcVarsCommand ARM64 ($rustCommand + 'cargo test --workspace --release') }
+    Run "rust-clippy" { Invoke-XuiVcVarsCommand ARM64 ($rustCommand + 'cargo clippy --workspace --all-targets --release -- -D warnings') }
+    Run "rust-format" { Invoke-XuiVcVarsCommand ARM64 ($rustCommand + 'cargo fmt --all --check') }
     $rustOutput = Join-Path $output "rust"
     New-Item -ItemType Directory -Force $rustOutput | Out-Null
     Copy-Item bindings\rust\target\aarch64-pc-windows-msvc\release\xui-sample.exe $rustOutput

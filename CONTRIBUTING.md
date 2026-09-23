@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Native builds require Windows 10 version 1703 or later, CMake 3.24 or later, and Visual Studio 2022.
+Native builds require Windows 10 version 1703 or later, CMake 3.24 or later, and Visual Studio 2022 or 2026 (including Preview/Insiders).
 Install the C++ desktop workload and a Windows SDK.
 For ARM64 builds, include the ARM64 C++ tools.
 The Windows backend requires a 64-bit build.
@@ -20,8 +20,10 @@ The commands use a separate build directory, so they do not replace another buil
 $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") { "ARM64" } else { "x64" }
 $rid = if ($arch -eq "ARM64") { "win-arm64" } else { "win-x64" }
 $build = "build\$arch"
-cmake -S . -B $build -G "Visual Studio 17 2022" -A $arch -DBUILD_TESTING=ON
-cmake --build $build --config Release --parallel 4
+. .\scripts\Release.Common.ps1
+$cmake = Get-XuiCMake
+& $cmake -S . -B $build -G (Get-XuiGenerator) -A $arch -DBUILD_TESTING=ON
+& $cmake --build $build --config Release --parallel 4
 ```
 
 The architecture selection avoids x64 emulation on ARM64 Windows.
@@ -30,15 +32,16 @@ Close executables from this build directory before relinking them.
 Native builds enable syntax highlighting from the checked-in `dep` package by default.
 See [repository-local packages](#repository-local-packages) for package updates and [LSH configuration](#lsh-highlighting-in-xui-applications) for the opt-out.
 
-If CMake is absent from `PATH`, find the Visual Studio copy:
+The helpers discover prerelease installations and prefer Visual Studio 2022 when both versions are installed, preserving existing 2022 build directories. Use a fresh build directory when switching generators. To use CMake and CTest from the selected Visual Studio in subsequent commands:
 
 ```powershell
-$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
-$tools = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+. .\scripts\Release.Common.ps1
+$tools = Split-Path (Get-XuiCMake)
 $env:PATH = "$tools;$env:PATH"
 ```
 
 Then run the native build commands.
+Run `.\tests\build-toolchain.ps1` to check Visual Studio discovery, CMake, and x64/ARM64 compiler environments.
 
 ## Native samples
 
@@ -808,7 +811,7 @@ The [package guide](docs/specs/packages.md) describes consumption and deployment
 Release builds require both x64 and ARM64 C++ tools and Rust targets.
 Each GitHub runner builds its own architecture.
 The Designer requires a .NET SDK that matches its target architecture because it bundles the SDK's Roslyn assemblies.
-For local builds, select the matching SDK through `PATH` before each architecture command:
+For local builds, select the matching SDK through `PATH` before each architecture command. An x64-only .NET SDK cannot publish the ARM64 Designer; use an ARM64 host with an ARM64 .NET 10 SDK for that release:
 
 ```powershell
 .\scripts\Build-Release.ps1 -Version 0.1.0 -Architecture x64 -StageDirectory build\release-stage
@@ -822,6 +825,8 @@ For local builds, select the matching SDK through `PATH` before each architectur
 .\tests\release-packaging-unit.ps1
 .\tests\native-copy.ps1 -Architecture $arch
 ```
+
+NativeAOT release publishes and Rust/MSBuild consumers enter the selected Visual Studio developer environment automatically, including the installer directory needed by `vcvars` on machines without `vswhere` in `PATH`.
 
 Use a fresh staging directory for each release build.
 The scripts preserve existing staging directories and stop instead of mixing old and new outputs.
@@ -1434,7 +1439,7 @@ python bindings\generate_control_styles.py
 python bindings\generate_control_styles.py --check
 ```
 
-The ARM64 integration scripts currently assume Visual Studio 2022 Preview at its standard installation path.
+The ARM64 integration scripts discover the installed Visual Studio CMake and ARM64 C++ tools, including prerelease installations.
 `binding-features.ps1` also publishes with `--no-restore`.
 Before its first run, restore both managed projects for the required publish modes:
 
