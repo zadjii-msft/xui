@@ -30,7 +30,7 @@ internal sealed partial class FilePaneView
     private bool focusColumnsAfterRender;
     private ExplorerColumn? findColumn;
 
-    private sealed record ColumnPresentation(ExplorerColumn Model, string Query, int Sort, bool Descending,
+    private sealed record ColumnPresentation(ExplorerColumn Model, DirectorySnapshot Snapshot, string Query, int Sort, bool Descending,
         ExplorerPartition Partition, FileRows Rows, ImmutableSource Source);
 
     public FilePaneView(ExplorerApplication app, int number, string path, TabStrip tabs)
@@ -469,6 +469,7 @@ internal sealed partial class FilePaneView
 
     public void Navigate(string path, int historyDelta = 0, int? parentColumn = null)
     {
+        StopDirectoryWatch();
         app.CancelShellMenuPrefetch(this);
         AddressBar.DismissMenu();
         SaveViewport();
@@ -499,6 +500,7 @@ internal sealed partial class FilePaneView
             error = $"Cannot open {path}: {failure.Message}";
             status.Text = error;
             UpdateNavigation();
+            UpdateDirectoryWatch();
         });
     }
 
@@ -780,7 +782,7 @@ internal sealed partial class FilePaneView
         Model.Active.SelectedPath = SelectedEntry?.FullPath;
     }
 
-    private void Render()
+    private void Render(bool preserveSelection = false)
     {
         var retained = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
         var allEntries = IsColumns ? Model.Active.Columns.SelectMany(c => c.Snapshot.Entries) : Model.Active.Entries;
@@ -835,12 +837,13 @@ internal sealed partial class FilePaneView
             }
         }
         finally { rendering = false; }
-        ApplyFilter();
+        ApplyFilter(preserveSelection);
+        UpdateDirectoryWatch();
     }
 
     private void SetFindVisible(bool visible) => layout.FindOpen = visible;
 
-    private void ApplyFilter()
+    private void ApplyFilter(bool preserveSelection = false)
     {
         if (IsColumns) { ApplyColumnFilter(); return; }
         tree.Cancel();
@@ -876,7 +879,7 @@ internal sealed partial class FilePaneView
                     using var source = window.ImmutableSource(rows);
                     if (IsItems) Items.SetSource(source);
                     else Grid.SetSource(source);
-                    if (tab.SelectedPath is { } path) SelectPath(path);
+                    if (!preserveSelection && tab.SelectedPath is { } path) SelectPath(path);
                     FlatOffset = tab.ScrollOffset;
                 }
             }
@@ -906,12 +909,13 @@ internal sealed partial class FilePaneView
         RefreshCommandAvailability();
         var tab = Model.Active;
         var chain = tab.Columns.ToArray();
+        var snapshots = chain.Select(column => column.Snapshot).ToArray();
         var queries = chain.Select(column => column.Filter).ToArray();
         int sort = tab.SortColumn;
         bool descending = tab.SortDescending;
         var partition = tab.Partition;
         var reusable = chain.Select((column, i) => columnViews.FirstOrDefault(view =>
-            ReferenceEquals(view.Model, column) && view.Query == queries[i]
+            ReferenceEquals(view.Model, column) && ReferenceEquals(view.Snapshot, snapshots[i]) && view.Query == queries[i]
             && view.Sort == sort && view.Descending == descending && view.Partition == partition
             && view.Rows.DateFormat == PresentationSettings.DateFormat)).ToArray();
         app.Work.Start(token => Task.Run(() =>
@@ -921,13 +925,14 @@ internal sealed partial class FilePaneView
             {
                 token.ThrowIfCancellationRequested();
                 if (reusable[i] is null)
-                    results[i] = FileSystemService.FilterAndSort(chain[i].Snapshot.Entries,
+                    results[i] = FileSystemService.FilterAndSort(snapshots[i].Entries,
                         queries[i], sort, descending, partition);
             }
             return results;
         }, token), filtering.Token, results =>
         {
             if (!ReferenceEquals(tab, Model.Active) || !IsColumns || !chain.SequenceEqual(tab.Columns) ||
+                !snapshots.SequenceEqual(tab.Columns.Select(column => column.Snapshot)) ||
                 !queries.SequenceEqual(tab.Columns.Select(column => column.Filter))) return;
             IsFiltering = false;
             var next = new List<ColumnPresentation>();
@@ -939,7 +944,7 @@ internal sealed partial class FilePaneView
                     else
                     {
                         var sourceRows = new FileRows(results[i]!, Identify, dateFormat: PresentationSettings.DateFormat);
-                        next.Add(new(chain[i], queries[i], sort, descending, partition,
+                        next.Add(new(chain[i], snapshots[i], queries[i], sort, descending, partition,
                             sourceRows, window.ImmutableSource(sourceRows)));
                     }
                 }
@@ -994,6 +999,7 @@ internal sealed partial class FilePaneView
 
     public void DisposeSources()
     {
+        StopDirectoryWatch();
         app.UnregisterCustomizablePane(this);
         AddressBar.Dispose();
         feedback.Cancel();
@@ -1034,6 +1040,7 @@ internal sealed partial class FilePaneView
 
     public void Cancel()
     {
+        StopDirectoryWatch();
         app.CancelShellMenuPrefetch(this);
         AddressBar.Cancel();
         if (viewMenu.Root.IsOpen) viewMenu.Root.Dismiss();

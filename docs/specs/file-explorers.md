@@ -558,8 +558,33 @@ There is no animated palette entry.
 | Ctrl+F6 | Switch between dark and light themes |
 | Ctrl+C / Ctrl+Insert with file-view focus | Copy the selected files and folders |
 | Ctrl+X with file-view focus | Cut the selected files and folders for a later move |
+| Delete with file-view focus | Delete the selected files and folders through Windows Shell |
 | Ctrl+V / Shift+Insert with file-view focus | Paste files into the current folder |
 | Ctrl+Shift+C with file-view focus | Copy quoted full paths, one per line |
+
+### Deletion and directory changes
+
+Delete uses the Windows Shell Delete action for the current selection.
+Windows controls confirmation, cancellation, and Recycle Bin behavior.
+The command does not force permanent deletion or delete files through a separate filesystem API.
+Delete retains its native text-editing behavior in Find, address, and other text fields.
+The command palette also contains **Delete selected items**.
+Shell deletion supports up to 256 selected paths. Larger selections produce an explicit message.
+A changed selection, tab, or view cancels a pending command before Shell execution.
+
+Visible panes watch their active directories for file creation, deletion, renames, and metadata changes.
+Changes through either Shell context menu and changes from other applications update the rows automatically.
+The watcher combines nearby events before a background scan.
+An active scan, filter, or app file operation delays the next scan until that work finishes.
+Watch errors appear in the notification area. Manual Refresh remains available.
+Hidden panes and inactive tabs do not retain watches. Navigation and window closure retire the previous watches.
+
+Automatic refresh retains the folder filter and sort order.
+Details, List, and icon views retain selections for surviving items.
+Columns watches each directory in its displayed path.
+Automatic refresh retains surviving columns, their queries, and their scroll offsets.
+Deletion of an open child folder removes its column and later columns.
+Tree watches descendants and uses the existing refresh behavior for expanded branches.
 
 ### File transfers
 
@@ -650,7 +675,7 @@ Navigation errors preserve the committed folder and its rows.
 `FileTransfers` connects clipboard commands and pane drops to the Windows transfer APIs.
 These classes use explicit model updates rather than a separate MVVM package.
 
-The demo does not provide dedicated rename, delete, or recursive-search commands.
+The demo does not provide dedicated rename or recursive-search commands.
 It does not claim full File Pilot parity.
 The navigation pane limits very large lists to the native control capacity and shows a notice for omitted entries.
 The details view still exposes all entries from the folder scan.

@@ -60,6 +60,7 @@ internal sealed partial class ExplorerApplication : IDisposable
                 if (e.Kind != EventKind.View) return;
                 Window.TitlebarSecondaryTabs.Enabled = e.Value != 0;
                 if (e.Value == 0 && ReferenceEquals(Active, Right) && Left.Model.Tabs.Count != 0) Left.Focus();
+                Right.UpdateDirectoryWatch();
             };
             Window.TitlebarSecondaryTabs.Visible(true).SetEnabled(false);
             Window.TitlebarLeading.SetText("Navigation").SetAutomationId("navigation-toggle")
@@ -386,6 +387,8 @@ internal sealed partial class ExplorerApplication : IDisposable
             () => Active.HasSelection && !Transfers.Busy, Id: "copy-files"),
         new("Cut files", "Ctrl+X", () => Transfers.Copy(Active, cut: true),
             () => Active.HasSelection && !Transfers.Busy, Id: "cut-files"),
+        new("Delete selected items", "Delete", () => Active.ContextMenu.DeleteSelection(),
+            () => Active.HasSelection && !Transfers.Busy, Id: "delete-files"),
         new("Paste files into this folder", "Ctrl+V", () => Transfers.Paste(Active),
             () => Active.HasCurrentRows && !Transfers.Busy, Id: "paste-files-into-this-folder"),
         new("Copy file paths", "Ctrl+Shift+C", () => Transfers.CopyPaths(Active),

@@ -4,7 +4,7 @@ using Xui.FileExplorer.Models;
 
 namespace Xui.FileExplorer;
 
-internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll, SettingsOpen, Preview }
+internal enum ExplorerSmokeMode { Full, ViewSwitch, PaneAnimation, Hover, Views, Address, Partition, Customization, ContextActions, SettingsScroll, SettingsOpen, Preview, DirectoryChanges }
 
 internal static class ExplorerSmoke
 {
@@ -112,6 +112,13 @@ internal static class ExplorerSmoke
                 await Until(() => !app.Left.IsLoading && !app.Left.IsFiltering);
                 await Check(() => app.PrefetchShellMenus ? app.ShellMenuPrefetchRequests > 0 : app.ShellMenuPrefetchRequests == 0,
                     "Navigation requests Shell prefetch only when the experiment is enabled");
+                if (mode == ExplorerSmokeMode.DirectoryChanges)
+                {
+                    await DirectoryChangesSmoke.Run(app, Ui, Until, fixture);
+                    Console.WriteLine("Explorer directory changes smoke passed.");
+                    await Ui(app.Window.Close);
+                    return;
+                }
                 if (mode == ExplorerSmokeMode.ContextActions)
                 {
                     await ContextActionsSmoke.Run(app, Ui, Until, fixture);

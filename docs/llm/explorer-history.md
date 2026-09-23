@@ -5,6 +5,31 @@ Results, limitations, tool paths, and artifact paths describe those runs, not th
 Local `build` artifacts are not part of the repository and can be absent.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for current build instructions.
 
+## Deletion and directory watches
+
+`FileContextMenu.DeleteSelection` captures the active selection for the registered `delete-files` command.
+`ContextActionsController.InvokeCanonical` resolves the enabled Shell `delete` verb through the existing asynchronous Shell session.
+Selection checks remain active until native execution. The controller retains an invoked session until Shell completion, even after the directory changes.
+`FileTransfers.Busy` also covers pending and invoked context operations.
+
+`Models/DirectoryChangeMonitor.cs` combines filesystem events with a bounded timer.
+`FilePaneView.Watching.cs` posts notifications to the UI thread and serializes background refreshes with navigation, filtering, and file operations.
+Watch generations reject callbacks after navigation, pane closure, or window closure.
+Each new watch requests a scan to cover changes between the original scan and watch registration.
+Tree watches descendants. Columns watches each displayed directory without a recursive scan.
+
+`ExplorerTab.RefreshSnapshots` updates surviving column models without a navigation commit.
+Column presentation reuse also compares the immutable directory snapshot.
+This comparison prevents a retained column model from keeping obsolete rows.
+`DirectoryChangeTests` covers notifications and model updates.
+`DirectoryChangesSmoke` covers the native Delete key and Shell deletion against disposable fixtures.
+
+On September 23, 2026, the ARM64 Release build passed the model suite and the directory-change, views, context-actions, and customization smoke checks.
+The directory-change smoke also passed with multi-selection retention, stale-command cancellation, and retained-column checks.
+The complete `--smoke` run stopped at the existing navigation-filter style assertion.
+An unchanged HEAD export failed at the same assertion with the same native DLL.
+The logs are `build/directory-changes.out`, `build/explorer-full.err`, and `build/explorer-baseline.err`.
+
 ## Customization and declarative presentation integration, 2026-09-21
 
 The merge retains canonical Shell actions and the opt-in Shell prefetch experiment.

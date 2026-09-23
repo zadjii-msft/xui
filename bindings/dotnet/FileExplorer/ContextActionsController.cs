@@ -20,6 +20,8 @@ internal sealed class ContextActionsController
     private Func<bool> current = () => false;
     private volatile int generation;
     private bool favoritesOnly, invoking, loading;
+    private string? pendingVerb;
+    internal bool Executing => pendingVerb is not null || invoking;
     private string notice = "";
     internal bool IsOpen => popup.IsOpen;
     internal bool Loading => loading;
@@ -99,6 +101,25 @@ internal sealed class ContextActionsController
 
     private bool Current() => !app.CloseRequested && current();
 
+    internal void InvokeCanonical(string verb)
+    {
+        if (!Current()) { app.Report("The context selection changed. Open its menu again."); return; }
+        if (paths.Count is < 1 or > 256)
+        {
+            app.Report("Windows Shell actions support 1 to 256 selected items.");
+            return;
+        }
+        Cancel();
+        pendingVerb = verb;
+        loading = true;
+        try
+        {
+            shell = new(app.Window, paths, Current);
+            Poll(++generation);
+        }
+        catch (Exception error) when (Expected(error)) { Fail(error); }
+    }
+
     private void Show(bool onlyFavorites)
     {
         if (!Current()) { app.Report("The context selection changed. Open its menu again."); return; }
@@ -138,7 +159,15 @@ internal sealed class ContextActionsController
     private void Tick(int request)
     {
         if (request != generation || shell is null || shell.IsDisposed) return;
-        if (!Current()) { Cancel(); notice = "The context selection changed. Open its menu again."; Filter(); return; }
+        if (!invoking && !Current())
+        {
+            bool direct = pendingVerb is not null;
+            Cancel();
+            notice = "The context selection changed. Open its menu again.";
+            if (direct) app.Report(notice);
+            else Filter();
+            return;
+        }
         try
         {
             shell.Read();
@@ -146,12 +175,26 @@ internal sealed class ContextActionsController
             {
                 bool completed = invoking;
                 Cancel();
-                if (completed) { pane.Refresh(); app.Report("The Windows command session ended."); }
+                if (completed) { pane.RequestDirectoryRefresh(); app.Report("The Windows command session ended."); }
                 else { notice = "The Shell session ended. Open the context menu again."; Filter(); }
                 return;
             }
             if (!loading || !shell.Ready) return;
             loading = false;
+            if (pendingVerb is { } verb)
+            {
+                var matches = shell.Actions.Where(action =>
+                    string.Equals(action.CanonicalVerb, verb, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length != 1 || !matches[0].Enabled)
+                {
+                    Fail(new InvalidOperationException($"Windows does not provide a unique enabled '{verb}' action for this selection."));
+                    return;
+                }
+                shell.Invoke(matches[0].Key);
+                pendingVerb = null;
+                invoking = true;
+                return;
+            }
             var discovered = ContextActionCatalog.UniqueShellIdentities(shell.Actions.Select(action =>
                 new ContextActionEntry(ContextActionCatalog.ShellIdentity(action.CanonicalVerb),
                     MenuLabel(action.Label), action.Enabled, ShellId: action.Key.Id, Version: action.Key.Version)));
@@ -236,7 +279,7 @@ internal sealed class ContextActionsController
         Filter();
     }
 
-    private void Run()
+    internal void Run()
     {
         if (Selected is not { Enabled: true } entry || invoking) return;
         if (!Current()) { Fail(new InvalidOperationException("The context selection changed.")); return; }
@@ -294,6 +337,7 @@ internal sealed class ContextActionsController
         ++generation;
         shell?.Dispose();
         shell = null;
+        pendingVerb = null;
         invoking = loading = false;
     }
 
