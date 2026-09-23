@@ -297,8 +297,10 @@
         if (it == strip->tabs().end()) { peer.pressed_tab.reset(); return; }
         TabMove move;
         move.strip = *source; move.id = id;
+        const auto other_strip = drag_strip(1 - *source);
+        const auto other_peer = find_peer(other_strip.get());
         move.single = strip->tabs().size() == 1 &&
-            (!drag_strip(1 - *source)->visible() || drag_strip(1 - *source)->tabs().empty());
+            (!other_peer || !visible(*other_peer) || other_strip->tabs().empty());
         move.placement = read_placement();
         move.detached_width = move.placement.width;
         move.detached_height = move.placement.height;

@@ -1011,6 +1011,8 @@ Its output reports that condition.
 Dedicated hover cases use temporary topmost fixture windows without activation.
 They check native hide and show transitions, reversible transfer, transparent overlays, and remainder Z-order.
 The Explorer smoke checks model transfer through the managed drag handler.
+`xui_tab_drag_window_tests.exe --single-tab` selects the single-tab native hover cases.
+`FileExplorer.exe --smoke-hover` includes single-tab merges into a window with multiple tabs, cancellation, and deferred source retirement.
 
 For physical drag coverage, press Ctrl+N in FileExplorer to create another window in the same application.
 Drag tabs within a strip, outside the window, and onto the other window.

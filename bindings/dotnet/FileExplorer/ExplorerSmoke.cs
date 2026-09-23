@@ -867,6 +867,49 @@ internal static class ExplorerSmoke
                 });
                 await Ready(source.Left);
                 await Ready(target.Left);
+                await Ui(() => target.Left.NewTab(fixture));
+                await Ready(target.Left);
+                ExplorerTab lone = null!;
+                await Ui(() =>
+                {
+                    lone = source.Left.Model.Active;
+                    var targetOrder = target.Left.Model.Tabs.ToArray();
+                    var targetActive = target.Left.Model.Active;
+                    var placement = source.Window.Placement;
+                    if (!Send(source, TabDragKind.TearOut, 0, lone.Id) || source.DragRemainder is not null
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || source.Left.Model.Tabs.Count != 0 || target.Left.Model.Tabs[1] != lone
+                        || source.CloseRequested)
+                        throw new InvalidOperationException($"A fresh single-tab window must join without a remainder: {source.Notification.Text}");
+                    if (!Send(source, TabDragKind.Leave, 0, lone.Id, target)
+                        || source.Left.Model.Active != lone || !target.Left.Model.Tabs.SequenceEqual(targetOrder)
+                        || target.Left.Model.Active != targetActive
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || !Send(source, TabDragKind.Cancel, 0, lone.Id)
+                        || !Send(source, TabDragKind.Completed, 0, lone.Id)
+                        || source.Left.Model.Active != lone || source.Window.Placement != placement
+                        || !target.Left.Model.Tabs.SequenceEqual(targetOrder))
+                        throw new InvalidOperationException("A single-tab hover gesture must leave, rejoin, and cancel without losing either workspace.");
+                });
+                await Ready(source.Left);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    if (!Send(source, TabDragKind.TearOut, 0, lone.Id)
+                        || !Send(source, TabDragKind.Join, 0, lone.Id, target, 0, 1)
+                        || !Send(source, TabDragKind.Drop, 0, lone.Id, target, 0, 1)
+                        || source.CloseRequested || target.Left.Model.Tabs[1] != lone
+                        || !Send(source, TabDragKind.Completed, 0, lone.Id) || !source.CloseRequested)
+                        throw new InvalidOperationException("A single-tab merge must retire its empty source only after completion.");
+                });
+                await Until(() => source.IsDisposed);
+                await Ready(target.Left);
+                await Ui(() =>
+                {
+                    app.NewWindow(fixture);
+                    source = app.ExplorerWindows.Last();
+                });
+                await Ready(source.Left);
                 await Ui(() =>
                 {
                     source.Left.NewTab(fixture);

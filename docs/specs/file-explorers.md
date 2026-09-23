@@ -266,6 +266,8 @@ Another window receives the remaining workspace.
 Before showing that remainder window, the application disables initial activation with `SetShowActivated(false)`.
 The framework places it immediately below the moving window, without taking activation from the drag.
 A single-tab workspace does not create an empty remainder window.
+Dragging its tab moves the window, even while the pointer remains inside the original strip.
+The tab can join another window that already contains tabs.
 
 Dragging onto another visible strip shows an insertion marker.
 With full-window dragging, an accepted hover join temporarily hosts the tab in that destination.

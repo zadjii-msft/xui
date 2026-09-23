@@ -113,6 +113,8 @@ These tests need a Windows desktop. Static checks do not establish a passing nat
 A tab press records a stable ID and screen position.
 The system drag threshold forwards `WM_NCLBUTTONDOWN` with `HTCAPTION` to native window processing.
 One move-size loop stays on the source HWND.
+Single-tab detection uses native peer visibility, including arranged geometry, rather than the strip's visibility property alone.
+This excludes the retained tab in FileExplorer's collapsed second pane from the initial reorder decision.
 `WM_WINDOWPOSCHANGING` controls full-window dragging. `WM_MOVING` controls the outline-only fallback.
 After the tear-out callback, the same loop moves the source window beneath the dragged tab.
 The application creates the remainder window rather than transferring native peers.
@@ -153,6 +155,7 @@ XUI resolves that query dynamically for SDK compatibility.
 `bindings\dotnet\FileExplorer\Models\ExplorerTabJoin.cs` retains the temporary model transfer.
 `ExplorerTabDrag.cs` coordinates that transfer, rollback snapshots, target guards, and deferred window retirement.
 Equivalent hosted insertion slots do not cancel navigation or rebuild content.
+The Explorer hover smoke also covers a fresh single-tab source, cancellation, and transfer into a destination with multiple tabs.
 
 `tests\tab_drag_window_tests.cpp` drives native messages through a deterministic caption-down boundary.
 It covers stationary reordering, retained-HWND tear-out, target acceptance, rejected drops, cancellation, markers, and retirement.
