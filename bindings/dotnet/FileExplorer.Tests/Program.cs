@@ -13,6 +13,7 @@ internal static class Program
         try
         {
             await FileSystemTests(fixture);
+            assertions += await DirectoryChangeTests.Run(fixture);
             BreadcrumbTests();
             await PreviewTests(fixture);
             assertions += await FolderMetadataTests.Run(fixture);

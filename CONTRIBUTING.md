@@ -574,6 +574,20 @@ The complete `--smoke` run includes these address-bar checks.
 The address-bar checks also cover shared declarative styles, unchanged-path identity, and the 64-segment limit.
 The model suite covers drive roots, UNC shares, extended paths, Unicode names, and deep paths without network access.
 
+The directory-change smoke deletes disposable fixture files and folders through Windows Shell.
+It covers the Delete key in every file view, context-action deletion, native text input, and automatic updates in both panes.
+It also covers external renames, external deletion, retained Columns paths, navigation, and hidden-pane recovery.
+The smoke checks multi-selection retention and cancellation after a selection change.
+Windows can show its normal deletion confirmation dialog.
+
+```powershell
+$process = Start-Process -FilePath $exe -ArgumentList "--directory-changes-smoke" -PassThru -Wait
+if ($process.ExitCode -ne 0) { throw "Explorer directory changes smoke failed." }
+dotnet run --project bindings\dotnet\FileExplorer.Tests -c Release
+```
+
+The model suite covers filesystem notifications, watcher disposal, and column snapshot updates.
+
 The customization checks cover key sequences, shortcut conflicts, import errors, legacy state, and native editor shortcut ownership:
 
 ```powershell

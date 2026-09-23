@@ -16,6 +16,17 @@ internal sealed class FileContextMenu(ExplorerApplication app, FilePaneView pane
     private readonly ContextActionsController customization = new(app, pane);
     internal ContextActionsController Customization => customization;
 
+    internal void DeleteSelection()
+    {
+        if (!app.Transfers.CanTransfer(pane) || !pane.HasSelection)
+        {
+            app.Report("Select files or folders in a ready pane first.");
+            return;
+        }
+        GetCommands();
+        customization.InvokeCanonical("delete");
+    }
+
     public Command[] GetCommands()
         => GetCommands(pane.SelectedEntries);
 

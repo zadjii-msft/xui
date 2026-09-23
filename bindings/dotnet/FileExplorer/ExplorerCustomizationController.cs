@@ -157,7 +157,7 @@ internal sealed partial class ExplorerApplication
         {
             bool fileCommand = command.StableId.StartsWith("archive.", StringComparison.Ordinal) ||
                 command.StableId.StartsWith("file.", StringComparison.Ordinal) ||
-                command.StableId is "copy-files" or "cut-files" or "copy-file-paths" or
+                command.StableId is "copy-files" or "cut-files" or "delete-files" or "copy-file-paths" or
                     "paste-files-into-this-folder" or "properties" or "preview-selected-item" or
                     "open-selected-folder-in-new-tab" or "open-selected-item-in-other-pane" or "tab.open-selected-folders";
             return command.Enabled && (fileFocus || (!fileCommand && !State.Customization.Keybindings.ContainsKey(command.StableId)));

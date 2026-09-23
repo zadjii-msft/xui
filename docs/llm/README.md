@@ -58,6 +58,7 @@ Existing checks still cover page selection, navigation, local links, code exampl
 ## Historical evidence
 
 - [Explorer history](explorer-history.md): Declarative presentation source map, file views, lazy Tree requests, breadcrumbs, folder identity, Find input, navigation menus and hover cards, tab icons, compact headers, and thumbnails.
+- [Explorer deletion and directory watches](explorer-history.md#deletion-and-directory-watches): Shell deletion, watcher ownership, background refresh, and retained column snapshots.
 - Explorer customization: `ExplorerCustomizationController.cs` owns command dispatch and transactional settings updates. `CustomizationController.cs` owns the searchable editor. `CustomizationSettingRow.cs` owns retained inline controls and text drafts. `Models\KeySequenceTracker.cs` owns sequence state. The [public contract](../specs/file-explorers.md#customization) describes the application behavior.
 - Settings pages: `CustomizationController.cs` groups retained rows by page and section. Search spans all pages without replacing native editors. `CustomizationSettingRow.cs` reserves a reset slot and compares saved values and drafts with defaults. Command glyphs come from `ExplorerCommand.Icon`.
 - Settings opening: `SettingsOpenSmoke.cs` measures popup dispatch and native painting, counts native peers, and checks deferred page inputs. [Opening measurements](explorer-history.md#settings-popup-opening-2026-09-21) identify eager native creation as the original bottleneck.
