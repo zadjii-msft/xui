@@ -578,8 +578,15 @@ void NavigationView::set_header_visible(bool value) {
     header_visible_ = value; invalidate(Invalidation::layout);
 }
 bool NavigationView::select(ItemKey key) {
+    return select_item(key, true);
+}
+void NavigationView::set_selection(std::optional<ItemKey> key) {
+    if (!key) { clear_selection(); return; }
+    if (!select_item(*key, false)) throw std::invalid_argument("Navigation selection must exist and be enabled");
+}
+bool NavigationView::select_item(ItemKey key, bool interactive) {
     const auto* item = find(key);
-    if (!enabled() || !item || !item->selectable || !effective_enabled(key) ||
+    if ((interactive && !enabled()) || !item || !item->selectable || !effective_enabled(key) ||
         (item->section == NavigationSection::main && !matching_.contains(key))) return false;
     settle_motion();
     const bool changed = selected_ != key;
@@ -592,7 +599,7 @@ bool NavigationView::select(ItemKey key) {
     for (const auto& list : {header_, main_, footer_}) if (list->source()->find(key)) {
         list->selection_.set_focus(key); list->reveal(key);
     }
-    auto callback = changed ? select_ : std::function<void(ItemKey)>{};
+    auto callback = changed && interactive ? select_ : std::function<void(ItemKey)>{};
     if (callback) callback(key);
     return true;
 }

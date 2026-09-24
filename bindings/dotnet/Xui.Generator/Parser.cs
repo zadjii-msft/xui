@@ -180,23 +180,30 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         string[] allowed = kind switch
         {
             "VStack" or "HStack" => ["spacing", "padding"],
-            "Text" => ["value"],
+            "KeyedVStack" or "KeyedHStack" => ["value", "spacing", "padding"],
+            "Text" => ["value", "textLayout"],
             "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "Toggle" or "ToggleSwitch" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "ToggleButton" => ["value", "checked", "change", "icon"],
             "CheckBox" => ["value", "checkState", "threeState", "change"],
             "HyperlinkButton" => ["value", "click", "icon"],
             "SelectorBar" => ["value", "items", "selected", "change"],
+            "SingleChoice" => ["value", "items", "selected", "change"],
             "InfoBadge" => ["value", "count", "icon"],
             "MenuBar" => ["value", "commands", "invoke", "pin"],
-            "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
+            "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder", "purpose"],
+            "MultilineText" => ["value", "text", "change", "readOnly", "maximumLength"],
+            "PasswordInput" => ["value", "change", "maximumLength"],
+            "Image" => ["value", "source", "decodeOptions", "stateChanged"],
             "Grid" => ["value", "rows", "columns"],
             "DataGrid" => ["value", "columns"],
-            "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
+            "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change", "preview", "cancel"],
             "Progress" or "ProgressRing" => ["value", "range", "currentValue", "progressState"],
-            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp", "duration"],
+            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp", "duration", "pages", "change", "activate", "expanded"],
+            "TabStrip" => ["value", "pages", "change", "activate", "close", "closable"],
+            "PageView" => ["value", "pages", "selected", "visible"],
             "ItemsView" or "ScrollView" or "SwapChainPanel" => ["value"],
-            "Reveal" => ["value", "open", "duration", "layout", "direction"],
+            "Reveal" => ["value", "open", "duration", "layout", "direction", "motion"],
             "Popup" => ["value", "placement", "windowBackground"],
             "SplitView" => ["value", "secondVisible", "duration"],
             "Content" => ["value"],
@@ -209,8 +216,8 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
         bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal";
-        allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
-        if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
+        allowed = [.. allowed, "size", "preferredSize", "width", "height", "textRole", "fontSize", "fontWeight", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
+        if (!stack && kind is not ("Content" or "Grid" or "KeyedVStack" or "KeyedHStack" or "PageView")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         var authoredArguments = new List<XuiSourceArgument>();
         Expect("(");
@@ -241,7 +248,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             var expression = SyntaxFactory.ParseExpression(text, position, consumeFullText: false);
             Check(expression, expressionStart);
             if (expression.IsMissing) throw new ParseError("Expected a C# expression.", Offset);
-            if (key is "click" or "change" or "submit" or "ref" && expression is not IdentifierNameSyntax)
+            if (key is "click" or "change" or "submit" or "preview" or "cancel" or "activate" or "close" or "stateChanged" or "ref" && expression is not IdentifierNameSyntax)
                 throw new ParseError("Event handlers and references must be identifiers.", expressionStart);
             arguments.Add(key, new(expression.ToString(), expressionStart + expression.SpanStart));
             var valueRange = new SourceRange(expressionStart + expression.SpanStart, expression.Span.Length);

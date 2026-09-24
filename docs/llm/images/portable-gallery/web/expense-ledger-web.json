@@ -1,0 +1,18 @@
+{
+  "app": "expense-ledger",
+  "project": "WebGalleryDemo",
+  "source": "ExpenseLedger.xui",
+  "sourceSha256": "38f9733cc5ee4fba8ea9749e5e0e610031043159f6b1fc6583d30a328ebacca4",
+  "pngSha256": "4d988748e1ffbea3f14b7ac2d665cd4d5015bf45c8baa439ace3595b04111ed4",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=expense-ledger",
+  "offlineCallbacks": true,
+  "nodes": 18,
+  "nativeInputs": 4,
+  "overflow": false
+}

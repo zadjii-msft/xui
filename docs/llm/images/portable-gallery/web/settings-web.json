@@ -1,0 +1,18 @@
+{
+  "app": "settings",
+  "project": "WebGalleryDemo",
+  "source": "SettingsShowcase.xui",
+  "sourceSha256": "621db3cbaadeb7a472ed80baf37a6e38ee169662aaba82d8ca484bd078601431",
+  "pngSha256": "8714efdcbff337355189426380d5407c4649041a606500bc7e3948cc88ae341f",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=settings",
+  "offlineCallbacks": true,
+  "nodes": 21,
+  "nativeInputs": 6,
+  "overflow": false
+}

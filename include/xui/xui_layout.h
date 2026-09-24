@@ -4,6 +4,44 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define XUI_AXIS_CONSTRAINTS_VERSION 0x00010000u
+enum { XUI_AXIS_OVERRIDE = 1u, XUI_AXIS_LENGTH = 2u, XUI_AXIS_MAXIMUM = 4u };
+typedef struct xui_axis_constraint {
+    uint32_t flags;
+    float length, minimum, maximum;
+} xui_axis_constraint;
+typedef struct xui_axis_constraints {
+    uint32_t size, version;
+    xui_axis_constraint width, height;
+} xui_axis_constraints;
+/* Optional additive exports; probe both before advertising axis support.
+   Flags=0 and zero values inherit the latest legacy sizing on that axis.
+   OVERRIDE with no LENGTH selects natural measurement. Absent length/maximum
+   fields must be zero. All supplied values are finite/nonnegative, maximum >=
+   minimum, and length must be within those bounds. Both axes change atomically.
+   Parent allocation wins even below minimum; Auto retains normal cross-axis
+   stretching. Legacy setters retain their values while an override is active.
+   Supported: ordinary Stack, ContentHost, Label, Button, TextInput, ScrollView,
+   Toggle, CheckBox, Progress, Grid, MultilineText and PasswordInput.
+   Other native families return XUI_WRONG_KIND. Document fields additionally
+   require xui_forms_version() support.
+   Grid additionally requires xui_grid_layout_version() support. */
+XUI_API xui_status XUI_CALL xui_element_set_axis_constraints(xui_handle element,
+    const xui_axis_constraints* constraints) XUI_NOEXCEPT;
+/* Initialize size/version before reading. No legacy sizing fields are changed. */
+XUI_API xui_status XUI_CALL xui_element_get_axis_constraints(xui_handle element,
+    xui_axis_constraints* constraints) XUI_NOEXCEPT;
+#define XUI_GRID_LAYOUT_VERSION 0x00010000u
+/* Qualifies finite Grid measurement, unbounded star-as-auto, span deficit
+   distribution, clipped-cell height measurement, and Grid axis constraints.
+   Older Grid constructors alone do not guarantee these semantics.
+   Grid cell membership remains static; Stack mutation never accepts Grid. */
+XUI_API uint32_t XUI_CALL xui_grid_layout_version(void) XUI_NOEXCEPT;
+/* Default=1 preserves legacy viewport-filling content. Zero retains natural
+   content height and unbounded vertical flex/star layout through arrangement.
+   Portable adapters must probe these exports before promising that behavior. */
+XUI_API xui_status XUI_CALL xui_scroll_view_set_fill_viewport(xui_handle scroll, uint32_t enabled) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_scroll_view_get_fill_viewport(xui_handle scroll, uint32_t* enabled) XUI_NOEXCEPT;
 #define XUI_TAB_COLORS_VERSION 0x00010000u
 enum {
     XUI_TAB_ROW_BACKGROUND = 1u, XUI_TAB_SELECTED_BACKGROUND = 2u, XUI_TAB_SELECTED_TEXT = 4u,

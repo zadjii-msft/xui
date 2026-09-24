@@ -135,7 +135,9 @@ void wire_feature(const std::shared_ptr<Node>& n) {
         as<xui::TabStrip>(n).on_select([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); });
         as<xui::TabStrip>(n).on_activate([weak](uint64_t id) { dispatch(weak, XUI_CLICK, id); });
         as<xui::TabStrip>(n).on_new_tab([weak] { dispatch(weak, XUI_ACTION); });
-        as<xui::TabStrip>(n).on_close([weak](uint64_t id) { dispatch(weak, XUI_CANCEL, id); }); break;
+        if (n->page_closable == false) as<xui::TabStrip>(n).on_close({});
+        else as<xui::TabStrip>(n).on_close([weak](uint64_t id) { dispatch(weak, XUI_CANCEL, id); });
+        break;
     case XUI_DATA_GRID:
         as<xui::DataGrid>(n).on_select([weak] { dispatch(weak, XUI_SELECTION); });
         as<xui::DataGrid>(n).on_activate([weak] {
@@ -434,9 +436,11 @@ xui_status XUI_CALL xui_window_post(xui_handle window, xui_post_callback callbac
             delivery->state = 2;
             auto state = node->owner;
             ++state->callbacks;
+            ++state->posted_callbacks;
             xui_status result{};
             try { result = delivery->callback(delivery->context, 1); }
             catch (...) { result = XUI_CALLBACK_FAILED; }
+            --state->posted_callbacks;
             --state->callbacks;
             if (result) { state->callback_failure = result; state->window->close(); }
         });
@@ -658,7 +662,11 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         case XUI_F_SPLIT_RATIO: fields(v, 1); finite_float(v.a); feature<xui::SplitView>(n).set_ratio(float(v.a)); break;
         case XUI_F_SECOND_VISIBLE: fields(v, 16); limit(v.first, 1); feature<xui::SplitView>(n).set_secondary_visible(v.first != 0); break;
         case XUI_F_PAGE: fields(v, 16); feature<xui::PageView>(n).select(v.first); break;
-        case XUI_F_VISIBLE: fields(v, 16); limit(v.first, 1); control(n).set_visible(v.first != 0); break;
+        case XUI_F_VISIBLE:
+            fields(v, 16); limit(v.first, 1);
+            if (dynamic_cast<xui::RetainedPages*>(n->element.get())) set_retained_page_visibility(n, v.first != 0);
+            else control(n).set_visible(v.first != 0);
+            break;
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature property."};
         }
         callback_result(n->owner);
@@ -685,7 +693,7 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
                 n->kind == XUI_NAVIGATION_VIEW ? as<xui::NavigationView>(n).expanded() : feature<xui::Expander>(n).expanded();
             break;
         case XUI_F_BUTTON_ICON: v->first = static_cast<uint64_t>(feature<xui::Button>(n).icon()); break;
-        case XUI_F_FOCUSED: v->first = control(n).focused(); break;
+        case XUI_F_FOCUSED: v->first = n->owner->window->has_focus(control(n)); break;
         case XUI_F_VISIBLE: v->first = control(n).visible(); break;
         case XUI_F_IS_OPEN: v->first = feature<xui::Popup>(n).is_open(); break;
         case XUI_F_SECOND_VISIBLE: v->first = feature<xui::SplitView>(n).secondary_visible(); break;
@@ -794,6 +802,15 @@ xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t action, uint6
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature action."};
         }
         callback_result(n->owner);
+    });
+}
+uint32_t XUI_CALL xui_combo_box_selection_version() noexcept { return XUI_COMBO_SELECTION_VERSION; }
+xui_status XUI_CALL xui_combo_box_get_selected(xui_handle target, uint64_t* id, uint32_t* has) noexcept {
+    return boundary([&] {
+        require(id && has, XUI_INVALID_ARGUMENT, "Missing ComboBox selection output.");
+        const auto selected = as<xui::ComboBox>(get(target, XUI_COMBO_BOX)).selected();
+        *id = selected.value_or(0);
+        *has = selected ? 1u : 0u;
     });
 }
 xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items, uint32_t count, uint64_t selected, uint32_t has) noexcept {
@@ -1037,6 +1054,7 @@ xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child, uint32_t 
     return boundary([&] {
         auto n = get(target); auto c = get(child); same(n, c); content_topology(n);
         require(n != c && c->element && !c->attached, XUI_INVALID_ARGUMENT, "Invalid child.");
+        validate_portable_reveal_insertion(n, c->element);
         if (n->kind == XUI_GRID) as<xui::Grid>(n).add(c->element, row, column, rows, columns);
         else {
             require(!row && !column && rows == 1 && columns == 1, XUI_INVALID_ARGUMENT, "Only Grid supports cell coordinates.");
@@ -1087,6 +1105,15 @@ xui_status XUI_CALL xui_password_read(xui_handle target, xui_secret_receiver rec
             if (result) { s->callback_failure = result; s->window->close(); }
         });
         callback_result(s);
+    });
+}
+xui_status XUI_CALL xui_password_clear(xui_handle target) noexcept {
+    return boundary([&] {
+        auto node = get(target, XUI_PASSWORD_INPUT);
+        require(!node->owner->source_callbacks && !node->owner->secret_callbacks &&
+            (node->owner->closed || node->owner->callbacks == node->owner->posted_callbacks), XUI_BUSY,
+            "Clear password attachments outside read-only and native callbacks.");
+        node->owner->window->clear_password(as<xui::PasswordInput>(node));
     });
 }
 

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "applications": [
+    {
+      "id": "editable-cart",
+      "reset": "cart-reset",
+      "scenarios": [
+        {
+          "name": "browse-detail-edit-quote",
+          "steps": [
+            { "action": "click", "id": "cart-reset" },
+            { "action": "expect", "id": "cart-browse-title", "text": "BROWSE THE CATALOG" },
+            { "action": "expect", "id": "cart-count", "text": "0 cart lines" },
+            { "action": "expect", "id": "cart-back", "enabled": false },
+            { "action": "click", "id": "cart-view-coffee" },
+            { "action": "expect", "id": "cart-product-name", "text": "Coffee" },
+            { "action": "expect", "id": "cart-product-price", "text": "Unit price: $12.50" },
+            { "action": "click", "id": "cart-add-product" },
+            { "action": "expect", "id": "cart-count", "text": "1 cart lines" },
+            { "action": "click", "id": "cart-edit" },
+            { "action": "expect", "id": "cart-line-1-quantity", "text": "1" },
+            { "action": "expect", "id": "cart-quote", "enabled": false },
+            { "action": "change", "id": "cart-customer", "value": "Ada" },
+            { "action": "change", "id": "cart-discount", "value": "SAVE10" },
+            { "action": "change", "id": "cart-line-1-quantity", "value": "3" },
+            { "action": "click", "id": "cart-add-tea" },
+            { "action": "change", "id": "cart-line-2-quantity", "value": "2" },
+            { "action": "click", "id": "cart-add-cocoa" },
+            { "action": "expect", "id": "cart-subtotal", "text": "Subtotal: $63.50" },
+            { "action": "expect", "id": "cart-discount-total", "text": "Discount: -$6.35" },
+            { "action": "expect", "id": "cart-total", "text": "Estimate: $57.15" },
+            { "action": "click", "id": "cart-reverse" },
+            { "action": "expect", "id": "cart-line-1-quantity", "text": "3" },
+            { "action": "click", "id": "cart-sort" },
+            { "action": "expect", "id": "cart-line-2-total", "text": "Line total: $16.00" },
+            { "action": "click", "id": "cart-quote" },
+            { "action": "expect", "id": "cart-status", "text": "Local quote ready. No order was placed." },
+            { "action": "expect", "id": "cart-quote-summary", "text": "Quote for Ada: $57.15\nNo checkout or payment.", "visible": true },
+            { "action": "expect", "id": "cart-busy", "visible": false },
+            { "action": "click", "id": "cart-line-2-remove" },
+            { "action": "expect", "id": "cart-line-2-quantity", "visible": false },
+            { "action": "expect", "id": "cart-total", "text": "Estimate: $42.75" },
+            { "action": "expect", "id": "cart-quote-summary", "text": "", "visible": false },
+            { "action": "click", "id": "cart-back" },
+            { "action": "expect", "id": "cart-product-name", "text": "Coffee" },
+            { "action": "click", "id": "cart-edit" },
+            { "action": "expect", "id": "cart-line-1-quantity", "text": "3" }
+          ]
+        },
+        {
+          "name": "invalid-draft-and-removal",
+          "steps": [
+            { "action": "click", "id": "cart-reset" },
+            { "action": "click", "id": "cart-edit" },
+            { "action": "expect", "id": "cart-empty", "visible": true },
+            { "action": "click", "id": "cart-add-tea" },
+            { "action": "change", "id": "cart-line-1-quantity", "value": "" },
+            { "action": "expect", "id": "cart-line-1-quantity", "text": "" },
+            { "action": "expect", "id": "cart-line-1-validation", "text": "Use 1 to 9 whole items, or remove this line.", "visible": true },
+            { "action": "expect", "id": "cart-subtotal", "text": "Subtotal: --" },
+            { "action": "expect", "id": "cart-total", "text": "Estimate: --" },
+            { "action": "expect", "id": "cart-quote", "enabled": false },
+            { "action": "change", "id": "cart-line-1-quantity", "value": " 2 " },
+            { "action": "expect", "id": "cart-line-1-quantity", "text": " 2 " },
+            { "action": "expect", "id": "cart-line-1-total", "text": "Line total: $16.00" },
+            { "action": "click", "id": "cart-line-1-remove" },
+            { "action": "expect", "id": "cart-empty", "visible": true },
+            { "action": "click", "id": "cart-add-coffee" },
+            { "action": "expect", "id": "cart-line-2-quantity", "text": "1" },
+            { "action": "expect", "id": "cart-line-1-quantity", "visible": false }
+          ]
+        },
+        {
+          "name": "screenshot-seed-local-quote",
+          "steps": [
+            { "action": "click", "id": "cart-reset" },
+            { "action": "click", "id": "cart-view-coffee" },
+            { "action": "click", "id": "cart-add-product" },
+            { "action": "click", "id": "cart-edit" },
+            { "action": "click", "id": "cart-add-tea" },
+            { "action": "change", "id": "cart-customer", "value": "Ada" },
+            { "action": "change", "id": "cart-discount", "value": "SAVE10" },
+            { "action": "click", "id": "cart-quote" },
+            { "action": "expect", "id": "cart-count", "text": "2 cart lines" },
+            { "action": "expect", "id": "cart-total", "text": "Estimate: $18.45" },
+            { "action": "expect", "id": "cart-quote-summary", "text": "Quote for Ada: $18.45\nNo checkout or payment.", "visible": true },
+            { "action": "expect", "id": "cart-busy", "visible": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

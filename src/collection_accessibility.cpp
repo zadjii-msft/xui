@@ -110,11 +110,11 @@ public:
             } else if (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId || id == UIA_IsKeyboardFocusablePropertyId ||
                 id == UIA_IsEnabledPropertyId || id == UIA_HasKeyboardFocusPropertyId || id == UIA_IsOffscreenPropertyId) {
                 UiaRect b{}; bounds(s, b);
-                const bool result = id == UIA_IsOffscreenPropertyId ? b.width <= 0 || b.height <= 0 :
-                    id == UIA_IsEnabledPropertyId ? s.enabled && (!key_ || item.enabled) :
+                const bool result = id == UIA_IsOffscreenPropertyId ? s.logical_hidden || b.width <= 0 || b.height <= 0 :
+                    !s.logical_hidden && (id == UIA_IsEnabledPropertyId ? s.enabled && (!key_ || item.enabled) :
                     id == UIA_IsKeyboardFocusablePropertyId ? s.enabled && !action_ && (!key_ || (item.enabled && !item.separator &&
                         !(s.role == ControlRole::command_menu && info.group))) :
-                    id == UIA_HasKeyboardFocusPropertyId ? s.focused && !action_ && (!key_ || s.selection.focused() == key_) : true;
+                    id == UIA_HasKeyboardFocusPropertyId ? s.focused && !action_ && (!key_ || s.selection.focused() == key_) : true);
                 value->vt = VT_BOOL; value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
             return S_OK;
@@ -197,6 +197,7 @@ public:
         });
     }
     void bounds(const ControlSnapshot& s, UiaRect& value) const {
+        if (s.logical_hidden) { value = {}; return; }
         value = {}; RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
         const auto clip = clipped_bounds(s.window);

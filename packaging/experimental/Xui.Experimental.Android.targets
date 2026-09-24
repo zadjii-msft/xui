@@ -1,0 +1,4 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Experimental.Fonts.targets"
+          Condition="'$(TargetPlatformIdentifier)' == 'android' and '$(_XuiExperimentalFontsImported)' != 'true'" />
+</Project>

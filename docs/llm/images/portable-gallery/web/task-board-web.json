@@ -1,0 +1,18 @@
+{
+  "app": "task-board",
+  "project": "WebGalleryDemo",
+  "source": "TaskBoard.xui",
+  "sourceSha256": "0fa0386e869bc1ee2c0f48676e1287288be9b81e28e279d40689211ca5fdacd1",
+  "pngSha256": "801320e1da91a3ccd17a7a5225bc0c5aac7c803a35d94aa9d3597fde5f5d019f",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=task-board",
+  "offlineCallbacks": true,
+  "nodes": 21,
+  "nativeInputs": 1,
+  "overflow": false
+}

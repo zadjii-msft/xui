@@ -29,7 +29,7 @@ class NativeEditBridge final : public Element {
 public:
     NativeEditBridge();
     ~NativeEditBridge() override;
-    void attach(HWND parent, int control_id);
+    void attach(HWND parent, int control_id, TextInputPurpose purpose = TextInputPurpose::normal);
     void set_dpi(UINT dpi);
     void set_font_family(std::wstring family);
     void set_font(std::wstring_view family, float size, int weight, bool italic);
@@ -72,6 +72,7 @@ private:
     int font_height_{};
     UINT dpi_{96};
     bool composing_{};
+    bool input_scope_set_{};
     COLORREF placeholder_color_{RGB(128, 128, 128)};
     COLORREF text_color_{}, background_color_{};
     bool colors_set_{};

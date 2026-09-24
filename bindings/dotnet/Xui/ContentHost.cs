@@ -10,10 +10,13 @@ public readonly record struct ContentInspectionTarget(int NodeId, Element Elemen
 public enum ContentHighlightResult { Applied, Cleared, NotVisible, OccludedNative, UnsupportedSurface }
 
 /// <summary>A stable layout element whose content changes through an explicit UI-thread ownership scope.</summary>
-public sealed class ContentHost : Element
+public sealed partial class ContentHost : Element
 {
     internal ContentUpdate? Current;
     internal ContentHost(Window window, ulong handle) : base(window, handle) { }
+
+    /// <summary>The borrowed window that owns this host and its content scopes.</summary>
+    public Window OwnerWindow => Window;
 
     public ContentUpdate BeginUpdate()
     {
@@ -60,7 +63,7 @@ public sealed class ContentHost : Element
 /// <summary>Owns one candidate and, after commit, its active content and callback registrations.</summary>
 /// <remarks>Dispose before commit rolls back construction. Dispose after commit clears this content if still current.
 /// Authored code is trusted. Arbitrary side effects, hangs, and native failures are not isolated.</remarks>
-public sealed class ContentUpdate : IDisposable
+public sealed partial class ContentUpdate : IDisposable
 {
     internal readonly ContentHost Host;
     internal readonly ulong Handle;
@@ -185,6 +188,7 @@ public sealed class ContentUpdate : IDisposable
     {
         if (Retired) return;
         Retired = true;
+        append = null;
         Host.Window.EndContentBuild(this);
         Host.Window.RetireContent(this);
         lock (postedGate)
@@ -228,6 +232,7 @@ public sealed unsafe partial class Window
         contentScopes.Add(scope.Handle, scope);
         contentContext.Value = scope;
     }
+    internal void BeginContentBuild(ContentUpdate scope) => contentContext.Value = scope;
     internal void EndContentBuild(ContentUpdate scope)
     {
         if (ReferenceEquals(contentContext.Value, scope)) contentContext.Value = null;
@@ -292,15 +297,28 @@ public sealed unsafe partial class Window
     }
     internal void RetireContent(ContentUpdate scope)
     {
-        foreach (var item in subscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { subscriptions.Remove(item.Key); item.Value.Free(); }
-        foreach (var item in menuSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { menuSubscriptions.Remove(item.Key); item.Value.Free(); }
-        foreach (var item in fileSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { fileSubscriptions.Remove(item.Key); item.Value.Root.Free(); }
-        foreach (var item in millerSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { millerSubscriptions.Remove(item.Key); item.Value.Free(); }
+        RetireContentCallbacks(scope, _ => true);
         contentScopes.Remove(scope.Handle);
+    }
+    internal HashSet<ulong> ContentCallbackHandles(ContentUpdate scope) =>
+        subscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).Select(p => p.Key)
+        .Concat(menuSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).Select(p => p.Key))
+        .Concat(fileSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).Select(p => p.Key))
+        .Concat(millerSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).Select(p => p.Key))
+        .Concat(VirtualViewportHandles(scope)).Concat(ControlInteractionHandles(scope)).Concat(MemoryImageHandles(scope)).ToHashSet();
+    internal void RetireContentCallbacks(ContentUpdate scope, Func<ulong, bool> predicate)
+    {
+        RetireVirtualViewports(scope, predicate);
+        RetireControlInteractions(scope, predicate);
+        RetireMemoryImages(scope, predicate);
+        foreach (var item in subscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope) && predicate(p.Key)).ToArray())
+        { subscriptions.Remove(item.Key); item.Value.Free(); }
+        foreach (var item in menuSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope) && predicate(p.Key)).ToArray())
+        { menuSubscriptions.Remove(item.Key); item.Value.Free(); }
+        foreach (var item in fileSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope) && predicate(p.Key)).ToArray())
+        { fileSubscriptions.Remove(item.Key); item.Value.Root.Free(); }
+        foreach (var item in millerSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope) && predicate(p.Key)).ToArray())
+        { millerSubscriptions.Remove(item.Key); item.Value.Free(); }
     }
 }
 

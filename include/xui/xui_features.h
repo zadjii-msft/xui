@@ -385,6 +385,8 @@ typedef struct xui_feature_options {
    Both modes accept checked commands with icons. Other mode values are invalid. */
 /* Numeric fields have operation-specific meanings. All unused fields must be zero.
    TextSelection offsets count UTF-16 code units. Split surrogate pairs are rejected.
+   XUI_F_FOCUSED reports actual native focus on this control's live peer, not
+   descendant focus or cached style state; absent/closed peers report zero.
    XUI_F_SELECTION_STATE is read-only: a indicates focus; b counts compact terms.
    first and second contain the focused key's id and version when a is nonzero. */
 typedef struct xui_feature_value {
@@ -416,6 +418,14 @@ XUI_API xui_status XUI_CALL xui_feature_action(xui_handle target, uint32_t actio
     uint64_t first, uint64_t second) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_choices(xui_handle target, const xui_choice* items,
     uint32_t count, uint64_t selected, uint32_t has_selection) XUI_NOEXCEPT;
+#define XUI_COMBO_SELECTION_VERSION 0x00010000u
+/* Optional ComboBox selection query. UI-owner thread, including after closure.
+   No selection returns id=0/has_selection=0; selected IDs retain all 64 bits.
+   Existing xui_choices selection preservation/first-enabled behavior is unchanged.
+   This capability does not imply RangeInput or per-axis sizing support. */
+XUI_API uint32_t XUI_CALL xui_combo_box_selection_version(void) XUI_NOEXCEPT;
+XUI_API xui_status XUI_CALL xui_combo_box_get_selected(xui_handle target,
+    uint64_t* id, uint32_t* has_selection) XUI_NOEXCEPT;
 /* Tab-only optional parallel visuals. A null visuals pointer creates text-only tabs.
    Choice version/flags keep their legacy tab behavior; the choice ABI does not change. */
 XUI_API xui_status XUI_CALL xui_tab_items_visual(xui_handle target, const xui_choice* items,
@@ -461,6 +471,11 @@ XUI_API xui_status XUI_CALL xui_rich_runs(xui_handle target, const xui_text_run*
 /* Plaintext is valid only during this callback. The callback must not throw or retain it. */
 XUI_API xui_status XUI_CALL xui_password_read(xui_handle target,
     xui_secret_receiver receiver, void* context) XUI_NOEXCEPT;
+/* Explicit terminal cleanup only: clears retained/native password contents,
+   undo and reveal state without Changed. UI thread, valid even closing/closed.
+   It may cancel active native composition because the attachment is retiring.
+   Ordinary hiding/disable/legacy scope retention do not clear automatically. */
+XUI_API xui_status XUI_CALL xui_password_clear(xui_handle target) XUI_NOEXCEPT;
 /* Immutable source callbacks run on the UI thread. They must be bounded and nonblocking.
    Query 0: key at index. Query 1: content at index/column. Query 2: find (id,version).
    Query 3: has children. UINT64_MAX denotes an absent find result.

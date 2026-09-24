@@ -98,6 +98,56 @@ It requires the UI thread and rejects replacement from active native input callb
 The [binding contract](bindings.md#scoped-content-replacement) describes candidate scopes and managed callback ownership.
 The caller must not initialize COM as MTA.
 
+`Window::observe_content_viewport` and the independently versioned
+`xui_content_viewport_subscribe` API observe a ContentHost's actual inner allocation in DIPs.
+This is the available rectangle passed to its root after effective padding, border, and separator
+insets, not the outer window, screen pixels, or a scrolling extent. Subscription atomically returns
+the initial width and height; zero before the first layout is valid. It invokes no callback inline.
+The snapshot describes the last completed arrangement, not pending model changes to host insets.
+Later size changes are posted and coalesced on the UI thread, including changes caused by parent
+layout or host insets without `WM_SIZE`. Notifications are read-only metadata: defer authored
+layout work to an unscoped post. There is no polling timer or frame-cadence guarantee.
+Each registration owns an independent subscription. Releasing it suppresses queued callbacks
+and remains valid while its window is closing or closed. The observer belongs to the persistent
+host/window, not a replaceable content arena; dispose it before unmounting its consumer.
+Window destruction revokes remaining subscription handles. Bindings must check the version,
+subscribe, and release exports rather than infer support from the base ABI version.
+
+### Opt-in retained pages
+
+`RetainedPages` and `xui_retained_pages.h` provide guarded, same-arena page mutations separately
+from legacy `PageView` and ordinary Stack mutation. Every constructed page has an internal
+native ContentView host; the application still owns its original child/root handle.
+Inactive pages retain their editor HWNDs, native text, selection, and undo, but are hidden from
+input and the accessibility Control View. Whole-container visibility preserves the selected ID
+and all page state while removing the container from layout. No editor is recreated to select,
+hide, or reorder a surviving page.
+An already-focused native editor in a logically visible, enabled retained page keeps focus
+through a temporary zero allocation, such as the frame before a posted responsive layout
+update. Its native bounds and ancestor clip still shrink to zero; the backend does not keep
+old visible geometry or refocus the editor afterward. New focus requests and keyboard
+traversal still require nonempty geometry. Explicitly hidden or disabled content is not
+covered by this retention rule, and a subsequent intentional focus change is not undone.
+
+Each page has a unique nonzero ID, title, and enabled state. A selected ID must exist and be
+enabled; zero selects none. Initial metadata can precede child construction, but attachment
+requires matching page/root IDs and order. Live metadata updates require the completed
+structural order. Read-only validation accepts future metadata and move indices before an
+application model commit; execution checks final bounds. A focused descendant that would
+become inactive or be removed causes rejection. Applications must explicitly move focus to
+a safe selector or another control first. Active native composition blocks mutation; the API
+does not cancel composition or transfer focus implicitly.
+
+Linked TabStrip and NavigationView selectors use the same authoritative page IDs. Projection
+is silent, while real user selection, activation, and close requests keep their native events.
+The bounded first TabStrip implementation rejects disabled entries explicitly; NavigationView
+supports them. Tab closability controls the actual native affordance and Delete-key behavior,
+independently of event subscription. A surviving selector prevents its linked page host from
+being retired. Removing a page synchronously retires its native peers and callbacks; release its
+detached authored handles in reverse order, as with other content-arena mutations.
+The version and all retained-page/selector exports must be detected before advertising support.
+Legacy PageView, unlinked selectors, and ordinary Stack behavior are unchanged.
+
 Windows take activation and initial keyboard focus by default.
 Before `Run`, `Window::set_show_activated(false)` shows a window without taking either.
 `WindowOptions::show_activated` supplies the same initial choice in C++.
@@ -122,6 +172,16 @@ The [progress contract](foundation-controls.md#progress-presentations-and-animat
 Text stays on one line unless the text contains an explicit line break.
 An ellipsis marks text that exceeds the available width. The accessible name retains the full text.
 
+Label additionally supports an optional `LabelTextLayout` overlay through `xui_label_layout.h`.
+SingleLine selects literal clipping or character ellipsis; Wrap clips and accepts an optional
+maximum of 1 through 32 lines, with zero meaning uncapped. The overlay applies consistently
+to intrinsic measurement and drawing. Clearing it restores the latest legacy wrapping,
+maximum-lines, and style settings rather than replacing them with defaults.
+SingleLine rejects CR, LF, NEL, line separator, and paragraph separator both when assigning the
+descriptor and on subsequent Text/Name updates. Spaces, tabs, and the full accessible text are
+preserved; Wrap accepts literal hard breaks. Clipping and line limits never truncate the model.
+This independently versioned capability applies only to Label, not Button or native editors.
+
 Standard-control property setters do not call application action callbacks.
 List selection operations call `on_selection_change`. View assignments call `on_view_change`.
 Both callbacks observe the updated model. Item focus does not invoke the selection callback.
@@ -134,6 +194,8 @@ Callbacks can update other controls, change the theme, or request window closure
 `Window::focus(control, select_all)` requests native focus. The optional selection flag applies to text inputs.
 Focus requests reject disabled controls, foreign controls, and closed windows.
 Rejected select-all requests leave native selection and focus unchanged.
+`Window::has_focus(control)` and the C ABI `XUI_F_FOCUSED` query inspect actual native focus on that control's live peer, not focused descendants or cached style state.
+They report false for controls without a live peer or after window closure, and do not dispatch focus events.
 `Window::copy_text` requires an open window. Calls before startup or after closure throw before they open the clipboard.
 The input-state methods on `Control` are backend boundaries, not application focus commands.
 Startup errors and callback exceptions return a nonzero result. `Window::error()` supplies the error text.
@@ -325,6 +387,28 @@ Windows foreground-activation restrictions still apply.
 The bridge keeps the composition guard active through native `WM_IME_ENDCOMPOSITION` processing.
 It then publishes the committed value. Repeated end notifications do not repeat an unchanged text callback.
 Same-DPI theme changes reuse the native font. DPI changes replace the font without replacing the EDIT HWND.
+
+### Requested window theme resources
+
+`Window::theme_options()` and the versioned `xui_presentation.h` API capture the requested theme,
+including `System`, plus optional light/dark RGB24 foreground, background, and accent pairs.
+The 40-byte C snapshot has a presence mask: an unset resource is different from explicit black.
+`xui_window_theme_set` validates the complete snapshot before applying it; reset or restore uses
+the same setter. Capture remains valid after the window closes, while mutation does not.
+Bindings must detect `xui_window_theme_version`, `xui_window_theme_get`, and `xui_window_theme_set`
+before offering semantic themes; an older DLL's base ABI version is not sufficient.
+
+Foreground supplies ordinary enabled text, including Label, Button, Toggle, CheckBox, and native
+TextInput text and header. Accent supplies existing accent roles, not every selected surface.
+WinUI hover, press, disabled, and focus feedback remain native; on-accent ink uses contrasting
+black or white for a custom accent, not the ordinary foreground. Applications remain responsible
+for contrast between arbitrary foreground/background pairs and authored local styles.
+Background changes the window canvas, not every field or card surface.
+Explicit local control styles take precedence over semantic resources.
+Windows high contrast takes precedence over both semantic and authored RGB values.
+Changing these resources preserves native editor identity, text, selection, focus, and composition.
+The requested snapshot is not a resolved operating-system palette, so restoring a captured
+`System` value continues following subsequent system changes.
 
 Custom controls expose UIA text, button, or checkbox roles.
 Their accessible names track the public names. Their automation IDs use the stable element IDs.

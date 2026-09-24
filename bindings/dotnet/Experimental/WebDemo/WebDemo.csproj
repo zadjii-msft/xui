@@ -10,5 +10,13 @@
     <ProjectReference Include="..\Xui.Web\Xui.Web.csproj" />
     <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
   </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\MutationBoard.xui;..\Xui.Portable.Tests\Fixtures\MutationRow.xui;..\Xui.Portable.Tests\Fixtures\MutationBanner.xui" />
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" />
+    <AdditionalFiles Include="..\SharedDemo\FormsWorkbench.xui;..\SharedDemo\PresentationWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\RevealWorkbench.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\SecretRow.xui" />
+    <Compile Include="..\SharedDemo\VirtualList.cs;..\SharedDemo\VirtualListRow.cs;..\SharedDemo\VirtualListState.cs;..\SharedDemo\VirtualListPerformance.cs" />
+  </ItemGroup>
   <Import Project="..\Xui.Portable.targets" />
 </Project>

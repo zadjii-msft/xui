@@ -1,0 +1,60 @@
+namespace PortableDemo;
+
+component FormsWorkbench {
+    state string Email = "";
+    state string Number = "";
+    state string Notes = "";
+    state bool Locked = false;
+    state int Notices = 0;
+    state int SecretLength = 0;
+    state string Status = "Local editor preview. No credentials are sent.";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Native editor boundaries", id: "forms-title");
+            ScrollView("Forms preview", flex: 1, id: "forms-content") {
+                VStack(spacing: 10) {
+                    TextInput("Email hint", purpose: global::Xui.Experimental.Portable.InputPurpose.Email,
+                        text: Email, change: SetEmail, ref: EmailInput, id: "forms-email");
+                    TextInput("Number hint, not numeric validation", purpose: global::Xui.Experimental.Portable.InputPurpose.Number,
+                        text: Number, change: SetNumber, ref: NumberInput, id: "forms-number");
+                    Text("Notes", id: "forms-notes-caption");
+                    MultilineText("Notes", text: Notes, change: SetNotes, readOnly: Locked, maximumLength: 64,
+                        preferredSize: (280, 140), ref: NotesInput, id: "forms-notes");
+                    Button("Toggle notes read-only", click: ToggleLocked, id: "forms-lock");
+                    Text(Locked ? "Notes: read-only" : "Notes: editable", id: "forms-lock-state");
+                    Text("Password stays in this native attachment", id: "forms-password-caption");
+                    PasswordInput("Password preview", maximumLength: 32, change: PasswordEdited,
+                        ref: Secret, id: "forms-password");
+                    Text($"Password length: {SecretLength}", id: "forms-password-length");
+                    Text($"Password notices: {Notices}", id: "forms-password-notices");
+                    Button("Inspect password length", click: Inspect, id: "forms-inspect");
+                    Text(Status, id: "forms-status");
+                    Button("Reset editors", click: Reset, id: "forms-reset");
+                }
+            }
+        }
+    }
+    code csharp {
+        void SetEmail(string value) => Email = value;
+        void SetNumber(string value) => Number = value;
+        void SetNotes(string value) => Notes = value;
+        void ToggleLocked() => Locked = !Locked;
+        void PasswordEdited() { SecretLength = Secret.Length; Notices++; }
+        void Inspect() {
+            int length = 0;
+            Secret.WithPassword(value => length = value.Length);
+            Status = $"Inspected {length} UTF-16 units; no value displayed.";
+        }
+        void Reset() {
+            Secret.SetPassword("");
+            Email = "";
+            Number = "";
+            Notes = "";
+            Locked = false;
+            SecretLength = 0;
+            Notices = 0;
+            Status = "Local editor preview. No credentials are sent.";
+        }
+    }
+}

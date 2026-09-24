@@ -22,6 +22,9 @@ The `Xui.Templates` package supplies the `xui` project template.
 The template requires Windows x64 or ARM64 and the .NET 10 SDK.
 It creates a C# desktop application with a declarative counter and Debug hot reload.
 
+The separate [experimental portable SDK](#experimental-portable-preview) supplies the `xui-portable` template.
+It does not change this Windows-only template.
+
 Download `Xui.Templates.<version>.nupkg` and `Xui.<version>.nupkg` from the same release.
 Place both files in `D:\packages\xui`.
 Replace `1.2.3` with the downloaded version:
@@ -99,6 +102,42 @@ Managed Debug builds include `Xui.Development` and define `XUI_HOT_RELOAD`.
 `XuiHotReload=false` disables that integration.
 Release and NativeAOT builds exclude the development host.
 The [language guide](xui-language.md) describes component authoring and reload behavior.
+
+## Experimental portable preview
+
+The separate preview SDK compiles a shared `.xui`/C# library once and references it from thin Windows, Android, and web hosts.
+Its template short name is `xui-portable`.
+It does not replace the Windows `Xui` package or `dotnet new xui`.
+The [portable contract](experimental-portable-xui.md) describes implemented behavior; the [completion plan](multi-platform-framework-plan.md) contains further work, not a support claim.
+
+Keep this package family on one matching preview version:
+
+| Package | Purpose |
+| --- | --- |
+| `Xui.Experimental.Compiler` | Build-time generator and MSBuild assets |
+| `Xui.Experimental.Portable` | Managed retained UI and application lifetime helpers |
+| `Xui.Experimental.Windows` | Native Windows adapter, managed bindings, and explicitly supplied native RID |
+| `Xui.Experimental.Android` | Native Android widget adapter |
+| `Xui.Experimental.Web` | Local Wasm DOM adapter and `_content/Xui.Web/` assets |
+| `Xui.Experimental.Templates` | Shared-library application template |
+
+The locally built version is currently `0.1.0-preview.1`; no registry publication is implied.
+Configure a local or approved source containing the complete family, then install its template:
+
+```powershell
+dotnet new install D:\packages\xui-preview\Xui.Experimental.Templates.0.1.0-preview.1.nupkg
+dotnet new xui-portable -n MyApp
+```
+
+Generated projects contain no checkout-relative imports or framework source copies.
+`Shared` owns the UI/model, `Tests` exercises that compiled component, and `Windows`, `Android`, and `Web` supply startup/lifetime.
+Platform prerequisites remain explicit.
+The Windows preview contains only the native architecture supplied when packing; an absent RID is an error, never an emulated substitute.
+Web publication uses normal static hosting with a directory base URL and the correct Wasm MIME type.
+Release output excludes the compiler and development/test bridges.
+
+See [preview packing and consumer verification](../../CONTRIBUTING.md#experimental-preview-packages) for the reproducible workflow.
+Preview APIs may change; manual input/accessibility acceptance and the full release matrix remain separate gates.
 
 ## Native C++ applications
 

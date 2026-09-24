@@ -1,0 +1,27 @@
+namespace PortableApp;
+
+component Counter {
+    state CounterState State = new();
+
+    view {
+        VStack(spacing: 12, padding: 16) {
+            Text("XUI portable preview", id: "title");
+            ScrollView("Counter", flex: 1) {
+                VStack(spacing: 12) {
+                    TextInput("Your name", text: State.Name, change: SetName,
+                        placeholder: "Ada", ref: Input, id: "name");
+                    Text(State.Greeting, id: "greeting");
+                    Text($"Count: {State.Count}", id: "count");
+                    Button("Increment", click: Increment, id: "increment");
+                    Button("Reset", click: Reset, id: "reset");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetName(string value) => State = State with { Name = value };
+        void Increment() => State = State.Increment();
+        void Reset() => State = new();
+    }
+}

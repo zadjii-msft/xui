@@ -33,6 +33,13 @@ Invalid identities, nonfinite numbers, invalid bounds, and invalid timing values
 Choice controls accept up to 4,096 items. They use one peer and virtual accessible children, not one peer per choice.
 Use `ItemsView` for larger sources.
 An editable ComboBox does not infer an ID from arbitrary text. Handle `on_edit` separately from `on_change`.
+The optional C ABI `xui_combo_box_get_selected` reads the native ComboBox's committed ID,
+including all 64 bits, or reports no selection for an empty/all-disabled source.
+Bindings must probe this export and `xui_combo_box_selection_version` before advertising
+the query. This does not add RangeInput or per-axis sizing support.
+The existing silent item setter preserves a still-enabled old selection when no ID is
+specified, otherwise selects the first enabled item; it does not explicitly clear a
+selection while enabled items remain.
 `NumericInput::set_locale` selects parsing and formatting rules. Invalid text stays visible and leaves the last valid value unchanged.
 `NumericInput::step` restores valid formatted text. Native EDIT retains selection, undo, caret, and IME ownership.
 `RangeInput::on_preview` reports drag values without committing them. `on_change` reports accepted values.

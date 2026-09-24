@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <Version Condition="'$(Version)' == ''">0.1.0-preview.1</Version>
+    <Authors>zadjii-msft</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/zadjii-msft/xui</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/zadjii-msft/xui</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Description>Experimental XUI portable SDK for .NET 10. Preview contracts may change.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\..\..\packaging\experimental\Package.props" />
   <PropertyGroup>
+    <PackageId>Xui.Experimental.Portable</PackageId>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

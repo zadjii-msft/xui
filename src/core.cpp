@@ -149,6 +149,9 @@ struct Element::InvalidationState {
         if (owner) owner->notify(kind);
     }
 };
+struct Element::AxisConstraintState {
+    std::optional<AxisConstraints> width, height;
+};
 
 Element::Element() : invalidation_(std::make_shared<InvalidationState>()) {
     static std::atomic<std::uint64_t> next{1};
@@ -172,7 +175,55 @@ Element::~Element() {
 std::uint64_t Element::id() const { return id_; }
 
 Size Element::measure(Size available) {
-    return constrain(preferred_, available);
+    return measure_axes(available, [&](Size offered, bool natural) { return base_measure(offered, natural); });
+}
+Size Element::measure_with_context(Size available, LayoutContext) { return measure(available); }
+Size Element::base_measure(Size available, bool natural) const {
+    return constrain_measure(natural ? default_size_ : preferred_, available, natural);
+}
+Size Element::constrain_measure(Size desired, Size available, bool natural) const {
+    if (!natural) return constrain(desired, available);
+    desired = normalized(desired); available = normalized(available);
+    return {std::min(desired.width, available.width), std::min(desired.height, available.height)};
+}
+bool Element::supports_axis_constraints() const { return typeid(*this) == typeid(Element); }
+std::optional<AxisConstraints> Element::width_constraints() const {
+    return axis_constraints_ ? axis_constraints_->width : std::nullopt;
+}
+std::optional<AxisConstraints> Element::height_constraints() const {
+    return axis_constraints_ ? axis_constraints_->height : std::nullopt;
+}
+void Element::set_axis_constraints(std::optional<AxisConstraints> width, std::optional<AxisConstraints> height) {
+    if (!supports_axis_constraints()) throw std::invalid_argument("This element does not support axis constraints");
+    for (const auto& axis : {width, height}) if (axis) {
+        const auto upper = axis->maximum.value_or((std::numeric_limits<float>::max)());
+        if (!std::isfinite(axis->minimum) || axis->minimum < 0 || !std::isfinite(upper) ||
+            upper < axis->minimum || (axis->length && (!std::isfinite(*axis->length) ||
+                *axis->length < axis->minimum || *axis->length > upper)))
+            throw std::invalid_argument("Axis constraints require finite consistent lengths and bounds");
+    }
+    if (width_constraints() == width && height_constraints() == height) return;
+    auto next = width || height ? std::make_unique<AxisConstraintState>(AxisConstraintState{width, height}) : nullptr;
+    axis_constraints_ = std::move(next);
+    invalidate(Invalidation::layout);
+}
+Size Element::axis_measurement_available(Size available) const {
+    available = normalized(available);
+    const auto extent = [](float offered, float legacy_maximum, const auto& axis) {
+        return std::min(offered, axis ? axis->length.value_or(axis->maximum.value_or(
+            (std::numeric_limits<float>::max)())) : legacy_maximum);
+    };
+    return {extent(available.width, maximum_.width, axis_constraints_->width),
+        extent(available.height, maximum_.height, axis_constraints_->height)};
+}
+Size Element::resolve_axis_measurement(Size legacy, Size natural, Size available) const {
+    available = normalized(available); natural = normalized(natural);
+    const auto extent = [](float inherited, float measured, float offered, const auto& axis) {
+        return axis ? std::min(offered, std::clamp(axis->length.value_or(measured), axis->minimum,
+            axis->maximum.value_or((std::numeric_limits<float>::max)()))) : inherited;
+    };
+    return {extent(legacy.width, natural.width, available.width, axis_constraints_->width),
+        extent(legacy.height, natural.height, available.height, axis_constraints_->height)};
 }
 
 Size Element::constrain(Size desired, Size available) const {
@@ -183,8 +234,26 @@ Size Element::constrain(Size desired, Size available) const {
 }
 
 void Element::arrange(Rect bounds) {
+    const auto limit = [](float inherited, const auto& axis) {
+        return axis ? axis->length.value_or(axis->maximum.value_or((std::numeric_limits<float>::max)())) : inherited;
+    };
+    const auto maximum_width = axis_constraints_ ? limit(maximum_.width, axis_constraints_->width) : maximum_.width;
+    const auto maximum_height = axis_constraints_ ? limit(maximum_.height, axis_constraints_->height) : maximum_.height;
     bounds_ = {coordinate(bounds.x), coordinate(bounds.y),
-        std::min(dimension(bounds.width), maximum_.width), std::min(dimension(bounds.height), maximum_.height)};
+        std::min(dimension(bounds.width), maximum_width), std::min(dimension(bounds.height), maximum_height)};
+}
+void Element::arrange_with_context(Rect bounds, LayoutContext) { arrange(bounds); }
+void Element::arrange_unbounded(Rect bounds, Axis axis) {
+    arrange_with_context(bounds, {axis == Axis::horizontal, axis == Axis::vertical});
+}
+bool Element::fixed_arrangement_axis(Axis axis) const {
+    const auto constraint = axis == Axis::horizontal ? width_constraints() : height_constraints();
+    return constraint ? constraint->length.has_value() : preferred_explicit_ && !auto_size_;
+}
+LayoutContext Element::constrain_layout_context(LayoutContext context) const {
+    if (fixed_arrangement_axis(Axis::horizontal)) context.unbounded_width = false;
+    if (fixed_arrangement_axis(Axis::vertical)) context.unbounded_height = false;
+    return context;
 }
 
 Rect Element::bounds() const { return bounds_; }
@@ -209,8 +278,13 @@ void Element::set_preferred_size(Size size) {
 }
 
 void Element::set_default_size(Size size) {
-    if (preferred_explicit_) return;
     size = normalized(size);
+    const bool changed = default_size_.width != size.width || default_size_.height != size.height;
+    default_size_ = size;
+    if (preferred_explicit_) {
+        if (changed && has_axis_constraints()) invalidate(Invalidation::layout);
+        return;
+    }
     if (preferred_.width == size.width && preferred_.height == size.height) return;
     preferred_ = size;
     invalidate(Invalidation::layout);
@@ -256,6 +330,12 @@ Stack::Stack(Axis axis) : axis_(axis) {}
 
 ContentHost::ContentHost(std::shared_ptr<Element> content) : Stack(Axis::vertical) {
     replace(std::move(content));
+}
+void ContentHost::arrange(Rect bounds) { arrange_with_context(bounds, {}); }
+void ContentHost::arrange_with_context(Rect bounds, LayoutContext context) {
+    Stack::arrange_with_context(bounds, context);
+    const auto inner = layout_content_bounds();
+    allocated_content_size_ = {inner.width, inner.height};
 }
 const std::shared_ptr<Element>& ContentHost::content() const noexcept {
     static const std::shared_ptr<Element> empty;
@@ -344,20 +424,38 @@ void Stack::set_padding(Insets padding) {
 }
 
 void Stack::add(std::shared_ptr<Element> child, float flex) {
+    insert(children_.size(), std::move(child), flex);
+}
+void Stack::insert(std::size_t index, std::shared_ptr<Element> child, float flex) {
     if (dynamic_cast<ContentHost*>(this))
         throw std::logic_error("Change ContentHost content with Window::replace_content");
-    if (!child) throw std::invalid_argument("Stack child must not be null");
-    if (!child->invalidation_->parent.expired()) {
-        throw std::invalid_argument("Stack child already has a parent");
-    }
-    for (auto ancestor = invalidation_; ancestor; ancestor = ancestor->parent.lock()) {
-        if (ancestor == child->invalidation_) {
-            throw std::invalid_argument("Stack must not contain a cycle");
-        }
-    }
+    if (index > children_.size()) throw std::invalid_argument("Stack insertion index is out of range");
+    validate_adoption(child);
     flex = std::isfinite(flex) && flex > 0.0f ? flex : 0.0f;
-    children_.push_back({child, flex});
+    children_.insert(children_.begin() + index, {child, flex});
     child->invalidation_->parent = invalidation_;
+    invalidate(Invalidation::layout);
+}
+std::size_t Stack::index_of(const Element& child) const {
+    const auto found = std::find_if(children_.begin(), children_.end(),
+        [&](const auto& value) { return value.element.get() == &child; });
+    if (found == children_.end()) throw std::invalid_argument("Element is not a direct Stack child");
+    return static_cast<std::size_t>(found - children_.begin());
+}
+void Stack::remove(const Element& child) {
+    const auto index = index_of(child);
+    children_[index].element->invalidation_->parent.reset();
+    children_.erase(children_.begin() + index);
+    invalidate(Invalidation::layout);
+}
+void Stack::move(const Element& child, std::size_t index) {
+    const auto previous = index_of(child);
+    if (index >= children_.size()) throw std::invalid_argument("Stack move index is out of range");
+    if (previous == index) return;
+    if (previous < index)
+        std::rotate(children_.begin() + previous, children_.begin() + previous + 1, children_.begin() + index + 1);
+    else
+        std::rotate(children_.begin() + index, children_.begin() + previous, children_.begin() + previous + 1);
     invalidate(Invalidation::layout);
 }
 
@@ -376,47 +474,64 @@ struct Stack::LayoutScratch {
     LayoutScratch& operator=(const LayoutScratch&) = delete;
 };
 
-void Stack::layout_children(Size available, std::vector<Size>& sizes) {
+std::size_t Stack::layout_children(Size available, std::vector<Size>& sizes, LayoutContext context) {
     const auto spacing = effective_spacing();
     available = normalized(available);
     const bool horizontal = axis_ == Axis::horizontal;
     const double main = horizontal ? available.width : available.height;
     const float cross = horizontal ? available.height : available.width;
-    const double gaps = children_.empty() ? 0.0 :
-        static_cast<double>(spacing) * static_cast<double>(children_.size() - 1);
+    const bool natural_main = horizontal ? context.unbounded_width : context.unbounded_height;
+    const auto visible_count = static_cast<std::size_t>(std::count_if(children_.begin(), children_.end(),
+        [](const auto& child) { return child.element->participates_in_layout(); }));
+    const double gaps = visible_count ? static_cast<double>(spacing) * (visible_count - 1) : 0.0;
     double remaining = (std::max)(0.0, main - gaps);
     double total_flex = 0.0;
     sizes.resize(children_.size());
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const auto& child = children_[index];
-        if (child.flex > 0.0f && main < maximum) {
+        if (!child.element->participates_in_layout()) { sizes[index] = {}; continue; }
+        if (!natural_main && child.flex > 0.0f && main < maximum) {
             total_flex += child.flex;
             continue;
         }
-        const Size constraint = horizontal ? Size{dimension(remaining), cross} :
-            Size{cross, dimension(remaining)};
-        auto measured = normalized(child.element->measure(constraint));
-        measured.width = (std::min)(measured.width, constraint.width);
-        measured.height = (std::min)(measured.height, constraint.height);
+        const auto offered = dimension(remaining);
+        const Size constraint = horizontal ? Size{offered, cross} : Size{cross, offered};
+        auto measured = normalized(child.element->measure_with_context(constraint, context));
+        measured.width = (std::min)(measured.width, horizontal ? dimension(remaining) : cross);
+        measured.height = (std::min)(measured.height, horizontal ? cross : dimension(remaining));
         sizes[index] = measured;
         remaining = (std::max)(0.0, remaining -
             static_cast<double>(horizontal ? measured.width : measured.height));
     }
     for (std::size_t index = 0; index < children_.size(); ++index) {
         const auto& child = children_[index];
-        if (child.flex <= 0.0f || main >= maximum) continue;
+        if (!child.element->participates_in_layout() || natural_main || child.flex <= 0.0f || main >= maximum) continue;
         const float share = dimension(remaining * (static_cast<double>(child.flex) / total_flex));
         const Size constraint = horizontal ? Size{share, cross} : Size{cross, share};
-        auto measured = normalized(child.element->measure(constraint));
+        auto measured = normalized(child.element->measure_with_context(constraint, context));
         // Flex owns its main-axis allocation even when its preferred size is zero.
         sizes[index] = horizontal ?
             Size{share, (std::min)(measured.height, cross)} :
             Size{(std::min)(measured.width, cross), share};
     }
+    return visible_count;
 }
 
 Size Stack::measure(Size available) {
-    if (preferred_size_explicit() && !auto_size()) return Element::measure(available);
+    const auto context = constrain_layout_context({available.width >= maximum, available.height >= maximum});
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_content(offered, natural, context); });
+}
+Size Stack::measure_with_context(Size available, LayoutContext context) {
+    if (typeid(*this) != typeid(Stack) && typeid(*this) != typeid(ContentHost))
+        return Element::measure_with_context(available, context);
+    context = constrain_layout_context(context);
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_content(offered, natural, context); });
+}
+bool Stack::supports_axis_constraints() const {
+    return typeid(*this) == typeid(Stack) || typeid(*this) == typeid(ContentHost);
+}
+Size Stack::measure_content(Size available, bool natural, LayoutContext context) {
+    if (!natural && preferred_size_explicit() && !auto_size()) return base_measure(available, false);
     const auto padding = effective_layout_insets();
     const auto spacing = effective_spacing();
     available = normalized(available);
@@ -426,9 +541,8 @@ Size Stack::measure(Size available) {
         dimension(available.height - padding_height)};
     LayoutScratch scratch(layout_sizes_);
     auto& sizes = scratch.sizes;
-    layout_children(inner, sizes);
-    double main = sizes.empty() ? 0.0 :
-        static_cast<double>(spacing) * static_cast<double>(sizes.size() - 1);
+    const auto visible_count = layout_children(inner, sizes, context);
+    double main = visible_count ? static_cast<double>(spacing) * (visible_count - 1) : 0.0;
     double cross = 0.0;
     for (const auto size : sizes) {
         main += axis_ == Axis::horizontal ? size.width : size.height;
@@ -438,10 +552,18 @@ Size Stack::measure(Size available) {
     const Size desired = axis_ == Axis::horizontal ?
         Size{dimension(main + padding_width), dimension(cross + padding_height)} :
         Size{dimension(cross + padding_width), dimension(main + padding_height)};
-    return constrain(desired, available);
+    return constrain_measure(desired, available, natural);
 }
 
 void Stack::arrange(Rect rectangle) {
+    arrange_children(rectangle, {});
+}
+void Stack::arrange_with_context(Rect rectangle, LayoutContext context) {
+    if (typeid(*this) != typeid(Stack) && typeid(*this) != typeid(ContentHost))
+        return Element::arrange_with_context(rectangle, context);
+    arrange_children(rectangle, constrain_layout_context(context));
+}
+void Stack::arrange_children(Rect rectangle, LayoutContext context) {
     const auto padding = effective_layout_insets();
     const auto spacing = effective_spacing();
     Element::arrange(rectangle);
@@ -453,18 +575,26 @@ void Stack::arrange(Rect rectangle) {
         dimension(static_cast<double>(rectangle.height) - top - padding.bottom)};
     LayoutScratch scratch(layout_sizes_);
     auto& sizes = scratch.sizes;
-    layout_children(inner, sizes);
+    const auto visible_count = layout_children(inner, sizes, context);
     const bool horizontal = axis_ == Axis::horizontal;
     const double main_limit = horizontal ? inner.width : inner.height;
     double position = 0.0;
     const auto* style = effective_control_style_values(StylePart::root);
     const auto alignment = style ? (horizontal ? style->horizontal_alignment : style->vertical_alignment) : std::nullopt;
     if (alignment && (*alignment == StyleAlignment::center || *alignment == StyleAlignment::end)) {
-        double total = sizes.empty() ? 0 : spacing * (sizes.size() - 1);
+        double total = visible_count ? static_cast<double>(spacing) * (visible_count - 1) : 0;
         for (const auto& size : sizes) total += horizontal ? size.width : size.height;
         position = std::max(0.0, main_limit - total) / (*alignment == StyleAlignment::center ? 2 : 1);
     }
+    bool previous_visible{};
     for (std::size_t index = 0; index < children_.size(); ++index) {
+        if (!children_[index].element->participates_in_layout()) {
+            const double x = static_cast<double>(rectangle.x) + left + (horizontal ? position : 0.0);
+            const double y = static_cast<double>(rectangle.y) + top + (horizontal ? 0.0 : position);
+            children_[index].element->arrange_with_context({coordinate(x), coordinate(y), 0, 0}, context);
+            continue;
+        }
+        if (previous_visible) position = (std::min)(main_limit, position + spacing);
         const float length = dimension((std::min)(
             static_cast<double>(horizontal ? sizes[index].width : sizes[index].height),
             (std::max)(0.0, main_limit - position)));
@@ -472,8 +602,9 @@ void Stack::arrange(Rect rectangle) {
         const double y = static_cast<double>(rectangle.y) + top + (horizontal ? 0.0 : position);
         Rect child_bounds{coordinate(x), coordinate(y), horizontal ? length : inner.width, horizontal ? inner.height : length};
         child_bounds = layout_style::aligned_cross(child_bounds, sizes[index], style, axis_);
-        children_[index].element->arrange(child_bounds);
-        position = (std::min)(main_limit, position + length + spacing);
+        children_[index].element->arrange_with_context(child_bounds, context);
+        position = (std::min)(main_limit, position + length);
+        previous_visible = true;
     }
 }
 

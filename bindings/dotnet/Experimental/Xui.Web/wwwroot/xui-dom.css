@@ -9,9 +9,67 @@
 .xui-stack { display: flex; align-items: stretch; }
 .xui-root { width: 100%; height: 100%; }
 .xui-label { white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+.xui-label-body { display: block; overflow: hidden; }
 .xui-button, .xui-textinput input { font: inherit; }
 .xui-button { overflow-wrap: anywhere; }
 .xui-textinput { display: flex; flex-direction: column; gap: 4px; }
 .xui-textinput input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; flex: 1; }
 .xui-scrollview { overflow-y: auto; overflow-x: hidden; }
 .xui-scrollview > .xui-node { max-height: none; }
+.xui-toggle, .xui-checkbox { display: flex; align-items: center; gap: 8px; }
+.xui-toggle input, .xui-checkbox input { flex: 0 0 auto; margin: 0; }
+.xui-toggle label, .xui-checkbox label { overflow-wrap: anywhere; min-width: 0; }
+.xui-progress { display: flex; flex-direction: column; gap: 4px; }
+.xui-progress progress { width: 100%; min-height: 16px; }
+.xui-progress progress:not([value]) {
+    appearance: none;
+    border: 1px solid GrayText;
+    background: linear-gradient(90deg, transparent 0 30%, Highlight 30% 55%, transparent 55%) 0 0 / 200% 100%;
+}
+.xui-progress progress:not([value])::-webkit-progress-bar { background: transparent; }
+.xui-progress progress:not([value])::-moz-progress-bar { background: transparent; }
+.xui-progress-running { animation: xui-progress-slide 1.5s linear infinite; }
+@keyframes xui-progress-slide { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .xui-progress-running { animation: none; } }
+.xui-arranged {
+    position: absolute;
+    left: var(--xui-x);
+    top: var(--xui-y);
+    width: var(--xui-width) !important;
+    height: var(--xui-height) !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+.xui-arranged.xui-root { position: relative; }
+.xui-arranged:not(.xui-scrollview) { overflow: hidden; }
+.xui-managed-container { display: block; padding: 0 !important; gap: 0 !important; }
+.xui-virtual-intent { position: absolute; inset: 0; overflow-y: scroll; overflow-x: hidden; scroll-behavior: auto; }
+.xui-virtual-extent { width: 1px; height: 0; pointer-events: none; }
+.xui-virtual-clip { position: absolute; left: 0; top: 0; overflow: clip; max-width: 100%; max-height: 100%; pointer-events: none; }
+.xui-multilinetext, .xui-passwordinput { display: flex; flex-direction: column; }
+.xui-multilinetext textarea, .xui-passwordinput input { font: inherit; box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; flex: 1; }
+.xui-multilinetext textarea { resize: none; }
+.xui-passwordinput input::-ms-reveal { display: none; }
+.xui-theme-surface { color: var(--xui-theme-foreground, CanvasText); background-color: var(--xui-theme-background, Canvas); }
+.xui-theme-surface .xui-button:not(:disabled) { color: var(--xui-theme-foreground, ButtonText); }
+.xui-theme-surface input:not(:disabled), .xui-theme-surface textarea:not(:disabled) { color: var(--xui-theme-foreground, FieldText); accent-color: var(--xui-theme-accent, auto); }
+@media (forced-colors: active) {
+    .xui-theme-surface { color: CanvasText; background-color: Canvas; }
+    .xui-theme-surface .xui-button:not(:disabled) { color: ButtonText; }
+    .xui-theme-surface input:not(:disabled), .xui-theme-surface textarea:not(:disabled) { color: FieldText; accent-color: auto; }
+}
+.xui-pageview { position: relative; overflow: hidden; }
+.xui-page-headers { margin: 0; padding: 0; list-style: none; display: flex; gap: 4px; min-width: 0; }
+.xui-navigationview .xui-page-headers { flex-direction: column; }
+.xui-page-header { display: flex; min-width: 0; }
+.xui-page-header > button { font: inherit; min-width: 0; }
+.xui-page-header > button:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xui-page-header > button[aria-selected="true"], .xui-page-header > button[aria-current="page"] { font-weight: 700; border-bottom: 3px solid Highlight; }
+.xui-navigation-collapsed .xui-page-header > button:first-child { max-width: 100%; width: 40px; }
+.xui-navigation-collapsed .xui-page-header > button:first-child span { display: inline-block; width: 1ch; overflow: hidden; white-space: nowrap; }
+.xui-tabstrip { overflow: hidden; }
+.xui-singlechoice select { font: inherit; width: 100%; min-width: 0; box-sizing: border-box; }
+.xui-image { position: relative; width: 192px; height: 144px; overflow: hidden; }
+.xui-reveal { position: relative; overflow: hidden; }

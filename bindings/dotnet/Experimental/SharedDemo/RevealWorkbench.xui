@@ -1,0 +1,43 @@
+namespace PortableDemo;
+
+component RevealWorkbench {
+    state bool RequestedOpen = false;
+    state global::Xui.Experimental.Portable.RevealMotion Motion = new(180);
+    state string Draft = "";
+    state string Status = "Closed requested. Motion is opt-in.";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Retained reveal workbench", id: "reveal-title");
+            Button("Toggle details", click: Toggle, ref: ToggleButton, id: "reveal-toggle");
+            Text(Status, id: "reveal-status");
+            Reveal("Retained details", open: RequestedOpen, motion: Motion, ref: Drawer) {
+                VStack(spacing: 4, width: 240) {
+                    TextInput("Retained note", text: Draft, change: Edit, ref: NoteInput, id: "reveal-note");
+                    Text("This is the same native child before and after motion.", id: "reveal-description");
+                }
+            }
+            Button("Use instant changes", click: Instant, id: "reveal-instant");
+            Button("Use 180 ms changes", click: Animate, id: "reveal-animate");
+            Button("Expand downward", click: Bottom, id: "reveal-bottom");
+            Button("Expand to the right", click: Right, id: "reveal-right");
+        }
+    }
+
+    code csharp {
+        void Edit(string value) => Draft = value;
+        void Toggle() {
+            var next = !Drawer.Open;
+            if (!Drawer.TrySetOpen(next)) {
+                Status = "Close deferred: move focus outside the details and finish composition, then retry.";
+                return;
+            }
+            RequestedOpen = next;
+            Status = next ? "Open requested." : "Closed requested.";
+        }
+        void Instant() => Motion = new(0, Motion.Direction);
+        void Animate() => Motion = new(180, Motion.Direction);
+        void Bottom() => Motion = new(Motion.DurationMilliseconds, global::Xui.Experimental.Portable.RevealDirection.Bottom);
+        void Right() => Motion = new(Motion.DurationMilliseconds, global::Xui.Experimental.Portable.RevealDirection.Right);
+    }
+}

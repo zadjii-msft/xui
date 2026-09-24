@@ -9,29 +9,91 @@ namespace xui {
 namespace {
 void positive(float value) { if (!std::isfinite(value) || value < 0) throw std::invalid_argument("Layout size must be finite and nonnegative"); }
 void padding_valid(Insets p) { for (auto v : {p.left, p.top, p.right, p.bottom}) positive(v); }
-float sum(const std::vector<float>& values, std::size_t first, std::size_t count, float gap) {
-    return std::accumulate(values.begin() + first, values.begin() + first + count, 0.0f) + gap * (count - 1);
+constexpr float unbounded_extent = (std::numeric_limits<float>::max)();
+bool unbounded(float available) { return available >= unbounded_extent; }
+float extent(double value, bool reject_overflow = false) {
+    if (std::isnan(value) || value < 0) return 0;
+    if (reject_overflow && value > unbounded_extent)
+        throw std::overflow_error("Unbounded Grid content exceeds the supported layout extent");
+    return static_cast<float>(std::min(value, static_cast<double>(unbounded_extent)));
 }
-std::vector<float> tracks(const std::vector<GridTrack>& definitions, const std::vector<float>& desired, float available, float gap) {
-    std::vector<float> result; float used = gap * (definitions.size() - 1), weight{};
+double sum(const std::vector<float>& values, std::size_t first, std::size_t count, float gap) {
+    return std::accumulate(values.begin() + first, values.begin() + first + count, 0.0) +
+        static_cast<double>(gap) * (count ? count - 1 : 0);
+}
+struct TrackDemand { std::size_t first, count; float extent; };
+std::vector<double> intrinsic_tracks(const std::vector<GridTrack>& definitions,
+    std::vector<TrackDemand>& demands, float gap) {
+    std::vector<double> result;
+    result.reserve(definitions.size());
+    for (const auto& track : definitions)
+        result.push_back(track.sizing == TrackSizing::fixed ?
+            std::clamp(track.value, track.minimum, track.maximum) : track.minimum);
+    std::stable_sort(demands.begin(), demands.end(), [](const auto& a, const auto& b) { return a.count < b.count; });
+    for (const auto& demand : demands) {
+        positive(demand.extent);
+        double covered = static_cast<double>(gap) * (demand.count - 1);
+        for (auto i = demand.first; i < demand.first + demand.count; ++i) covered += result[i];
+        double remaining = std::max(0.0, demand.extent - covered);
+        for (std::size_t pass = 0; pass < demand.count && remaining > 0; ++pass) {
+            std::size_t eligible{};
+            for (auto i = demand.first; i < demand.first + demand.count; ++i)
+                eligible += definitions[i].sizing != TrackSizing::fixed && result[i] < definitions[i].maximum;
+            if (!eligible) break;
+            const auto share = remaining / eligible;
+            double consumed{};
+            for (auto i = demand.first; i < demand.first + demand.count; ++i) {
+                if (definitions[i].sizing == TrackSizing::fixed) continue;
+                const auto add = std::min(share, definitions[i].maximum - result[i]);
+                result[i] += add; consumed += add;
+            }
+            if (consumed <= 0) break;
+            remaining = std::max(0.0, remaining - consumed);
+        }
+    }
+    return result;
+}
+std::vector<float> tracks(const std::vector<GridTrack>& definitions, const std::vector<double>& desired,
+    float available, float gap, bool unconstrained) {
+    std::vector<double> sizes; double used = static_cast<double>(gap) * (definitions.size() - 1), weight{};
     for (std::size_t i = 0; i < definitions.size(); ++i) {
         const auto& t = definitions[i];
-        result.push_back(std::clamp(t.sizing == TrackSizing::fixed ? t.value :
-            t.sizing == TrackSizing::automatic ? desired[i] : t.minimum, t.minimum, t.maximum));
-        used += result.back(); if (t.sizing == TrackSizing::star) weight += t.value;
+        sizes.push_back(t.sizing == TrackSizing::star && !unconstrained ? t.minimum : desired[i]);
+        used += sizes.back();
+        if (t.sizing == TrackSizing::star && sizes.back() < t.maximum) weight += t.value;
     }
-    float remaining = std::max(0.0f, available - used);
+    if (unconstrained) extent(used, true);
+    double remaining = unconstrained ? 0 : std::max(0.0, available - used);
     // Saturated tracks return their remaining share to the other star tracks.
     for (std::size_t pass = 0; pass < definitions.size() && weight > 0 && remaining > 0.01f; ++pass) {
-        float consumed{}, next_weight{};
+        double consumed{}, next_weight{};
         for (std::size_t i = 0; i < definitions.size(); ++i) {
-            const auto& t = definitions[i]; if (t.sizing != TrackSizing::star || result[i] >= t.maximum) continue;
-            const auto add = std::min(t.maximum - result[i], remaining * t.value / weight);
-            result[i] += add; consumed += add; if (result[i] < t.maximum) next_weight += t.value;
+            const auto& t = definitions[i]; if (t.sizing != TrackSizing::star || sizes[i] >= t.maximum) continue;
+            const auto add = std::min(t.maximum - sizes[i], remaining * (t.value / weight));
+            sizes[i] += add; consumed += add; if (sizes[i] < t.maximum) next_weight += t.value;
         }
         remaining -= consumed; weight = next_weight;
     }
+    std::vector<float> result; result.reserve(sizes.size());
+    for (auto value : sizes) result.push_back(extent(value));
     return result;
+}
+std::pair<float, float> cell_span(const std::vector<float>& tracks, std::size_t first,
+    std::size_t count, float gap, float available) {
+    const auto offset = first ? sum(tracks, 0, first, gap) + gap : 0;
+    const auto start = std::min(static_cast<double>(available), offset);
+    return {extent(start), extent(std::min(sum(tracks, first, count, gap), available - start))};
+}
+bool intrinsic_span(const std::vector<GridTrack>& tracks, std::size_t first, std::size_t count) {
+    return std::any_of(tracks.begin() + first, tracks.begin() + first + count,
+        [](const auto& track) { return track.sizing != TrackSizing::fixed; });
+}
+float fixed_span_offer(const std::vector<GridTrack>& tracks, std::size_t first,
+    std::size_t count, float gap, float available) {
+    double total = static_cast<double>(gap) * (count - 1);
+    for (auto i = first; i < first + count; ++i)
+        total += std::clamp(tracks[i].value, tracks[i].minimum, tracks[i].maximum);
+    return extent(std::min(static_cast<double>(available), total));
 }
 }
 Grid::Grid() : Stack(Axis::vertical) { set_auto_size(true); }
@@ -53,6 +115,8 @@ void Grid::set_tracks(std::vector<GridTrack> rows, std::vector<GridTrack> column
     for (const auto* list : {&rows, &columns}) {
         if (list->empty() || list->size() > 256) throw std::invalid_argument("Grid requires 1 to 256 tracks");
         for (const auto& t : *list) {
+            if (t.sizing < TrackSizing::fixed || t.sizing > TrackSizing::star)
+                throw std::invalid_argument("Invalid grid track sizing");
             positive(t.value); positive(t.minimum); positive(t.maximum);
             if (t.minimum > t.maximum || (t.sizing == TrackSizing::star && t.value == 0)) throw std::invalid_argument("Invalid grid track");
         }
@@ -75,44 +139,77 @@ void Grid::add(std::shared_ptr<Element> child, std::size_t row, std::size_t colu
     cells_.reserve(cells_.size() + 1);
     Stack::add(std::move(child)); cells_.push_back({row, column, row_span, column_span});
 }
-std::pair<std::vector<float>, std::vector<float>> Grid::sizes(Size available) {
+std::pair<std::vector<float>, std::vector<float>> Grid::sizes(Size available, LayoutContext context) {
     const auto padding = layout_insets();
     const auto column_gap = horizontal_gap(), row_gap = vertical_gap();
-    available.width = std::max(0.0f, available.width - padding.left - padding.right);
-    available.height = std::max(0.0f, available.height - padding.top - padding.bottom);
-    std::vector<float> rw(rows_.size()), cw(columns_.size());
-    for (std::size_t i = 0; i < cells_.size(); ++i) {
-        const auto m = child_at(i)->measure(available); const auto& c = cells_[i];
-        for (auto col = c.column; col < c.column + c.columns; ++col) cw[col] = std::max(cw[col], (m.width - column_gap * (c.columns - 1)) / c.columns);
-    }
-    auto columns = tracks(columns_, cw, available.width, column_gap);
+    const bool unbounded_width = context.unbounded_width, unbounded_height = context.unbounded_height;
+    available.width = extent(static_cast<double>(available.width) - padding.left - padding.right);
+    available.height = extent(static_cast<double>(available.height) - padding.top - padding.bottom);
+    std::vector<TrackDemand> demands; demands.reserve(cells_.size());
+    const auto measure_child = [&](std::size_t i, Size offered) {
+        const auto& cell = cells_[i];
+        const LayoutContext child_context{
+            context.unbounded_width && intrinsic_span(columns_, cell.column, cell.columns),
+            context.unbounded_height && intrinsic_span(rows_, cell.row, cell.rows)};
+        if (context.unbounded_width && !child_context.unbounded_width)
+            offered.width = fixed_span_offer(columns_, cell.column, cell.columns, column_gap, offered.width);
+        if (context.unbounded_height && !child_context.unbounded_height)
+            offered.height = fixed_span_offer(rows_, cell.row, cell.rows, row_gap, offered.height);
+        return child_at(i)->measure_with_context(offered, child_context);
+    };
     for (std::size_t i = 0; i < cells_.size(); ++i) {
         const auto& c = cells_[i];
-        const auto m = child_at(i)->measure({sum(columns, c.column, c.columns, column_gap), available.height});
-        for (auto row = c.row; row < c.row + c.rows; ++row) rw[row] = std::max(rw[row], (m.height - row_gap * (c.rows - 1)) / c.rows);
+        const auto m = measure_child(i, available);
+        demands.push_back({c.column, c.columns, m.width});
     }
-    return {tracks(rows_, rw, available.height, row_gap), std::move(columns)};
+    auto columns = tracks(columns_, intrinsic_tracks(columns_, demands, column_gap), available.width, column_gap, unbounded_width);
+    demands.clear();
+    for (std::size_t i = 0; i < cells_.size(); ++i) {
+        const auto& c = cells_[i];
+        const auto [offset, width] = cell_span(columns, c.column, c.columns, column_gap, available.width);
+        const auto m = measure_child(i, {width, available.height});
+        demands.push_back({c.row, c.rows, m.height});
+    }
+    return {tracks(rows_, intrinsic_tracks(rows_, demands, row_gap), available.height, row_gap, unbounded_height), std::move(columns)};
 }
 Size Grid::measure(Size available) {
-    const auto padding = layout_insets();
-    const auto column_gap = horizontal_gap(), row_gap = vertical_gap();
-    if (!auto_size()) return Element::measure(available);
-    auto [rows, columns] = sizes(available);
-    return constrain({sum(columns, 0, columns.size(), column_gap) + padding.left + padding.right,
-        sum(rows, 0, rows.size(), row_gap) + padding.top + padding.bottom}, available);
+    return measure_with_context(available, {unbounded(available.width), unbounded(available.height)});
+}
+Size Grid::measure_with_context(Size available, LayoutContext context) {
+    context = constrain_layout_context(context);
+    return measure_axes(available, [&](Size offered, bool natural) {
+        if (!natural && !auto_size()) return base_measure(offered, false);
+        const auto padding = layout_insets();
+        auto [rows, columns] = sizes(offered, context);
+        const Size desired{
+            extent(sum(columns, 0, columns.size(), horizontal_gap()) + padding.left + padding.right, unbounded(offered.width)),
+            extent(sum(rows, 0, rows.size(), vertical_gap()) + padding.top + padding.bottom, unbounded(offered.height))};
+        return constrain_measure(desired, offered, natural);
+    });
 }
 void Grid::arrange(Rect value) {
+    arrange_cells(value, {});
+}
+void Grid::arrange_with_context(Rect value, LayoutContext context) {
+    arrange_cells(value, constrain_layout_context(context));
+}
+void Grid::arrange_cells(Rect value, LayoutContext context) {
     const auto padding = layout_insets();
     const auto column_gap = horizontal_gap(), row_gap = vertical_gap();
-    Element::arrange(value); value = bounds(); auto [rows, columns] = sizes({value.width, value.height});
+    Element::arrange(value); value = bounds(); auto [rows, columns] = sizes({value.width, value.height}, context);
+    const float left = std::min(padding.left, value.width), top = std::min(padding.top, value.height);
+    const auto width = extent(static_cast<double>(value.width) - padding.left - padding.right);
+    const auto height = extent(static_cast<double>(value.height) - padding.top - padding.bottom);
     for (std::size_t i = 0; i < cells_.size(); ++i) {
         const auto& c = cells_[i];
-        const float x = value.x + padding.left + (c.column ? sum(columns, 0, c.column, column_gap) + column_gap : 0);
-        const float y = value.y + padding.top + (c.row ? sum(rows, 0, c.row, row_gap) + row_gap : 0);
-        const Rect area{x, y, std::max(0.0f, std::min(sum(columns, c.column, c.columns, column_gap), value.x + value.width - padding.right - x)),
-            std::max(0.0f, std::min(sum(rows, c.row, c.rows, row_gap), value.y + value.height - padding.bottom - y))};
+        const auto [x, cell_width] = cell_span(columns, c.column, c.columns, column_gap, width);
+        const auto [y, cell_height] = cell_span(rows, c.row, c.rows, row_gap, height);
+        Rect area{value.x + left + x, value.y + top + y, cell_width, cell_height};
         const auto* style = effective_control_style_values(StylePart::root);
-        child_at(i)->arrange(style ? layout_style::aligned(area, child_at(i)->measure({area.width, area.height}), style) : area);
+        if (style) area = layout_style::aligned(area, child_at(i)->measure({area.width, area.height}), style);
+        child_at(i)->arrange_with_context(area,
+            {context.unbounded_width && intrinsic_span(columns_, c.column, c.columns),
+                context.unbounded_height && intrinsic_span(rows_, c.row, c.rows)});
     }
 }
 Wrap::Wrap() : Stack(Axis::horizontal) { set_auto_size(true); }

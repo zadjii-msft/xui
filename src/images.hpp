@@ -12,6 +12,7 @@ ImageKind thumbnail_kind(std::wstring_view path, bool directory = false);
 struct ImagePixels {
     std::uint64_t id{};
     ImageSize size{};
+    ImageSize source_size{0, 0};
     std::vector<std::byte> pixels;
     std::size_t accounted{};
     ~ImagePixels();
@@ -22,6 +23,8 @@ struct ImageRequest {
     std::wstring path;
     ImageSize size;
     ImageKind kind{ImageKind::wic};
+    struct Encoded;
+    std::shared_ptr<Encoded> encoded;
     std::shared_ptr<TaskWake> wake;
     std::shared_ptr<const ImagePixels> pixels;
     std::wstring error;

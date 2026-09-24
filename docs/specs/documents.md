@@ -124,6 +124,23 @@ The custom `automation_id` override applies to the other document controls, not 
 Native focus HRESULTs are not proof of focus. Tests inspect actual focus and the disabled owner state.
 Native EDIT and RichEdit remain Windows composition boundaries, not a new XUI TSF implementation.
 
+### Portable editor boundaries
+
+`MultilineText` remains a viewport editor with native vertical scrolling, not a content-height-growing paragraph control.
+Its native per-axis Auto size starts at a 400 by 180 DIP viewport and grows only as needed to fit at least one current font line plus field chrome.
+Password Auto sizing starts at 320 by 38 DIPs and likewise reserves a complete masked line.
+These are native default viewport choices, not pixel-equivalence promises for other backends.
+Explicit parent allocation can still clip either editor; null axis overrides retain the existing legacy size behavior.
+Only plain MultilineText and PasswordInput gain this forms-specific axis support; authored RichText is not implicitly included.
+
+The additive `xui_text_input_create_with_purpose` constructor accepts immutable Normal, Email, URL, Telephone, or Number intent.
+Windows receives an advisory input-scope hint on the original EDIT HWND, without `ES_NUMBER`, filtering, parsing, case conversion, or URL/email normalization.
+The original TextInput constructor remains Normal.
+The association is removed before native destruction.
+Keyboard appearance depends on Windows input services and device configuration; a successful hint call is not certification of a particular touch-keyboard layout.
+Multiline Enter remains native paragraph input and does not emit the single-line Submit event.
+Bindings must probe `xui_forms_version` and the required constructor, readback, cleanup, and axis APIs before advertising this forms slice.
+
 `PasswordInput` defaults to 256 code units and permits at most 4,096.
 `with_password` is the explicit application read boundary. Change callbacks carry no password value.
 The native editor always keeps `ES_PASSWORD`. Copy, cut, and its context menu are disabled.
@@ -132,6 +149,10 @@ The default reveal policy is `never`.
 `explicit_request` permits a separate noninteractive preview, while the native editor remains masked and keeps its real caret and selection behavior.
 Focus loss or hiding removes that preview. It does not create an accessible plaintext value.
 XUI erases the retained old value on replacement and destruction.
+Portable attachment retirement can explicitly call `xui_password_clear` before releasing the peer or content arena.
+This UI-thread cleanup remains valid while closing or closed, clears the retained/native value, native undo, and reveal state, and emits no Changed event.
+It may cancel native composition because the attachment is being retired; it is not a normal editing command.
+Hiding, disabling, or retaining a legacy PasswordInput does not implicitly clear its value.
 This is not a credential vault. Windows and application code can retain plaintext in process memory.
 
 `DateTimePicker` has date, time, and calendar presentations.

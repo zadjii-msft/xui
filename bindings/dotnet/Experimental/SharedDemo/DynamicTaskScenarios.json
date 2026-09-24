@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "applications": [
+    {
+      "id": "dynamic-task-board",
+      "reset": "dynamic-reset",
+      "scenarios": [
+        {
+          "name": "add-rename-reorder-remove",
+          "steps": [
+            { "action": "click", "id": "dynamic-reset" },
+            { "action": "expect", "id": "dynamic-summary", "text": "3 tasks / 1 done" },
+            { "action": "expect", "id": "dynamic-add", "enabled": false },
+            { "action": "change", "id": "dynamic-draft", "value": "  Release checklist  " },
+            { "action": "expect", "id": "dynamic-add", "enabled": true },
+            { "action": "submit", "id": "dynamic-draft" },
+            { "action": "expect", "id": "dynamic-draft", "text": "" },
+            { "action": "expect", "id": "dynamic-task-4-title", "text": "  Release checklist  ", "visible": true },
+            { "action": "expect", "id": "dynamic-task-4-status", "text": "Open" },
+            { "action": "expect", "id": "dynamic-summary", "text": "4 tasks / 1 done" },
+            { "action": "change", "id": "dynamic-task-2-title", "value": "Shared UI is ready" },
+            { "action": "click", "id": "dynamic-reverse" },
+            { "action": "expect", "id": "dynamic-task-2-title", "text": "Shared UI is ready" },
+            { "action": "click", "id": "dynamic-task-4-toggle" },
+            { "action": "expect", "id": "dynamic-task-4-status", "text": "Completed" },
+            { "action": "expect", "id": "dynamic-task-4-toggle", "text": "Reopen" },
+            { "action": "expect", "id": "dynamic-summary", "text": "4 tasks / 2 done" },
+            { "action": "click", "id": "dynamic-task-4-remove" },
+            { "action": "expect", "id": "dynamic-task-4-title", "visible": false },
+            { "action": "expect", "id": "dynamic-summary", "text": "3 tasks / 1 done" },
+            { "action": "change", "id": "dynamic-draft", "value": "Fresh identity" },
+            { "action": "click", "id": "dynamic-add" },
+            { "action": "expect", "id": "dynamic-task-5-title", "text": "Fresh identity", "visible": true },
+            { "action": "expect", "id": "dynamic-task-4-title", "visible": false }
+          ]
+        },
+        {
+          "name": "filter-and-remove-active-row",
+          "steps": [
+            { "action": "click", "id": "dynamic-reset" },
+            { "action": "click", "id": "dynamic-filter-open" },
+            { "action": "expect", "id": "dynamic-task-1-title", "visible": false },
+            { "action": "expect", "id": "dynamic-task-2-title", "visible": true },
+            { "action": "expect", "id": "dynamic-task-3-title", "visible": true },
+            { "action": "expect", "id": "dynamic-filter-open", "enabled": false },
+            { "action": "click", "id": "dynamic-task-2-toggle" },
+            { "action": "expect", "id": "dynamic-task-2-title", "visible": false },
+            { "action": "expect", "id": "dynamic-summary", "text": "3 tasks / 2 done" },
+            { "action": "click", "id": "dynamic-task-3-remove" },
+            { "action": "expect", "id": "dynamic-empty", "text": "No tasks match this filter.", "visible": true },
+            { "action": "expect", "id": "dynamic-summary", "text": "2 tasks / 2 done" },
+            { "action": "click", "id": "dynamic-filter-done" },
+            { "action": "expect", "id": "dynamic-task-1-title", "visible": true },
+            { "action": "expect", "id": "dynamic-task-2-title", "visible": true },
+            { "action": "expect", "id": "dynamic-task-3-title", "visible": false },
+            { "action": "change", "id": "dynamic-draft", "value": "New open task" },
+            { "action": "click", "id": "dynamic-add" },
+            { "action": "expect", "id": "dynamic-filter-all", "enabled": false },
+            { "action": "expect", "id": "dynamic-task-4-title", "text": "New open task", "visible": true },
+            { "action": "expect", "id": "dynamic-empty", "visible": false }
+          ]
+        },
+        {
+          "name": "invalid-and-unicode-row-drafts",
+          "steps": [
+            { "action": "click", "id": "dynamic-reset" },
+            { "action": "change", "id": "dynamic-task-2-title", "value": "  " },
+            { "action": "expect", "id": "dynamic-task-2-title", "text": "  " },
+            { "action": "expect", "id": "dynamic-task-2-toggle", "enabled": false },
+            { "action": "expect", "id": "dynamic-task-2-validation", "text": "Enter a title before changing status.", "visible": true },
+            { "action": "change", "id": "dynamic-task-2-title", "value": "  Zo\u00eb \u674e  " },
+            { "action": "expect", "id": "dynamic-task-2-title", "text": "  Zo\u00eb \u674e  " },
+            { "action": "expect", "id": "dynamic-task-2-toggle", "enabled": true },
+            { "action": "expect", "id": "dynamic-task-2-validation", "visible": false },
+            { "action": "change", "id": "dynamic-draft", "value": "   " },
+            { "action": "expect", "id": "dynamic-add", "enabled": false },
+            { "action": "submit", "id": "dynamic-draft" },
+            { "action": "expect", "id": "dynamic-summary", "text": "3 tasks / 1 done" }
+          ]
+        },
+        {
+          "name": "screenshot-seed",
+          "steps": [
+            { "action": "click", "id": "dynamic-reset" },
+            { "action": "expect", "id": "dynamic-title", "text": "DYNAMIC TASK BOARD" },
+            { "action": "expect", "id": "dynamic-summary", "text": "3 tasks / 1 done" },
+            { "action": "expect", "id": "dynamic-task-1-title", "text": "Design sign-in" },
+            { "action": "expect", "id": "dynamic-task-1-status", "text": "Completed" },
+            { "action": "expect", "id": "dynamic-task-2-title", "text": "Build shared UI" },
+            { "action": "expect", "id": "dynamic-task-3-title", "text": "Write guide" },
+            { "action": "expect", "id": "dynamic-draft", "text": "" },
+            { "action": "expect", "id": "dynamic-add", "enabled": false },
+            { "action": "expect", "id": "dynamic-filter-all", "enabled": false },
+            { "action": "expect", "id": "dynamic-empty", "visible": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

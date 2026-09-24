@@ -12,7 +12,7 @@
 #include <bit>
 #include <source_location>
 namespace {
-unsigned assertions{};
+std::atomic<unsigned> assertions{};
 void expect(bool condition, const std::source_location where = std::source_location::current()) {
     if (!condition) { std::cerr << "Feature assertion failed at line " << where.line() << '\n'; std::exit(EXIT_FAILURE); }
     ++assertions;
@@ -1266,11 +1266,101 @@ void parity_control_contracts() {
     v = value(); expect(xui_feature_get(link, XUI_F_CHECK_STATE, &v) == XUI_WRONG_KIND);
     ok(xui_window_destroy(window));
 }
+#include "axis_constraints_abi.inc"
+#include "grid_layout_abi.inc"
+#include "virtual_viewport_abi.inc"
+#include "password_cleanup_abi.inc"
+#include "forms_native_abi.inc"
+#include "window_theme_abi.inc"
+#include "content_viewport_abi.inc"
+#include "retained_pages_abi.inc"
+#include "label_layout_abi.inc"
+#include "responsive_focus_abi.inc"
+#include "combo_selection_abi.inc"
+#include "portable_reveal_abi.inc"
+#include "image_memory_abi.inc"
 int main(int argc, char** argv) {
 #ifdef _MSC_VER
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    if (argc == 2 && std::strcmp(argv[1], "--image-memory") == 0) {
+        image_memory_abi::run();
+        std::cout << "Native memory image ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--portable-reveal") == 0) {
+        portable_reveal_abi::run();
+        std::cout << "Portable native Reveal ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--combo-selection") == 0) {
+        combo_selection_abi::run();
+        std::cout << "Native ComboBox selection ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--responsive-focus") == 0) {
+        responsive_focus_abi::run();
+        std::cout << "Responsive native focus ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--label-layout") == 0) {
+        label_layout_abi::run();
+        std::cout << "Native Label layout ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--retained-pages") == 0) {
+        retained_pages_abi::run();
+        std::cout << "Native retained pages ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--content-viewport") == 0) {
+        content_viewport_abi::run();
+        std::cout << "Native content viewport ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--window-theme") == 0) {
+        window_theme_abi::run();
+        content_viewport_abi::run();
+        std::cout << "Native window theme ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--forms-native") == 0) {
+        forms_native_abi::run();
+        forms_native_abi::geometry();
+        password_cleanup_abi::run();
+        std::cout << "Native forms ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--password-cleanup") == 0) {
+        password_cleanup_abi::run();
+        std::cout << "Password cleanup ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--virtual-viewport") == 0) {
+        virtual_viewport_abi::run();
+        password_cleanup_abi::run();
+        forms_native_abi::run();
+        forms_native_abi::geometry();
+        std::cout << "Virtual viewport ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--focus-query") == 0) {
+        grid_layout_abi::focus_query();
+        std::cout << "Native focus query ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--grid-layout") == 0) {
+        grid_layout_abi::run();
+        std::cout << "Grid layout ABI: " << assertions << " assertions\n";
+        return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--axis-constraints") == 0) {
+        axis_constraints_abi::run();
+        window_theme_abi::run();
+        std::cout << "Axis constraints ABI: " << assertions << " assertions\n";
+        return 0;
+    }
     if (argc == 2 && std::strcmp(argv[1], "--split-first-visible") == 0) {
         split_first_visibility_contracts();
         std::cout << "Split first visibility contracts: " << assertions << " assertions\n";
@@ -1294,6 +1384,10 @@ int main(int argc, char** argv) {
         std::cout << "Initial activation contracts: " << assertions << " assertions\n";
         return 0;
     }
+    axis_constraints_abi::run();
+    grid_layout_abi::run();
+    grid_layout_abi::focus_query();
+    virtual_viewport_abi::run();
     toggle_control_contracts();
     retained_navigation_style_bridges();
     split_first_visibility_contracts();

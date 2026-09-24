@@ -158,6 +158,10 @@ struct Fixture {
         } else if (phase == 4) {
             if (now - phase_start < std::chrono::milliseconds(120)) return;
             require(SendMessageW(host, metrics, 2, 0) == idle_layouts, "Settled Find has no periodic layout");
+            if (SendMessageW(host, metrics, 0, 0) != idle_paints)
+                std::cerr << "Idle reveal paints=" << idle_paints << "->" << SendMessageW(host, metrics, 0, 0)
+                    << " timer=" << SendMessageW(host, metrics, 33, 0) << " focus=" << GetFocus()
+                    << " foreground=" << GetForegroundWindow() << " owner=" << host << '\n';
             require(SendMessageW(host, metrics, 0, 0) == idle_paints, "Settled Find has no periodic repaint");
             reveal->set_duration(0);
             reveal->set_open(true);
@@ -902,6 +906,7 @@ void pane_pixel_contract() {
     require(result == 0 && ran, "Pane pixel fixture completed");
 }
 }
+#include "portable_reveal_window.inc"
 int main(int argc, char** argv) {
     try {
         // Keep cached Graphics Capture factories in one apartment across fixture windows.
@@ -909,6 +914,10 @@ int main(int argc, char** argv) {
         struct Apartment {
             ~Apartment() { winrt::clear_factory_cache(); winrt::uninit_apartment(); }
         } apartment;
+        if (argc == 2 && std::string_view(argv[1]) == "--portable-only") {
+            portable_reveal_window::run();
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--popup-only") {
             popup_entry_contract();
             std::cout << "Reveal popup entry passed\n";

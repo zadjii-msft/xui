@@ -1,0 +1,12 @@
+namespace RevealFixtures;
+
+component RevealFixture {
+    state RevealTarget Target = new(false, global::Xui.Experimental.Portable.RevealMotion.Default);
+    view {
+        VStack() {
+            Reveal("Paired reveal", open: Target.Open, motion: Target.Motion, ref: Drawer) {
+                TextInput("Retained paired input", ref: Input);
+            }
+        }
+    }
+}

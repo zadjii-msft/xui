@@ -1,0 +1,193 @@
+{
+  "recordedAt": "2026-09-24T02:42:40.7580192-05:00",
+  "scope": "Actual native Windows, Android, and published C# Wasm DOM captures; shared Studio with 128-pitch catalog and responsive metrics. Exact cohorts differ below. No user files or external operations; performance and manual-platform gates remain separate.",
+  "captures": [
+    {
+      "file": "android/studio-phone.png",
+      "platform": "Android",
+      "pixelWidth": 1080,
+      "pixelHeight": 2400,
+      "sha256": "B06967F6DEAA9045D4172A2DA1ADFF28448C5B2D28C765723002881E64A11ED5",
+      "cohort": "root Debug android-x64 APK 944676EEF3B2DEDF618585D7958270A1A0DB5B6E19FA2D35F1258C16E178BF64",
+      "state": "API35 emulator, density420/fontScale1; corrected wrapped native button caption."
+    },
+    {
+      "file": "android/studio-library.png",
+      "platform": "Android",
+      "pixelWidth": 1080,
+      "pixelHeight": 2400,
+      "sha256": "07A65E00B52BDBA0B49748439ABA675FB2F621C4CF69F26AF5BD5B1FF7290919",
+      "cohort": "root Debug android-x64 APK 944676EEF3B2DEDF618585D7958270A1A0DB5B6E19FA2D35F1258C16E178BF64",
+      "state": "Six realized native rows from the 10000-document catalog."
+    },
+    {
+      "file": "android/studio-landscape-editing.png",
+      "platform": "Android",
+      "pixelWidth": 2400,
+      "pixelHeight": 1080,
+      "sha256": "557C838769824BC8886ABF3354593C9D0494066811C8E97FB92AC519F5BDAF53",
+      "cohort": "root Debug android-x64 APK 944676EEF3B2DEDF618585D7958270A1A0DB5B6E19FA2D35F1258C16E178BF64",
+      "state": "Height-aware retained editors; title118px/body381px; actual floating/stylus IME overlay visible."
+    },
+    {
+      "file": "android/studio-operations.png",
+      "platform": "Android",
+      "pixelWidth": 1080,
+      "pixelHeight": 2400,
+      "sha256": "192CE993EC14F044B3EF69CA65B218D3D4FCB39CAA25818F83617FFE15A66F8E",
+      "cohort": "root Debug android-x64 APK 944676EEF3B2DEDF618585D7958270A1A0DB5B6E19FA2D35F1258C16E178BF64",
+      "state": "Completed native Spinner-selected 10000-document local scan; drawer remains off."
+    },
+    {
+      "file": "windows/studio-desktop.png",
+      "platform": "Windows",
+      "logicalViewport": "1440x900",
+      "pixelWidth": 1800,
+      "pixelHeight": 1125,
+      "sha256": "94CC7AF4639D9ACB5D833E2BC5DB1267441A6BDEC26C8B6288CA81FD200C8756",
+      "cohort": "A730836EA9E3EF3EA1DA32246C531EDC752383299049A956451C9F368252AA01",
+      "capturedFileWriteUtc": "2026-09-24T07:01:52.4374068Z"
+    },
+    {
+      "file": "windows/studio-compact.png",
+      "platform": "Windows",
+      "logicalViewport": "320x760",
+      "pixelWidth": 400,
+      "pixelHeight": 950,
+      "sha256": "D1EE06B14E29A1CC5194B854F4E0D2F319AEFBE14F8B363F88863287654D6952",
+      "cohort": "A730836EA9E3EF3EA1DA32246C531EDC752383299049A956451C9F368252AA01",
+      "capturedFileWriteUtc": "2026-09-24T07:01:57.6546104Z"
+    },
+    {
+      "file": "windows/studio-operations-desktop.png",
+      "platform": "Windows",
+      "logicalViewport": "1440x900",
+      "pixelWidth": 1800,
+      "pixelHeight": 1125,
+      "sha256": "732366793729D459E3E47574C97C23AFCD6D5CB72452F2770613596C4880CC97",
+      "cohort": "A730836EA9E3EF3EA1DA32246C531EDC752383299049A956451C9F368252AA01",
+      "capturedFileWriteUtc": "2026-09-24T07:28:44.5855799Z"
+    },
+    {
+      "file": "windows/studio-operations-compact.png",
+      "platform": "Windows",
+      "logicalViewport": "320x760",
+      "pixelWidth": 400,
+      "pixelHeight": 950,
+      "sha256": "02CC541ADB8E64689641F25702BBD2C17E89B58EF0802B7C87B9907039280A25",
+      "cohort": "A730836EA9E3EF3EA1DA32246C531EDC752383299049A956451C9F368252AA01",
+      "capturedFileWriteUtc": "2026-09-24T07:28:50.7379621Z"
+    },
+    {
+      "file": "windows/studio-drawer-desktop.png",
+      "platform": "Windows",
+      "logicalViewport": "1440x900",
+      "pixelWidth": 1800,
+      "pixelHeight": 1125,
+      "sha256": "4A360F278DF3DEA0795648803441759719BAD40F241B4AA8601E63B8253687A3",
+      "cohort": "A096AC7E90456782AEC1C4E1C49041BE17940C872E0BDDE849B91657379E6B8A",
+      "hostPacket": "FCAFF41578364A08385C25B38ABF639B5E8DB4FF507D40A66F34FE04B0FC4F69",
+      "sharedPackets": ["A41238BF", "17841F5A"],
+      "state": "Explicit drawer opt-in; open and settled; completed 10000-document local scan."
+    },
+    {
+      "file": "windows/studio-drawer-compact.png",
+      "platform": "Windows",
+      "logicalViewport": "320x760",
+      "pixelWidth": 400,
+      "pixelHeight": 950,
+      "sha256": "1DA67BA3A546743D331A3FE19E4003D41D803BF60A79C9050553D92E295A8C09",
+      "cohort": "A096AC7E90456782AEC1C4E1C49041BE17940C872E0BDDE849B91657379E6B8A",
+      "hostPacket": "FCAFF41578364A08385C25B38ABF639B5E8DB4FF507D40A66F34FE04B0FC4F69",
+      "sharedPackets": ["A41238BF", "17841F5A"],
+      "state": "Explicit drawer opt-in; open and settled; completed local scan; lower metrics remain scrollable."
+    },
+    {
+      "file": "web/studio-desktop-web.png",
+      "platform": "Web",
+      "logicalViewport": "1440x1000",
+      "pixelWidth": 1440,
+      "pixelHeight": 1000,
+      "sha256": "A3F082CDD5653BA238DAD560143E5A727994356E69E1C872ACEA74D699158703",
+      "cohort": "root immutable Release studio-published-root-v1",
+      "capturedFileWriteUtc": "2026-09-24T07:39:04.1733799Z"
+    },
+    {
+      "file": "web/studio-operations-desktop-web.png",
+      "platform": "Web",
+      "logicalViewport": "1440x1000",
+      "pixelWidth": 1440,
+      "pixelHeight": 1000,
+      "sha256": "9B67326B8654689A0D8D9C94267C079DD7AF360C426187046F56B80E56432520",
+      "cohort": "root immutable Release studio-published-root-v1",
+      "capturedFileWriteUtc": "2026-09-24T07:39:06.9097640Z"
+    },
+    {
+      "file": "web/studio-operations-phone-web.png",
+      "platform": "Web",
+      "logicalViewport": "320x844",
+      "pixelWidth": 320,
+      "pixelHeight": 844,
+      "sha256": "3974ECC09623BE279A2B12D0FC15F111110649F553712B1E01FAAC779E938B56",
+      "cohort": "root immutable Release studio-published-root-v1",
+      "capturedFileWriteUtc": "2026-09-24T07:39:07.5106493Z"
+    }
+  ],
+  "androidInteraction": {
+    "device": "emulator-5554",
+    "api": 35,
+    "abi": "x86_64",
+    "configuration": "Debug interpreter",
+    "assertions": 17,
+    "pid": 19675,
+    "scope": "Native edits, background/rotation selection restoration, positive landscape geometry, retained Library, Spinner, 10000-document scan, and two Back steps.",
+    "limitations": "Earlier automated scrolling during a pending scan produced an ANR; input-pressure responsiveness remains unresolved. No physical IME, TalkBack, API26, ARM64, Android Reveal/Image/font-projection, or M6 budget claim."
+  },
+  "webInteraction": {
+    "browser": "153.0.4234.48",
+    "release": true,
+    "actions": "native controls only",
+    "source": "same shared Studio with Operations and compact metrics",
+    "documents": 10000,
+    "editorRetained": true,
+    "metricBounds": [
+      {
+        "x": 68,
+        "y": 514,
+        "width": 232,
+        "height": 21
+      },
+      {
+        "x": 68,
+        "y": 543,
+        "width": 232,
+        "height": 21
+      },
+      {
+        "x": 68,
+        "y": 572,
+        "width": 232,
+        "height": 21
+      },
+      {
+        "x": 68,
+        "y": 601,
+        "width": 232,
+        "height": 21
+      },
+      {
+        "x": 68,
+        "y": 630,
+        "width": 232,
+        "height": 21
+      },
+      {
+        "x": 68,
+        "y": 659,
+        "width": 232,
+        "height": 21
+      }
+    ],
+    "limitation": "Visible completion smoke; no private task-quiescence bridge or physical IME claim."
+  }
+}

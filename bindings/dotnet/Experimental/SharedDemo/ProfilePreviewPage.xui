@@ -1,0 +1,27 @@
+namespace PortableDemo;
+
+component ProfilePreviewPage {
+    param global::System.Action Edit;
+    state ProfileSnapshot Draft = new();
+    state bool Busy = false;
+
+    view {
+        VStack(spacing: 8) {
+            Text("PROFILE PREVIEW", id: "profile-preview-title");
+            Text(Draft.DisplayName, ref: NameLabel, id: "profile-preview-name");
+            Text("Role", id: "profile-role-caption");
+            Text(Draft.Role, id: "profile-preview-role");
+            Text("Location", id: "profile-location-caption");
+            Text(Draft.Location, id: "profile-preview-location");
+            Text("Focus", id: "profile-focus-caption");
+            Text(Draft.Focus, id: "profile-preview-focus");
+            Text("Preview only. Your stored draft changes only when Save draft succeeds.",
+                id: "profile-preview-notice");
+            Button("Back to edit", click: GoBack, enabled: !Busy, ref: EditButton, id: "profile-back");
+        }
+    }
+
+    code csharp {
+        void GoBack() => Edit();
+    }
+}

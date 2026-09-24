@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "axes": [
+    { "name": "fixed-before-natural-height", "natural": 72, "mode": "AtMost", "available": 400, "axis": { "length": 280 }, "offerMode": "Exactly", "offerSize": 280, "expected": 280 },
+    { "name": "auto-natural-caption", "natural": 72, "mode": "AtMost", "available": 400, "axis": {}, "legacyFixed": 40, "offerMode": "AtMost", "offerSize": 400, "expected": 72 },
+    { "name": "auto-large-caption", "natural": 144, "mode": "AtMost", "available": 400, "axis": {}, "legacyFixed": 40, "offerMode": "AtMost", "offerSize": 400, "expected": 144 },
+    { "name": "auto-exact-cross-stretch", "natural": 72, "mode": "Exactly", "available": 300, "axis": {}, "legacyFixed": 40, "offerMode": "Exactly", "offerSize": 300, "expected": 300 },
+    { "name": "legacy-fixed-inherited", "natural": 72, "mode": "AtMost", "available": 400, "axis": null, "legacyFixed": 40, "offerMode": "Exactly", "offerSize": 40, "expected": 40 },
+    { "name": "legacy-preferred-inherited", "natural": 72, "mode": "AtMost", "available": 400, "axis": null, "legacyPreferred": 56, "offerMode": "Exactly", "offerSize": 56, "expected": 56 },
+    { "name": "legacy-preferred-yields-exact", "natural": 72, "mode": "Exactly", "available": 300, "axis": null, "legacyPreferred": 56, "offerMode": "Exactly", "offerSize": 300, "expected": 300 },
+    { "name": "parent-smaller-than-fixed", "natural": 72, "mode": "AtMost", "available": 100, "axis": { "length": 280 }, "offerMode": "Exactly", "offerSize": 100, "expected": 100 },
+    { "name": "parent-smaller-than-minimum", "natural": 10, "mode": "AtMost", "available": 50, "axis": { "minimum": 120 }, "offerMode": "AtMost", "offerSize": 50, "expected": 50 },
+    { "name": "exact-smaller-than-minimum", "natural": 10, "mode": "Exactly", "available": 50, "axis": { "minimum": 120 }, "offerMode": "Exactly", "offerSize": 50, "expected": 50 },
+    { "name": "minimum-unbounded", "natural": 10, "mode": "Unspecified", "available": 0, "axis": { "minimum": 120 }, "offerMode": "Unspecified", "offerSize": 0, "expected": 120 },
+    { "name": "natural-unbounded-no-fill", "natural": 72, "mode": "Unspecified", "available": 0, "axis": {}, "offerMode": "Unspecified", "offerSize": 0, "expected": 72 },
+    { "name": "maximum-bounds-unbounded-measure", "natural": 300, "mode": "Unspecified", "available": 0, "axis": { "maximum": 140 }, "offerMode": "AtMost", "offerSize": 140, "expectedUnbounded": true, "expected": 140 },
+    { "name": "maximum-caps-exact-allocation", "natural": 70, "mode": "Exactly", "available": 300, "axis": { "maximum": 140 }, "offerMode": "Exactly", "offerSize": 140, "expected": 140 },
+    { "name": "zero-allocation-wins", "natural": 144, "mode": "Exactly", "available": 0, "axis": { "minimum": 40 }, "offerMode": "Exactly", "offerSize": 0, "expected": 0 },
+    { "name": "auto-max-does-not-fill", "natural": 88, "mode": "Unspecified", "available": 0, "axis": { "maximum": 100 }, "offerMode": "AtMost", "offerSize": 100, "expectedUnbounded": true, "expected": 88 },
+    { "name": "finite-auto-retains-context", "natural": 40, "mode": "AtMost", "available": 100, "unboundedContext": true, "axis": {}, "offerMode": "AtMost", "offerSize": 100, "expectedUnbounded": true, "expected": 40 },
+    { "name": "fixed-ends-context", "natural": 32, "mode": "AtMost", "available": 200, "unboundedContext": true, "axis": { "length": 160 }, "offerMode": "Exactly", "offerSize": 160, "expectedUnbounded": false, "expected": 160 },
+    { "name": "legacy-preferred-ends-context", "natural": 32, "mode": "AtMost", "available": 200, "unboundedContext": true, "axis": null, "legacyPreferred": 160, "offerMode": "Exactly", "offerSize": 160, "expectedUnbounded": false, "expected": 160 },
+    { "name": "explicit-auto-ignores-legacy-definite", "natural": 88, "mode": "AtMost", "available": 200, "unboundedContext": true, "axis": {}, "legacyPreferred": 160, "offerMode": "AtMost", "offerSize": 200, "expectedUnbounded": true, "expected": 88 },
+    { "name": "exact-auto-retains-context", "natural": 40, "mode": "Exactly", "available": 200, "unboundedContext": true, "axis": {}, "offerMode": "Exactly", "offerSize": 200, "expectedUnbounded": true, "expected": 200 },
+    { "name": "legacy-fixed-ends-context", "natural": 40, "mode": "Exactly", "available": 200, "unboundedContext": true, "axis": null, "legacyFixed": 80, "offerMode": "Exactly", "offerSize": 80, "expectedUnbounded": false, "expected": 80 },
+    { "name": "legacy-preferred-exact-ends-context", "natural": 40, "mode": "Exactly", "available": 200, "unboundedContext": true, "axis": null, "legacyPreferred": 80, "offerMode": "Exactly", "offerSize": 200, "expectedUnbounded": false, "expected": 200 }
+  ],
+  "stacks": [
+    { "name": "minimum-pressure", "mode": "Exactly", "available": 180, "spacing": 0, "desired": [120, 120], "weights": [0, 0], "extent": 180, "slots": [[0, 120], [120, 60]] },
+    { "name": "fixed-and-flex", "mode": "Exactly", "available": 180, "spacing": 0, "desired": [60, 40, 20], "weights": [0, 1, 1], "extent": 180, "slots": [[0, 60], [60, 60], [120, 60]] },
+    { "name": "weighted-flex", "mode": "AtMost", "available": 200, "spacing": 8, "desired": [20, 20], "weights": [1, 3], "extent": 200, "slots": [[0, 48], [56, 144]] },
+    { "name": "unbounded-flex-natural", "mode": "Unspecified", "available": 0, "spacing": 8, "desired": [32, 48], "weights": [1, 3], "extent": 88, "slots": [[0, 32], [40, 48]] },
+    { "name": "at-most-natural-no-fill", "mode": "AtMost", "available": 400, "spacing": 8, "desired": [32, 48], "weights": [0, 0], "extent": 88, "slots": [[0, 32], [40, 48]] },
+    { "name": "spacing-exceeds-parent", "mode": "Exactly", "available": 5, "spacing": 8, "desired": [32, 48], "weights": [0, 0], "extent": 5, "slots": [[0, 0], [5, 0]] },
+    { "name": "empty", "mode": "AtMost", "available": 400, "spacing": 8, "desired": [], "weights": [], "extent": 0, "slots": [] },
+    { "name": "auto-cap-does-not-grow-flex", "mode": "AtMost", "available": 100, "unboundedContext": true, "spacing": 8, "desired": [32, 48], "weights": [1, 3], "extent": 88, "slots": [[0, 32], [40, 48]] },
+    { "name": "finite-arrange-retains-natural-children", "mode": "Exactly", "available": 200, "unboundedContext": true, "spacing": 8, "desired": [32, 48], "weights": [1, 3], "extent": 200, "slots": [[0, 32], [40, 48]] },
+    { "name": "intrinsic-clipping-does-not-reserve-offscreen-gap", "mode": "AtMost", "available": 50, "unboundedContext": true, "spacing": 8, "desired": [45, 48], "weights": [1, 3], "extent": 50, "slots": [[0, 45], [50, 0]] }
+  ]
+}

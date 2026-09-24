@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\..\..\packaging\experimental\Package.props" />
   <PropertyGroup>
+    <PackageId>Xui.Experimental.Android</PackageId>
     <TargetFramework>net10.0-android</TargetFramework>
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -8,5 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Xui.Portable\Xui.Portable.csproj" />
+    <None Include="..\..\..\..\packaging\experimental\Xui.Experimental.Android.targets" Pack="true" PackagePath="build" />
+    <None Include="..\..\..\..\packaging\experimental\Xui.Experimental.Fonts.targets" Pack="true" PackagePath="build" />
+    <None Include="..\..\..\..\packaging\experimental\Xui.Experimental.Assets.targets" Pack="true" PackagePath="build" />
   </ItemGroup>
 </Project>

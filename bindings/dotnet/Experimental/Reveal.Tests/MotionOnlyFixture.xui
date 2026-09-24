@@ -1,0 +1,12 @@
+namespace RevealFixtures;
+
+component MotionOnlyFixture {
+    state global::Xui.Experimental.Portable.RevealMotion Motion = global::Xui.Experimental.Portable.RevealMotion.Default;
+    view {
+        VStack() {
+            Reveal("Motion-only reveal", motion: Motion, ref: Drawer) {
+                Text("Retained motion-only child");
+            }
+        }
+    }
+}

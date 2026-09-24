@@ -1,0 +1,15 @@
+{
+  "family": "Abel",
+  "style": "Regular",
+  "weight": 400,
+  "license": "OFL-1.1",
+  "reservedFontNames": ["Abel"],
+  "copyright": "Copyright (c) 2011, Matthew Desmond, with Reserved Font Name Abel.",
+  "upstreamRepository": "https://github.com/google/fonts",
+  "revision": "9437b806936896fa1a8c812e561067a5f30f5933",
+  "fontPath": "ofl/abel/Abel-Regular.ttf",
+  "fontSha256": "8809dcad25318225052f88333e208c5aad4adcb7b2c934c135735ec19aa410b4",
+  "licensePath": "ofl/abel/OFL.txt",
+  "licenseSha256": "4f4bc3806a1e55789c6ef75ca5fc628297b05292f74966474dc0d40324abc609",
+  "modifications": "None. No renaming, subsetting, format conversion, or installation."
+}

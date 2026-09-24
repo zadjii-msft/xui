@@ -1,0 +1,13 @@
+namespace PortableMutation;
+
+component ViewportRow {
+    view {
+        VStack() {
+            ScrollView("Owned viewport", ref: Viewport, id: "row-scroll") {
+                VStack() {
+                    TextInput("Row editor", ref: Input, id: "row-editor");
+                }
+            }
+        }
+    }
+}

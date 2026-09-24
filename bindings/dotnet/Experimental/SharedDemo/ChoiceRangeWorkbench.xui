@@ -1,0 +1,87 @@
+namespace PortableDemo;
+
+component ChoiceRangeWorkbench {
+    state (global::Xui.Experimental.Portable.Choice[] Items, ulong? Selected) Options =
+        ([new(1, "Standard"), new(9007199254740993UL, "Priority"), new(17, "Unavailable", false)], 1UL);
+    state double Amount = 2.25;
+    state string ChoiceStatus = "Selected: 1";
+    state string RangeStatus = "Ready";
+    state int ChoiceChanges = 0;
+    state int RangeChanges = 0;
+    state int RangeCancels = 0;
+    state string Draft = "";
+    state bool Available = true;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Choice and range preview", id: "choice-range-title");
+            ScrollView("Choice and range controls", flex: 1, ref: Content, id: "choice-range-content") {
+                VStack(spacing: 10) {
+                    TextInput("Retained draft", text: Draft, change: EditDraft, ref: DraftInput, id: "choice-range-draft");
+                    SingleChoice("Delivery priority", items: Options.Items, selected: Options.Selected,
+                        change: Choose, enabled: Available, ref: Delivery, id: "delivery-choice");
+                    Text(ChoiceStatus, id: "choice-status");
+                    Text($"Choice changes: {ChoiceChanges}", id: "choice-changes");
+                    Button("Reverse choices", click: ReverseChoices, id: "choice-reverse");
+                    Button("Disable selected choice", click: DisableSelected, id: "choice-disable-selected");
+                    Button("Clear choices", click: ClearChoices, id: "choice-clear");
+                    Button("Only disabled choices", click: DisabledChoices, id: "choice-all-disabled");
+                    RangeInput("Quantity adjustment", range: new global::Xui.Experimental.Portable.NumericRange(0, 10, 0.5, 2),
+                        currentValue: Amount, change: CommitAmount, preview: PreviewAmount, cancel: CancelAmount,
+                        enabled: Available, ref: Adjustment, id: "amount-range");
+                    Text("Amount: " + Amount.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture), id: "range-amount");
+                    Text(RangeStatus, id: "range-status");
+                    Text($"Range changes: {RangeChanges}", id: "range-changes");
+                    Text($"Range cancels: {RangeCancels}", id: "range-cancels");
+                    Button("Set exact off-step amount", click: SetOffStep, id: "range-off-step");
+                    Toggle("Controls available", checked: Available, change: SetAvailable, id: "choice-range-available");
+                    Button("Reset choices and range", click: Reset, id: "choice-range-reset");
+                }
+            }
+        }
+    }
+    code csharp {
+        void EditDraft(string value) => Draft = value;
+        void Choose(ulong id) {
+            Options = (Options.Items, id);
+            ChoiceChanges++;
+            ChoiceStatus = "Selected: " + id.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+        }
+        void ReverseChoices() {
+            Options = (global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Reverse(Options.Items)), Delivery.Selected);
+        }
+        void DisableSelected() {
+            ulong? selected = Delivery.Selected;
+            var items = global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(Options.Items,
+                item => item.Id == selected ? item with { Enabled = false } : item));
+            Options = (items, null);
+            ChoiceStatus = Delivery.Selected is ulong id ? "Selected: " + id.ToString(global::System.Globalization.CultureInfo.InvariantCulture) : "No selection";
+        }
+        void ClearChoices() { Options = ([], null); ChoiceStatus = "No selection"; }
+        void DisabledChoices() { Options = ([new(1, "Disabled standard", false), new(2, "Disabled priority", false)], null); ChoiceStatus = "No selection"; }
+        void PreviewAmount(double value) => RangeStatus = "Preview: " + value.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture);
+        void CommitAmount(double value) {
+            Amount = value;
+            RangeChanges++;
+            RangeStatus = "Committed: " + value.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture);
+        }
+        void CancelAmount(double value) {
+            RangeCancels++;
+            RangeStatus = "Canceled: " + value.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture);
+        }
+        void SetOffStep() { Amount = 2.25; RangeStatus = "Programmatic: 2.25"; }
+        void SetAvailable(bool value) => Available = value;
+        void Reset() {
+            Options = ([new(1, "Standard"), new(9007199254740993UL, "Priority"), new(17, "Unavailable", false)], 1UL);
+            Adjustment.SetValue(2.25);
+            Amount = 2.25;
+            ChoiceChanges = 0;
+            RangeChanges = 0;
+            RangeCancels = 0;
+            ChoiceStatus = "Selected: 1";
+            RangeStatus = "Ready";
+            Draft = "";
+            Available = true;
+        }
+    }
+}

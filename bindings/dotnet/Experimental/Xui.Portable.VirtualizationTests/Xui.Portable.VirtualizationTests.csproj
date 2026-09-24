@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" Link="VirtualList.xui" />
+    <Compile Include="..\SharedDemo\VirtualList.cs" Link="VirtualList.cs" />
+    <Compile Include="..\SharedDemo\VirtualListRow.cs" Link="VirtualListRow.cs" />
+    <Compile Include="..\SharedDemo\VirtualListState.cs" Link="VirtualListState.cs" />
+    <Compile Include="..\SharedDemo\VirtualListPerformance.cs" Link="VirtualListPerformance.cs" />
+  </ItemGroup>
+</Project>

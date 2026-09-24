@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "retained-editor-selection-and-activation",
+      "steps": [
+        { "action": "click", "id": "pages-reset" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "1", "pages": ["1", "9007199254740993"] },
+        { "action": "expect", "id": "workspace-navigation", "selected": "1" },
+        { "action": "change", "id": "first-input", "value": "Draft \u674e remains with the first document" },
+        { "action": "remember-editor", "id": "first-input" },
+        { "action": "click", "id": "first-increment" },
+        { "action": "select-page", "id": "workspace-tabs", "page": "9007199254740993" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "9007199254740993" },
+        { "action": "expect", "id": "workspace-navigation", "selected": "9007199254740993" },
+        { "action": "expect", "id": "first-input", "visible": false },
+        { "action": "expect", "id": "second-input", "visible": true },
+        { "action": "expect", "id": "page-selection", "text": "Selected: 9007199254740993" },
+        { "action": "expect", "id": "page-activation", "text": "No activation" },
+        { "action": "change", "id": "second-input", "value": "Second independent draft" },
+        { "action": "remember-editor", "id": "second-input" },
+        { "action": "activate-page", "id": "workspace-tabs", "page": "9007199254740993" },
+        { "action": "expect", "id": "page-activation", "text": "Activated: 9007199254740993" },
+        { "action": "expect", "id": "page-changes", "text": "Changes: 1" },
+        { "action": "select-page", "id": "workspace-navigation", "page": "1" },
+        { "action": "expect", "id": "first-input", "text": "Draft \u674e remains with the first document", "visible": true },
+        { "action": "expect", "id": "first-count", "text": "Edits: 1" },
+        { "action": "expect-same-editor", "id": "first-input" },
+        { "action": "expect-same-editor", "id": "second-input" },
+        { "action": "click", "id": "pages-reverse" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "1", "pages": ["9007199254740993", "1"] },
+        { "action": "expect-same-editor", "id": "first-input" },
+        { "action": "expect", "id": "page-changes", "text": "Changes: 2" }
+      ]
+    },
+    {
+      "name": "close-request-veto-and-approval",
+      "steps": [
+        { "action": "click", "id": "pages-reset" },
+        { "action": "request-close", "id": "workspace-tabs", "page": "1" },
+        { "action": "expect", "id": "page-close-request", "text": "Close requested: 1" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "1", "pages": ["1", "9007199254740993"] },
+        { "action": "click", "id": "pages-close-selected" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "9007199254740993", "pages": ["9007199254740993"] },
+        { "action": "expect-absent", "id": "first-input" },
+        { "action": "expect", "id": "second-input", "visible": true },
+        { "action": "click", "id": "pages-close-selected" },
+        { "action": "expect", "id": "workspace-tabs", "selected": null, "pages": [] },
+        { "action": "expect-absent", "id": "second-input" },
+        { "action": "expect", "id": "page-changes", "text": "Changes: 0" }
+      ]
+    },
+    {
+      "name": "disabled-selector-does-not-navigate",
+      "steps": [
+        { "action": "click", "id": "pages-reset" },
+        { "action": "click", "id": "pages-disable-tabs" },
+        { "action": "expect", "id": "workspace-tabs", "enabled": false, "selected": "1" },
+        { "action": "select-page", "id": "workspace-tabs", "page": "9007199254740993" },
+        { "action": "request-close", "id": "workspace-tabs", "page": "1" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "1", "pages": ["1", "9007199254740993"] },
+        { "action": "expect", "id": "page-selection", "text": "No selection" },
+        { "action": "expect", "id": "page-close-request", "text": "No close request" },
+        { "action": "select-page", "id": "workspace-navigation", "page": "9007199254740993" },
+        { "action": "expect", "id": "workspace-navigation", "selected": "9007199254740993" },
+        { "action": "expect", "id": "workspace-tabs", "selected": "9007199254740993", "enabled": false },
+        { "action": "expect", "id": "page-changes", "text": "Changes: 1" }
+      ]
+    }
+  ]
+}

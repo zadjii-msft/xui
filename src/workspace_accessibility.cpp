@@ -123,11 +123,11 @@ public:
                 bool item_enabled = s.enabled;
                 if (root_) for (std::size_t i = 0; i < s.tabs.size(); ++i)
                     if (s.tabs[i].id == id_ && i < s.choice_enabled.size()) item_enabled = item_enabled && s.choice_enabled[i];
-                const bool result = id == UIA_HasKeyboardFocusPropertyId ? s.focused && (!root_ || s.selected_tab == id_) :
-                    id == UIA_IsOffscreenPropertyId ? rect.width <= 0 || rect.height <= 0 :
+                const bool result = id == UIA_IsOffscreenPropertyId ? s.logical_hidden || rect.width <= 0 || rect.height <= 0 :
+                    !s.logical_hidden && (id == UIA_HasKeyboardFocusPropertyId ? s.focused && (!root_ || s.selected_tab == id_) :
                     id == UIA_IsEnabledPropertyId ? item_enabled : id == UIA_IsKeyboardFocusablePropertyId ?
                         item_enabled && s.role != ControlRole::popup && s.role != ControlRole::progress &&
-                        s.role != ControlRole::inline_status && s.role != ControlRole::color_picker && !s.menu_bar : true;
+                        s.role != ControlRole::inline_status && s.role != ControlRole::color_picker && !s.menu_bar : true);
                 value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
             return S_OK;
@@ -142,6 +142,7 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr;
         return with([&](const auto& s) {
+            if (!root_) if (const auto result = navigate_fragment(state_, direction, value)) return *result;
             if (root_ && direction == NavigateDirection_Parent) { *value = root_; root_->AddRef(); }
             else if (!root_ && !s.tabs.empty() &&
                 (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild))
@@ -169,6 +170,7 @@ public:
         });
     }
     void bounds(const ControlSnapshot& s, UiaRect& value) const {
+        if (s.logical_hidden) { value = {}; return; }
         RECT rect{};
         value = {};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &rect)) return;
@@ -232,6 +234,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_FragmentRoot(IRawElementProviderFragmentRoot** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
+        if (const auto result = fragment_root(state_, value)) return *result;
         return with([&](const auto&) { *value = root_ ? root_ : this; (*value)->AddRef(); return S_OK; });
     }
     HRESULT STDMETHODCALLTYPE ElementProviderFromPoint(double x, double y, IRawElementProviderFragment** value) override {

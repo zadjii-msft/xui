@@ -61,6 +61,7 @@ struct ControlSnapshot {
     std::wstring access_key;
     bool single_selection{};
     bool visible{};
+    bool logical_hidden{};
     std::shared_ptr<const ItemsSource> collection;
     std::shared_ptr<const detail::CollectionPresentation> collection_presentation;
     CollectionSelection selection;
@@ -73,17 +74,28 @@ struct ControlSnapshot {
     std::shared_ptr<const CollectionIndex> full_source;
     bool operator==(const ControlSnapshot&) const = default;
 };
+class FragmentNavigation {
+public:
+    virtual ~FragmentNavigation() = default;
+    virtual HRESULT navigate(std::uint64_t control, HWND window, NavigateDirection direction, IRawElementProviderFragment** result) = 0;
+    virtual HRESULT fragment_root(IRawElementProviderFragmentRoot** result) = 0;
+};
 struct ControlAccessibility {
     std::mutex mutex;
     ControlSnapshot snapshot;
     std::uint64_t next_grid_action{};
     std::map<std::uint64_t, GridAction> grid_actions;
     std::map<std::uint64_t, FoundationAction> foundation_actions;
+    std::weak_ptr<FragmentNavigation> fragment_navigation;
 };
+std::optional<HRESULT> navigate_fragment(const std::shared_ptr<ControlAccessibility>& state,
+    NavigateDirection direction, IRawElementProviderFragment** result);
+std::optional<HRESULT> fragment_root(const std::shared_ptr<ControlAccessibility>& state,
+    IRawElementProviderFragmentRoot** result);
 IRawElementProviderSimple* create_control_provider(std::shared_ptr<ControlAccessibility> state);
 IRawElementProviderSimple* create_native_clip_provider(std::shared_ptr<ControlAccessibility> state);
 void publish_control(const std::shared_ptr<ControlAccessibility>& state,
-    IRawElementProviderSimple* provider, const Control& control, HWND window);
+    IRawElementProviderSimple* provider, const Control& control, HWND window, bool logical_hidden = false);
 void disconnect_control(const std::shared_ptr<ControlAccessibility>& state,
     IRawElementProviderSimple* provider);
 void raise_control_invoked(IRawElementProviderSimple* provider);

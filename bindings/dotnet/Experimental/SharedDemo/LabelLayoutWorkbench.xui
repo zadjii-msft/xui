@@ -1,0 +1,32 @@
+namespace PortableDemo;
+
+component LabelLayoutWorkbench {
+    state global::Xui.Experimental.Portable.LabelTextLayout? ParagraphLayout = global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2);
+    state global::Xui.Experimental.Portable.LabelTextLayout? HeadlineLayout = global::Xui.Experimental.Portable.LabelTextLayout.SingleLine(global::Xui.Experimental.Portable.TextOverflow.CharacterEllipsis);
+    state string Paragraph = "Native wrapping preserves this complete accessible text, even when only two lines are visible.\nSecond paragraph: e\u0301 \u4e2d\u6587 \u0645\u0631\u062d\u0628\u0627 \U0001f469\u200d\U0001f4bb.";
+    state string Headline = "A long single-line label with  preserved  spaces and no authored hard line breaks.";
+    state string Draft = "";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Label layout workbench", id: "label-layout-title");
+            Text(Paragraph, textLayout: ParagraphLayout, ref: ParagraphLabel, id: "label-layout-paragraph");
+            Text(Headline, textLayout: HeadlineLayout, ref: HeadlineLabel, id: "label-layout-headline");
+            TextInput("Unrelated retained draft", text: Draft, change: EditDraft, ref: DraftInput, id: "label-layout-draft");
+            Button("Wrap without a line cap", click: Uncap, id: "label-layout-uncap");
+            Button("Clip after two wrapped lines", click: Cap, id: "label-layout-cap");
+            Button("Clip the single line", click: Clip, id: "label-layout-clip");
+            Button("Ellipsis on the single line", click: Ellipsis, id: "label-layout-ellipsis");
+            Button("Restore inherited label layout", click: Inherit, id: "label-layout-inherit");
+        }
+    }
+
+    code csharp {
+        void EditDraft(string value) => Draft = value;
+        void Uncap() => ParagraphLayout = global::Xui.Experimental.Portable.LabelTextLayout.Wrap();
+        void Cap() => ParagraphLayout = global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2);
+        void Clip() => HeadlineLayout = global::Xui.Experimental.Portable.LabelTextLayout.SingleLine();
+        void Ellipsis() => HeadlineLayout = global::Xui.Experimental.Portable.LabelTextLayout.SingleLine(global::Xui.Experimental.Portable.TextOverflow.CharacterEllipsis);
+        void Inherit() { ParagraphLayout = null; HeadlineLayout = null; }
+    }
+}

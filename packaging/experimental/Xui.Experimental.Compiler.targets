@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <XuiGeneratorProfile Condition="'$(XuiGeneratorProfile)' == ''">Portable</XuiGeneratorProfile>
+    <XuiHotReload Condition="'$(XuiHotReload)' == ''">false</XuiHotReload>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Declarative.Common.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Experimental.Fonts.targets" Condition="'$(_XuiExperimentalFontsImported)' != 'true'" />
+  <Target Name="ValidateExperimentalXuiProfile" BeforeTargets="CoreCompile">
+    <Error Condition="'$(XuiGeneratorProfile)' != 'Portable'" Text="Xui.Experimental.Compiler requires the Portable profile. Use Xui for the existing Windows profile." />
+    <Error Condition="'$(XuiHotReload)' == 'true'" Text="The experimental Portable profile does not support XuiHotReload." />
+  </Target>
+</Project>

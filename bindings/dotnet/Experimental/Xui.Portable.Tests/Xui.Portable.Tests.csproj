@@ -9,5 +9,27 @@
   <Import Project="..\Xui.Portable.targets" />
   <ItemGroup>
     <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
+    <AdditionalFiles Include="..\SharedDemo\OrderBuilder.xui" Link="OrderBuilder.xui" />
+    <Compile Include="..\SharedDemo\OrderModel.cs" Link="OrderModel.cs" />
+    <Compile Include="..\SharedDemo\OrderScenarioRunner.cs" Link="OrderScenarioRunner.cs" />
+    <None Include="..\SharedDemo\OrderScenarios.json" Link="OrderScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\MutationScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\AxisLayoutScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\GridLayoutScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\RangeMathScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures\PageScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <AdditionalFiles Include="..\SharedDemo\SettingsShowcase.xui" Link="SettingsShowcase.xui" />
+    <Compile Include="..\SharedDemo\SettingsScenarioRunner.cs" Link="SettingsScenarioRunner.cs" />
+    <None Include="..\SharedDemo\SettingsScenarios.json" Link="SettingsScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <AdditionalFiles Include="..\SharedDemo\PresentationWorkbench.xui" Link="PresentationWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\FormsWorkbench.xui" Link="FormsWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ChoiceRangeWorkbench.xui" Link="ChoiceRangeWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ImageWorkbench.xui" Link="ImageWorkbench.xui" />
+    <EmbeddedResource Include="..\..\..\..\assets\branding\generated\zoey-64.png" LogicalName="Xui.Asset.zoey.png" />
+    <EmbeddedResource Include="..\SharedDemo\FormsScenarios.json" LogicalName="Xui.Asset.invalid.png" />
+    <Compile Include="..\SharedDemo\ChoiceRangeScenarioRunner.cs" Link="ChoiceRangeScenarioRunner.cs" />
+    <None Include="..\SharedDemo\ChoiceRangeScenarios.json" Link="ChoiceRangeScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\SharedDemo\FormsScenarioRunner.cs" Link="FormsScenarioRunner.cs" />
+    <None Include="..\SharedDemo\FormsScenarios.json" Link="FormsScenarios.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

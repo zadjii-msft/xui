@@ -1,9 +1,14 @@
 #include "xui/controls.hpp"
+#include "xui/retained_pages.hpp"
 #include "layout_styling.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
+#include <set>
 
 namespace xui {
+#include "virtual_viewport.inc"
+#include "retained_pages.inc"
 namespace {
 Insets default_button_padding(VisualStyle style) {
     return style == VisualStyle::winui ? Insets{11, 5, 11, 6} :
@@ -66,6 +71,7 @@ void Control::set_presentation_font_family(std::string_view value) {
 }
 
 void Control::set_name(std::wstring name) {
+    validate_name(name);
     if (name_ == name) return;
     name_ = std::move(name);
     text_changed();
@@ -87,7 +93,7 @@ bool Control::actionable() const {
 }
 void Control::text_changed() {
     text_dirty_ = true;
-    invalidate(auto_size() ? Invalidation::layout : Invalidation::paint);
+    invalidate(auto_size() || has_axis_constraints() ? Invalidation::layout : Invalidation::paint);
 }
 void Control::control_style_changed(Invalidation kind) {
     if (kind == Invalidation::layout) {
@@ -99,7 +105,7 @@ void Control::control_style_changed(Invalidation kind) {
 void Control::set_text_measurer(TextMeasurer measurer) {
     measurer_ = std::move(measurer);
     text_dirty_ = true;
-    if (measurer_) invalidate(auto_size() ? Invalidation::layout : Invalidation::paint);
+    if (measurer_) invalidate(auto_size() || has_axis_constraints() ? Invalidation::layout : Invalidation::paint);
 }
 Size Control::measured_text() {
     if (text_dirty_) {
@@ -111,14 +117,23 @@ Size Control::measured_text() {
 }
 Size Control::measure(Size available) {
     if (!visible_) return {};
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_control(offered, natural); });
+}
+bool Control::supports_axis_constraints() const {
+    return typeid(*this) == typeid(Label) || typeid(*this) == typeid(Button) ||
+        typeid(*this) == typeid(TextInput) || typeid(*this) == typeid(ScrollView) ||
+        typeid(*this) == typeid(Toggle) || typeid(*this) == typeid(CheckBox);
+}
+Size Control::measure_control(Size available, bool natural) {
+    if (!visible_) return {};
     const auto metrics = style_metrics(visual_style_);
-    if (!auto_size() || !measurer_) {
-        auto desired = Element::measure(available);
-        if (visual_style_ == VisualStyle::winui && !preferred_size_explicit() &&
+    if ((!natural && !auto_size()) || !measurer_ || (natural && role_ == ControlRole::progress)) {
+        auto desired = base_measure(available, natural);
+        if (visual_style_ == VisualStyle::winui && (natural || !preferred_size_explicit()) &&
             (role_ == ControlRole::button || role_ == ControlRole::toggle ||
                 role_ == ControlRole::combo_box || role_ == ControlRole::numeric_input))
             desired.height = metrics.button_height;
-        return constrain(desired, available);
+        return constrain_measure(desired, available, natural);
     }
     const auto text = measured_text();
     const bool winui = visual_style_ == VisualStyle::winui;
@@ -128,26 +143,33 @@ Size Control::measure(Size available) {
     const float height = role_ == ControlRole::button ? metrics.button_height : role_ == ControlRole::toggle ? 32.0f :
         winui && role_ == ControlRole::label ? 0.0f : 24.0f;
     const float vertical_chrome = winui && role_ == ControlRole::button ? 13.0f : inset ? 12.0f : 0.0f;
-    return constrain({text.width + inset, std::max(height, text.height + vertical_chrome)}, available);
+    return constrain_measure({text.width + inset, std::max(height, text.height + vertical_chrome)}, available, natural);
 }
 
+TextInput::TextInput(std::wstring name, TextInputPurpose purpose)
+    : Control(ControlRole::text_input, std::move(name), {320, 68}), purpose_(purpose) {
+    if (purpose < TextInputPurpose::normal || purpose > TextInputPurpose::number)
+        throw std::invalid_argument("Invalid text input purpose");
+}
 Size TextInput::measure(Size available) {
     if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) {
     const auto* root = effective_control_style_values(StylePart::root);
     const auto* text = effective_control_style_values(StylePart::text);
     const auto* header = effective_control_style_values(StylePart::header);
     const bool styled_metrics = (root && (root->padding || root->border_thickness)) ||
         (text && (text->font_family || text->font_size || text->font_weight || text->font_style)) ||
         (header && (header->font_family || header->font_size || header->font_weight || header->font_style));
-    if (styled_metrics && !preferred_size_explicit()) {
+    if ((styled_metrics && !preferred_size_explicit()) || natural) {
         const auto insets = field_insets(visual_style() == VisualStyle::winui ?
             Insets{11, 6, 7, 7} : Insets{12, 10, 12, 10});
         const float line = text && text->font_size ? *text->font_size * 1.5f : 21.0f;
-        return constrain({std::max(320.0f, insets.left + insets.right),
-            std::max(style_metrics(visual_style()).field_height, line + insets.top + insets.bottom) + caption_extent()}, available);
+        return constrain_measure({std::max(320.0f, insets.left + insets.right),
+            std::max(style_metrics(visual_style()).field_height, line + insets.top + insets.bottom) + caption_extent()}, offered, natural);
     }
-    if (visual_style() != VisualStyle::winui || preferred_size_explicit()) return Element::measure(available);
-    return constrain({320, style_metrics(visual_style()).field_height + caption_extent()}, available);
+    if (visual_style() != VisualStyle::winui || preferred_size_explicit()) return base_measure(offered, false);
+    return constrain({320, style_metrics(visual_style()).field_height + caption_extent()}, offered);
+    });
 }
 float TextInput::caption_height() const {
     const auto* header = effective_control_style_values(StylePart::header);
@@ -188,17 +210,38 @@ void Label::set_wrapping(bool value, std::size_t maximum_lines) {
     text_changed();
     invalidate(Invalidation::layout);
 }
+void Label::validate_name(std::wstring_view text) const {
+    if (text_layout_ && !text_layout_->wrapping && text.find_first_of(L"\r\n\u0085\u2028\u2029") != text.npos)
+        throw std::invalid_argument("Single-line Label text cannot contain hard line breaks");
+}
+void Label::set_text_layout(std::optional<LabelTextLayout> layout) {
+    if (layout) {
+        if ((layout->overflow != LabelOverflow::clip && layout->overflow != LabelOverflow::character_ellipsis) ||
+            layout->maximum_lines > 32 || (layout->wrapping && layout->overflow != LabelOverflow::clip) ||
+            (!layout->wrapping && layout->maximum_lines))
+            throw std::invalid_argument("Invalid Label text layout");
+        if (!layout->wrapping && text().find_first_of(L"\r\n\u0085\u2028\u2029") != text().npos)
+            throw std::invalid_argument("Single-line Label text cannot contain hard line breaks");
+    }
+    if (text_layout_ == layout) return;
+    text_layout_ = layout;
+    wrapped_valid_ = false;
+    text_changed();
+    invalidate(Invalidation::layout);
+}
 void Label::set_wrapped_text_measurer(WrappedTextMeasurer measurer) {
     wrapped_measurer_ = std::move(measurer);
     wrapped_valid_ = false;
     invalidate(Invalidation::layout);
 }
 bool Label::wrapping() const {
+    if (text_layout_) return text_layout_->wrapping;
     if (wrapping_explicit_ || !has_control_styling()) return wrapping_;
     const auto* values = effective_control_style_values(text_part());
     return values && values->wrapping ? *values->wrapping : wrapping_;
 }
 std::size_t Label::maximum_lines() const {
+    if (text_layout_) return text_layout_->wrapping ? text_layout_->maximum_lines : 1;
     if (wrapping_explicit_ || !has_control_styling()) return maximum_lines_;
     const auto* values = effective_control_style_values(text_part());
     return values && values->maximum_lines ? *values->maximum_lines : maximum_lines_;
@@ -219,35 +262,62 @@ Size Label::wrapped_text(float width) {
 }
 Size Label::measure(Size available) {
     if (!visible()) return {};
-    if (!auto_size()) return Control::measure(available);
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_label(offered, natural); });
+}
+Size Label::measure_label(Size available, bool natural) {
+    if (!natural && !auto_size()) return measure_control(available, false);
     if (!has_control_styling()) {
-        if (!wrapping() || !wrapped_measurer_) return Control::measure(available);
-        return constrain(wrapped_text(available.width), available);
+        if (!wrapping() || !wrapped_measurer_) return measure_control(available, natural);
+        return constrain_measure(wrapped_text(available.width), available, natural);
     }
     const auto inner = content_bounds({0, 0, available.width, available.height});
     const auto* root = effective_control_style_values(StylePart::root);
     const auto* typography = effective_control_style_values(text_part());
     if ((!root || part_style_layout_equal(*root, {})) &&
         (!typography || part_style_layout_equal(*typography, {})) && !wrapping())
-        return Control::measure(available);
+        return measure_control(available, natural);
     const auto padding = root && root->padding ? *root->padding : Insets{};
     const auto border = root && root->border_thickness ? *root->border_thickness : Insets{};
     const auto text = wrapping() && wrapped_measurer_ ? wrapped_text(inner.width) : measured_text();
-    return constrain({text.width + padding.left + padding.right + border.left + border.right,
-        text.height + padding.top + padding.bottom + border.top + border.bottom}, available);
+    return constrain_measure({text.width + padding.left + padding.right + border.left + border.right,
+        text.height + padding.top + padding.bottom + border.top + border.bottom}, available, natural);
 }
 
 ScrollView::ScrollView(std::shared_ptr<Element> content, std::wstring name)
     : Control(ControlRole::scroll_view, std::move(name), {320, 240}), content_(std::move(content)) {
     adopt(content_);
 }
+std::shared_ptr<VirtualViewport> ScrollView::begin_virtual_viewport(std::uint32_t count, float pitch, std::uint64_t source) {
+    if ((virtual_viewport_ && !virtual_viewport_->closed()) || passthrough_)
+        throw std::logic_error("This ScrollView cannot begin another virtual viewport");
+    auto value = std::make_shared<VirtualViewport>(count, pitch, source);
+    const auto old_offset = offset_, old_extent = extent_;
+    const auto old_fill = fill_viewport_;
+    const auto previous = virtual_viewport_;
+    virtual_viewport_ = value;
+    fill_viewport_ = false;
+    offset_ = extent_ = 0;
+    try { invalidate(Invalidation::layout); }
+    catch (...) { virtual_viewport_ = previous; offset_ = old_offset; extent_ = old_extent; fill_viewport_ = old_fill; throw; }
+    return value;
+}
 Size ScrollView::measure(Size available) {
     if (!visible()) return {};
-    if (passthrough_) {
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_scroll(offered, natural); });
+}
+Size ScrollView::measure_scroll(Size available, bool natural) {
+    if (virtual_viewport_) return base_measure(available, natural);
+    if (passthrough_ || natural) {
         const auto p = layout_style::insets(effective_control_style_values(StylePart::root));
-        return constrain(layout_style::outer(content_->measure(layout_style::inner(available, p)), p), available);
+        auto inner = layout_style::inner(available, p);
+        const auto bar = !passthrough_ && !overlay_scrollbar_ ? effective_bar_width() : 0;
+        inner.width = std::max(0.0f, inner.width - bar);
+        if (!passthrough_) inner.height = std::numeric_limits<float>::infinity();
+        auto desired = content_->measure(inner);
+        desired.width += bar;
+        return constrain_measure(layout_style::outer(desired, p), available, natural);
     }
-    return Element::measure(available);
+    return base_measure(available, false);
 }
 StyleStateMask ScrollView::control_style_state_bits() const {
     return Control::control_style_state_bits() | (style_dragging_ ? style_states::dragging : 0) |
@@ -273,6 +343,15 @@ Rect ScrollView::scrollbar_thumb_track() const {
         layout_style::insets(effective_control_style_values(StylePart::scrollbar_track), {2, 0, 2, 0}));
 }
 Rect ScrollView::viewport() const {
+    auto result = available_viewport();
+    if (virtual_viewport_) {
+        const auto value = virtual_viewport_->closed() ? VirtualViewportRect{} : virtual_viewport_->committed();
+        result.width = std::min(result.width, value.width);
+        result.height = std::min(result.height, value.height);
+    }
+    return result;
+}
+Rect ScrollView::available_viewport() const {
     auto result = layout_style::content(*this, bounds());
     if (!passthrough_ && !overlay_scrollbar_) result.width = std::max(0.0f, result.width - effective_bar_width());
     return result;
@@ -280,6 +359,20 @@ Rect ScrollView::viewport() const {
 float ScrollView::maximum_offset() const { return passthrough_ ? 0 : std::max(0.0f, extent_ - viewport().height); }
 void ScrollView::arrange(Rect rectangle) {
     Element::arrange(rectangle);
+    if (virtual_viewport_) {
+        const auto committed = virtual_viewport_->closed() ? VirtualViewportRect{} : virtual_viewport_->committed();
+        offset_ = committed.offset; extent_ = committed.extent;
+        const auto visible_view = viewport();
+        if (style_scrollable_ != (extent_ > visible_view.height)) {
+            style_scrollable_ = extent_ > visible_view.height;
+            invalidate_control_style_state();
+        }
+        const auto view = available_viewport();
+        const auto layout_width = virtual_viewport_->layout_width();
+        content_->measure_with_context({layout_width, virtual_viewport_->layout_extent()}, {false, true});
+        content_->arrange_with_context({view.x, view.y - offset_, layout_width, virtual_viewport_->layout_extent()}, {false, true});
+        return;
+    }
     if (passthrough_) {
         const auto view = viewport();
         extent_ = view.height;
@@ -288,15 +381,22 @@ void ScrollView::arrange(Rect rectangle) {
     }
     const auto view = viewport();
     const auto desired = content_->measure({view.width, std::numeric_limits<float>::infinity()});
-    extent_ = std::max(view.height, desired.height);
+    extent_ = fill_viewport_ ? std::max(view.height, desired.height) : desired.height;
     if (style_scrollable_ != (extent_ > view.height)) {
         style_scrollable_ = extent_ > view.height;
         invalidate_control_style_state();
     }
     offset_ = std::clamp(offset_, 0.0f, maximum_offset());
-    content_->arrange({view.x, view.y - offset_, view.width, extent_});
+    const Rect content_bounds{view.x, view.y - offset_, view.width, extent_};
+    if (fill_viewport_) content_->arrange(content_bounds);
+    else content_->arrange_unbounded(content_bounds, Axis::vertical);
 }
 void ScrollView::set_offset(float value) {
+    if (virtual_viewport_) {
+        virtual_viewport_->request_offset(std::isnan(value) ? 0.0f :
+            std::clamp(value, 0.0f, virtual_viewport_->requested_maximum_offset()), false);
+        return;
+    }
     if (passthrough_) return;
     value = std::isnan(value) ? 0.0f : std::clamp(value, 0.0f, maximum_offset());
     if (offset_ == value) return;
@@ -305,6 +405,12 @@ void ScrollView::set_offset(float value) {
 }
 void ScrollView::reveal(Rect target) {
     const auto view = viewport();
+    if (virtual_viewport_) {
+        if (target.y < view.y) set_offset(offset_ + target.y - view.y);
+        else if (target.y + target.height > view.y + view.height)
+            set_offset(offset_ + std::min(target.y - view.y, target.y + target.height - view.y - view.height));
+        return;
+    }
     if (target.y < view.y) scroll_by(target.y - view.y);
     else if (target.y + target.height > view.y + view.height)
         scroll_by(std::min(target.y - view.y, target.y + target.height - view.y - view.height));
@@ -387,7 +493,8 @@ void Button::set_behavior(ButtonBehavior value) {
         throw std::invalid_argument("Invalid button behavior");
     if (behavior_ == value) return;
     cancel(); behavior_ = value;
-    invalidate(visual_style() == VisualStyle::winui && auto_size() ? Invalidation::layout : Invalidation::paint);
+    invalidate(has_axis_constraints() || (visual_style() == VisualStyle::winui && auto_size()) ?
+        Invalidation::layout : Invalidation::paint);
 }
 void Button::set_appearance(ButtonAppearance value) {
     if (value < ButtonAppearance::standard || value > ButtonAppearance::subtle)
@@ -473,21 +580,32 @@ void Button::set_style_values(ButtonStyleValues values) {
     next->local = std::move(values);
     replace_style_data(std::move(next));
 }
-Size Button::measure_styled(Size available) {
+Size Button::measure(Size available) {
+    if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_button(offered, natural); });
+}
+Size Button::measure_button(Size available, bool natural) {
+    if (has_control_styling()) return measure_control_styled(available, natural);
+    if (style_data_) return measure_styled(available, natural);
+    const float size = style_metrics(visual_style()).button_height;
+    return icon_ == ButtonIcon::none || (!natural && !auto_size()) ? measure_control(available, natural) :
+        constrain_measure({size, size}, available, natural);
+}
+Size Button::measure_styled(Size available, bool natural) {
     if (!visible()) return {};
     const auto* values = effective_style_values();
     const auto metrics = style_metrics(visual_style());
-    if (auto_size() && values && (values->padding || values->border_thickness)) {
+    if ((natural || auto_size()) && values && (values->padding || values->border_thickness)) {
         const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
         const auto padding = values->padding.value_or(default_button_padding(visual_style()));
         const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
         const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
-        return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
+        return constrain_measure({text.width + padding.left + padding.right + border.left + border.right + extra,
             std::max(values->padding ? 0.0f : metrics.button_height,
-                text.height + padding.top + padding.bottom + border.top + border.bottom)}, available);
+                text.height + padding.top + padding.bottom + border.top + border.bottom)}, available, natural);
     }
-    return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) :
-        constrain({metrics.button_height, metrics.button_height}, available);
+    return icon_ == ButtonIcon::none || (!natural && !auto_size()) ? measure_control(available, natural) :
+        constrain_measure({metrics.button_height, metrics.button_height}, available, natural);
 }
 PartStyleValues Button::surface_style_values() const {
     return merge_part_values(control_style_projection_values(StylePart::root), own_surface_style_values());
@@ -574,17 +692,17 @@ Rect Button::icon_bounds(Rect bounds) const {
         content.y + (vertical == StyleAlignment::start || vertical == StyleAlignment::stretch ? 0 :
         vertical == StyleAlignment::end ? content.height - actual : (content.height - actual) / 2), actual, actual};
 }
-Size Button::measure_control_styled(Size available) {
+Size Button::measure_control_styled(Size available, bool natural) {
     if (!visible()) return {};
-    if (!auto_size()) return Element::measure(available);
+    if (!natural && !auto_size()) return base_measure(available, false);
     const auto values = surface_style_values();
     const auto* label = effective_control_style_values(StylePart::label);
     const auto* icon = effective_control_style_values(StylePart::icon);
     const auto* arrow = effective_control_style_values(StylePart::arrow);
     if (part_style_layout_equal(values, {}) && (!label || part_style_layout_equal(*label, {})) &&
         (!icon || part_style_layout_equal(*icon, {})) && (!arrow || part_style_layout_equal(*arrow, {})))
-        return style_data_ ? measure_styled(available) : icon_ == ButtonIcon::none ? Control::measure(available) :
-            constrain({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available);
+        return style_data_ ? measure_styled(available, natural) : icon_ == ButtonIcon::none ? measure_control(available, natural) :
+            constrain_measure({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available, natural);
     const auto metrics = style_metrics(visual_style());
     const auto padding = values.padding.value_or(default_button_padding(visual_style()));
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
@@ -602,9 +720,9 @@ Size Button::measure_control_styled(Size available) {
         text.width += size + pad.left + pad.right;
         text.height = std::max(text.height, size + pad.top + pad.bottom);
     }
-    return constrain({text.width + padding.left + padding.right + border.left + border.right,
+    return constrain_measure({text.width + padding.left + padding.right + border.left + border.right,
         std::max(values.padding ? 0.0f : metrics.button_height,
-            text.height + padding.top + padding.bottom + border.top + border.bottom)}, available);
+            text.height + padding.top + padding.bottom + border.top + border.bottom)}, available, natural);
 }
 void Button::set_repeat_timing(unsigned delay, unsigned interval) {
     if (delay < 100 || delay > 60000 || interval < 16 || interval > 60000)
@@ -729,18 +847,21 @@ Rect Toggle::mark_bounds(Rect bounds, bool enabled) const {
 }
 Size Toggle::measure(Size available) {
     if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) { return measure_toggle(offered, natural); });
+}
+Size Toggle::measure_toggle(Size available, bool natural) {
     const auto* root = effective_style_values(StylePart::root);
     const auto* indicator = effective_style_values(StylePart::indicator);
     const bool layout_affecting = (root && (root->padding || root->border_thickness)) || (indicator && indicator->size);
-    if (!auto_size() || (!layout_affecting && !switch_)) return Control::measure(available);
+    if ((!natural && !auto_size()) || (!layout_affecting && !switch_)) return measure_control(available, natural);
     const auto text = measured_text();
     const auto layout = layout_metrics();
     const float width = layout.padding.left + layout.border.left + layout.indicator_size * (switch_ ? 2 : 1) + layout.gap + text.width +
         layout.padding.right + layout.border.right;
     const float height = std::max(text.height, layout.indicator_size) + layout.padding.top + layout.padding.bottom +
         layout.border.top + layout.border.bottom;
-    return constrain({width, switch_ && !layout_affecting ?
-        std::max(visual_style() == VisualStyle::winui ? 40.0f : 32.0f, height) : height}, available);
+    return constrain_measure({width, switch_ && !layout_affecting ?
+        std::max(visual_style() == VisualStyle::winui ? 40.0f : 32.0f, height) : height}, available, natural);
 }
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;

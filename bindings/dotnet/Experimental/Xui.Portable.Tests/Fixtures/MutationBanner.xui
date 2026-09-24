@@ -1,0 +1,10 @@
+namespace PortableMutation;
+
+component MutationBanner {
+    param string Id;
+    view {
+        VStack() {
+            Text("Scoped reusable content", id: Id);
+        }
+    }
+}

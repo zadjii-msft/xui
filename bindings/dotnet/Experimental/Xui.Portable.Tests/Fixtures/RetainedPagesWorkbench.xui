@@ -1,0 +1,55 @@
+namespace PortableNavigation;
+
+component RetainedPagesWorkbench {
+    state (global::Xui.Experimental.Portable.PageItem[] Items, ulong? Selected) OpenPages = ([], null);
+    state string Selection = "No selection";
+    state string Activation = "No activation";
+    state string CloseRequest = "No close request";
+    state int Changes = 0;
+    state bool PaneVisible = true;
+
+    view {
+        VStack(spacing: 8) {
+            NavigationView("Workspace sections", pages: Documents, change: SelectionChanged,
+                activate: Activated, expanded: true, ref: Navigation, id: "workspace-navigation");
+            TabStrip("Open documents", pages: Documents, change: SelectionChanged, activate: Activated,
+                close: CloseRequested, closable: true, ref: Tabs, id: "workspace-tabs");
+            Text(Selection, id: "page-selection");
+            Text(Activation, id: "page-activation");
+            Text(CloseRequest, id: "page-close-request");
+            Text($"Changes: {Changes}", id: "page-changes");
+            Button("Reset workspace fixture", click: Reset, id: "pages-reset");
+            Button("Reverse retained pages", click: Reverse, id: "pages-reverse");
+            Button("Close selected page after approval", click: CloseSelected, id: "pages-close-selected");
+            Button("Disable tab input", click: DisableTabs, id: "pages-disable-tabs");
+            PageView("Document pages", pages: OpenPages.Items, selected: OpenPages.Selected, visible: PaneVisible, ref: Documents, flex: 1);
+        }
+    }
+    code csharp {
+        public void Open() => OpenPages = ([
+            global::Xui.Experimental.Portable.PageItem.Create(1UL, "First document", host => new global::PortableMutation.MutationRow(host, "first")),
+            global::Xui.Experimental.Portable.PageItem.Create(9007199254740993UL, "Second document", host => new global::PortableMutation.MutationRow(host, "second"))
+        ], 1UL);
+        void SelectionChanged(ulong id) {
+            Selection = "Selected: " + id.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+            Changes++;
+            OpenPages = (OpenPages.Items, id);
+        }
+        void Activated(ulong id) => Activation = "Activated: " + id.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+        void CloseRequested(ulong id) => CloseRequest = "Close requested: " + id.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+        void Reset() {
+            OpenPages = ([], null);
+            Open();
+            Selection = "No selection";
+            Activation = "No activation";
+            CloseRequest = "No close request";
+            Changes = 0;
+            Tabs.Enabled = true;
+            Navigation.Visible = true;
+            PaneVisible = true;
+        }
+        void Reverse() => OpenPages = (global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Reverse(OpenPages.Items)), Documents.Selected);
+        void CloseSelected() => OpenPages = (global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Where(OpenPages.Items, item => item.Entry.Id != Documents.Selected)), null);
+        void DisableTabs() => Tabs.Enabled = false;
+    }
+}

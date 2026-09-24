@@ -1,0 +1,3 @@
+# Preserve the hash-pinned upstream font and license bytes on every checkout.
+Abel-Regular.ttf binary
+OFL.txt -text

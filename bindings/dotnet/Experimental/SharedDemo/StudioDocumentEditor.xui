@@ -1,0 +1,38 @@
+namespace PortableDemo;
+
+component StudioDocumentEditor {
+    param string Key;
+    param WorkspaceStudioController Controller;
+    state StudioDocumentDraft Draft = StudioCatalog.Original("doc-00001");
+    state bool Analyzing = false;
+    state bool HasChanges = false;
+    state bool ShortHeight = false;
+
+    view {
+        VStack(spacing: ShortHeight ? 4 : 8, padding: ShortHeight ? 4 : 12) {
+            TextInput("Document title", text: Draft.Title, change: SetTitle, captionVisible: true,
+                placeholder: "Describe this document", help: "Local draft title. Closing a tab keeps its changes in Drafts.",
+                ref: TitleInput, id: Key + "-title");
+            Text(HasChanges ? "LOCAL DRAFT / NOT SAVED TO DISK" : "GENERATED SAMPLE / LOCAL ONLY",
+                visible: !ShortHeight, textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2), id: Key + "-draft-state");
+            MultilineText("Document content", text: Draft.Body, change: SetBody, maximumLength: 65536,
+                flex: 1, ref: BodyInput, id: Key + "-body",
+                help: "Edit this local document. Enter inserts a new line. No file is read, saved, or uploaded.");
+            Text(Draft.Validation, visible: !ShortHeight || !Draft.CanAnalyze,
+                textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2), id: Key + "-validation");
+            HStack(spacing: 8) {
+                Button(Analyzing ? "Analyzing..." : "Analyze document", click: Analyze,
+                    visible: !ShortHeight, enabled: Draft.CanAnalyze && !Analyzing,
+                    ref: AnalyzeButton, id: Key + "-analyze", flex: 1);
+                Button("Revert sample", click: Revert, visible: !ShortHeight, enabled: HasChanges,
+                    ref: RevertButton, id: Key + "-revert", flex: 1);
+            }
+        }
+    }
+    code csharp {
+        void SetTitle(string text) => Controller.SetTitle(Key, text);
+        void SetBody(string text) => Controller.SetBody(Key, text);
+        void Analyze() => Controller.Analyze();
+        void Revert() => Controller.RevertDocument(Key);
+    }
+}

@@ -34,7 +34,14 @@ public:
     // Backend clock delivery. No worker, timer, or callback belongs to the model.
     void advance(Clock::time_point now) override;
     void settle() override;
+    bool portable() const { return portable_; }
+    bool portable_cancelled() const { return portable_cancelled_; }
+    static void validate_portable_content(const std::shared_ptr<Element>& content);
+    void validate_portable_state(bool open, unsigned duration, RevealDirection direction, bool initial) const;
+    void apply_portable_state(bool open, unsigned duration, RevealDirection direction, bool initial);
+    void cancel_portable();
 private:
+    friend struct RevealTestAccess;
     std::shared_ptr<Element> child_[1];
     unsigned duration_{};
     bool open_{}, animating_{};
@@ -43,6 +50,7 @@ private:
     RevealLayout layout_{RevealLayout::fixed};
     RevealDirection direction_{RevealDirection::bottom};
     Size expanded_size(Size available);
+    bool portable_{}, portable_cancelled_{};
 };
 
 }

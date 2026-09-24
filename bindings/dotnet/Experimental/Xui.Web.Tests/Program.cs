@@ -59,6 +59,9 @@ try
 }
 finally { SynchronizationContext.SetSynchronizationContext(original); }
 Console.WriteLine($"Browser dispatcher: {assertions} assertions passed.");
+Console.WriteLine($"Browser services: {await BrowserServiceChecks.Run()} assertions passed.");
+Console.WriteLine($"Browser storage: {await BrowserStorageChecks.Run()} assertions passed.");
+Console.WriteLine($"Browser fatal errors: {BrowserErrorChecks.Run()} assertions passed.");
 
 sealed class QueueContext : SynchronizationContext
 {

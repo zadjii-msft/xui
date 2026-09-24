@@ -1,0 +1,35 @@
+<Project>
+  <PropertyGroup>
+    <_XuiExperimentalAssetsImported>true</_XuiExperimentalAssetsImported>
+  </PropertyGroup>
+  <Target Name="PrepareExperimentalXuiAssets" BeforeTargets="AssignTargetPaths" Condition="'@(XuiAsset)' != ''">
+    <Error Code="XUIA005" Condition="'@(XuiAsset->Count())' &gt; '4096'"
+           Text="An assembly may declare at most 4096 XuiAsset items." />
+    <Error Code="XUIA006" Condition="$([System.String]::Copy('%(EmbeddedResource.LogicalName)').StartsWith('Xui.Asset.'))"
+           Text="EmbeddedResource '%(EmbeddedResource.Identity)' uses reserved Xui.Asset. metadata. Declare it with XuiAsset and AssetId instead." />
+    <Error Code="XUIA006" Condition="$([System.String]::Copy('%(EmbeddedResource.ManifestResourceName)').StartsWith('Xui.Asset.'))"
+           Text="EmbeddedResource '%(EmbeddedResource.Identity)' uses reserved Xui.Asset. manifest metadata. Declare it with XuiAsset and AssetId instead." />
+    <Error Code="XUIA001" Condition="'%(XuiAsset.AssetId)' == ''"
+           Text="XuiAsset '%(XuiAsset.Identity)' requires an explicit AssetId." />
+    <Error Code="XUIA002"
+           Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiAsset.AssetId)', '\A(?=.{1,160}\z)[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*\z'))"
+           Text="XuiAsset '%(XuiAsset.Identity)' has an invalid AssetId '%(XuiAsset.AssetId)'. Use 1-160 lowercase ASCII characters with slash-separated segments starting and ending in a letter or digit." />
+    <Error Code="XUIA003" Condition="!Exists('%(XuiAsset.FullPath)')"
+           Text="XuiAsset source does not exist: %(XuiAsset.Identity)." />
+    <ItemGroup>
+      <_XuiAssetId Include="@(XuiAsset->'%(AssetId)')" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_XuiAssetId)">
+      <Output TaskParameter="Filtered" ItemName="_XuiUniqueAssetId" />
+    </RemoveDuplicates>
+    <Error Code="XUIA004" Condition="'@(_XuiAssetId->Count())' != '@(_XuiUniqueAssetId->Count())'"
+           Text="Each XuiAsset must have a unique AssetId within its assembly." />
+    <ItemGroup>
+      <EmbeddedResource Include="@(XuiAsset)">
+        <LogicalName>Xui.Asset.%(XuiAsset.AssetId)</LogicalName>
+        <WithCulture>false</WithCulture>
+        <Type>Non-Resx</Type>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
+</Project>

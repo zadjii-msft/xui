@@ -78,10 +78,167 @@ void image_fit_fill() {
         require(drawing.end(), "End image fit/fill frame");
     }
 }
+void axis_native_sizing() {
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        WindowOptions options; options.title = L"XUI native axis sizing"; options.size = {700, 650}; options.visual_style = style;
+        Window window(options);
+        auto root = std::make_shared<Stack>(Axis::vertical);
+        auto input = std::make_shared<TextInput>(L"Axis caption");
+        input->set_text(L"Retained axis input");
+        input->set_fixed_size({260, 96});
+        input->set_axis_constraints(AxisConstraints{280.0f}, AxisConstraints{});
+        auto wrapped = std::make_shared<Label>(L"Wrapped text must measure height using the independently fixed width.");
+        wrapped->set_wrapping(true);
+        wrapped->set_fixed_size({400, 20});
+        wrapped->set_axis_constraints(AxisConstraints{100.0f}, AxisConstraints{});
+        root->add(input); root->add(wrapped);
+        window.set_content(root);
+        unsigned changes{};
+        input->on_change([&](const auto&) { ++changes; });
+        bool ran{};
+        window.post([&] {
+            const auto hwnd = FindWindowW(L"Xui.Window.1", options.title.c_str());
+            require(hwnd != nullptr, "Axis native window exists");
+            const auto edit = child(hwnd, L"Retained axis input"), caption = child(hwnd, L"Axis caption");
+            const auto id = input->id(); const auto native_id = GetDlgCtrlID(edit);
+            SetFocus(edit); SendMessageW(edit, EM_SETSEL, 2, 6);
+            const auto focus = GetFocus();
+            require(focus == edit, "Axis fixture uses real native input focus");
+            const auto retained = [&] {
+                DWORD start{}, end{};
+                SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+                require(IsWindow(edit) && child(hwnd, L"Retained axis input") == edit && input->id() == id &&
+                    GetDlgCtrlID(edit) == native_id && GetFocus() == focus && start == 2 && end == 6 && changes == 0,
+                    "Axis changes preserve HWND/id/focus/selection and emit no text changes");
+            };
+            require(input->bounds().width == 280 && wrapped->bounds().width == 100 &&
+                wrapped->bounds().height > 20, "Fixed width precedes native wrapped-height measurement");
+            const auto baseline_height = input->bounds().height;
+            PartStyleValues font; font.font_size = 32.0f;
+            input->set_control_style_values(StylePart::text, font);
+            input->set_control_style_values(StylePart::header, font);
+            flush(hwnd);
+            require(input->bounds().height > baseline_height && input->bounds().width == 280,
+                "Axis Auto height uses current field and caption typography");
+            RECT edit_bounds{}, caption_bounds{};
+            GetWindowRect(edit, &edit_bounds); GetWindowRect(caption, &caption_bounds);
+            const float scale = GetDpiForWindow(hwnd) / 96.0f;
+            const auto dc = GetDC(edit);
+            require(dc != nullptr, "Read native EDIT font metrics");
+            const auto previous = SelectObject(dc, reinterpret_cast<HFONT>(SendMessageW(edit, WM_GETFONT, 0, 0)));
+            TEXTMETRICW metrics{};
+            const auto measured = GetTextMetricsW(dc, &metrics);
+            SelectObject(dc, previous); ReleaseDC(edit, dc);
+            require(measured && metrics.tmHeight / scale >= 32 &&
+                edit_bounds.bottom - edit_bounds.top >= metrics.tmHeight &&
+                (caption_bounds.bottom - caption_bounds.top) / scale >= 48 && caption_bounds.bottom <= edit_bounds.top,
+                "Large native EDIT and caption have separate, unclipped vertical allocations");
+            retained();
+            input->set_axis_constraints(AxisConstraints{}, std::nullopt); flush(hwnd);
+            require(input->bounds().height == 96 && input->measure({1000, 1000}).width == 320,
+                "Auto width leaves legacy fixed height intact");
+            input->set_fixed_size({210, 110}); flush(hwnd);
+            require(input->bounds().height == 110 && input->measure({1000, 1000}).width == 320,
+                "Legacy edits remain masked only on the overridden axis");
+            input->set_axis_constraints(std::nullopt, std::nullopt); flush(hwnd);
+            require(input->bounds().width == 210 && input->bounds().height == 110,
+                "Clearing overrides restores the most recent legacy size");
+            input->set_axis_constraints(AxisConstraints{{}, 400, 500.0f}, AxisConstraints{});
+            root->set_maximum_size({260, 1000}); flush(hwnd);
+            require(root->bounds().width == 260 && input->bounds().width == 260,
+                "Actual parent allocation wins over axis minimum");
+            retained();
+            ran = true; window.close();
+        });
+        const auto result = Application::run(window);
+        if (result) std::wcerr << window.error() << L'\n';
+        require(result == 0 && ran, "Native per-axis sizing completes");
+    }
+}
+void hidden_stack_spacing() {
+    WindowOptions options; options.title = L"XUI hidden Stack spacing"; options.size = {700, 650}; options.show_activated = false;
+    Window window(options);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto group = std::make_shared<Stack>(Axis::vertical); group->set_spacing(10);
+    std::array<std::shared_ptr<Button>, 3> children;
+    for (std::size_t i = 0; i < children.size(); ++i) {
+        children[i] = std::make_shared<Button>(L"Hidden spacing " + std::to_wstring(i));
+        children[i]->set_preferred_size({100, 20.0f + 10 * i}); group->add(children[i]);
+    }
+    auto flex = std::make_shared<Stack>(Axis::horizontal); flex->set_spacing(10); flex->set_fixed_size({200, 40});
+    std::array<std::shared_ptr<Button>, 3> flexible;
+    for (std::size_t i = 0; i < flexible.size(); ++i) {
+        flexible[i] = std::make_shared<Button>(L"Hidden flex " + std::to_wstring(i));
+        flexible[i]->set_preferred_size({30, 20}); flex->add(flexible[i], i == 1 ? 98.0f : 1.0f);
+    }
+    flexible[1]->set_visible(false);
+    auto zero = std::make_shared<Stack>(Axis::vertical); zero->set_spacing(10);
+    auto before = std::make_shared<Button>(L"Before visible empty Stack"), after = std::make_shared<Button>(L"After visible empty Stack");
+    before->set_preferred_size({100, 20}); after->set_preferred_size({100, 30});
+    zero->add(before); zero->add(std::make_shared<Stack>(Axis::vertical)); zero->add(after);
+    root->add(group); root->add(flex); root->add(zero); window.set_content(root);
+    bool ran{};
+    window.post([&] {
+        const auto hwnd = FindWindowW(L"Xui.Window.1", options.title.c_str());
+        require(hwnd != nullptr, "Hidden Stack native window exists");
+        const float scale = GetDpiForWindow(hwnd) / 96.0f;
+        std::array<HWND, 3> original{};
+        for (std::size_t i = 0; i < children.size(); ++i) original[i] = child(hwnd, children[i]->name().c_str());
+        for (const auto mask : {5u, 6u, 3u, 0u, 7u, 5u, 7u}) {
+            unsigned count{}; float height{};
+            for (std::size_t i = 0; i < children.size(); ++i) {
+                children[i]->set_visible((mask & (1u << i)) != 0);
+                if (children[i]->visible()) { ++count; height += 20.0f + 10 * i; }
+            }
+            if (count) height += (count - 1) * 10.0f;
+            flush(hwnd);
+            require(std::abs(group->bounds().height - height) < 0.01f, "Hidden children reserve no native Stack gaps");
+            float position = group->bounds().y;
+            bool previous{};
+            for (std::size_t i = 0; i < children.size(); ++i) {
+                const auto bounds = children[i]->bounds();
+                require(group->child_at(i) == children[i] && child(hwnd, children[i]->name().c_str()) == original[i],
+                    "Visibility preserves authored indices and native HWND identity");
+                if (!children[i]->visible()) {
+                    require(bounds.width == 0 && bounds.height == 0 && !IsWindowVisible(original[i]),
+                        "Hidden native child has zero model bounds and hidden HWND");
+                    continue;
+                }
+                if (previous) position += 10;
+                require(bounds.y == position && IsWindowVisible(original[i]), "Visible native child has one preceding gap");
+                RECT actual{}; GetWindowRect(original[i], &actual);
+                MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&actual), 2);
+                require(actual.top == std::lround(bounds.y * scale) &&
+                    actual.bottom - actual.top == std::lround(bounds.height * scale),
+                    "Actual native child geometry matches collapsed layout");
+                position += bounds.height; previous = true;
+            }
+            require(flexible[0]->bounds().width == 95 && flexible[2]->bounds().width == 95 &&
+                flexible[2]->bounds().x - flexible[0]->bounds().x == 105 &&
+                flexible[1]->bounds().width == 0 && flexible[1]->bounds().height == 0,
+                "Hidden native flex child consumes neither weight nor spacing");
+            require(after->bounds().y - before->bounds().y == 40, "Visible empty Stack still participates in spacing");
+        }
+        window.stack_move(*group, *children[0], 2);
+        require(group->child_at(0) == children[1] && group->child_at(2) == children[0],
+            "Native move retains authored child ordering");
+        children[2]->set_visible(false); flush(hwnd);
+        require(children[0]->bounds().y - children[1]->bounds().y == 40 && group->bounds().height == 60,
+            "Reordered hidden middle child adds no gap");
+        for (std::size_t i = 0; i < children.size(); ++i)
+            require(child(hwnd, children[i]->name().c_str()) == original[i], "Reorder and visibility keep native peers");
+        ran = true; window.close();
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    require(result == 0 && ran, "Hidden Stack native geometry completes");
+}
 }
 int main() {
     try {
         image_fit_fill();
+        axis_native_sizing();
+        hidden_stack_spacing();
         Application app;
         auto window = app.create_window({L"XUI presentation regression", {700, 650}});
         window->set_show_activated(false);

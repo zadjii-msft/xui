@@ -1,0 +1,70 @@
+namespace PortableLayout;
+
+component GridSizingShowcase {
+    state global::Xui.Experimental.Portable.GridTrack[] Rows = [
+        new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1),
+        new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1),
+        new(global::Xui.Experimental.Portable.TrackSizing.Star, 1)];
+    state global::Xui.Experimental.Portable.GridTrack[] Columns = [
+        new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 60),
+        new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1, 40, 140),
+        new(global::Xui.Experimental.Portable.TrackSizing.Star, 1, 40)];
+    state global::Xui.Experimental.Portable.KeyedItem[] Notes = [];
+    state string Draft = "";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Static grid, retained content", id: "grid-title");
+            ScrollView("Grid sizing examples", flex: 1, id: "grid-content") {
+                VStack(spacing: 12) {
+                    Grid("Account form", rows: Rows, columns: Columns, ref: Layout) {
+                        Text("Account", row: 0, column: 0, rowSpan: 2, ref: Sidebar, id: "grid-sidebar");
+                        TextInput("Contact name", text: Draft, change: SetDraft,
+                            row: 0, column: 1, columnSpan: 2, ref: Input, id: "grid-input");
+                        Text("Draft: " + Draft, row: 1, column: 1, columnSpan: 2, ref: Summary, id: "grid-summary");
+                        KeyedVStack(Notes, row: 2, column: 0, columnSpan: 3, ref: NoteView);
+                    }
+                    Button("Compact columns", click: Compact, id: "grid-compact");
+                    Button("Toggle owned note", click: ToggleNote, id: "grid-toggle-note");
+                    ScrollView("Unbounded star rows", preferredSize: (240, 200), id: "unbounded-grid-scroll") {
+                        Grid("Natural rows inside a finite viewport",
+                            rows: [new(global::Xui.Experimental.Portable.TrackSizing.Star, 1), new(global::Xui.Experimental.Portable.TrackSizing.Star, 3)],
+                            ref: UnboundedGrid) {
+                            Text("Natural forty", preferredSize: (100, 40), row: 0, ref: NaturalFirst, id: "grid-natural-first");
+                            Text("Natural eighty", preferredSize: (100, 80), row: 1, ref: NaturalSecond, id: "grid-natural-second");
+                        }
+                    }
+                    Grid("Fixed row establishes a flex budget",
+                        rows: [new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 200)], ref: FixedScopeGrid) {
+                        VStack(spacing: 8, ref: FixedScopeStack) {
+                            Text("One fixed-row share", preferredSize: (100, 32), flex: 1,
+                                ref: FixedScopeFirst, id: "fixed-scope-first");
+                            Text("Three fixed-row shares", preferredSize: (100, 48), flex: 3,
+                                ref: FixedScopeSecond, id: "fixed-scope-second");
+                        }
+                    }
+                    Grid("Mixed span keeps natural child sizing",
+                        rows: [new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 200), new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1)],
+                        ref: MixedScopeGrid) {
+                        VStack(spacing: 8, rowSpan: 2, ref: MixedScopeStack) {
+                            Text("Natural mixed-span first", preferredSize: (100, 32), flex: 1,
+                                ref: MixedScopeFirst, id: "mixed-scope-first");
+                            Text("Natural mixed-span second", preferredSize: (100, 48), flex: 3,
+                                ref: MixedScopeSecond, id: "mixed-scope-second");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    code csharp {
+        void SetDraft(string value) => Draft = value;
+        void Compact() => Columns = [
+            new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 40),
+            new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1, 30, 80),
+            new(global::Xui.Experimental.Portable.TrackSizing.Star, 2, 20, 180)];
+        void ToggleNote() => Notes = Notes.Length == 0
+            ? [global::Xui.Experimental.Portable.KeyedItem.Create("note", host => new global::PortableMutation.MutationBanner(host, "grid-note"))]
+            : [];
+    }
+}

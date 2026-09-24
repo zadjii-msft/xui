@@ -1,0 +1,33 @@
+namespace PortableDemo;
+
+component StudioOperationsMetrics {
+    param bool Compact;
+    param global::Xui.Experimental.Portable.GridTrack[] RowTracks;
+    param global::Xui.Experimental.Portable.GridTrack[] ColumnTracks;
+    state StudioOperationsReport? Report = null;
+
+    view {
+        VStack() {
+            Grid("Captured workload metrics", rows: RowTracks, columns: ColumnTracks, ref: MetricsGrid) {
+                Text(Report == null ? "Documents: --" : "Documents: " + Report.Documents.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: 0, column: 0, id: "operations-documents");
+                Text(Report == null ? "Drafts: --" : "Drafts: " + Report.ModifiedDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: Compact ? 2 : 0, column: Compact ? 0 : 2, id: "operations-drafts");
+                Text(Report == null ? "Open documents: --" : "Open documents: " + Report.OpenDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: Compact ? 4 : 2, column: 0, id: "operations-open");
+                Text(Report == null ? "Words: --" : "Words: " + Report.Words.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: Compact ? 6 : 2, column: Compact ? 0 : 2, id: "operations-words");
+                Text(Report == null ? "Characters: --" : "Characters: " + Report.Characters.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: Compact ? 8 : 4, column: 0, id: "operations-characters");
+                Text(Report == null ? "Checklist items: --" : "Checklist items: " + Report.ChecklistItems.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                    row: Compact ? 10 : 4, column: Compact ? 0 : 2, id: "operations-tasks");
+            }
+        }
+    }
+}

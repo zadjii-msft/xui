@@ -3,7 +3,7 @@ using PortableDemo;
 using Xui.Experimental.Portable;
 using Stack = Xui.Experimental.Portable.Stack;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private static void Assert(bool condition, string message)
@@ -23,6 +23,29 @@ internal static class Program
         OwnershipAndValidation();
         DispatchAndLifetime();
         BackendFailures();
+        OrderModelChecks();
+        OrderScenarioChecks();
+        OrderRetainedStateChecks();
+        OrderRunnerChecks();
+        DynamicCompositionChecks();
+        DynamicFailureChecks();
+        DynamicScopeChecks();
+        CancellableDispatchChecks();
+        PrimitiveControlChecks();
+        SettingsScenarioChecks();
+        ComponentLifetimeChecks();
+        AxisLayoutChecks();
+        GridLayoutChecks();
+        ViewportLeaseChecks();
+        TextInteractionChecks();
+        PresentationChecks();
+        PresentationRuntimeChecks();
+        FormsChecks();
+        ChoiceRangeChecks();
+        RetainedPageChecks();
+        ImageElementChecks();
+        MessageDialogChecks();
+        BackendTreePreflightChecks();
         Console.WriteLine($"Portable runtime and generated demo: {assertions} assertions passed.");
     }
 
@@ -34,7 +57,8 @@ internal static class Program
         var backend = new Backend();
         Assert(demo.Root.SpacingValue == 12 && demo.Root.PaddingValue == 16, "Generated layout.");
         Assert(demo.Input.Name == "Your name" && demo.Input.Placeholder == "Ada", "Input identity.");
-        Assert(demo.Input.PreferredSize == new Size(280, 56), "Generated preferred size.");
+        Assert(demo.Input.PreferredSize is null && demo.Input.FixedSize is null,
+            "The sample input uses its native caption and editor height.");
         Assert(demo.Root.Children[1].Flex == 1, "Generated flex.");
         host.Attach(backend);
         int count = backend.Peers.Count;

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <base href="/">
+    <title>XUI packaged localization fixture</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="_content/Xui.Web/xui-dom.css">
+    <style>
+        body { margin: 0; font: 16px system-ui, sans-serif; }
+        #app { width: 100%; height: 90dvh; }
+        #errors { white-space: pre-wrap; color: #900; }
+    </style>
+</head>
+<body>
+    <output id="result">Loading</output>
+    <main id="app" aria-label="Localization package fixture"></main>
+    <div id="errors" role="alert" hidden></div>
+    <script>
+        window.localizationProofCompleted = () => document.getElementById("result").textContent = "PASS: packaged localization cultures and fallback.";
+        window.localizationProofFailed = error => document.getElementById("result").textContent = "FAIL: " + error;
+    </script>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

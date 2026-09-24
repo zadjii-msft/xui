@@ -5,7 +5,7 @@ namespace Xui;
 public enum RevealLayout : uint { Fixed = 0, Expand = 1 }
 public enum RevealDirection : uint { Bottom = 0, Top = 1, Left = 2, Right = 3 }
 
-public sealed class Reveal : Control
+public sealed partial class Reveal : Control
 {
     internal Reveal(Window window, ulong handle) : base(window, handle) { }
 

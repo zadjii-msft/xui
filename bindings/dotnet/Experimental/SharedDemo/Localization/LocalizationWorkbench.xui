@@ -1,0 +1,39 @@
+namespace PortableDemo.Localization;
+
+component LocalizationWorkbench {
+    state WorkbenchText Copy = LocalizationCatalog.Load("en");
+    state string Draft = "";
+    state int Count = 1234;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text(Copy.Title, ref: TitleLabel, id: "localization-title");
+            ScrollView(Copy.Title, flex: 1, id: "localization-content") {
+                VStack(spacing: 10) {
+                    Text(Copy.Description, id: "localization-description");
+                    TextInput(Copy.DraftCaption, text: Draft, change: EditDraft,
+                        placeholder: Copy.DraftPlaceholder, help: Copy.DraftHelp,
+                        ref: DraftInput, id: "localization-draft");
+                    Text(Copy.FormatCount(Count), ref: CountLabel, id: "localization-count");
+                    Button(Copy.AddOne, click: Increment, id: "localization-increment");
+                    Button(Copy.English, click: English, id: "localization-english");
+                    Button(Copy.German, click: German, id: "localization-german");
+                    Button(Copy.Arabic, click: Arabic, id: "localization-arabic");
+                    Text(Copy.FallbackNote, id: "localization-fallback");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        public void SelectLanguage(string cultureName) {
+            var next = LocalizationCatalog.Load(cultureName);
+            Copy = next;
+        }
+        void EditDraft(string value) => Draft = value;
+        void Increment() => Count = checked(Count + 1);
+        void English() => SelectLanguage("en");
+        void German() => SelectLanguage("de");
+        void Arabic() => SelectLanguage("ar");
+    }
+}

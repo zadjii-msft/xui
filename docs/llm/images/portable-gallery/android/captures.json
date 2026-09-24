@@ -1,0 +1,52 @@
+[
+  {
+    "sample": "task-board",
+    "component": "dev.xui.portable.gallery/dev.xui.portable.gallery.TaskBoardActivity",
+    "serial": "emulator-5554",
+    "api": "35",
+    "file": "D:\\dev\\copilot-worktrees\\xui\\zadjii-msft-fantastic-spork\\build\\portable-gallery\\android\\task-board.png",
+    "sha256": "9C02B2B04D9CE3FAFE29EF9247547FD60636FD12E4313393EC12D608C6A9DEDC",
+    "markers": [
+      "TASK BOARD",
+      "1 of 3 complete"
+    ]
+  },
+  {
+    "sample": "expense-ledger",
+    "component": "dev.xui.portable.gallery/dev.xui.portable.gallery.ExpenseLedgerActivity",
+    "serial": "emulator-5554",
+    "api": "35",
+    "file": "D:\\dev\\copilot-worktrees\\xui\\zadjii-msft-fantastic-spork\\build\\portable-gallery\\android\\expense-ledger.png",
+    "sha256": "7DF5568F74A961D011651CF3018E26BEC816A9735C924D7905BCCA7168AE6C3A",
+    "markers": [
+      "EXPENSE LEDGER",
+      "Spent: $75.25",
+      "Left: $74.75"
+    ]
+  },
+  {
+    "sample": "session-planner",
+    "component": "dev.xui.portable.gallery/dev.xui.portable.gallery.SessionPlannerActivity",
+    "serial": "emulator-5554",
+    "api": "35",
+    "file": "D:\\dev\\copilot-worktrees\\xui\\zadjii-msft-fantastic-spork\\build\\portable-gallery\\android\\session-planner.png",
+    "sha256": "E481816AE19F0294A8395EE13EED9571015F99ED24AD9D414B2FC70FEB068A9A",
+    "markers": [
+      "SESSION PLANNER",
+      "Finish: 10:30",
+      "80 min focus"
+    ]
+  },
+  {
+    "sample": "order-builder",
+    "component": "dev.xui.portable.orders/crc64aeb80365c5930c79.MainActivity",
+    "serial": "emulator-5554",
+    "api": "35",
+    "file": "D:\\dev\\copilot-worktrees\\xui\\zadjii-msft-fantastic-spork\\build\\portable-gallery\\android\\order-builder.png",
+    "sha256": "D9D371B38DF722F17918AE71DC9C0EC7EE966674E7AB7592AD96EB7331CC6BD9",
+    "markers": [
+      "XUI order builder",
+      "Total: $0.00"
+    ]
+  }
+]

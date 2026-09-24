@@ -1,10 +1,21 @@
 # Cross-platform roadmap and developer handoff
 
+**For the September 24 continuation, use the [current maintainer handoff](cross-platform-maintainer-handoff.md).**
+The overnight framework implementation is captured in a later local WIP preservation commit; cloning an older remote branch tip does not include that checkpoint.
+The original published provenance and starting-state descriptions below remain historical.
+
 Handoff date: September 23, 2026.
 Repository: <https://github.com/zadjii-msft/xui>.
 The starting branch is `zadjii-msft-xui-cross-platform`.
 This document records the integrated experiment and proposes the remaining implementation stages.
 It does not declare production Android or browser support.
+
+The [multi-platform framework completion plan](../specs/multi-platform-framework-plan.md) expands the remaining work into a proposed supported release, including host unification, dynamic composition, core controls, application services, packaging, CI, and release gates.
+Use that proposal for forward delivery planning; this document retains the experiment's provenance, original stages, and measured handoffs.
+
+The [receiving-machine continuation](#receiving-machine-continuation-september-23-2026) records subsequent work on this branch.
+Use the [single build/run workflow](../../CONTRIBUTING.md#build-one-app-for-windows-android-and-web) to build the shared application for all three hosts.
+The original provenance and blocker sections below remain historical evidence.
 
 ## Start here
 
@@ -138,6 +149,61 @@ The browser package references are 10.0.12.
 These versions record the environment, not a complete support matrix.
 Use the checked-in manifests and an approved package source.
 Do not copy machine-specific registry configuration or disable TLS.
+
+## Receiving-machine continuation, September 23, 2026
+
+Integration baseline `c346ec5e0d3643cf765e52de67128db45c43535e` merges local `main` at `8f9d7d9`.
+This includes the receiving machine's Visual Studio discovery fixes as well as the latest fetched mainline changes.
+The historical platform commits were not reapplied.
+Follow-on source changes are kept on the current integration branch; no package publication or production-support decision is implied.
+
+The machine runs Windows x64 with .NET SDK 10.0.301 and an installed Android workload.
+The Android emulator uses API 35, x86_64.
+Browser acceptance uses installed Microsoft Edge 153.0.4234.48 with Playwright 1.63.0.
+Exact tool versions, commands, results, and remaining limits are in the linked platform notes.
+
+| Area | Receiving-machine result | Still outside this evidence |
+| --- | --- | --- |
+| Stage 0 shared/Windows baseline | Portable runtime, generator, Android arithmetic/reference, browser dispatcher, native Windows build, and shared-source Windows smoke pass | Physical Windows IME, screen reader, and visual layout |
+| Stage 1A Android automation | Actual APK build/deployment, 30 native assertions, and 24 device checks pass on the existing API 35 AVD, including keyboard-visible layout, rotation, and background restoration | API 26/current-API support matrix, physical-device IME and TalkBack |
+| Stage 1B browser automation | Clean Debug runner and published Release runs at `/` and `/nested/xui/`, including offline C# callbacks, terminal navigation, and actual back-forward cache restoration | Physical IME, Narrator, browser zoom, and a broader browser/architecture matrix |
+| Repository-local author workflow | `Build-PortableDemo.ps1` builds the same `.xui` app for Windows, Android, and web; selected-platform run commands and command/failure regressions are available | Versioned portable packages and an out-of-repository template |
+
+The Android fix gives actual hardware key events precedence over `ImeAction.Done`, which Android 14 and later can also report for hardware Enter.
+The input requests an in-place keyboard, and the demo applies current system-bar, cutout, and IME insets so native scrolling keeps controls reachable in landscape.
+The browser fix changes the sample's HTML base URL to directory-relative, allowing one published site to work at the domain root or below a directory prefix.
+Browser tests no longer require the old unconditional GPU-disable workaround.
+The historical ARM64 teardown failure is not declared fixed by x64 success.
+
+The build command was exercised against all three real toolchains in both Debug and Release.
+The matching Windows native DLLs were checked and both resulting configurations passed the native smoke.
+Android Release included trimming/AOT; browser publication was exercised without the Debug test bridge.
+The integrated checkout's Android Debug APKs were then deployed through the selected-serial commands and passed the full native/device procedure again.
+This demonstrates one authored application with three platform hosts, not one executable that runs unchanged everywhere.
+The shared source and portable language subset remain unchanged.
+
+See [foundation and integrated workflow evidence](portable-foundation.md#receiving-machine-baseline-september-23-2026),
+[Android device evidence](android-experiment.md), and [browser evidence](dom-web.md).
+The full Stage 1 acceptance gates remain open for the manual and platform-matrix work above.
+Stage 2 conformance fixtures/CI and Stage 3 external consumer packaging remain follow-on work.
+The build convenience command is not a claim that those stages are complete.
+
+### Shared order-builder follow-on
+
+The next application-level conformance slice adds `SharedDemo/OrderBuilder.xui` and `OrderModel.cs`.
+The greeting remains the default smoke sample.
+`Build-PortableDemo.ps1 -Sample Order` builds separate native Windows, native Android, and browser hosts from those same sources.
+There is no server, purchase flow, second platform UI definition, or portable language expansion.
+
+The order builder exercises three retained inputs, visible validation, immutable C# state, dependent decimal totals, coupons, quantity limits, disabled actions, review/edit/reset, and long scrolling content.
+Seven shared scenarios supply 161 literal expectations to the recording backend and each real platform.
+Platform-specific checks additionally cover native input state, narrow layouts, keyboard navigation, Android focused-field recreation/backgrounding, and browser offline behavior and real navigation lifetime.
+The sample also exposed an overlapping browser error pane and an unnecessarily short landscape keyboard viewport; the host error layout and shared fixed-header allocation were corrected.
+
+This is a concrete start on Stage 2's shared conformance work, not completion of its full matrix or CI jobs.
+The [public sample guide](../specs/experimental-portable-xui.md#order-builder-sample), [contributor procedures](../../CONTRIBUTING.md#order-builder-conformance), and [shared implementation evidence](portable-foundation.md#shared-order-builder-september-23-2026) describe the delivered scope.
+Real keyed insertion/removal/reordering remains a later vertical slice with explicit identity, focus, event lifetime, and disposal semantics.
+The fixed catalog must not be represented as dynamic collection support.
 
 ## Roadmap
 

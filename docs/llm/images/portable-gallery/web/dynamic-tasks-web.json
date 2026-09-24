@@ -1,0 +1,18 @@
+{
+  "app": "dynamic-tasks",
+  "project": "WebGalleryDemo",
+  "source": "DynamicTaskBoard.xui",
+  "sourceSha256": "cf9db5ff7426bf804f19cc157d7a9585adc98722e5aa96bbabc1fccff4494d43",
+  "pngSha256": "334ec4b8d4ac0cda63a3aca81928e73722f8f2e29853263711ec193ebfcc2197",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=dynamic-tasks",
+  "offlineCallbacks": true,
+  "nodes": 38,
+  "nativeInputs": 4,
+  "overflow": false
+}

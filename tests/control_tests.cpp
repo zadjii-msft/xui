@@ -2,6 +2,9 @@
 #include "xui/file_list.hpp"
 #include <iostream>
 #include <stdexcept>
+#include "axis_constraints_tests.inc"
+#include "hidden_stack_tests.inc"
+#include "virtual_viewport_tests.inc"
 
 using namespace xui;
 namespace {
@@ -312,6 +315,6 @@ void virtual_list_control() {
 }
 }
 int main() {
-    try { behavior(); focus_and_lifetime(); virtual_list_control(); sizing_and_scroll(); std::cout << "Control tests passed\n"; return 0; }
+    try { axis_constraints_tests::run(); hidden_stack_tests::run(); virtual_viewport_tests::run(); behavior(); focus_and_lifetime(); virtual_list_control(); sizing_and_scroll(); std::cout << "Control tests passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

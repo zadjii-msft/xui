@@ -1,4 +1,5 @@
 #include "image_fixtures.hpp"
+#include "image_memory_fixture.hpp"
 #include "../src/images.hpp"
 #include "../src/async.hpp"
 #include "../src/drawing.hpp"
@@ -743,8 +744,13 @@ void gpu_tests() {
     empty();
 }
 }
+#include "image_memory_tests.inc"
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--memory-only") {
+            image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+            memory_tests(); CoUninitialize(); return 0;
+        }
         check(argc > 1, "Pass a project-local fixture directory");
         directory = std::filesystem::absolute(argv[1]);
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));

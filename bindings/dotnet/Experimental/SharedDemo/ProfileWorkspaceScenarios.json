@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "applications": [
+    {
+      "id": "profile-workspace",
+      "reset": "profile-reset",
+      "scenarios": [
+        {
+          "name": "edit-preview-save-and-load",
+          "steps": [
+            { "action": "click", "id": "profile-reset" },
+            { "action": "expect", "id": "profile-title", "text": "PROFILE WORKSPACE" },
+            { "action": "expect", "id": "profile-name", "text": "" },
+            { "action": "expect", "id": "profile-save", "enabled": false },
+            { "action": "expect", "id": "profile-preview", "enabled": false },
+            { "action": "expect", "id": "profile-status", "text": "Editor cleared. Stored draft was not changed." },
+            { "action": "change", "id": "profile-name", "value": "  Ada Lovelace  " },
+            { "action": "change", "id": "profile-role", "value": "Developer" },
+            { "action": "change", "id": "profile-location", "value": "London" },
+            { "action": "change", "id": "profile-focus", "value": "Accessible tools" },
+            { "action": "expect", "id": "profile-save", "enabled": true },
+            { "action": "expect", "id": "profile-status", "text": "Edits are not saved." },
+            { "action": "click", "id": "profile-preview" },
+            { "action": "expect", "id": "profile-name", "visible": false },
+            { "action": "expect", "id": "profile-preview-name", "text": "  Ada Lovelace  " },
+            { "action": "expect", "id": "profile-preview-role", "text": "Developer" },
+            { "action": "expect", "id": "profile-preview-location", "text": "London" },
+            { "action": "expect", "id": "profile-preview-focus", "text": "Accessible tools" },
+            { "action": "expect", "id": "profile-preview-notice", "text": "Preview only. Your stored draft changes only when Save draft succeeds." },
+            { "action": "click", "id": "profile-save" },
+            { "action": "expect", "id": "profile-status", "text": "Draft saved." },
+            { "action": "expect", "id": "profile-busy", "visible": false },
+            { "action": "expect", "id": "profile-error", "visible": false },
+            { "action": "click", "id": "profile-back" },
+            { "action": "expect", "id": "profile-name", "text": "  Ada Lovelace  " },
+            { "action": "change", "id": "profile-name", "value": "Unsaved edit" },
+            { "action": "expect", "id": "profile-status", "text": "Edits are not saved." },
+            { "action": "click", "id": "profile-load" },
+            { "action": "expect", "id": "profile-name", "text": "  Ada Lovelace  " },
+            { "action": "expect", "id": "profile-status", "text": "Saved draft loaded." },
+            { "action": "expect", "id": "profile-role", "text": "Developer" },
+            { "action": "expect", "id": "profile-location", "text": "London" },
+            { "action": "expect", "id": "profile-focus", "text": "Accessible tools" }
+          ]
+        },
+        {
+          "name": "clear-does-not-delete-storage",
+          "steps": [
+            { "action": "click", "id": "profile-reset" },
+            { "action": "expect", "id": "profile-name", "text": "" },
+            { "action": "expect", "id": "profile-status", "text": "Editor cleared. Stored draft was not changed." },
+            { "action": "change", "id": "profile-name", "value": "Stored example" },
+            { "action": "click", "id": "profile-save" },
+            { "action": "click", "id": "profile-reset" },
+            { "action": "expect", "id": "profile-name", "text": "" },
+            { "action": "click", "id": "profile-load" },
+            { "action": "expect", "id": "profile-name", "text": "Stored example" },
+            { "action": "expect", "id": "profile-status", "text": "Saved draft loaded." },
+            { "action": "click", "id": "profile-delete" },
+            { "action": "expect", "id": "profile-status", "text": "Stored draft deleted. Current edits kept." },
+            { "action": "expect", "id": "profile-name", "text": "Stored example" },
+            { "action": "click", "id": "profile-load" },
+            { "action": "expect", "id": "profile-status", "text": "No saved draft found. Current edits kept." },
+            { "action": "expect", "id": "profile-name", "text": "Stored example" },
+            { "action": "expect", "id": "profile-save", "enabled": true }
+          ]
+        },
+        {
+          "name": "screenshot-seed-unsaved-preview",
+          "steps": [
+            { "action": "click", "id": "profile-reset" },
+            { "action": "change", "id": "profile-name", "value": "Ada Lovelace" },
+            { "action": "change", "id": "profile-role", "value": "Developer" },
+            { "action": "change", "id": "profile-location", "value": "London" },
+            { "action": "change", "id": "profile-focus", "value": "Accessible tools" },
+            { "action": "click", "id": "profile-preview" },
+            { "action": "expect", "id": "profile-preview-title", "text": "PROFILE PREVIEW" },
+            { "action": "expect", "id": "profile-preview-name", "text": "Ada Lovelace" },
+            { "action": "expect", "id": "profile-preview-role", "text": "Developer" },
+            { "action": "expect", "id": "profile-preview-location", "text": "London" },
+            { "action": "expect", "id": "profile-preview-focus", "text": "Accessible tools" },
+            { "action": "expect", "id": "profile-status", "text": "Edits are not saved." },
+            { "action": "expect", "id": "profile-save", "enabled": true },
+            { "action": "expect", "id": "profile-back", "enabled": true },
+            { "action": "expect", "id": "profile-error", "text": "", "visible": false },
+            { "action": "expect", "id": "profile-busy", "visible": false },
+            { "action": "expect", "id": "profile-cancel", "visible": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

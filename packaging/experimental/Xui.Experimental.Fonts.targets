@@ -1,0 +1,54 @@
+<Project>
+  <PropertyGroup>
+    <_XuiExperimentalFontsImported>true</_XuiExperimentalFontsImported>
+  </PropertyGroup>
+  <Target Name="PrepareExperimentalXuiFonts"
+          BeforeTargets="PrepareExperimentalXuiAssets;AssignTargetPaths;_ComputeAndroidAssetsPaths"
+          Condition="'@(XuiFont)' != ''">
+    <Error Code="XUIF001" Condition="'@(XuiFont->Count())' &gt; '4'" Text="This font prototype permits at most four declared faces." />
+    <Error Code="XUIF002" Condition="'%(XuiFont.AssetId)' == '' or '%(XuiFont.LicenseAssetId)' == '' or '%(XuiFont.LicenseFile)' == '' or '%(XuiFont.LicenseExpression)' == '' or '%(XuiFont.SourceUrl)' == ''"
+           Text="XuiFont requires AssetId, LicenseAssetId, LicenseFile, LicenseExpression and SourceUrl provenance." />
+    <Error Code="XUIF002"
+           Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiFont.AssetId)', '\A(?=.{1,160}\z)[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*\z')) or !$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiFont.LicenseAssetId)', '\A(?=.{1,160}\z)[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)*\z'))"
+           Text="XuiFont asset and license ids must be canonical lowercase relative asset ids." />
+    <Error Code="XUIF003" Condition="!Exists('%(XuiFont.FullPath)') or !Exists('%(XuiFont.LicenseFile)')" Text="A declared font or license file is missing." />
+    <Error Code="XUIF004" Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiFont.Sha256)', '\A[a-f0-9]{64}\z')) or !$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiFont.LicenseSha256)', '\A[a-f0-9]{64}\z'))"
+           Text="XuiFont requires exact lowercase Sha256 and LicenseSha256 metadata." />
+    <Error Code="XUIF002" Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('%(XuiFont.SourceUrl)', '\Ahttps://[^@\s/]+/[^\s]+\z'))"
+           Text="XuiFont SourceUrl must record HTTPS provenance without credentials or whitespace." />
+    <ItemGroup>
+      <_XuiFontIds Include="@(XuiFont->'%(AssetId)');@(XuiFont->'%(LicenseAssetId)')" />
+      <_XuiFontHashes Include="@(XuiFont->'%(Sha256)')" />
+      <_XuiFontLicense Include="@(XuiFont->'%(LicenseFile)')">
+        <ExpectedHash>%(XuiFont.LicenseSha256)</ExpectedHash>
+      </_XuiFontLicense>
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_XuiFontIds)">
+      <Output TaskParameter="Filtered" ItemName="_XuiUniqueFontIds" />
+    </RemoveDuplicates>
+    <Error Code="XUIF005" Condition="'@(_XuiFontIds->Count())' != '@(_XuiUniqueFontIds->Count())'" Text="Font and license asset ids must be unique within this declaration." />
+    <RemoveDuplicates Inputs="@(_XuiFontHashes)">
+      <Output TaskParameter="Filtered" ItemName="_XuiUniqueFontHashes" />
+    </RemoveDuplicates>
+    <Error Code="XUIF005" Condition="'@(_XuiFontHashes->Count())' != '@(_XuiUniqueFontHashes->Count())'" Text="A font digest may only be projected once in each project." />
+    <GetFileHash Files="@(XuiFont)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_XuiHashedFont" />
+    </GetFileHash>
+    <GetFileHash Files="@(_XuiFontLicense)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_XuiHashedLicense" />
+    </GetFileHash>
+    <Error Code="XUIF006" Condition="'%(_XuiHashedFont.FileHash)' != '%(_XuiHashedFont.Sha256)'" Text="XuiFont bytes differ from their pinned SHA-256 identity." />
+    <Error Code="XUIF006" Condition="'%(_XuiHashedLicense.FileHash)' != '%(_XuiHashedLicense.ExpectedHash)'" Text="XuiFont license bytes differ from their pinned SHA-256 identity." />
+    <Error Code="XUIF007" Condition="'$(TargetPlatformIdentifier)' == 'android' and '%(AndroidAsset.LogicalName)' != '' and $([System.String]::Copy('%(AndroidAsset.LogicalName)').StartsWith('xui-fonts/'))"
+           Text="The xui-fonts/ Android asset namespace is reserved for declared XuiFont projection." />
+    <ItemGroup Condition="'$(TargetPlatformIdentifier)' != 'android'">
+      <XuiAsset Include="@(XuiFont)" AssetId="%(XuiFont.AssetId)" />
+      <XuiAsset Include="@(XuiFont->'%(LicenseFile)')" AssetId="%(XuiFont.LicenseAssetId)" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'android'">
+      <AndroidAsset Include="@(XuiFont)" LogicalName="xui-fonts/%(XuiFont.Sha256).ttf" />
+      <AndroidAsset Include="@(XuiFont->'%(LicenseFile)')" LogicalName="xui-fonts/%(XuiFont.Sha256).license.txt" />
+    </ItemGroup>
+  </Target>
+  <Import Project="$(MSBuildThisFileDirectory)Xui.Experimental.Assets.targets" Condition="'$(_XuiExperimentalAssetsImported)' != 'true'" />
+</Project>

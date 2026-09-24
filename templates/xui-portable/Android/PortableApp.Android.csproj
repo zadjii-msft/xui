@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <ApplicationId>dev.xui.portableapp</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\PortableApp.Shared.csproj" />
+    <PackageReference Include="Xui.Experimental.Android" Version="__XUI_PORTABLE_VERSION__" />
+  </ItemGroup>
+</Project>

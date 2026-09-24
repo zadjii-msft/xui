@@ -4,6 +4,8 @@
     <XuiHotReload Condition="'$(XuiHotReload)' == ''">false</XuiHotReload>
   </PropertyGroup>
   <Import Project="$(MSBuildThisFileDirectory)..\Xui.Declarative.Common.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\..\packaging\experimental\Xui.Experimental.Fonts.targets"
+          Condition="'$(_XuiExperimentalFontsImported)' != 'true'" />
   <ItemGroup>
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\Xui.Generator\Xui.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="$(MSBuildThisFileDirectory)Xui.Portable\Xui.Portable.csproj" />

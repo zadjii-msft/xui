@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "cases": [
+    { "name": "off-step-increase", "range": [0, 10, 0.5, 2], "value": 2.25, "key": "Increase", "expected": 2.75 },
+    { "name": "off-step-decrease", "range": [0, 10, 0.5, 2], "value": 2.25, "key": "Decrease", "expected": 1.75 },
+    { "name": "page-step", "range": [0, 10, 0.5, 2], "value": 2.25, "key": "PageIncrease", "expected": 4.25 },
+    { "name": "page-step-clips", "range": [0, 10, 0.5, 2], "value": 0.5, "key": "PageDecrease", "expected": 0 },
+    { "name": "home", "range": [-10, 30, 0.25, 5], "value": 2.75, "key": "Minimum", "expected": -10 },
+    { "name": "end", "range": [-10, 30, 0.25, 5], "value": 2.75, "key": "Maximum", "expected": 30 },
+    { "name": "pointer-midpoint-away", "range": [0, 10, 0.5, 2], "fraction": 0.325, "expected": 3.5 },
+    { "name": "pointer-negative-range", "range": [-10, 30, 0.25, 5], "fraction": 0.31875, "expected": 2.75 },
+    { "name": "pointer-before-start", "range": [-10, 30, 0.25, 5], "fraction": -3, "expected": -10 },
+    { "name": "pointer-after-end", "range": [-10, 30, 0.25, 5], "fraction": 3, "expected": 30 }
+  ]
+}

@@ -345,7 +345,7 @@ public sealed unsafe partial class PasswordInput
 {
     public ulong Length => Features.Get(this, 16).First;
     public void OnChange(Action callback)
-    { ArgumentNullException.ThrowIfNull(callback); Window.SetSubscription(Handle, _ => callback()); }
+    { ArgumentNullException.ThrowIfNull(callback); Window.SetSubscription(Handle, e => { if (e.Kind == EventKind.Change) callback(); }); }
     public PasswordInput SetPassword(ReadOnlySpan<char> password)
     {
         Window.Guard();

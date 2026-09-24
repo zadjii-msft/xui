@@ -1,0 +1,53 @@
+namespace PortableDemo;
+
+component SessionPlanner {
+    state SessionPlannerState State = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("SESSION PLANNER", id: "planner-title");
+            Text(State.FinishText, ref: FinishLabel, id: "planner-finish");
+            ScrollView("Focus intervals and schedule", id: "planner-content", flex: 1) {
+                VStack(spacing: 8) {
+                    Text("Three focus blocks / two breaks", id: "planner-description");
+                    Text(State.FocusText, ref: FocusLabel, id: "planner-focus");
+                    TextInput("Start / 24-hour time", text: State.StartTime, change: SetStart, submit: Review,
+                        placeholder: "09:00", captionVisible: true, help: "Use HH:mm from 00:00 to 23:59. This is a plan, not a clock.",
+                        ref: StartInput, id: "planner-start");
+                    TextInput("Focus 1 / minutes", text: State.FirstMinutes, change: SetFirst, submit: Review,
+                        placeholder: "25", captionVisible: true, help: "First focus block: 1 to 180 whole minutes.",
+                        ref: FirstInput, id: "planner-first");
+                    TextInput("Focus 2 / minutes", text: State.SecondMinutes, change: SetSecond, submit: Review,
+                        placeholder: "35", captionVisible: true, help: "Second focus block: 1 to 180 whole minutes.",
+                        ref: SecondInput, id: "planner-second");
+                    TextInput("Focus 3 / minutes", text: State.ThirdMinutes, change: SetThird, submit: Review,
+                        placeholder: "20", captionVisible: true, help: "Third focus block: 1 to 180 whole minutes.",
+                        ref: ThirdInput, id: "planner-third");
+                    TextInput("Each break / minutes", text: State.BreakMinutes, change: SetBreak, submit: Review,
+                        placeholder: "5", captionVisible: true, help: "0 to 60 whole minutes. One break between each pair of blocks, none after the last.",
+                        ref: BreakInput, id: "planner-break");
+                    Text(State.DurationText, ref: DurationLabel, id: "planner-duration");
+                    Text(State.Validation, ref: ValidationLabel, id: "planner-validation");
+                    Text(State.ReviewSummary, visible: State.Reviewing && State.CanReview, ref: ReviewLabel, id: "planner-summary");
+                    Button("Review plan", click: Review, enabled: State.CanReview && !State.Reviewing,
+                        ref: ReviewButton, id: "planner-review");
+                    HStack(spacing: 8) {
+                        Button("Edit", click: Edit, enabled: State.Reviewing, ref: EditButton, id: "planner-edit", flex: 1);
+                        Button("Reset example", click: Reset, ref: ResetButton, id: "planner-reset", flex: 1);
+                    }
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetStart(string value) => State = State with { StartTime = value, Reviewing = false };
+        void SetFirst(string value) => State = State with { FirstMinutes = value, Reviewing = false };
+        void SetSecond(string value) => State = State with { SecondMinutes = value, Reviewing = false };
+        void SetThird(string value) => State = State with { ThirdMinutes = value, Reviewing = false };
+        void SetBreak(string value) => State = State with { BreakMinutes = value, Reviewing = false };
+        void Review() => State = State.Review();
+        void Edit() => State = State with { Reviewing = false };
+        void Reset() => State = new();
+    }
+}

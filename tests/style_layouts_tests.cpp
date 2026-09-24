@@ -179,6 +179,213 @@ void grid_and_wrap_geometry() {
     wrap.arrange({0, 0, 100, 100});
     require(wrap.columns() == 3, "Explicit Wrap metrics lost precedence");
 }
+void grid_intrinsic_tracks() {
+    constexpr auto unlimited = (std::numeric_limits<float>::max)();
+    for (const auto available : {unlimited, std::numeric_limits<float>::infinity()}) {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::star, 1}, {TrackSizing::star, 3}},
+            {{TrackSizing::star, 2}, {TrackSizing::star, 1}});
+        grid.set_gap(5, 7);
+        grid.set_padding({2, 3, 4, 6});
+        auto a = child(80, 30), b = child(120, 50);
+        grid.add(a, 0, 0); grid.add(b, 1, 1);
+        const auto desired = grid.measure({available, available});
+        near(desired.width, 211); near(desired.height, 96);
+        require(std::isfinite(desired.width) && std::isfinite(desired.height),
+            "Unbounded star measurement stays finite");
+    }
+    {
+        auto grid = std::make_shared<Grid>();
+        grid->set_tracks({{TrackSizing::star, 1}, {TrackSizing::star, 3}}, {{TrackSizing::star}});
+        grid->set_gap(0, 6);
+        auto first = child(100, 40), second = child(100, 80);
+        grid->add(first, 0, 0); grid->add(second, 1, 0);
+        ScrollView scroll(grid);
+        scroll.set_fill_viewport(false);
+        scroll.arrange({0, 0, 240, 90});
+        near(scroll.extent(), 126); near(scroll.maximum_offset(), 36);
+        near(first->bounds().height, 40); near(second->bounds().height, 80);
+        near(second->bounds().y, 46);
+        scroll.set_offset(36); scroll.arrange({0, 0, 240, 90});
+        near(second->bounds().y, 10);
+        scroll.set_fill_viewport(true); scroll.arrange({0, 0, 240, 90});
+        near(first->bounds().height, 30); near(second->bounds().height, 90);
+        grid->arrange_unbounded({0, 0, 240, 200}, Axis::vertical);
+        near(first->bounds().height, 40); near(second->bounds().height, 80); near(second->bounds().y, 46);
+        grid->arrange({0, 0, 240, 206});
+        near(first->bounds().height, 50); near(second->bounds().height, 150);
+        grid->set_axis_constraints(std::nullopt, AxisConstraints{{}, 0, 150.0f});
+        scroll.set_fill_viewport(false); scroll.arrange({0, 0, 240, 300});
+        near(scroll.extent(), 126); near(first->bounds().height, 40);
+        near(second->bounds().height, 80); near(second->bounds().y, 46);
+    }
+    for (const bool spanning_first : {false, true}) {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}},
+            {{TrackSizing::fixed, 40}, {TrackSizing::automatic}});
+        grid.set_gap(10, 0);
+        auto fixed = child(1, 10), automatic = child(20, 10), spanning = child(150, 20);
+        if (spanning_first) grid.add(spanning, 0, 0, 1, 2);
+        grid.add(fixed, 0, 0); grid.add(automatic, 0, 1);
+        if (!spanning_first) grid.add(spanning, 0, 0, 1, 2);
+        near(grid.measure({500, 500}).width, 150);
+        grid.arrange({0, 0, 500, 100});
+        near(fixed->bounds().width, 40);
+        near(automatic->bounds().x, 50); near(automatic->bounds().width, 100);
+        near(spanning->bounds().width, 150);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}},
+            {{TrackSizing::fixed, 30}, {TrackSizing::automatic, 1, 20, 50},
+                {TrackSizing::automatic, 1, 10, 200}});
+        grid.set_gap(5, 0);
+        auto a = child(0, 10), b = child(0, 10), span = child(190, 10);
+        grid.add(span, 0, 0, 1, 3); grid.add(a, 0, 1); grid.add(b, 0, 2);
+        near(grid.measure({500, 100}).width, 190);
+        grid.arrange({0, 0, 500, 100});
+        near(a->bounds().width, 50); near(b->bounds().width, 100);
+        near(b->bounds().x, 90);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}},
+            {{TrackSizing::fixed, 40}, {TrackSizing::automatic, 1, 10, 30}});
+        grid.set_gap(10, 0);
+        auto span = child(200, 10); grid.add(span, 0, 0, 1, 2);
+        near(grid.measure({500, 100}).width, 80);
+        grid.arrange({0, 0, 500, 100});
+        near(span->bounds().width, 80);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}}, {{TrackSizing::fixed, 200}, {TrackSizing::automatic}});
+        auto automatic = child(0, 10), span = child(150, 10);
+        grid.add(span, 0, 0, 1, 2); grid.add(automatic, 0, 1);
+        near(grid.measure({500, 100}).width, 200);
+        grid.arrange({0, 0, 500, 100});
+        near(automatic->bounds().width, 0);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::fixed, 20}},
+            {{TrackSizing::star, 1, 20, 60}, {TrackSizing::star, 3, 10, 300}});
+        auto a = child(), b = child();
+        grid.add(a, 0, 0); grid.add(b, 0, 1);
+        grid.arrange({0, 0, 210, 20});
+        near(a->bounds().width, 60); near(b->bounds().width, 150);
+        grid.arrange({0, 0, 10, 20});
+        near(a->bounds().width, 10); near(b->bounds().width, 0);
+        grid.set_tracks({{TrackSizing::fixed, 20}},
+            {{TrackSizing::star, unlimited}, {TrackSizing::star, unlimited}});
+        grid.arrange({0, 0, 200, 20});
+        near(a->bounds().width, 100); near(b->bounds().width, 100);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::fixed, 35}, {TrackSizing::automatic}}, {{TrackSizing::fixed, 100}});
+        grid.set_gap(0, 5);
+        auto first = child(100, 1), second = child(100, 10), span = child(100, 100);
+        grid.add(first, 0, 0); grid.add(second, 1, 0); grid.add(span, 0, 0, 2, 1);
+        near(grid.measure({100, 500}).height, 100);
+        grid.arrange({0, 0, 100, 100});
+        near(first->bounds().height, 35); near(second->bounds().height, 60);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::fixed, 20}}, {{TrackSizing::fixed, 40}});
+        rejects([&] { grid.set_tracks({{static_cast<TrackSizing>(99)}}, {{TrackSizing::fixed, 5}}); });
+        rejects([&] { grid.set_tracks({{TrackSizing::star, 0}}, {{TrackSizing::fixed, 5}}); });
+        near(grid.measure({100, 100}).width, 40);
+        near(grid.measure({100, 100}).height, 20);
+    }
+    {
+        class Wrapped final : public Element {
+        public:
+            float offered_width{};
+            Size measure(Size available) override {
+                offered_width = available.width;
+                return constrain({280, available.width > 0 ? 3000 / available.width : 0}, available);
+            }
+        };
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}}, {{TrackSizing::fixed, 280}, {TrackSizing::automatic}});
+        auto wrapped = std::make_shared<Wrapped>(), end = std::make_shared<Wrapped>();
+        grid.add(wrapped, 0, 0); grid.add(end, 0, 1);
+        near(grid.measure({100, 100}).height, 30);
+        near(wrapped->offered_width, 100); near(end->offered_width, 0);
+        grid.arrange({10, 20, 100, 100});
+        near(wrapped->bounds().width, 100); near(wrapped->bounds().height, 30);
+        rect(end->bounds(), {110, 20, 0, 30});
+        grid.set_padding({200, 200, 100, 100});
+        grid.arrange({10, 20, 100, 80});
+        rect(end->bounds(), {110, 100, 0, 0});
+    }
+    for (const bool reversed : {false, true}) {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}},
+            {{TrackSizing::automatic}, {TrackSizing::automatic}, {TrackSizing::automatic}});
+        auto span_two = child(100, 10), span_three = child(150, 10);
+        if (reversed) grid.add(span_three, 0, 0, 1, 3);
+        grid.add(span_two, 0, 0, 1, 2);
+        if (!reversed) grid.add(span_three, 0, 0, 1, 3);
+        auto a = child(20, 10), b = child(20, 10), c = child(20, 10);
+        grid.add(a, 0, 0); grid.add(b, 0, 1); grid.add(c, 0, 2);
+        grid.arrange({0, 0, 500, 100});
+        near(a->bounds().width, 60); near(b->bounds().width, 60); near(c->bounds().width, 30);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::star, 10, 100, 120}, {TrackSizing::star, 1, 0, 50}},
+            {{TrackSizing::automatic}});
+        grid.add(child(10, 40), 0, 0); grid.add(child(10, 80), 1, 0);
+        near(grid.measure({100, unlimited}).height, 150);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}},
+            {{TrackSizing::fixed, unlimited}, {TrackSizing::fixed, unlimited}});
+        auto a = child(), b = child();
+        grid.add(a, 0, 0); grid.add(b, 0, 1);
+        bool overflow{};
+        try { grid.measure({unlimited, unlimited}); }
+        catch (const std::overflow_error&) { overflow = true; }
+        require(overflow, "Unrepresentable unbounded Grid extent fails explicitly");
+        grid.arrange({0, 0, 100, 100});
+        near(a->bounds().width, 100); near(b->bounds().x, 100); near(b->bounds().width, 0);
+    }
+    {
+        Grid grid;
+        grid.set_tracks({{TrackSizing::automatic}}, {{TrackSizing::star}});
+        grid.add(child(80, 45), 0, 0);
+        grid.set_fixed_size({200, 120});
+        require(grid.supports_axis_constraints(), "Grid explicitly supports the axis contract");
+        grid.set_axis_constraints(AxisConstraints{150.0f}, AxisConstraints{});
+        near(grid.measure({500, 500}).width, 150); near(grid.measure({500, 500}).height, 45);
+        grid.set_fixed_size({210, 140});
+        near(grid.measure({500, 500}).width, 150); near(grid.measure({500, 500}).height, 45);
+        grid.set_axis_constraints(std::nullopt, std::nullopt);
+        near(grid.measure({500, 500}).width, 210); near(grid.measure({500, 500}).height, 140);
+    }
+    for (const auto sizing : {TrackSizing::fixed, TrackSizing::automatic, TrackSizing::star}) {
+        auto grid = std::make_shared<Grid>();
+        grid->set_tracks({{sizing, sizing == TrackSizing::fixed ? 200.0f : 1.0f}}, {{TrackSizing::star}});
+        auto nested = std::make_shared<Stack>(Axis::vertical);
+        nested->set_spacing(8);
+        auto first = child(60, 32), second = child(60, 48);
+        nested->add(first, 1); nested->add(second, 3);
+        grid->add(nested, 0, 0);
+        ScrollView scroll(grid); scroll.set_fill_viewport(false);
+        scroll.arrange({0, 0, 240, 300});
+        if (sizing == TrackSizing::fixed) {
+            near(scroll.extent(), 200); near(first->bounds().height, 48);
+            near(second->bounds().y, 56); near(second->bounds().height, 144);
+        } else {
+            near(scroll.extent(), 88); near(first->bounds().height, 32);
+            near(second->bounds().y, 40); near(second->bounds().height, 48);
+        }
+    }
+}
 void adaptive_and_pages() {
     auto navigation = child(100, 100), content = child(200, 150);
     AdaptiveLayout layout(navigation, content);
@@ -338,7 +545,7 @@ int main() {
     try {
         schemas_and_states(); stack_geometry_and_precedence(); grid_and_wrap_geometry();
         adaptive_and_pages(); content_and_scroll(); split_and_expander(); popup_lifecycle_and_default_allocations();
-        expander_text_metrics();
+        expander_text_metrics(); grid_intrinsic_tracks();
         std::cout << "Layout style tests passed\n"; return 0;
     } catch (const std::exception& error) {
         count_allocations = false;

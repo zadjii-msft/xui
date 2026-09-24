@@ -1,0 +1,37 @@
+namespace PortableDemo;
+
+component ImageWorkbench {
+    param global::Xui.Experimental.Portable.PackagedAssetManifest Assets;
+    state global::Xui.Experimental.Portable.PackagedImageSource? Source = null;
+    state global::Xui.Experimental.Portable.ImageDecodeOptions Decode = new(64, 64);
+    state string Status = "Empty";
+    state string Draft = "";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Packaged image preview", id: "image-title");
+            TextInput("Retained image notes", text: Draft, change: EditDraft, ref: Notes, id: "image-notes");
+            Image("Zoey packaged image", source: Source, decodeOptions: Decode, stateChanged: ImageState,
+                preferredSize: (192, 144), ref: Preview, id: "packaged-image");
+            Text(Status, id: "image-status");
+            Button("Load Zoey", click: Load, id: "image-load");
+            Button("Decode at 32 pixels", click: Smaller, id: "image-smaller");
+            Button("Load invalid fixture", click: Invalid, id: "image-invalid");
+            Button("Clear image", click: Clear, id: "image-clear");
+        }
+    }
+    code csharp {
+        void EditDraft(string value) => Draft = value;
+        void Load() => Source = new(Assets, "zoey.png");
+        void Smaller() => Decode = new(32, 32);
+        void Invalid() => Source = new(Assets, "invalid.png");
+        void Clear() => Source = null;
+        void ImageState(global::Xui.Experimental.Portable.ImageLoadState value) {
+            Status = value == global::Xui.Experimental.Portable.ImageLoadState.Ready
+                ? $"Ready: {Preview.PixelWidth}x{Preview.PixelHeight}"
+                : value == global::Xui.Experimental.Portable.ImageLoadState.Error
+                    ? "Error: " + Preview.ErrorMessage
+                    : value.ToString();
+        }
+    }
+}

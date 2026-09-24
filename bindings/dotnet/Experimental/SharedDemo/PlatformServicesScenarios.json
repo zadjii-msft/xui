@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "applications": [
+    {
+      "id": "platform-services",
+      "reset": "services-reset",
+      "scenarios": [
+        {
+          "name": "fake-service-actions",
+          "steps": [
+            { "action": "click", "id": "services-reset" },
+            { "action": "expect", "id": "services-title", "text": "PLATFORM SERVICES WORKBENCH" },
+            { "action": "expect", "id": "services-status", "text": "Workbench cleared. No service action has run." },
+            { "action": "expect", "id": "services-clipboard-availability", "text": "Clipboard: requires a user action" },
+            { "action": "expect", "id": "services-uri-availability", "text": "HTTPS launch: requires a user action" },
+            { "action": "expect", "id": "services-file-availability", "text": "Open file: requires a user action" },
+            { "action": "expect", "id": "services-clipboard-summary", "text": "Clipboard has not been read." },
+            { "action": "expect", "id": "services-file-summary", "text": "No file inspected." },
+            { "action": "change", "id": "services-clipboard-draft", "value": "Explicit fake copy" },
+            { "action": "expect", "id": "services-clipboard-draft", "text": "Explicit fake copy" },
+            { "action": "click", "id": "services-copy" },
+            { "action": "expect", "id": "services-status", "text": "Clipboard write completed." },
+            { "action": "click", "id": "services-read" },
+            { "action": "expect", "id": "services-status", "text": "Clipboard read completed." },
+            { "action": "expect", "id": "services-clipboard-summary", "text": "Clipboard read: 14 UTF-16 units. Content not displayed." },
+            { "action": "expect", "id": "services-clipboard-draft", "text": "Explicit fake copy" },
+            { "action": "change", "id": "services-uri", "value": "http://example.com" },
+            { "action": "expect", "id": "services-launch", "enabled": false },
+            { "action": "expect", "id": "services-uri-validation", "text": "Enter an absolute HTTPS URL without credentials or control characters." },
+            { "action": "change", "id": "services-uri", "value": "https://example.com" },
+            { "action": "expect", "id": "services-launch", "enabled": true },
+            { "action": "expect", "id": "services-uri-validation", "text": "HTTPS only. Opens only when you choose Launch." },
+            { "action": "click", "id": "services-launch" },
+            { "action": "expect", "id": "services-status", "text": "HTTPS launch completed." },
+            { "action": "click", "id": "services-pick" },
+            { "action": "expect", "id": "services-status", "text": "File inspection completed." },
+            { "action": "expect", "id": "services-file-name", "text": "example.txt", "visible": true },
+            { "action": "expect", "id": "services-file-summary", "text": "Inspected 12 bytes. Content not displayed." },
+            { "action": "expect", "id": "services-busy", "visible": false },
+            { "action": "expect", "id": "services-error", "visible": false, "text": "" },
+            { "action": "expect", "id": "services-cancel", "visible": false, "enabled": false },
+            { "action": "expect", "id": "services-pick", "enabled": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

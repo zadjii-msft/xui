@@ -1,0 +1,18 @@
+{
+  "app": "profile-workspace",
+  "project": "WebGalleryDemo",
+  "source": "ProfileWorkspace.xui",
+  "sourceSha256": "8d1348c69de187f3495274dd60f713966037d332918f747462064705debe7d96",
+  "pngSha256": "b7740c346133ef555121111dfa2f506a08e5e9a7cc304ccae6f6cac91afcfc91",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=profile-workspace&profile-store=profile-capture-d7d208ef-1c99-4cb7-a9ca-8295c32c56d6",
+  "offlineCallbacks": true,
+  "nodes": 26,
+  "nativeInputs": 0,
+  "overflow": false
+}

@@ -1,0 +1,115 @@
+namespace PortableDemo;
+
+component WorkspaceStudio {
+    param WorkspaceStudioController Controller;
+    state WorkspaceStudioState Snapshot = new();
+    state (global::Xui.Experimental.Portable.PageItem[] Items, ulong? Selected) Sections = ([], null);
+    state (global::Xui.Experimental.Portable.PageItem[] Items, ulong? Selected) Documents = ([], null);
+    state global::Xui.Experimental.Portable.KeyedItem[] CatalogRows = [];
+    state global::Xui.Experimental.Portable.GridTrack[] Columns = [
+        new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 184),
+        new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 240),
+        new(global::Xui.Experimental.Portable.TrackSizing.Star, 1),
+        new(global::Xui.Experimental.Portable.TrackSizing.Fixed, 224)];
+    state bool NavigationExpanded = true;
+    state bool CatalogShown = true;
+    state bool DocumentsShown = true;
+    state bool DetailsShown = true;
+    state string CatalogStatus = "Waiting for the native catalog viewport.";
+    state string LayoutStatus = "Expanded workspace";
+    state string ThemeCaption = "Theme: System";
+    state bool LayoutPending = false;
+    state bool ShortHeight = false;
+    state bool BackNotice = false;
+
+    view {
+        VStack(spacing: ShortHeight ? 4 : 6, padding: ShortHeight ? 4 : 8) {
+            HStack(spacing: 8) {
+                Text("STUDIO", textRole: global::Xui.Experimental.Portable.TextRole.Title,
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.SingleLine(global::Xui.Experimental.Portable.TextOverflow.CharacterEllipsis),
+                    flex: 1, id: "studio-title");
+                Button(ThemeCaption, click: CycleTheme, ref: ThemeButton, id: "studio-theme");
+            }
+            Grid("Responsive document workspace",
+                rows: [new(global::Xui.Experimental.Portable.TrackSizing.Automatic, 1), new(global::Xui.Experimental.Portable.TrackSizing.Star, 1)],
+                columns: Columns, flex: 1, ref: WorkspaceGrid) {
+                NavigationView("Workspace sections", pages: SectionPages, change: SelectSection, activate: ActivateSection,
+                    expanded: NavigationExpanded, row: 0, column: 0, rowSpan: 2, ref: Navigation, id: "studio-navigation");
+                PageView("Workspace section context", pages: Sections.Items, selected: Sections.Selected,
+                    visible: !ShortHeight, row: 0, column: 1, columnSpan: 3, ref: SectionPages);
+                VStack(spacing: ShortHeight ? 4 : 6, padding: ShortHeight ? 4 : 8, row: 1, column: 1) {
+                    Text("DOCUMENT LIBRARY", visible: CatalogShown && !ShortHeight, id: "studio-catalog-title");
+                    TextInput("Search document library", text: Snapshot.Session.Query, change: SetQuery,
+                        captionVisible: false, placeholder: "Search titles or document IDs", visible: CatalogShown,
+                        help: "Filters 10,000 local sample documents without creating 10,000 native widgets.",
+                        ref: SearchInput, id: "studio-search");
+                    Text(Snapshot.VisibleDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture) + " matching documents",
+                        visible: CatalogShown && !ShortHeight, id: "studio-catalog-count");
+                    Text(Snapshot.Session.QueryValidation, visible: CatalogShown && Snapshot.Session.QueryValidation != "",
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(3), id: "studio-search-validation");
+                    ScrollView("Virtual document catalog", visible: CatalogShown, flex: 1, ref: CatalogScroll, id: "studio-catalog") {
+                        KeyedVStack(CatalogRows, ref: CatalogView);
+                    }
+                    Text(CatalogStatus, visible: CatalogShown && !ShortHeight, textRole: global::Xui.Experimental.Portable.TextRole.Caption,
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2),
+                        id: "studio-catalog-status");
+                }
+                VStack(spacing: ShortHeight ? 4 : 6, row: 1, column: 2) {
+                    TabStrip("Open documents", pages: DocumentPages, change: SelectDocument, activate: ActivateDocument,
+                        close: RequestClose, closable: true, visible: DocumentsShown, ref: DocumentTabs, id: "studio-tabs");
+                    HStack(spacing: 6) {
+                        Button("Move tab left", click: MoveTabLeft, visible: DocumentsShown && !ShortHeight,
+                            enabled: Snapshot.Session.ActiveTabIndex > 0, ref: TabLeftButton, id: "studio-tab-left", flex: 1);
+                        Button("Move tab right", click: MoveTabRight, visible: DocumentsShown && !ShortHeight,
+                            enabled: Snapshot.Session.ActiveTabIndex >= 0 && Snapshot.Session.ActiveTabIndex < Snapshot.Session.OpenTabs.Length - 1,
+                            ref: TabRightButton, id: "studio-tab-right", flex: 1);
+                    }
+                    Text("No open documents. Select Library to open a document.",
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                        visible: DocumentsShown && Snapshot.Session.OpenTabs.Length == 0, id: "studio-empty");
+                    PageView("Retained document editors", pages: Documents.Items, selected: Documents.Selected,
+                        visible: DocumentsShown, flex: 1, ref: DocumentPages);
+                }
+                ScrollView("Document inspector", visible: DetailsShown, row: 1, column: 3, ref: DetailsScroll, id: "studio-details") {
+                    VStack(spacing: 10, padding: 12) {
+                        Text("INSIGHTS", textRole: global::Xui.Experimental.Portable.TextRole.Title, id: "studio-insights-title");
+                        Text(Snapshot.Session.ActiveDocument == "" ? "No active document" : Snapshot.Session.ActiveDocument, id: "studio-active-id");
+                        Text(Snapshot.Session.ActiveCategory,
+                            id: "studio-active-category");
+                        Text(Snapshot.Session.ActiveDocument != "" && Snapshot.Session.HasDraft(Snapshot.Session.ActiveDocument)
+                            ? "Modified local draft" : "Generated sample", id: "studio-draft-status");
+                        Text(Snapshot.Session.Summary, id: "studio-summary");
+                        Text(Snapshot.Analysis == null ? "Characters: --" : "Characters: " + Snapshot.Analysis.Characters.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                            id: "studio-characters");
+                        Text(Snapshot.Analysis == null ? "Words: --" : "Words: " + Snapshot.Analysis.Words.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                            id: "studio-words");
+                        Text(Snapshot.Analysis == null ? "Lines: --" : "Lines: " + Snapshot.Analysis.Lines.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                            id: "studio-lines");
+                        Text(Snapshot.Analysis == null ? "Checklist items: --" : "Checklist items: " + Snapshot.Analysis.OpenTasks.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                            id: "studio-tasks");
+                        Button("Analyze active document", click: AnalyzeActive, enabled: Snapshot.CanAnalyze, id: "studio-analyze");
+                        Button("Cancel analysis", click: CancelAnalysis, enabled: Snapshot.Analyzing, id: "studio-cancel");
+                        Button("Revert active sample", click: RevertActive,
+                            enabled: Snapshot.Session.ActiveDraft != null && Snapshot.Session.HasDraft(Snapshot.Session.ActiveDocument),
+                            id: "studio-revert-active");
+                        Button("Open Operations dashboard", click: OpenOperations, id: "studio-open-operations",
+                            help: "Analyze a captured local catalog, inspect category workload, and open documents from the results.");
+                        Text("Closing tabs keeps local drafts. Revert explicitly discards a draft; nothing is saved to disk.",
+                            textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(),
+                            id: "studio-local-notice");
+                    }
+                }
+            }
+            Text(Snapshot.Status, visible: !ShortHeight, textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2),
+                ref: StatusLabel, id: "studio-status");
+            Text(Snapshot.Error, visible: Snapshot.Error != "", textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(3),
+                ref: ErrorLabel, id: "studio-error");
+            Text(LayoutStatus, textRole: global::Xui.Experimental.Portable.TextRole.Caption,
+                visible: !ShortHeight || LayoutPending || BackNotice,
+                textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2), id: "studio-layout");
+            Button("Cancel analysis", click: CancelAnalysis, visible: ShortHeight && Snapshot.Analyzing,
+                enabled: Snapshot.Analyzing, ref: ShortCancelButton, id: "studio-short-cancel");
+            Button("Apply pending layout", click: RetryLayout, visible: LayoutPending, id: "studio-layout-retry");
+        }
+    }
+}

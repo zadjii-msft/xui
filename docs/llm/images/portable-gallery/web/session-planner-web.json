@@ -1,0 +1,18 @@
+{
+  "app": "session-planner",
+  "project": "WebGalleryDemo",
+  "source": "SessionPlanner.xui",
+  "sourceSha256": "3d0137fe7f9435b87c3adb5d74d378ad95df87e986f4a763c97b5736260beaa9",
+  "pngSha256": "60c4e5f76a769ce68c2f93e621389a2f2f9f2f829f010963090caff24b223777",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/?app=session-planner",
+  "offlineCallbacks": true,
+  "nodes": 19,
+  "nativeInputs": 5,
+  "overflow": false
+}

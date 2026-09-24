@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <ApplicationManifest Condition="'$(ApplicationManifest)' == ''">$(MSBuildThisFileDirectory)xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Target Name="ValidateExperimentalWindowsRuntime" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'win-x64' and '$(RuntimeIdentifier)' != 'win-arm64'" Text="The experimental Windows host requires RuntimeIdentifier win-x64 or win-arm64." />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$(RuntimeIdentifier)\native\xui.dll')" Text="This local Xui.Experimental.Windows package does not contain $(RuntimeIdentifier). Repack with the matching native build; do not substitute another architecture." />
+  </Target>
+</Project>

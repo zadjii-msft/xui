@@ -1,0 +1,53 @@
+namespace PortableLayout;
+
+component AxisSizingShowcase {
+    state global::Xui.Experimental.Portable.AxisConstraints? FieldWidth = 280;
+    state global::Xui.Experimental.Portable.AxisConstraints? FieldHeight = global::Xui.Experimental.Portable.AxisConstraints.Auto;
+    state string Draft = "";
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Independent axis sizing", id: "axes-title");
+            ScrollView("Sizing examples", flex: 1, id: "axes-content") {
+                VStack(spacing: 10) {
+                    TextInput("Fixed width, natural caption and editor", text: Draft, change: SetDraft,
+                        size: (180, 90), width: FieldWidth, height: FieldHeight,
+                        ref: Input, id: "axes-input", placeholder: "Retained text", help: "Axis overrides preserve the original legacy size.");
+                    TextInput("Only width is bound", width: FieldWidth, ref: WidthOnlyInput, id: "width-only-input");
+                    TextInput("Only height is bound", height: FieldHeight, ref: HeightOnlyInput, id: "height-only-input");
+                    Button("Use 220 width and natural height", click: Narrow, id: "axes-narrow");
+                    Button("Restore inherited legacy axes", click: Inherit, id: "axes-inherit");
+                    Button("Keep independent height while changing width", click: PreserveHeight, id: "axes-preserve-height");
+                    HStack(size: (180, 44), ref: PressureRow) {
+                        Text("First minimum", width: new global::Xui.Experimental.Portable.AxisConstraints(Minimum: 120),
+                            ref: FirstMinimum, id: "first-minimum");
+                        Text("Second minimum", width: new global::Xui.Experimental.Portable.AxisConstraints(Minimum: 120),
+                            ref: SecondMinimum, id: "second-minimum");
+                    }
+                    HStack(size: (180, 44), ref: FlexRow) {
+                        Text("Fixed", width: 60, ref: FixedChild, id: "fixed-child");
+                        Text("Capped", width: new global::Xui.Experimental.Portable.AxisConstraints(Maximum: 40),
+                            flex: 1, ref: CappedChild, id: "capped-child");
+                        Text("Flex", flex: 1, ref: FlexChild, id: "flex-child");
+                    }
+                    VStack(spacing: 8, ref: UnboundedRow) {
+                        Text("Unbounded first", height: 32, flex: 1, ref: UnboundedFirst, id: "unbounded-first");
+                        Text("Unbounded second", height: 48, flex: 3, ref: UnboundedSecond, id: "unbounded-second");
+                    }
+                }
+            }
+        }
+    }
+    code csharp {
+        void SetDraft(string value) => Draft = value;
+        void Narrow() {
+            FieldWidth = 220;
+            FieldHeight = global::Xui.Experimental.Portable.AxisConstraints.Auto;
+        }
+        void Inherit() { FieldWidth = null; FieldHeight = null; }
+        void PreserveHeight() {
+            WidthOnlyInput.SetHeight(96);
+            FieldWidth = 240;
+        }
+    }
+}

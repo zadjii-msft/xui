@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "advisory-purpose-and-lines",
+      "steps": [
+        { "action": "click", "id": "forms-reset" },
+        { "action": "expect", "id": "forms-email", "purpose": "Email" },
+        { "action": "expect", "id": "forms-number", "purpose": "Number" },
+        { "action": "change", "id": "forms-email", "value": " not an email \u674e " },
+        { "action": "change", "id": "forms-number", "value": " -12,5 xyz " },
+        { "action": "expect", "id": "forms-email", "text": " not an email \u674e " },
+        { "action": "expect", "id": "forms-number", "text": " -12,5 xyz " },
+        { "action": "change", "id": "forms-notes", "value": "first\nsecond \u674e" },
+        { "action": "expect", "id": "forms-notes", "text": "first\nsecond \u674e", "readOnly": false },
+        { "action": "click", "id": "forms-lock" },
+        { "action": "expect", "id": "forms-notes", "readOnly": true },
+        { "action": "expect", "id": "forms-lock-state", "text": "Notes: read-only" },
+        { "action": "click", "id": "forms-lock" },
+        { "action": "expect", "id": "forms-notes", "text": "first\nsecond \u674e", "readOnly": false },
+        { "action": "click", "id": "forms-reset" },
+        { "action": "expect", "id": "forms-email", "text": "" },
+        { "action": "expect", "id": "forms-number", "text": "" },
+        { "action": "expect", "id": "forms-notes", "text": "", "readOnly": false }
+      ]
+    },
+    {
+      "name": "secret-notice-and-explicit-read",
+      "steps": [
+        { "action": "click", "id": "forms-reset" },
+        { "action": "expect", "id": "forms-password", "passwordLength": 0 },
+        { "action": "seed-password", "id": "forms-password", "codeUnits": 8 },
+        { "action": "expect", "id": "forms-password", "passwordLength": 8 },
+        { "action": "expect", "id": "forms-password-length", "text": "Password length: 8" },
+        { "action": "click", "id": "forms-inspect" },
+        { "action": "expect", "id": "forms-status", "text": "Inspected 8 UTF-16 units; no value displayed." },
+        { "action": "click", "id": "forms-reset" },
+        { "action": "expect", "id": "forms-password", "passwordLength": 0 },
+        { "action": "expect", "id": "forms-password-length", "text": "Password length: 0" },
+        { "action": "expect", "id": "forms-password-notices", "text": "Password notices: 0" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+namespace PortableMutation;
+
+component LifetimeFailure {
+    param global::System.Func<global::Xui.Experimental.Portable.Host, global::Xui.Experimental.Portable.Element> Build;
+    param string Message;
+    view {
+        VStack() {
+            Text(Message);
+            Content(Build(window));
+        }
+    }
+}

@@ -61,6 +61,20 @@ std::vector<SyntaxSpan> highlight(const std::function<std::vector<SyntaxSpan>(st
 }
 DocumentText::DocumentText(std::wstring name, bool rich)
     : Control(ControlRole::document_text, std::move(name), {400, 180}), rich_(rich) {}
+bool DocumentText::supports_axis_constraints() const { return typeid(*this) == typeid(MultilineText); }
+Size DocumentText::measure(Size available) {
+    if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) {
+        if (!natural) return measure_control(offered, false);
+        const auto* root = effective_control_style_values(StylePart::root);
+        const auto* text = effective_control_style_values(StylePart::text);
+        const auto padding = root ? root->padding.value_or(Insets{4, 3, 4, 3}) : Insets{4, 3, 4, 3};
+        const auto border = root ? root->border_thickness.value_or(Insets{}) : Insets{};
+        const auto line = text && text->font_size ? *text->font_size * 1.5f : 21.0f;
+        return constrain_measure({std::max(400.0f, padding.left + padding.right + border.left + border.right),
+            std::max(180.0f, line + padding.top + padding.bottom + border.top + border.bottom)}, offered, true);
+    });
+}
 void DocumentText::set_text(std::wstring value) {
     if (highlighting_) throw std::logic_error("Cannot change document text from its syntax highlighter");
     validate_text(value, maximum_);
@@ -227,6 +241,13 @@ void PasswordInput::set_password(std::wstring value) {
     if (value_ == value) { erase_secret(value); return; }
     erase_secret(value_); value_.swap(value); erase_secret(value); ++revision_; invalidate_state();
 }
+void PasswordInput::clear_password() {
+    const bool changed = !value_.empty() || revealed_;
+    erase_secret(value_);
+    revealed_ = false;
+    ++revision_;
+    if (changed) invalidate(Invalidation::layout);
+}
 void PasswordInput::with_password(const std::function<void(std::wstring_view)>& receiver) const {
     if (!receiver) throw std::invalid_argument("Password receiver is required");
     receiver(value_);
@@ -248,8 +269,20 @@ void PasswordInput::set_revealed(bool value) {
     revealed_ = value; invalidate(Invalidation::layout);
 }
 Size PasswordInput::measure(Size available) {
-    const auto size = Control::measure(available);
-    return visible() && revealed_ ? constrain({size.width, size.height + reveal_extent()}, available) : size;
+    if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) {
+        if (!natural) {
+            const auto size = measure_control(offered, false);
+            return revealed_ ? constrain({size.width, size.height + reveal_extent()}, offered) : size;
+        }
+        const auto* root = effective_control_style_values(StylePart::root);
+        const auto* text = effective_control_style_values(StylePart::text);
+        const auto padding = root ? root->padding.value_or(Insets{4, 3, 4, 3}) : Insets{4, 3, 4, 3};
+        const auto border = root ? root->border_thickness.value_or(Insets{}) : Insets{};
+        const auto line = text && text->font_size ? *text->font_size * 1.5f : 21.0f;
+        return constrain_measure({std::max(320.0f, padding.left + padding.right + border.left + border.right),
+            std::max(38.0f, line + padding.top + padding.bottom + border.top + border.bottom) + reveal_extent()}, offered, true);
+    });
 }
 float PasswordInput::reveal_extent() const {
     if (!revealed_) return 0;

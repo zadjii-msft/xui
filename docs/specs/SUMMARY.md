@@ -66,6 +66,7 @@
 ## Contribute and explore designs
 
 * [Build, test, and contribute](../../CONTRIBUTING.md)
+* [Multi-platform framework completion plan](multi-platform-framework-plan.md)
 * [Zoey the XUI Lion](branding/zoey.md)
 * [Styles and templates proposal](styling-and-templates-design.md)
 * [WinUI-style proposal](winui-design-plan.md)

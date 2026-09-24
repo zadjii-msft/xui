@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>Xui.Experimental.Windows</id>
+    <version>$version$</version>
+    <authors>zadjii-msft</authors>
+    <license type="expression">MIT</license>
+    <readme>README.md</readme>
+    <description>Experimental XUI portable Windows adapter. Contains only the explicitly packaged native architecture. Not the stable Xui desktop SDK.</description>
+    <repository type="git" url="https://github.com/zadjii-msft/xui" />
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="Xui.Experimental.Portable" version="[$version$]" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="LICENSE" target="LICENSE" />
+    <file src="packaging\experimental\README.md" target="README.md" />
+    <file src="$managedRoot$\Xui.Windows.dll" target="lib\net10.0" />
+    <file src="$managedRoot$\Xui.Managed.dll" target="lib\net10.0" />
+    <file src="$nativeRoot$\xui.dll" target="runtimes\$rid$\native" />
+    <file src="demo\xui.manifest" target="build\net10.0" />
+    <file src="packaging\experimental\Xui.Experimental.Windows.targets" target="build\net10.0" />
+  </files>
+</package>

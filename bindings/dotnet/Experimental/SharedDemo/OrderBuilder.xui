@@ -1,0 +1,99 @@
+namespace PortableDemo;
+
+component OrderBuilder {
+    state OrderState State = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("XUI order builder", id: "order-title");
+            ScrollView("Order details and fixed catalog", id: "order-content", flex: 1) {
+                VStack(spacing: 12) {
+                    Text("Fixed catalog. Local review only.", id: "order-description");
+                    TextInput("Customer name", text: State.CustomerName, change: SetCustomerName, submit: Review,
+                        placeholder: "Ada Lovelace", captionVisible: true,
+                        help: "Required. Your text is kept exactly as entered.", ref: CustomerNameInput, id: "customer-name");
+                    TextInput("Email", text: State.Email, change: SetEmail, submit: Review,
+                        placeholder: "you@example.com", captionVisible: true,
+                        help: "Required. Use an address with an @ and a dotted domain.", ref: EmailInput, id: "email");
+                    VStack(spacing: 4) {
+                        Text("Coffee - $12.50", id: "coffee-title");
+                        Text(State.CoffeeQuantityText, ref: CoffeeQuantityLabel, id: "coffee-quantity");
+                        HStack(spacing: 8) {
+                            Button("Less coffee", click: LessCoffee, enabled: State.CoffeeQuantity > 0,
+                                preferredSize: (100, 44), flex: 1, help: "Remove one coffee. Minimum zero.", ref: CoffeeLess, id: "coffee-less");
+                            Button("More coffee", click: MoreCoffee, enabled: State.CoffeeQuantity < 9,
+                                preferredSize: (100, 44), flex: 1, help: "Add one coffee. Maximum nine.", ref: CoffeeMore, id: "coffee-more");
+                        }
+                    }
+                    VStack(spacing: 4) {
+                        Text("Tea - $8.00", id: "tea-title");
+                        Text(State.TeaQuantityText, ref: TeaQuantityLabel, id: "tea-quantity");
+                        HStack(spacing: 8) {
+                            Button("Less tea", click: LessTea, enabled: State.TeaQuantity > 0,
+                                preferredSize: (100, 44), flex: 1, help: "Remove one tea. Minimum zero.", ref: TeaLess, id: "tea-less");
+                            Button("More tea", click: MoreTea, enabled: State.TeaQuantity < 9,
+                                preferredSize: (100, 44), flex: 1, help: "Add one tea. Maximum nine.", ref: TeaMore, id: "tea-more");
+                        }
+                    }
+                    VStack(spacing: 4) {
+                        Text("Cocoa - $10.00", id: "cocoa-title");
+                        Text(State.CocoaQuantityText, ref: CocoaQuantityLabel, id: "cocoa-quantity");
+                        HStack(spacing: 8) {
+                            Button("Less cocoa", click: LessCocoa, enabled: State.CocoaQuantity > 0,
+                                preferredSize: (100, 44), flex: 1, help: "Remove one cocoa. Minimum zero.", ref: CocoaLess, id: "cocoa-less");
+                            Button("More cocoa", click: MoreCocoa, enabled: State.CocoaQuantity < 9,
+                                preferredSize: (100, 44), flex: 1, help: "Add one cocoa. Maximum nine.", ref: CocoaMore, id: "cocoa-more");
+                        }
+                    }
+                    TextInput("Discount code", text: State.DiscountCode, change: SetDiscountCode, submit: Review,
+                        placeholder: "SAVE10 (optional)", captionVisible: true,
+                        help: "Optional SAVE10 saves ten percent. Matching ignores case and surrounding spaces.",
+                        ref: DiscountInput, id: "discount-code");
+                    VStack(spacing: 4) {
+                        Text(State.SubtotalText, ref: SubtotalLabel, id: "subtotal");
+                        Text(State.DiscountText, ref: DiscountLabel, id: "discount-total");
+                        Text(State.TotalText, ref: TotalLabel, id: "total");
+                    }
+                    Text(State.Validation, ref: ValidationLabel, id: "validation");
+                    Button("Review order", click: Review, enabled: State.CanReview && !State.Reviewing, ref: ReviewButton, id: "review",
+                        help: "Show a local summary. This does not place an order or take payment.");
+                    Text(State.ReviewSummary, visible: State.Reviewing, ref: ReviewSummaryLabel, id: "review-summary");
+                    HStack(spacing: 8) {
+                        Button("Edit", click: Edit, enabled: State.Reviewing, ref: EditButton, id: "edit", flex: 1);
+                        Button("Reset", click: Reset, ref: ResetButton, id: "reset", flex: 1,
+                            help: "Clear all customer details, quantities, discount, and review.");
+                    }
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetCustomerName(string value) => State = State with { CustomerName = value, Reviewing = false };
+        void SetEmail(string value) => State = State with { Email = value, Reviewing = false };
+        void SetDiscountCode(string value) => State = State with { DiscountCode = value, Reviewing = false };
+        void LessCoffee() {
+            if (State.CoffeeQuantity > 0) State = State with { CoffeeQuantity = State.CoffeeQuantity - 1, Reviewing = false };
+        }
+        void MoreCoffee() {
+            if (State.CoffeeQuantity < 9) State = State with { CoffeeQuantity = State.CoffeeQuantity + 1, Reviewing = false };
+        }
+        void LessTea() {
+            if (State.TeaQuantity > 0) State = State with { TeaQuantity = State.TeaQuantity - 1, Reviewing = false };
+        }
+        void MoreTea() {
+            if (State.TeaQuantity < 9) State = State with { TeaQuantity = State.TeaQuantity + 1, Reviewing = false };
+        }
+        void LessCocoa() {
+            if (State.CocoaQuantity > 0) State = State with { CocoaQuantity = State.CocoaQuantity - 1, Reviewing = false };
+        }
+        void MoreCocoa() {
+            if (State.CocoaQuantity < 9) State = State with { CocoaQuantity = State.CocoaQuantity + 1, Reviewing = false };
+        }
+        void Review() {
+            if (State.CanReview) State = State with { Reviewing = true };
+        }
+        void Edit() => State = State with { Reviewing = false };
+        void Reset() => State = new();
+    }
+}

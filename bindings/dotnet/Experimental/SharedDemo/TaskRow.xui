@@ -1,0 +1,32 @@
+namespace PortableDemo;
+
+component TaskRow {
+    param string Key;
+    param global::System.Action<string, string> RenameTask;
+    param global::System.Action<string> ToggleTask;
+    param global::System.Action<string> RemoveTask;
+    state DynamicTaskItem Item = new(1, "", false);
+
+    view {
+        VStack(spacing: 4) {
+            TextInput("Task title", text: Item.Title, change: Rename,
+                captionVisible: true, placeholder: "Describe this task",
+                help: "Edits are saved to this task as you type. Reordering retains this editor.",
+                ref: TitleInput, id: Key + "-title");
+            Text(Item.StatusText, ref: StatusLabel, id: Key + "-status");
+            Text(Item.Validation, visible: !Item.CanToggle, ref: ValidationLabel, id: Key + "-validation");
+            HStack(spacing: 8) {
+                Button(Item.ToggleText, click: Toggle, enabled: Item.CanToggle,
+                    ref: ToggleButton, id: Key + "-toggle", flex: 1);
+                Button("Remove", click: Remove, help: "Permanently remove this local task.",
+                    ref: RemoveButton, id: Key + "-remove", flex: 1);
+            }
+        }
+    }
+
+    code csharp {
+        void Rename(string value) => RenameTask(Key, value);
+        void Toggle() { if (Item.CanToggle) ToggleTask(Key); }
+        void Remove() => RemoveTask(Key);
+    }
+}

@@ -1,0 +1,34 @@
+namespace PortableDemo;
+
+component StudioOperationsControls {
+    param StudioOperationsController Controller;
+    state StudioOperationsState Snapshot = new();
+    state (global::Xui.Experimental.Portable.Choice[] Items, ulong? Selected) ScopeChoices = (
+        [new(1, "Current catalog"), new(2, "All sample documents"), new(3, "Local drafts")], 1);
+
+    view {
+        VStack(spacing: 10) {
+            SingleChoice("Snapshot scope", items: ScopeChoices.Items, selected: ScopeChoices.Selected, change: SetScope,
+                enabled: !Snapshot.Busy, ref: ScopeInput, id: "operations-scope");
+            HStack(spacing: 8) {
+                Button("Scan", click: Scan, enabled: !Snapshot.Busy, id: "operations-scan", flex: 1,
+                    help: "Compute a new snapshot from the selected local document dataset.");
+                Button("Cancel", click: Cancel, enabled: Snapshot.CanCancel, ref: CancelButton, id: "operations-cancel", flex: 1);
+            }
+            Progress("Scanning local documents", progressState: global::Xui.Experimental.Portable.ProgressState.Indeterminate,
+                visible: Snapshot.Busy, id: "operations-progress");
+            Text(Snapshot.Status, textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(3), id: "operations-status");
+            Text(Snapshot.Error, visible: Snapshot.Error != "", textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(3),
+                id: "operations-error");
+        }
+    }
+    code csharp {
+        public void Refresh(StudioOperationsState next) {
+            ScopeChoices = (ScopeChoices.Items, (ulong)next.Scope);
+            Snapshot = next;
+        }
+        void SetScope(ulong id) => Controller.SetScope((StudioOperationsScope)id);
+        void Scan() => Controller.Scan();
+        void Cancel() => Controller.Cancel();
+    }
+}

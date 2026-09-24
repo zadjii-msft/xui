@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <Compile Include="..\SharedDemo\WorkspaceStudioModel.cs;..\SharedDemo\WorkspaceStudioController.cs;..\SharedDemo\StudioCatalogViewport.cs;..\SharedDemo\WorkspaceStudio.cs;..\SharedDemo\WorkspaceStudioScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.Back.cs" />
+    <Compile Include="..\SharedDemo\StudioOperationsModel.cs;..\SharedDemo\StudioOperationsController.cs;..\SharedDemo\StudioOperationsDashboard.cs" />
+    <AdditionalFiles Include="..\SharedDemo\StudioDocumentEditor.xui;..\SharedDemo\StudioCatalogRow.xui;..\SharedDemo\WorkspaceStudio.xui;..\SharedDemo\StudioSectionPanel.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsDashboard.xui;..\SharedDemo\StudioWorkloadRow.xui;..\SharedDemo\StudioOperationsMetrics.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsControls.xui;..\SharedDemo\StudioOperationsDrawer.xui" />
+    <None Include="..\SharedDemo\WorkspaceStudioScenarios.json" Link="WorkspaceStudioScenarios.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

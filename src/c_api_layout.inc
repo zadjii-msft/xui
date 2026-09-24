@@ -1,6 +1,67 @@
 #include "xui/xui_layout.h"
 #include "xui/titlebar.hpp"
 
+uint32_t XUI_CALL xui_grid_layout_version() noexcept { return XUI_GRID_LAYOUT_VERSION; }
+
+xui_status XUI_CALL xui_scroll_view_set_fill_viewport(xui_handle scroll, uint32_t enabled) noexcept {
+    return boundary([&] {
+        auto node = get(scroll, XUI_SCROLL_VIEW); editable(node->owner);
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Invalid ScrollView fill-viewport value.");
+        as<xui::ScrollView>(node).set_fill_viewport(enabled != 0);
+    });
+}
+xui_status XUI_CALL xui_scroll_view_get_fill_viewport(xui_handle scroll, uint32_t* enabled) noexcept {
+    return boundary([&] {
+        require(enabled, XUI_INVALID_ARGUMENT, "Missing ScrollView fill-viewport output.");
+        *enabled = as<xui::ScrollView>(get(scroll, XUI_SCROLL_VIEW)).fill_viewport() ? 1u : 0u;
+    });
+}
+
+namespace {
+std::optional<xui::AxisConstraints> axis_constraints(const xui_axis_constraint& value) {
+    require(!(value.flags & ~7u) && std::isfinite(value.length) && std::isfinite(value.minimum) &&
+        std::isfinite(value.maximum) && value.minimum >= 0, XUI_INVALID_ARGUMENT, "Invalid axis constraint fields.");
+    if (!(value.flags & XUI_AXIS_OVERRIDE)) {
+        require(!value.flags && value.length == 0 && value.minimum == 0 && value.maximum == 0,
+            XUI_INVALID_ARGUMENT, "An inherited axis must have zero fields.");
+        return {};
+    }
+    require((value.flags & XUI_AXIS_LENGTH) || value.length == 0, XUI_INVALID_ARGUMENT, "Unused axis length must be zero.");
+    require((value.flags & XUI_AXIS_MAXIMUM) || value.maximum == 0, XUI_INVALID_ARGUMENT, "Unused axis maximum must be zero.");
+    xui::AxisConstraints result{{}, value.minimum, {}};
+    if (value.flags & XUI_AXIS_LENGTH) result.length = value.length;
+    if (value.flags & XUI_AXIS_MAXIMUM) result.maximum = value.maximum;
+    return result;
+}
+xui_axis_constraint axis_constraints(const std::optional<xui::AxisConstraints>& value) {
+    if (!value) return {};
+    return {XUI_AXIS_OVERRIDE | (value->length ? XUI_AXIS_LENGTH : 0u) | (value->maximum ? XUI_AXIS_MAXIMUM : 0u),
+        value->length.value_or(0), value->minimum, value->maximum.value_or(0)};
+}
+}
+xui_status XUI_CALL xui_element_set_axis_constraints(xui_handle target, const xui_axis_constraints* constraints) noexcept {
+    return boundary([&] {
+        require(constraints && constraints->size == sizeof(*constraints) && constraints->version == XUI_AXIS_CONSTRAINTS_VERSION,
+            XUI_VERSION_MISMATCH, "Axis constraints version or size mismatch.");
+        auto node = get(target); editable(node->owner);
+        require(node->element && node->element->supports_axis_constraints(), XUI_WRONG_KIND,
+            "This element does not support axis constraints.");
+        auto width = axis_constraints(constraints->width), height = axis_constraints(constraints->height);
+        node->element->set_axis_constraints(width, height);
+    }, true);
+}
+xui_status XUI_CALL xui_element_get_axis_constraints(xui_handle target, xui_axis_constraints* constraints) noexcept {
+    return boundary([&] {
+        require(constraints && constraints->size == sizeof(*constraints) && constraints->version == XUI_AXIS_CONSTRAINTS_VERSION,
+            XUI_VERSION_MISMATCH, "Axis constraints version or size mismatch.");
+        auto node = get(target);
+        require(node->element && node->element->supports_axis_constraints(), XUI_WRONG_KIND,
+            "This element does not support axis constraints.");
+        constraints->width = axis_constraints(node->element->width_constraints());
+        constraints->height = axis_constraints(node->element->height_constraints());
+    });
+}
+
 xui_status XUI_CALL xui_progress_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_PROGRESS); editable(n->owner);

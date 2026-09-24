@@ -1,0 +1,53 @@
+namespace PortableDemo;
+
+component TaskBoard {
+    state TaskBoardState State = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("TASK BOARD", id: "task-title");
+            Text(State.ProgressText, ref: ProgressLabel, id: "task-progress");
+            ScrollView("Priority board and task editor", id: "task-content", flex: 1) {
+                VStack(spacing: 8) {
+                    Text("Three fixed priority slots", id: "task-description");
+                    HStack(spacing: 8) {
+                        Button("All", click: ShowAll, enabled: State.Filter != TaskFilter.All, id: "task-filter-all", flex: 1);
+                        Button("Open", click: ShowOpen, enabled: State.Filter != TaskFilter.Open, id: "task-filter-open", flex: 1);
+                        Button("Done", click: ShowDone, enabled: State.Filter != TaskFilter.Done, id: "task-filter-done", flex: 1);
+                    }
+                    Text(State.FilterText, id: "task-filter");
+                    Button(State.FirstText, click: SelectFirst, visible: State.FirstVisible,
+                        help: "Edit priority slot one.", ref: FirstButton, id: "task-first");
+                    Button(State.SecondText, click: SelectSecond, visible: State.SecondVisible,
+                        help: "Edit priority slot two.", ref: SecondButton, id: "task-second");
+                    Button(State.ThirdText, click: SelectThird, visible: State.ThirdVisible,
+                        help: "Edit priority slot three.", ref: ThirdButton, id: "task-third");
+                    Text("No priorities match this filter.", visible: State.EmptyFilter, id: "task-empty");
+                    Text(State.EditorText, id: "task-editor");
+                    TextInput("Task title", text: State.Selected.Title, change: Rename, submit: Advance,
+                        placeholder: "Write the release guide", captionVisible: true,
+                        help: "Edits the selected fixed priority slot. Text is kept as entered.",
+                        ref: TitleInput, id: "task-name");
+                    Text(State.SelectedStatusText, ref: StatusLabel, id: "task-status");
+                    Text(State.Validation, ref: ValidationLabel, id: "task-validation");
+                    Button(State.NextStatusText, click: Advance, enabled: State.CanAdvance,
+                        ref: AdvanceButton, id: "task-advance");
+                    Button("Reset example", click: Reset, ref: ResetButton, id: "task-reset",
+                        help: "Restore the three example priorities, selection, and filter.");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void ShowAll() => State = State with { Filter = TaskFilter.All };
+        void ShowOpen() => State = State with { Filter = TaskFilter.Open };
+        void ShowDone() => State = State with { Filter = TaskFilter.Done };
+        void SelectFirst() => State = State with { SelectedSlot = 1 };
+        void SelectSecond() => State = State with { SelectedSlot = 2 };
+        void SelectThird() => State = State with { SelectedSlot = 3 };
+        void Rename(string value) => State = State.RenameSelected(value);
+        void Advance() => State = State.AdvanceSelected();
+        void Reset() => State = new();
+    }
+}

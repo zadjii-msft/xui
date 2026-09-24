@@ -5,10 +5,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include "content_mutation_abi.inc"
 
 namespace {
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
-void ok(xui_status status) { require(status == XUI_OK, "Unexpected ABI status"); }
+void ok(xui_status status, const std::source_location location = std::source_location::current()) {
+    content_mutation_abi::status(status, XUI_OK, location);
+}
 xui_string text(const char* value) { return {value, static_cast<uint32_t>(std::strlen(value)), 0}; }
 struct Delivery {
     std::atomic<unsigned> accepted{}, executed{}, released{};
@@ -215,6 +218,7 @@ int main(int argc, char** argv) {
         require(argc == 1 || (argc == 2 && std::strcmp(argv[1], "--post-race-only") == 0),
             "Usage: xui_application_abi_tests [--post-race-only]");
         if (argc == 1) {
+            content_mutation_abi::run();
             window_drag_contract();
             Lifetime{}.run();
             Lifetime failed; failed.fail = true; failed.run();

@@ -1,0 +1,76 @@
+namespace PortableDemo;
+
+component ProfileWorkspace {
+    param ProfileWorkspaceController Controller;
+    state ProfileWorkspaceState Snapshot = new();
+    state global::Xui.Experimental.Portable.KeyedItem[] Pages = [];
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("PROFILE WORKSPACE", id: "profile-title");
+            ScrollView("Profile editor, preview, and stored draft", id: "profile-content", flex: 1) {
+                VStack(spacing: 12) {
+                    Text("Public profile draft / local storage", id: "profile-description");
+                    Text(Snapshot.Status, ref: StatusLabel, id: "profile-status");
+                    Text(Snapshot.Error, visible: Snapshot.Error != "", ref: ErrorLabel, id: "profile-error");
+                    Text("Storage is working...", visible: Snapshot.Busy, id: "profile-busy");
+                    Button("Cancel operation", click: Cancel, visible: Snapshot.Busy, enabled: Snapshot.CanCancel,
+                        ref: CancelButton, id: "profile-cancel");
+                    KeyedVStack(Pages, ref: PageView);
+                    Button("Save draft", click: Save, enabled: Snapshot.CanSave, ref: SaveButton, id: "profile-save");
+                    HStack(spacing: 8) {
+                        Button("Load draft", click: Load, enabled: !Snapshot.Busy, ref: LoadButton, id: "profile-load", flex: 1);
+                        Button("Delete stored draft", click: Delete, enabled: !Snapshot.Busy,
+                            ref: DeleteButton, id: "profile-delete", flex: 1);
+                    }
+                    Button("Clear editor", click: Reset, enabled: !Snapshot.Busy, ref: ResetButton, id: "profile-reset",
+                        help: "Clear only the in-memory editor. Does not delete or overwrite the stored draft.");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        public static ProfileWorkspace Create(global::Xui.Experimental.Portable.Host host,
+            global::Xui.Experimental.Portable.IApplicationStorage storage,
+            global::System.Action<global::System.Exception> reportUnhandled,
+            ProfileWorkspaceSession? session = null) {
+            var controller = new ProfileWorkspaceController(host, storage, reportUnhandled, session);
+            try {
+                var workspace = new ProfileWorkspace(host, controller);
+                controller.Attach(workspace.Lifetime, workspace.Refresh);
+                return workspace;
+            }
+            catch (global::System.Exception failure) {
+                try { controller.Dispose(); }
+                catch (global::System.Exception cleanup) { throw new global::System.AggregateException(failure, cleanup); }
+                throw;
+            }
+        }
+
+        public ProfileWorkspaceState GetState() => Controller.State;
+
+        public void Refresh(ProfileWorkspaceState next) {
+            global::Xui.Experimental.Portable.KeyedItem page = next.Page == ProfilePage.Edit
+                ? global::Xui.Experimental.Portable.KeyedItem.Create(next.PageKey,
+                    host => new ProfileEditPage(host, Controller.SetDisplayName, Controller.SetRole,
+                        Controller.SetLocation, Controller.SetFocus, Controller.Preview) { Draft = next.Draft, Busy = next.Busy },
+                    row => { row.Draft = next.Draft; row.Busy = next.Busy; })
+                : global::Xui.Experimental.Portable.KeyedItem.Create(next.PageKey,
+                    host => new ProfilePreviewPage(host, Controller.Back) { Draft = next.Draft, Busy = next.Busy },
+                    row => { row.Draft = next.Draft; row.Busy = next.Busy; });
+            try { Pages = [page]; }
+            catch (global::Xui.Experimental.Portable.KeyedUpdateException error) when (error.ModelCommitted) {
+                Snapshot = next;
+                throw;
+            }
+            Snapshot = next;
+        }
+
+        void Save() => Controller.Save();
+        void Load() => Controller.Load();
+        void Delete() => Controller.Delete();
+        void Cancel() => Controller.Cancel();
+        void Reset() => Controller.ResetEditor();
+    }
+}

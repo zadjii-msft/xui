@@ -1,0 +1,44 @@
+namespace PortableDemo;
+
+component ProfileEditPage {
+    param global::System.Action<string> SetDisplayName;
+    param global::System.Action<string> SetRole;
+    param global::System.Action<string> SetLocation;
+    param global::System.Action<string> SetFocus;
+    param global::System.Action Preview;
+    state ProfileSnapshot Draft = new();
+    state bool Busy = false;
+
+    view {
+        VStack(spacing: 8) {
+            Text("EDIT PROFILE", id: "profile-edit-title");
+            TextInput("Display name", text: Draft.DisplayName, change: Rename,
+                captionVisible: true, placeholder: "Ada Lovelace",
+                help: "Required. Edits stay in memory until Save draft succeeds.",
+                enabled: !Busy, ref: NameInput, id: "profile-name");
+            TextInput("Role", text: Draft.Role, change: ChangeRole,
+                captionVisible: true, placeholder: "Developer",
+                help: "Optional public profile role. Do not enter secrets.",
+                enabled: !Busy, ref: RoleInput, id: "profile-role");
+            TextInput("Location", text: Draft.Location, change: ChangeLocation,
+                captionVisible: true, placeholder: "London",
+                help: "Optional public location. Leave blank if you prefer.",
+                enabled: !Busy, ref: LocationInput, id: "profile-location");
+            TextInput("Focus", text: Draft.Focus, change: ChangeFocus,
+                captionVisible: true, placeholder: "Accessible tools",
+                help: "Optional single-line description of your current focus.",
+                enabled: !Busy, ref: FocusInput, id: "profile-focus");
+            Text(Draft.Validation, id: "profile-validation");
+            Button("Preview profile", click: ShowPreview, enabled: Draft.CanSave && !Busy,
+                ref: PreviewButton, id: "profile-preview");
+        }
+    }
+
+    code csharp {
+        void Rename(string value) => SetDisplayName(value);
+        void ChangeRole(string value) => SetRole(value);
+        void ChangeLocation(string value) => SetLocation(value);
+        void ChangeFocus(string value) => SetFocus(value);
+        void ShowPreview() => Preview();
+    }
+}

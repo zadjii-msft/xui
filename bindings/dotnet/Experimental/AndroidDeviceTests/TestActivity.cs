@@ -44,8 +44,17 @@ public sealed class TestActivity : Activity
             host.Attach(backend);
             var input = (EditText)backend.FindViews("name").Single();
             var increment = (NativeButton)backend.FindViews("increment").Single();
+            using (var editorInfo = new EditorInfo())
+            using (var connection = input.OnCreateInputConnection(editorInfo))
+            {
+                Assert(connection is not null &&
+                    ((int)editorInfo.ImeOptions & (int)ImeFlags.NoFullscreen) != 0,
+                    "The native input connection requests an in-place IME, not a fullscreen extracted editor.");
+            }
             int changed = 0;
+            int submitted = 0;
             demo.Input.Changed += _ => changed++;
+            demo.Input.Submitted += () => submitted++;
             input.Text = "Ada";
             Assert(demo.Entry == "Ada" && changed == 1, "Native EditText callback updates authored C#.");
             input.RequestFocus();
@@ -63,7 +72,32 @@ public sealed class TestActivity : Activity
             Assert(BaseInputConnection.GetComposingSpanStart(editable) == composingStart &&
                 BaseInputConnection.GetComposingSpanEnd(editable) == composingEnd, "Unrelated updates preserve composition spans.");
             input.OnEditorAction(ImeAction.Done);
-            Assert(demo.Message == "Hello, Ada!", "The IME action submits authored C#.");
+            Assert(submitted == 0, "An IME action during native composition does not submit.");
+            BaseInputConnection.RemoveComposingSpans(editable);
+            input.OnEditorAction(ImeAction.Done);
+            Assert(demo.Message == "Hello, Ada!" && submitted == 1, "The completed IME action submits authored C# once.");
+            using (var down = new KeyEvent(KeyEventActions.Down, Keycode.Enter))
+            using (var up = new KeyEvent(KeyEventActions.Up, Keycode.Enter))
+            {
+                input.DispatchKeyEvent(down);
+                Assert(submitted == 1, "Hardware Enter does not submit on key-down.");
+                input.DispatchKeyEvent(up);
+                Assert(submitted == 2, "Hardware Enter submits exactly once on key-up.");
+                input.DispatchKeyEvent(down);
+                using var canceled = KeyEvent.ChangeFlags(up, KeyEventFlags.Canceled);
+                input.DispatchKeyEvent(canceled);
+                Assert(submitted == 2, "A canceled hardware Enter does not submit.");
+                BaseInputConnection.SetComposingSpans(editable);
+                input.DispatchKeyEvent(down);
+                BaseInputConnection.RemoveComposingSpans(editable);
+                using var repeat = new KeyEvent(0, 1, KeyEventActions.Down, Keycode.Enter, 1);
+                input.DispatchKeyEvent(repeat);
+                input.DispatchKeyEvent(up);
+                Assert(submitted == 2, "Enter that began during composition stays suppressed through repeats and key-up.");
+                input.DispatchKeyEvent(down);
+                input.DispatchKeyEvent(up);
+                Assert(submitted == 3, "A new noncomposing Enter submits after the suppressed key sequence.");
+            }
             demo.Entry = "Grace";
             Assert(input.Text == "Grace" && changed == 1, "Programmatic updates suppress native change callbacks.");
             Assert(input.SelectionStart == 1 && input.SelectionEnd == 2, "Programmatic replacement clamps existing selection.");

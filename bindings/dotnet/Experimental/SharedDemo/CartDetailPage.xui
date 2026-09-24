@@ -1,0 +1,21 @@
+namespace PortableDemo;
+
+component CartDetailPage {
+    param EditableCartController Controller;
+    param CartProduct Product;
+    state bool CanAdd = true;
+
+    view {
+        VStack(spacing: 8) {
+            Text("PRODUCT DETAILS", id: "cart-detail-title");
+            Text(Product.Name, id: "cart-product-name");
+            Text(Product.Description, id: "cart-product-description");
+            Text("Unit price: " + CartCatalog.Money(Product.UnitPrice), id: "cart-product-price");
+            Button("Add to cart", click: Add, enabled: CanAdd, ref: AddButton, id: "cart-add-product");
+            Text("Each addition creates an independently editable cart line.", id: "cart-detail-note");
+        }
+    }
+    code csharp {
+        void Add() => Controller.AddProduct(Product.Id);
+    }
+}

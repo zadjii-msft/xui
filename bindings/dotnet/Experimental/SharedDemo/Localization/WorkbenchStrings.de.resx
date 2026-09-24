@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Title" xml:space="preserve"><value>Sprachwerkstatt</value></data>
+  <data name="Description" xml:space="preserve"><value>Die Sprache der Benutzeroberfläche wechseln, ohne den Entwurf zu verändern. Es wird nichts gespeichert oder gesendet.</value></data>
+  <data name="DraftCaption" xml:space="preserve"><value>Ihr unveränderter Textentwurf</value></data>
+  <data name="DraftPlaceholder" xml:space="preserve"><value>In einer beliebigen Sprache schreiben</value></data>
+  <data name="DraftHelp" xml:space="preserve"><value>Die Sprache der Benutzeroberfläche übersetzt oder ersetzt Ihren Text nicht.</value></data>
+  <data name="CountCaption" xml:space="preserve"><value>Vorschauanzahl</value></data>
+  <data name="AddOne" xml:space="preserve"><value>Um eins erhöhen</value></data>
+  <data name="English" xml:space="preserve"><value>English</value></data>
+  <data name="German" xml:space="preserve"><value>Deutsch</value></data>
+  <data name="Arabic" xml:space="preserve"><value>العربية</value></data>
+</root>

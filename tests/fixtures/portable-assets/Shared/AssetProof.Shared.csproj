@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Xui.Experimental.Portable" Version="__ASSET_PACKAGE_VERSION__" />
+    <PackageReference Include="Xui.Experimental.Compiler" Version="__ASSET_PACKAGE_VERSION__" PrivateAssets="all" />
+    <XuiAsset Include="Fixtures\owned.bin" AssetId="images/logo.png" />
+    <XuiAsset Include="Fixtures\owned.bin" AssetId="images/photo.jpg" />
+    <XuiAsset Include="Fixtures\owned.bin" AssetId="fonts/body.ttf" />
+    <XuiAsset Include="Fixtures\owned.bin" AssetId="fonts/title.otf" />
+  </ItemGroup>
+</Project>

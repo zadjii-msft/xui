@@ -335,6 +335,192 @@ void inactive_page_contract() {
     });
     check(Application::run(window) == 0 && ran, "Inactive page replacement completes");
 }
+void subtree_model_contract() {
+    Window window;
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto first = std::make_shared<Button>(L"First");
+    auto second = std::make_shared<Button>(L"Second");
+    root->add(first); root->add(second);
+    window.set_content(root);
+    auto detached = std::make_shared<Stack>(Axis::vertical);
+    auto child = std::make_shared<Label>(L"Detached child");
+    detached->add(child);
+    window.stack_validate_move(*root, *first, SIZE_MAX);
+    rejects<std::invalid_argument>([&] { window.stack_move(*root, *first, 2); }, "Move checks final bounds");
+    rejects<std::invalid_argument>([&] { window.stack_insert(*root, 3, detached); }, "Insert checks final bounds");
+    rejects<std::invalid_argument>([&] { window.stack_insert(*root, 0, root); }, "Insert rejects cycles");
+    rejects<std::invalid_argument>([&] { window.stack_insert(*root, 0, second); }, "Insert rejects duplicate parentage");
+    rejects<std::invalid_argument>([&] { window.stack_remove(*root, *child); }, "Remove requires direct parent");
+    rejects<std::invalid_argument>([&] { window.stack_insert(*detached, 0, first); }, "Detached parent rejected");
+    Window other;
+    other.set_content(std::make_shared<Stack>(Axis::vertical));
+    rejects<std::invalid_argument>([&] { other.stack_move(*root, *first, 0); }, "Foreign window rejected");
+    check(root->child_at(0) == first && root->child_count() == 2, "Preflight errors preserve model");
+    window.stack_insert(*root, 1, detached, 1);
+    window.stack_move(*root, *second, 0);
+    check(root->child_at(0) == second && root->child_at(2) == detached, "Model order matches final indices");
+    unsigned invalidations{};
+    root->set_invalidator([&](Invalidation) { ++invalidations; });
+    window.stack_remove(*root, *detached);
+    check(invalidations == 1 && !window.contains_element(*child), "Remove detaches entire subtree");
+    child->invalidate(Invalidation::layout);
+    check(invalidations == 1, "Detached descendants cannot invalidate former parent");
+    root->set_invalidator({});
+}
+void subtree_native_contract(VisualStyle style) {
+    WindowOptions options;
+    options.title = L"XUI subtree mutation identity";
+    options.size = {700, 650};
+    options.visual_style = style;
+    Window window(options);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto first = std::make_shared<Button>(L"Mutation first");
+    auto input = std::make_shared<TextInput>(L"Mutation input");
+    input->set_text(L"retained editing");
+    auto document = std::make_shared<MultilineText>(L"Mutation document");
+    document->set_text(L"retained document");
+    auto last = std::make_shared<Button>(L"Mutation last");
+    root->add(first); root->add(input); root->add(document); root->add(last);
+    window.set_content(root);
+    bool callback_rejected{}, ran{};
+    input->on_change([&](const auto&) {
+        rejects<std::logic_error>([&] { window.stack_move(*root, *last, 0); }, "Native input callback rejects mutation");
+        callback_rejected = true;
+    });
+    window.post([&] {
+        const auto hwnd = frame(options.title);
+        const auto edit = native(hwnd, L"EDIT"), rich = native(hwnd, L"RICHEDIT50W");
+        const auto first_hwnd = named(hwnd, first->name()), last_hwnd = named(hwnd, last->name());
+        const auto id = input->id(), document_id = document->id();
+        const int edit_id = GetDlgCtrlID(edit), rich_id = GetDlgCtrlID(rich);
+        SendMessageW(edit, EM_SETSEL, 0, 0);
+        SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"native "));
+        SendMessageW(edit, EM_SETSEL, 2, 6);
+        SendMessageW(rich, EM_SETSEL, 1, 4);
+        SetFocus(edit);
+        const auto focus = GetFocus();
+        check(focus == edit && callback_rejected, "Real editor focus and native change callback");
+        const auto value = text(edit);
+        const char* phase = "initial move";
+        DWORD rich_start = 1, rich_end = 4;
+        auto retained = [&] {
+            DWORD start{}, end{};
+            SendMessageW(edit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+            check(IsWindow(edit) && native(hwnd, L"EDIT") == edit && input->id() == id &&
+                GetDlgCtrlID(edit) == edit_id && start == 2 && end == 6 && text(edit) == value &&
+                GetFocus() == focus && SendMessageW(edit, EM_CANUNDO, 0, 0), "Retain input HWND/ID/text/focus/selection/undo");
+            SendMessageW(rich, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+            if (start != rich_start || end != rich_end)
+                std::cerr << "RichEdit selection " << start << "," << end << " during " << phase
+                    << " style=" << static_cast<int>(style) << "\n";
+            check(IsWindow(rich) && document->id() == document_id && GetDlgCtrlID(rich) == rich_id &&
+                start == rich_start && end == rich_end, "Retain RichEdit HWND/ID/selection");
+        };
+        window.stack_validate_move(*root, *last, 1000);
+        window.stack_move(*root, *last, 0);
+        retained();
+        check(GetWindow(hwnd, GW_CHILD) == last_hwnd &&
+            GetNextDlgTabItem(hwnd, last_hwnd, FALSE) == first_hwnd &&
+            GetNextDlgTabItem(hwnd, first_hwnd, FALSE) == edit, "Native keyboard sibling order matches model");
+        for (const auto composing : {edit, rich}) {
+            phase = composing == edit ? "EDIT composition" : "RichEdit composition";
+            SendMessageW(composing, WM_IME_STARTCOMPOSITION, 0, 0);
+            // RichEdit itself collapses the selection on composition start.
+            // Rejected mutations must preserve the active native composition state.
+            SendMessageW(rich, EM_GETSEL, reinterpret_cast<WPARAM>(&rich_start), reinterpret_cast<LPARAM>(&rich_end));
+            rejects<std::logic_error>([&] { window.validate_content_mutation(); }, "Whole-edit preflight rejects composition");
+            rejects<std::logic_error>([&] { window.stack_validate_move(*root, *first, 999); }, "Other-row preflight rejects composition");
+            rejects<std::logic_error>([&] { window.stack_move(*root, *first, 0); }, "Other-row move rejects composition");
+            rejects<std::logic_error>([&] { window.stack_remove(*root, *first); }, "Other-row removal rejects composition");
+            rejects<std::logic_error>([&] { window.stack_insert(*root, 0, std::make_shared<Button>(L"Rejected")); },
+                "Insertion rejects composition");
+            check(root->child_count() == 4 && root->child_at(0) == last, "Composition rejection is read-only");
+            retained();
+            SendMessageW(composing, WM_IME_ENDCOMPOSITION, 0, 0);
+            SendMessageW(rich, EM_SETSEL, 1, 4);
+            rich_start = 1; rich_end = 4;
+        }
+        const auto count = descendants(hwnd).size();
+        phase = "insert/remove";
+        for (unsigned i = 0; i < 32; ++i) {
+            auto row = std::make_shared<Stack>(Axis::horizontal);
+            auto added = std::make_shared<Button>(L"Temporary subtree");
+            row->add(added);
+            window.stack_insert(*root, 1, row);
+            const auto added_hwnd = named(hwnd, added->name());
+            check(GetDlgCtrlID(added_hwnd) != edit_id && GetDlgCtrlID(added_hwnd) != rich_id,
+                "Inserted peer does not reuse retained native IDs");
+            retained();
+            window.stack_remove(*root, *row);
+            check(!IsWindow(added_hwnd) && descendants(hwnd).size() == count, "Removal immediately prunes HWNDs");
+            retained();
+        }
+        PostMessageW(edit, WM_KEYDOWN, VK_TAB, 0);
+        window.post([&, edit, rich] {
+            check(GetFocus() == rich, "Framework tab traversal follows reordered peer list");
+            SetFocus(edit);
+            window.stack_remove(*root, *input);
+            check(!IsWindow(edit) && !window.contains_element(*input) && IsWindow(rich), "Focused removal retires only its subtree");
+            ran = true;
+            window.close();
+        });
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    check(result == 0 && ran, "Native subtree contract completes");
+}
+void subtree_provider_order() {
+    WindowOptions options; options.title = L"XUI subtree UIA order"; options.show_activated = false;
+    Window window(options);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    auto a = std::make_shared<Button>(L"Order A"), b = std::make_shared<Button>(L"Order B"),
+        c = std::make_shared<Button>(L"Order C");
+    root->add(a); root->add(b); root->add(c);
+    window.set_content(root);
+    std::thread client;
+    std::exception_ptr failure;
+    window.post([&] {
+        const auto hwnd = frame(options.title);
+        const auto retained = named(hwnd, c->name());
+        window.stack_move(*root, *c, 0);
+        window.stack_insert(*root, 1, std::make_shared<Button>(L"Order D"));
+        window.stack_remove(*root, *a);
+        check(named(hwnd, c->name()) == retained, "UIA move retains HWND");
+        client = std::thread([&, hwnd] {
+            const auto hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            try {
+                check(SUCCEEDED(hr), "Initialize UIA order client");
+                ComPtr<IUIAutomation> automation;
+                check(SUCCEEDED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
+                    IID_PPV_ARGS(&automation))), "Create UIA order client");
+                ComPtr<IUIAutomationElement> element;
+                check(SUCCEEDED(automation->ElementFromHandle(hwnd, &element)), "Get UIA window");
+                ComPtr<IUIAutomationTreeWalker> walker;
+                check(SUCCEEDED(automation->get_ControlViewWalker(&walker)), "Get control tree walker");
+                ComPtr<IUIAutomationElement> child;
+                check(SUCCEEDED(walker->GetFirstChildElement(element.Get(), &child)), "Get first UIA child");
+                std::vector<std::wstring> names;
+                while (child) {
+                    BSTR name{};
+                    check(SUCCEEDED(child->get_CurrentName(&name)), "Read UIA name");
+                    std::wstring value(name ? name : L""); SysFreeString(name);
+                    if (value.starts_with(L"Order ")) names.push_back(std::move(value));
+                    ComPtr<IUIAutomationElement> next;
+                    check(SUCCEEDED(walker->GetNextSiblingElement(child.Get(), &next)), "Get next UIA sibling");
+                    child = std::move(next);
+                }
+                check(names == std::vector<std::wstring>{L"Order C", L"Order D", L"Order B"},
+                    "Actual UIA control order matches retained mutation order");
+            } catch (...) { failure = std::current_exception(); }
+            if (SUCCEEDED(hr)) CoUninitialize();
+            window.post([&] { window.close(); });
+        });
+    });
+    const auto result = Application::run(window);
+    if (client.joinable()) client.join();
+    if (failure) std::rethrow_exception(failure);
+    check(result == 0, "UIA subtree order contract completes");
+}
 class FailingLayout final : public Stack {
 public:
     FailingLayout() : Stack(Axis::vertical) { add(std::make_shared<Button>(L"Materialized before failure")); }
@@ -353,6 +539,23 @@ void failure_contract() {
     });
     check(Application::run(window) == 1 && failed && !window.error().empty(), "Native failure is explicit and fatal");
 }
+void subtree_failure_contract() {
+    WindowOptions options; options.show_activated = false; options.title = L"XUI subtree failure";
+    Window window(options);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(std::make_shared<Button>(L"Before subtree failure"));
+    window.set_content(root);
+    bool failed{};
+    HWND hwnd{};
+    window.post([&] {
+        hwnd = frame(options.title);
+        try { window.stack_insert(*root, 1, std::make_shared<FailingLayout>()); }
+        catch (const std::runtime_error&) { failed = true; }
+        rejects<std::logic_error>([&] { window.validate_content_mutation(); }, "Materialization failure closes mutated window");
+    });
+    check(Application::run(window) == 1 && failed && !window.error().empty() && !IsWindow(hwnd),
+        "Subtree materialization failure is explicit and retires native ownership");
+}
 }
 int main() {
     try {
@@ -361,8 +564,14 @@ int main() {
         native_contract(VisualStyle::winui);
         provider_contract();
         inactive_page_contract();
+        subtree_model_contract();
+        subtree_native_contract(VisualStyle::classic);
+        subtree_native_contract(VisualStyle::winui);
+        subtree_provider_order();
         failure_contract();
-        std::cout << "ContentHost: model, 200 native replacements, editor state, popup, map/runtime retirement, UIA, fatal failure passed\n";
+        subtree_failure_contract();
+        std::cout << "ContentHost: 200 replacements, 64 subtree insert/removes, retained editor state, composition rejection, "
+            "keyboard/UIA order, popup/map/runtime retirement and fatal cleanup passed\n";
         return 0;
     } catch (const std::exception& failure) {
         std::cerr << failure.what() << '\n';

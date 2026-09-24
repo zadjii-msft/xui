@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Shared/PortableApp.Shared.csproj" />
+  <Project Path="Tests/PortableApp.Tests.csproj" />
+  <Project Path="Windows/PortableApp.Windows.csproj" />
+  <Project Path="Android/PortableApp.Android.csproj" />
+  <Project Path="Web/PortableApp.Web.csproj" />
+</Solution>

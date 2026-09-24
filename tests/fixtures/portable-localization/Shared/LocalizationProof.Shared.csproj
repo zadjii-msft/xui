@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Xui.Experimental.Portable" Version="__LOCALIZATION_PACKAGE_VERSION__" />
+    <PackageReference Include="Xui.Experimental.Compiler" Version="__LOCALIZATION_PACKAGE_VERSION__" PrivateAssets="all" />
+  </ItemGroup>
+  <Import Project="..\Localization\LocalizationWorkbench.items.props" />
+</Project>

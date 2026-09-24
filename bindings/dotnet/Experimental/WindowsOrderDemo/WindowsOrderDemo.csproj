@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(XuiRuntimeIdentifier)</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <XuiHotReload>false</XuiHotReload>
+  </PropertyGroup>
+  <Import Project="..\..\Xui.Declarative.targets" />
+  <ItemGroup>
+    <AdditionalFiles Include="..\SharedDemo\OrderBuilder.xui" Link="OrderBuilder.xui" />
+    <Compile Include="..\SharedDemo\OrderModel.cs" Link="OrderModel.cs" />
+    <Compile Include="..\SharedDemo\OrderScenarioRunner.cs" Link="OrderScenarioRunner.cs" />
+    <EmbeddedResource Include="..\SharedDemo\OrderScenarios.json" LogicalName="OrderScenarios.json" />
+  </ItemGroup>
+</Project>

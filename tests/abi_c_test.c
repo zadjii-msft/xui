@@ -1,4 +1,9 @@
 #include "xui/xui.h"
+#include "xui/xui_presentation.h"
+#include "xui/xui_retained_pages.h"
+#include "xui/xui_label_layout.h"
+#include "xui/xui_reveal_portable.h"
+#include "xui/xui_image_memory.h"
 #include <stddef.h>
 #include <stdio.h>
 
@@ -24,6 +29,18 @@ _Static_assert(offsetof(xui_style_property, number) == 56, "generic style number
 _Static_assert(offsetof(xui_style_property, text) == 64, "generic style text offset");
 _Static_assert(sizeof(xui_control_style_options) == 40, "generic style options ABI");
 _Static_assert(XUI_BUTTON_ICON_DRIVE == 21 && XUI_BUTTON_ICON_OPEN == 22, "button icon ABI");
+_Static_assert(sizeof(xui_window_theme_options) == 40, "window theme ABI");
+_Static_assert(sizeof(xui_content_viewport) == 16, "content viewport ABI");
+_Static_assert(sizeof(xui_page_entry) == 32, "retained page entry ABI");
+_Static_assert(sizeof(xui_label_layout) == 24, "Label layout ABI");
+_Static_assert(sizeof(xui_portable_reveal_state) == 24, "portable Reveal state ABI");
+_Static_assert(sizeof(xui_portable_reveal_presentation) == 16, "portable Reveal presentation ABI");
+_Static_assert(sizeof(xui_image_memory_options) == 48, "memory image options ABI");
+_Static_assert(sizeof(xui_image_memory_state) == 40, "memory image state ABI");
+_Static_assert(sizeof(xui_image_memory_statistics) == 32, "memory image statistics ABI");
+_Static_assert(offsetof(xui_window_theme_options, foreground) == 16, "theme foreground offset");
+_Static_assert(offsetof(xui_window_theme_options, background) == 24, "theme background offset");
+_Static_assert(offsetof(xui_window_theme_options, accent) == 32, "theme accent offset");
 int main(void) {
     xui_handle window = 0;
     xui_window_options options = {0};
@@ -32,7 +49,13 @@ int main(void) {
     options.width = 100;
     options.height = 100;
     if (xui_abi_version() != XUI_ABI_VERSION) return 1;
+    if (xui_combo_box_selection_version() != XUI_COMBO_SELECTION_VERSION) return 8;
     if (xui_window_create(&options, &window) != XUI_OK) return 2;
+    xui_window_theme_options theme = {0};
+    theme.size = sizeof(theme); theme.version = XUI_WINDOW_THEME_VERSION;
+    if (xui_window_theme_version() != XUI_WINDOW_THEME_VERSION ||
+        xui_window_theme_get(window, &theme) != XUI_OK ||
+        xui_window_theme_set(window, &theme) != XUI_OK) return 7;
     xui_handle image = 0;
     xui_string name = {"Preview", 7, 0}, path = {".", 1, 0};
     if (xui_create(window, XUI_IMAGE, name, 0, &image) != XUI_OK) return 4;

@@ -1,0 +1,54 @@
+namespace PortableDemo;
+
+component StudioOperationsDashboard {
+    param StudioOperationsController Controller;
+    state StudioOperationsState Snapshot = new();
+    state global::Xui.Experimental.Portable.KeyedItem[] Controls = [];
+    state bool DrawerEnabled = false;
+    state bool DrawerOpen = true;
+    state string DrawerFeedback = "";
+    state global::Xui.Experimental.Portable.KeyedItem[] Results = [];
+    state global::Xui.Experimental.Portable.KeyedItem[] Metrics = [];
+
+    view {
+        VStack(spacing: 8, padding: 12) {
+            Text("LOCAL OPERATIONS", textRole: global::Xui.Experimental.Portable.TextRole.Title,
+                textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2), id: "operations-title");
+            ScrollView("Local dataset operations dashboard", flex: 1, id: "operations-content") {
+                VStack(spacing: 10) {
+                    Text("Inspect a captured local dataset, then open documents to act on the results. No live cloud metrics.",
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(), id: "operations-description");
+                    Button(DrawerOpen ? "Hide scan controls" : "Show scan controls", click: ToggleControls,
+                        visible: DrawerEnabled, enabled: DrawerEnabled && !Snapshot.Busy,
+                        ref: DrawerToggleButton, id: "operations-controls-toggle");
+                    Text(DrawerFeedback, visible: DrawerEnabled && DrawerFeedback != "",
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(3), id: "operations-controls-feedback");
+                    KeyedVStack(Controls, ref: ControlsView);
+                    Text(Snapshot.Freshness, textRole: global::Xui.Experimental.Portable.TextRole.Caption,
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2), id: "operations-freshness");
+                    KeyedVStack(Metrics, ref: MetricsView);
+                    Text("CATEGORY WORKLOAD", textRole: global::Xui.Experimental.Portable.TextRole.Caption, id: "operations-categories");
+                    Text(Snapshot.Report == null ? "Engineering: --" : "Engineering: " + Snapshot.Report.EngineeringDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                        id: "operations-engineering");
+                    Button("Browse Engineering", click: Engineering, enabled: !Snapshot.Busy, id: "operations-browse-engineering");
+                    Text(Snapshot.Report == null ? "Design: --" : "Design: " + Snapshot.Report.DesignDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                        id: "operations-design");
+                    Button("Browse Design", click: Design, enabled: !Snapshot.Busy, id: "operations-browse-design");
+                    Text(Snapshot.Report == null ? "Research: --" : "Research: " + Snapshot.Report.ResearchDocuments.ToString(global::System.Globalization.CultureInfo.InvariantCulture),
+                        id: "operations-research");
+                    Button("Browse Research", click: Research, enabled: !Snapshot.Busy, id: "operations-browse-research");
+                    Text("TOP CHECKLIST WORKLOAD", textRole: global::Xui.Experimental.Portable.TextRole.Caption, id: "operations-workload-title");
+                    Text("No workload rows in this snapshot.", visible: Snapshot.Report != null && Results.Length == 0,
+                        textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(), id: "operations-empty");
+                    KeyedVStack(Results, spacing: 8, ref: WorkloadRows);
+                }
+            }
+        }
+    }
+    code csharp {
+        void ToggleControls() => TrySetControlsOpen(!DrawerOpen);
+        void Engineering() => Controller.BrowseCategory(StudioCategory.Engineering);
+        void Design() => Controller.BrowseCategory(StudioCategory.Design);
+        void Research() => Controller.BrowseCategory(StudioCategory.Research);
+    }
+}

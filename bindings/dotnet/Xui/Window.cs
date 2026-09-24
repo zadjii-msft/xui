@@ -175,6 +175,10 @@ public sealed unsafe partial class Window : IDisposable
         if (running || callbacks != 0) throw new XuiException(7, "Close the window and return from Run before Dispose.");
         Check(Native.WindowDestroy(Handle));
         foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
+        RetireVirtualViewports();
+        RetireControlInteractions();
+        RetireContentViewports();
+        RetireMemoryImages();
         ReleaseIconCallback();
         ReleaseTabDragCallback();
         Handle = 0;

@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ApplicationManifest>..\..\..\..\demo\xui.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <Import Project="..\..\Xui.Native.targets" />
+  <ItemGroup>
+    <ProjectReference Include="..\Xui.Windows\Xui.Windows.csproj" />
+    <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
+    <AdditionalFiles Include="..\SharedDemo\OrderBuilder.xui" Link="OrderBuilder.xui" />
+    <AdditionalFiles Include="..\SharedDemo\TaskBoard.xui;..\SharedDemo\ExpenseLedger.xui;..\SharedDemo\SessionPlanner.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\*.xui;..\SharedDemo\DynamicTaskBoard.xui;..\SharedDemo\TaskRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\SettingsShowcase.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileWorkspace.xui;..\SharedDemo\ProfileEditPage.xui;..\SharedDemo\ProfilePreviewPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" />
+    <AdditionalFiles Include="..\SharedDemo\FormsWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\WorkshopRegistration.xui" />
+    <AdditionalFiles Include="..\SharedDemo\PresentationWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\RevealWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ImageWorkbench.xui" />
+    <Compile Include="..\WindowsGalleryDemo\WindowCapture.cs" Link="WindowCapture.cs" />
+    <EmbeddedResource Include="..\..\..\..\assets\branding\generated\zoey-192.png" LogicalName="Xui.Asset.zoey.png" />
+    <EmbeddedResource Include="..\WebGalleryDemo\Assets\pixel-fixture.png" LogicalName="Xui.Asset.pixels.png" />
+    <EmbeddedResource Include="..\WebGalleryDemo\Assets\invalid-image.json" LogicalName="Xui.Asset.invalid.png" />
+    <AdditionalFiles Include="..\SharedDemo\WorkspaceStudio.xui;..\SharedDemo\StudioDocumentEditor.xui;..\SharedDemo\StudioCatalogRow.xui;..\SharedDemo\StudioSectionPanel.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsDashboard.xui;..\SharedDemo\StudioWorkloadRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsMetrics.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsControls.xui;..\SharedDemo\StudioOperationsDrawer.xui" />
+    <AdditionalFiles Include="..\SharedDemo\EditableCart.xui;..\SharedDemo\CartBrowsePage.xui;..\SharedDemo\CartDetailPage.xui;..\SharedDemo\CartEditorPage.xui;..\SharedDemo\CartLineRow.xui;..\SharedDemo\PlatformServicesWorkbench.xui" />
+    <Compile Include="..\SharedDemo\OrderModel.cs" Link="OrderModel.cs" />
+    <Compile Include="..\SharedDemo\TaskBoardModel.cs;..\SharedDemo\ExpenseLedgerModel.cs;..\SharedDemo\SessionPlannerModel.cs;..\SharedDemo\GalleryValues.cs;..\SharedDemo\ApplicationScenarioRunner.cs" />
+    <Compile Include="..\Xui.Portable.Tests\Fixtures\MutationScenarioRunner.cs;..\SharedDemo\DynamicTaskBoardModel.cs" />
+    <Compile Include="..\SharedDemo\SettingsScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceModel.cs;..\SharedDemo\ProfileWorkspaceController.cs;..\SharedDemo\ProfileWorkspaceSession.cs" />
+    <Compile Include="..\SharedDemo\VirtualList.cs;..\SharedDemo\VirtualListRow.cs;..\SharedDemo\VirtualListState.cs" />
+    <Compile Include="..\SharedDemo\VirtualListPerformance.cs" />
+    <Compile Include="..\SharedDemo\FormsScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\WorkshopRegistrationModel.cs;..\SharedDemo\WorkshopScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\EditableCartModel.cs;..\SharedDemo\EditableCartController.cs;..\SharedDemo\PlatformServicesWorkbenchModel.cs;..\SharedDemo\PlatformServicesWorkbenchController.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudioModel.cs;..\SharedDemo\WorkspaceStudioController.cs;..\SharedDemo\StudioCatalogViewport.cs;..\SharedDemo\WorkspaceStudio.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.Back.cs;..\SharedDemo\StudioOperationsModel.cs;..\SharedDemo\StudioOperationsController.cs;..\SharedDemo\StudioOperationsDashboard.cs" />
+    <Compile Include="..\SharedDemo\OrderScenarioRunner.cs" Link="OrderScenarioRunner.cs" />
+    <EmbeddedResource Include="..\SharedDemo\OrderScenarios.json" LogicalName="OrderScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\GalleryScenarios.json" LogicalName="GalleryScenarios.json" />
+    <EmbeddedResource Include="..\Xui.Portable.Tests\Fixtures\MutationScenarios.json" LogicalName="MutationScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\DynamicTaskScenarios.json" LogicalName="DynamicTaskScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\SettingsScenarios.json" LogicalName="SettingsScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\ProfileWorkspaceScenarios.json" LogicalName="ProfileWorkspaceScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\FormsScenarios.json" LogicalName="FormsScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\WorkshopScenarios.json" LogicalName="WorkshopScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\EditableCartScenarios.json" LogicalName="EditableCartScenarios.json" />
+    <EmbeddedResource Include="..\SharedDemo\PlatformServicesScenarios.json" LogicalName="PlatformServicesScenarios.json" />
+  </ItemGroup>
+</Project>

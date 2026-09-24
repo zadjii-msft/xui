@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <base href="/">
+    <title>XUI owned asset byte fixture</title>
+    <link rel="icon" href="data:,">
+</head>
+<body>
+    <output id="result">Loading</output>
+    <script>
+        window.assetProofCompleted = () => document.getElementById("result").textContent = "PASS: shared packaged image/font fixture bytes.";
+        window.assetProofFailed = error => document.getElementById("result").textContent = "FAIL: " + error;
+    </script>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

@@ -41,7 +41,9 @@ void dialog_layout_tests() {
     const auto classic_primary = primary->bounds(), classic_cancel = cancel->bounds();
     rect_is(classic_title, {116, 216, 428, 32}, "Classic title padding is unchanged");
     rect_is(classic_content, {116, 258, 428, 40}, "Classic content spacing is unchanged");
-    rect_is(classic_primary, {116, 318, 210, 36}, "Classic action geometry is unchanged");
+    rect_is(classic_primary, {116, 308, 210, 36}, "Hidden Classic validation contributes no trailing Stack gap");
+    require(near(classic_primary.y - classic_content.y - classic_content.height, 10),
+        "Classic dialog actions follow visible content with exactly one gap");
     rect_is(scroll->viewport(), scroll->bounds(), "Classic body wrapper reserves no scrollbar gutter");
     primary->set_appearance(ButtonAppearance::subtle);
     cancel->set_appearance(ButtonAppearance::accent);
@@ -262,6 +264,48 @@ int main() {
         password.set_reveal_policy(PasswordRevealPolicy::never); require(!password.revealed(), "Policy removes reveal");
         password.commit_password(L"New fixture"); require(secrets == 1 && password.length() == 11, "Password notification has no value");
         password.with_password([&](auto value) { require(value == L"New fixture", "Explicit secret boundary"); });
+        password.set_reveal_policy(PasswordRevealPolicy::explicit_request); password.set_revealed(true);
+        password.clear_password();
+        require(password.length() == 0 && !password.revealed() && secrets == 1, "Terminal cleanup clears contents and reveal silently");
+        password.with_password([](auto value) { require(value.empty(), "Explicit secret read sees cleared contents"); });
+        password.clear_password();
+        require(secrets == 1, "Repeated terminal clear stays silent");
+        password.set_password(L"Legacy retained value"); password.set_visible(false); password.set_enabled(false);
+        require(password.length() == 21, "Legacy hide and disable do not implicitly clear password ownership");
+        password.set_revealed(true);
+        password.set_invalidator([](Invalidation) { throw std::runtime_error("Injected terminal invalidation failure"); });
+        rejects([&] { password.clear_password(); });
+        require(password.length() == 0 && !password.revealed() && secrets == 1,
+            "Terminal invalidation failure cannot retain plaintext or emit an edit event");
+        password.set_invalidator({});
+        {
+            for (const auto purpose : {TextInputPurpose::normal, TextInputPurpose::email, TextInputPurpose::url,
+                TextInputPurpose::telephone, TextInputPurpose::number}) {
+                TextInput advisory(L"Purpose", purpose);
+                advisory.set_text(L" Mixed Case + @ - 12.3 ");
+                require(advisory.purpose() == purpose && advisory.text() == L" Mixed Case + @ - 12.3 ",
+                    "Input purposes retain exact content without coercion");
+            }
+            rejects([] { TextInput invalid(L"Invalid purpose", static_cast<TextInputPurpose>(5)); });
+            MultilineText multiline;
+            multiline.set_fixed_size({100, 50});
+            multiline.set_axis_constraints(AxisConstraints{280.0f}, AxisConstraints{});
+            size_is(multiline.measure({1000, 1000}), {280, 180}, "Multiline Auto is a native viewport, not name/content growth");
+            multiline.set_text(std::wstring(4000, L'\n'));
+            size_is(multiline.measure({1000, 1000}), {280, 180}, "Long documents use native scrollbars without implicit growth");
+            PartStyleValues font; font.font_size = 200.0f;
+            multiline.set_control_style_values(StylePart::text, font);
+            require(multiline.measure({1000, 1000}).height >= 306, "Multiline Auto reserves a complete scaled line");
+            multiline.set_axis_constraints(std::nullopt, std::nullopt);
+            size_is(multiline.measure({1000, 1000}), {100, 50}, "Multiline legacy fixed size survives override reset");
+            PasswordInput masked;
+            masked.set_fixed_size({100, 20});
+            masked.set_axis_constraints(AxisConstraints{}, AxisConstraints{});
+            masked.set_control_style_values(StylePart::text, font);
+            require(masked.measure({1000, 1000}).height >= 306, "Password Auto reserves a complete masked scaled line");
+            masked.set_axis_constraints(std::nullopt, std::nullopt);
+            size_is(masked.measure({1000, 1000}), {100, 20}, "Password legacy fixed size survives override reset");
+        }
         DateTimePicker date; int dates{}; date.on_change([&](auto) { ++dates; });
         date.set_value({2024, 2, 29}); date.set_range({2024, 1, 1}, {2024, 12, 31});
         rejects([&] { date.set_value({2023, 2, 29}); });

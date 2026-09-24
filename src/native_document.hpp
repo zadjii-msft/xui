@@ -16,6 +16,7 @@ public:
     bool composing() const { return composing_; }
     void update(UINT dpi, const Palette& palette);
     void changed();
+    void clear_password();
     LRESULT notify(const NMHDR& notification);
     void on_failure(std::function<void()> callback) { failure_ = std::move(callback); }
 private:

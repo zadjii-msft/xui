@@ -1,0 +1,73 @@
+namespace PortableDemo;
+
+component DynamicTaskBoard {
+    state global::Xui.Experimental.Portable.KeyedItem[] Rows = [];
+    state DynamicTaskBoardState Snapshot = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("DYNAMIC TASK BOARD", id: "dynamic-title");
+            ScrollView("Editable task collection", id: "dynamic-content", flex: 1) {
+                VStack(spacing: 12) {
+                    Text(Snapshot.Summary, ref: SummaryLabel, id: "dynamic-summary");
+                    TextInput("New task", text: Snapshot.DraftTitle, change: SetDraft, submit: Add,
+                        captionVisible: true, placeholder: "Plan the release",
+                        help: "Add a new task with its own stable identity. Text is kept as entered.",
+                        ref: DraftInput, id: "dynamic-draft");
+                    Text(Snapshot.Validation, ref: ValidationLabel, id: "dynamic-validation");
+                    Button("Add task", click: Add, enabled: Snapshot.CanAdd, ref: AddButton, id: "dynamic-add");
+                    HStack(spacing: 8) {
+                        Button("All", click: ShowAll, enabled: Snapshot.Filter != DynamicTaskFilter.All, id: "dynamic-filter-all", flex: 1);
+                        Button("Open", click: ShowOpen, enabled: Snapshot.Filter != DynamicTaskFilter.Open, id: "dynamic-filter-open", flex: 1);
+                        Button("Done", click: ShowDone, enabled: Snapshot.Filter != DynamicTaskFilter.Done, id: "dynamic-filter-done", flex: 1);
+                    }
+                    HStack(spacing: 8) {
+                        Button("Reverse order", click: Reverse, enabled: Snapshot.Items.Length > 1, ref: ReverseButton, id: "dynamic-reverse", flex: 1);
+                        Button("Reset example", click: Reset, ref: ResetButton, id: "dynamic-reset", flex: 1);
+                    }
+                    Text("No tasks match this filter.", visible: Rows.Length == 0, id: "dynamic-empty");
+                    KeyedVStack(Rows, spacing: 12, ref: RowsView);
+                }
+            }
+        }
+    }
+
+    code csharp {
+        public DynamicTaskBoardState GetState() => Snapshot;
+
+        public static DynamicTaskBoard Create(global::Xui.Experimental.Portable.Host host, DynamicTaskBoardState? initial = null) {
+            var board = new DynamicTaskBoard(host);
+            board.RestoreState(initial ?? DynamicTaskBoardState.Seed());
+            return board;
+        }
+
+        public void RestoreState(DynamicTaskBoardState next) {
+            global::System.ArgumentNullException.ThrowIfNull(next);
+            var descriptors = global::System.Linq.Enumerable.ToArray(
+                global::System.Linq.Enumerable.Select(next.VisibleItems, item =>
+                    global::Xui.Experimental.Portable.KeyedItem.Create(
+                        item.Key,
+                        host => new TaskRow(host, item.Key, RenameTask, ToggleTask, RemoveTask) { Item = item },
+                        row => row.Item = item)));
+            try {
+                Rows = descriptors;
+            }
+            catch (global::Xui.Experimental.Portable.KeyedUpdateException error) when (error.ModelCommitted) {
+                Snapshot = next;
+                throw;
+            }
+            Snapshot = next;
+        }
+
+        void SetDraft(string value) => Snapshot = Snapshot.WithDraft(value);
+        void Add() { if (Snapshot.CanAdd) RestoreState(Snapshot.AddDraft()); }
+        void RenameTask(string key, string title) => RestoreState(Snapshot.Rename(key, title));
+        void ToggleTask(string key) => RestoreState(Snapshot.Toggle(key));
+        void RemoveTask(string key) => RestoreState(Snapshot.Remove(key));
+        void ShowAll() => RestoreState(Snapshot.WithFilter(DynamicTaskFilter.All));
+        void ShowOpen() => RestoreState(Snapshot.WithFilter(DynamicTaskFilter.Open));
+        void ShowDone() => RestoreState(Snapshot.WithFilter(DynamicTaskFilter.Done));
+        void Reverse() => RestoreState(Snapshot.Reverse());
+        void Reset() => RestoreState(DynamicTaskBoardState.Seed());
+    }
+}

@@ -1,0 +1,30 @@
+namespace PortableDemo;
+
+component StudioCatalogRow {
+    param string Key;
+    param WorkspaceStudioController Controller;
+    state StudioDocumentDraft Document = StudioCatalog.Original("doc-00001");
+    state string Category = "Engineering";
+    state bool Changed = false;
+    state bool CanOpen = true;
+
+    view {
+        VStack(spacing: 4, padding: 8) {
+            HStack(spacing: 8) {
+                Text(string.IsNullOrWhiteSpace(Document.Title) ? "Untitled draft" : Document.Title,
+                    textLayout: global::Xui.Experimental.Portable.LabelTextLayout.SingleLine(global::Xui.Experimental.Portable.TextOverflow.CharacterEllipsis),
+                    flex: 1, ref: TitleLabel, id: Key + "-catalog-title");
+                Button("Open", click: Open, enabled: CanOpen,
+                    help: "Open document: " + (string.IsNullOrWhiteSpace(Document.Title) ? "Untitled draft" : Document.Title),
+                    ref: OpenButton, id: Key + "-open");
+            }
+            Text(Category + (Changed ? " / Local draft" : " / Sample document"),
+                textRole: global::Xui.Experimental.Portable.TextRole.Caption,
+                textLayout: global::Xui.Experimental.Portable.LabelTextLayout.SingleLine(global::Xui.Experimental.Portable.TextOverflow.CharacterEllipsis),
+                id: Key + "-category");
+        }
+    }
+    code csharp {
+        void Open() => Controller.OpenDocument(Key);
+    }
+}

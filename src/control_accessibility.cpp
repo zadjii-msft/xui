@@ -78,6 +78,11 @@ public:
         std::lock_guard lock(state_->mutex);
         const auto hwnd = state_->snapshot.window;
         if (!hwnd) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (state_->snapshot.logical_hidden &&
+            (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId ||
+                id == UIA_IsKeyboardFocusablePropertyId || id == UIA_IsEnabledPropertyId || id == UIA_HasKeyboardFocusPropertyId)) {
+            value->vt = VT_BOOL; value->boolVal = VARIANT_FALSE; return S_OK;
+        }
         if (id == UIA_HasKeyboardFocusPropertyId) {
             GUITHREADINFO info{sizeof(info)};
             value->vt = VT_BOOL;
@@ -98,7 +103,7 @@ public:
             value->bstrVal = SysAllocStringLen(text.data(), static_cast<UINT>(text.size()));
             return value->bstrVal ? S_OK : E_OUTOFMEMORY;
         }
-        const auto rect = clipped_bounds(hwnd);
+        const auto rect = state_->snapshot.logical_hidden ? RECT{} : clipped_bounds(hwnd);
         if (id == UIA_IsOffscreenPropertyId) {
             value->vt = VT_BOOL;
             value->boolVal = IsRectEmpty(&rect) ? VARIANT_TRUE : VARIANT_FALSE;
@@ -125,9 +130,10 @@ public:
         }
         return window ? UiaHostProviderFromHwnd(window, value) : UIA_E_ELEMENTNOTAVAILABLE;
     }
-    HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection, IRawElementProviderFragment** value) override {
+    HRESULT STDMETHODCALLTYPE Navigate(NavigateDirection direction, IRawElementProviderFragment** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
+        if (const auto result = navigate_fragment(state_, direction, value)) return *result;
         return available();
     }
     HRESULT STDMETHODCALLTYPE GetRuntimeId(SAFEARRAY** value) override {
@@ -140,7 +146,7 @@ public:
         *value = {};
         std::lock_guard lock(state_->mutex);
         if (!state_->snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-        const auto rect = clipped_bounds(state_->snapshot.window);
+        const auto rect = state_->snapshot.logical_hidden ? RECT{} : clipped_bounds(state_->snapshot.window);
         *value = {static_cast<double>(rect.left), static_cast<double>(rect.top),
             static_cast<double>(rect.right - rect.left), static_cast<double>(rect.bottom - rect.top)};
         return S_OK;
@@ -155,6 +161,7 @@ public:
             std::lock_guard lock(state_->mutex);
             window = state_->snapshot.window;
             id = state_->snapshot.id;
+            if (state_->snapshot.logical_hidden) return UIA_E_ELEMENTNOTENABLED;
         }
         if (!window) return UIA_E_ELEMENTNOTAVAILABLE;
         DWORD_PTR result{};
@@ -165,6 +172,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_FragmentRoot(IRawElementProviderFragmentRoot** value) override {
         if (!value) return E_POINTER;
         *value = nullptr;
+        if (const auto result = fragment_root(state_, value)) return *result;
         const auto result = available();
         if (SUCCEEDED(result)) { *value = this; AddRef(); }
         return result;
@@ -185,7 +193,8 @@ public:
         const auto window = state_->snapshot.window;
         if (!window) return UIA_E_ELEMENTNOTAVAILABLE;
         GUITHREADINFO info{sizeof(info)};
-        if (GetGUIThreadInfo(GetWindowThreadProcessId(window, nullptr), &info) && info.hwndFocus == window) {
+        if (!state_->snapshot.logical_hidden &&
+            GetGUIThreadInfo(GetWindowThreadProcessId(window, nullptr), &info) && info.hwndFocus == window) {
             *value = this;
             AddRef();
         }
@@ -290,12 +299,12 @@ public:
                 id == UIA_IsContentElementPropertyId || id == UIA_IsOffscreenPropertyId) {
                 value->vt = VT_BOOL;
                 const auto rect = clipped_bounds(snapshot.window);
-                const bool result = id == UIA_IsOffscreenPropertyId ? IsRectEmpty(&rect) != FALSE :
-                    id == UIA_IsEnabledPropertyId ? snapshot.enabled : semantic && (
+                const bool result = id == UIA_IsOffscreenPropertyId ? snapshot.logical_hidden || IsRectEmpty(&rect) != FALSE :
+                    !snapshot.logical_hidden && (id == UIA_IsEnabledPropertyId ? snapshot.enabled : semantic && (
                     id == UIA_HasKeyboardFocusPropertyId ? snapshot.focused :
                     id == UIA_IsKeyboardFocusablePropertyId ? snapshot.enabled && snapshot.role != ControlRole::label &&
                         snapshot.role != ControlRole::image && snapshot.role != ControlRole::content_view &&
-                        snapshot.role != ControlRole::history_chart : true);
+                        snapshot.role != ControlRole::history_chart : true));
                 value->boolVal = result ? VARIANT_TRUE : VARIANT_FALSE;
             }
             return S_OK;
@@ -360,6 +369,7 @@ public:
         *value = nullptr;
         return guarded([&]() -> HRESULT {
             if (FAILED(available())) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (!root_) if (const auto result = navigate_fragment(state_, direction, value)) return *result;
             if (read(state_).role == ControlRole::scroll_view || read(state_).role == ControlRole::content_view) return S_OK;
             if (root_ && direction == NavigateDirection_Parent) { *value = root_; root_->AddRef(); }
             else if (!root_ && (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild))
@@ -390,7 +400,7 @@ public:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            const auto rect = clipped_bounds(snapshot.window);
+            const auto rect = snapshot.logical_hidden ? RECT{} : clipped_bounds(snapshot.window);
             if (!IsRectEmpty(&rect))
                 *value = {static_cast<double>(rect.left), static_cast<double>(rect.top),
                     static_cast<double>(rect.right - rect.left), static_cast<double>(rect.bottom - rect.top)};
@@ -415,6 +425,7 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr;
         if (FAILED(available())) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (const auto result = fragment_root(state_, value)) return *result;
         *value = root_ ? root_ : this;
         (*value)->AddRef();
         return S_OK;
@@ -440,7 +451,7 @@ public:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (snapshot.focused) {
+            if (snapshot.focused && !snapshot.logical_hidden) {
                 if (snapshot.role == ControlRole::scroll_view) { *value = this; AddRef(); }
                 else *value = child();
             }
@@ -535,11 +546,12 @@ IRawElementProviderSimple* create_native_clip_provider(std::shared_ptr<ControlAc
     return new NativeClipProvider(std::move(state));
 }
 void publish_control(const std::shared_ptr<ControlAccessibility>& state,
-    IRawElementProviderSimple* provider, const Control& control, HWND window) {
-    const bool enabled = control.enabled() && IsWindowEnabled(window);
+    IRawElementProviderSimple* provider, const Control& control, HWND window, bool logical_hidden) {
+    const bool enabled = control.enabled() && IsWindowEnabled(window) && !logical_hidden;
     ControlSnapshot next{window, control.id(), control.role(), control.name(), control.automation_id(), enabled,
         control.focused(), control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked()};
     next.help_text = control.help_text();
+    next.logical_hidden = logical_hidden;
     if (const auto toggle = dynamic_cast<const Toggle*>(&control)) next.indeterminate = toggle->indeterminate();
     next.hyperlink = dynamic_cast<const HyperlinkButton*>(&control) != nullptr;
     next.menu_bar = dynamic_cast<const MenuBar*>(&control) != nullptr;

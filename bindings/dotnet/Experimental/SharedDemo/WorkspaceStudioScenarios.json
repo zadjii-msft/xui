@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "retained-drafts-and-native-tabs",
+      "steps": [
+        { "action": "expectTabs", "count": 2, "selected": 1 },
+        { "action": "expect", "id": "studio-catalog-count", "text": "10000 matching documents" },
+        { "action": "expect", "id": "doc-00001-title", "text": "Keyboard navigation 00001" },
+        { "action": "change", "id": "doc-00001-title", "value": "Workspace proposal" },
+        { "action": "change", "id": "doc-00001-body", "value": "One two\n- three four\n\n- five" },
+        { "action": "expect", "id": "doc-00001-draft-state", "text": "LOCAL DRAFT / NOT SAVED TO DISK" },
+        { "action": "openDocument", "key": "doc-00003" },
+        { "action": "expectTabs", "count": 3, "selected": 3 },
+        { "action": "selectTab", "id": 1 },
+        { "action": "expect", "id": "doc-00001-title", "text": "Workspace proposal" },
+        { "action": "expect", "id": "doc-00001-body", "text": "One two\n- three four\n\n- five" },
+        { "action": "click", "id": "studio-tab-right" },
+        { "action": "expectTabs", "count": 3, "selected": 1 },
+        { "action": "closeTab", "id": 1 },
+        { "action": "expectTabs", "count": 2, "selected": 3 },
+        { "action": "selectSection", "id": 2 },
+        { "action": "expect", "id": "studio-catalog-count", "text": "1 matching documents" },
+        { "action": "openDocument", "key": "doc-00001" },
+        { "action": "expectTabs", "count": 3, "selected": 1 },
+        { "action": "expect", "id": "doc-00001-title", "text": "Workspace proposal" },
+        { "action": "expect", "id": "doc-00001-body", "text": "One two\n- three four\n\n- five" },
+        { "action": "click", "id": "doc-00001-analyze" },
+        { "action": "awaitAnalysis" },
+        { "action": "selectSection", "id": 3 },
+        { "action": "expect", "id": "studio-characters", "text": "Characters: 28" },
+        { "action": "expect", "id": "studio-words", "text": "Words: 7" },
+        { "action": "expect", "id": "studio-lines", "text": "Lines: 4" },
+        { "action": "expect", "id": "studio-tasks", "text": "Checklist items: 2" },
+        { "action": "expect", "id": "studio-summary", "text": "3 open / 1 local drafts" }
+      ]
+    },
+    {
+      "name": "large-catalog-filter-and-empty-editor",
+      "steps": [
+        { "action": "change", "id": "studio-search", "value": "doc-09999" },
+        { "action": "expect", "id": "studio-catalog-count", "text": "1 matching documents" },
+        { "action": "openDocument", "key": "doc-09999" },
+        { "action": "expectTabs", "count": 3, "selected": 9999 },
+        { "action": "expect", "id": "doc-09999-title", "text": "Performance review 09999" },
+        { "action": "change", "id": "doc-09999-title", "value": "" },
+        { "action": "expect", "id": "doc-09999-validation", "text": "Enter a document title." },
+        { "action": "expect", "id": "doc-09999-analyze", "enabled": false },
+        { "action": "closeTab", "id": 1 },
+        { "action": "closeTab", "id": 2 },
+        { "action": "closeTab", "id": 9999 },
+        { "action": "expectTabs", "count": 0, "selected": null },
+        { "action": "expect", "id": "studio-empty", "text": "No open documents. Select Library to open a document." },
+        { "action": "selectSection", "id": 2 },
+        { "action": "expect", "id": "studio-catalog-count", "text": "1 matching documents" },
+        { "action": "openDocument", "key": "doc-09999" },
+        { "action": "expectTabs", "count": 1, "selected": 9999 },
+        { "action": "expect", "id": "doc-09999-title", "text": "" },
+        { "action": "click", "id": "doc-09999-revert" },
+        { "action": "expect", "id": "doc-09999-title", "text": "Performance review 09999" },
+        { "action": "expect", "id": "studio-catalog-count", "text": "0 matching documents" }
+      ]
+    },
+    {
+      "name": "operations-dashboard-to-editor-workflow",
+      "steps": [
+        { "action": "change", "id": "doc-00001-body", "value": "One two\n- three four\n\n- five" },
+        { "action": "selectTab", "id": 2 },
+        { "action": "change", "id": "doc-00002-body", "value": "Alpha beta\n- gamma" },
+        { "action": "click", "id": "studio-open-operations" },
+        { "action": "expectTabs", "count": 3, "selected": 10001 },
+        { "action": "expect", "id": "operations-title", "text": "LOCAL OPERATIONS" },
+        { "action": "expect", "id": "operations-freshness", "text": "NOT COMPUTED" },
+        { "action": "selectOperationsScope", "id": 3 },
+        { "action": "click", "id": "operations-scan" },
+        { "action": "awaitOperations" },
+        { "action": "expect", "id": "operations-documents", "text": "Documents: 2" },
+        { "action": "expect", "id": "operations-drafts", "text": "Drafts: 2" },
+        { "action": "expect", "id": "operations-open", "text": "Open documents: 2" },
+        { "action": "expect", "id": "operations-words", "text": "Words: 11" },
+        { "action": "expect", "id": "operations-characters", "text": "Characters: 46" },
+        { "action": "expect", "id": "operations-tasks", "text": "Checklist items: 3" },
+        { "action": "expect", "id": "operations-engineering", "text": "Engineering: 1" },
+        { "action": "expect", "id": "operations-design", "text": "Design: 1" },
+        { "action": "expect", "id": "operations-research", "text": "Research: 0" },
+        { "action": "expect", "id": "operations-freshness", "text": "CURRENT LOCAL SNAPSHOT" },
+        { "action": "click", "id": "operations-doc-00001-open" },
+        { "action": "expectTabs", "count": 3, "selected": 1 },
+        { "action": "expect", "id": "doc-00001-body", "text": "One two\n- three four\n\n- five" },
+        { "action": "change", "id": "doc-00001-body", "value": "Changed after snapshot" },
+        { "action": "selectTab", "id": 10001 },
+        { "action": "expect", "id": "operations-freshness", "text": "STALE SNAPSHOT / REFRESH REQUIRED" },
+        { "action": "expect", "id": "operations-words", "text": "Words: 11" },
+        { "action": "click", "id": "operations-browse-design" },
+        { "action": "expect", "id": "studio-catalog-count", "text": "3333 matching documents" },
+        { "action": "closeTab", "id": 10001 },
+        { "action": "expectTabs", "count": 2, "selected": 2 },
+        { "action": "expect", "id": "doc-00002-body", "text": "Alpha beta\n- gamma" }
+      ]
+    },
+    {
+      "name": "shared-back-section-policy",
+      "steps": [
+        { "action": "selectSection", "id": 2 },
+        { "action": "expect", "id": "studio-catalog-count", "text": "0 matching documents" },
+        { "action": "back", "handled": true, "blocked": false },
+        { "action": "expect", "id": "studio-catalog-count", "text": "10000 matching documents" },
+        { "action": "back", "handled": false, "blocked": false },
+        { "action": "expectTabs", "count": 2, "selected": 1 },
+        { "action": "selectSection", "id": 3 },
+        { "action": "back", "handled": true, "blocked": false },
+        { "action": "back", "handled": false, "blocked": false },
+        { "action": "expectTabs", "count": 2, "selected": 1 }
+      ]
+    },
+    {
+      "name": "workspace-screenshot-state",
+      "steps": [
+        { "action": "change", "id": "doc-00001-title", "value": "Workspace delivery plan" },
+        { "action": "change", "id": "doc-00001-body", "value": "Workspace delivery plan\n\nGoals\n- Retain document editors across tab switches.\n- Keep the catalog virtualized and accessible.\n- Adapt the same workspace to desktop and phone.\n\nAll work stays in this local draft." },
+        { "action": "click", "id": "doc-00001-analyze" },
+        { "action": "awaitAnalysis" },
+        { "action": "expectTabs", "count": 2, "selected": 1 },
+        { "action": "expect", "id": "doc-00001-title", "text": "Workspace delivery plan" },
+        { "action": "expect", "id": "studio-summary", "text": "2 open / 1 local drafts" },
+        { "action": "expect", "id": "studio-status", "text": "Analysis complete. No content left this workspace." }
+      ]
+    }
+  ]
+}

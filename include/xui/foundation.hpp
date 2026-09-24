@@ -293,6 +293,7 @@ enum class ProgressState { determinate, indeterminate, paused, error, unknown };
 class Progress : public Control, public Animation {
 public:
     explicit Progress(std::wstring name = L"Progress");
+    bool supports_axis_constraints() const override { return typeid(*this) == typeid(Progress); }
     bool ring_presentation() const { return ring_; }
     void set_range(double minimum, double maximum);
     const NumericRange& range() const { return range_; }

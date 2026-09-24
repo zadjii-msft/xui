@@ -1,0 +1,300 @@
+name: Experimental portable SDK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'bindings/dotnet/Experimental/**'
+      - 'bindings/dotnet/Xui*/**'
+      - 'bindings/dotnet/GeneratorTests/**'
+      - 'bindings/dotnet/*.targets'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'demo/xui.manifest'
+      - 'packaging/experimental/**'
+      - 'assets/fonts/**'
+      - 'templates/xui-portable/**'
+      - 'scripts/Pack-Portable.ps1'
+      - 'scripts/Build-PortableDemo.ps1'
+      - 'scripts/Release.Common.ps1'
+      - 'tests/portable-*'
+      - 'tests/fixtures/portable-*/**'
+      - 'tests/*_tests.cpp'
+      - 'tests/*.inc'
+      - '.github/workflows/portable.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bindings/dotnet/Experimental/**'
+      - 'bindings/dotnet/Xui*/**'
+      - 'bindings/dotnet/GeneratorTests/**'
+      - 'bindings/dotnet/*.targets'
+      - 'include/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'demo/xui.manifest'
+      - 'packaging/experimental/**'
+      - 'assets/fonts/**'
+      - 'templates/xui-portable/**'
+      - 'scripts/Pack-Portable.ps1'
+      - 'scripts/Build-PortableDemo.ps1'
+      - 'scripts/Release.Common.ps1'
+      - 'tests/portable-*'
+      - 'tests/fixtures/portable-*/**'
+      - 'tests/*_tests.cpp'
+      - 'tests/*.inc'
+      - '.github/workflows/portable.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  CI: true
+
+jobs:
+  managed:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.301'
+      - name: Generator, portable runtime, application, models, and backend fixtures
+        shell: pwsh
+        run: |
+          . .\scripts\Release.Common.ps1
+          New-Item -ItemType Directory build\ci -Force | Out-Null
+          Start-Transcript build\ci\managed.log
+          try {
+            Invoke-Checked { dotnet run --project bindings\dotnet\GeneratorTests -c Release }
+            foreach ($project in 'Xui.Portable.Tests', 'Xui.Portable.ApplicationTests', 'Xui.Portable.VirtualizationTests', 'ResponsiveWidth.Tests', 'LabelTextLayout.Tests', 'Reveal.Tests', 'WorkspaceStudio.Tests', 'SharedDemo.Tests', 'DynamicTaskBoard.Tests', 'ProfileWorkspace.Tests', 'EditableCart.Tests', 'WorkshopRegistration.Tests', 'LocalizationWorkbench.Tests', 'PlatformServicesWorkbench.Tests', 'Xui.PackagedAssets.Tests', 'Xui.ImageResources.Tests', 'Xui.FontResources.Tests', 'Xui.FontOwnership.Tests', 'Xui.FileSelection.Tests', 'Xui.Windows.FilePickerTests', 'Xui.Android.FilePickerTests', 'Xui.Web.FilePickerTests', 'Xui.Android.LayoutTests', 'Xui.Web.Tests') {
+              Invoke-Checked { dotnet run --project "bindings\dotnet\Experimental\$project" -c Release }
+            }
+            .\tests\portable-build.ps1
+            .\tests\portable-package-version-tests.ps1
+            .\tests\portable-font-targets.ps1
+            .\tests\templates.ps1
+          } finally { Stop-Transcript }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: portable-managed
+          path: build/ci/
+          retention-days: 7
+
+  windows-native:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.301'
+      - name: Native ownership, input, scrolling, and shared applications
+        shell: pwsh
+        run: |
+          . .\scripts\Release.Common.ps1
+          New-Item -ItemType Directory build\ci -Force | Out-Null
+          Start-Transcript build\ci\windows.log
+          try {
+            $cmake = Get-XuiCMake
+            $ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
+            Invoke-Checked { & $cmake -S . -B build\portable-ci -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=ON -DXUI_DESKTOP_TESTS=ON -DXUI_ENABLE_LSH=OFF -DXUI_ENABLE_WEBVIEW2=OFF }
+            Invoke-Checked { & $cmake --build build\portable-ci --config Release --parallel 4 --target xui xui_abi_tests xui_abi_features_tests xui_content_host_window_tests xui_stack_layout_window_tests xui_scroll_tests xui_reveal_tests xui_reveal_window_tests xui_image_tests xui_image_window_tests }
+            Invoke-Checked { & $ctest --test-dir build\portable-ci -C Release --output-on-failure --timeout 120 --no-tests=error -R '^(xui_abi_tests|xui_content_host_window_tests|xui_stack_layout_window_tests|xui_scroll_tests|xui_reveal_tests|xui_image_tests)$' }
+            Invoke-Checked { & .\build\portable-ci\Release\xui_abi_features_tests.exe --portable-reveal }
+            Invoke-Checked { & .\build\portable-ci\Release\xui_reveal_window_tests.exe --portable-only }
+            Invoke-Checked { & .\build\portable-ci\Release\xui_abi_features_tests.exe --image-memory }
+            Invoke-Checked { & .\build\portable-ci\Release\xui_image_window_tests.exe --memory-only }
+            $native = (Resolve-Path build\portable-ci\Release).Path
+            foreach ($project in 'WindowsDemo', 'WindowsOrderDemo') {
+              Invoke-Checked { dotnet run --project "bindings\dotnet\Experimental\$project" -c Release "-p:XuiNativeDir=$native" -- --smoke }
+            }
+            foreach ($mode in '--forms-only', '--typography-only', '--applications-only', '--reveal-only', '--studio-only', '--studio-drawer-only', '--pages-only', '--selection-only', '--image-contracts-only', '--image-cleanup-only', '--image-only') {
+              Invoke-Checked { dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release "-p:XuiNativeDir=$native" -- $mode }
+            }
+            Invoke-Checked { dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release "-p:XuiNativeDir=$native" -- --require-mutation --require-constraints --require-grid --require-virtualization }
+          } finally { Stop-Transcript }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: portable-windows
+          path: |
+            build/ci/
+            build/portable-ci/Testing/
+            build/portable-ci/Release/xui.dll
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: portable-native-runtime
+          path: build/portable-ci/Release/xui.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    env:
+      XUI_BROWSER_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.301'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Restore the locked browser runner
+        working-directory: bindings/dotnet/Experimental/WebDemo.Tests
+        run: npm ci && npm run test:config && npx --no-install playwright install --with-deps "${{ matrix.engine }}"
+      - name: Build Debug and published Release hosts
+        shell: pwsh
+        run: |
+          . ./scripts/Release.Common.ps1
+          foreach ($project in 'WebDemo', 'WebOrderDemo', 'WebGalleryDemo') {
+            Invoke-Checked { dotnet build "bindings/dotnet/Experimental/$project" -c Debug }
+            Invoke-Checked { dotnet publish "bindings/dotnet/Experimental/$project" -c Release }
+          }
+      - name: Full Debug and Release runners including nested URLs and navigation
+        shell: pwsh
+        run: |
+          . ./scripts/Release.Common.ps1
+          New-Item -ItemType Directory build/ci -Force | Out-Null
+          Start-Transcript build/ci/browser.log
+          try {
+            $tests = 'bindings/dotnet/Experimental/WebDemo.Tests'
+            Invoke-Checked { npm --prefix $tests test }
+            Invoke-Checked { npm --prefix $tests run test:order }
+            Invoke-Checked { npm --prefix $tests run test:gallery }
+            foreach ($prefix in '/', '/nested/xui/') {
+              $env:XUI_WEB_BASE_PATH = $prefix
+              Invoke-Checked { npm --prefix $tests run test:release }
+              Invoke-Checked { npm --prefix $tests run test:order:release }
+              Invoke-Checked { npm --prefix $tests run test:gallery:release }
+            }
+            Invoke-Checked { node bindings/dotnet/Experimental/Xui.Web.FilePickerTests/protocol.mjs }
+          } finally { Stop-Transcript }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: portable-browser-${{ matrix.engine }}
+          path: |
+            build/ci/
+            bindings/dotnet/Experimental/WebDemo.Tests/test-results/
+            bindings/dotnet/Experimental/WebDemo.Tests/playwright-report/
+          retention-days: 7
+
+  android-emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.301'
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21.0.8+9'
+      - name: Provision Android tools on the disposable CI runner
+        run: |
+          dotnet workload install android --skip-manifest-update
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build real APKs
+        shell: pwsh
+        run: |
+          . ./scripts/Release.Common.ps1
+          foreach ($project in 'AndroidDemo', 'AndroidDeviceTests', 'AndroidOrderDemo', 'AndroidOrderDeviceTests') {
+            Invoke-Checked { dotnet build "bindings/dotnet/Experimental/$project" -c Debug -p:RuntimeIdentifier=android-x64 -p:EmbedAssembliesIntoApk=true "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME" }
+          }
+      - name: Execute native widget and device acceptance on an actual emulator
+        uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        timeout-minutes: 20
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: pwsh -NoProfile -File tests/portable-emulator.ps1 -Serial emulator-5554
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: portable-android
+          path: |
+            build/ci/
+            bindings/dotnet/Experimental/Android*/bin/Debug/**/*-Signed.apk
+          retention-days: 7
+
+  package-consumers:
+    needs: windows-native
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.301'
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21.0.8+9'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: portable-native-runtime
+          path: build/native-input
+      - name: Provision dependencies on the disposable CI runner
+        shell: pwsh
+        run: |
+          . .\scripts\Release.Common.ps1
+          Invoke-Checked { dotnet workload install android --skip-manifest-update }
+          Invoke-Checked { & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" 'platforms;android-36' 'build-tools;36.0.0' }
+          Invoke-Checked { npm --prefix bindings\dotnet\Experimental\WebDemo.Tests ci }
+          Push-Location bindings\dotnet\Experimental\WebDemo.Tests
+          try { Invoke-Checked { npx --no-install playwright install chromium } }
+          finally { Pop-Location }
+      - name: Pack previews and generate a consumer outside the checkout
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory build\ci -Force | Out-Null
+          Start-Transcript build\ci\packages.log
+          try {
+            .\scripts\Pack-Portable.ps1 -NativeDirectory build\native-input -OutputDirectory build\preview-feed -AndroidSdkDirectory $env:ANDROID_HOME -JavaSdkDirectory $env:JAVA_HOME
+            .\tests\portable-packages.ps1 -AssetDirectory build\preview-feed -WorkDirectory "$env:RUNNER_TEMP\portable consumer" -AndroidSdkDirectory $env:ANDROID_HOME -JavaSdkDirectory $env:JAVA_HOME -Browser
+            .\tests\portable-assets.ps1 -AssetDirectory build\preview-feed -WorkDirectory "$env:RUNNER_TEMP\portable assets" -AndroidSdkDirectory $env:ANDROID_HOME -JavaSdkDirectory $env:JAVA_HOME -Browser
+            .\tests\portable-fonts.ps1 -Version 0.1.0-preview.1 -AssetDirectory build\preview-feed -WorkDirectory "$env:RUNNER_TEMP\portable fonts" -AndroidSdkDirectory $env:ANDROID_HOME -JavaSdkDirectory $env:JAVA_HOME
+            .\tests\portable-localization.ps1 -AssetDirectory build\preview-feed -LocalizationDirectory bindings\dotnet\Experimental\SharedDemo\Localization -WorkDirectory "$env:RUNNER_TEMP\portable localization" -AndroidSdkDirectory $env:ANDROID_HOME -JavaSdkDirectory $env:JAVA_HOME -Browser
+          } finally { Stop-Transcript }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: portable-preview-packages
+          path: |
+            build/ci/
+            build/preview-feed/
+            ${{ runner.temp }}/portable consumer/published/
+            ${{ runner.temp }}/portable assets/published/
+            ${{ runner.temp }}/portable localization/published/
+          retention-days: 7

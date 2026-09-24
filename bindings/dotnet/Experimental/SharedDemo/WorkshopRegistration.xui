@@ -1,0 +1,63 @@
+namespace PortableDemo;
+
+component WorkshopRegistration {
+    state WorkshopRegistrationState State = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("WORKSHOP REGISTRATION", id: "workshop-title");
+            ScrollView("Workshop registration draft and review", id: "workshop-content", flex: 1) {
+                VStack(spacing: 10) {
+                    Text("Plan a workshop / local review only", id: "workshop-description");
+                    TextInput("Attendee name", text: State.Name, change: SetName, captionVisible: true,
+                        placeholder: "Ada Lovelace", help: "Required. Your text stays in this local draft.",
+                        ref: NameInput, id: "workshop-name");
+                    TextInput("Email", text: State.Email, change: SetEmail,
+                        purpose: global::Xui.Experimental.Portable.InputPurpose.Email,
+                        captionVisible: true, placeholder: "ada@example.test",
+                        help: "Keyboard hint only. Validation does not check email delivery.",
+                        ref: EmailInput, id: "workshop-email");
+                    TextInput("Seats", text: State.Seats, change: SetSeats,
+                        purpose: global::Xui.Experimental.Portable.InputPurpose.Number,
+                        captionVisible: true, placeholder: "1 to 6",
+                        help: "Whole seats from one to six. Invalid drafts are kept for correction.",
+                        ref: SeatsInput, id: "workshop-seats");
+                    Toggle("Attend in person", checked: State.InPerson, change: SetInPerson,
+                        ref: AttendanceToggle, id: "workshop-in-person");
+                    Text(State.AttendanceText, id: "workshop-attendance");
+                    Text("Learning goals / up to 500 UTF-16 units", id: "workshop-goals-caption");
+                    MultilineText("Learning goals", text: State.Goals, change: SetGoals, readOnly: State.Reviewing,
+                        maximumLength: 500, preferredSize: (280, 144),
+                        help: "Enter adds a new line. Review keeps these notes read-only until Edit.",
+                        ref: GoalsInput, id: "workshop-goals");
+                    CheckBox("I understand this does not book a place", threeState: false,
+                        checkState: State.Consent ? global::Xui.Experimental.Portable.CheckState.Checked : global::Xui.Experimental.Portable.CheckState.Unchecked,
+                        change: SetConsent, ref: ConsentInput, id: "workshop-consent");
+                    Text(State.TotalText, ref: TotalLabel, id: "workshop-total");
+                    Text(State.Validation, ref: ValidationLabel, id: "workshop-validation");
+                    Button("Review registration", click: Review, enabled: State.CanReview && !State.Reviewing,
+                        ref: ReviewButton, id: "workshop-review");
+                    Text(State.ReviewSummary, visible: State.Reviewing && State.CanReview,
+                        ref: SummaryLabel, id: "workshop-summary");
+                    HStack(spacing: 8) {
+                        Button("Edit", click: Edit, enabled: State.Reviewing, id: "workshop-edit", flex: 1);
+                        Button("Reset draft", click: Reset, id: "workshop-reset", flex: 1);
+                    }
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetName(string value) => State = State with { Name = value, Reviewing = false };
+        void SetEmail(string value) => State = State with { Email = value, Reviewing = false };
+        void SetSeats(string value) => State = State with { Seats = value, Reviewing = false };
+        void SetGoals(string value) => State = State with { Goals = value, Reviewing = false };
+        void SetInPerson(bool value) => State = State with { InPerson = value, Reviewing = false };
+        void SetConsent(global::Xui.Experimental.Portable.CheckState value) =>
+            State = State with { Consent = value == global::Xui.Experimental.Portable.CheckState.Checked, Reviewing = false };
+        void Review() => State = State.Review();
+        void Edit() => State = State with { Reviewing = false };
+        void Reset() => State = new();
+    }
+}

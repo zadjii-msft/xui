@@ -141,6 +141,59 @@ test("authored callback failures are visible and the event queue recovers", asyn
     await expect(byId(page, "greeting")).toHaveText("Hello, Recovered!");
 });
 
+test("25 attachment cycles remove every old native listener and preserve only current callbacks", async ({ page }) => {
+    await page.addInitScript(() => {
+        const listeners = new WeakMap();
+        const add = EventTarget.prototype.addEventListener;
+        const remove = EventTarget.prototype.removeEventListener;
+        EventTarget.prototype.addEventListener = function (type, callback, options) {
+            if (this instanceof HTMLInputElement || this instanceof HTMLButtonElement) {
+                const current = listeners.get(this) ?? [];
+                current.push({ type, callback });
+                listeners.set(this, current);
+            }
+            return add.call(this, type, callback, options);
+        };
+        EventTarget.prototype.removeEventListener = function (type, callback, options) {
+            const current = listeners.get(this);
+            if (current) {
+                const index = current.findIndex(entry => entry.type === type && entry.callback === callback);
+                if (index >= 0) current.splice(index, 1);
+            }
+            return remove.call(this, type, callback, options);
+        };
+        window.nativeListenerCount = node => (listeners.get(node) ?? []).length;
+    });
+    await demo(page);
+    await command(page, "entry", "Retained through 25 attachments");
+    for (let cycle = 0; cycle < 25; cycle++) {
+        await command(page, "count", "0");
+        await page.evaluate(() => { window.retiredControls = [...document.querySelectorAll("#app input, #app button")]; });
+        await command(page, "detach");
+        expect(await page.evaluate(() => window.retiredControls.map(node => window.nativeListenerCount(node)))).toEqual([0, 0, 0, 0]);
+        await expect(page.locator("#app .xui-node")).toHaveCount(0);
+        await command(page, "attach");
+        await page.evaluate(() => {
+            for (const node of window.retiredControls) {
+                if (node instanceof HTMLInputElement) {
+                    node.value = "stale";
+                    node.dispatchEvent(new Event("input"));
+                    node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+                } else node.click();
+            }
+        });
+        await expect(page.getByRole("textbox")).toHaveValue("Retained through 25 attachments");
+        expect((await command(page, "state")).count).toBe(0);
+        await byId(page, "increment").click();
+        await expect(byId(page, "count")).toHaveText("Count: 1");
+        expect(await page.evaluate(() => window.retiredControls.every(node => !node.isConnected))).toBe(true);
+    }
+    await page.evaluate(() => { window.retiredControls = [...document.querySelectorAll("#app input, #app button")]; });
+    await command(page, "dispose");
+    expect(await page.evaluate(() => window.retiredControls.map(node => window.nativeListenerCount(node)))).toEqual([0, 0, 0, 0]);
+    await expect(page.locator("#app .xui-node")).toHaveCount(0);
+});
+
 test("pagehide disposes references, while BFCache entry retains the live application", async ({ page }) => {
     await demo(page);
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));

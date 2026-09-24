@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "native-input-contract-and-local-review",
+      "steps": [
+        { "action": "click", "id": "workshop-reset" },
+        { "action": "expect", "id": "workshop-title", "text": "WORKSHOP REGISTRATION" },
+        { "action": "expect", "id": "workshop-email", "purpose": "Email" },
+        { "action": "expect", "id": "workshop-seats", "purpose": "Number", "text": "1" },
+        { "action": "expect", "id": "workshop-goals", "maximumLength": 500, "readOnly": false },
+        { "action": "expect", "id": "workshop-in-person", "checked": false },
+        { "action": "expect", "id": "workshop-consent", "checked": false },
+        { "action": "expect", "id": "workshop-review", "enabled": false },
+        { "action": "change", "id": "workshop-name", "value": "Ada" },
+        { "action": "change", "id": "workshop-email", "value": "ada@example.test" },
+        { "action": "change", "id": "workshop-seats", "value": "3" },
+        { "action": "change", "id": "workshop-goals", "value": "Native input\r\nAccessible forms\rKeyboard navigation" },
+        { "action": "expect", "id": "workshop-goals", "text": "Native input\nAccessible forms\nKeyboard navigation" },
+        { "action": "expect", "id": "workshop-total", "text": "Local estimate: $60.00" },
+        { "action": "expect", "id": "workshop-validation", "text": "Confirm this is a local review, not a booking." },
+        { "action": "click", "id": "workshop-in-person" },
+        { "action": "expect", "id": "workshop-in-person", "checked": true },
+        { "action": "expect", "id": "workshop-attendance", "text": "In person / $45.00 per seat" },
+        { "action": "expect", "id": "workshop-total", "text": "Local estimate: $135.00" },
+        { "action": "click", "id": "workshop-consent" },
+        { "action": "expect", "id": "workshop-consent", "checked": true },
+        { "action": "expect", "id": "workshop-review", "enabled": true },
+        { "action": "click", "id": "workshop-review" },
+        { "action": "expect", "id": "workshop-goals", "readOnly": true },
+        { "action": "expect", "id": "workshop-review", "enabled": false },
+        { "action": "expect", "id": "workshop-edit", "enabled": true },
+        { "action": "expect", "id": "workshop-summary", "visible": true, "text": "Ada\nada@example.test\nIn person / $45.00 per seat\nSeats: 3\nLocal estimate: $135.00\nLearning goals:\nNative input\nAccessible forms\nKeyboard navigation\nNo registration placed." },
+        { "action": "expect", "id": "workshop-validation", "text": "Review only. No registration, email, or payment was sent." },
+        { "action": "click", "id": "workshop-edit" },
+        { "action": "expect", "id": "workshop-goals", "readOnly": false },
+        { "action": "expect", "id": "workshop-summary", "visible": false, "text": "" }
+      ]
+    },
+    {
+      "name": "number-hint-never-coerces-invalid-input",
+      "steps": [
+        { "action": "click", "id": "workshop-reset" },
+        { "action": "change", "id": "workshop-name", "value": "  Zo\u00eb \u674e  " },
+        { "action": "change", "id": "workshop-email", "value": "invalid" },
+        { "action": "expect", "id": "workshop-validation", "text": "Enter an email address with a dotted domain." },
+        { "action": "change", "id": "workshop-email", "value": " zoe@example.test " },
+        { "action": "change", "id": "workshop-seats", "value": "2e1" },
+        { "action": "expect", "id": "workshop-seats", "text": "2e1" },
+        { "action": "expect", "id": "workshop-total", "text": "Local estimate: --" },
+        { "action": "expect", "id": "workshop-validation", "text": "Choose 1 to 6 whole seats. The number keyboard is only a hint." },
+        { "action": "expect", "id": "workshop-review", "enabled": false },
+        { "action": "change", "id": "workshop-seats", "value": " 6 " },
+        { "action": "expect", "id": "workshop-seats", "text": " 6 " },
+        { "action": "expect", "id": "workshop-total", "text": "Local estimate: $120.00" },
+        { "action": "change", "id": "workshop-goals", "value": "\n   \n" },
+        { "action": "expect", "id": "workshop-validation", "text": "Describe at least one learning goal." },
+        { "action": "change", "id": "workshop-goals", "value": "First line\n\nLast line" },
+        { "action": "click", "id": "workshop-consent" },
+        { "action": "expect", "id": "workshop-review", "enabled": true },
+        { "action": "expect", "id": "workshop-name", "text": "  Zo\u00eb \u674e  " },
+        { "action": "expect", "id": "workshop-email", "text": " zoe@example.test " },
+        { "action": "expect", "id": "workshop-goals", "text": "First line\n\nLast line" }
+      ]
+    },
+    {
+      "name": "screenshot-seed",
+      "steps": [
+        { "action": "click", "id": "workshop-reset" },
+        { "action": "change", "id": "workshop-name", "value": "Ada Lovelace" },
+        { "action": "change", "id": "workshop-email", "value": "ada@example.test" },
+        { "action": "change", "id": "workshop-seats", "value": "2" },
+        { "action": "change", "id": "workshop-goals", "value": "Build accessible forms\nPreserve native editing" },
+        { "action": "click", "id": "workshop-consent" },
+        { "action": "expect", "id": "workshop-total", "text": "Local estimate: $40.00" },
+        { "action": "expect", "id": "workshop-attendance", "text": "Online / $20.00 per seat" },
+        { "action": "expect", "id": "workshop-goals", "readOnly": false, "text": "Build accessible forms\nPreserve native editing" },
+        { "action": "expect", "id": "workshop-review", "enabled": true },
+        { "action": "expect", "id": "workshop-validation", "text": "Ready for a local review." }
+      ]
+    }
+  ]
+}

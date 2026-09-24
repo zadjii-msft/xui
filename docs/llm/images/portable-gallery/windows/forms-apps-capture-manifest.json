@@ -1,0 +1,24 @@
+{
+  "kind": "actual-owned-native-client-capture",
+  "platform": "Windows x64",
+  "nativeCohortSha256": "1528EA699564514467967A4DD8787AC30110AC6AB8A50B7DBD646989D1BCD9D2",
+  "state": "startup; no automatic service operations; no credentials",
+  "images": [
+    {
+      "file": "forms.png",
+      "sha256": "BCFE9CE19818F3C8D21A2578DCDEC5719C26CCA793400C61C502FA70ED5BCBFB"
+    },
+    {
+      "file": "workshop.png",
+      "sha256": "FB266D37DAE608DB4CBC8F9071B5A1A82FAEE59231C19713F99250473761CEE6"
+    },
+    {
+      "file": "cart.png",
+      "sha256": "9D18D16216F0CFDF08D568AF529EC05B98AE657BDFEF981C46D2B898CD9D00DD"
+    },
+    {
+      "file": "services.png",
+      "sha256": "DD934C7BA04183D312F1BD3D9C876C58600272EB7A5024064F51B6824099B499"
+    }
+  ]
+}

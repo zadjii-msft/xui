@@ -69,6 +69,41 @@ The compiler configures the native host and binds the state.
 It does not drive frame updates in C#.
 The [language guide](xui-language.md#opt-in-bottom-reveal) contains a complete component.
 
+### Bounded portable Windows opt-in
+
+`xui_reveal_portable.h` adds a separately versioned opt-in on an existing Reveal handle.
+It does not change legacy Reveal defaults or setters on legacy instances. Portable instances
+use one atomic Open/Motion state with duration 0 through 400 milliseconds and Bottom or Right
+expansion. Initial attachment is settled at the requested target. An unchanged state does not
+restart motion; reversal with unchanged motion starts from the current presentation. Changing
+duration or direction settles the old logical target first, then applies the new configuration
+and any paired target change. Motion-only changes therefore settle rather than restart.
+
+The actual native clip is the smaller of the parent allocation and the full natural child
+extent multiplied by progress. The child retains its full finite extent on the animation axis
+and receives the actual cross-axis allocation. A fixed or star parent slot can retain unused
+space; this is not a promise that all neighboring layouts animate. Zero allocation always
+clips to zero. A settled closed element measures zero but remains a Stack layout participant,
+so authored spacing remains. Size the child, not the Reveal: outer sizes, axis overrides, and
+nonzero flex are outside this bounded contract.
+
+Closing preflight returns false only for focused or composing descendants. Move focus
+explicitly and finish composition before closing; the backend does not cancel native input
+or steal focus. Closed content becomes input-inert and leaves accessibility Control/Content
+views immediately, even while real exit pixels remain. Native editor HWNDs, selection, undo,
+and delegated native value behavior are retained. High contrast, reduced motion, owner
+invisibility, and retirement settle/stop the owned motion; a settled Reveal has no idle clock.
+Peer disposal cancels its native motion before unmount, without an authored Cancel event.
+
+The first Windows slice explicitly rejects RichEdit-backed MultilineText/RichText descendants
+to preserve their native Text/Text2 providers. EDIT-backed PasswordInput is not excluded by
+that restriction. FileList, native runtime/plugin hosts, and leased virtual viewports also
+require separate accessibility qualification and are not supported inside this opt-in.
+Portable adapters must preflight complete trees and prospective inserted subtrees before
+their model commit; native construction/insertion repeats these checks. Unsupported content
+is an explicit error, never a false focus/composition veto or a bitmap replacement.
+Detect all six portable Reveal exports and their version before advertising the capability.
+
 ### State and lifetime
 
 The default layout is `RevealLayout::fixed`, with `RevealDirection::bottom`.

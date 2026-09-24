@@ -16,9 +16,11 @@ The commands use a separate build directory, so they do not replace another buil
 
 ## Continue cross-platform development
 
-The [cross-platform roadmap](docs/llm/cross-platform-roadmap.md) records the branch map, remaining work, and acceptance gates.
-The complete experiment is on `zadjii-msft-xui-cross-platform`, not on either historical platform branch.
-The original preview server is no longer active.
+The [cross-platform roadmap](docs/llm/cross-platform-roadmap.md) records the original published branch map and acceptance gates.
+The [current maintainer handoff](docs/llm/cross-platform-maintainer-handoff.md) identifies the later WIP preservation checkpoint and remaining gates.
+The published experiment is on `zadjii-msft-xui-cross-platform`, not on either historical platform branch.
+The checkout commands below retrieve committed source only; they do not transfer another checkout's modified or untracked files.
+Loopback previews are local processes, not hosted deployments.
 
 For a new checkout, run:
 
@@ -43,8 +45,8 @@ Set-Location ..\xui-portable-next
 ```
 
 Use another unused branch and directory name if either already exists.
-The new worktree starts at the complete integration branch.
-It does not depend on branches or files from the original developer's machine.
+The new worktree starts at the published integration baseline.
+It includes the later preservation checkpoint only if that commit has been transferred to the selected remote branch; verify the actual commit before treating it as the same implementation.
 
 Start with the SDK-only commands in the following sections.
 Then complete the Android device and browser acceptance procedures.
@@ -54,6 +56,314 @@ The browser demo requires .NET 10, with Node.js and npm for browser tests.
 The recorded tool versions and known environment blockers are in the roadmap.
 Install missing tools through the receiving machine's approved procedures.
 Do not copy local package caches or disable certificate checks.
+
+### Preserve an uncommitted integration
+
+Before transferring or replacing an integration checkout, inspect its complete source state:
+
+```powershell
+git branch --show-current
+git rev-parse HEAD
+git status --short --untracked-files=all
+git diff --stat HEAD
+git ls-files --others --exclude-standard
+```
+
+Review tracked edits and untracked files together, including new source, tests, assets, and documentation.
+A patch or Git bundle alone does not include untracked files, and a new worktree does not copy them.
+With explicit authorization, use reviewed commits as the transfer boundary; otherwise use a reviewed source archive with a file/hash inventory and retain the original checkout.
+Do not include local credentials, user data, package caches, or incidental build output.
+Verify the receiving source against that inventory and rebuild native/managed/web outputs rather than mixing binaries from different snapshots.
+Keep relevant test logs, failing raw measurements, and prior package-feed evidence separately if they are needed for reproduction.
+Do not reset, clean, stash, or overwrite the original checkout as part of a documentation handoff.
+
+### Build one app for Windows, Android, and web
+
+The three experimental hosts compile the same `bindings\dotnet\Experimental\SharedDemo\Greeting.xui`.
+Edit that file to change the shared UI, state, and C# behavior.
+The richer order builder links `SharedDemo\OrderBuilder.xui` and `SharedDemo\OrderModel.cs` into three additional hosts.
+The [portable authoring guide](docs/specs/experimental-portable-xui.md#one-application-three-hosts) explains the project structure and limits.
+This is a repository-local workflow, not a portable NuGet release or a replacement for the Windows-only `dotnet new xui` template.
+
+In PowerShell 7 or later on a Windows machine with the native C++ tools, .NET 10, and the Android workload, SDK, and JDK installed, build all three hosts:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1
+```
+
+The default is Debug.
+The default sample is `Greeting`; use `-Sample Order` for the fixed-catalog order builder.
+Use `-Configuration Release` for Release builds, or `-Platform Windows`, `-Platform Android`, or `-Platform Web` to build one host.
+The script resolves repository paths independently of the current directory, stops on build failures, and does not install tools or accept licenses.
+Windows builds use the existing Visual Studio discovery helpers, a separate `build\portable-demo` native directory, and the matching native DLL.
+This small demo disables LSH syntax highlighting and WebView2; it uses neither feature.
+Android builds produce an APK; they do not deploy unless `-Run` is specified.
+Web builds do not publish or start a server unless requested separately.
+
+Run a single host:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Platform Windows -Run
+.\scripts\Build-PortableDemo.ps1 -Platform Android -Run -AndroidSerial emulator-5554
+.\scripts\Build-PortableDemo.ps1 -Platform Web -Run -WebUrl http://127.0.0.1:5190
+```
+
+The same commands accept `-Sample Order`, without replacing the greeting applications:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Sample Order
+.\scripts\Build-PortableDemo.ps1 -Sample Order -Platform Windows -Run
+.\scripts\Build-PortableDemo.ps1 -Sample Order -Platform Android -Run -AndroidSerial emulator-5554
+.\scripts\Build-PortableDemo.ps1 -Sample Order -Platform Web -Run
+```
+
+`-Sample Gallery` builds the task board, expense ledger, session planner, dynamic task board, and profile workspace.
+Select one with `-GalleryApp Tasks`, `Expenses`, `Planner`, `DynamicTasks`, or `Profile`:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -Configuration Release
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Expenses -Platform Windows -Run
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Planner -Platform Android -Run -AndroidSerial emulator-5554
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Tasks -Platform Web -Run
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp DynamicTasks -Platform Windows -Run
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Profile -Platform Web -Run
+```
+
+The browser command prints the selected `?app=` URL; one server can host different selections in different pages.
+Android selection uses the SDK's `RunActivity` property with the explicit package Activity name.
+These applications share `.xui` files and C# models; their hosts do not contain alternative UI definitions.
+The dynamic task board exercises keyed editing; the profile workspace adds navigation, cancellable work, and explicit save/load/delete actions.
+The [screenshot gallery](docs/llm/portable-gallery.md) records real Windows, Android, and web captures.
+
+`-Run` requires exactly one platform.
+Start an Android emulator or connect a device first, and select its actual serial from `adb devices`.
+The Android run command requires an explicit serial rather than deploying to an arbitrary device.
+The web server stays in the foreground; use Ctrl+C to stop it.
+
+If .NET cannot discover the Android SDK or JDK, supply their installed locations:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Platform Android `
+    -AndroidSdkDirectory "C:\Program Files (x86)\Android\android-sdk" `
+    -JavaSdkDirectory "C:\Program Files\Android\openjdk\jdk-21.0.8"
+```
+
+Replace these example paths with the installations on your machine.
+For device assertions, native Windows smoke, browser tests, and static web publication, use the platform procedures below.
+Building all three hosts is not physical IME, screen-reader, or production-release acceptance.
+
+The build script's command selection and failure handling can be checked without platform SDKs:
+
+```powershell
+.\tests\portable-build.ps1
+```
+
+### Experimental preview packages
+
+The [preview SDK](docs/specs/packages.md#experimental-portable-preview) produces six local packages and the `xui-portable` template.
+It preserves the existing Windows package and template.
+Build a matching native runtime first; the portable demo build produces one with LSH and WebView2 disabled.
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Sample Order -Platform Windows -Configuration Release
+.\scripts\Pack-Portable.ps1 -OutputDirectory build\portable-sdk-feed `
+    -NativeDirectory build\portable-demo\x64\Release -NativeRuntimeIdentifier win-x64
+```
+
+Use the actual matching ARM64 build and `win-arm64` when packing that architecture.
+The packer validates the native PE architecture and includes only the supplied RID.
+Do not package a copied x64 binary as ARM64.
+The current default version is `0.1.0-preview.1`; `-Version` accepts explicit preview versions.
+`-SkipWindows` produces the other five packages when no Windows native input is available.
+Packing does not publish, install workloads, accept SDK licenses, or configure production signing.
+
+Exercise generated consumers outside the repository with an isolated template hive, package source mapping, and package cache:
+
+```powershell
+$env:XUI_BROWSER_CHANNEL = "msedge"
+.\tests\portable-packages.ps1 -AssetDirectory build\portable-sdk-feed `
+    -WorkDirectory C:\Temp\xui-portable-consumer -Browser
+```
+
+The work directory must not exist and must be outside the checkout.
+An explicit directory is retained for inspection; omitting it creates and removes an isolated temporary directory.
+The test builds Debug and Release Windows/Android/web hosts, checks packaged native/static asset bytes, excludes compiler/test payloads, and exercises published Wasm under a nested URL.
+The generated Android Release APK uses development signing for local verification, not a production credential.
+The browser option requires the existing locked browser-test dependencies and selected browser.
+Supply `-AndroidSdkDirectory` and `-JavaSdkDirectory` when SDK discovery needs explicit paths.
+
+To check an upgrade, retain a complete older preview feed and build a complete newer feed with an explicit `-Version`.
+The optional upgrade mode generates from the older template, restores and builds the old application, then updates only its XUI package references:
+
+```powershell
+.\tests\portable-packages.ps1 -Version 0.1.0-preview.2 `
+    -AssetDirectory build\portable-sdk-next `
+    -UpgradeFromVersion 0.1.0-preview.1 -UpgradeAssetDirectory build\portable-sdk-feed `
+    -WorkDirectory "C:\Temp\xui upgrade consumer" -Browser
+```
+
+Both feeds must contain the selected package cohort.
+The test checks resolved versions, unchanged authored `.xui` and C# files, the old shared scenarios and Release builds, and the upgraded Debug/Release builds and published payloads.
+It reuses the same application rather than generating a replacement from the new template.
+This procedure is not evidence that a particular version pair has already passed.
+
+The portable workflow defines scoped managed, Windows native, browser, actual Android emulator, and package-consumer jobs.
+Local equivalents do not prove that a GitHub workflow ran; retain that distinction in evidence.
+Routine jobs have read-only repository permissions and do not publish packages.
+The browser job is an explicit Chromium/Firefox/WebKit matrix, not an inference from Edge results.
+`XUI_BROWSER_ENGINE` selects `chromium` (default), `firefox`, or `webkit`; `XUI_BROWSER_CHANNEL` is valid only for Chromium-family channels.
+Unknown engines and incompatible channel selections fail before launching.
+Use the locked Playwright browser installed for the chosen engine; missing browser binaries are not silently replaced by another engine.
+The real back-forward navigation fixtures remain selected for every engine, with the Chromium-specific cache-disable argument overridden only for Chromium.
+Playwright WebKit execution does not certify shipping Safari or physical mobile keyboards.
+Playwright documents BFCache restoration testing as unsupported and disables it by default.
+The retained-cache fixtures remain strict diagnostic gates; a Chromium override or passing probe does not establish supported cross-engine cache qualification.
+Record browser cache eligibility and terminal cleanup separately, and retain failures until a suitable real-browser or alternative-harness procedure closes that gate.
+
+```powershell
+$env:XUI_BROWSER_ENGINE = "firefox"
+$env:XUI_BROWSER_CHANNEL = $null
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:config
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests test
+```
+
+### Portable application and resource checks
+
+The additional generated applications and packaged-asset contracts can be checked independently:
+
+```powershell
+dotnet run --project bindings\dotnet\Experimental\EditableCart.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\WorkshopRegistration.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\LocalizationWorkbench.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\PlatformServicesWorkbench.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\Xui.PackagedAssets.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\Xui.ImageResources.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\Xui.FontResources.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\Xui.FontOwnership.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\ResponsiveWidth.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\LabelTextLayout.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\Reveal.Tests -c Release
+dotnet run --project bindings\dotnet\Experimental\WorkspaceStudio.Tests -c Release
+```
+
+The services workbench suite uses deterministic providers and owned fake streams.
+It does not read or write the host clipboard, open user files, or launch external URIs.
+Do not substitute live providers into its literal scenario corpus.
+
+The package cohort guards also have a fast regression suite for private compiler references and mixed shared/host versions:
+
+```powershell
+.\tests\portable-package-version-tests.ps1
+```
+
+After packing the preview feed, exercise embedded assets through fresh external package consumers:
+
+```powershell
+.\tests\portable-assets.ps1 -AssetDirectory build\portable-sdk-feed `
+    -WorkDirectory "C:\Temp\xui asset consumer" -Browser
+```
+
+The directory must be new and outside the repository.
+The fixture checks identical shared-assembly bytes on Windows and published Wasm, builds the Android Release APK, and checks build diagnostics.
+It does not decode an image, register a font, or establish Android device execution.
+Use the same Android SDK/JDK and browser prerequisites as the preview-package consumer test.
+
+The font consumer checks NuGet-supplied build targets, explicit application-owned declarations, embedded font/license bytes, byte-identical Android APK assets, import-order guards, and invalid metadata diagnostics:
+
+```powershell
+.\tests\portable-font-targets.ps1
+.\tests\portable-fonts.ps1 -Version 0.1.0-preview.1 `
+    -AssetDirectory build\portable-sdk-feed -WorkDirectory "C:\Temp\xui font consumer"
+```
+
+Select the exact version packed into the feed, and use a fresh directory outside the checkout.
+This builds a local development-signed Android APK but does not install it, register a font, or prove minimum-API execution.
+`Xui.FontOwnership.Tests` uses fake native registrations to check attachment ownership, cancellation, bound pins, and retryable cleanup, not native glyph rendering.
+
+The localization consumer checks real language changes from one compiled shared resource bundle, including trimming and missing-language errors:
+
+```powershell
+.\tests\portable-localization.ps1 -AssetDirectory build\portable-sdk-feed `
+    -LocalizationDirectory bindings\dotnet\Experimental\SharedDemo\Localization `
+    -WorkDirectory "C:\Temp\xui localization consumer" -Browser
+```
+
+Its Windows host executes the trimmed app and negative missing-bundle builds.
+Its browser host exercises live language buttons, native input identity and selection, formatting, and default pointer-focus behavior without reloading or using private runtime hooks.
+Its Android lane constructs a Release/AOT APK; device execution remains separate.
+
+When integrating source archives whose timestamps predate existing output, force a rebuild before running with `--no-build`:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\Xui.Portable.Tests -c Release --no-incremental
+dotnet run --project bindings\dotnet\Experimental\Xui.Portable.Tests -c Release --no-build
+```
+
+Use the same rebuild pattern for affected sample or backend fixture projects.
+
+After building a matching native runtime and the portable Windows test host, the bounded Reveal and workspace gates can be selected independently:
+
+```powershell
+dotnet build bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-incremental `
+    -p:XuiNativeDir=D:\xui-native\Release
+dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-build -- --reveal-only
+dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-build -- --studio-only
+dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-build -- --studio-drawer-only
+dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-build -- --pages-only
+dotnet run --project bindings\dotnet\Experimental\WindowsPortableTests -c Release --no-build -- --selection-only
+```
+
+Use the actual native output directory, and serialize these interactive desktop tests with other GUI automation.
+The native targets `xui_abi_features_tests --portable-reveal` and `xui_reveal_window_tests --portable-only` check the ABI and actual clipped pixels/accessibility independently.
+These selectors do not replace the existing virtualization performance gate or physical input/accessibility checks.
+The image selectors `--image-contracts-only`, `--image-cleanup-only`, and `--image-only` cover ABI validation, retained cleanup ownership after failures, and actual native image pixels/lifetime.
+The corresponding native fixtures are `xui_abi_features_tests --image-memory` and `xui_image_window_tests --memory-only`.
+The managed post-Ready failure fixture deliberately reports a synthetic error after verified Host detachment; its successful process exit and resource assertions are distinct from the native private GPU-failure fixture.
+The gallery host's `--sample Studio --drawer` explicitly enables the qualified Operations drawer; omitting `--drawer` keeps the default-off graph.
+
+### Workspace Studio
+
+The shared Studio is wired into the normal three-target build/run entry point:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Studio -Platform Windows -Run
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Studio -Platform Web -Run -WebUrl http://127.0.0.1:5195
+.\scripts\Build-PortableDemo.ps1 -Sample Gallery -GalleryApp Studio -Platform Android -Run -AndroidSerial emulator-5554
+```
+
+Select an available loopback port and the intended device explicitly; coordinate access when another session owns them.
+This selector keeps the optional drawer off and does not imply that all release, motion, or performance gates are complete.
+
+After installing the current Gallery APK, run the bounded Studio procedure on the explicitly selected development device:
+
+```powershell
+.\bindings\dotnet\Experimental\AndroidGalleryDemo\Run-StudioDeviceAcceptance.ps1 `
+    -Serial emulator-5554 `
+    -AdbPath "C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe" `
+    -OutputDirectory build\android-studio-acceptance
+```
+
+This restarts the sample, changes its draft/foreground state, exercises native input/navigation and local analysis, rotates the device, and captures PNG/XML evidence.
+It restores the rotation policy on exit, but it is not a read-only inspection of an existing app session.
+Acquire exclusive device use first; do not wipe the emulator or use user files/clipboard data.
+The runner waits for analysis to finish and is not a concurrent-scroll stress test.
+
+For targeted real-browser Studio acceptance, use the existing gallery configurations:
+
+```powershell
+$env:XUI_BROWSER_ENGINE = "chromium"
+$env:XUI_BROWSER_CHANNEL = "msedge"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:gallery -- studio.spec.js studio.short-height.spec.js pages.spec.js
+dotnet publish bindings\dotnet\Experimental\WebGalleryDemo -c Release
+$env:XUI_WEB_BASE_PATH = "/nested/xui/"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:gallery:release -- studio.spec.js studio.short-height.spec.js studio.navigation.spec.js pages.spec.js
+Remove-Item Env:XUI_WEB_BASE_PATH
+```
+
+These runners own their test server and reject an occupied port; leave existing preview servers alone.
+Repeat with the explicitly selected Firefox/WebKit engine and no Chromium channel when qualifying those engines.
+Use `image.spec.js` and `reveal.spec.js` for the separate resource/motion slices, and the unfiltered gallery commands for broader regression coverage.
+Record strict failures as failures; targeted passes do not replace the complete browser matrix or native/device checks.
 
 ## Experimental portable foundation
 
@@ -92,6 +402,60 @@ It does not establish physical keyboard input, IME behavior, screen-reader behav
 Android and browser projects require their own backend and platform acceptance checks.
 Headless results do not establish native input, accessibility, or layout behavior on those platforms.
 
+### Order builder conformance
+
+The [order sample](docs/specs/experimental-portable-xui.md#order-builder-sample) is a local review workflow, not a shopping service.
+Its single scenario corpus is `bindings\dotnet\Experimental\SharedDemo\OrderScenarios.json`.
+Each platform consumes the same literal input actions and expected text, enabled state, and visibility.
+Do not calculate expected totals from the production model in a platform test.
+Keep the greeting smoke as the smaller regression check.
+
+The portable test command above includes generated order UI, model, input retention, and scenario-format checks.
+After building the Windows order sample, run the actual native scenarios:
+
+```powershell
+dotnet run --no-build --no-restore --project bindings\dotnet\Experimental\WindowsOrderDemo\WindowsOrderDemo.csproj -c Debug -- --smoke
+```
+
+This uses real native edit changes, posted Enter and Tab keys, button messages, a narrow resized window, and native selection/focus checks.
+Use the same configuration as the preceding sample build.
+It does not establish physical IME or screen-reader behavior.
+
+The existing scoped browser dependency installation also serves the order tests:
+
+```powershell
+$env:XUI_BROWSER_CHANNEL = "msedge"
+dotnet build bindings\dotnet\Experimental\WebOrderDemo\WebOrderDemo.csproj -c Debug
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:order
+dotnet publish bindings\dotnet\Experimental\WebOrderDemo\WebOrderDemo.csproj -c Release
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:order:release
+$env:XUI_WEB_BASE_PATH = "/nested/order/"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:order:release
+Remove-Item Env:XUI_WEB_BASE_PATH
+```
+
+Do not leave another server running on the browser suite's port 5187.
+The order host has no test bridge in either configuration.
+The suites include the shared scenarios, offline C# review, all three editors' identity/selection/composition, error recovery, narrow keyboard navigation, and published navigation lifetime.
+
+For Android, build and deploy the separate order application and native assertion application to the selected device:
+
+```powershell
+.\scripts\Build-PortableDemo.ps1 -Sample Order -Platform Android -Run -AndroidSerial emulator-5554
+dotnet build bindings\dotnet\Experimental\AndroidOrderDeviceTests\AndroidOrderDeviceTests.csproj -c Debug -t:Run "-p:AdbTarget=-s emulator-5554"
+pwsh -NoProfile -File bindings\dotnet\Experimental\AndroidOrderDeviceTests\Run-OrderDeviceAcceptance.ps1 `
+    -Serial emulator-5554 -AdbPath "C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe"
+```
+
+Replace the serial and SDK path as needed.
+The order APKs use `dev.xui.portable.orders` and `dev.xui.portable.orders.tests`, so they coexist with the greeting APKs.
+The native assertion app consumes the same shared JSON corpus.
+The external procedure checks actual order Activity recreation and backgrounding with each of the three fields focused, including selection and keyboard-visible scrolling.
+Like the greeting procedure, it requires an unlocked, rotatable device with a docked IME and native key-combination injection.
+It restarts only its two packages, temporarily changes rotation and the hardware-keyboard IME preference, and restores those settings afterward.
+The optional `-TimeoutSeconds` controls bounded adb/UI waits; it defaults to 60 seconds.
+Neither automated procedure establishes physical IME or TalkBack acceptance.
+
 ## Experimental Android backend
 
 The [Android contract](docs/specs/experimental-android.md) describes the native backend and its current acceptance limits.
@@ -113,8 +477,11 @@ SDK installation is outside these commands.
 With a connected device or emulator, deploy and start the application:
 
 ```powershell
-dotnet build bindings\dotnet\Experimental\AndroidDemo\AndroidDemo.csproj -c Debug -t:Run
+dotnet build bindings\dotnet\Experimental\AndroidDemo\AndroidDemo.csproj -c Debug -t:Run "-p:AdbTarget=-s emulator-5554"
 ```
+
+Replace `emulator-5554` with the intended serial from `adb devices`.
+The shared build script provides the equivalent `-Platform Android -Run -AndroidSerial` command.
 
 Run the SDK-only arithmetic tests:
 
@@ -136,14 +503,29 @@ Neither command establishes native integration.
 On an Android device or emulator, run the native assertion application:
 
 ```powershell
-dotnet build bindings\dotnet\Experimental\AndroidDeviceTests\AndroidDeviceTests.csproj -c Debug -t:Run
-adb logcat -s Xui.Android.Tests:I Xui.Android:E AndroidRuntime:E
+dotnet build bindings\dotnet\Experimental\AndroidDeviceTests\AndroidDeviceTests.csproj -c Debug -t:Run "-p:AdbTarget=-s emulator-5554"
+adb -s emulator-5554 logcat -s Xui.Android.Tests:I Xui.Android:E AndroidRuntime:E
 ```
 
 The application displays `PASS` only after all native assertions complete.
 Failures appear in logcat and propagate as unhandled errors.
 The native assertions cover real widgets, callbacks, selection, composition spans, scrolling, layout, dispatch, and teardown.
 They do not replace physical input or TalkBack checks.
+
+Once both applications are installed, run the bounded automated device procedure in PowerShell 7.2 or later:
+
+```powershell
+.\bindings\dotnet\Experimental\AndroidDeviceTests\Run-DeviceAcceptance.ps1 `
+    -Serial emulator-5554 `
+    -AdbPath "C:\Program Files (x86)\Android\android-sdk\platform-tools\adb.exe"
+```
+
+Omit `-AdbPath` if `adb` is on `PATH`.
+This uses the selected device's real widgets and UIAutomator, not a managed mock.
+It restarts the two demo/test applications, checks the native assertion result, injects input, exercises scrolling with the keyboard visible, rotates the device, and backgrounds/restores the demo.
+It temporarily enables the soft keyboard with a hardware keyboard, then restores that preference and the original rotation policy and removes its temporary device-side hierarchy dump.
+Use a rotatable development device or AVD with an unlocked screen, a docked keyboard, and `adb shell input keycombination` support; the procedure changes the demo's state and foreground Activity.
+ADB input does not establish physical IME or TalkBack acceptance.
 
 ### Android device smoke procedure
 
@@ -231,10 +613,10 @@ They exercise actual generated C# through Wasm, not only a JavaScript model.
 The Debug-only `?test` bridge exposes state and lifecycle probes.
 The suite fails on unexpected console errors, page errors, or callback failures.
 
-The [recorded browser evidence](docs/llm/dom-web.md#browser-shutdown-limitation) includes a Windows ARM64 browser shutdown limitation.
-All application assertions passed, but the final browser process did not exit.
-The same shutdown timeout occurred on an independent blank page.
-This record is not a successful test-runner exit.
+The [recorded browser evidence](docs/llm/dom-web.md) distinguishes the original Windows ARM64 shutdown limitation from clean Windows x64 acceptance.
+If teardown stalls on another machine, reproduce it with an independent blank page before changing application lifetime code.
+Individual passing assertions do not substitute for a clean runner exit.
+The default browser configuration does not disable GPU acceleration.
 
 Build or publish the Release application:
 
@@ -247,6 +629,23 @@ The static site is in `bindings\dotnet\Experimental\WebDemo\bin\Release\net10.0\
 The static host must serve `.wasm` files with the `application/wasm` MIME type.
 Release builds exclude the C# test bridge.
 The optional `wasm-tools` optimization recommendation does not prevent ordinary interpreted Wasm publication.
+
+After publishing, run the Release browser suite:
+
+```powershell
+$env:XUI_BROWSER_CHANNEL = "msedge"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:release
+$env:XUI_WEB_BASE_PATH = "/nested/xui/"
+npm --prefix bindings\dotnet\Experimental\WebDemo.Tests run test:release
+Remove-Item Env:XUI_WEB_BASE_PATH
+```
+
+The runner starts its own loopback static host on port 5187 and rejects an occupied port.
+The host serves the actual published files, including the correct Wasm MIME type.
+These checks cover the local C# callbacks with the network disconnected, input identity and selection, terminal navigation cleanup, and real back-forward cache navigation.
+The second run checks hosting below a URL prefix, without copying assets to the domain root.
+Use a trailing slash on the site's directory URL.
+The sample's directory-relative base URL supports both hosting locations; it is not a client-side router.
 
 ## Build the native code
 

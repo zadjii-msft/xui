@@ -22,6 +22,15 @@ struct Size { float width{}, height{}; };
 struct Point { float x{}, y{}; };
 struct Rect { float x{}, y{}, width{}, height{}; };
 struct Insets { float left{}, top{}, right{}, bottom{}; };
+enum class Axis;
+struct LayoutContext { bool unbounded_width{}, unbounded_height{}; };
+
+struct AxisConstraints {
+    std::optional<float> length;
+    float minimum{};
+    std::optional<float> maximum;
+    bool operator==(const AxisConstraints&) const = default;
+};
 
 enum class Invalidation { paint, layout, placement, scroll };
 enum class StyleTarget : uint32_t;
@@ -43,7 +52,13 @@ public:
 
     std::uint64_t id() const;
     virtual Size measure(Size available);
+    virtual bool participates_in_layout() const { return true; }
+    virtual Size measure_with_context(Size available, LayoutContext context);
     virtual void arrange(Rect bounds);
+    virtual void arrange_with_context(Rect bounds, LayoutContext context);
+    // Retained-layout context used by a non-filling ScrollView. Leaf controls
+    // arrange normally; ordinary Stack and Grid keep this axis unbounded.
+    void arrange_unbounded(Rect bounds, Axis axis);
     Rect bounds() const;
     void set_invalidator(std::function<void(Invalidation)> callback);
     void invalidate(Invalidation kind);
@@ -54,6 +69,12 @@ public:
     bool preferred_size_explicit() const { return preferred_explicit_; }
     void set_minimum_size(Size size);
     void set_maximum_size(Size size);
+    // Null inherits the latest legacy sizing for that axis. An engaged value
+    // without length measures naturally. Both axes validate and change together.
+    virtual bool supports_axis_constraints() const;
+    void set_axis_constraints(std::optional<AxisConstraints> width, std::optional<AxisConstraints> height);
+    std::optional<AxisConstraints> width_constraints() const;
+    std::optional<AxisConstraints> height_constraints() const;
     void set_control_style(std::shared_ptr<const ControlStyle> style);
     bool has_control_styling() const { return control_style_ != nullptr; }
     std::shared_ptr<const ControlStyle> control_style() const;
@@ -69,6 +90,19 @@ public:
 
 protected:
     Size constrain(Size desired, Size available) const;
+    Size constrain_measure(Size desired, Size available, bool natural) const;
+    Size base_measure(Size available, bool natural) const;
+    bool has_axis_constraints() const { return axis_constraints_ != nullptr; }
+    bool fixed_arrangement_axis(Axis axis) const;
+    LayoutContext constrain_layout_context(LayoutContext context) const;
+    template<class Measure> Size measure_axes(Size available, Measure&& measure) {
+        if (!has_axis_constraints()) return measure(available, false);
+        const auto offered = axis_measurement_available(available);
+        const auto width = width_constraints(), height = height_constraints();
+        const auto legacy = width && height ? Size{} : measure(offered, false);
+        const auto natural = (width && !width->length) || (height && !height->length) ? measure(offered, true) : Size{};
+        return resolve_axis_measurement(legacy, natural, available);
+    }
     void adopt(const std::shared_ptr<Element>& child);
     void set_default_size(Size size);
     virtual std::optional<StyleTarget> control_style_target() const { return std::nullopt; }
@@ -86,6 +120,7 @@ private:
     friend class Stack;
     std::uint64_t id_;
     Size preferred_{};
+    Size default_size_{};
     Size minimum_{};
     Size maximum_{(std::numeric_limits<float>::max)(), (std::numeric_limits<float>::max)()};
     bool auto_size_{};
@@ -93,6 +128,10 @@ private:
     Rect bounds_{};
     std::shared_ptr<InvalidationState> invalidation_;
     std::unique_ptr<ControlStyleAttachment> control_style_;
+    struct AxisConstraintState;
+    std::unique_ptr<AxisConstraintState> axis_constraints_;
+    Size axis_measurement_available(Size available) const;
+    Size resolve_axis_measurement(Size legacy, Size natural, Size available) const;
 };
 
 enum class Axis { horizontal, vertical };
@@ -117,7 +156,10 @@ public:
     std::size_t child_count() const { return children_.size(); }
     const std::shared_ptr<Element>& child_at(std::size_t index) const { return children_.at(index).element; }
     Size measure(Size available) override;
+    Size measure_with_context(Size available, LayoutContext context) override;
+    bool supports_axis_constraints() const override;
     void arrange(Rect bounds) override;
+    void arrange_with_context(Rect bounds, LayoutContext context) override;
     Insets effective_layout_insets() const;
     float effective_spacing() const;
     Rect layout_content_bounds() const;
@@ -127,7 +169,12 @@ public:
 protected:
     std::optional<StyleTarget> control_style_target() const override;
 private:
+    friend class Window;
     friend class ContentHost;
+    void insert(std::size_t index, std::shared_ptr<Element> child, float flex);
+    void remove(const Element& child);
+    void move(const Element& child, std::size_t index);
+    std::size_t index_of(const Element& child) const;
     struct Child {
         std::shared_ptr<Element> element;
         float flex{};
@@ -142,17 +189,23 @@ private:
     std::vector<Child> children_;
     struct LayoutScratch;
     std::vector<Size> layout_sizes_;
-    void layout_children(Size available, std::vector<Size>& sizes);
+    std::size_t layout_children(Size available, std::vector<Size>& sizes, LayoutContext context = {});
+    void arrange_children(Rect bounds, LayoutContext context);
+    Size measure_content(Size available, bool natural, LayoutContext context);
 };
 
 class ContentHost final : public Stack {
 public:
     explicit ContentHost(std::shared_ptr<Element> content = {});
     const std::shared_ptr<Element>& content() const noexcept;
+    void arrange(Rect bounds) override;
+    void arrange_with_context(Rect bounds, LayoutContext context) override;
+    Size allocated_content_size() const noexcept { return allocated_content_size_; }
 private:
     friend class Window;
     using Stack::add;
     void replace(std::shared_ptr<Element> content);
+    Size allocated_content_size_{};
 };
 
 struct FileItem {

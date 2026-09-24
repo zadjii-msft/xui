@@ -3,6 +3,10 @@
 #include "shell_commands_internal.hpp"
 #include <commctrl.h>
 #include "xui/xui_content.h"
+#include "xui/xui_virtual_viewport.h"
+#include "xui/xui_retained_pages.h"
+#include "xui/xui_reveal_portable.h"
+#include "xui/xui_image_memory.h"
 #include "xui/application.hpp"
 #include "xui/image.hpp"
 #include "xui/navigation.hpp"
@@ -109,9 +113,11 @@ struct State {
     bool file_dialog_active{};
     bool tab_drag_dispatching{};
     unsigned callbacks{};
+    unsigned posted_callbacks{};
     unsigned source_callbacks{};
     unsigned secret_callbacks{};
     xui_handle building_content{}, content_context{};
+    xui_handle append_first{};
     xui_status callback_failure{};
     xui_callback closed_callback{};
     void* closed_context{};
@@ -140,7 +146,17 @@ struct Node {
     unsigned dispatching{};
     xui_callback callback{};
     void* context{};
+    xui_control_interaction_callback interaction_callback{};
+    void* interaction_context{};
+    std::uint64_t interaction_generation{};
+    std::weak_ptr<Node> virtual_lease;
+    std::weak_ptr<Node> virtual_item_lease;
+    std::weak_ptr<Node> page_host;
+    bool page_selector_linked{}, page_projection{};
+    std::optional<bool> page_closable;
     bool attached{};
+    float authored_flex{};
+    bool content_incomplete{};
     xui_handle button_style_identity{};
     xui_handle control_style_identity{};
     xui_key_handler key_handler{};
@@ -162,6 +178,17 @@ struct Node {
     bool file_requesting{}, file_dispatching{};
     std::vector<std::wstring> file_paths;
 };
+void clear_content_callbacks(const std::shared_ptr<Node>& node);
+void clear_virtual_callbacks(const std::shared_ptr<Node>& node);
+void clear_content_viewport_callbacks(const std::shared_ptr<Node>& node);
+void clear_image_memory_callbacks(const std::shared_ptr<Node>& node);
+void set_retained_page_visibility(const std::shared_ptr<Node>& node, bool visible);
+void validate_retained_page_links(const std::shared_ptr<Node>& scope, const std::shared_ptr<xui::Element>& root);
+void validate_retained_page_retirement(const std::vector<std::shared_ptr<Node>>& removed);
+void validate_retained_page_insertion(const std::shared_ptr<Node>& root);
+void validate_portable_reveal_insertion(const std::shared_ptr<Node>& parent,
+    const std::shared_ptr<xui::Element>& child, float flex = 0);
+void validate_portable_reveal_virtualization(const std::shared_ptr<Node>& scroll);
 std::mutex registry_mutex;
 std::unordered_map<xui_handle, std::shared_ptr<Node>> registry;
 xui_handle next_handle{1};
@@ -229,6 +256,9 @@ void same(const std::shared_ptr<Node>& a, const std::shared_ptr<Node>& b) {
     require(a->owner == b->owner, XUI_INVALID_ARGUMENT, "Handles belong to different windows.");
     require(a->kind == XUI_WINDOW || b->kind == XUI_WINDOW || a->content_scope == b->content_scope,
         XUI_INVALID_ARGUMENT, "Handles belong to different content scopes.");
+    if (a->owner->append_first && a->element && b->element)
+        require((a->handle >= a->owner->append_first) == (b->handle >= a->owner->append_first),
+            XUI_BUSY, "Append construction cannot adopt existing elements.");
 }
 void editable(const std::shared_ptr<State>& state) {
     require(!state->closed && state->window->state() < xui::WindowState::closing, XUI_CLOSED, "The window is closed.");
@@ -236,12 +266,16 @@ void editable(const std::shared_ptr<State>& state) {
 }
 void topology(const std::shared_ptr<State>& state) {
     editable(state);
+    require(!state->append_first || (state->callbacks == state->posted_callbacks && !state->secret_callbacks &&
+        state->content_context == state->building_content), XUI_BUSY, "Append construction cannot run in callbacks.");
     require(!state->used || state->building_content, XUI_BUSY, "Build the control tree before run or in a content update.");
 }
 void content_topology(const std::shared_ptr<Node>& node) {
     topology(node->owner);
     require(node->content_scope == node->owner->building_content, XUI_BUSY,
         "Only the active candidate can change topology.");
+    require(!node->owner->append_first || node->handle >= node->owner->append_first, XUI_BUSY,
+        "Only fresh append elements can change construction topology.");
 }
 xui_handle insert(const std::shared_ptr<State>& owner, uint32_t kind, std::shared_ptr<xui::Element> element = {}) {
     require(owner->handles.size() < 65536, XUI_INVALID_ARGUMENT, "A window supports at most 65536 handles.");
@@ -262,6 +296,10 @@ xui::Control& control(const std::shared_ptr<Node>& n) {
     require(c != nullptr, XUI_WRONG_KIND, "Expected a control.");
     return *c;
 }
+void inspect_label_name(const xui::Control& control, std::wstring_view text) {
+    try { control.validate_name(text); }
+    catch (const std::invalid_argument& error) { throw InspectionFailure{XUI_INVALID_ARGUMENT, error.what()}; }
+}
 void wire_feature(const std::shared_ptr<Node>& n);
 bool feature_key(const std::shared_ptr<Node>& n, const xui::KeyEvent& e);
 void callback_result(const std::shared_ptr<State>& state) {
@@ -278,7 +316,7 @@ xui_handle event_target(const std::shared_ptr<State>& owner, const xui::Control*
 }
 void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0) noexcept {
     auto n = weak.lock();
-    if (!n || !n->callback || n->owner->closed || n->owner->callback_failure ||
+    if (!n || !n->callback || n->page_projection || n->owner->closed || n->owner->callback_failure ||
         n->owner->window->state() >= xui::WindowState::closing) return;
     auto s = n->owner;
     if (n->dispatching) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
@@ -407,7 +445,7 @@ xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
             for (auto h : s->handles) {
                 auto it = registry.find(h);
                 if (it == registry.end()) continue;
-                it->second->callback = nullptr; it->second->context = nullptr;
+                clear_content_callbacks(it->second);
                 removed.push_back(std::move(it->second)); registry.erase(it);
             }
         }
@@ -658,7 +696,14 @@ xui_status XUI_CALL xui_create(xui_handle window, uint32_t kind, xui_string name
         if (child) child->attached = true;
     });
 }
-namespace { constexpr uint32_t reveal_kind = 106; }
+namespace {
+constexpr uint32_t reveal_kind = 106;
+xui::Reveal& legacy_reveal(const std::shared_ptr<Node>& node) {
+    auto& reveal = as<xui::Reveal>(node);
+    require(!reveal.portable(), XUI_INVALID_ARGUMENT, "Use the atomic portable Reveal state API.");
+    return reveal;
+}
+}
 xui_status XUI_CALL xui_expander_set_duration(xui_handle target, uint32_t milliseconds) noexcept {
     return boundary([&] {
         auto node = get(target, XUI_EXPANDER);
@@ -724,7 +769,7 @@ xui_status XUI_CALL xui_reveal_set_open(xui_handle target, uint32_t open) noexce
     return boundary([&] {
         auto n = get(target, reveal_kind); editable(n->owner);
         require(open <= 1, XUI_INVALID_ARGUMENT, "Open must be zero or one.");
-        as<xui::Reveal>(n).set_open(open != 0);
+        legacy_reveal(n).set_open(open != 0);
     });
 }
 xui_status XUI_CALL xui_reveal_get_open(xui_handle target, uint32_t* open) noexcept {
@@ -737,7 +782,7 @@ xui_status XUI_CALL xui_reveal_set_duration(xui_handle target, uint32_t millisec
     return boundary([&] {
         auto n = get(target, reveal_kind); editable(n->owner);
         require(milliseconds <= 10000, XUI_INVALID_ARGUMENT, "Duration must be between 0 and 10000 milliseconds.");
-        as<xui::Reveal>(n).set_duration(milliseconds);
+        legacy_reveal(n).set_duration(milliseconds);
     });
 }
 xui_status XUI_CALL xui_reveal_get_duration(xui_handle target, uint32_t* milliseconds) noexcept {
@@ -750,7 +795,7 @@ xui_status XUI_CALL xui_reveal_set_layout(xui_handle target, uint32_t layout) no
     return boundary([&] {
         auto n = get(target, reveal_kind); editable(n->owner);
         require(layout <= XUI_REVEAL_LAYOUT_EXPAND, XUI_INVALID_ARGUMENT, "Invalid Reveal layout.");
-        as<xui::Reveal>(n).set_layout(static_cast<xui::RevealLayout>(layout));
+        legacy_reveal(n).set_layout(static_cast<xui::RevealLayout>(layout));
     });
 }
 xui_status XUI_CALL xui_reveal_get_layout(xui_handle target, uint32_t* layout) noexcept {
@@ -763,7 +808,7 @@ xui_status XUI_CALL xui_reveal_set_direction(xui_handle target, uint32_t directi
     return boundary([&] {
         auto n = get(target, reveal_kind); editable(n->owner);
         require(direction <= XUI_REVEAL_DIRECTION_RIGHT, XUI_INVALID_ARGUMENT, "Invalid Reveal direction.");
-        as<xui::Reveal>(n).set_direction(static_cast<xui::RevealDirection>(direction));
+        legacy_reveal(n).set_direction(static_cast<xui::RevealDirection>(direction));
     });
 }
 xui_status XUI_CALL xui_reveal_get_direction(xui_handle target, uint32_t* direction) noexcept {
@@ -787,9 +832,11 @@ xui_status XUI_CALL xui_reveal_get_animating(xui_handle target, uint32_t* animat
 xui_status XUI_CALL xui_stack_add(xui_handle stack, xui_handle child, float flex) noexcept {
     return boundary([&] {
         auto n = get(stack, XUI_STACK); auto c = get(child); same(n, c); content_topology(n);
+        content_topology(c);
         require(c->element && !c->attached && std::isfinite(flex) && flex >= 0,
             XUI_INVALID_ARGUMENT, "Invalid child or flex.");
-        as<xui::Stack>(n).add(c->element, flex); c->attached = true;
+        validate_portable_reveal_insertion(n, c->element, flex);
+        as<xui::Stack>(n).add(c->element, flex); c->attached = true; c->authored_flex = flex;
     });
 }
 xui_status XUI_CALL xui_window_content(xui_handle window, xui_handle stack) noexcept {
@@ -816,8 +863,12 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
                 control(n);
                 require(n->kind != XUI_PASSWORD_INPUT && n->kind != XUI_MULTILINE_TEXT && n->kind != XUI_RICH_TEXT,
                     XUI_WRONG_KIND, "Use the document or password API.");
-                next.text = decode(p.text); break;
-            case XUI_NAME: case XUI_AUTOMATION_ID: control(n); next.text = decode(p.text); break;
+                next.text = decode(p.text);
+                if (n->kind == XUI_LABEL) inspect_label_name(control(n), next.text);
+                break;
+            case XUI_NAME:
+                control(n); next.text = decode(p.text); inspect_label_name(control(n), next.text); break;
+            case XUI_AUTOMATION_ID: control(n); next.text = decode(p.text); break;
             case XUI_ENABLED: control(n); [[fallthrough]];
             case XUI_AUTO_SIZE:
                 require(n->element && p.integer <= 1, XUI_INVALID_ARGUMENT, "Expected a boolean element property."); break;
@@ -827,7 +878,10 @@ xui_status XUI_CALL xui_update(xui_handle window, const xui_property* properties
                 require(p.integer <= 1, XUI_INVALID_ARGUMENT, "Expected a boolean."); break;
             case XUI_FIXED_SIZE: case XUI_PREFERRED_SIZE: case XUI_MIN_SIZE: case XUI_MAX_SIZE:
                 require(n->element && std::isfinite(p.a) && std::isfinite(p.b) && p.a >= 0 && p.b >= 0,
-                    XUI_INVALID_ARGUMENT, "Invalid element size."); break;
+                    XUI_INVALID_ARGUMENT, "Invalid element size.");
+                if (const auto reveal = std::dynamic_pointer_cast<xui::Reveal>(n->element))
+                    require(!reveal->portable(), XUI_INVALID_ARGUMENT, "Size the child rather than portable Reveal.");
+                break;
             case XUI_PADDING:
                 require(std::isfinite(p.b) && std::isfinite(p.c) && std::isfinite(p.d) &&
                     p.b >= 0 && p.c >= 0 && p.d >= 0, XUI_INVALID_ARGUMENT, "Invalid padding."); [[fallthrough]];
@@ -913,6 +967,7 @@ xui_status XUI_CALL xui_invoke(xui_handle target) noexcept {
 xui_status XUI_CALL xui_image_source(xui_handle image, xui_string path, uint32_t width, uint32_t height) noexcept {
     return boundary([&] {
         auto n = get(image, XUI_IMAGE); editable(n->owner); auto text = decode(path);
+        require(!as<xui::Image>(n).memory_backed(), XUI_INVALID_ARGUMENT, "Use the memory image request API for this Image.");
         require(width > 0 && height > 0 && width <= 1024 && height <= 1024,
             XUI_INVALID_ARGUMENT, "Invalid image dimensions.");
         if (text.empty()) as<xui::Image>(n).unload();
@@ -928,6 +983,7 @@ xui_status XUI_CALL xui_image_state(xui_handle image, uint32_t* state) noexcept 
 xui_status XUI_CALL xui_image_shell_source(xui_handle image, xui_string path, uint32_t width, uint32_t height) noexcept {
     return boundary([&] {
         auto n = get(image, XUI_IMAGE); editable(n->owner); auto text = decode(path);
+        require(!as<xui::Image>(n).memory_backed(), XUI_INVALID_ARGUMENT, "Use the memory image request API for this Image.");
         require(text.size() <= 32767, XUI_INVALID_ARGUMENT, "The image path is too long.");
         require(width > 0 && height > 0 && width <= 1024 && height <= 1024,
             XUI_INVALID_ARGUMENT, "Invalid image dimensions.");
@@ -978,6 +1034,8 @@ xui_status XUI_CALL xui_list_state(xui_handle list, uint32_t* count, uint64_t* i
 
 #include "c_api_features.inc"
 #include "c_api_layout.inc"
+#include "c_api_presentation.inc"
+#include "c_api_label_layout.inc"
 #include "c_api_navigation_animation.inc"
 #include "c_api_text.inc"
 #include "c_api_document_editing.inc"
@@ -1509,6 +1567,11 @@ xui_status XUI_CALL xui_window_get_tooltip_style_values(xui_handle window, uint3
 }
 #include "c_api_file_transfer.inc"
 #include "c_api_content.inc"
+#include "c_api_reveal_portable.inc"
+#include "c_api_virtual_viewport.inc"
+#include "c_api_image_memory.inc"
+#include "c_api_content_viewport.inc"
+#include "c_api_retained_pages.inc"
 #include "c_api_file_dialog.inc"
 #include "c_api_swap_chain.inc"
 #include "c_api_window_drag.inc"

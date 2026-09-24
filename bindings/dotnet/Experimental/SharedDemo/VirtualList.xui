@@ -1,0 +1,29 @@
+namespace PortableDemo;
+
+component VirtualList {
+    state string Status = "10,000 editable items; waiting for the native viewport.";
+    state bool Ready = false;
+    state global::Xui.Experimental.Portable.KeyedItem[] InitialRows = [];
+
+    view {
+        VStack(spacing: 8, padding: 12) {
+            Text("VIRTUAL TASK LIST", id: "virtual-title");
+            Text(Status, id: "virtual-status", ref: StatusLabel);
+            HStack(spacing: 8) {
+                Button("First", click: First, enabled: Ready, id: "virtual-first", flex: 1);
+                Button("Previous", click: Previous, enabled: Ready, id: "virtual-previous", flex: 1);
+                Button("Next", click: Next, enabled: Ready, id: "virtual-next", ref: NextButton, flex: 1);
+                Button("Last", click: Last, enabled: Ready, id: "virtual-last", flex: 1);
+            }
+            HStack(spacing: 8) {
+                Button("Reverse", click: Reverse, enabled: Ready, id: "virtual-reverse", flex: 1);
+                Button("Filter even", click: Filter, enabled: Ready, id: "virtual-filter", flex: 1);
+                Button("Remove selected", click: RemoveSelected, enabled: Ready, id: "virtual-remove", flex: 1);
+            }
+            ScrollView("Editable task list", id: "virtual-scroll", ref: Viewport, flex: 1) {
+                KeyedVStack(InitialRows, ref: RowsView);
+            }
+        }
+    }
+
+}

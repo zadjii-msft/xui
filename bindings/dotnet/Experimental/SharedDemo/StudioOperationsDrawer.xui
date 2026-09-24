@@ -1,0 +1,15 @@
+namespace PortableDemo;
+
+component StudioOperationsDrawer {
+    param global::System.Func<global::Xui.Experimental.Portable.Host, StudioOperationsControls> CreateControls;
+
+    view {
+        VStack() {
+            Reveal("Operations controls", open: true,
+                motion: new global::Xui.Experimental.Portable.RevealMotion(180, global::Xui.Experimental.Portable.RevealDirection.Bottom),
+                ref: Drawer) {
+                Content(CreateControls(window).Root);
+            }
+        }
+    }
+}

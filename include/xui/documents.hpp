@@ -26,6 +26,8 @@ struct TextRun {
 // UTF-16 documents. The Windows RichEdit peer owns composition, selection, and undo.
 class DocumentText : public Control {
 public:
+    Size measure(Size available) override;
+    bool supports_axis_constraints() const override;
     static constexpr std::size_t document_limit = 1024 * 1024;
     const std::wstring& text() const { return text_; }
     void set_text(std::wstring value);
@@ -98,6 +100,9 @@ public:
     explicit PasswordInput(std::wstring name = L"Password");
     ~PasswordInput() override;
     void set_password(std::wstring value);
+    // Explicit terminal cleanup, not an edit notification. Erases retained
+    // contents and reveal state even when the native attachment is closing.
+    void clear_password();
     // Explicit application boundary. Never publish this value as a name, event, or UIA value.
     void with_password(const std::function<void(std::wstring_view)>& receiver) const;
     std::size_t length() const { return value_.size(); }
@@ -109,6 +114,7 @@ public:
     bool revealed() const { return revealed_; }
     float reveal_extent() const;
     Size measure(Size available) override;
+    bool supports_axis_constraints() const override { return true; }
     std::uint64_t revision() const { return revision_; }
     void on_change(std::function<void()> callback) { change_ = std::move(callback); }
     void commit_password(std::wstring value);

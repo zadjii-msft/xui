@@ -27,6 +27,7 @@ No hosted site is required to read these pages.
 - [Packages and deployment](packages.md): `dotnet new xui`, NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, project integration, hot reload, and VS Code or Microsoft Edit syntax support.
 - [Experimental portable XUI](experimental-portable-xui.md): An opt-in managed subset, shared demo, and backend contract for local C# execution.
+- [Shared order builder](experimental-portable-xui.md#order-builder-sample): A richer fixed-catalog application, immutable C# state, and one scenario corpus for Windows, Android, and web.
 - [Experimental Android backend](experimental-android.md): Native Android widgets, shared-source application startup, input, layout, and Activity lifetime.
 - [Experimental DOM web backend](experimental-dom-web.md): Local .NET WebAssembly, real DOM controls, browser layout, and attachment lifetime.
 - [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
@@ -61,6 +62,7 @@ Public headers and binding source define the available symbols.
 
 ## Design and technical reports
 
+- [Multi-platform framework completion plan](multi-platform-framework-plan.md): Proposed supported-release scope, architecture decisions, milestones, and platform acceptance gates.
 - [Zoey the XUI Lion](branding/zoey.md): The XUI mascot, canonical artwork, and reusable icons.
 - [Styles and templates](styling-and-templates-design.md): Application-authored presentation, staged delivery, native-host boundaries, and performance acceptance.
 - [Opt-in animations](animations.md): Four-edge reveals, coordinated layout, split panes, and the animation demo catalog.

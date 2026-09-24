@@ -1,0 +1,19 @@
+namespace PortableMutation;
+
+component MutationRow {
+    param string Key;
+    state string Entry = "";
+    state int Count = 0;
+
+    view {
+        VStack(spacing: 4) {
+            TextInput("Row draft", text: Entry, change: ChangeEntry, ref: Input, id: Key + "-input");
+            Text($"Edits: {Count}", ref: CountLabel, id: Key + "-count");
+            Button("Count", click: Increment, ref: CountButton, id: Key + "-increment");
+        }
+    }
+    code csharp {
+        void ChangeEntry(string value) => Entry = value;
+        void Increment() => Count++;
+    }
+}

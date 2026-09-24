@@ -1,0 +1,21 @@
+<Project>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)LocalizationCatalog.cs" Link="Localization\LocalizationCatalog.cs" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)LocalizationWorkbench.xui" Link="Localization\LocalizationWorkbench.xui" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)WorkbenchStrings.resx">
+      <Link>Localization\WorkbenchStrings.resx</Link>
+      <WithCulture>false</WithCulture>
+      <LogicalName>PortableDemo.Localization.WorkbenchStrings.en.resources</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)WorkbenchStrings.de.resx">
+      <Link>Localization\WorkbenchStrings.de.resx</Link>
+      <WithCulture>false</WithCulture>
+      <LogicalName>PortableDemo.Localization.WorkbenchStrings.de.resources</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)WorkbenchStrings.ar.resx">
+      <Link>Localization\WorkbenchStrings.ar.resx</Link>
+      <WithCulture>false</WithCulture>
+      <LogicalName>PortableDemo.Localization.WorkbenchStrings.ar.resources</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>

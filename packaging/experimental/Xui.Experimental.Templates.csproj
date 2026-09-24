@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="Package.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Xui.Experimental.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(XuiTemplateDirectory)\**\*" Pack="true" PackagePath="templates\xui-portable" />
+  </ItemGroup>
+  <Target Name="ValidateTemplateInput" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('$(XuiTemplateDirectory)\.template.config\template.json')" Text="Use scripts\Pack-Portable.ps1 to stage and version the template." />
+  </Target>
+</Project>

@@ -6,6 +6,7 @@
 #include "native_runtime_host.hpp"
 #include "native_swap_chain_host.hpp"
 #include "control_accessibility.hpp"
+#include "virtual_viewport_accessibility.hpp"
 #include "window_host.hpp"
 #include "platform.hpp"
 #include "list_peer.hpp"
@@ -37,6 +38,7 @@
 #include <unordered_map>
 
 namespace xui {
+#include "virtual_viewport_accessibility.inc"
 namespace {
 constexpr UINT update_message = WM_APP + 12;
 constexpr UINT metrics_message = WM_APP + 60;
@@ -114,12 +116,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         RECT placed_bounds{};
         bool placed{};
         HWND scroll_content{};
+        std::shared_ptr<VirtualRowsAccessibility> virtual_accessibility;
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> virtual_provider;
         RECT scroll_placed_bounds{};
         bool scroll_placed{};
         Rect arranged_bounds{};
         Rect absolute_bounds{};
         bool arranged{};
         Peer* parent{};
+        std::size_t content_order{};
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         bool dragging{};
         float drag_y{}, drag_offset{};
@@ -147,6 +152,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         AdaptiveLayout* adaptive{};
         Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
         ~Peer() {
+            if (virtual_accessibility) virtual_accessibility->close();
+            if (virtual_provider) UiaDisconnectProvider(virtual_provider.Get());
             host.peer_lookup.erase(control.get());
             if (file_target && window) RevokeDragDrop(window);
             file_target.Reset();
@@ -165,14 +172,33 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     };
 
     WindowOptions options;
+    std::optional<ThemeColor> theme_foreground, theme_background, theme_accent;
     std::wstring error;
     std::shared_ptr<Stack> root;
     std::shared_ptr<TitleBar> titlebar;
     bool caption_active{};
     std::unordered_map<const Control*, Peer*> peer_lookup;
     std::vector<std::unique_ptr<Peer>> peers;
+    bool reorder_content{};
+    std::size_t next_content_order{};
+    int next_control_id{100};
     std::vector<AdaptiveLayout*> adaptive_layouts;
     std::vector<HWND> focus_targets;
+    struct InteractionObservation {
+        std::weak_ptr<Control> control;
+        std::function<void(ControlInteraction)> callback;
+        std::optional<ControlInteraction> previous;
+    };
+    std::unordered_map<std::uint64_t, std::shared_ptr<InteractionObservation>> interaction_observers;
+    bool interaction_posted{};
+    struct ContentViewportObservation {
+        std::weak_ptr<ContentHost> host;
+        std::function<void(Size)> callback;
+        Size previous{}, latest{};
+        bool queued{};
+    };
+    std::unordered_map<std::uint64_t, std::shared_ptr<ContentViewportObservation>> content_viewport_observers;
+    std::uint64_t next_content_viewport{1};
     struct PopupEntry {
         std::shared_ptr<Popup> popup;
         std::shared_ptr<Control> anchor;
@@ -297,12 +323,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 });
             }
         }
+        for (const auto& element : removed)
+            if (const auto image = std::dynamic_pointer_cast<Image>(element); image && image->memory_backed())
+                image->cancel_memory();
     }
     void close_posts() {
         shell_prefetch.reset();
         std::vector<std::function<void()>> removed;
         { std::lock_guard lock(post_mutex); posts_closed = true; removed.swap(posts); }
         content_picking.clear();
+        content_viewport_observers.clear();
+        for (const auto& element : claimed)
+            if (const auto image = std::dynamic_pointer_cast<Image>(element); image && image->memory_backed())
+                image->cancel_memory();
     }
     std::function<bool(const NavigationEvent&)> navigation;
     bool has_images{};
@@ -615,6 +648,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!peer) return DefWindowProcW(hwnd, message, wparam, lparam);
         InputScope scope(peer->host);
         try {
+            if (message == WM_GETOBJECT && static_cast<LONG>(lparam) == UiaRootObjectId && peer->virtual_provider)
+                return UiaReturnRawElementProvider(hwnd, wparam, lparam, peer->virtual_provider.Get());
             if (message == WM_ERASEBKGND) return 1;
             if (message == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
             if (message == WM_LBUTTONDOWN && peer->host.focus_edit_at(hwnd, lparam)) return 0;
@@ -738,6 +773,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& peer = *reinterpret_cast<Peer*>(data);
         InputScope scope(peer.host);
+        if (message == WM_SETFOCUS || message == WM_KILLFOCUS ||
+            message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION) {
+            try { peer.host.schedule_interaction_refresh(); }
+            catch (...) { peer.host.fail(); return 0; }
+        }
         if (message == WM_WINDOWPOSCHANGING && peer.host.syncing) {
             // The root presents all peers together after layout. USER must not copy
             // old child pixels or repaint intermediate positions between those frames.
@@ -918,6 +958,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         claim_deferred_tree(reveal->content());
         return true;
     }
+    int allocate_control_id() {
+        if (next_control_id <= 65535) return next_control_id++;
+        for (int id = 100; id <= 65535; ++id)
+            if (std::none_of(peers.begin(), peers.end(), [id](const auto& peer) { return GetDlgCtrlID(peer->window) == id; }))
+                return id;
+        throw std::length_error("Window native control IDs are exhausted");
+    }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
         claim(element);
         apply_typography(*element);
@@ -942,9 +989,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         auto control = std::dynamic_pointer_cast<Control>(element);
         if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
+        if (const auto reveal = std::dynamic_pointer_cast<Reveal>(control); reveal && reveal->portable())
+            Reveal::validate_portable_content(reveal->content());
         control->set_visual_style(options.visual_style);
         bind_menu_bar(control);
         if (auto* peer = find_peer(control.get())) {
+            if (reorder_content) peer->content_order = next_content_order++;
             prepare_popup_surface(*peer);
             peer->surface = surface;
             peer->adaptive = adaptive;
@@ -961,24 +1011,26 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         auto peer = std::make_unique<Peer>(*this, std::move(control));
+        if (reorder_content) peer->content_order = next_content_order++;
         peer->surface = surface;
         peer->adaptive = adaptive;
         peer->parent = parent;
         const HWND native_parent = parent ? (parent->scroll_content ? parent->scroll_content : parent->window) : window;
         const auto role = peer->control->role();
+        const auto native_id = allocate_control_id();
         if (role == ControlRole::file_list) {
             auto list = std::dynamic_pointer_cast<FileList>(peer->control);
             if (!list) throw std::invalid_argument("The file-list role requires a FileList control");
             peer->list = std::make_unique<ListPeer>(std::move(list), [this] { fail(); },
                 [this, target = peer.get()](HWND hwnd) { last_focus = hwnd; reveal(*target); });
-            peer->list->attach(native_parent, static_cast<int>(100 + peers.size()));
+            peer->list->attach(native_parent, native_id);
             peer->window = peer->list->window();
         } else if (role == ControlRole::document_text || role == ControlRole::password_input || role == ControlRole::date_time) {
             peer->document = std::make_unique<NativeDocumentBridge>(peer->control);
             peer->document->on_failure([this] { fail(); });
-            peer->document->attach(native_parent, static_cast<int>(100 + peers.size()));
+            peer->document->attach(native_parent, native_id);
             peer->window = peer->document->window();
-            publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
+            publish_peer(*peer, nullptr);
             peer->provider = create_native_clip_provider(peer->accessibility);
             win32_require(SetWindowSubclass(peer->window, native_clip_procedure, 2,
                 reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native document clipping provider");
@@ -996,10 +1048,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer->edit->set_placeholder(input.placeholder());
             peer->edit->set_insets({input.search_style() ? 40.0f : 12.0f, 10,
                 input.shortcut_hint().empty() ? 12.0f : 78.0f, 10});
-            peer->edit->attach(native_parent, static_cast<int>(100 + peers.size()));
+            peer->edit->attach(native_parent, native_id, input.purpose());
             peer->window = peer->edit->window();
             {
-                publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
+                publish_peer(*peer, nullptr);
                 peer->provider = create_native_clip_provider(peer->accessibility);
                 win32_require(SetWindowSubclass(peer->window, native_clip_procedure, 2,
                     reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native input focus and clipping provider");
@@ -1015,10 +1067,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer->window = CreateWindowExW(WS_EX_TRANSPARENT, control_class, peer->control->name().c_str(),
                 WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | tab,
                 0, 0, 1, 1, native_parent,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + peers.size())),
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(native_id)),
                 GetModuleHandleW(nullptr), peer.get());
             win32_require(peer->window != nullptr, "Create control");
-            publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
+            publish_peer(*peer, nullptr);
             peer->provider = role == ControlRole::data_grid ? create_grid_provider(peer->accessibility) :
                 role == ControlRole::items_view || role == ControlRole::tree_view || role == ControlRole::command_menu ? create_collection_provider(peer->accessibility) :
                 role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
@@ -1071,11 +1123,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto* values = control.role() == ControlRole::button && control.has_control_styling() ? &button_text :
                     control.has_control_styling() ?
                     control.effective_control_style_values(label ? label->text_part() : StylePart::label) : nullptr;
-                if (values && label) {
-                    auto typography = *values;
+                if (label && (values || label->text_layout())) {
+                    auto typography = values ? *values : PartStyleValues{};
                     typography.wrapping = label->wrapping();
                     typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(label->maximum_lines(), UINT32_MAX));
-                    added->text_layout = drawing().styled_layout(text, style, typography, measured);
+                    added->text_layout = drawing().styled_layout(text, style, typography, measured, 0, 0, label->clips_text());
                 } else added->text_layout = values ? drawing().styled_layout(text, style, *values, measured) :
                     drawing().layout(text, style, measured);
                 return measured;
@@ -1101,11 +1153,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 Size measured{};
                 const auto& label = static_cast<const Label&>(*added->control);
                 const auto* values = label.has_control_styling() ? label.effective_control_style_values(label.text_part()) : nullptr;
-                if (values) {
-                    auto typography = *values;
+                if (values || label.text_layout()) {
+                    auto typography = values ? *values : PartStyleValues{};
                     typography.wrapping = label.wrapping();
                     typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(lines, UINT32_MAX));
-                    added->text_layout = drawing().styled_layout(text, style, typography, measured, width, lines);
+                    added->text_layout = drawing().styled_layout(text, style, typography, measured, width, lines, label.clips_text());
                 } else added->text_layout = drawing().layout(text, style, measured, width, lines);
                 return measured;
             });
@@ -1197,6 +1249,196 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     Peer* find_peer(const Control* control) const {
         const auto found = peer_lookup.find(control);
         return found == peer_lookup.end() ? nullptr : found->second;
+    }
+    bool composing() const {
+        return std::any_of(peers.begin(), peers.end(), [](const auto& peer) {
+            return (peer->edit && peer->edit->composing()) || (peer->document && peer->document->composing());
+        });
+    }
+    ControlInteraction read_interaction(const Control& control) const {
+        if (!ready || closing || !window) return {};
+        const auto* peer = find_peer(&control);
+        if (!peer || !peer->window || !IsWindow(peer->window)) return {};
+        return {GetFocus() == peer->window,
+            (peer->edit && peer->edit->composing()) || (peer->document && peer->document->composing())};
+    }
+    void refresh_virtual_state() {
+        if (!ready || closing || !window) return;
+        const auto focused = GetFocus();
+        std::uint64_t identity{};
+        for (const auto& peer : peers) if (peer->window == focused) { identity = peer->control->id(); break; }
+        const auto blocked = composing();
+        for (const auto& peer : peers) if (auto* scroll = dynamic_cast<ScrollView*>(peer->control.get())) {
+            const auto& state = scroll->virtual_viewport();
+            if (!state || state->closed()) continue;
+            const auto available = scroll->available_viewport();
+            std::set<std::uint64_t> members;
+            content_ids(scroll->content(), members);
+            for (const auto& item : state->items()) if (const auto root = item.root.lock(); root && !members.contains(root->id()))
+                state->remove_item(root->id());
+            state->observe({available.width, available.height}, dpi / 96.0f, blocked, identity);
+        }
+    }
+    void refresh_virtual_accessibility() {
+        for (const auto& peer : peers) {
+            auto* scroll = dynamic_cast<ScrollView*>(peer->control.get());
+            if (!scroll || !scroll->virtual_viewport()) continue;
+            const auto state = scroll->virtual_viewport();
+            if (state->closed()) {
+                if (peer->virtual_accessibility) peer->virtual_accessibility->close();
+                continue;
+            }
+            if (!peer->virtual_accessibility || peer->virtual_accessibility->identity() != state->identity()) {
+                if (peer->virtual_accessibility) peer->virtual_accessibility->close();
+                if (peer->virtual_provider) UiaDisconnectProvider(peer->virtual_provider.Get());
+                peer->virtual_accessibility = std::make_shared<VirtualRowsAccessibility>(
+                    peer->scroll_content, state->identity(), scroll->name());
+                peer->virtual_provider.Attach(peer->virtual_accessibility->provider());
+            }
+            std::vector<VirtualRowPresentation> rows;
+            const auto source = state->updating() ? state->active_request().requested_source_version :
+                state->request().committed_source_version;
+            for (const auto& item : state->items()) {
+                const auto root = item.root.lock();
+                if (!root || item.info.source_version != source) continue;
+                std::set<std::uint64_t> members;
+                content_ids(root, members);
+                const auto logical = root->bounds();
+                const auto clip = scroll->viewport();
+                const float left = std::max(logical.x, clip.x), top = std::max(logical.y, clip.y);
+                const float right = std::min(logical.x + logical.width, clip.x + clip.width);
+                const float bottom = std::min(logical.y + logical.height, clip.y + clip.height);
+                POINT origin{}; ClientToScreen(window, &origin);
+                UiaRect bounds{};
+                if (right > left && bottom > top)
+                    bounds = {origin.x + left * dpi / 96.0, origin.y + top * dpi / 96.0,
+                        (right - left) * dpi / 96.0, (bottom - top) * dpi / 96.0};
+                VirtualRowPresentation row{root->id(), item.info, bounds, {}};
+                for (const auto& child : peers) {
+                    if (!members.contains(child->control->id()) ||
+                        (child->parent && members.contains(child->parent->control->id()))) continue;
+                    if (!child->provider || child->control->role() == ControlRole::document_text)
+                        throw std::runtime_error("This virtual row contains an unsupported native accessibility host");
+                    if (child->caption && child->caption_provider && child->caption_accessibility) {
+                        {
+                            std::lock_guard lock(child->caption_accessibility->mutex);
+                            child->caption_accessibility->snapshot.name = child->control->name();
+                        }
+                        row.children.push_back({child->control->id(), child->caption, child->caption_provider, child->caption_accessibility});
+                    }
+                    row.children.push_back({child->control->id(), child->window, child->provider, child->accessibility});
+                }
+                rows.push_back(std::move(row));
+            }
+            const auto count = state->updating() ? state->active_count() : state->committed_count();
+            if (peer->virtual_accessibility->publish(count, std::move(rows)))
+                UiaRaiseStructureChangedEvent(peer->virtual_provider.Get(), StructureChangeType_ChildrenInvalidated, nullptr, 0);
+        }
+    }
+    void validate_virtual_coverage(ScrollView& scroll, bool committed = false) {
+        const auto state = scroll.virtual_viewport();
+        const auto target = committed ? state->committed() : state->active_request().requested;
+        const auto count = committed ? state->committed_count() : state->active_count();
+        const auto source = committed ? state->request().committed_source_version : state->active_request().requested_source_version;
+        if (target.width <= 0 || target.height <= 0 || !count) return;
+        const auto first = static_cast<std::uint32_t>(std::min<double>(count,
+            std::floor(static_cast<double>(target.offset) / state->row_height())));
+        const auto end = static_cast<std::uint32_t>(std::min<double>(count,
+            std::ceil((static_cast<double>(target.offset) + target.height) / state->row_height())));
+        std::vector<bool> covered(end - first);
+        std::set<std::uint64_t> members;
+        content_ids(scroll.content(), members);
+        const auto base = scroll.content()->bounds();
+        const auto tolerance = std::max(0.001f, 2 * (std::nextafter(target.extent,
+            std::numeric_limits<float>::infinity()) - target.extent));
+        for (const auto& item : state->items()) {
+            if (item.info.source_version != source ||
+                item.info.count != count || item.info.index < first || item.info.index >= end) continue;
+            const auto root = item.root.lock();
+            if (!root || !members.contains(root->id())) continue;
+            const auto bounds = root->bounds();
+            const auto expected = static_cast<float>(static_cast<double>(item.info.index) * state->row_height());
+            if (bounds.width <= 0 || std::abs((bounds.y - base.y) - expected) > tolerance ||
+                std::abs(bounds.height - state->row_height()) > tolerance || covered[item.info.index - first])
+                throw std::runtime_error("Virtual row geometry does not cover its declared index");
+            covered[item.info.index - first] = true;
+        }
+        if (std::find(covered.begin(), covered.end(), false) != covered.end())
+            throw std::runtime_error("The requested virtual viewport is not completely realized");
+    }
+    static Size content_viewport_size(const ContentHost& host) {
+        return host.allocated_content_size();
+    }
+    void schedule_content_viewports() {
+        if (!ready || closing || !public_window) return;
+        for (auto it = content_viewport_observers.begin(); it != content_viewport_observers.end();) {
+            const auto& observation = it->second;
+            const auto host = observation->host.lock();
+            if (!host || !public_window->contains_element(*host)) {
+                it = content_viewport_observers.erase(it); continue;
+            }
+            observation->latest = content_viewport_size(*host);
+            const auto id = it->first;
+            ++it;
+            if (observation->queued || (observation->previous.width == observation->latest.width &&
+                observation->previous.height == observation->latest.height)) continue;
+            observation->queued = true;
+            const auto weak = weak_from_this();
+            if (!public_window->post([weak, id] {
+                const auto self = weak.lock();
+                if (!self || !self->ready || self->closing) return;
+                const auto found = self->content_viewport_observers.find(id);
+                if (found == self->content_viewport_observers.end()) return;
+                const auto observation = found->second;
+                observation->queued = false;
+                const auto host = observation->host.lock();
+                if (!host || !self->public_window->contains_element(*host)) {
+                    self->content_viewport_observers.erase(found); return;
+                }
+                if (observation->previous.width == observation->latest.width &&
+                    observation->previous.height == observation->latest.height) return;
+                observation->previous = observation->latest;
+                const auto callback = observation->callback;
+                callback(observation->latest);
+            })) {
+                observation->queued = false;
+                if (!closing) throw std::runtime_error("Content viewport metadata could not be posted");
+            }
+        }
+    }
+    void schedule_interaction_refresh() {
+        if (interaction_posted || closing || !public_window) return;
+        const bool interested = !interaction_observers.empty() || std::any_of(peers.begin(), peers.end(), [](const auto& peer) {
+            const auto* scroll = dynamic_cast<const ScrollView*>(peer->control.get());
+            return scroll && scroll->virtual_viewport() && !scroll->virtual_viewport()->closed();
+        });
+        if (!interested) return;
+        interaction_posted = true;
+        const auto weak = weak_from_this();
+        if (!public_window->post([weak] {
+            const auto self = weak.lock();
+            if (!self) return;
+            self->interaction_posted = false;
+            if (!self->ready || self->closing) return;
+            std::vector<std::pair<std::uint64_t, std::shared_ptr<InteractionObservation>>> observations;
+            for (const auto& item : self->interaction_observers) observations.push_back(item);
+            for (const auto& [id, observation] : observations) {
+                if (self->closing) return;
+                const auto current = self->interaction_observers.find(id);
+                if (current == self->interaction_observers.end() || current->second != observation) continue;
+                const auto control = observation->control.lock();
+                if (!control) { self->interaction_observers.erase(current); continue; }
+                const auto value = self->read_interaction(*control);
+                if (observation->previous && *observation->previous == value) continue;
+                observation->previous = value;
+                const auto callback = observation->callback;
+                callback(value);
+            }
+            self->refresh_virtual_state();
+        })) {
+            interaction_posted = false;
+            if (!closing) throw std::runtime_error("Cannot post native interaction notification");
+        }
     }
     std::uint64_t popup_owner(const Peer* peer) const {
         for (; peer; peer = peer->parent) if (peer->control->role() == ControlRole::popup) return peer->control->id();
@@ -1524,6 +1766,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         auto control = std::dynamic_pointer_cast<Control>(element);
         if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
         if (validate) {
+            if (auto* pages = dynamic_cast<const RetainedPages*>(control.get())) pages->validate_complete();
+            if (auto* reveal = dynamic_cast<const Reveal*>(control.get()); reveal && reveal->portable())
+                Reveal::validate_portable_content(reveal->content());
             const auto* value = control.get();
             bool supported{};
             switch (control->role()) {
@@ -1575,6 +1820,73 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         content_ids(root, ids);
         for (const auto& entry : popups) content_ids(entry.popup, ids);
         return ids.contains(control.id());
+    }
+    void validate_stack(const Stack& stack) const {
+        if (typeid(stack) != typeid(Stack))
+            throw std::invalid_argument("Subtree mutation requires an ordinary Stack");
+        std::set<std::uint64_t> live;
+        content_ids(root, live);
+        for (const auto& entry : popups) content_ids(entry.popup, live);
+        if (!live.contains(stack.id())) throw std::invalid_argument("Stack must belong to this window");
+        std::lock_guard lock(host_claim_mutex);
+        for (auto id : live) {
+            const auto found = host_claims.find(id);
+            if (found != host_claims.end() && found->second != this)
+                throw std::invalid_argument("Stack belongs to another live Window");
+        }
+    }
+    void validate_reveal_insertion(const Element& parent, const std::shared_ptr<Element>& child, float flex = 0) const {
+        if (!child) return;
+        if (const auto reveal = std::dynamic_pointer_cast<Reveal>(child); reveal && reveal->portable() && flex != 0)
+            throw std::invalid_argument("Portable Reveal does not support nonzero outer flex");
+        for (const auto& element : claimed) {
+            const auto* reveal = dynamic_cast<const Reveal*>(element.get());
+            if (reveal && reveal->portable() && Window::subtree_contains(reveal->content(), parent))
+                Reveal::validate_portable_content(child);
+        }
+    }
+    bool defer_virtual_layout(const Stack& stack, const Element* removing = nullptr) const {
+        if (!popups.empty()) return false;
+        for (const auto& peer : peers) {
+            const auto* scroll = dynamic_cast<const ScrollView*>(peer->control.get());
+            if (!scroll || !scroll->virtual_viewport() || scroll->virtual_viewport()->closed() ||
+                !Window::subtree_contains(scroll->content(), stack)) continue;
+            if (scroll->virtual_viewport()->updating()) return true;
+            if (!removing) return false;
+            const auto bounds = removing->bounds(), viewport = scroll->viewport();
+            return bounds.width <= 0 || bounds.height <= 0 || bounds.x + bounds.width <= viewport.x ||
+                bounds.y + bounds.height <= viewport.y || bounds.x >= viewport.x + viewport.width ||
+                bounds.y >= viewport.y + viewport.height;
+        }
+        return false;
+    }
+    template<class F> void mutate_stack(F&& change, const std::set<std::uint64_t>& retired = {}, bool defer_layout = false) {
+        replacing = true;
+        struct Reset { bool& value; ~Reset() { value = false; } } reset{replacing};
+        try {
+            change();
+            for (std::size_t i = 0; i < popups.size();) {
+                if (retired.contains(popups[i].anchor->id())) {
+                    auto popup = popups[i].popup;
+                    dismiss_popup(*popup, PopupDismissReason::hidden, false);
+                } else ++i;
+            }
+            reorder_content = true;
+            layout_pending = true;
+            if (defer_layout) {
+                if (!retired.empty()) {
+                    // Handles may be released immediately after Remove. Retire
+                    // peers/claims now; only full layout and collection can wait.
+                    prune_popups();
+                    refresh_virtual_accessibility();
+                }
+            } else update();
+            if (failed || closing || (used && !ready))
+                throw std::runtime_error("Subtree mutation did not complete because the window closed");
+        } catch (...) {
+            fail();
+            throw;
+        }
     }
     void prune_popups() {
         if (input_depth) return;
@@ -1712,6 +2024,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         cancel_control_menu(window);
         if (options.visual_style != VisualStyle::winui) hover_edit(nullptr, nullptr);
         palette = Palette::system(options.theme, options.visual_style);
+        if (!palette.high_contrast) {
+            if (theme_foreground) {
+                palette.semantic_foreground = theme_foreground->resolve(palette.mode);
+                palette.text = D2D1::ColorF(*palette.semantic_foreground);
+            }
+            if (theme_background) palette.background = D2D1::ColorF(theme_background->resolve(palette.mode));
+            if (theme_accent) {
+                palette.semantic_accent = theme_accent->resolve(palette.mode);
+                palette.accent = D2D1::ColorF(*palette.semantic_accent);
+            }
+        }
         drawing().set_visual_style(options.visual_style);
         platform::appearance(window, palette.mode, palette);
         HBRUSH next_background = CreateSolidBrush(platform::native_color(palette.background));
@@ -1734,7 +2057,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (peer->list) peer->list->set_theme(dpi, palette);
             if (peer->document) {
                 peer->document->update(dpi, palette);
-                publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
+                publish_peer(*peer, nullptr);
             } else if (peer->edit) {
                 peer->edit->set_font_family(drawing().edit_font_family());
                 peer->edit->set_dpi(dpi);
@@ -1767,10 +2090,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!scroll_only) {
             const auto before = peers.size();
             adaptive_layouts.clear();
+            if (reorder_content) {
+                next_content_order = 0;
+                for (const auto& peer : peers) peer->content_order = SIZE_MAX;
+            }
             collect(root);
             for (const auto& entry : popups) {
                 if (entry.dialog) entry.dialog->set_visual_style(options.visual_style);
                 collect(entry.popup, !entry.popup->window_background());
+            }
+            if (reorder_content) {
+                std::stable_sort(peers.begin(), peers.end(), [](const auto& a, const auto& b) {
+                    return a->content_order < b->content_order;
+                });
+                // Native sibling order feeds the HWND accessibility tree. Do not
+                // reparent, recreate, or focus editors to match retained order.
+                for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
+                    for (const auto hwnd : {(*it)->window, (*it)->caption}) if (hwnd)
+                        win32_require(SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0, "Order subtree native siblings");
+                }
+                reorder_content = false;
             }
             if (peers.size() != before) apply_theme();
             sync_animations();
@@ -1783,8 +2123,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (!scroll || scroll->passthrough()) continue;
                 const auto view = scroll->viewport();
                 const auto content = scroll->content()->bounds();
-                if (content.x != view.x || content.y != view.y - scroll->offset())
-                    scroll->content()->arrange({view.x, view.y - scroll->offset(), view.width, scroll->extent()});
+                if (content.x != view.x || content.y != view.y - scroll->offset()) {
+                    const auto virtualized = scroll->virtual_viewport();
+                    const Rect bounds{view.x, view.y - scroll->offset(),
+                        virtualized ? virtualized->layout_width() : view.width,
+                        virtualized ? virtualized->layout_extent() : scroll->extent()};
+                    if (scroll->fill_viewport()) scroll->content()->arrange(bounds);
+                    else scroll->content()->arrange_unbounded(bounds, Axis::vertical);
+                }
             }
             // A stationary popup can contain a scrolling viewport without changing its placement.
             // Only a moved anchor requires layout outside the scrolled subtree.
@@ -1862,6 +2208,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             ++layouts;
         }
+        const auto retained_focus = retained_page_focus(focus_before_layout);
         if (arrange_layout || placement_pending || arrange_scroll) {
             if (!arrange_layout) {
                 for (const auto& peer : peers)
@@ -1897,7 +2244,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     // One native translation moves the retained editors without recreating them
                     // or sending placement notifications to every descendant.
                     const auto& scroll = static_cast<const ScrollView&>(*peer->control);
-                    const auto content = scroll.content()->bounds();
+                    const auto content = scroll.virtual_viewport() ? scroll.viewport() : scroll.content()->bounds();
                     const float scale = dpi / 96.0f;
                     const RECT target{static_cast<LONG>(std::lround((content.x - bounds.x) * scale)),
                         static_cast<LONG>(std::lround((content.y - bounds.y) * scale)),
@@ -1914,11 +2261,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                 }
                 if (peer->parent) {
-                    const auto parent = peer->parent->scroll_content ?
-                        static_cast<const ScrollView&>(*peer->parent->control).content()->bounds() :
+                    const auto* parent_scroll = peer->parent->scroll_content ?
+                        static_cast<const ScrollView*>(peer->parent->control.get()) : nullptr;
+                    const auto parent = parent_scroll ?
+                        (parent_scroll->virtual_viewport() ? parent_scroll->available_viewport() : parent_scroll->content()->bounds()) :
                         peer->parent->control->bounds();
                     bounds.x -= parent.x;
                     bounds.y -= parent.y;
+                    if (parent_scroll && parent_scroll->virtual_viewport()) {
+                        const auto view = parent_scroll->viewport();
+                        if (bounds.y + bounds.height <= 0 || bounds.y >= view.height)
+                            bounds.y = -bounds.height - 1;
+                    }
                 }
                 if (scroll_only && peer->arranged && bounds.x == peer->arranged_bounds.x &&
                     bounds.y == peer->arranged_bounds.y && bounds.width == peer->arranged_bounds.width &&
@@ -1952,7 +2306,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         bounds.width = std::max(0.0f, bounds.width - 8);
                         bounds.height = std::max(0.0f, bounds.height - 6);
                     }
-                    if (visible(*peer)) {
+                    if (visible(*peer) || peer.get() == retained_focus) {
                         const float scale = dpi / 96.0f;
                         const RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
                             static_cast<LONG>(std::lround(bounds.y * scale)),
@@ -2009,7 +2363,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     platform::place(peer->window, bounds, dpi);
                     peer->placed = false;
                 }
-                const bool shown = visible(*peer);
+                const bool shown = visible(*peer) || on_focus_path(*peer, retained_focus);
                 if (((GetWindowLongPtrW(peer->window, GWL_STYLE) & WS_VISIBLE) != 0) != shown)
                     ShowWindow(peer->window, shown ? SW_SHOWNA : SW_HIDE);
             }
@@ -2069,7 +2423,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 // UIA reads native bounds on demand. Only scroll state changed; do not rewrite
                 // native text, fonts, selection, or the unchanged accessibility snapshots.
                 if (control.role() == ControlRole::scroll_view)
-                    publish_control(peer->accessibility, peer->provider, control, peer->window);
+                    publish_peer(*peer, peer->provider);
                 continue;
             }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
@@ -2083,6 +2437,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 (control.role() != ControlRole::split_view || static_cast<const SplitView&>(control).divider().width > 0))
                 focus_targets.push_back(peer->window);
             if ((!enabled(*peer) || !visible(*peer)) &&
+                peer != retained_focus &&
                 (GetFocus() == peer->window || focus_before_layout == peer->window)) disabled_focus = peer->window;
             const auto range = dynamic_cast<const RangeInput*>(&control);
             if (auto* split = dynamic_cast<SplitView*>(peer->control.get()); split && peer->dragging &&
@@ -2115,7 +2470,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (peer->document) {
                 peer->document->update(dpi, palette);
-                publish_control(peer->accessibility, nullptr, control, peer->window);
+                publish_peer(*peer, nullptr);
             } else if (peer->edit) {
                 if ((IsWindowEnabled(peer->caption) != FALSE) != enabled(*peer))
                     EnableWindow(peer->caption, enabled(*peer));
@@ -2147,12 +2502,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     SetWindowTextW(peer->caption, input.name().c_str());
                     peer->caption_text = input.name();
                 }
-                if (peer->provider) publish_control(peer->accessibility, nullptr, control, peer->window);
+                if (peer->provider) publish_peer(*peer, nullptr);
             } else if (peer->list) {
                 if (GetFocus() == peer->window) last_focus = peer->window;
                 peer->list->update(dpi, palette);
             } else {
-                publish_control(peer->accessibility, peer->provider, control, peer->window);
+                publish_peer(*peer, peer->provider);
             }
         }
         if (disabled_focus) {
@@ -2193,6 +2548,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             InvalidateRect(window, nullptr, FALSE);
         }
         validate_active_inspection();
+        refresh_virtual_state();
+        refresh_virtual_accessibility();
+        schedule_interaction_refresh();
+        schedule_content_viewports();
     }
     void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor, std::shared_ptr<Popup> root_popup = {},
         std::optional<Rect> context_anchor = {}) {
@@ -2361,10 +2720,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (respect_modal && !modal_scope) return false;
         for (const auto& entry : popups) if (entry.popup->id() == owner && !command_popup_current(entry)) return false;
-        for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
-            if (!ancestor->control->enabled() || (respect_geometry && ancestor->control->role() == ControlRole::content_view &&
-                !opening_reveal(*ancestor) &&
-                (ancestor->control->bounds().width <= 0 || ancestor->control->bounds().height <= 0))) return false;
+        for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent) {
+            if (!ancestor->control->enabled()) return false;
+            const bool retained = dynamic_cast<const RetainedPages*>(ancestor->control.get()) ||
+                (ancestor->parent && dynamic_cast<const RetainedPages*>(ancestor->parent->control.get()));
+            if (retained && !ancestor->control->visible()) return false;
+            if (respect_geometry && ancestor->control->role() == ControlRole::content_view && !opening_reveal(*ancestor) &&
+                (ancestor->control->bounds().width <= 0 || ancestor->control->bounds().height <= 0)) {
+                // Retained pages use explicit visibility for inactive content;
+                // a zero allocation is clipping, not a request to disable input.
+                if (!retained) return false;
+            }
+        }
         for (auto* parent = peer.parent; parent; parent = parent->parent)
             if (auto* expander = dynamic_cast<Expander*>(parent->control.get()); expander && !expander->expanded()) return false;
         for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
@@ -2374,12 +2741,41 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 split && ancestor->control == split->second() && !split->expanded()) return false;
         return true;
     }
+    const Peer* retained_page_focus(HWND focused) const {
+        if (!focused) return nullptr;
+        for (const auto& peer : peers) {
+            if (peer->window != focused || (!peer->edit && !peer->document) ||
+                !enabled(*peer) || !visible(*peer, false)) continue;
+            for (auto* ancestor = peer->parent; ancestor; ancestor = ancestor->parent)
+                if (dynamic_cast<const RetainedPages*>(ancestor->control.get())) return peer.get();
+        }
+        return nullptr;
+    }
+    static bool on_focus_path(const Peer& peer, const Peer* focused) {
+        for (auto* ancestor = focused; ancestor; ancestor = ancestor->parent)
+            if (ancestor == &peer) return true;
+        return false;
+    }
     bool command_popup_current(const PopupEntry& entry) const {
         if (entry.commands && !entry.commands->current()) return false;
         if (!entry.parent_command_id) return true;
         const auto parent = entry.parent_command.lock();
         return parent && parent->expanded() == entry.parent_command_id && entry.commands &&
             parent->commands() == entry.commands->menu()->commands();
+    }
+    bool accessibility_hidden(const Peer& peer) const {
+        for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
+            if (const auto* reveal = dynamic_cast<const Reveal*>(ancestor->control.get());
+                reveal && reveal->portable() && !reveal->open()) return true;
+        return false;
+    }
+    void publish_peer(Peer& peer, IRawElementProviderSimple* provider) {
+        const bool hidden = accessibility_hidden(peer);
+        publish_control(peer.accessibility, provider, *peer.control, peer.window, hidden);
+        if (peer.caption_accessibility) {
+            std::lock_guard lock(peer.caption_accessibility->mutex);
+            peer.caption_accessibility->snapshot.logical_hidden = hidden;
+        }
     }
     static Rect viewport(const Peer& peer) {
         if (auto scroll = dynamic_cast<ScrollView*>(peer.control.get())) return scroll->viewport();
@@ -2421,7 +2817,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (ancestor != &peer)
                 if (auto* expander = dynamic_cast<Expander*>(ancestor->control.get()); expander && !expander->body_presented()) return false;
             const auto rect = ancestor == &peer ? ancestor->control->bounds() : viewport(*ancestor);
-            if (respect_geometry && (rect.width <= 0 || rect.height <= 0) && !opening_reveal(*ancestor)) return false;
+            const auto* virtual_scroll = dynamic_cast<const ScrollView*>(ancestor->control.get());
+            const bool held_viewport = virtual_scroll && virtual_scroll->virtual_viewport() &&
+                !virtual_scroll->virtual_viewport()->closed();
+            if (respect_geometry && (rect.width <= 0 || rect.height <= 0) && !opening_reveal(*ancestor) && !held_viewport) return false;
         }
         return true;
     }
@@ -2464,6 +2863,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         while (owner && owner->control->role() != ControlRole::scroll_view) owner = owner->parent;
         if (!owner || !owner->control->enabled()) return false;
         auto& scroll = static_cast<ScrollView&>(*owner->control);
+        if (scroll.virtual_viewport() && scroll.virtual_viewport()->closed()) return false;
         if (scroll.passthrough()) return owner->parent ? scroll_key(*owner->parent, key_code) : false;
         switch (key_code) {
         case VK_UP: scroll.scroll_by(-32); break;
@@ -2471,7 +2871,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case VK_PRIOR: scroll.scroll_by(-scroll.viewport().height); break;
         case VK_NEXT: scroll.scroll_by(scroll.viewport().height); break;
         case VK_HOME: scroll.set_offset(0); break;
-        case VK_END: scroll.set_offset(scroll.maximum_offset()); break;
+        case VK_END: scroll.set_offset(scroll.requested_maximum_offset()); break;
         default: return false;
         }
         update();
@@ -2503,6 +2903,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         while (owner && owner->control->role() != ControlRole::scroll_view) owner = owner->parent;
         if (!owner) return false;
         auto& scroll = static_cast<ScrollView&>(*owner->control);
+        if (scroll.virtual_viewport() && scroll.virtual_viewport()->closed()) return true;
         if (scroll.passthrough()) return owner->parent ? scroll_wheel(*owner->parent, wparam) : false;
         if (!scroll.enabled()) return true;
         owner->wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
@@ -2511,10 +2912,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         UINT lines = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
         const float distance = lines == WHEEL_PAGESCROLL ? scroll.viewport().height : 16.0f * lines;
-        const auto before = scroll.offset();
+        const auto before = scroll.virtual_viewport() ? scroll.virtual_viewport()->requested_offset() : scroll.offset();
         scroll.scroll_by(-ticks * distance);
         update();
-        if (ticks && before == scroll.offset() && owner->parent) return scroll_wheel(*owner->parent, wparam);
+        const auto after = scroll.virtual_viewport() ? scroll.virtual_viewport()->requested_offset() : scroll.offset();
+        if (ticks && before == after && owner->parent) return scroll_wheel(*owner->parent, wparam);
         return true;
     }
     void paint_surfaces(const Stack& stack) {
@@ -2980,6 +3382,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool sync_images(bool window_shown = true) {
         bool changed{};
         std::vector<std::uint64_t> retained;
+        for (const auto& element : claimed) {
+            const auto image = std::dynamic_pointer_cast<Image>(element);
+            if (!image || !image->memory_backed()) continue;
+            has_images = true;
+            changed = image->sync_memory(wake) || changed;
+            const auto& pixels = image->memory_pixels();
+            if (!pixels) continue;
+            retained.push_back(pixels->id);
+            if (root_drawing.prepare_target(window, static_cast<float>(dpi))) {
+                if (root_drawing.prepare_image(pixels)) image->memory_uploaded();
+                else image->memory_upload_failed();
+            }
+        }
         struct RowWork {
             Peer* peer;
             Rect clip;
@@ -3727,7 +4142,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto paint_disclosure = [&](D2D1_COLOR_F ink) {
                 const auto area = local(expander->disclosure_bounds());
                 if (regular_winui) {
-                    const auto fill = winui_button_brushes(palette.mode, ButtonAppearance::subtle,
+                    const auto fill = palette.button_brushes(ButtonAppearance::subtle,
                         enabled(peer), control.hovered(), control.pressed(), false).fill;
                     if (fill >> 24) canvas.rounded(area, argb_color(fill), 4);
                 }
@@ -4414,7 +4829,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (role == ControlRole::label) {
             auto& label = static_cast<Label&>(control);
-            if (label.has_control_styling()) {
+            if (label.has_control_styling() || label.text_layout()) {
                 canvas.styled_label(label, {0, 0, bounds.width, bounds.height}, palette, enabled(peer));
                 return;
             }
@@ -4454,7 +4869,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     canvas.rounded(mark, checked ? (enabled(peer) ? check_fill : palette.disabled) : palette.field, 3);
                     canvas.rounded(mark, enabled(peer) ? palette.accent : palette.disabled, 3, true);
                     if (checked) {
-                        const auto check_ink = palette.high_contrast && enabled(peer) ? palette.selection_text : palette.background;
+                        const auto check_ink = palette.high_contrast && enabled(peer) ? palette.selection_text :
+                            enabled(peer) ? palette.accent_ink(palette.background) : palette.background;
                         canvas.line(mark.x + 4, mark.y + 9, mark.x + 8, mark.y + 13, check_ink, 2);
                         canvas.line(mark.x + 8, mark.y + 13, mark.x + 14, mark.y + 5, check_ink, 2);
                     }
@@ -4934,9 +5350,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     return 0;
                 }
                 auto& scroll = static_cast<ScrollView&>(control);
+                if (scroll.virtual_viewport() && scroll.virtual_viewport()->closed()) return 0;
                 const float track = scroll.scrollbar_thumb_track().height - scroll.thumb().height;
                 if (track > 0) scroll.set_offset(peer.drag_offset +
-                    (GET_Y_LPARAM(lparam) * 96.0f / dpi - peer.drag_y) * scroll.maximum_offset() / track);
+                    (GET_Y_LPARAM(lparam) * 96.0f / dpi - peer.drag_y) * scroll.requested_maximum_offset() / track);
                 update();
                 return 0;
             }
@@ -5529,7 +5946,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (control.role() == ControlRole::scroll_view) {
                 auto& scroll = static_cast<ScrollView&>(control);
-                if (lparam >= 1000 && lparam <= 11000) scroll.set_offset(scroll.maximum_offset() * (lparam - 1000) / 10000.0f);
+                if (scroll.virtual_viewport() && scroll.virtual_viewport()->closed()) return UIA_E_ELEMENTNOTAVAILABLE;
+                if (lparam >= 1000 && lparam <= 11000) scroll.set_offset(scroll.requested_maximum_offset() * (lparam - 1000) / 10000.0f);
                 else if (lparam >= 2 && lparam <= 5) scroll_key(peer, lparam == 2 ? VK_UP :
                     lparam == 3 ? VK_DOWN : lparam == 4 ? VK_PRIOR : VK_NEXT);
                 else return UIA_E_INVALIDOPERATION;
@@ -5943,8 +6361,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             break;
         case WM_SETFOCUS:
+            schedule_interaction_refresh();
             if (ready) platform::request_focus_restore(hwnd);
             return 0;
+        case WM_KILLFOCUS:
+            schedule_interaction_refresh();
+            break;
         case platform::restore_focus_message:
             if (ready) platform::restore_focus(hwnd, last_focus, focus_targets);
             return 0;
@@ -6163,6 +6585,7 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
     for (const auto& entry : impl->popups) Impl::content_ids(entry.popup, existing);
     if (!existing.contains(host.id()))
         throw std::invalid_argument("ContentHost must belong to this window");
+    impl->validate_reveal_insertion(host, content);
     {
         std::lock_guard lock(host_claim_mutex);
         for (const auto id : existing) {
@@ -6246,6 +6669,172 @@ void Window::replace_content(ContentHost& host, std::shared_ptr<Element> content
         throw;
     }
 }
+void Window::validate_content_mutation() const {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread)
+        throw std::logic_error("Mutate content on the window UI thread");
+    if (impl->closing || (impl->used && !impl->ready))
+        throw std::logic_error("The Window is closed");
+    if (impl->input_depth || impl->replacing || impl->syncing || impl->native_file_dialog)
+        throw std::logic_error("Post subtree mutation outside native input callbacks");
+    for (const auto& peer : impl->peers)
+        if ((peer->edit && peer->edit->composing()) || (peer->document && peer->document->composing()))
+            throw std::logic_error("Finish native text composition before changing subtrees");
+    for (const auto& [id, state] : impl->content_picking)
+        if (state.enabled || !state.registration.targets.empty())
+            throw std::logic_error("Use content replacement for inspected content");
+}
+bool Window::subtree_contains(const std::shared_ptr<Element>& root, const Element& element) {
+    std::set<std::uint64_t> ids;
+    Impl::content_ids(root, ids);
+    return ids.contains(element.id());
+}
+bool Window::contains_element(const Element& element) const {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Inspect content on the window UI thread");
+    if (!impl_->closing) {
+        if (subtree_contains(impl_->root, element)) return true;
+        for (const auto& entry : impl_->popups)
+            if (subtree_contains(entry.popup, element)) return true;
+    }
+    std::lock_guard lock(host_claim_mutex);
+    const auto found = host_claims.find(element.id());
+    return found != host_claims.end() && found->second == impl_.get();
+}
+std::uint64_t Window::observe_content_viewport(std::shared_ptr<ContentHost> host,
+    std::function<void(Size)> callback, Size& initial) {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Observe content viewports on the window UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (!host || !callback || !contains_element(*host))
+        throw std::invalid_argument("A content viewport requires this window's retained host and a callback");
+    if (impl_->next_content_viewport == UINT64_MAX) throw std::overflow_error("Content viewport identities exhausted");
+    auto observation = std::make_shared<Impl::ContentViewportObservation>();
+    observation->host = host; observation->callback = std::move(callback);
+    observation->previous = observation->latest = Impl::content_viewport_size(*host);
+    const auto id = impl_->next_content_viewport++;
+    impl_->content_viewport_observers.emplace(id, observation);
+    initial = observation->previous;
+    return id;
+}
+void Window::release_content_viewport(std::uint64_t subscription) {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Release content viewports on the window UI thread");
+    impl_->content_viewport_observers.erase(subscription);
+}
+void Window::stack_insert(Stack& stack, std::size_t index, std::shared_ptr<Element> child, float flex) {
+    validate_content_mutation();
+    impl_->validate_stack(stack);
+    impl_->validate_reveal_insertion(stack, child, flex);
+    if (index > stack.child_count() || !std::isfinite(flex) || flex < 0)
+        throw std::invalid_argument("Invalid Stack insertion index or flex");
+    stack.validate_adoption(child);
+    std::set<std::uint64_t> candidate, live;
+    Impl::content_ids(child, candidate, true);
+    Impl::content_ids(impl_->root, live);
+    for (const auto& entry : impl_->popups) Impl::content_ids(entry.popup, live);
+    {
+        std::lock_guard lock(host_claim_mutex);
+        for (auto id : candidate)
+            if (live.contains(id) || host_claims.contains(id))
+                throw std::invalid_argument("Inserted content already belongs to a live Window");
+    }
+    // Reserve before entering the terminal native-failure boundary.
+    stack.children_.reserve(stack.children_.size() + 1);
+    const bool deferred = impl_->defer_virtual_layout(stack);
+    impl_->mutate_stack([&] { stack.insert(index, std::move(child), flex); }, {}, deferred);
+}
+void Window::stack_validate_move(Stack& stack, const Element& child, std::size_t) const {
+    validate_content_mutation();
+    impl_->validate_stack(stack);
+    stack.index_of(child);
+}
+void Window::stack_remove(Stack& stack, const Element& child) {
+    stack_validate_move(stack, child, 0);
+    std::set<std::uint64_t> retired;
+    Impl::content_ids(stack.child_at(stack.index_of(child)), retired);
+    const bool deferred = impl_->defer_virtual_layout(stack, &child);
+    impl_->mutate_stack([&] { stack.remove(child); }, retired, deferred);
+}
+void Window::stack_move(Stack& stack, const Element& child, std::size_t index) {
+    stack_validate_move(stack, child, index);
+    if (index >= stack.child_count()) throw std::invalid_argument("Stack move index is out of range");
+    if (stack.index_of(child) == index) return;
+    const bool deferred = impl_->defer_virtual_layout(stack);
+    impl_->mutate_stack([&] { stack.move(child, index); }, {}, deferred);
+}
+void Window::validate_retained_pages(const RetainedPages& pages, const std::vector<RetainedPageEntry>& entries,
+    std::uint64_t selected, bool visible) const {
+    RetainedPages::validate_entries(entries, selected);
+    validate_content_mutation();
+    if (!contains_element(pages)) throw std::invalid_argument("Retained pages must belong to this window");
+    const auto focused = GetFocus();
+    for (std::size_t i = 0; focused && i < pages.page_count(); ++i) {
+        if (visible && pages.page_id(i) == selected) continue;
+        for (const auto& peer : impl_->peers)
+            if ((peer->window == focused || IsChild(peer->window, focused)) &&
+                subtree_contains(pages.page_root(i), *peer->control))
+                throw std::logic_error("Move native focus explicitly before hiding a retained page");
+    }
+}
+void Window::set_retained_pages(RetainedPages& pages, std::vector<RetainedPageEntry> entries, std::uint64_t selected) {
+    validate_retained_pages(pages, entries, selected, pages.visible());
+    pages.validate_order(entries);
+    if (pages.entries() == entries && pages.selected() == selected) return;
+    impl_->mutate_stack([&] { pages.set_entries(std::move(entries), selected, true); });
+}
+void Window::set_retained_pages_visible(RetainedPages& pages, bool visible) {
+    validate_retained_pages(pages, pages.entries(), pages.selected(), visible);
+    if (pages.visible() == visible) return;
+    impl_->mutate_stack([&] { pages.set_visible(visible); });
+}
+void Window::retained_pages_insert(RetainedPages& pages, std::size_t index, std::uint64_t id, std::shared_ptr<Element> child) {
+    validate_content_mutation();
+    impl_->validate_reveal_insertion(pages, child);
+    if (!contains_element(pages) || index > pages.page_count() || pages.page_count() == 4096 ||
+        !id || id > INT64_MAX - 100) throw std::invalid_argument("Invalid retained page insertion");
+    for (std::size_t i = 0; i < pages.page_count(); ++i)
+        if (pages.page_id(i) == id) throw std::invalid_argument("Duplicate retained page identity");
+    pages.validate_adoption(child);
+    std::set<std::uint64_t> candidate, live;
+    Impl::content_ids(child, candidate, true);
+    Impl::content_ids(impl_->root, live);
+    for (const auto& entry : impl_->popups) Impl::content_ids(entry.popup, live);
+    {
+        std::lock_guard lock(host_claim_mutex);
+        for (auto identity : candidate)
+            if (live.contains(identity) || host_claims.contains(identity))
+                throw std::invalid_argument("Inserted page already belongs to a live Window");
+    }
+    impl_->mutate_stack([&] { pages.insert(index, id, std::move(child)); });
+}
+void Window::retained_pages_validate_move(const RetainedPages& pages, const Element& child, std::size_t) const {
+    validate_content_mutation();
+    if (!contains_element(pages)) throw std::invalid_argument("Retained pages must belong to this window");
+    pages.index_of(child);
+}
+void Window::retained_pages_validate_remove(const RetainedPages& pages, const Element& child) const {
+    retained_pages_validate_move(pages, child, 0);
+    const auto index = pages.index_of(child);
+    const auto focused = GetFocus();
+    for (const auto& peer : impl_->peers)
+        if (focused && (peer->window == focused || IsChild(peer->window, focused)) &&
+            subtree_contains(pages.page_root(index), *peer->control))
+            throw std::logic_error("Move native focus explicitly before removing a retained page");
+}
+void Window::retained_pages_remove(RetainedPages& pages, const Element& child) {
+    retained_pages_validate_remove(pages, child);
+    const auto index = pages.index_of(child);
+    std::set<std::uint64_t> retired;
+    Impl::content_ids(pages.retained_children()[index], retired);
+    impl_->mutate_stack([&] { pages.remove(child); }, retired);
+}
+void Window::retained_pages_move(RetainedPages& pages, const Element& child, std::size_t index) {
+    retained_pages_validate_move(pages, child, index);
+    if (index >= pages.page_count()) throw std::invalid_argument("Retained page move index is out of range");
+    if (pages.index_of(child) == index) return;
+    impl_->mutate_stack([&] { pages.move(child, index); });
+}
 void Window::set_content_pointer_picking(ContentHost& host, bool enabled) {
     const auto impl = impl_;
     impl->inspection_api_ready();
@@ -6324,6 +6913,26 @@ void Window::set_presentation(std::string_view font_family, float font_size, boo
     impl_->invalidate(Invalidation::layout);
 }
 ThemeMode Window::theme() const { return impl_->options.theme; }
+WindowThemeOptions Window::theme_options() const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read window theme on its UI thread");
+    return {impl_->options.theme, impl_->theme_foreground, impl_->theme_background, impl_->theme_accent};
+}
+void Window::set_theme_options(WindowThemeOptions options) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set window theme on its UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (options.theme < ThemeMode::dark || options.theme > ThemeMode::system)
+        throw std::invalid_argument("Invalid requested window theme");
+    for (const auto& color : {options.foreground, options.background, options.accent})
+        if (color && (color->light > 0xffffff || color->dark > 0xffffff))
+            throw std::invalid_argument("Window semantic colors must be RGB24 pairs");
+    if (theme_options() == options) return;
+    impl_->options.theme = options.theme;
+    impl_->theme_foreground = options.foreground;
+    impl_->theme_background = options.background;
+    impl_->theme_accent = options.accent;
+    try { impl_->apply_theme(); }
+    catch (...) { impl_->fail(); throw; }
+}
 void Window::set_visual_style(VisualStyle style) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set visual style on its UI thread");
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
@@ -6376,6 +6985,210 @@ const PartStyleValues* Window::effective_tooltip_style_values(StylePart part) co
     return impl_->tooltip_styling ? impl_->tooltip_styling->effective(part, impl_->tooltip_shown ? style_states::open : 0) : nullptr;
 }
 const std::wstring& Window::error() const { return impl_->error; }
+bool Window::has_focus(const Control& control) const {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Read native focus on the window UI thread");
+    if (!impl_->ready || impl_->closing || !impl_->window) return false;
+    const auto* peer = impl_->find_peer(&control);
+    return peer && peer->window && IsWindow(peer->window) && GetFocus() == peer->window;
+}
+void Window::clear_password(PasswordInput& password) {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Clear password attachments on the window UI thread");
+    {
+        std::lock_guard lock(host_claim_mutex);
+        const auto found = host_claims.find(password.id());
+        if (found != host_claims.end() && found->second != impl_.get())
+            throw std::invalid_argument("Password attachment belongs to another window");
+    }
+    Impl::InputScope scope(*impl_);
+    const auto* peer = impl_->find_peer(&password);
+    if (peer && peer->document) peer->document->clear_password();
+    else password.clear_password();
+}
+void Window::validate_portable_reveal(const Reveal& reveal, bool open, unsigned duration,
+    RevealDirection direction, bool initial) const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Validate Reveal on its UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    {
+        std::lock_guard lock(host_claim_mutex);
+        const auto found = host_claims.find(reveal.id());
+        if (found != host_claims.end() && found->second != impl_.get())
+            throw std::invalid_argument("Reveal belongs to another window");
+    }
+    reveal.validate_portable_state(open, duration, direction, initial);
+    if (reveal.minimum_.width || reveal.minimum_.height ||
+        reveal.maximum_.width != (std::numeric_limits<float>::max)() ||
+        reveal.maximum_.height != (std::numeric_limits<float>::max)())
+        throw std::invalid_argument("Size the child rather than the portable Reveal");
+    if (initial && impl_->used && contains_element(reveal))
+        throw std::invalid_argument("Initialize portable Reveal before native attachment");
+}
+bool Window::can_set_portable_reveal_open(const Reveal& reveal, bool open) const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Query Reveal on its UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    {
+        std::lock_guard lock(host_claim_mutex);
+        const auto found = host_claims.find(reveal.id());
+        if (found != host_claims.end() && found->second != impl_.get())
+            throw std::invalid_argument("Reveal belongs to another window");
+    }
+    Reveal::validate_portable_content(reveal.content());
+    if (open) return true;
+    std::set<std::uint64_t> affected;
+    Impl::content_ids(reveal.content(), affected);
+    for (const auto& popup : impl_->popups)
+        if (affected.contains(popup.anchor->id())) Impl::content_ids(popup.popup, affected);
+    const auto focused = GetFocus();
+    for (const auto& peer : impl_->peers) if (affected.contains(peer->control->id())) {
+        if ((peer->edit && peer->edit->composing()) || (peer->document && peer->document->composing())) return false;
+        for (auto current = focused; current; current = GetParent(current))
+            if (current == peer->window) return false;
+    }
+    return true;
+}
+void Window::apply_portable_reveal(Reveal& reveal, bool open, unsigned duration, RevealDirection direction, bool initial) {
+    validate_portable_reveal(reveal, open, duration, direction, initial);
+    if (impl_->input_depth || impl_->replacing || impl_->syncing)
+        throw std::logic_error("Post portable Reveal updates outside native callbacks");
+    if (reveal.open() != open && !can_set_portable_reveal_open(reveal, open))
+        throw std::logic_error("Move focus and finish composition before closing Reveal");
+    if (!contains_element(reveal)) { reveal.apply_portable_state(open, duration, direction, initial); return; }
+    impl_->mutate_stack([&] { reveal.apply_portable_state(open, duration, direction, initial); });
+    if (const auto* peer = impl_->find_peer(&reveal); peer && peer->provider && UiaClientsAreListening())
+        UiaRaiseStructureChangedEvent(peer->provider, StructureChangeType_ChildrenInvalidated, nullptr, 0);
+}
+void Window::cancel_portable_reveal(Reveal& reveal) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Cancel Reveal on its UI thread");
+    {
+        std::lock_guard lock(host_claim_mutex);
+        const auto found = host_claims.find(reveal.id());
+        if (found != host_claims.end() && found->second != impl_.get())
+            throw std::invalid_argument("Reveal belongs to another window");
+    }
+    reveal.cancel_portable();
+    if (impl_->ready && !impl_->closing) {
+        impl_->sync_animations();
+        if (!impl_->input_depth && !impl_->syncing && contains_element(reveal)) impl_->update();
+    }
+}
+void Window::refresh_image_memory() {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Refresh image memory on its UI thread");
+    if (!impl_->ready || impl_->closing || impl_->syncing || impl_->painting || impl_->input_depth) return;
+    try {
+        impl_->sync_images();
+        impl_->invalidate(Invalidation::paint);
+    } catch (...) { impl_->fail(); throw; }
+}
+ControlInteraction Window::interaction(const Control& control) const {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Read native interaction on the window UI thread");
+    return impl_->read_interaction(control);
+}
+void Window::observe_interaction(std::shared_ptr<Control> control, std::function<void(ControlInteraction)> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Observe native interaction on the window UI thread");
+    if (!control) throw std::invalid_argument("An interaction control is required");
+    if (!callback) { impl_->interaction_observers.erase(control->id()); return; }
+    if (impl_->closing) throw std::logic_error("The Window is closed");
+    auto observation = std::make_shared<Impl::InteractionObservation>();
+    observation->control = control; observation->callback = std::move(callback);
+    impl_->interaction_observers.insert_or_assign(control->id(), std::move(observation));
+    impl_->schedule_interaction_refresh();
+}
+void Window::refresh_virtual_viewports() {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Refresh virtual viewports on the window UI thread");
+    impl_->refresh_virtual_state();
+    impl_->schedule_interaction_refresh();
+}
+VirtualViewportResult Window::begin_virtual_update(ScrollView& scroll, std::uint64_t epoch) {
+    const auto impl = impl_;
+    if (GetCurrentThreadId() != impl->owner_thread || impl->input_depth || impl->replacing || impl->syncing)
+        throw std::logic_error("Begin a virtual viewport update outside native input callbacks");
+    if (!impl->ready || impl->closing || !contains_element(scroll))
+        throw std::logic_error("Virtual viewport updates require an attached open window");
+    const auto state = scroll.virtual_viewport();
+    if (!state || state->closed()) throw std::logic_error("The virtual viewport lease is closed");
+    if (impl->layout_pending) impl->update();
+    impl->refresh_virtual_state();
+    const auto request = state->request();
+    if (request.epoch != epoch) return VirtualViewportResult::superseded;
+    if (request.blocked) return VirtualViewportResult::blocked;
+    for (const auto& peer : impl->peers) if (const auto* other = dynamic_cast<const ScrollView*>(peer->control.get()))
+        if (other->virtual_viewport() && other->virtual_viewport()->updating()) return VirtualViewportResult::blocked;
+    validate_content_mutation();
+    return state->try_begin(epoch);
+}
+VirtualViewportResult Window::commit_virtual_update(ScrollView& scroll, std::uint64_t epoch) {
+    const auto impl = impl_;
+    const auto state = scroll.virtual_viewport();
+    if (GetCurrentThreadId() != impl->owner_thread || !state || state->closed())
+        throw std::invalid_argument("Commit requires this viewport's reserved UI-thread epoch");
+    if (!state->updating()) {
+        const auto request = state->request();
+        return request.epoch != epoch ? VirtualViewportResult::superseded : VirtualViewportResult::blocked;
+    }
+    if (state->active_epoch() != epoch) throw std::invalid_argument("Commit epoch does not match the reserved viewport update");
+    try {
+        validate_content_mutation();
+        if (!contains_element(scroll)) throw std::runtime_error("Virtual viewport detached during its reserved update");
+        impl->refresh_virtual_state();
+        impl->layout_pending = true;
+        impl->update();
+        impl->validate_virtual_coverage(scroll);
+        const auto result = state->commit(epoch);
+        scroll.invalidate(Invalidation::layout);
+        impl->layout_pending = true;
+        impl->update();
+        if (impl->failed || impl->closing) throw std::runtime_error("Virtual viewport publication failed");
+        return result;
+    } catch (...) {
+        state->close();
+        impl->fail();
+        throw;
+    }
+}
+void Window::close_virtual_viewport(ScrollView& scroll) {
+    if (GetCurrentThreadId() != impl_->owner_thread)
+        throw std::logic_error("Close virtual viewports on the window UI thread");
+    if (scroll.virtual_viewport()) scroll.virtual_viewport()->close();
+    scroll.invalidate(Invalidation::layout);
+    if (impl_->ready && !impl_->closing && !impl_->input_depth && !impl_->syncing) impl_->update();
+}
+void Window::flush_virtual_viewport(ScrollView& scroll, std::uint64_t epoch) {
+    const auto impl = impl_;
+    const auto state = scroll.virtual_viewport();
+    if (GetCurrentThreadId() != impl->owner_thread || impl->input_depth || impl->replacing || impl->syncing)
+        throw std::logic_error("Flush virtual viewports outside native input callbacks on the window UI thread");
+    if (!state || state->closed() || state->updating() || !epoch || state->committed_epoch() != epoch)
+        throw std::invalid_argument("Flush requires the exact last committed viewport epoch and no Ready update");
+    if (!impl->ready || impl->closing || !contains_element(scroll))
+        throw std::logic_error("Flush requires an attached open virtual viewport");
+    for (const auto& peer : impl->peers) if (const auto* other = dynamic_cast<const ScrollView*>(peer->control.get()))
+        if (other->virtual_viewport() && other->virtual_viewport()->updating())
+            throw std::invalid_argument("Finish the window's Ready viewport update before flushing committed layout");
+    const auto committed = state->committed();
+    const auto source = state->request().committed_source_version;
+    try {
+        const auto pending_layout = [&] {
+            return impl->layout_pending || impl->placement_pending || impl->scroll_pending || impl->state_pending || impl->pending;
+        };
+        for (unsigned pass = 0; pass < 8 && pending_layout(); ++pass) {
+            impl->update();
+            if (impl->failed || impl->closing) throw std::runtime_error("The window closed during viewport layout completion");
+        }
+        if (pending_layout()) throw std::runtime_error("Committed viewport layout did not settle");
+        if (state->committed_epoch() != epoch || state->committed() != committed ||
+            state->request().committed_source_version != source)
+            throw std::runtime_error("Committed viewport changed during layout completion");
+        impl->validate_virtual_coverage(scroll, true);
+    } catch (...) {
+        state->close();
+        impl->fail();
+        throw;
+    }
+}
 bool Window::focus(Control& control, bool select_all) {
     const auto impl = impl_;
     Impl::InputScope scope(*impl);

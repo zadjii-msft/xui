@@ -1,0 +1,88 @@
+namespace PortableDemo;
+
+component PresentationWorkbench {
+    param global::System.Action<global::Xui.Experimental.Portable.ThemeSettings?> ApplyHostTheme;
+    state string Draft = "";
+    state float EditorSize = 14;
+    state uint EditorWeight = 400;
+    state bool AccentOn = true;
+    state global::Xui.Experimental.Portable.CheckState AccentChoice = global::Xui.Experimental.Portable.CheckState.Checked;
+    state global::Xui.Experimental.Portable.TextRole PreviewRole = global::Xui.Experimental.Portable.TextRole.Body;
+    state string Appearance = "Inherited";
+    state bool CustomColors = false;
+    state global::Xui.Experimental.Portable.ThemeMode Scheme = global::Xui.Experimental.Portable.ThemeMode.System;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Presentation workbench", textRole: global::Xui.Experimental.Portable.TextRole.Title,
+                ref: TitleLabel, id: "presentation-title");
+            ScrollView("Typography and native appearance", flex: 1, id: "presentation-content") {
+                VStack(spacing: 10) {
+                    Text("Native controls. No saved settings.", textRole: global::Xui.Experimental.Portable.TextRole.Caption,
+                        ref: CaptionLabel, id: "presentation-caption");
+                    TextInput("Retained draft", text: Draft, change: EditDraft, placeholder: "Keep this draft while changing appearance",
+                        fontSize: EditorSize, fontWeight: EditorWeight, ref: DraftInput, id: "presentation-draft",
+                        help: "Theme and typography changes preserve this editor. Nothing is stored or sent.");
+                    Toggle("Accent toggle", checked: AccentOn, change: SetAccentOn, fontSize: EditorSize, fontWeight: EditorWeight,
+                        ref: AccentToggle, id: "presentation-toggle");
+                    CheckBox("Accent choice", checkState: AccentChoice, change: SetAccentChoice, fontSize: EditorSize, fontWeight: EditorWeight,
+                        ref: AccentCheckBox, id: "presentation-check");
+                    Text("Semantic role preview", textRole: PreviewRole, ref: PreviewLabel, id: "presentation-preview");
+                    Text($"Role: {PreviewRole} / size: {EditorSize} / weight: {EditorWeight}", id: "presentation-metrics");
+                    Button("Next text role", click: NextRole, id: "presentation-next-role");
+                    HStack(spacing: 8) {
+                        Button("Larger editor", click: Larger, id: "presentation-larger", flex: 1);
+                        Button("Normal editor", click: Normal, id: "presentation-normal", flex: 1);
+                    }
+                    Button("Toggle bold editor", click: ToggleBold, fontWeight: EditorWeight, id: "presentation-bold");
+                    Text($"Appearance: {Appearance}", ref: AppearanceLabel, id: "presentation-appearance");
+                    HStack(spacing: 8) {
+                        Button("Light", click: Light, id: "presentation-light", flex: 1);
+                        Button("Dark", click: Dark, id: "presentation-dark", flex: 1);
+                    }
+                    Button("Follow system", click: SystemTheme, id: "presentation-system");
+                    Button(CustomColors ? "Use native colors" : "Use custom colors", click: ToggleColors, id: "presentation-colors");
+                    Button("Restore inherited", click: Inherit, id: "presentation-inherit");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        static global::Xui.Experimental.Portable.ThemeResources Palette() => new(
+            foreground: new(0x1a1a1a, 0xffffff),
+            background: new(0xffffff, 0x202020),
+            accent: new(0x005fb8, 0x60cdff));
+
+        public static PresentationWorkbench Create(global::Xui.Experimental.Portable.Host host) =>
+            new(host, theme => host.Theme = theme);
+
+        void EditDraft(string value) => Draft = value;
+        void SetAccentOn(bool value) => AccentOn = value;
+        void SetAccentChoice(global::Xui.Experimental.Portable.CheckState value) => AccentChoice = value;
+        void Larger() => EditorSize = 28;
+        void Normal() => EditorSize = 14;
+        void ToggleBold() => EditorWeight = EditorWeight == 400 ? 700u : 400u;
+        void NextRole() => PreviewRole = PreviewRole switch {
+            global::Xui.Experimental.Portable.TextRole.Body => global::Xui.Experimental.Portable.TextRole.Caption,
+            global::Xui.Experimental.Portable.TextRole.Caption => global::Xui.Experimental.Portable.TextRole.Title,
+            _ => global::Xui.Experimental.Portable.TextRole.Body
+        };
+
+        void SelectTheme(global::Xui.Experimental.Portable.ThemeMode scheme, bool customColors) {
+            ApplyHostTheme(new(scheme, customColors ? Palette() : null));
+            Scheme = scheme;
+            CustomColors = customColors;
+            Appearance = scheme.ToString() + (customColors ? " / custom colors" : " / native colors");
+        }
+        void Light() => SelectTheme(global::Xui.Experimental.Portable.ThemeMode.Light, CustomColors);
+        void Dark() => SelectTheme(global::Xui.Experimental.Portable.ThemeMode.Dark, CustomColors);
+        void SystemTheme() => SelectTheme(global::Xui.Experimental.Portable.ThemeMode.System, CustomColors);
+        void ToggleColors() => SelectTheme(Scheme, !CustomColors);
+        void Inherit() {
+            ApplyHostTheme(null);
+            CustomColors = false;
+            Appearance = "Inherited";
+        }
+    }
+}

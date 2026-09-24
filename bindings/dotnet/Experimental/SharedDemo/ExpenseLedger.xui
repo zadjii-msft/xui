@@ -1,0 +1,50 @@
+namespace PortableDemo;
+
+component ExpenseLedger {
+    state ExpenseLedgerState State = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("EXPENSE LEDGER", id: "ledger-title");
+            HStack(spacing: 12) {
+                Text(State.TotalText, ref: TotalLabel, id: "ledger-total", flex: 1);
+                Text(State.RemainingText, ref: RemainingLabel, id: "ledger-remaining", flex: 1);
+            }
+            ScrollView("Budget and category totals", id: "ledger-content", flex: 1) {
+                VStack(spacing: 8) {
+                    Text("Three category totals / USD", id: "ledger-description");
+                    TextInput("Budget / USD", text: State.Budget, change: SetBudget, submit: Review,
+                        placeholder: "150.00", captionVisible: true, help: "Nonnegative USD, up to two decimal places. No commas or currency symbol.",
+                        ref: BudgetInput, id: "ledger-budget");
+                    TextInput("Food / USD", text: State.Food, change: SetFood, submit: Review,
+                        placeholder: "32.50", captionVisible: true, help: "Total for food, not a transaction list. Use a period for cents.",
+                        ref: FoodInput, id: "ledger-food");
+                    TextInput("Travel / USD", text: State.Travel, change: SetTravel, submit: Review,
+                        placeholder: "18.00", captionVisible: true, help: "Total for travel. Zero is allowed.",
+                        ref: TravelInput, id: "ledger-travel");
+                    TextInput("Supplies / USD", text: State.Supplies, change: SetSupplies, submit: Review,
+                        placeholder: "24.75", captionVisible: true, help: "Total for supplies. Zero is allowed.",
+                        ref: SuppliesInput, id: "ledger-supplies");
+                    Text(State.Validation, ref: ValidationLabel, id: "ledger-validation");
+                    Text(State.ReviewSummary, visible: State.Reviewing && State.CanReview, ref: ReviewLabel, id: "ledger-summary");
+                    Button("Review ledger", click: Review, enabled: State.CanReview && !State.Reviewing,
+                        ref: ReviewButton, id: "ledger-review");
+                    HStack(spacing: 8) {
+                        Button("Edit", click: Edit, enabled: State.Reviewing, ref: EditButton, id: "ledger-edit", flex: 1);
+                        Button("Reset example", click: Reset, ref: ResetButton, id: "ledger-reset", flex: 1);
+                    }
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetBudget(string value) => State = State with { Budget = value, Reviewing = false };
+        void SetFood(string value) => State = State with { Food = value, Reviewing = false };
+        void SetTravel(string value) => State = State with { Travel = value, Reviewing = false };
+        void SetSupplies(string value) => State = State with { Supplies = value, Reviewing = false };
+        void Review() => State = State.Review();
+        void Edit() => State = State with { Reviewing = false };
+        void Reset() => State = new();
+    }
+}

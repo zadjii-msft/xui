@@ -1,0 +1,1 @@
+Original XUI byte fixture; not an encoded image or font.

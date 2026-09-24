@@ -5,6 +5,89 @@
 Examples use the [language fragment contexts](README.md#use-the-examples).
 Add `xui\adaptive_layout.hpp` for Grid, Wrap, and AdaptiveLayout.
 
+## Independent axis constraints
+
+The native C++ `Element::set_axis_constraints(width, height)` API sets both axes atomically.
+Each argument is an optional `AxisConstraints` value with an optional `length`, a nonnegative `minimum` (default zero), and an optional `maximum`.
+An absent axis inherits its latest legacy preferred/fixed size, minimum, maximum, and automatic-sizing behavior.
+An engaged axis with no length uses natural measurement, including current text and caption typography, instead of that axis's legacy sizing.
+
+For example, `input->set_axis_constraints(xui::AxisConstraints{280.0f}, xui::AxisConstraints{})` selects fixed width with natural height.
+Passing `std::nullopt` for both axes restores their latest legacy sizing.
+
+All supplied values must be finite. Maximum must not be below minimum, and length must lie within the supplied bounds.
+Invalid input changes neither axis. Parent allocation still wins when smaller than minimum or length.
+Auto does not disable normal cross-axis stretching; maximum and length cap the arranged extent.
+Width constraints are applied before wrapped content measures its height.
+Legacy setters continue updating their stored values while an override is active; clearing the override reveals those latest values.
+
+This native slice supports ordinary Stack, ContentHost, Label, Button, TextInput, ScrollView, Toggle, CheckBox, Progress, Grid, plain MultilineText, and PasswordInput.
+Other native families reject these overrides explicitly.
+The additive C ABI exposes `xui_element_set_axis_constraints` and `xui_element_get_axis_constraints` in `xui_layout.h`.
+Bindings must probe these exports independently of subtree-mutation support before advertising axis constraints.
+Grid additionally requires the `xui_grid_layout_version` capability described below.
+MultilineText and PasswordInput additionally require the [forms capability](../documents.md#portable-editor-boundaries).
+Portable scroll layout also requires `xui_scroll_view_set_fill_viewport` and its getter.
+The native ScrollView default fills its viewport for compatibility.
+Setting `ScrollView::set_fill_viewport(false)` retains natural content height and carries the unbounded vertical layout context through ordinary Stack, ContentHost, and Grid arrangement.
+Flex and star tracks then remain intrinsic rather than treating the finite viewport rectangle as a new weighted budget.
+An explicit fixed axis or a cell spanning only fixed Grid tracks establishes a bounded budget for its contents.
+Horizontal stacks still allocate their bounded width normally while carrying the unbounded height context.
+
+## Native virtual viewport leases
+
+`xui_virtual_viewport.h` exposes an opt-in fixed-pitch viewport lease for a retained ScrollView.
+The declared item count and row pitch determine logical extent independently of temporary row/gap construction.
+The native scroll-content HWND stays viewport-sized; mounted controls use rebased coordinates rather than a million-pixel child window.
+Never-leased ScrollViews retain their existing behavior.
+
+Begin with an empty realization tree. The initial committed viewport is zero-sized.
+Posted, coalesced requests describe the latest snapped offset/allocation, requested source version, and last **logical** committed rectangle.
+The physical parent can clip that rectangle further when it shrinks.
+The lease belongs to the ScrollView's content scope even when Begin runs outside an ambient construction scope.
+Native notification callbacks receive read-only snapshots; post application reconciliation outside content/native callbacks.
+
+`TryBeginUpdate` reserves one request epoch before synchronous, non-yielding staging.
+Realize the union needed to retain old rows, the requested window, and interaction pins.
+Register each mounted ordinary-Stack row root with its opaque key, index, count, and source version.
+Within a Ready update, insertion and movement may defer native collection and full layout until Commit.
+Metadata registration therefore uses retained row identity and does not require the new row's HWNDs to exist yet.
+Removal still retires native peers, callbacks, claims, and row accessibility synchronously so element handles can release immediately.
+Full layout after offscreen post-commit retirement may coalesce into the next native update.
+Performance measurements must include that final native update when measuring the complete settled transaction.
+The optional `xui_virtual_viewport_flush_committed(lease, expectedEpoch)` capability provides that explicit completion point after pruning.
+It validates the exact last committed epoch, forbids any Ready update in the window, drains current pending native layout, and rechecks committed visible-row coverage.
+Future requested intent remains queued and lease/interaction callbacks are not delivered inline.
+Failure to reach a settled layout is terminal rather than a success-shaped fallback.
+This does not wait for future animation timers, vsync, or a global operating-system accessibility snapshot.
+Commit measures the staged native tree and verifies that every visible index is covered exactly once by a reachable, correctly placed row with the reserved source/count.
+It then publishes the exact reserved viewport; newer intent waits for the next request.
+Retire old-only rows afterward.
+Cancellation does not roll back model or native changes: failures after destructive staging require owner detach.
+
+This is not an atomic snapshot of all HWNDs or operating-system accessibility events.
+Native observers may see valid intermediate additions/removals or `ElementNotAvailable` for retired controls.
+Final native, keyboard, and accessibility order must agree.
+Mounted row roots expose real UIA ListItem fragments with position/count and native control children.
+The initial row-host contract does not support RichEdit document hosts or controls lacking an XUI-owned host provider.
+Offscreen realization, virtualized-item navigation, and selection-pattern completeness are separate capabilities, not implied by mounted row metadata.
+
+Composition anywhere in the window blocks a new update before viewport exposure.
+Offset and growth requests remain pending; parent shrink still clips immediately.
+An already offscreen focused pin remains attached and clipped if composition begins there.
+XUI neither forces an unrealized focus-reveal viewport nor implicitly cancels that composition.
+Interaction observers report actual focus/composition changes without replacing Changed or Submit handlers.
+
+Lease disposal revokes queued callbacks and leaves a terminal zero-clipped virtual surface until removal or a fresh lease.
+It never resumes ordinary scrolling over sparse million-DIP gap content.
+Native handles release on their owning UI thread; managed lease disposal can be idempotent after its content scope has retired.
+
+Native geometry has explicit limits: count at most `INT32_MAX`, extent at most `0xffffff` physical pixels, row pitch from 1 through 32,767 physical pixels, and pitch at least eight float ULPs at the declared extent.
+Unsupported precision/range fails explicitly; finite values alone are not a support guarantee.
+Keys are copied without normalization or truncation, with a native limit of 4,096 UTF-16 code units.
+Coverage checks use logical-coordinate tolerance `max(0.001 DIP, 2 ULPs of extent)`; physical placement is independently pixel-rounded.
+Bindings must check the virtual viewport version and all lease, row-metadata, and interaction exports before advertising this capability.
+
 ## Stack
 
 Use `Stack` for a horizontal row or vertical column.
@@ -14,6 +97,9 @@ Stacks measure their children naturally unless an explicit preferred size disabl
 `set_auto_size(true)` restores natural measurement without clearing the stored preference or size limits.
 `set_auto_size(false)` restores an explicit preference. Without an explicit preference, the Stack keeps natural sizing.
 Flex and cross-axis stretching still control arrangement inside the parent's allocation.
+Hidden controls have zero arranged bounds and consume neither flex weight nor spacing.
+Gaps occur only between participating children, without changing authored child indices.
+A visible zero-size child, including an empty Stack, still participates and therefore retains its adjacent gaps.
 
 {% tabs %}
 {% tab title=".xui" %}
@@ -193,6 +279,22 @@ root->add(form);
 
 `GridTrack` selects fixed, automatic, or weighted space.
 The final two `add` arguments specify row and column spans.
+Fixed tracks use their clamped length. Automatic tracks measure their content.
+Bounded star tracks divide the remaining space by weight, respecting minimum and maximum extents.
+On an unbounded axis, star tracks measure naturally like automatic tracks instead of consuming an infinite allocation.
+
+Spanning content contributes only the size still needed after existing covered track extents and gaps.
+That deficit is shared equally among nonfixed tracks, with maximum-limited tracks returning their unused share.
+Fixed tracks contribute space but never grow to satisfy a span.
+Single-track content is measured first, then progressively larger spans; equal spans retain authored order.
+This is XUI's bounded layout policy, not a promise of CSS Grid equivalence.
+
+Columns resolve before row heights are measured at each cell's actual available width.
+When tracks exceed a finite parent allocation, cells are clipped and zero-sized cells remain within the content bounds.
+Unbounded content whose combined extent exceeds the native coordinate range fails explicitly rather than producing infinite geometry.
+Native bindings must probe `xui_grid_layout_version()` for `XUI_GRID_LAYOUT_VERSION` before advertising this Grid contract or Grid axis overrides.
+Older Grid constructor exports alone are insufficient.
+Grid cells remain structurally fixed; an ordinary Stack inside a cell may own mutable keyed children.
 The style target is `grid`.
 Track definitions, placement, and explicit layout setters remain structural properties.
 

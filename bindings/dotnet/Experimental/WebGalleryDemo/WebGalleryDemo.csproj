@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsMetrics.xui" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
+    <ProjectReference Include="..\Xui.Web\Xui.Web.csproj" />
+    <AdditionalFiles Include="..\SharedDemo\TaskBoard.xui;..\SharedDemo\ExpenseLedger.xui;..\SharedDemo\SessionPlanner.xui" />
+    <AdditionalFiles Include="..\SharedDemo\DynamicTaskBoard.xui;..\SharedDemo\TaskRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\SettingsShowcase.xui" />
+    <AdditionalFiles Include="..\SharedDemo\FormsWorkbench.xui;..\SharedDemo\PresentationWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\LabelLayoutWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ImageWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\RevealWorkbench.xui" />
+    <EmbeddedResource Include="..\..\..\..\assets\branding\generated\zoey-192.png" LogicalName="Xui.Asset.zoey.png" />
+    <EmbeddedResource Include="Assets\invalid-image.json" LogicalName="Xui.Asset.invalid.png" />
+    <EmbeddedResource Include="Assets\pixel-fixture.png" LogicalName="Xui.Asset.pixels.png" />
+    <AdditionalFiles Include="..\SharedDemo\WorkspaceStudio.xui;..\SharedDemo\StudioDocumentEditor.xui;..\SharedDemo\StudioSectionPanel.xui;..\SharedDemo\StudioCatalogRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsDashboard.xui;..\SharedDemo\StudioWorkloadRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsControls.xui;..\SharedDemo\StudioOperationsDrawer.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\RetainedPagesWorkbench.xui;..\Xui.Portable.Tests\Fixtures\MutationRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileWorkspace.xui;..\SharedDemo\ProfileEditPage.xui;..\SharedDemo\ProfilePreviewPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\AxisSizingShowcase.xui;..\Xui.Portable.Tests\Fixtures\GridSizingShowcase.xui;..\Xui.Portable.Tests\Fixtures\MutationBanner.xui" />
+    <Compile Include="..\SharedDemo\TaskBoardModel.cs;..\SharedDemo\ExpenseLedgerModel.cs;..\SharedDemo\SessionPlannerModel.cs;..\SharedDemo\GalleryValues.cs" />
+    <Compile Include="..\SharedDemo\DynamicTaskBoardModel.cs;..\SharedDemo\DynamicTaskBoardCodec.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceModel.cs;..\SharedDemo\ProfileWorkspaceController.cs;..\SharedDemo\ProfileWorkspaceSession.cs" />
+    <Compile Include="..\SharedDemo\VirtualList.cs;..\SharedDemo\VirtualListRow.cs;..\SharedDemo\VirtualListState.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.cs;..\SharedDemo\WorkspaceStudioModel.cs;..\SharedDemo\WorkspaceStudioController.cs;..\SharedDemo\StudioCatalogViewport.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.Back.cs;..\SharedDemo\StudioOperationsModel.cs;..\SharedDemo\StudioOperationsController.cs;..\SharedDemo\StudioOperationsDashboard.cs" />
+  </ItemGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup Condition="'$(Configuration)' != 'Debug'">
+    <Content Remove="wwwroot\studio-probe.js" />
+  </ItemGroup>
+</Project>

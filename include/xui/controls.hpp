@@ -2,6 +2,7 @@
 #include "xui/animation.hpp"
 
 #include "xui/core.hpp"
+#include "xui/virtual_viewport.hpp"
 #include "xui/theme.hpp"
 #include "xui/styling.hpp"
 #include "xui/control_styling.hpp"
@@ -64,8 +65,10 @@ public:
     const std::wstring& automation_id() const { return automation_id_; }
     void set_automation_id(std::wstring value) { automation_id_ = std::move(value); invalidate(Invalidation::paint); }
     void set_name(std::wstring name);
+    virtual void validate_name(std::wstring_view) const {}
     bool enabled() const { return enabled_; }
     bool visible() const { return visible_; }
+    bool participates_in_layout() const override { return visible_; }
     void set_visible(bool value) { if (visible_ != value) { visible_ = value; invalidate(Invalidation::layout); } }
     void set_enabled(bool enabled);
     bool focused() const { return focused_; }
@@ -92,6 +95,7 @@ public:
     bool key_up(ActivationKey key);
     bool invoke();
     Size measure(Size available) override;
+    bool supports_axis_constraints() const override;
     // Backend boundary. Cached until text, typography, or the measurer changes.
     void set_text_measurer(TextMeasurer measurer);
     Size measured_text();
@@ -114,6 +118,7 @@ protected:
     bool actionable() const;
     void text_changed();
     void invalidate_state();
+    Size measure_control(Size available, bool natural);
     virtual void presentation_changed() {}
     void control_style_changed(Invalidation kind) override;
     // The state bits this control currently contributes (focused/hovered/
@@ -140,6 +145,13 @@ private:
     bool text_dirty_{true};
 };
 
+enum class LabelOverflow { clip, character_ellipsis };
+struct LabelTextLayout {
+    bool wrapping{};
+    LabelOverflow overflow{LabelOverflow::clip};
+    uint32_t maximum_lines{};
+    bool operator==(const LabelTextLayout&) const = default;
+};
 class Label final : public Control {
 public:
     using WrappedTextMeasurer = std::function<Size(std::wstring_view, TextStyle, float, std::size_t)>;
@@ -155,6 +167,10 @@ public:
     void set_body_strong(bool value) { if (body_strong_ != value) { body_strong_ = value; text_changed(); } }
     void set_subtitle(bool value) { if (subtitle_ != value) { subtitle_ = value; text_changed(); } }
     void set_wrapping(bool value, std::size_t maximum_lines = 0);
+    void set_text_layout(std::optional<LabelTextLayout> layout);
+    const std::optional<LabelTextLayout>& text_layout() const { return text_layout_; }
+    bool clips_text() const { return text_layout_ && text_layout_->overflow == LabelOverflow::clip; }
+    void validate_name(std::wstring_view text) const override;
     bool wrapping() const;
     std::size_t maximum_lines() const;
     StylePart text_part() const {
@@ -175,6 +191,7 @@ public:
     }
 private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::label; }
+    Size measure_label(Size available, bool natural);
     StyleStateMask control_style_state_bits() const override {
         return Control::control_style_state_bits() & style_states::disabled;
     }
@@ -187,6 +204,7 @@ private:
     std::size_t maximum_lines_{};
     bool wrapping_{}, wrapped_valid_{};
     bool wrapping_explicit_{};
+    std::optional<LabelTextLayout> text_layout_;
     std::size_t wrapped_lines_{};
     bool heading_{};
     bool subtitle_{};
@@ -231,21 +249,17 @@ public:
     Rect content_bounds(Rect bounds) const;
     Rect icon_bounds(Rect bounds) const;
     Rect dropdown_bounds(Rect bounds) const;
-    Size measure(Size available) override {
-        if (has_control_styling()) return measure_control_styled(available);
-        if (style_data_) return measure_styled(available);
-        const float size = style_metrics(visual_style()).button_height;
-        return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
-    }
+    Size measure(Size available) override;
 private:
     friend class Control;
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::button; }
     StyleStateMask control_style_state_bits() const override {
         return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
     }
-    Size measure_control_styled(Size available);
+    Size measure_button(Size available, bool natural);
+    Size measure_control_styled(Size available, bool natural);
     PartStyleValues own_surface_style_values() const;
-    Size measure_styled(Size available);
+    Size measure_styled(Size available, bool natural);
     struct StyleData {
         std::shared_ptr<const ButtonStyle> style;
         ButtonStyleValues local;
@@ -317,6 +331,7 @@ protected:
     }
 private:
     void activate() override;
+    Size measure_toggle(Size available, bool natural);
     CheckState state_{CheckState::unchecked};
     bool switch_{};
     std::function<void(bool)> change_;
@@ -365,23 +380,35 @@ class ScrollView final : public Control {
 public:
     explicit ScrollView(std::shared_ptr<Element> content, std::wstring name = L"Scrollable content");
     const std::shared_ptr<Element>& content() const { return content_; }
+    std::shared_ptr<VirtualViewport> begin_virtual_viewport(std::uint32_t item_count, float row_height, std::uint64_t source_version);
+    const std::shared_ptr<VirtualViewport>& virtual_viewport() const { return virtual_viewport_; }
+    Rect available_viewport() const;
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     float offset() const { return passthrough_ ? 0 : offset_; }
     bool passthrough() const { return passthrough_; }
-    void set_passthrough(bool value) { if (passthrough_ != value) { passthrough_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); } }
+    bool fill_viewport() const { return fill_viewport_; }
+    void set_fill_viewport(bool value) {
+        if (value && virtual_viewport_) throw std::logic_error("Virtual viewports do not fill ordinary scroll content");
+        if (fill_viewport_ != value) { fill_viewport_ = value; invalidate(Invalidation::layout); }
+    }
+    void set_passthrough(bool value) {
+        if (value && virtual_viewport_) throw std::logic_error("Virtual viewports cannot use scroll passthrough");
+        if (passthrough_ != value) { passthrough_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); }
+    }
     bool overlay_scrollbar() const { return overlay_scrollbar_; }
     void set_overlay_scrollbar(bool value) { if (overlay_scrollbar_ != value) { overlay_scrollbar_ = value; invalidate(Invalidation::layout); } }
     float extent() const { return extent_; }
     float maximum_offset() const;
     void set_offset(float offset);
-    void scroll_by(float delta) { set_offset(offset_ + delta); }
+    void scroll_by(float delta) { set_offset((virtual_viewport_ ? virtual_viewport_->requested_offset() : offset_) + delta); }
     void reveal(Rect bounds);
     Rect viewport() const;
     Rect thumb() const;
     Rect scrollbar_track() const;
     Rect scrollbar_thumb_track() const;
     float effective_bar_width() const;
+    float requested_maximum_offset() const { return virtual_viewport_ ? virtual_viewport_->requested_maximum_offset() : maximum_offset(); }
     void set_style_dragging(bool dragging);
     static constexpr float bar_width = 12;
 protected:
@@ -389,12 +416,16 @@ protected:
     StyleStateMask control_style_state_bits() const override;
 private:
     bool passthrough_{}, overlay_scrollbar_{};
+    bool fill_viewport_{true};
+    Size measure_scroll(Size available, bool natural);
     bool style_dragging_{}, style_scrollable_{};
     std::shared_ptr<Element> content_;
+    std::shared_ptr<VirtualViewport> virtual_viewport_;
     float offset_{}, extent_{};
 };
 
 class SuggestionSource;
+enum class TextInputPurpose { normal, email, url, telephone, number };
 
 class TextInput final : public Control {
 public:
@@ -402,7 +433,8 @@ public:
         std::size_t start{}, end{};
         bool operator==(const Selection&) const = default;
     };
-    explicit TextInput(std::wstring name) : Control(ControlRole::text_input, std::move(name), {320, 68}) {}
+    explicit TextInput(std::wstring name, TextInputPurpose purpose = TextInputPurpose::normal);
+    TextInputPurpose purpose() const { return purpose_; }
     Size measure(Size available) override;
     float caption_extent() const;
     float caption_height() const;
@@ -469,6 +501,7 @@ private:
     Selection selection_;
     std::function<Selection()> read_selection_;
     std::function<void(Selection)> write_selection_;
+    TextInputPurpose purpose_{TextInputPurpose::normal};
 };
 
 struct TabItem {

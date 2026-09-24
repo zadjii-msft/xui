@@ -1,4 +1,5 @@
 #include "../src/drawing.hpp"
+#include "xui/navigation.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -578,12 +579,228 @@ void clear_glyph_and_state(Fixture& fixture) {
         "Owner disabled wins without mutating text, child model icon, or child locals");
     fixture.drawing.set_visual_style(VisualStyle::classic);
 }
+void semantic_theme_brushes() {
+    for (auto mode : {ThemeMode::light, ThemeMode::dark}) {
+        auto palette = Palette::system(mode, VisualStyle::winui);
+        palette.high_contrast = false;
+        for (bool enabled : {false, true}) for (bool hovered : {false, true}) for (bool pressed : {false, true}) {
+            for (auto appearance : {ButtonAppearance::standard, ButtonAppearance::accent, ButtonAppearance::subtle}) {
+                const auto native = winui_button_brushes(mode, appearance, enabled, hovered, pressed, false);
+                auto result = palette.button_brushes(appearance, enabled, hovered, pressed, false);
+                require(result.fill == native.fill && result.text == native.text && result.stroke == native.stroke &&
+                    result.elevation == native.elevation && result.elevated == native.elevated,
+                    "An unset semantic theme preserves native Button brushes");
+                palette.semantic_foreground = 0x993355; palette.semantic_accent = 0xffff00;
+                result = palette.button_brushes(appearance, enabled, hovered, pressed, false);
+                require((result.text >> 24) == (native.text >> 24) && result.stroke == native.stroke &&
+                    result.elevation == native.elevation && result.elevated == native.elevated,
+                    "Semantic resources preserve native state alpha and elevation feedback");
+                if (enabled) {
+                    require((result.text & 0xffffff) == (native.accent ? 0u : 0x993355u),
+                        "Accent ink contrasts with yellow, not the ordinary foreground or light scheme");
+                    if (native.accent) require((result.fill & 0xffffff) == 0xffff00 &&
+                        (result.fill >> 24) == (native.fill >> 24), "Custom accent retains hover and press opacity");
+                } else require(result.text == native.text && result.fill == native.fill, "Disabled brushes remain native");
+                palette.semantic_foreground.reset(); palette.semantic_accent.reset();
+            }
+            palette.semantic_foreground = 0; palette.semantic_accent = 0x000033;
+            const auto check = palette.indicator_brushes(true, enabled, hovered, pressed);
+            const auto toggle = palette.switch_brushes(true, enabled, hovered, pressed);
+            if (enabled) require((check.mark & 0xffffff) == 0xffffff && (toggle.mark & 0xffffff) == 0xffffff &&
+                (check.text & 0xffffff) == 0 && (toggle.text & 0xffffff) == 0,
+                "Dark accents use white marks while explicit black foreground remains distinct from unset");
+            else {
+                const auto native_check = winui_indicator_brushes(mode, true, false, hovered, pressed);
+                const auto native_toggle = winui_switch_brushes(mode, true, false, hovered, pressed);
+                require(check.fill == native_check.fill && check.mark == native_check.mark &&
+                    check.text == native_check.text && toggle.fill == native_toggle.fill &&
+                    toggle.mark == native_toggle.mark && toggle.text == native_toggle.text,
+                    "Semantic roles do not recolor disabled checks or switches");
+            }
+            palette.high_contrast = true;
+            require(palette.text_brush(true) == winui_text_brush(mode, true) &&
+                palette.accent_brush(true, hovered, pressed) == winui_accent_brush(mode, true, hovered, pressed),
+                "High contrast bypasses semantic RGB brushes");
+            palette.high_contrast = false; palette.semantic_foreground.reset(); palette.semantic_accent.reset();
+        }
+    }
+}
+void semantic_theme_pixels(Fixture& fixture) {
+    for (auto mode : {ThemeMode::light, ThemeMode::dark}) for (auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        fixture.drawing.set_visual_style(style);
+        auto native = Palette::system(mode, style); native.high_contrast = false;
+        auto themed = native;
+        themed.semantic_foreground = 0x00ff00; themed.text = D2D1::ColorF(0x00ff00);
+        themed.semantic_accent = 0xffff00; themed.accent = D2D1::ColorF(0xffff00);
+        Label label(L"MMMM");
+        Button button(L"MMMM");
+        Toggle toggle(L"MMMM");
+        CheckBox check(L"MMMM"); check.set_checked(true);
+        ToggleSwitch switches(L"MMMM"); switches.set_checked(true);
+        const std::array<const Toggle*, 3> choices{&toggle, &check, &switches};
+        Size measured{};
+        auto layout = fixture.drawing.layout(L"MMMM", TextStyle::body, measured);
+        for (unsigned role = 0; role < 5; ++role) {
+            auto paint = [&](const Palette& palette, bool enabled, bool focused = false) {
+                return fixture.render([&] {
+                    constexpr Rect bounds{10, 10, 180, 60};
+                    if (role == 0) fixture.drawing.styled_label(label, bounds, palette, enabled);
+                    else if (role == 1) fixture.drawing.styled_button(button, bounds, palette, enabled, focused);
+                    else fixture.drawing.styled_toggle(*choices[role - 2],
+                        bounds, palette, enabled, layout.Get(), focused);
+                });
+            };
+            const auto ordinary = paint(native, true), custom = paint(themed, true);
+            require(ordinary != custom, "Semantic foreground reaches each ordinary Label/Button/Toggle/CheckBox/Switch painter");
+            require(paint(native, false) == paint(themed, false), "Semantic resources preserve disabled pixels");
+            if (role != 0) require(paint(themed, true, true) != custom, "Semantic colors preserve focus feedback");
+            PartStyleValues local; local.foreground = ThemeColor{0xff00ff};
+            if (role == 0) label.set_control_style_values(StylePart::root, local);
+            if (role == 1) button.set_control_style_values(StylePart::label, local);
+            if (role == 2) toggle.set_control_style_values(StylePart::label, local);
+            if (role == 3) check.set_control_style_values(StylePart::label, local);
+            if (role == 4) switches.set_control_style_values(StylePart::label, local);
+            require(count(paint(themed, true), 0xff00ff) > 5, "Authored local foreground wins over semantic roles");
+            auto hc = Palette::system(ThemeMode::high_contrast, style);
+            const auto normal_hc = paint(hc, true);
+            hc.semantic_foreground = 0x00ff00; hc.semantic_accent = 0xffff00;
+            require(normal_hc == paint(hc, true) && count(normal_hc, 0xff00ff) == 0,
+                "High contrast ignores both semantic and authored RGB in actual pixels");
+        }
+        if (style == VisualStyle::winui) {
+            const auto pixels = fixture.render([&] {
+                fixture.drawing.button_face({10, 10, 180, 60}, themed, ButtonAppearance::accent, true, false, false, false);
+                fixture.drawing.text(L"MMMM", {30, 10, 140, 60}, themed.accent_ink(themed.text));
+            });
+            require(count(pixels, 0xffff00) > 500 && count(pixels, 0) > 20,
+                "Custom yellow accent paints a real yellow face and contrasting black ink in both schemes");
+        }
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
+void semantic_page_selectors(Fixture& fixture) {
+    for (auto mode : {ThemeMode::light, ThemeMode::dark}) for (auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        fixture.drawing.set_visual_style(style);
+        auto palette = Palette::system(mode, style); palette.high_contrast = false;
+        palette.semantic_foreground = 0x00ff00; palette.text = D2D1::ColorF(0x00ff00);
+        palette.semantic_accent = 0xffff00; palette.accent = D2D1::ColorF(0xffff00);
+        TabStrip tabs(L"Pages"); tabs.set_tabs({{11, L"MMMM"}, {22, L"NNNN"}}, 11);
+        tabs.set_visual_style(style); tabs.arrange({0, 0, 190, 60});
+        PartStyleValues marker; marker.thickness = 3.0f;
+        tabs.set_control_style_values(StylePart::selection, marker);
+        const auto draw_tabs = [&](const Palette& colors, bool enabled, bool focus) {
+            return fixture.render([&] { fixture.drawing.tab_strip(tabs, {0, 0, 190, 60}, colors, enabled, false, focus); });
+        };
+        const auto plain = draw_tabs(palette, true, false);
+        require(count(plain, 0x00ff00) > 5 && count(plain, 0xffff00) > 30,
+            "Native tab selected text and selection marker consume semantic foreground/accent");
+        require(draw_tabs(palette, true, true) != plain, "Themed tabs retain native focus feedback");
+        PartStyleValues local; local.foreground = ThemeColor{0xff00ff};
+        tabs.set_control_style_values(StylePart::label, local);
+        require(count(draw_tabs(palette, true, false), 0xff00ff) > 5, "Tab label locals override semantic foreground");
+        NavigationView navigation(L"Pages");
+        CollectionRow row{}; row.bounds = {10, 10, 180, 60}; row.navigation = true; row.content.primary = L"MMMM";
+        row.content.enabled = true;
+        const auto draw_row = [&](const Palette& colors, bool selected, bool enabled, bool focus) {
+            return fixture.render([&] {
+                fixture.drawing.collection_row(row, selected, focus, enabled, colors, false, {}, false, false, navigation.items().get());
+            });
+        };
+        require(count(draw_row(palette, false, true, false), 0x00ff00) > 5,
+            "Ordinary navigation text consumes semantic foreground");
+        const auto selected = draw_row(palette, true, true, false);
+        const auto selection_ink = theme_colors(mode, style).selection_text;
+        require(count(selected, 0xffff00) > 15 && count(selected, selection_ink) > 5,
+            "Navigation uses custom accent markers while retaining native selected-surface contrast ink");
+        require(draw_row(palette, true, true, true) != selected, "Themed navigation retains focus feedback");
+        const auto disabled = style == VisualStyle::winui ? winui_control_colors(mode).disabled_text : theme_colors(mode, style).secondary;
+        require(count(draw_row(palette, true, false, false), disabled) > 5, "Disabled navigation retains native disabled text");
+        navigation.items()->set_control_style_values(StylePart::row, local);
+        require(count(draw_row(palette, true, true, false), 0xff00ff) > 5,
+            "Navigation row locals override semantic and native selection ink");
+        auto hc = Palette::system(ThemeMode::high_contrast, style);
+        const auto hc_tabs = draw_tabs(hc, true, true), hc_rows = draw_row(hc, true, true, true);
+        hc.semantic_foreground = 0x00ff00; hc.semantic_accent = 0xffff00;
+        require(hc_tabs == draw_tabs(hc, true, true) && hc_rows == draw_row(hc, true, true, true),
+            "High contrast ignores semantic colors in both selector painters");
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
+void label_text_layout(Fixture& fixture) {
+        Label label(L"MMMMMMMMMMMMMMMMMMMM");
+        PartStyleValues font; font.font_size = 22.0f; font.vertical_alignment = StyleAlignment::start;
+        label.set_control_style_values(StylePart::label, font);
+        label.set_wrapping(true, 5);
+        label.set_text_layout(LabelTextLayout{false, LabelOverflow::clip});
+        require(!label.wrapping() && label.maximum_lines() == 1, "Label descriptor masks legacy wrapping without changing it");
+        label.set_wrapping(true, 4);
+        label.set_text_layout(std::nullopt);
+        require(label.wrapping() && label.maximum_lines() == 4, "Null restores the latest legacy wrapping fields");
+        Label styled(L"Styled wrapping");
+        auto wrapped_style = font; wrapped_style.wrapping = true; wrapped_style.maximum_lines = 3;
+        styled.set_control_style_values(StylePart::label, wrapped_style);
+        styled.set_text_layout(LabelTextLayout{false, LabelOverflow::clip});
+        styled.set_text_layout(std::nullopt);
+        require(styled.wrapping() && styled.maximum_lines() == 3,
+            "Null restores inherited style wrapping, not a newly explicit legacy flag");
+        const auto palette = Palette::system(ThemeMode::dark);
+        const auto draw = [&](float width) {
+            return fixture.render([&] { fixture.drawing.styled_label(label, {10, 5, width, 90}, palette, true); });
+        };
+        label.set_text_layout(LabelTextLayout{false, LabelOverflow::clip});
+        const auto clipped = draw(65);
+        const auto independently_cropped = fixture.render([&] {
+            fixture.drawing.push_clip({10, 5, 65, 90});
+            fixture.drawing.styled_label(label, {10, 5, 180, 90}, palette, true);
+            fixture.drawing.pop_clip();
+        });
+        require(clipped == independently_cropped, "SingleLine Clip is literal full-text clipping, not ellipsis");
+        label.set_text_layout(LabelTextLayout{false, LabelOverflow::character_ellipsis});
+        const auto ellipsis = draw(65);
+        require(ellipsis != clipped, "CharacterEllipsis produces different overflow pixels from Clip");
+        label.set_text_layout(LabelTextLayout{false, LabelOverflow::clip});
+        require(draw(65) == clipped, "Alternating overflow modes cannot contaminate cached format/layout objects");
+        Size clip_size{}, ellipsis_size{};
+        auto values = font; values.wrapping = false;
+        const auto clip_layout = fixture.drawing.styled_layout(label.text(), TextStyle::body, values, clip_size, 65, 0, true);
+        const auto ellipse_layout = fixture.drawing.styled_layout(label.text(), TextStyle::body, values, ellipsis_size, 65);
+        DWRITE_TRIMMING clip_trimming{}, ellipse_trimming{};
+        Microsoft::WRL::ComPtr<IDWriteInlineObject> clip_sign, ellipse_sign;
+        require(SUCCEEDED(clip_layout->GetTrimming(&clip_trimming, &clip_sign)) &&
+            SUCCEEDED(ellipse_layout->GetTrimming(&ellipse_trimming, &ellipse_sign)) &&
+            clip_trimming.granularity == DWRITE_TRIMMING_GRANULARITY_NONE && !clip_sign &&
+            ellipse_trimming.granularity == DWRITE_TRIMMING_GRANULARITY_CHARACTER && ellipse_sign &&
+            clip_layout != ellipse_layout,
+            "Clipping and ellipsis use distinct cached format/layout objects and trimming signs");
+        fixture.drawing.styled_layout(label.text(), TextStyle::body, values, clip_size, 0, 0, true);
+        fixture.drawing.styled_layout(label.text(), TextStyle::body, values, ellipsis_size);
+        require(clip_size.width == ellipsis_size.width && clip_size.width > 65,
+            "Unbounded intrinsic measurement preserves complete text for both overflow modes");
+        label.set_text_layout(LabelTextLayout{true, LabelOverflow::clip, 2});
+        label.set_text(L"First\nSecond\nThird");
+        const auto capped = draw(180);
+        label.set_text_layout(LabelTextLayout{true, LabelOverflow::clip});
+        const auto uncapped = draw(180);
+        require(capped != uncapped && label.text() == L"First\nSecond\nThird", "Wrap maxLines clips presentation only, not source text");
+        values.wrapping = true; values.maximum_lines = 2;
+        const auto wrapped = fixture.drawing.styled_layout(label.text(), TextStyle::body, values, clip_size, 180, 2, true);
+        require(SUCCEEDED(wrapped->GetTrimming(&clip_trimming, &clip_sign)) &&
+            clip_trimming.granularity == DWRITE_TRIMMING_GRANULARITY_NONE && !clip_sign,
+            "Capped Wrap explicitly retains no trimming sign");
+        for (const auto text : {L"\r", L"\n", L"\u0085", L"\u2028", L"\u2029"}) {
+            label.set_text(text);
+            bool rejected{};
+            try { label.set_text_layout(LabelTextLayout{}); } catch (const std::invalid_argument&) { rejected = true; }
+            require(rejected && label.wrapping(), "Descriptor rejection preserves old wrapping and full hard-break text");
+        }
+}
 }
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--benchmark") { typography_benchmark(); return 0; }
         typography_cache_keys();
-        Fixture fixture; document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture);
+        semantic_theme_brushes();
+        Fixture fixture; label_text_layout(fixture); semantic_theme_pixels(fixture); semantic_page_selectors(fixture); document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture);
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";

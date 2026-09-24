@@ -15,6 +15,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 
 ## Implementation context
 
+- [Current cross-platform maintainer handoff](cross-platform-maintainer-handoff.md): September 24 WIP preservation checkpoint, delivered apps, ordered remaining work, failure gates, source/test map, and machine/process transfer precautions. Start here to resume the overnight work.
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
@@ -28,9 +29,12 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Cross-platform roadmap and developer handoff](cross-platform-roadmap.md): Published branch map, new-machine starting point, platform blockers, and staged delivery gates.
-- [Portable foundation handoff](portable-foundation.md): Experimental managed host, generator profile, shared sample, and platform adapter boundary.
-- [Android experiment handoff](android-experiment.md): Native adapter source map, Android reference checks, device tests, and platform execution blockers.
-- [DOM web implementation and evidence](dom-web.md): Wasm bootstrap, DOM peers, browser acceptance checks, and the recorded browser-tooling limitation.
+- [Multi-platform completion plan](../specs/multi-platform-framework-plan.md): Proposed release boundary, shared-host and mutation decisions, feature sequence, consumer packages, CI, and production acceptance.
+- [Shared application screenshots](portable-gallery.md): Four-application baseline plus actual three-platform Studio/Operations, retained editing, short-landscape, and opt-in Windows motion captures with explicit cohort limits.
+- [Windows portable adapter](windows-portable.md): Native attachment arenas, optional keyed mutation, dispatch cancellation, portable input, layout capability gates, and real-window acceptance.
+- [Portable foundation handoff](portable-foundation.md): Shared host/generator, application and resource slices, package-upgrade evidence, realistic workspace continuation, native acceptance, and still-open cross-platform gates.
+- [Android experiment handoff](android-experiment.md): Native adapter source map, real API 35 greeting/order acceptance, multi-field state restoration, keyboard-inset fixes, and remaining platform gates.
+- [DOM web implementation and evidence](dom-web.md): Wasm bootstrap, DOM peers, clean x64 browser and published-site acceptance, real navigation lifetime checks, and the historical ARM64 browser-tooling limitation.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "stable-choice-identity",
+      "steps": [
+        { "action": "click", "id": "choice-range-reset" },
+        { "action": "expect", "id": "delivery-choice", "selected": "1", "items": ["1", "9007199254740993", "17"], "itemEnabled": [true, true, false] },
+        { "action": "change", "id": "choice-range-draft", "value": "Retained \u674e draft" },
+        { "action": "select", "id": "delivery-choice", "selected": "9007199254740993" },
+        { "action": "expect", "id": "delivery-choice", "selected": "9007199254740993" },
+        { "action": "expect", "id": "choice-status", "text": "Selected: 9007199254740993" },
+        { "action": "expect", "id": "choice-changes", "text": "Choice changes: 1" },
+        { "action": "click", "id": "choice-reverse" },
+        { "action": "expect", "id": "delivery-choice", "selected": "9007199254740993", "items": ["17", "9007199254740993", "1"] },
+        { "action": "expect", "id": "choice-range-draft", "text": "Retained \u674e draft" },
+        { "action": "expect", "id": "choice-changes", "text": "Choice changes: 1" },
+        { "action": "click", "id": "choice-disable-selected" },
+        { "action": "expect", "id": "delivery-choice", "selected": "1", "itemEnabled": [false, false, true] },
+        { "action": "expect", "id": "choice-changes", "text": "Choice changes: 1" },
+        { "action": "click", "id": "choice-clear" },
+        { "action": "expect", "id": "delivery-choice", "selected": null, "items": [] },
+        { "action": "click", "id": "choice-all-disabled" },
+        { "action": "expect", "id": "delivery-choice", "selected": null, "items": ["1", "2"], "itemEnabled": [false, false] },
+        { "action": "expect", "id": "choice-status", "text": "No selection" }
+      ]
+    },
+    {
+      "name": "native-preview-commit-cancel",
+      "steps": [
+        { "action": "click", "id": "choice-range-reset" },
+        { "action": "expect", "id": "amount-range", "minimum": 0, "maximum": 10, "value": 2.25 },
+        { "action": "range-preview", "id": "amount-range", "fraction": 0.6 },
+        { "action": "expect", "id": "range-status", "text": "Preview: 6.00" },
+        { "action": "expect", "id": "range-amount", "text": "Amount: 2.25" },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 0" },
+        { "action": "range-cancel", "id": "amount-range" },
+        { "action": "expect", "id": "amount-range", "value": 2.25 },
+        { "action": "expect", "id": "range-status", "text": "Canceled: 2.25" },
+        { "action": "expect", "id": "range-cancels", "text": "Range cancels: 1" },
+        { "action": "range-preview", "id": "amount-range", "fraction": 0.6 },
+        { "action": "range-commit", "id": "amount-range" },
+        { "action": "expect", "id": "amount-range", "value": 6 },
+        { "action": "expect", "id": "range-amount", "text": "Amount: 6.00" },
+        { "action": "expect", "id": "range-status", "text": "Committed: 6.00" },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 1" },
+        { "action": "range-preview", "id": "amount-range", "fraction": 0.8 },
+        { "action": "range-preview", "id": "amount-range", "fraction": 0.6 },
+        { "action": "range-commit", "id": "amount-range" },
+        { "action": "expect", "id": "amount-range", "value": 6 },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 1" },
+        { "action": "click", "id": "range-off-step" },
+        { "action": "expect", "id": "amount-range", "value": 2.25 },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 1" },
+        { "action": "expect", "id": "range-cancels", "text": "Range cancels: 1" }
+      ]
+    },
+    {
+      "name": "native-keyboard-and-boundaries",
+      "steps": [
+        { "action": "click", "id": "choice-range-reset" },
+        { "action": "range-key", "id": "amount-range", "key": "Increase" },
+        { "action": "expect", "id": "amount-range", "value": 2.75 },
+        { "action": "range-key", "id": "amount-range", "key": "PageIncrease" },
+        { "action": "expect", "id": "amount-range", "value": 4.75 },
+        { "action": "range-key", "id": "amount-range", "key": "Maximum" },
+        { "action": "expect", "id": "amount-range", "value": 10 },
+        { "action": "range-key", "id": "amount-range", "key": "Increase" },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 3" },
+        { "action": "range-key", "id": "amount-range", "key": "Minimum" },
+        { "action": "expect", "id": "amount-range", "value": 0 },
+        { "action": "range-key", "id": "amount-range", "key": "PageDecrease" },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 4" },
+        { "action": "click", "id": "choice-range-available" },
+        { "action": "expect", "id": "delivery-choice", "enabled": false, "selected": "1" },
+        { "action": "expect", "id": "amount-range", "enabled": false, "value": 0 },
+        { "action": "select", "id": "delivery-choice", "selected": "9007199254740993" },
+        { "action": "range-key", "id": "amount-range", "key": "Increase" },
+        { "action": "expect", "id": "delivery-choice", "selected": "1" },
+        { "action": "expect", "id": "amount-range", "value": 0 },
+        { "action": "expect", "id": "choice-changes", "text": "Choice changes: 0" },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 4" },
+        { "action": "click", "id": "choice-range-reset" },
+        { "action": "expect", "id": "delivery-choice", "enabled": true, "selected": "1" },
+        { "action": "expect", "id": "amount-range", "enabled": true, "value": 2.25 },
+        { "action": "expect", "id": "range-changes", "text": "Range changes: 0" }
+      ]
+    }
+  ]
+}

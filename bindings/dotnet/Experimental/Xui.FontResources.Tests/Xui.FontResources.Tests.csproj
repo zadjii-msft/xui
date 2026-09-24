@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <XuiFont Include="..\..\..\..\assets\fonts\abel\Abel-Regular.ttf"
+             AssetId="fonts/abel-regular.ttf"
+             Sha256="8809dcad25318225052f88333e208c5aad4adcb7b2c934c135735ec19aa410b4"
+             LicenseFile="$(MSBuildThisFileDirectory)..\..\..\..\assets\fonts\abel\OFL.txt"
+             LicenseAssetId="licenses/abel-ofl.txt"
+             LicenseSha256="4f4bc3806a1e55789c6ef75ca5fc628297b05292f74966474dc0d40324abc609"
+             LicenseExpression="OFL-1.1"
+             SourceUrl="https://github.com/google/fonts/tree/9437b806936896fa1a8c812e561067a5f30f5933/ofl/abel" />
+  </ItemGroup>
+</Project>

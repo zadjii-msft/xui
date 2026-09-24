@@ -1,0 +1,12 @@
+namespace RevealFixtures;
+
+component OpenOnlyFixture {
+    state bool Expanded = false;
+    view {
+        VStack() {
+            Reveal("Open-only reveal", open: Expanded, ref: Drawer) {
+                Text("Retained open-only child");
+            }
+        }
+    }
+}

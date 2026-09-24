@@ -3,7 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test:config": "node --test browser-config.test.js",
+    "test": "playwright test",
+    "test:release": "playwright test --config playwright.release.config.js",
+    "test:order": "playwright test --config playwright.order.config.js",
+    "test:order:release": "playwright test --config playwright.order.release.config.js",
+    "capture": "playwright test --config playwright.capture.config.js",
+    "test:gallery": "playwright test --config playwright.gallery.config.js",
+    "test:gallery:release": "playwright test --config playwright.gallery.release.config.js",
+    "test:virtual-performance": "playwright test --config playwright.virtual-performance.config.js"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"

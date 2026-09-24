@@ -182,23 +182,33 @@ public sealed unsafe partial class Window
         }
         catch (Exception error) { if (window is not null) window.callbackError = error; return 8; }
     }
-    internal sealed class PostedAction(Window window, Action action, ContentUpdate? scope)
+    internal sealed class PostedAction(Window window, Action action, ContentUpdate? scope, Action? canceled = null)
     {
         internal readonly Window Window = window;
         internal Action? Action = action;
         internal readonly ContentUpdate? Scope = scope;
+        internal readonly Action? Canceled = canceled;
     }
     /// <summary>Queues an action on the UI thread. Worker threads can call this method.</summary>
     /// <returns>False after close or disposal. Close discards queued actions without running them.</returns>
     /// <remarks>Action exceptions close the window. Run then throws XuiException with the original exception.</remarks>
     public bool Post(Action action) => PostCore(action, contentContext.Value);
-    internal bool PostUnscoped(Action action) => PostCore(action, null);
-    private bool PostCore(Action action, ContentUpdate? scope)
+    /// <summary>Queues window-owned work without inheriting the current content scope.</summary>
+    /// <remarks>Use when work must outlive or replace the originating content. Close still discards queued work.</remarks>
+    public bool PostUnscoped(Action action) => PostCore(action, null);
+    /// <summary>Queues window-owned work and reports accepted work discarded by close or disposal.</summary>
+    /// <remarks>Exactly one of action or canceled runs on the UI thread. Rejected posts return false without either callback.</remarks>
+    public bool PostUnscoped(Action action, Action canceled)
+    {
+        ArgumentNullException.ThrowIfNull(canceled);
+        return PostCore(action, null, canceled);
+    }
+    private bool PostCore(Action action, ContentUpdate? scope, Action? canceled = null)
     {
         ArgumentNullException.ThrowIfNull(action);
         var handle = Handle;
         if (handle == 0) return false;
-        var posted = new PostedAction(this, action, scope);
+        var posted = new PostedAction(this, action, scope, canceled);
         if (scope is not null && !scope.Track(posted)) return false;
         var root = GCHandle.Alloc(posted);
         int status = Native.WindowPost(handle, &PostTrampoline, GCHandle.ToIntPtr(root));
@@ -222,6 +232,12 @@ public sealed unsafe partial class Window
                 using var content = posted.Window.EnterContent(posted.Scope);
                 ++posted.Window.callbacks;
                 try { action(); }
+                finally { --posted.Window.callbacks; }
+            }
+            else if (posted.Canceled is { } canceled)
+            {
+                ++posted.Window.callbacks;
+                try { canceled(); }
                 finally { --posted.Window.callbacks; }
             }
             return 0;

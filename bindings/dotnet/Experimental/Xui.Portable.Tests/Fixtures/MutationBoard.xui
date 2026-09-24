@@ -1,0 +1,41 @@
+namespace PortableMutation;
+
+component MutationBoard {
+    state global::Xui.Experimental.Portable.KeyedItem[] Rows = [];
+    state global::Xui.Experimental.Portable.KeyedItem[] Notice = [];
+    state int Next = 1;
+
+    view {
+        VStack(spacing: 8, padding: 12) {
+            Text($"Rows: {Rows.Length}", ref: CountLabel, id: "row-count");
+            Button("Add row", click: AddRow, id: "add-row");
+            Button("Remove first", click: RemoveFirst, enabled: Rows.Length > 0, id: "remove-first");
+            Button("Reverse rows", click: ReverseRows, enabled: Rows.Length > 1, id: "reverse-rows");
+            Button("Toggle notice", click: ToggleNotice, id: "toggle-notice");
+            Button("Reset rows", click: ResetRows, id: "reset-rows");
+            ScrollView("Keyed rows", flex: 1) {
+                VStack(spacing: 8) {
+                    KeyedVStack(Rows, spacing: 8, ref: RowsView);
+                    KeyedHStack(Notice, ref: NoticeView);
+                    Content(new MutationBanner(window, "static-banner").Root, ref: BannerRoot);
+                }
+            }
+        }
+    }
+    code csharp {
+        void AddRow() {
+            string key = "row-" + Next.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+            Rows = [.. Rows, global::Xui.Experimental.Portable.KeyedItem.Create(key, host => new MutationRow(host, key))];
+            Next++;
+        }
+        void RemoveFirst() { if (Rows.Length > 0) Rows = Rows[1..]; }
+        void ReverseRows() => Rows = global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Reverse(Rows));
+        void ToggleNotice() => Notice = Notice.Length == 0
+            ? [global::Xui.Experimental.Portable.KeyedItem.Create("notice", host => new MutationBanner(host, "notice"))] : [];
+        void ResetRows() {
+            Rows = [];
+            Notice = [];
+            Next = 1;
+        }
+    }
+}

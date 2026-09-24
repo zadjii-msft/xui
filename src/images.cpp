@@ -15,6 +15,21 @@
 namespace xui {
 std::atomic<void(*)(ImageDecodeStage)> ImageDecodeTestAccess::hook{};
 std::atomic<void(*)(ImageDecodeStage)> ImageDecodeTestAccess::shell_hook{};
+struct ImageRequest::Encoded {
+    ImageMemoryPlan plan;
+    std::vector<std::byte> bytes;
+    std::size_t accounted{};
+    Encoded(std::span<const std::byte> encoded, ImageMemoryPlan value);
+    ~Encoded();
+};
+struct Image::Memory {
+    ImageMemoryPlan plan;
+    std::shared_ptr<ImageRequest::Encoded> encoded;
+    std::shared_ptr<ImageRequest> request;
+    std::shared_ptr<const ImagePixels> pixels;
+    bool presentation_failed{};
+    ~Memory() { if (request) request->cancel(); }
+};
 namespace {
 using Microsoft::WRL::ComPtr;
 using Clock = std::chrono::steady_clock;
@@ -40,6 +55,7 @@ struct Handle {
 };
 struct Cancelled {};
 void checkpoint(const ImageRequest& r) { if (r.cancelled) throw Cancelled{}; }
+#include "image_memory_headers.inc"
 void test_boundary(ImageKind kind, ImageDecodeStage stage) {
     const auto hook = kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook.load() : ImageDecodeTestAccess::hook.load();
     if (hook) hook(stage);
@@ -179,14 +195,21 @@ class Service {
     std::shared_ptr<const ImagePixels> decode(ImageRequest& r, IWICImagingFactory* factory) {
         checkpoint(r);
         const bool shell = r.kind == ImageKind::shell;
-        Handle file{CreateFileW(r.path.c_str(), shell ? FILE_READ_ATTRIBUTES : GENERIC_READ,
+        Handle file;
+        Key key;
+        if (r.encoded) {
+            const auto bytes = ImageBytes(r.encoded->bytes);
+            const auto dimensions = r.encoded->plan.format == ImageMemoryFormat::png ?
+                memory_png_header(bytes, r) : memory_jpeg_header(bytes, r);
+            if (dimensions != r.encoded->plan.source) throw std::runtime_error("Image header dimensions disagree with the memory plan.");
+        } else {
+        file.value = CreateFileW(r.path.c_str(), shell ? FILE_READ_ATTRIBUTES : GENERIC_READ,
             shell ? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE : FILE_SHARE_READ, nullptr,
-            OPEN_EXISTING, shell ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+            OPEN_EXISTING, shell ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (file.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open the visual source file.");
         BY_HANDLE_FILE_INFORMATION info{};
         if (!GetFileInformationByHandle(file.value, &info) || (!shell && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)))
             throw std::runtime_error("Cannot read visual source file information.");
-        Key key;
         key.bytes = (std::uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
         if (!shell && (!key.bytes || key.bytes > ImageLimits::file_bytes))
             throw std::runtime_error("The image file exceeds the 32 MiB limit or is empty.");
@@ -202,6 +225,7 @@ class Service {
         key.index_high = info.nFileIndexHigh;
         key.index_low = info.nFileIndexLow;
         key.write = (std::uint64_t(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime;
+        }
         key.size = r.size;
         key.kind = r.kind;
         checkpoint(r);
@@ -209,7 +233,7 @@ class Service {
         {
             std::lock_guard lock(mutex_);
             epoch = epoch_;
-            for (auto it = cache_.begin(); it != cache_.end(); ++it) if (it->key == key) {
+            for (auto it = cache_.begin(); !r.encoded && it != cache_.end(); ++it) if (it->key == key) {
                 auto pixels = it->pixels;
                 cache_.splice(cache_.begin(), cache_, it);
                 auto& a = accounting();
@@ -220,10 +244,22 @@ class Service {
         }
         ComPtr<IWICBitmapDecoder> decoder;
         ComPtr<IWICBitmapSource> frame;
+        ComPtr<IWICStream> memory_stream;
         if (shell) {
             frame = shell_source(r, key.shell_path, factory);
         } else {
-            require(factory->CreateDecoderFromFileHandle(reinterpret_cast<ULONG_PTR>(file.value), nullptr,
+            if (r.encoded) {
+                require(factory->CreateStream(&memory_stream), "Cannot create an owned image stream.");
+                require(memory_stream->InitializeFromMemory(reinterpret_cast<BYTE*>(r.encoded->bytes.data()),
+                    static_cast<DWORD>(r.encoded->bytes.size())), "Cannot initialize the owned image stream.");
+                require(factory->CreateDecoderFromStream(memory_stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder),
+                    "Cannot decode the memory image.");
+                GUID format{}; UINT frames{};
+                require(decoder->GetContainerFormat(&format), "Cannot read memory image format.");
+                require(decoder->GetFrameCount(&frames), "Cannot read memory image frame count.");
+                const auto expected = r.encoded->plan.format == ImageMemoryFormat::png ? GUID_ContainerFormatPng : GUID_ContainerFormatJpeg;
+                if (format != expected || frames != 1) throw std::runtime_error("Memory image codec format or frame count disagrees.");
+            } else require(factory->CreateDecoderFromFileHandle(reinterpret_cast<ULONG_PTR>(file.value), nullptr,
                 WICDecodeMetadataCacheOnDemand, &decoder), "Cannot decode the image file.");
             checkpoint(r);
             ComPtr<IWICBitmapFrameDecode> first;
@@ -235,9 +271,12 @@ class Service {
         if (!width || !height || width > ImageLimits::source_dimension || height > ImageLimits::source_dimension ||
             std::uint64_t(width) * height > ImageLimits::source_pixels)
             throw std::runtime_error("The image exceeds the source dimension or 16-megapixel limit.");
+        if (r.encoded && ImageSize{width, height} != r.encoded->plan.source)
+            throw std::runtime_error("Native codec dimensions disagree with the memory image plan.");
         const double scale = std::min({1.0, double(r.size.width) / width, double(r.size.height) / height});
         ImageSize size{std::max(1u, static_cast<UINT>(width * scale)),
             std::max(1u, static_cast<UINT>(height * scale))};
+        if (r.encoded) size = r.encoded->plan.output;
         const auto bytes = std::size_t(size.width) * size.height * 4;
         if (!reserve(bytes)) throw std::runtime_error("The image pixel budget is full. Unload other images, then reload this image.");
         struct Reservation {
@@ -250,6 +289,7 @@ class Service {
         checkpoint(r);
         auto result = std::make_shared<ImagePixels>();
         result->size = size;
+        if (r.encoded) result->source_size = {width, height};
         result->pixels.resize(bytes);
         {
             auto& a = accounting(); std::lock_guard lock(a.mutex);
@@ -267,6 +307,12 @@ class Service {
             source = scaler;
         }
         checkpoint(r);
+        if (r.encoded) {
+            UINT output_width{}, output_height{};
+            require(source->GetSize(&output_width, &output_height), "Cannot inspect decoded memory image dimensions.");
+            if (ImageSize{output_width, output_height} != r.encoded->plan.output)
+                throw std::runtime_error("Native output dimensions disagree with the memory image plan.");
+        }
         ComPtr<IWICFormatConverter> converter;
         require(factory->CreateFormatConverter(&converter), "Cannot create the pixel converter.");
         require(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone,
@@ -278,7 +324,7 @@ class Service {
         {
             std::lock_guard lock(mutex_);
             result->id = ++next_id_;
-            if (epoch == epoch_ && !r.cancelled) {
+            if (!r.encoded && epoch == epoch_ && !r.cancelled) {
                 while (cache_.size() >= ImageLimits::cache_entries) {
                     const auto before = cache_.size();
                     evict(false);
@@ -437,6 +483,91 @@ Service& service() {
 }
 
 Image::Image(std::wstring name) : Control(ControlRole::image, std::move(name), {192, 144}) {}
+Image::~Image() = default;
+ImageRequest::Encoded::Encoded(std::span<const std::byte> encoded, ImageMemoryPlan value) : plan(value) {
+    if (encoded.empty() || encoded.size() > ImageLimits::file_bytes)
+        throw std::invalid_argument("Memory images require 1 through 32 MiB of encoded bytes.");
+    {
+        auto& a = accounting(); std::lock_guard lock(a.mutex);
+        if (encoded.size() > ImageLimits::encoded_bytes - a.stats.encoded_bytes)
+            throw std::length_error("The native encoded image budget is full.");
+        a.stats.encoded_bytes += encoded.size();
+        a.stats.encoded_peak = std::max(a.stats.encoded_peak, a.stats.encoded_bytes);
+    }
+    try { bytes.assign(encoded.begin(), encoded.end()); accounted = encoded.size(); }
+    catch (...) {
+        std::vector<std::byte>().swap(bytes);
+        auto& a = accounting(); std::lock_guard lock(a.mutex); a.stats.encoded_bytes -= encoded.size();
+        throw;
+    }
+}
+ImageRequest::Encoded::~Encoded() {
+    std::vector<std::byte>().swap(bytes);
+    auto& a = accounting(); std::lock_guard lock(a.mutex); a.stats.encoded_bytes -= accounted;
+}
+Size Image::measure(Size available) {
+    if (!memory_backed() && !has_axis_constraints()) return Control::measure(available);
+    if (!visible()) return {};
+    return measure_axes(available, [&](Size offered, bool natural) { return base_measure(offered, natural); });
+}
+void Image::set_memory_source(std::span<const std::byte> bytes, ImageMemoryPlan plan) {
+    validate_memory_plan(plan);
+    if (plan.generation <= memory_generation_) throw std::invalid_argument("Memory image generations must increase.");
+    auto next = std::make_unique<Memory>();
+    next->plan = plan; next->encoded = std::make_shared<ImageRequest::Encoded>(bytes, plan);
+    const bool entering = !memory_mode_;
+    memory_ = std::move(next); memory_generation_ = plan.generation; memory_mode_ = true;
+    source_.clear(); size_ = plan.hint; kind_ = ImageKind::wic;
+    ++revision_; publish(ImageStatus::loading); invalidate(entering ? Invalidation::layout : Invalidation::paint);
+}
+void Image::cancel_memory() {
+    if (memory_mode_ && !memory_ && source_.empty() && status_ == ImageStatus::empty) return;
+    const bool entering = !memory_mode_;
+    memory_mode_ = true; source_.clear();
+    memory_.reset(); ++revision_; publish(ImageStatus::empty); invalidate(entering ? Invalidation::layout : Invalidation::paint);
+}
+ImageMemoryState Image::memory_state() const {
+    return {memory_generation_, status_, memory_ ? memory_->plan.source : ImageSize{0, 0},
+        memory_ && memory_->pixels && status_ == ImageStatus::ready ? memory_->pixels->size : ImageSize{0, 0},
+        memory_ && memory_->presentation_failed};
+}
+void Image::on_memory_state(std::function<void()> callback) { memory_changed_ = std::move(callback); }
+const std::shared_ptr<const ImagePixels>& Image::memory_pixels() const {
+    static const std::shared_ptr<const ImagePixels> empty;
+    return memory_ && !memory_->presentation_failed ? memory_->pixels : empty;
+}
+bool Image::sync_memory(const std::shared_ptr<TaskWake>& wake) {
+    if (!memory_ || status_ != ImageStatus::loading) return false;
+    if (!memory_->request && memory_->encoded) {
+        auto request = std::make_shared<ImageRequest>();
+        request->encoded = memory_->encoded; request->size = memory_->plan.hint; request->wake = wake;
+        service().add(request);
+        memory_->request = std::move(request); memory_->encoded.reset();
+    }
+    if (!memory_->request) return false;
+    auto request = memory_->request;
+    std::wstring error;
+    {
+        std::lock_guard lock(request->mutex);
+        if (!request->done || request->cancelled) return false;
+        memory_->pixels = std::move(request->pixels); error = std::move(request->error);
+    }
+    memory_->request.reset();
+    if (!memory_->pixels) publish(ImageStatus::error, error.empty() ? L"Native image decoding produced no pixels." : std::move(error));
+    return true;
+}
+void Image::memory_uploaded() { if (memory_ && memory_->pixels && status_ == ImageStatus::loading) publish(ImageStatus::ready); }
+void Image::memory_upload_failed() {
+    if (memory_ && memory_->presentation_failed) return;
+    if (status_ == ImageStatus::ready) {
+        if (!memory_changed_) throw std::runtime_error("A ready memory image could not restore its native presentation.");
+        memory_->presentation_failed = true;
+        publish(ImageStatus::error, L"A ready memory image could not restore its native presentation.");
+        return;
+    }
+    if (memory_) memory_->pixels.reset();
+    publish(ImageStatus::error, L"The native image presentation budget or upload failed.");
+}
 StyleStateMask Image::control_style_state_bits() const {
     constexpr StyleStateMask states[]{style_states::empty, style_states::loading, style_states::ready, style_states::error};
     return Control::control_style_state_bits() | states[static_cast<unsigned>(status_)];
@@ -454,6 +585,7 @@ void Image::set_shell_source(std::wstring path, ImageSize size) {
     set_source_kind(std::move(path), size, ImageKind::shell);
 }
 void Image::set_source_kind(std::wstring path, ImageSize size, ImageKind kind) {
+    if (memory_backed()) throw std::logic_error("Use the owned memory image request API.");
     if (path.size() > 32767 || path.find(L'\0') != std::wstring::npos)
         throw std::invalid_argument("The image path is invalid or too long.");
     if (!size.width || !size.height || size.width > ImageLimits::output_dimension || size.height > ImageLimits::output_dimension)
@@ -464,13 +596,17 @@ void Image::set_source_kind(std::wstring path, ImageSize size, ImageKind kind) {
     kind_ = kind;
     reload();
 }
-void Image::reload() { ++revision_; publish(source_.empty() ? ImageStatus::empty : ImageStatus::loading); invalidate(Invalidation::paint); }
-void Image::unload() { source_.clear(); reload(); }
+void Image::reload() {
+    if (memory_backed()) throw std::logic_error("Reload memory images with a new request generation.");
+    ++revision_; publish(source_.empty() ? ImageStatus::empty : ImageStatus::loading); invalidate(Invalidation::paint);
+}
+void Image::unload() { if (memory_backed()) cancel_memory(); else { source_.clear(); reload(); } }
 void Image::publish(ImageStatus status, std::wstring error) {
     if (status_ == status && error_ == error) return;
     status_ = status;
     error_ = std::move(error);
     invalidate_state();
+    if (memory_backed() && memory_changed_ && (status == ImageStatus::ready || status == ImageStatus::error)) memory_changed_();
 }
 ImagePixels::~ImagePixels() {
     // Release the allocation before returning its budget to another decode.
@@ -596,6 +732,12 @@ std::shared_ptr<ImageRequest> try_request_image(std::wstring path, ImageSize siz
     return service().add(request, true) ? request : nullptr;
 }
 void ImagePeer::sync(bool shown, const std::shared_ptr<TaskWake>& wake) {
+    if (control.memory_backed()) {
+        if (request) request->cancel();
+        request.reset(); revision = control.revision(); visible = shown;
+        pixels = control.memory_pixels();
+        return;
+    }
     if (revision == control.revision() && visible == shown) { deliver(); return; }
     detach();
     revision = control.revision();
@@ -620,12 +762,15 @@ void ImagePeer::detach() {
     if (request) request->cancel();
     request.reset(); pixels.reset();
     revision = 0; visible = false;
-    control.publish(ImageStatus::empty);
+    if (control.memory_backed()) control.cancel_memory();
+    else control.publish(ImageStatus::empty);
 }
 void ImagePeer::paint(Drawing& drawing, Rect bounds) {
     if (!pixels || revision != control.revision() || bounds.width <= 0 || bounds.height <= 0) return;
-    if (!drawing.image(pixels, bounds, control.thumbnail_fill())) control.publish(ImageStatus::error, L"The bitmap budget is full or the upload failed.");
-    else control.publish(ImageStatus::ready);
+    if (!drawing.image(pixels, bounds, control.memory_backed() ? false : control.thumbnail_fill())) {
+        if (control.memory_backed()) control.memory_upload_failed();
+        else control.publish(ImageStatus::error, L"The bitmap budget is full or the upload failed.");
+    } else if (!control.memory_backed()) control.publish(ImageStatus::ready);
 }
 ImageStatistics ImageResources::statistics() {
     ImageStatistics stats;

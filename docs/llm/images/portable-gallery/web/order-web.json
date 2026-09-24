@@ -1,0 +1,18 @@
+{
+  "app": "order",
+  "project": "WebOrderDemo",
+  "source": "OrderBuilder.xui",
+  "sourceSha256": "76fb5741ecf03daa46641ce5173d3bd04752e98695cede91396eb52c623ac219",
+  "pngSha256": "9de62bf2e541754e2df8188668552ade3e42423bb27629b35e9f8906c8bdab32",
+  "browser": "153.0.4234.48",
+  "channel": "msedge",
+  "viewport": {
+    "width": 1100,
+    "height": 1300
+  },
+  "url": "http://127.0.0.1:5187/",
+  "offlineCallbacks": true,
+  "nodes": 36,
+  "nativeInputs": 3,
+  "overflow": false
+}

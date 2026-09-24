@@ -1,0 +1,25 @@
+namespace PortableDemo;
+
+component CartLineRow {
+    param string Key;
+    param EditableCartController Controller;
+    state CartLine Line = new(1, "coffee", "1");
+    state bool Busy = false;
+
+    view {
+        VStack(spacing: 4) {
+            Text(Line.Title, id: Key + "-name");
+            TextInput("Quantity", text: Line.QuantityText, change: ChangeQuantity,
+                placeholder: "1 to 9", captionVisible: true,
+                help: "Whole items from one to nine. Use Remove to delete this line.",
+                enabled: !Busy, ref: QuantityInput, id: Key + "-quantity");
+            Text(Line.TotalText, id: Key + "-total");
+            Text(Line.Validation, visible: !Line.Quantity.HasValue, id: Key + "-validation");
+            Button("Remove line", click: Remove, enabled: !Busy, ref: RemoveButton, id: Key + "-remove");
+        }
+    }
+    code csharp {
+        void ChangeQuantity(string text) => Controller.ChangeQuantity(Key, text);
+        void Remove() => Controller.RemoveLine(Key);
+    }
+}

@@ -1,0 +1,23 @@
+namespace PortableDemo;
+
+component CartBrowsePage {
+    param EditableCartController Controller;
+    state bool Busy = false;
+
+    view {
+        VStack(spacing: 8) {
+            Text("BROWSE THE CATALOG", id: "cart-browse-title");
+            Text("Coffee / $12.50", id: "cart-coffee");
+            Button("View coffee", click: Coffee, enabled: !Busy, id: "cart-view-coffee");
+            Text("Tea / $8.00", id: "cart-tea");
+            Button("View tea", click: Tea, enabled: !Busy, id: "cart-view-tea");
+            Text("Cocoa / $10.00", id: "cart-cocoa");
+            Button("View cocoa", click: Cocoa, enabled: !Busy, id: "cart-view-cocoa");
+        }
+    }
+    code csharp {
+        void Coffee() => Controller.OpenProduct("coffee");
+        void Tea() => Controller.OpenProduct("tea");
+        void Cocoa() => Controller.OpenProduct("cocoa");
+    }
+}

@@ -82,6 +82,8 @@ public:
     std::optional<ItemKey> selected() const { return selected_; }
     // Select reveals ancestors and raises on_select only when the selected key changes.
     bool select(ItemKey key);
+    // Silent model projection, including while the whole navigation is disabled.
+    void set_selection(std::optional<ItemKey> key);
     void clear_selection();
     void on_select(std::function<void(ItemKey)> callback) { select_ = std::move(callback); }
     void on_activate(std::function<void(ItemKey)> callback) { activate_ = std::move(callback); }
@@ -109,6 +111,7 @@ public:
     static constexpr std::size_t maximum_items = 4096, maximum_depth = 64;
 private:
     friend class NavigationList;
+    bool select_item(ItemKey key, bool interactive);
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_view; }
     StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;

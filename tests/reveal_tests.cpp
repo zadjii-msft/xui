@@ -1,9 +1,19 @@
 #include "xui/reveal.hpp"
 #include "xui/adaptive_layout.hpp"
+#include "xui/documents.hpp"
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
 
+namespace xui {
+struct RevealTestAccess {
+    static void presentation(Reveal& reveal, float progress, bool animating, bool open) {
+        reveal.progress_ = progress; reveal.animating_ = animating; reveal.open_ = open;
+        reveal.start_ = progress; reveal.started_ = Reveal::Clock::now();
+    }
+    static Reveal::Clock::time_point started(const Reveal& reveal) { return reveal.started_; }
+};
+}
 namespace {
 using namespace xui;
 void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
@@ -213,13 +223,84 @@ void coordinated_grid_contract() {
     reveal->arrange({0, 0, 200, 5});
     near(input->bounds().height, 44, "A smaller parent allocation clips instead of shrinking native input");
 
-    auto unbounded = std::make_shared<Grid>();
+    auto unbounded = std::make_shared<Element>();
+    unbounded->set_preferred_size({120, (std::numeric_limits<float>::max)()});
     Reveal invalid(unbounded);
     invalid.set_layout(RevealLayout::expand);
     invalid.set_open(true);
     bool rejected{};
     try { invalid.measure({500, 400}); } catch (const std::invalid_argument&) { rejected = true; }
     require(rejected, "Unbounded content requires an explicit natural extent");
+}
+void portable_contracts() {
+    unsigned checks{};
+    const auto check = [&](bool value, const char* message) { require(value, message); ++checks; };
+    for (auto direction : {RevealDirection::bottom, RevealDirection::right}) {
+        auto child = std::make_shared<Stack>(Axis::vertical);
+        auto label = std::make_shared<Label>(L"Bounded content"); label->set_fixed_size({120, 80}); child->add(label);
+        auto reveal = std::make_shared<Reveal>(child);
+        reveal->apply_portable_state(false, 400, direction, true);
+        const bool vertical = direction == RevealDirection::bottom;
+        for (float progress : {0.0f, 0.5f, 1.0f}) for (Size allocation : {Size{400, 300}, Size{50, 20}, Size{0, 0}}) {
+            RevealTestAccess::presentation(*reveal, progress, progress != 1, true);
+            reveal->arrange({10, 20, allocation.width, allocation.height});
+            const float full = vertical ? 80.0f : 120.0f;
+            const auto actual = reveal->bounds(), content = child->bounds();
+            near(vertical ? actual.height : actual.width, std::min(vertical ? allocation.height : allocation.width, full * progress),
+                "Portable clip caps a forced parent slot by full natural extent times progress");
+            near(vertical ? content.height : content.width, full, "Portable child remains full on the animation axis");
+            near(vertical ? content.width : content.height, vertical ? allocation.width : allocation.height,
+                "Portable child uses actual cross-axis allocation");
+            check(actual.x == 10 && actual.y == 20 && content.x == 10 && content.y == 20,
+                "Bottom/right expansion clips without reparenting or translating the child");
+            const auto measured = reveal->measure(allocation);
+            near(vertical ? measured.height : measured.width,
+                std::min(vertical ? allocation.height : allocation.width, full * progress),
+                "Portable measurement cannot let an offer undo progress");
+        }
+        RevealTestAccess::presentation(*reveal, 0.5f, true, true);
+        Grid grid;
+        grid.set_tracks({{TrackSizing::fixed, 300}}, {{TrackSizing::fixed, 400}});
+        grid.add(reveal, 0, 0); grid.measure({400, 300}); grid.arrange({0, 0, 400, 300});
+        near(vertical ? reveal->bounds().height : reveal->bounds().width, vertical ? 40.0f : 60.0f,
+            "A fixed Grid slot cannot restore the full portable clip");
+        RevealTestAccess::presentation(*reveal, 0, false, false);
+        const auto closed = reveal->measure({400, 300});
+        check(closed.width == 0 && closed.height == 0 && reveal->participates_in_layout(),
+            "Settled closed measures zero but retains authored Stack participation");
+    }
+    auto child = std::make_shared<Label>(L"Motion"); child->set_fixed_size({120, 80});
+    Reveal reveal(child);
+    reveal.apply_portable_state(true, 300, RevealDirection::bottom, true);
+    check(reveal.progress() == 1 && !reveal.animating(), "Initial portable attachment is settled even with duration");
+    reveal.apply_portable_state(false, 300, RevealDirection::bottom, false);
+    reveal.advance(RevealTestAccess::started(reveal) + std::chrono::milliseconds(60));
+    const auto before = reveal.progress();
+    check(before > 0 && before < 1, "Portable motion uses the existing cubic clock");
+    reveal.apply_portable_state(true, 300, RevealDirection::bottom, false);
+    check(reveal.progress() > 0 && reveal.progress() <= before && reveal.animating(),
+        "Same-motion reversal starts from current closing presentation");
+    reveal.apply_portable_state(true, 200, RevealDirection::right, false);
+    check(reveal.progress() == 1 && !reveal.animating() && reveal.direction() == RevealDirection::right,
+        "Motion-only change settles the current logical target without restarting");
+    reveal.apply_portable_state(false, 100, RevealDirection::bottom, false);
+    check(reveal.progress() == 1 && reveal.animating(), "Paired close starts at the settled old open target using new motion");
+    reveal.advance(RevealTestAccess::started(reveal) + std::chrono::milliseconds(40));
+    reveal.apply_portable_state(true, 200, RevealDirection::right, false);
+    check(reveal.progress() == 0 && reveal.animating(), "Paired open/config change settles the old closed target first");
+    const auto clock = RevealTestAccess::started(reveal);
+    reveal.apply_portable_state(true, 200, RevealDirection::right, false);
+    check(RevealTestAccess::started(reveal) == clock, "Equal atomic state does not restart motion");
+    reveal.cancel_portable(); reveal.advance(Reveal::Clock::now() + std::chrono::seconds(2));
+    check(reveal.progress() == 1 && !reveal.animating() && reveal.portable_cancelled(), "Terminal cancellation stops the clock");
+    bool rejected{};
+    try { reveal.apply_portable_state(false, 200, RevealDirection::right, false); } catch (const std::logic_error&) { rejected = true; }
+    check(rejected, "A retired portable Reveal cannot restart");
+    Reveal::validate_portable_content(std::make_shared<PasswordInput>());
+    rejected = false;
+    try { Reveal::validate_portable_content(std::make_shared<MultilineText>()); } catch (const std::invalid_argument&) { rejected = true; }
+    check(rejected, "RichEdit rejects without restricting the EDIT-backed password family");
+    std::cout << checks << " portable Reveal model checks passed\n";
 }
 void nested_scroll_contract() {
     auto input = std::make_shared<TextInput>(L"Nested Find");
@@ -257,6 +338,6 @@ void nested_scroll_contract() {
 }
 }
 int main() {
-    try { contracts(); rounded_completion_contracts(); expanding_contracts(); coordinated_grid_contract(); nested_scroll_contract(); std::cout << "Reveal model contracts passed\n"; }
+    try { contracts(); rounded_completion_contracts(); expanding_contracts(); coordinated_grid_contract(); nested_scroll_contract(); portable_contracts(); std::cout << "Reveal model contracts passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

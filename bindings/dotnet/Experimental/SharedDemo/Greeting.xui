@@ -11,7 +11,7 @@ component Greeting {
             ScrollView("Greeting and counter", id: "content", flex: 1) {
                 VStack(spacing: 12) {
                     TextInput("Your name", text: Entry, change: SetEntry, submit: Greet,
-                        placeholder: "Ada", preferredSize: (280, 56), ref: Input, id: "name");
+                        placeholder: "Ada", ref: Input, id: "name");
                     Text(Message, ref: GreetingLabel, id: "greeting");
                     Text($"Count: {Count}", ref: CountLabel, id: "count");
                     HStack(spacing: 8) {

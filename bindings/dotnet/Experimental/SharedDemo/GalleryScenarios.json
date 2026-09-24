@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "applications": [
+    {
+      "id": "task-board",
+      "reset": "task-reset",
+      "scenarios": [
+        {
+          "name": "edit-and-complete",
+          "steps": [
+            { "action": "click", "id": "task-reset" },
+            { "action": "expect", "id": "task-title", "text": "TASK BOARD" },
+            { "action": "expect", "id": "task-description", "text": "Three fixed priority slots" },
+            { "action": "expect", "id": "task-status", "text": "Status: Doing" },
+            { "action": "expect", "id": "task-advance", "text": "Complete task", "enabled": true },
+            { "action": "change", "id": "task-name", "value": "  Ship shared UI  " },
+            { "action": "expect", "id": "task-name", "text": "  Ship shared UI  " },
+            { "action": "expect", "id": "task-second", "text": "02    Ship shared UI  " },
+            { "action": "submit", "id": "task-name" },
+            { "action": "expect", "id": "task-progress", "text": "2 of 3 complete" },
+            { "action": "expect", "id": "task-status", "text": "Status: Done" },
+            { "action": "expect", "id": "task-advance", "text": "Reopen task" },
+            { "action": "click", "id": "task-advance" },
+            { "action": "expect", "id": "task-status", "text": "Status: To do" },
+            { "action": "expect", "id": "task-progress", "text": "1 of 3 complete" },
+            { "action": "click", "id": "task-advance" },
+            { "action": "expect", "id": "task-status", "text": "Status: Doing" }
+          ]
+        },
+        {
+          "name": "filter-selection-and-empty",
+          "steps": [
+            { "action": "click", "id": "task-reset" },
+            { "action": "click", "id": "task-filter-open" },
+            { "action": "expect", "id": "task-filter", "text": "Showing open priorities" },
+            { "action": "expect", "id": "task-filter-open", "enabled": false },
+            { "action": "expect", "id": "task-first", "visible": false },
+            { "action": "expect", "id": "task-second", "visible": true },
+            { "action": "expect", "id": "task-third", "visible": true },
+            { "action": "click", "id": "task-third" },
+            { "action": "expect", "id": "task-editor", "text": "Edit priority 3" },
+            { "action": "expect", "id": "task-name", "text": "Write guide" },
+            { "action": "expect", "id": "task-status", "text": "Status: To do" },
+            { "action": "click", "id": "task-filter-done" },
+            { "action": "expect", "id": "task-first", "visible": true },
+            { "action": "expect", "id": "task-third", "visible": false },
+            { "action": "click", "id": "task-first" },
+            { "action": "expect", "id": "task-name", "text": "Design sign-in" },
+            { "action": "click", "id": "task-advance" },
+            { "action": "expect", "id": "task-first", "visible": false },
+            { "action": "expect", "id": "task-empty", "visible": true, "text": "No priorities match this filter." },
+            { "action": "expect", "id": "task-progress", "text": "0 of 3 complete" },
+            { "action": "expect", "id": "task-editor", "text": "Edit priority 1" },
+            { "action": "click", "id": "task-filter-all" },
+            { "action": "expect", "id": "task-empty", "visible": false },
+            { "action": "expect", "id": "task-first", "visible": true },
+            { "action": "expect", "id": "task-second", "visible": true },
+            { "action": "expect", "id": "task-third", "visible": true }
+          ]
+        },
+        {
+          "name": "blank-title-and-unicode",
+          "steps": [
+            { "action": "click", "id": "task-reset" },
+            { "action": "change", "id": "task-name", "value": "   " },
+            { "action": "expect", "id": "task-validation", "text": "Enter a title before changing status." },
+            { "action": "expect", "id": "task-advance", "enabled": false },
+            { "action": "submit", "id": "task-name" },
+            { "action": "expect", "id": "task-status", "text": "Status: Doing" },
+            { "action": "change", "id": "task-name", "value": "  Zo\u00eb \u674e  " },
+            { "action": "expect", "id": "task-name", "text": "  Zo\u00eb \u674e  " },
+            { "action": "expect", "id": "task-second", "text": "02    Zo\u00eb \u674e  " },
+            { "action": "expect", "id": "task-advance", "enabled": true },
+            { "action": "expect", "id": "task-validation", "text": "Edits stay in this local board." }
+          ]
+        },
+        {
+          "name": "screenshot-seed",
+          "steps": [
+            { "action": "click", "id": "task-reset" },
+            { "action": "expect", "id": "task-progress", "text": "1 of 3 complete" },
+            { "action": "expect", "id": "task-name", "text": "Build shared UI" },
+            { "action": "expect", "id": "task-status", "text": "Status: Doing" },
+            { "action": "expect", "id": "task-first", "text": "01  Design sign-in", "visible": true },
+            { "action": "expect", "id": "task-second", "text": "02  Build shared UI", "visible": true },
+            { "action": "expect", "id": "task-third", "text": "03  Write guide", "visible": true },
+            { "action": "expect", "id": "task-filter-all", "enabled": false },
+            { "action": "expect", "id": "task-filter", "text": "Showing all priorities" },
+            { "action": "expect", "id": "task-empty", "visible": false },
+            { "action": "expect", "id": "task-editor", "text": "Edit priority 2" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "expense-ledger",
+      "reset": "ledger-reset",
+      "scenarios": [
+        {
+          "name": "exact-cents-and-review",
+          "steps": [
+            { "action": "click", "id": "ledger-reset" },
+            { "action": "expect", "id": "ledger-title", "text": "EXPENSE LEDGER" },
+            { "action": "expect", "id": "ledger-description", "text": "Three category totals / USD" },
+            { "action": "change", "id": "ledger-budget", "value": "0.30" },
+            { "action": "change", "id": "ledger-food", "value": "0.10" },
+            { "action": "change", "id": "ledger-travel", "value": "0.20" },
+            { "action": "change", "id": "ledger-supplies", "value": "0" },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: $0.30" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Left: $0.00" },
+            { "action": "submit", "id": "ledger-food" },
+            { "action": "expect", "id": "ledger-summary", "text": "Within budget by $0.00.", "visible": true },
+            { "action": "expect", "id": "ledger-validation", "text": "Local review only. No money moved." },
+            { "action": "expect", "id": "ledger-review", "enabled": false },
+            { "action": "expect", "id": "ledger-edit", "enabled": true },
+            { "action": "change", "id": "ledger-food", "value": "0.11" },
+            { "action": "expect", "id": "ledger-summary", "visible": false, "text": "" },
+            { "action": "expect", "id": "ledger-review", "enabled": true },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: $0.31" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Over: $0.01" },
+            { "action": "click", "id": "ledger-review" },
+            { "action": "expect", "id": "ledger-summary", "text": "Over budget by $0.01.", "visible": true },
+            { "action": "click", "id": "ledger-edit" },
+            { "action": "expect", "id": "ledger-summary", "text": "", "visible": false }
+          ]
+        },
+        {
+          "name": "invalid-drafts-never-become-zero",
+          "steps": [
+            { "action": "click", "id": "ledger-reset" },
+            { "action": "change", "id": "ledger-food", "value": "12.345" },
+            { "action": "expect", "id": "ledger-food", "text": "12.345" },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: --" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Left: --" },
+            { "action": "expect", "id": "ledger-validation", "text": "Food: use 0 to 999999.99, up to 2 decimals." },
+            { "action": "expect", "id": "ledger-review", "enabled": false },
+            { "action": "submit", "id": "ledger-food" },
+            { "action": "expect", "id": "ledger-summary", "visible": false },
+            { "action": "change", "id": "ledger-food", "value": " 12.50 " },
+            { "action": "expect", "id": "ledger-food", "text": " 12.50 " },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: $55.25" },
+            { "action": "change", "id": "ledger-budget", "value": "" },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: $55.25" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Left: --" },
+            { "action": "expect", "id": "ledger-validation", "text": "Budget: use 0 to 999999.99, up to 2 decimals." },
+            { "action": "change", "id": "ledger-budget", "value": "50" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Over: $5.25" },
+            { "action": "change", "id": "ledger-travel", "value": "-1" },
+            { "action": "expect", "id": "ledger-validation", "text": "Travel: use 0 to 999999.99, up to 2 decimals." },
+            { "action": "change", "id": "ledger-travel", "value": "0" },
+            { "action": "change", "id": "ledger-supplies", "value": "1,00" },
+            { "action": "expect", "id": "ledger-validation", "text": "Supplies: use 0 to 999999.99, up to 2 decimals." }
+          ]
+        },
+        {
+          "name": "screenshot-seed",
+          "steps": [
+            { "action": "click", "id": "ledger-reset" },
+            { "action": "expect", "id": "ledger-budget", "text": "150.00" },
+            { "action": "expect", "id": "ledger-food", "text": "32.50" },
+            { "action": "expect", "id": "ledger-travel", "text": "18.00" },
+            { "action": "expect", "id": "ledger-supplies", "text": "24.75" },
+            { "action": "expect", "id": "ledger-total", "text": "Spent: $75.25" },
+            { "action": "expect", "id": "ledger-remaining", "text": "Left: $74.75" },
+            { "action": "expect", "id": "ledger-validation", "text": "Amounts use USD. Ready to review." },
+            { "action": "expect", "id": "ledger-summary", "text": "", "visible": false },
+            { "action": "expect", "id": "ledger-review", "enabled": true },
+            { "action": "expect", "id": "ledger-edit", "enabled": false }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "session-planner",
+      "reset": "planner-reset",
+      "scenarios": [
+        {
+          "name": "overnight-plan",
+          "steps": [
+            { "action": "click", "id": "planner-reset" },
+            { "action": "expect", "id": "planner-title", "text": "SESSION PLANNER" },
+            { "action": "expect", "id": "planner-description", "text": "Three focus blocks / two breaks" },
+            { "action": "change", "id": "planner-start", "value": "23:45" },
+            { "action": "change", "id": "planner-first", "value": "10" },
+            { "action": "change", "id": "planner-second", "value": "20" },
+            { "action": "change", "id": "planner-third", "value": "15" },
+            { "action": "change", "id": "planner-break", "value": "3" },
+            { "action": "expect", "id": "planner-focus", "text": "45 min focus" },
+            { "action": "expect", "id": "planner-duration", "text": "51 min including two breaks" },
+            { "action": "expect", "id": "planner-finish", "text": "Finish: 00:36 (+1 day)" },
+            { "action": "submit", "id": "planner-start" },
+            { "action": "expect", "id": "planner-summary", "text": "51 min including two breaks\nFinish: 00:36 (+1 day)\nNo timer is running.", "visible": true },
+            { "action": "expect", "id": "planner-validation", "text": "Plan reviewed. No timer is running." },
+            { "action": "expect", "id": "planner-review", "enabled": false },
+            { "action": "expect", "id": "planner-edit", "enabled": true },
+            { "action": "click", "id": "planner-edit" },
+            { "action": "expect", "id": "planner-summary", "visible": false, "text": "" },
+            { "action": "click", "id": "planner-review" },
+            { "action": "change", "id": "planner-break", "value": "0" },
+            { "action": "expect", "id": "planner-summary", "visible": false },
+            { "action": "expect", "id": "planner-finish", "text": "Finish: 00:30 (+1 day)" },
+            { "action": "expect", "id": "planner-duration", "text": "45 min including two breaks" }
+          ]
+        },
+        {
+          "name": "invalid-time-and-intervals",
+          "steps": [
+            { "action": "click", "id": "planner-reset" },
+            { "action": "change", "id": "planner-start", "value": "24:00" },
+            { "action": "expect", "id": "planner-start", "text": "24:00" },
+            { "action": "expect", "id": "planner-finish", "text": "Finish: --" },
+            { "action": "expect", "id": "planner-validation", "text": "Start: use 24-hour HH:mm, 00:00 to 23:59." },
+            { "action": "expect", "id": "planner-review", "enabled": false },
+            { "action": "submit", "id": "planner-start" },
+            { "action": "expect", "id": "planner-summary", "visible": false },
+            { "action": "change", "id": "planner-start", "value": " 09:00 " },
+            { "action": "expect", "id": "planner-start", "text": " 09:00 " },
+            { "action": "change", "id": "planner-first", "value": "" },
+            { "action": "expect", "id": "planner-focus", "text": "Focus: --" },
+            { "action": "expect", "id": "planner-duration", "text": "Duration: --" },
+            { "action": "expect", "id": "planner-validation", "text": "Focus 1: use 1 to 180 whole minutes." },
+            { "action": "change", "id": "planner-first", "value": "1" },
+            { "action": "change", "id": "planner-second", "value": "181" },
+            { "action": "expect", "id": "planner-validation", "text": "Focus 2: use 1 to 180 whole minutes." },
+            { "action": "change", "id": "planner-second", "value": "1" },
+            { "action": "change", "id": "planner-third", "value": "1.5" },
+            { "action": "expect", "id": "planner-validation", "text": "Focus 3: use 1 to 180 whole minutes." },
+            { "action": "change", "id": "planner-third", "value": "1" },
+            { "action": "change", "id": "planner-break", "value": "61" },
+            { "action": "expect", "id": "planner-validation", "text": "Break: use 0 to 60 whole minutes." },
+            { "action": "change", "id": "planner-break", "value": "0" },
+            { "action": "expect", "id": "planner-review", "enabled": true },
+            { "action": "expect", "id": "planner-focus", "text": "3 min focus" },
+            { "action": "expect", "id": "planner-duration", "text": "3 min including two breaks" },
+            { "action": "expect", "id": "planner-finish", "text": "Finish: 09:03" }
+          ]
+        },
+        {
+          "name": "screenshot-seed",
+          "steps": [
+            { "action": "click", "id": "planner-reset" },
+            { "action": "expect", "id": "planner-start", "text": "09:00" },
+            { "action": "expect", "id": "planner-first", "text": "25" },
+            { "action": "expect", "id": "planner-second", "text": "35" },
+            { "action": "expect", "id": "planner-third", "text": "20" },
+            { "action": "expect", "id": "planner-break", "text": "5" },
+            { "action": "expect", "id": "planner-focus", "text": "80 min focus" },
+            { "action": "expect", "id": "planner-duration", "text": "90 min including two breaks" },
+            { "action": "expect", "id": "planner-finish", "text": "Finish: 10:30" },
+            { "action": "expect", "id": "planner-validation", "text": "Local plan only. No timer or notifications." },
+            { "action": "expect", "id": "planner-summary", "text": "", "visible": false },
+            { "action": "expect", "id": "planner-review", "enabled": true },
+            { "action": "expect", "id": "planner-edit", "enabled": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

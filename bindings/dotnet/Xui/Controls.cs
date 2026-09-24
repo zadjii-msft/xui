@@ -46,7 +46,7 @@ public static class ControlExtensions
         return control;
     }
 }
-public sealed class Stack : Element
+public sealed partial class Stack : Element
 {
     internal Stack(Window window, ulong handle) : base(window, handle) { }
     public Stack Add(Element child, float flex = 0)
@@ -92,7 +92,7 @@ public abstract unsafe partial class Control : Element
         remove { Window.Guard(); handlers -= value; if (handlers is null) Window.SetSubscription(Handle, null); }
     }
 }
-public sealed class Label : Control { internal Label(Window w, ulong h) : base(w, h) { } }
+public sealed partial class Label : Control { internal Label(Window w, ulong h) : base(w, h) { } }
 public sealed partial class Button : Control
 {
     internal Button(Window w, ulong h) : base(w, h) { }
@@ -139,14 +139,14 @@ public sealed partial class TextInput : Control
         remove { Window.Guard(); submitted -= value; if (submitted is null) Event -= OnSubmit; }
     }
 }
-public sealed class ScrollView : Control
+public sealed partial class ScrollView : Control
 {
     internal ScrollView(Window w, ulong h) : base(w, h) { }
     public float Offset { set => Window.Update(new Property(this, PropertyKind.ScrollOffset, A: value)); }
     public ScrollView SetOffset(float value) { Offset = value; return this; }
 }
 public enum ImageStatus : uint { Empty, Loading, Ready, Error }
-public sealed unsafe class Image : Control
+public sealed unsafe partial class Image : Control
 {
     internal Image(Window w, ulong h) : base(w, h) { }
     public Image Source(string path, uint width = 192, uint height = 144)

@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "zadjii-msft",
+  "classifications": ["XUI", "Experimental", "Windows", "Android", "Web"],
+  "identity": "Xui.Experimental.Templates.App.CSharp",
+  "name": "XUI experimental portable application",
+  "shortName": "xui-portable",
+  "sourceName": "PortableApp",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "solution" }
+}

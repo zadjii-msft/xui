@@ -7,6 +7,50 @@ For C# and Rust coverage, use the [binding reference](bindings.md).
 
 ## Images and resource limits
 
+### Owned encoded-memory requests
+
+The independently versioned `xui_image_memory.h` API accepts copied encoded bytes, not a
+path or temporary-file fallback. Its options carry a positive increasing generation, PNG
+or JPEG format, original source dimensions, decode hints, and exact expected output.
+Native header checks and actual WIC metadata must agree before output allocation.
+PNG must be static with valid chunks/checksums; JPEG must be 8-bit grayscale or three-component
+baseline/progressive. Rotated or reflected EXIF is rejected. Output uses no-upscale,
+integer-floor contain sizing. Drawing uses the **original source aspect ratio**, not the
+potentially rounded thumbnail ratio.
+
+Memory Images have a 192 by 144 DIP default desired size in Empty, Loading, Ready, and Error
+states. Decode hints are physical quality settings and never become layout dimensions.
+Authored fixed/preferred sizes, independent axis constraints, and the actual parent allocation
+take their normal precedence; accessible alt text never determines intrinsic image size.
+
+Ready is posted only after decoded native pixels are owned and assigned to a graphics target.
+This preparation is independent of the Image's visibility or an inactive/deferred page:
+an application may wait for Ready before showing the image. A genuinely unavailable target
+can defer readiness, with automatic same-generation resumption. Hidden Ready images retain
+their decoded ownership. Target recreation reuploads that data without restarting the logical
+request or repeating Ready.
+
+Callbacks are UI-thread, posted, read-only metadata. The adapter must defer authored work.
+States 0/1/2/3 mean Empty/Loading/Ready/initial Error. Interop state 4 is a distinct fatal
+presentation failure after Ready; it must reach the generation-aware host teardown path
+after the callback unwinds, not the ordinary Loading-only image-error sink. Callback ownership
+continues after Ready so this failure can be reported. Native code does not close the owner
+before that posted teardown can run.
+
+Cancellation revokes pending callbacks and clears the request; it is not permanent disposal
+of the Image. A later higher generation can reuse the same native control. Canceled workers
+retain their own copied input until cooperative quiescence; no codec thread is joined.
+Encoded copies have a separate process-global 64 MiB budget, including canceled in-flight
+work, with a 32 MiB per-request ceiling. Existing 8 MiB decoded CPU and controlled bitmap
+budgets still apply. Memory requests do not leave decoded entries in the shared file cache.
+The statistics API reports global encoded ownership, not a promise of immediate zero bytes
+when one request is canceled. Scope/window retirement also cancels these requests.
+Bindings must probe all five exports and the memory-image version before advertising this
+capability. Legacy file/Shell behavior below is unchanged and is not mixed into an opted-in
+memory Image.
+
+### Legacy file and Shell requests
+
 `include\xui\image.hpp` provides the Windows image API. Link the application to `xui_windows`.
 The gallery contains a native path field, Load image and Unload image buttons, and a reusable image preview.
 The thumbnail sample uses the same `Image` control. It has no application drawing calls or private backend includes.

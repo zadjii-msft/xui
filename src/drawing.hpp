@@ -23,8 +23,15 @@ struct Palette {
     D2D1_COLOR_F disabled{};
     VisualStyle style{};
     ThemeMode mode{};
+    std::optional<uint32_t> semantic_foreground, semantic_accent;
     static Palette system(ThemeMode mode = ThemeMode::dark, VisualStyle style = VisualStyle::classic);
     D2D1_COLOR_F input_fill(bool enabled, bool focused, bool hovered, bool on_surface) const;
+    uint32_t text_brush(bool enabled, bool pressed = false, bool on_accent = false) const;
+    uint32_t accent_brush(bool enabled, bool hovered, bool pressed) const;
+    D2D1_COLOR_F accent_ink(D2D1_COLOR_F fallback) const;
+    ButtonBrushes button_brushes(ButtonAppearance appearance, bool enabled, bool hovered, bool pressed, bool checked) const;
+    IndicatorBrushes indicator_brushes(bool marked, bool enabled, bool hovered, bool pressed, bool radio = false) const;
+    IndicatorBrushes switch_brushes(bool checked, bool enabled, bool hovered, bool pressed) const;
 };
 
 D2D1_COLOR_F style_foreground(const PartStyleValues& values, const Palette& palette, D2D1_COLOR_F fallback);
@@ -63,6 +70,8 @@ public:
     bool has_symbol(Symbol symbol) const;
     void symbol(Symbol symbol, Rect bounds, D2D1_COLOR_F color, float size = 16);
     bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {});
+    bool prepare_target(HWND window, float dpi);
+    bool prepare_image(const std::shared_ptr<const ImagePixels>& pixels);
     struct NativeWindow { HWND window; RECT clip; };
     bool native_windows(std::span<const NativeWindow> windows);
     void present_native(std::span<const HWND> windows);
@@ -119,9 +128,9 @@ public:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout(std::wstring_view value, TextStyle style, Size& measured,
         float wrap_width = 0, std::size_t maximum_lines = 0);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> styled_layout(std::wstring_view value, TextStyle fallback,
-        const PartStyleValues& values, Size& measured, float width = 0, std::size_t maximum_lines = 0);
+        const PartStyleValues& values, Size& measured, float width = 0, std::size_t maximum_lines = 0, bool clip = false);
     void styled_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
-        const PartStyleValues& values, TextStyle fallback = TextStyle::body);
+        const PartStyleValues& values, TextStyle fallback = TextStyle::body, bool clip = false);
     void private_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
         const PartStyleValues& values, TextStyle fallback = TextStyle::body);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
@@ -153,6 +162,7 @@ private:
     friend struct DrawingTestAccess;
     static thread_local HRESULT end_result_override_;
     static thread_local HRESULT native_result_override_;
+    static thread_local HRESULT image_result_override_;
     static thread_local void (*present_observer_)(HWND);
     static thread_local std::size_t live_targets_;
     static thread_local std::size_t created_text_layouts_;
@@ -169,10 +179,10 @@ private:
         std::optional<uint32_t> font_weight;
         std::optional<StyleFontStyle> font_style;
         std::optional<StyleAlignment> horizontal_alignment, vertical_alignment;
-        bool wrapping{};
+        bool wrapping{}, clipping{};
         TextFormatKey() = default;
-        TextFormatKey(const PartStyleValues& values, bool wrap);
-        bool matches(const PartStyleValues& values, bool wrap) const;
+        TextFormatKey(const PartStyleValues& values, bool wrap, bool clip = false);
+        bool matches(const PartStyleValues& values, bool wrap, bool clip = false) const;
     };
     struct StyledFormat {
         TextStyle fallback{};
@@ -192,7 +202,7 @@ private:
     std::vector<StyledLayout> styled_layouts_;
     std::size_t next_styled_format_{}, next_styled_layout_{};
     IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values);
-    IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values, bool wrap);
+    IDWriteTextFormat* styled_format(TextStyle fallback, const PartStyleValues& values, bool wrap, bool clip = false);
     Microsoft::WRL::ComPtr<IDWriteFontFace> symbol_face_;
     const wchar_t* symbol_family_{L""};
     DWRITE_FONT_METRICS symbol_font_metrics_{};

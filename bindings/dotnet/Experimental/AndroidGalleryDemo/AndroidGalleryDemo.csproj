@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <ApplicationId>dev.xui.portable.gallery</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Import Project="..\Xui.Portable.targets" />
+  <ItemGroup>
+    <Using Remove="Android.Widget" />
+    <ProjectReference Include="..\Xui.Android\Xui.Android.csproj" />
+    <AdditionalFiles Include="..\SharedDemo\TaskBoard.xui" Link="TaskBoard.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ExpenseLedger.xui" Link="ExpenseLedger.xui" />
+    <AdditionalFiles Include="..\SharedDemo\SessionPlanner.xui" Link="SessionPlanner.xui" />
+    <AdditionalFiles Include="..\SharedDemo\DynamicTaskBoard.xui" Link="DynamicTaskBoard.xui" />
+    <AdditionalFiles Include="..\SharedDemo\TaskRow.xui" Link="TaskRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileWorkspace.xui" Link="ProfileWorkspace.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileEditPage.xui" Link="ProfileEditPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfilePreviewPage.xui" Link="ProfilePreviewPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" Link="VirtualList.xui" />
+    <AdditionalFiles Include="..\SharedDemo\WorkspaceStudio.xui" Link="WorkspaceStudio.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioDocumentEditor.xui" Link="StudioDocumentEditor.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioCatalogRow.xui" Link="StudioCatalogRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioSectionPanel.xui" Link="StudioSectionPanel.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsDashboard.xui" Link="StudioOperationsDashboard.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioWorkloadRow.xui" Link="StudioWorkloadRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsMetrics.xui" Link="StudioOperationsMetrics.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsControls.xui;..\SharedDemo\StudioOperationsDrawer.xui" />
+    <Compile Include="..\SharedDemo\TaskBoardModel.cs" Link="TaskBoardModel.cs" />
+    <Compile Include="..\SharedDemo\ExpenseLedgerModel.cs" Link="ExpenseLedgerModel.cs" />
+    <Compile Include="..\SharedDemo\SessionPlannerModel.cs" Link="SessionPlannerModel.cs" />
+    <Compile Include="..\SharedDemo\GalleryValues.cs" Link="GalleryValues.cs" />
+    <Compile Include="..\SharedDemo\GalleryStateCodec.cs" Link="GalleryStateCodec.cs" />
+    <Compile Include="..\SharedDemo\DynamicTaskBoardModel.cs" Link="DynamicTaskBoardModel.cs" />
+    <Compile Include="..\SharedDemo\DynamicTaskBoardCodec.cs" Link="DynamicTaskBoardCodec.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceModel.cs" Link="ProfileWorkspaceModel.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceController.cs" Link="ProfileWorkspaceController.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceSession.cs" Link="ProfileWorkspaceSession.cs" />
+    <Compile Include="..\SharedDemo\VirtualList.cs" Link="VirtualList.cs" />
+    <Compile Include="..\SharedDemo\VirtualListRow.cs" Link="VirtualListRow.cs" />
+    <Compile Include="..\SharedDemo\VirtualListState.cs" Link="VirtualListState.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudioModel.cs" Link="WorkspaceStudioModel.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudioController.cs" Link="WorkspaceStudioController.cs" />
+    <Compile Include="..\SharedDemo\StudioCatalogViewport.cs" Link="StudioCatalogViewport.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.cs" Link="WorkspaceStudio.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudio.Back.cs" Link="WorkspaceStudio.Back.cs" />
+    <Compile Include="..\SharedDemo\StudioOperationsModel.cs" Link="StudioOperationsModel.cs" />
+    <Compile Include="..\SharedDemo\StudioOperationsController.cs" Link="StudioOperationsController.cs" />
+    <Compile Include="..\SharedDemo\StudioOperationsDashboard.cs" Link="StudioOperationsDashboard.cs" />
+    <Compile Include="..\AndroidOrderDemo\OrderSurface.cs" Link="OrderSurface.cs" />
+  </ItemGroup>
+</Project>

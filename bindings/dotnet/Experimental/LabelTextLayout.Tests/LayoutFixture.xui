@@ -1,0 +1,11 @@
+namespace TextLayoutFixtures;
+
+component LayoutFixture {
+    state string Caption = "Retained text";
+    state global::Xui.Experimental.Portable.LabelTextLayout? Layout = null;
+    view {
+        VStack() {
+            Text(Caption, textLayout: Layout, ref: Target, id: "layout-target");
+        }
+    }
+}

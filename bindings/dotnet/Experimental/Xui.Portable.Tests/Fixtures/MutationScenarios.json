@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "retained-row-edit-and-reorder",
+      "steps": [
+        { "action": "click", "id": "reset-rows" },
+        { "action": "expect", "id": "row-count", "text": "Rows: 0" },
+        { "action": "expect-order", "keys": [] },
+        { "action": "click", "id": "add-row" },
+        { "action": "click", "id": "add-row" },
+        { "action": "click", "id": "add-row" },
+        { "action": "change", "id": "row-1-input", "value": "Kept \u674e draft" },
+        { "action": "click", "id": "row-1-increment" },
+        { "action": "expect-order", "keys": ["row-1", "row-2", "row-3"] },
+        { "action": "expect", "id": "row-1-count", "text": "Edits: 1" },
+        { "action": "click", "id": "reverse-rows" },
+        { "action": "expect-order", "keys": ["row-3", "row-2", "row-1"] },
+        { "action": "expect", "id": "row-1-input", "text": "Kept \u674e draft" },
+        { "action": "expect", "id": "row-1-count", "text": "Edits: 1" },
+        { "action": "click", "id": "remove-first" },
+        { "action": "expect-absent", "id": "row-3-input" },
+        { "action": "expect-order", "keys": ["row-2", "row-1"] },
+        { "action": "expect", "id": "row-count", "text": "Rows: 2" },
+        { "action": "expect", "id": "row-1-input", "text": "Kept \u674e draft" },
+        { "action": "click", "id": "add-row" },
+        { "action": "expect-order", "keys": ["row-2", "row-1", "row-4"] },
+        { "action": "expect", "id": "row-4-input", "text": "" },
+        { "action": "expect", "id": "row-4-count", "text": "Edits: 0" },
+        { "action": "click", "id": "reset-rows" },
+        { "action": "expect-order", "keys": [] },
+        { "action": "expect-absent", "id": "row-1-input" },
+        { "action": "click", "id": "add-row" },
+        { "action": "expect-order", "keys": ["row-1"] },
+        { "action": "expect", "id": "row-1-input", "text": "" },
+        { "action": "expect", "id": "row-1-count", "text": "Edits: 0" }
+      ]
+    },
+    {
+      "name": "conditional-owned-subtree",
+      "steps": [
+        { "action": "click", "id": "reset-rows" },
+        { "action": "expect-absent", "id": "notice" },
+        { "action": "click", "id": "toggle-notice" },
+        { "action": "expect", "id": "notice", "text": "Scoped reusable content" },
+        { "action": "click", "id": "toggle-notice" },
+        { "action": "expect-absent", "id": "notice" },
+        { "action": "expect", "id": "static-banner", "text": "Scoped reusable content" },
+        { "action": "click", "id": "toggle-notice" },
+        { "action": "expect", "id": "notice", "text": "Scoped reusable content" },
+        { "action": "expect", "id": "row-count", "text": "Rows: 0" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+namespace PortableDemo;
+
+component PlatformServicesWorkbench {
+    param PlatformServicesWorkbenchController Controller;
+    state PlatformServicesWorkbenchState Snapshot = new();
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("PLATFORM SERVICES WORKBENCH", id: "services-title");
+            ScrollView("User-initiated service actions", id: "services-content", flex: 1) {
+                VStack(spacing: 10) {
+                    Text("Nothing runs automatically. Provider capabilities vary.", id: "services-description");
+                    Text(Snapshot.Status, ref: StatusLabel, id: "services-status");
+                    Text(Snapshot.Error, visible: Snapshot.Error != "", ref: ErrorLabel, id: "services-error");
+                    Text("Waiting for the provider...", visible: Snapshot.Busy, id: "services-busy");
+                    Button("Cancel operation", click: Cancel, visible: Snapshot.Busy, enabled: Snapshot.CanCancel,
+                        id: "services-cancel");
+                    Text(Snapshot.ClipboardAvailabilityText, id: "services-clipboard-availability");
+                    TextInput("Text to copy", text: Snapshot.ClipboardDraft, change: SetClipboard,
+                        captionVisible: true, placeholder: "Type text to copy explicitly", enabled: !Snapshot.Busy,
+                        help: "Up to 4096 UTF-16 units. Copy writes the clipboard; typing does not.",
+                        ref: ClipboardInput, id: "services-clipboard-draft");
+                    Text(Snapshot.ClipboardValidation, id: "services-clipboard-validation");
+                    HStack(spacing: 8) {
+                        Button("Copy text", click: WriteClipboard, enabled: Snapshot.CanWriteClipboard, id: "services-copy", flex: 1);
+                        Button("Read clipboard length", click: ReadClipboard, enabled: Snapshot.CanReadClipboard, id: "services-read", flex: 1);
+                    }
+                    Text(Snapshot.ClipboardSummary, id: "services-clipboard-summary");
+                    Text(Snapshot.UriAvailabilityText, id: "services-uri-availability");
+                    TextInput("HTTPS URL", text: Snapshot.UriDraft, change: SetUri, captionVisible: true,
+                        placeholder: "https://example.com", enabled: !Snapshot.Busy,
+                        help: "Absolute HTTPS only, without credentials. Launch is an external action.",
+                        ref: UriInput, id: "services-uri");
+                    Text(Snapshot.UriValidation, id: "services-uri-validation");
+                    Button("Launch HTTPS URL", click: Launch, enabled: Snapshot.CanOpenUri, id: "services-launch");
+                    Text(Snapshot.FileAvailabilityText, id: "services-file-availability");
+                    Button("Choose one file to inspect", click: Pick, enabled: Snapshot.CanPickFile, id: "services-pick");
+                    Text(Snapshot.FileName, visible: Snapshot.FileName != "", id: "services-file-name");
+                    Text(Snapshot.FileSummary, id: "services-file-summary");
+                    Button("Refresh capabilities", click: Refresh, enabled: !Snapshot.Busy, id: "services-refresh");
+                    Button("Clear workbench", click: Reset, enabled: !Snapshot.Busy, id: "services-reset");
+                }
+            }
+        }
+    }
+    code csharp {
+        public static PlatformServicesWorkbench Create(global::Xui.Experimental.Portable.Host host,
+            global::Xui.Experimental.Portable.IPlatformServices services,
+            global::Xui.Experimental.Portable.IFilePicker picker,
+            global::System.Action<global::System.Exception> reportUnhandled) {
+            var controller = new PlatformServicesWorkbenchController(host, services, picker, reportUnhandled);
+            try {
+                var app = new PlatformServicesWorkbench(host, controller);
+                controller.Attach(app.Lifetime, app.RefreshState);
+                return app;
+            }
+            catch {
+                controller.Dispose();
+                throw;
+            }
+        }
+        void RefreshState(PlatformServicesWorkbenchState state) => Snapshot = state;
+        void SetClipboard(string text) => Controller.SetClipboardDraft(text);
+        void SetUri(string text) => Controller.SetUriDraft(text);
+        void ReadClipboard() => Controller.ReadClipboard();
+        void WriteClipboard() => Controller.WriteClipboard();
+        void Launch() => Controller.Launch();
+        void Pick() => Controller.PickFile();
+        void Cancel() => Controller.Cancel();
+        void Refresh() => Controller.RefreshAvailability();
+        void Reset() => Controller.Reset();
+    }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "cases": [
+    { "name": "bottom-settled-closed", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 160], "width": ["Exactly", 200], "height": ["Exactly", 160], "progress": 0, "animating": false, "desired": [0, 0], "clip": [200, 0], "content": [200, 100] },
+    { "name": "bottom-opening-zero", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 160], "width": ["Exactly", 200], "height": ["Exactly", 160], "progress": 0, "animating": true, "desired": [200, 0], "clip": [200, 0], "content": [200, 100] },
+    { "name": "bottom-half-natural-cross", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 160], "width": ["AtMost", 200], "height": ["AtMost", 160], "progress": 0.5, "animating": true, "desired": [120, 50], "clip": [200, 50], "content": [200, 100] },
+    { "name": "bottom-half-exact-is-cap", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 160], "width": ["Exactly", 200], "height": ["Exactly", 160], "progress": 0.5, "animating": true, "desired": [200, 50], "clip": [200, 50], "content": [200, 100] },
+    { "name": "bottom-full-parent-clips", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 60], "width": ["Exactly", 200], "height": ["AtMost", 60], "progress": 1, "animating": false, "desired": [200, 60], "clip": [200, 60], "content": [200, 100] },
+    { "name": "bottom-half-parent-clips", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 30], "width": ["Exactly", 200], "height": ["Exactly", 30], "progress": 0.5, "animating": true, "desired": [200, 30], "clip": [200, 30], "content": [200, 100] },
+    { "name": "bottom-half-unbounded-offer", "direction": "Bottom", "natural": [120, 100], "allocation": [200, 160], "width": ["AtMost", 200], "height": ["Unspecified", 0], "progress": 0.5, "animating": true, "desired": [120, 50], "clip": [200, 50], "content": [200, 100] },
+    { "name": "right-half-exact-is-cap", "direction": "Right", "natural": [180, 60], "allocation": [300, 100], "width": ["Exactly", 300], "height": ["Exactly", 100], "progress": 0.5, "animating": true, "desired": [90, 100], "clip": [90, 100], "content": [180, 100] },
+    { "name": "right-full-parent-clips", "direction": "Right", "natural": [180, 60], "allocation": [80, 70], "width": ["Exactly", 80], "height": ["Exactly", 70], "progress": 1, "animating": false, "desired": [80, 70], "clip": [80, 70], "content": [180, 70] },
+    { "name": "right-settled-closed", "direction": "Right", "natural": [180, 60], "allocation": [300, 100], "width": ["Exactly", 300], "height": ["Exactly", 100], "progress": 0, "animating": false, "desired": [0, 0], "clip": [0, 100], "content": [180, 100] },
+    { "name": "bottom-zero-slot-closed", "direction": "Bottom", "natural": [120, 100], "allocation": [0, 0], "width": ["Exactly", 0], "height": ["Exactly", 0], "progress": 0, "animating": false, "desired": [0, 0], "clip": [0, 0], "content": [0, 100] },
+    { "name": "bottom-zero-slot-half", "direction": "Bottom", "natural": [120, 100], "allocation": [0, 0], "width": ["Exactly", 0], "height": ["Exactly", 0], "progress": 0.5, "animating": true, "desired": [0, 0], "clip": [0, 0], "content": [0, 100] },
+    { "name": "bottom-zero-slot-open", "direction": "Bottom", "natural": [120, 100], "allocation": [0, 0], "width": ["Exactly", 0], "height": ["Exactly", 0], "progress": 1, "animating": false, "desired": [0, 0], "clip": [0, 0], "content": [0, 100] },
+    { "name": "right-zero-slot-half", "direction": "Right", "natural": [180, 60], "allocation": [0, 0], "width": ["Exactly", 0], "height": ["Exactly", 0], "progress": 0.5, "animating": true, "desired": [0, 0], "clip": [0, 0], "content": [180, 0] }
+  ]
+}

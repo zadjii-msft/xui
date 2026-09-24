@@ -3,6 +3,7 @@
 #include "drawing.hpp"
 #include "window_host.hpp"
 #include <commctrl.h>
+#include <imm.h>
 #include <richedit.h>
 #include <richole.h>
 #include <tom.h>
@@ -10,6 +11,8 @@
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <exception>
+#include <utility>
 
 namespace xui {
 namespace {
@@ -367,6 +370,33 @@ void NativeDocumentBridge::changed() {
         }
         password->commit_password(std::move(value)); revision_ = password->revision();
     }
+}
+void NativeDocumentBridge::clear_password() {
+    const auto password = std::dynamic_pointer_cast<PasswordInput>(model_);
+    if (!password) throw std::invalid_argument("Terminal password cleanup requires PasswordInput");
+    const bool previous = std::exchange(setting_, true);
+    struct Reset { bool& value; bool previous; ~Reset() { value = previous; } } reset{setting_, previous};
+    std::exception_ptr failure;
+    const auto attempt = [&](auto&& action) {
+        try { action(); } catch (...) { if (!failure) failure = std::current_exception(); }
+    };
+    attempt([&] { password->clear_password(); });
+    if (window_ && IsWindow(window_)) {
+        if (composing_) {
+            const auto context = ImmGetContext(window_);
+            if (context) {
+                const auto cancelled = ImmNotifyIME(context, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+                ImmReleaseContext(window_, context);
+                attempt([&] { win32_require(cancelled != FALSE, "Cancel terminal password composition"); });
+            }
+        }
+        composing_ = false;
+        attempt([&] { win32_require(SetWindowTextW(window_, L"") != FALSE, "Clear native password buffer"); });
+        SendMessageW(window_, EM_EMPTYUNDOBUFFER, 0, 0);
+        attempt([&] { win32_require(GetWindowTextLengthW(window_) == 0, "Verify native password cleanup"); });
+    }
+    revision_ = password->revision();
+    if (failure) std::rethrow_exception(failure);
 }
 LRESULT NativeDocumentBridge::notify(const NMHDR& notification) {
     if (setting_) return 0;

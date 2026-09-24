@@ -93,7 +93,9 @@ Shared [control styles](docs/specs/control-styling.md) customize colors, typogra
 
 ## Documentation
 
-The opt-in [portable `.xui` experiment](docs/specs/experimental-portable-xui.md) shares a limited C# UI subset across platform hosts.
+The opt-in [portable `.xui` experiment](docs/specs/experimental-portable-xui.md#one-application-three-hosts) builds one shared C# UI for native Windows, native Android, and web.
+It supports a limited control subset, with a [single build/run workflow](CONTRIBUTING.md#build-one-app-for-windows-android-and-web).
+The [order builder](docs/specs/experimental-portable-xui.md#order-builder-sample) exercises forms, validation, calculated totals, scrolling, and retained input across all three.
 It does not change the supported Windows API.
 
 [Packages and deployment](docs/specs/packages.md) covers NuGet, Cargo, and runnable release samples.
@@ -107,3 +109,4 @@ It does not change the supported Windows API.
 ## License
 
 XUI is available under the [MIT license](LICENSE).
+The unmodified [Abel font fixture](assets/fonts/abel/OFL.txt) retains its included SIL Open Font License.

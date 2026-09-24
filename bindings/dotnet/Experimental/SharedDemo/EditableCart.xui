@@ -1,0 +1,102 @@
+namespace PortableDemo;
+
+component EditableCart {
+    param EditableCartController Controller;
+    state EditableCartState Snapshot = new();
+    state global::Xui.Experimental.Portable.KeyedItem[] Pages = [];
+    state CartBrowsePage? BrowsePage = null;
+    state CartDetailPage? DetailPage = null;
+    state CartEditorPage? EditorPage = null;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("EDITABLE CART", id: "cart-title");
+            ScrollView("Catalog, product details, and editable cart", flex: 1, id: "cart-content") {
+                VStack(spacing: 12) {
+                    Text(Snapshot.Draft.Summary, id: "cart-count");
+                    Text(Snapshot.Status, ref: StatusLabel, id: "cart-status");
+                    Text(Snapshot.Error, visible: Snapshot.Error != "", id: "cart-error");
+                    HStack(spacing: 8) {
+                        Button("Back", click: Back, enabled: Snapshot.CanGoBack && !Snapshot.Busy, id: "cart-back", flex: 1);
+                        Button("View cart", click: ShowCart, enabled: Snapshot.Route.Page != CartPage.Edit && !Snapshot.Busy,
+                            id: "cart-edit", flex: 1);
+                    }
+                    Text("Quote is working...", visible: Snapshot.Busy, id: "cart-busy");
+                    Button("Cancel quote", click: Cancel, visible: Snapshot.Busy, enabled: Snapshot.Busy && !Snapshot.CancelRequested,
+                        id: "cart-cancel");
+                    KeyedVStack(Pages, ref: PageView);
+                    Text(Snapshot.QuoteSummary, visible: Snapshot.QuoteSummary != "", ref: QuoteLabel, id: "cart-quote-summary");
+                    Button("Reset cart", click: Reset, enabled: !Snapshot.Busy, id: "cart-reset",
+                        help: "Clear this local cart and return to browsing. No order is placed.");
+                }
+            }
+        }
+    }
+    code csharp {
+        public static EditableCart Create(global::Xui.Experimental.Portable.Host host,
+            ICartQuoteService quotes, global::System.Action<global::System.Exception> reportUnhandled,
+            EditableCartSession? session = null) {
+            var controller = new EditableCartController(host, quotes, reportUnhandled, session);
+            try {
+                var app = new EditableCart(host, controller);
+                controller.Attach(app.Lifetime, app.Refresh);
+                return app;
+            }
+            catch (global::System.Exception error) {
+                try { controller.Dispose(); }
+                catch (global::System.Exception cleanup) { throw new global::System.AggregateException(error, cleanup); }
+                throw;
+            }
+        }
+
+        public void Refresh(EditableCartState next) {
+            CartBrowsePage? browse = null;
+            CartDetailPage? detail = null;
+            CartEditorPage? editor = null;
+            global::Xui.Experimental.Portable.KeyedItem descriptor = next.Route.Page switch {
+                CartPage.Browse => global::Xui.Experimental.Portable.KeyedItem.Create(next.PageKey,
+                    host => browse = new CartBrowsePage(host, Controller) { Busy = next.Busy }),
+                CartPage.Detail => global::Xui.Experimental.Portable.KeyedItem.Create(next.PageKey,
+                    host => detail = new CartDetailPage(host, Controller, CartCatalog.Get(next.Route.ProductId)) {
+                        CanAdd = !next.Busy && next.Draft.CanAdd
+                    }),
+                CartPage.Edit => global::Xui.Experimental.Portable.KeyedItem.Create(next.PageKey,
+                    host => editor = CreateEditor(host, next)),
+                _ => throw new global::System.InvalidOperationException("Unknown cart page.")
+            };
+            try {
+                Pages = [descriptor];
+            }
+            catch (global::Xui.Experimental.Portable.KeyedUpdateException error) when (error.ModelCommitted) {
+                AcceptPages(browse, detail, editor, next);
+                Snapshot = next;
+                throw;
+            }
+            AcceptPages(browse, detail, editor, next);
+            try {
+                if (next.Route.Page == CartPage.Browse) BrowsePage!.Busy = next.Busy;
+                if (next.Route.Page == CartPage.Detail) DetailPage!.CanAdd = !next.Busy && next.Draft.CanAdd;
+                if (next.Route.Page == CartPage.Edit) EditorPage!.Refresh(next);
+            }
+            catch (global::Xui.Experimental.Portable.KeyedUpdateException error) when (error.ModelCommitted) {
+                Snapshot = next;
+                throw;
+            }
+            Snapshot = next;
+        }
+        CartEditorPage CreateEditor(global::Xui.Experimental.Portable.Host host, EditableCartState next) {
+            var editor = new CartEditorPage(host, Controller);
+            editor.Refresh(next);
+            return editor;
+        }
+        void AcceptPages(CartBrowsePage? browse, CartDetailPage? detail, CartEditorPage? editor, EditableCartState next) {
+            BrowsePage = next.Route.Page == CartPage.Browse ? browse ?? BrowsePage : null;
+            DetailPage = next.Route.Page == CartPage.Detail ? detail ?? DetailPage : null;
+            EditorPage = next.Route.Page == CartPage.Edit ? editor ?? EditorPage : null;
+        }
+        void Back() => Controller.Back();
+        void ShowCart() => Controller.ShowCart();
+        void Cancel() => Controller.Cancel();
+        void Reset() => Controller.Reset();
+    }
+}

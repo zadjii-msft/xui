@@ -1,0 +1,60 @@
+namespace PortableDemo;
+
+component CartEditorPage {
+    param EditableCartController Controller;
+    state EditableCartState Snapshot = new();
+    state global::Xui.Experimental.Portable.KeyedItem[] Rows = [];
+
+    view {
+        VStack(spacing: 8) {
+            Text("EDIT YOUR CART", id: "cart-editor-title");
+            TextInput("Name for quote", text: Snapshot.Draft.CustomerName, change: SetName,
+                captionVisible: true, placeholder: "Ada",
+                help: "Local quote label only. Nothing is sent or charged.", enabled: !Snapshot.Busy,
+                ref: NameInput, id: "cart-customer");
+            TextInput("Discount code", text: Snapshot.Draft.DiscountCode, change: SetDiscount,
+                captionVisible: true, placeholder: "SAVE10 (optional)",
+                help: "SAVE10 takes ten percent off this local estimate.", enabled: !Snapshot.Busy,
+                ref: DiscountInput, id: "cart-discount");
+            HStack(spacing: 8) {
+                Button("Reverse lines", click: Reverse, enabled: !Snapshot.Busy && Rows.Length > 1, id: "cart-reverse", flex: 1);
+                Button("Sort by product", click: Sort, enabled: !Snapshot.Busy && Rows.Length > 1, id: "cart-sort", flex: 1);
+            }
+            HStack(spacing: 8) {
+                Button("Add coffee", click: AddCoffee, enabled: !Snapshot.Busy && Snapshot.Draft.CanAdd, id: "cart-add-coffee", flex: 1);
+                Button("Add tea", click: AddTea, enabled: !Snapshot.Busy && Snapshot.Draft.CanAdd, id: "cart-add-tea", flex: 1);
+            }
+            Button("Add cocoa", click: AddCocoa, enabled: !Snapshot.Busy && Snapshot.Draft.CanAdd, id: "cart-add-cocoa");
+            Text("Your cart is empty.", visible: Rows.Length == 0, id: "cart-empty");
+            KeyedVStack(Rows, spacing: 12, ref: RowsView);
+            Text(Snapshot.Draft.SubtotalText, id: "cart-subtotal");
+            Text(Snapshot.Draft.DiscountText, id: "cart-discount-total");
+            Text(Snapshot.Draft.TotalText, ref: TotalLabel, id: "cart-total");
+            Text(Snapshot.Draft.Validation, id: "cart-validation");
+            Button("Request local quote", click: Quote, enabled: Snapshot.Draft.CanQuote && !Snapshot.Busy,
+                ref: QuoteButton, id: "cart-quote");
+        }
+    }
+    code csharp {
+        public void Refresh(EditableCartState next) {
+            var rows = global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(next.Draft.Lines,
+                line => global::Xui.Experimental.Portable.KeyedItem.Create(line.Key,
+                    host => new CartLineRow(host, line.Key, Controller) { Line = line, Busy = next.Busy },
+                    row => { row.Line = line; row.Busy = next.Busy; })));
+            try { Rows = rows; }
+            catch (global::Xui.Experimental.Portable.KeyedUpdateException error) when (error.ModelCommitted) {
+                Snapshot = next;
+                throw;
+            }
+            Snapshot = next;
+        }
+        void SetName(string text) => Controller.SetCustomerName(text);
+        void SetDiscount(string text) => Controller.SetDiscount(text);
+        void Reverse() => Controller.Reverse();
+        void Sort() => Controller.Sort();
+        void AddCoffee() => Controller.AddProduct("coffee");
+        void AddTea() => Controller.AddProduct("tea");
+        void AddCocoa() => Controller.AddProduct("cocoa");
+        void Quote() => Controller.Quote();
+    }
+}

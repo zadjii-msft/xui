@@ -5,11 +5,32 @@
 #include "suggestion_peer.hpp"
 #include "drawing.hpp"
 #include <commctrl.h>
+#include <inputscope.h>
 #include <cmath>
 #include <cwctype>
 #include <cstring>
 
 namespace xui {
+namespace {
+void input_scope(HWND window, ::InputScope scope) {
+    struct Api {
+        HMODULE module = LoadLibraryExW(L"msctf.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        decltype(&SetInputScope) set{};
+        Api() {
+            win32_require(module != nullptr, "Load native input-scope API");
+            set = reinterpret_cast<decltype(set)>(GetProcAddress(module, "SetInputScope"));
+            if (!set) {
+                FreeLibrary(module); module = nullptr;
+                throw std::runtime_error("Native input-scope API is unavailable");
+            }
+        }
+    };
+    // Like Msftedit, this system API remains available through window teardown
+    // during process shutdown. There is one module reference per process.
+    static const Api api;
+    hr_require(api.set(window, scope), "Set native text input purpose");
+}
+}
 
 NativeFieldFont::~NativeFieldFont() { if (font_) DeleteObject(font_); }
 void NativeFieldFont::update(HWND window, const PartStyleValues* values, UINT dpi, HFONT fallback,
@@ -50,8 +71,10 @@ NativeEditBridge::~NativeEditBridge() {
     if (font_) DeleteObject(font_);
 }
 
-void NativeEditBridge::attach(HWND parent, int control_id) {
+void NativeEditBridge::attach(HWND parent, int control_id, TextInputPurpose purpose) {
     if (window_) throw std::logic_error("Native edit already attached");
+    if (purpose < TextInputPurpose::normal || purpose > TextInputPurpose::number)
+        throw std::invalid_argument("Invalid native input purpose");
     window_ = CreateWindowExW(0, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
         0, 0, 1, 1, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
@@ -59,6 +82,13 @@ void NativeEditBridge::attach(HWND parent, int control_id) {
     win32_require(window_ != nullptr, "Create native search field");
     win32_require(SetWindowSubclass(window_, subclass, 1, reinterpret_cast<DWORD_PTR>(this)) != 0,
                   "Attach native search input");
+    if (purpose != TextInputPurpose::normal) {
+        const ::InputScope scope = purpose == TextInputPurpose::email ? IS_EMAIL_SMTPEMAILADDRESS :
+            purpose == TextInputPurpose::url ? IS_URL : purpose == TextInputPurpose::telephone ?
+                IS_TELEPHONE_FULLTELEPHONENUMBER : IS_NUMBER;
+        input_scope(window_, scope);
+        input_scope_set_ = true;
+    }
     SendMessageW(window_, EM_SETLIMITTEXT, 1024, 0);
     SendMessageW(window_, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
     set_dpi(GetDpiForWindow(parent));
@@ -266,6 +296,14 @@ void NativeEditBridge::set_insets(Insets insets) {
 LRESULT CALLBACK NativeEditBridge::subclass(HWND window, UINT message, WPARAM wparam,
     LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept {
     auto& self = *reinterpret_cast<NativeEditBridge*>(data);
+    if (message == WM_DESTROY && self.input_scope_set_) {
+        self.input_scope_set_ = false;
+        try { input_scope(window, IS_DEFAULT); }
+        catch (...) {
+            OutputDebugStringW(L"XUI: Failed to clear the native input-scope association during destruction.\n");
+            self.report_failure();
+        }
+    }
     try {
         if (message == WM_CHAR && wparam == 0x7f) {
             if (!self.composing_) self.delete_previous_word();

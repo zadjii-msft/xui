@@ -15,7 +15,52 @@
     <Compile Include="..\Xui.Android\*.cs" Link="Adapter\%(Filename)%(Extension)" />
     <Compile Include="..\AndroidDemo\MainActivity.cs" Link="MainActivity.cs" />
     <Compile Include="..\AndroidDeviceTests\TestActivity.cs" Link="TestActivity.cs" />
+    <Compile Include="..\AndroidOrderDemo\*.cs" Link="OrderDemo\%(Filename)%(Extension)" />
+    <Compile Include="..\AndroidOrderDeviceTests\*.cs" Link="OrderTests\%(Filename)%(Extension)" />
+    <Compile Include="..\AndroidGalleryDemo\*.cs" Link="Gallery\%(Filename)%(Extension)" />
+    <Compile Include="..\SharedDemo\OrderModel.cs" Link="OrderModel.cs" />
+    <Compile Include="..\SharedDemo\OrderScenarioRunner.cs" Link="OrderScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\TaskBoardModel.cs" Link="TaskBoardModel.cs" />
+    <Compile Include="..\SharedDemo\ExpenseLedgerModel.cs" Link="ExpenseLedgerModel.cs" />
+    <Compile Include="..\SharedDemo\SessionPlannerModel.cs" Link="SessionPlannerModel.cs" />
+    <Compile Include="..\SharedDemo\GalleryValues.cs" Link="GalleryValues.cs" />
+    <Compile Include="..\SharedDemo\GalleryStateCodec.cs" Link="GalleryStateCodec.cs" />
+    <Compile Include="..\SharedDemo\ApplicationScenarioRunner.cs" Link="ApplicationScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\SettingsScenarioRunner.cs" Link="SettingsScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\DynamicTaskBoardModel.cs" Link="DynamicTaskBoardModel.cs" />
+    <Compile Include="..\SharedDemo\DynamicTaskBoardCodec.cs" Link="DynamicTaskBoardCodec.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceModel.cs" Link="ProfileWorkspaceModel.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceController.cs" Link="ProfileWorkspaceController.cs" />
+    <Compile Include="..\SharedDemo\ProfileWorkspaceSession.cs" Link="ProfileWorkspaceSession.cs" />
+    <Compile Include="..\SharedDemo\VirtualList.cs" Link="VirtualList.cs" />
+    <Compile Include="..\SharedDemo\VirtualListRow.cs" Link="VirtualListRow.cs" />
+    <Compile Include="..\SharedDemo\VirtualListState.cs" Link="VirtualListState.cs" />
+    <Compile Include="..\SharedDemo\VirtualListPerformance.cs" Link="VirtualListPerformance.cs" />
+    <Compile Include="..\SharedDemo\FormsScenarioRunner.cs" Link="FormsScenarioRunner.cs" />
+    <Compile Include="..\SharedDemo\WorkspaceStudioModel.cs;..\SharedDemo\WorkspaceStudioController.cs;..\SharedDemo\StudioCatalogViewport.cs;..\SharedDemo\WorkspaceStudio.cs;..\SharedDemo\WorkspaceStudio.Back.cs" />
+    <Compile Include="..\SharedDemo\StudioOperationsModel.cs;..\SharedDemo\StudioOperationsController.cs;..\SharedDemo\StudioOperationsDashboard.cs" />
+    <Compile Include="..\Xui.Portable.Tests\Fixtures\MutationScenarioRunner.cs" Link="MutationScenarioRunner.cs" />
+    <Compile Include="..\Xui.Portable.Tests\Fixtures\PageScenarioRunner.cs" Link="PageScenarioRunner.cs" />
     <AdditionalFiles Include="..\SharedDemo\Greeting.xui" Link="Greeting.xui" />
+    <AdditionalFiles Include="..\SharedDemo\OrderBuilder.xui" Link="OrderBuilder.xui" />
+    <AdditionalFiles Include="..\SharedDemo\TaskBoard.xui" Link="TaskBoard.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ExpenseLedger.xui" Link="ExpenseLedger.xui" />
+    <AdditionalFiles Include="..\SharedDemo\SessionPlanner.xui" Link="SessionPlanner.xui" />
+    <AdditionalFiles Include="..\SharedDemo\SettingsShowcase.xui" Link="SettingsShowcase.xui" />
+    <AdditionalFiles Include="..\SharedDemo\DynamicTaskBoard.xui" Link="DynamicTaskBoard.xui" />
+    <AdditionalFiles Include="..\SharedDemo\TaskRow.xui" Link="TaskRow.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileWorkspace.xui" Link="ProfileWorkspace.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfileEditPage.xui" Link="ProfileEditPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\ProfilePreviewPage.xui" Link="ProfilePreviewPage.xui" />
+    <AdditionalFiles Include="..\SharedDemo\VirtualList.xui" Link="VirtualList.xui" />
+    <AdditionalFiles Include="..\SharedDemo\FormsWorkbench.xui" Link="FormsWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\PresentationWorkbench.xui" Link="PresentationWorkbench.xui" />
+    <AdditionalFiles Include="..\SharedDemo\WorkspaceStudio.xui;..\SharedDemo\StudioDocumentEditor.xui;..\SharedDemo\StudioCatalogRow.xui;..\SharedDemo\StudioSectionPanel.xui" />
+    <AdditionalFiles Include="..\SharedDemo\StudioOperationsDashboard.xui;..\SharedDemo\StudioWorkloadRow.xui;..\SharedDemo\StudioOperationsMetrics.xui;..\SharedDemo\StudioOperationsControls.xui;..\SharedDemo\StudioOperationsDrawer.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\RetainedPagesWorkbench.xui" Link="RetainedPagesWorkbench.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\Mutation*.xui" Link="%(Filename)%(Extension)" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\AxisSizingShowcase.xui" Link="AxisSizingShowcase.xui" />
+    <AdditionalFiles Include="..\Xui.Portable.Tests\Fixtures\GridSizingShowcase.xui" Link="GridSizingShowcase.xui" />
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
       <_Parameter1>android26.0</_Parameter1>
     </AssemblyAttribute>

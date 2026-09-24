@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xui/controls.hpp"
+#include "xui/retained_pages.hpp"
 #include "xui/theme.hpp"
 #include "xui/file_list.hpp"
 #include "xui/foundation.hpp"
@@ -17,7 +18,15 @@ class LocationPicker;
 class ContentDialog;
 class Application;
 class Window;
+class PasswordInput;
+class Reveal;
+enum class RevealDirection;
 enum class WindowState { created, open, closing, closed };
+struct WindowThemeOptions {
+    ThemeMode theme{ThemeMode::system};
+    std::optional<ThemeColor> foreground, background, accent;
+    bool operator==(const WindowThemeOptions&) const = default;
+};
 
 // Outer window bounds in physical screen pixels, including negative monitor coordinates.
 struct WindowPlacement {
@@ -133,6 +142,30 @@ public:
     void replace_content(ContentHost& host, std::shared_ptr<Element> content);
     void replace_content(ContentHost& host, std::shared_ptr<Element> content,
         std::vector<ContentInspectionTarget> targets, std::function<void(std::uint32_t)> picked);
+    // Guarded mutations of ordinary Stacks retained by this window. Existing peers
+    // keep their identity. All native text composition blocks mutation, read-only.
+    void validate_content_mutation() const;
+    void stack_insert(Stack& stack, std::size_t index, std::shared_ptr<Element> child, float flex = 0);
+    void stack_remove(Stack& stack, const Element& child);
+    // Future indices may exceed the current count; stack_move checks final bounds.
+    void stack_validate_move(Stack& stack, const Element& child, std::size_t future_index) const;
+    void stack_move(Stack& stack, const Element& child, std::size_t index);
+    void validate_retained_pages(const RetainedPages& pages, const std::vector<RetainedPageEntry>& entries,
+        std::uint64_t selected, bool visible) const;
+    void set_retained_pages(RetainedPages& pages, std::vector<RetainedPageEntry> entries, std::uint64_t selected);
+    void set_retained_pages_visible(RetainedPages& pages, bool visible);
+    void retained_pages_insert(RetainedPages& pages, std::size_t index, std::uint64_t id, std::shared_ptr<Element> child);
+    void retained_pages_validate_move(const RetainedPages& pages, const Element& child, std::size_t future_index) const;
+    void retained_pages_validate_remove(const RetainedPages& pages, const Element& child) const;
+    void retained_pages_remove(RetainedPages& pages, const Element& child);
+    void retained_pages_move(RetainedPages& pages, const Element& child, std::size_t index);
+    bool contains_element(const Element& element) const;
+    static bool subtree_contains(const std::shared_ptr<Element>& root, const Element& element);
+    // The initial inner allocation is returned synchronously. Later metadata is
+    // posted after layout; each registration has independent ownership.
+    std::uint64_t observe_content_viewport(std::shared_ptr<ContentHost> host,
+        std::function<void(Size)> callback, Size& initial);
+    void release_content_viewport(std::uint64_t subscription);
     void set_content_pointer_picking(ContentHost& host, bool enabled);
     // Window-client DIPs. Returns the nearest registered authored ancestor or no hit.
     std::optional<std::uint32_t> hit_test_content(ContentHost& host, Point position);
@@ -150,6 +183,8 @@ public:
     void set_theme(ThemeMode theme);
     void set_presentation(std::string_view font_family, float font_size, bool smooth_scrolling, bool animations);
     ThemeMode theme() const;
+    WindowThemeOptions theme_options() const;
+    void set_theme_options(WindowThemeOptions options);
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
     void set_show_activated(bool value);
@@ -159,6 +194,22 @@ public:
     const PartStyleValues& tooltip_style_values(StylePart part) const;
     const PartStyleValues* effective_tooltip_style_values(StylePart part) const;
     bool focus(Control& control, bool select_all = false);
+    // UI thread only. Tests this control's live peer, not focused descendants
+    // or cached style state. Closed and unmaterialized controls return false.
+    bool has_focus(const Control& control) const;
+    void clear_password(PasswordInput& password);
+    void validate_portable_reveal(const Reveal& reveal, bool open, unsigned duration, RevealDirection direction, bool initial) const;
+    bool can_set_portable_reveal_open(const Reveal& reveal, bool open) const;
+    void apply_portable_reveal(Reveal& reveal, bool open, unsigned duration, RevealDirection direction, bool initial);
+    void cancel_portable_reveal(Reveal& reveal);
+    void refresh_image_memory();
+    ControlInteraction interaction(const Control& control) const;
+    void observe_interaction(std::shared_ptr<Control> control, std::function<void(ControlInteraction)> callback);
+    VirtualViewportResult begin_virtual_update(ScrollView& scroll, std::uint64_t epoch);
+    VirtualViewportResult commit_virtual_update(ScrollView& scroll, std::uint64_t epoch);
+    void flush_virtual_viewport(ScrollView& scroll, std::uint64_t committed_epoch);
+    void refresh_virtual_viewports();
+    void close_virtual_viewport(ScrollView& scroll);
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial_focus = nullptr);
     void show_dialog(std::shared_ptr<ContentDialog> dialog, Control& anchor, Control* initial_focus = nullptr);
     void dismiss_popup(Popup& popup, PopupDismissReason reason = PopupDismissReason::cancel);

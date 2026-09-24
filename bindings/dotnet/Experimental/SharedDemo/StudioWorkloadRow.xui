@@ -1,0 +1,20 @@
+namespace PortableDemo;
+
+component StudioWorkloadRow {
+    param string Key;
+    param StudioOperationsController Controller;
+    state StudioWorkloadItem Item = new("doc-00001", "Document", StudioCategory.Engineering, 0, 0);
+    state bool Busy = false;
+
+    view {
+        VStack(spacing: 4, padding: 8) {
+            Button(Item.Title, click: Open, enabled: !Busy, id: "operations-" + Key + "-open",
+                help: "Open this workload item in the workspace's existing retained document tabs.");
+            Text(Item.Summary, textLayout: global::Xui.Experimental.Portable.LabelTextLayout.Wrap(2),
+                id: "operations-" + Key + "-summary");
+        }
+    }
+    code csharp {
+        void Open() => Controller.OpenDocument(Key);
+    }
+}

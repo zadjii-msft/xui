@@ -6,15 +6,24 @@ namespace Xui.Experimental.Android;
 public sealed class AndroidDispatcher : IUiDispatcher
 {
     private readonly Handler handler;
+    private readonly int uiThreadId;
+    private long accessChecks;
+    internal bool TraceAccessChecks { get; set; }
+    internal long AccessChecks => Interlocked.Read(ref accessChecks);
 
     public AndroidDispatcher()
     {
         var main = Looper.MainLooper ?? throw new InvalidOperationException("Android has no main looper.");
         if (Looper.MyLooper() != main) throw new InvalidOperationException("Create the dispatcher on the Android UI thread.");
+        uiThreadId = System.Environment.CurrentManagedThreadId;
         handler = new Handler(main);
     }
 
-    public bool CheckAccess() => Looper.MyLooper() == Looper.MainLooper;
+    public bool CheckAccess()
+    {
+        if (TraceAccessChecks) Interlocked.Increment(ref accessChecks);
+        return System.Environment.CurrentManagedThreadId == uiThreadId;
+    }
 
     public void Post(Action action)
     {

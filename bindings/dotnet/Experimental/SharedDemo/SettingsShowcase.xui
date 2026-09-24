@@ -1,0 +1,75 @@
+namespace PortableDemo;
+
+component SettingsShowcase {
+    state bool Notifications = true;
+    state global::Xui.Experimental.Portable.CheckState Sync = global::Xui.Experimental.Portable.CheckState.Indeterminate;
+    state bool CycleMixed = true;
+    state bool OptionsEnabled = true;
+    state bool Busy = false;
+    state double Completed = 25;
+    state double Units = 2.5;
+    state string Draft = "";
+    state int Changes = 0;
+
+    view {
+        VStack(spacing: 8, padding: 16) {
+            Text("Portable settings preview", id: "settings-title");
+            ScrollView("Settings and local progress", flex: 1, ref: Content, id: "settings-content") {
+                VStack(spacing: 10) {
+                    Text("Local preview only. No background work.", id: "settings-description");
+                    TextInput("Retained draft", text: Draft, change: SetDraft, placeholder: "Keep editing while changing options",
+                        ref: DraftInput, id: "settings-draft", help: "Option changes keep this editor and your draft.");
+                    Toggle("Enable options", checked: OptionsEnabled, change: SetEnabled,
+                        ref: EnabledToggle, id: "options-enabled");
+                    Toggle("Notifications", checked: Notifications, change: SetNotifications, enabled: OptionsEnabled,
+                        ref: NotificationToggle, id: "notifications", help: "Preview a binary choice. No notifications are sent.");
+                    CheckBox("Sync policy", checkState: Sync, threeState: CycleMixed, change: SetSync, enabled: OptionsEnabled,
+                        ref: SyncCheckBox, id: "sync-policy", help: "Checked, unchecked, or mixed. This does not synchronize data.");
+                    Toggle("Cycle through mixed state", checked: CycleMixed, change: SetCycle, enabled: OptionsEnabled,
+                        ref: CycleToggle, id: "cycle-mixed");
+                    Text(Notifications ? "Notifications: on" : "Notifications: off", id: "notifications-summary");
+                    Text($"Sync: {Sync}", id: "sync-summary");
+                    Text($"Changes: {Changes}", ref: ChangesLabel, id: "changes-summary");
+                    Toggle("Indeterminate preview", checked: Busy, change: SetBusy, enabled: OptionsEnabled,
+                        ref: BusyToggle, id: "indeterminate");
+                    Progress("Local preview progress", currentValue: Completed,
+                        progressState: Busy ? global::Xui.Experimental.Portable.ProgressState.Indeterminate : global::Xui.Experimental.Portable.ProgressState.Determinate,
+                        enabled: OptionsEnabled, ref: WorkProgress, id: "work-progress");
+                    Text("Progress: " + Completed.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture) + " / 100.00",
+                        id: "progress-summary");
+                    Button("Advance preview", click: Advance, enabled: OptionsEnabled && !Busy && Completed < 100,
+                        ref: AdvanceButton, id: "advance-progress");
+                    Progress("Authored units preview", range: new global::Xui.Experimental.Portable.NumericRange(-10, 30, 0.25, 5),
+                        currentValue: Units, enabled: OptionsEnabled, ref: UnitProgress, id: "unit-progress");
+                    Text("Units: " + Units.ToString("0.00", global::System.Globalization.CultureInfo.InvariantCulture),
+                        id: "units-summary");
+                    Button("Add 0.25 units", click: AddUnits, enabled: OptionsEnabled && Units < 30,
+                        ref: UnitAdvanceButton, id: "advance-units");
+                    Button("Reset settings", click: Reset, ref: ResetButton, id: "reset-settings");
+                }
+            }
+        }
+    }
+
+    code csharp {
+        void SetDraft(string value) => Draft = value;
+        void SetNotifications(bool value) { Notifications = value; Changes++; }
+        void SetSync(global::Xui.Experimental.Portable.CheckState value) { Sync = value; Changes++; }
+        void SetCycle(bool value) { CycleMixed = value; Changes++; }
+        void SetEnabled(bool value) { OptionsEnabled = value; Changes++; }
+        void SetBusy(bool value) { Busy = value; Changes++; }
+        void Advance() { if (OptionsEnabled && !Busy && Completed < 100) Completed += 25; }
+        void AddUnits() { if (OptionsEnabled && Units < 30) Units += 0.25; }
+        void Reset() {
+            Notifications = true;
+            Sync = global::Xui.Experimental.Portable.CheckState.Indeterminate;
+            CycleMixed = true;
+            OptionsEnabled = true;
+            Busy = false;
+            Completed = 25;
+            Units = 2.5;
+            Draft = "";
+            Changes = 0;
+        }
+    }
+}

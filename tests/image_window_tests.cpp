@@ -9,6 +9,7 @@
 namespace xui {
 struct DrawingTestAccess {
     static void lose() { Drawing::end_result_override_ = D2DERR_RECREATE_TARGET; }
+    static void fail_image_upload() { Drawing::image_result_override_ = E_OUTOFMEMORY; }
 };
 }
 namespace {
@@ -261,8 +262,13 @@ void close_inflight(const std::filesystem::path& directory) {
     if (failure) std::rethrow_exception(failure);
 }
 }
+#include "image_memory_window.inc"
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--memory-only") {
+            image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+            image_memory_window::run(); CoUninitialize(); return 0;
+        }
         check(argc > 1, "Pass a project-local fixture directory");
         const auto directory = std::filesystem::absolute(argv[1]);
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));

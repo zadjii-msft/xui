@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="Package.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Xui.Experimental.Compiler</PackageId>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(XuiCompilerDirectory)\Xui.Generator.dll" Pack="true" PackagePath="analyzers\dotnet\cs" />
+    <None Include="Xui.Experimental.Compiler.targets" Pack="true" PackagePath="build" />
+    <None Include="Xui.Experimental.Assets.targets" Pack="true" PackagePath="build" />
+    <None Include="Xui.Experimental.Fonts.targets" Pack="true" PackagePath="build" />
+    <None Include="..\..\bindings\dotnet\Xui.Declarative.Common.targets" Pack="true" PackagePath="build" />
+  </ItemGroup>
+  <Target Name="ValidateCompilerInput" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('$(XuiCompilerDirectory)\Xui.Generator.dll')" Text="Build Xui.Generator and supply XuiCompilerDirectory, or use scripts\Pack-Portable.ps1." />
+  </Target>
+</Project>

@@ -26,8 +26,7 @@ public sealed class MainActivity : Activity
     {
         base.OnCreate(savedInstanceState);
         dispatcher = new AndroidDispatcher();
-        surface = new FrameLayout(this);
-        surface.SetFitsSystemWindows(true);
+        surface = new InsetSurface(this);
         SetContentView(surface);
         host = new Host(dispatcher);
         try
@@ -109,6 +108,26 @@ public sealed class MainActivity : Activity
             demo = null;
             surface?.Dispose();
             base.OnDestroy();
+        }
+    }
+
+    private sealed class InsetSurface(global::Android.Content.Context context) : FrameLayout(context)
+    {
+        public override WindowInsets? OnApplyWindowInsets(WindowInsets? insets)
+        {
+            if (insets is null) return null;
+            if (OperatingSystem.IsAndroidVersionAtLeast(30))
+            {
+                var padding = insets.GetInsets(WindowInsets.Type.SystemBars() |
+                    WindowInsets.Type.DisplayCutout() | WindowInsets.Type.Ime());
+                SetPadding(padding.Left, padding.Top, padding.Right, padding.Bottom);
+            }
+            else
+            {
+                SetPadding(insets.SystemWindowInsetLeft, insets.SystemWindowInsetTop,
+                    insets.SystemWindowInsetRight, insets.SystemWindowInsetBottom);
+            }
+            return insets;
         }
     }
 }

@@ -18,12 +18,16 @@ public:
     void add(std::shared_ptr<Element> child, std::size_t row, std::size_t column,
         std::size_t row_span = 1, std::size_t column_span = 1);
     Size measure(Size available) override;
+    Size measure_with_context(Size available, LayoutContext context) override;
+    bool supports_axis_constraints() const override { return typeid(*this) == typeid(Grid); }
     void arrange(Rect bounds) override;
+    void arrange_with_context(Rect bounds, LayoutContext context) override;
 protected:
     std::optional<StyleTarget> control_style_target() const override;
 private:
     struct Cell { std::size_t row, column, rows, columns; };
-    std::pair<std::vector<float>, std::vector<float>> sizes(Size available);
+    std::pair<std::vector<float>, std::vector<float>> sizes(Size available, LayoutContext context);
+    void arrange_cells(Rect bounds, LayoutContext context);
     std::vector<GridTrack> rows_{{}}, columns_{{}};
     std::vector<Cell> cells_;
     Insets padding_{};
