@@ -304,6 +304,8 @@ An explicit full-source index also supplies that containment contract.
 Without a containment proof, a large selection from another snapshot has a conservative mixed summary.
 Individual membership remains exact.
 UIA Selection returns at most 256 identities. Larger or uncounted selections return `UIA_E_INVALIDOPERATION`, not a truncated selected array.
+The C++ `selected_keys(index, limit)` helper returns sorted, unique identities from the supplied current index, or `std::nullopt` when enumeration exceeds its bound or cannot be counted within it.
+An empty result is distinct from `std::nullopt`; source exceptions propagate.
 UIA clients can use ItemContainer, SelectionItem, and VirtualizedItem to inspect or reveal individual items.
 The fragment tree contains visible rows and required tree ancestors, not every source row.
 

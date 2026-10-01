@@ -1,39 +1,43 @@
 #include "xui/adaptive_layout.hpp"
 #include "layout_styling.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numeric>
+#include <span>
 #include <stdexcept>
 
 namespace xui {
 namespace {
 void positive(float value) { if (!std::isfinite(value) || value < 0) throw std::invalid_argument("Layout size must be finite and nonnegative"); }
 void padding_valid(Insets p) { for (auto v : {p.left, p.top, p.right, p.bottom}) positive(v); }
-float sum(const std::vector<float>& values, std::size_t first, std::size_t count, float gap) {
+float sum(std::span<const float> values, std::size_t first, std::size_t count, float gap) {
     return std::accumulate(values.begin() + first, values.begin() + first + count, 0.0f) + gap * (count - 1);
 }
-std::vector<float> tracks(const std::vector<GridTrack>& definitions, const std::vector<float>& desired, float available, float gap) {
-    std::vector<float> result; float used = gap * (definitions.size() - 1), weight{};
+void tracks(const std::vector<GridTrack>& definitions, std::span<float> sizes, float available, float gap) {
+    float used = gap * (definitions.size() - 1), weight{};
     for (std::size_t i = 0; i < definitions.size(); ++i) {
         const auto& t = definitions[i];
-        result.push_back(std::clamp(t.sizing == TrackSizing::fixed ? t.value :
-            t.sizing == TrackSizing::automatic ? desired[i] : t.minimum, t.minimum, t.maximum));
-        used += result.back(); if (t.sizing == TrackSizing::star) weight += t.value;
+        sizes[i] = std::clamp(t.sizing == TrackSizing::fixed ? t.value :
+            t.sizing == TrackSizing::automatic ? sizes[i] : t.minimum, t.minimum, t.maximum);
+        used += sizes[i]; if (t.sizing == TrackSizing::star) weight += t.value;
     }
     float remaining = std::max(0.0f, available - used);
     // Saturated tracks return their remaining share to the other star tracks.
     for (std::size_t pass = 0; pass < definitions.size() && weight > 0 && remaining > 0.01f; ++pass) {
         float consumed{}, next_weight{};
         for (std::size_t i = 0; i < definitions.size(); ++i) {
-            const auto& t = definitions[i]; if (t.sizing != TrackSizing::star || result[i] >= t.maximum) continue;
-            const auto add = std::min(t.maximum - result[i], remaining * t.value / weight);
-            result[i] += add; consumed += add; if (result[i] < t.maximum) next_weight += t.value;
+            const auto& t = definitions[i]; if (t.sizing != TrackSizing::star || sizes[i] >= t.maximum) continue;
+            const auto add = std::min(t.maximum - sizes[i], remaining * t.value / weight);
+            sizes[i] += add; consumed += add; if (sizes[i] < t.maximum) next_weight += t.value;
         }
         remaining -= consumed; weight = next_weight;
     }
-    return result;
 }
 }
+struct Grid::TrackSizes {
+    std::array<float, maximum_tracks> rows{}, columns{};
+};
 Grid::Grid() : Stack(Axis::vertical) { set_auto_size(true); }
 std::optional<StyleTarget> Grid::control_style_target() const { return StyleTarget::grid; }
 Insets Grid::layout_insets() const {
@@ -51,7 +55,7 @@ float Grid::vertical_gap() const {
 }
 void Grid::set_tracks(std::vector<GridTrack> rows, std::vector<GridTrack> columns) {
     for (const auto* list : {&rows, &columns}) {
-        if (list->empty() || list->size() > 256) throw std::invalid_argument("Grid requires 1 to 256 tracks");
+        if (list->empty() || list->size() > maximum_tracks) throw std::invalid_argument("Grid requires 1 to 256 tracks");
         for (const auto& t : *list) {
             positive(t.value); positive(t.minimum); positive(t.maximum);
             if (t.minimum > t.maximum || (t.sizing == TrackSizing::star && t.value == 0)) throw std::invalid_argument("Invalid grid track");
@@ -75,31 +79,34 @@ void Grid::add(std::shared_ptr<Element> child, std::size_t row, std::size_t colu
     cells_.reserve(cells_.size() + 1);
     Stack::add(std::move(child)); cells_.push_back({row, column, row_span, column_span});
 }
-std::pair<std::vector<float>, std::vector<float>> Grid::sizes(Size available) {
+Grid::TrackSizes Grid::sizes(Size available) {
     const auto padding = layout_insets();
     const auto column_gap = horizontal_gap(), row_gap = vertical_gap();
     available.width = std::max(0.0f, available.width - padding.left - padding.right);
     available.height = std::max(0.0f, available.height - padding.top - padding.bottom);
-    std::vector<float> rw(rows_.size()), cw(columns_.size());
+    TrackSizes result;
     for (std::size_t i = 0; i < cells_.size(); ++i) {
         const auto m = child_at(i)->measure(available); const auto& c = cells_[i];
-        for (auto col = c.column; col < c.column + c.columns; ++col) cw[col] = std::max(cw[col], (m.width - column_gap * (c.columns - 1)) / c.columns);
+        for (auto col = c.column; col < c.column + c.columns; ++col)
+            result.columns[col] = std::max(result.columns[col], (m.width - column_gap * (c.columns - 1)) / c.columns);
     }
-    auto columns = tracks(columns_, cw, available.width, column_gap);
+    tracks(columns_, result.columns, available.width, column_gap);
     for (std::size_t i = 0; i < cells_.size(); ++i) {
         const auto& c = cells_[i];
-        const auto m = child_at(i)->measure({sum(columns, c.column, c.columns, column_gap), available.height});
-        for (auto row = c.row; row < c.row + c.rows; ++row) rw[row] = std::max(rw[row], (m.height - row_gap * (c.rows - 1)) / c.rows);
+        const auto m = child_at(i)->measure({sum(result.columns, c.column, c.columns, column_gap), available.height});
+        for (auto row = c.row; row < c.row + c.rows; ++row)
+            result.rows[row] = std::max(result.rows[row], (m.height - row_gap * (c.rows - 1)) / c.rows);
     }
-    return {tracks(rows_, rw, available.height, row_gap), std::move(columns)};
+    tracks(rows_, result.rows, available.height, row_gap);
+    return result;
 }
 Size Grid::measure(Size available) {
     const auto padding = layout_insets();
     const auto column_gap = horizontal_gap(), row_gap = vertical_gap();
     if (!auto_size()) return Element::measure(available);
     auto [rows, columns] = sizes(available);
-    return constrain({sum(columns, 0, columns.size(), column_gap) + padding.left + padding.right,
-        sum(rows, 0, rows.size(), row_gap) + padding.top + padding.bottom}, available);
+    return constrain({sum(columns, 0, columns_.size(), column_gap) + padding.left + padding.right,
+        sum(rows, 0, rows_.size(), row_gap) + padding.top + padding.bottom}, available);
 }
 void Grid::arrange(Rect value) {
     const auto padding = layout_insets();

@@ -1213,6 +1213,48 @@ The basic and navigation rendering executables also passed their DirectWrite and
 The native DLL built from the same final sources.
 The local build log is `build\performance\clean-integrated-build.log`.
 
+### Layout and selection allocation pass, October 1, 2026
+
+The baseline was `ec34a2d8b952b37f5e0ce691cfa9968774b5887d` with the added allocation harness.
+The working-tree build used Windows x64, MSVC 19.44.35207, and Release configuration in `build\x64`.
+The [contributor procedure](../../CONTRIBUTING.md#performance-regression-checks) contains the commands.
+Three sequential baseline/optimized pairs ran after the builds stopped, with no concurrent tests from this session.
+Elapsed times below are medians across those three runs; deterministic allocation counts are the regression gates.
+
+| Workload | Allocations before / after | Requested bytes before / after | Median ms before / after |
+| --- | ---: | ---: | ---: |
+| Unstyled 8-by-8 Grid, 10,000 measure/arrange pairs | 280,000 / 0 | 5,280,000 / 0 | 50.341 / 40.980 |
+| Styled 8-by-8 Grid, 10,000 measure/arrange pairs | 280,000 / 0 | 5,280,000 / 0 | 79.399 / 65.016 |
+| Enumerate 32 selected keys, 100 calls | 3,400 / 100 | 209,600 / 51,200 | 0.226 / 0.101 |
+| Enumerate 256 selected keys, 100 calls | 25,800 / 100 | 1,647,100 / 413,500 | 2.844 / 0.691 |
+| Enumerate 4,096 selected keys with an explicit larger limit, 100 calls | 409,800 / 2,200 | 26,223,100 / 25,938,400 | 44.665 / 22.136 |
+| Grid replacement selection, 20,000 changed identities | 20,000 / 0 | 1,600,000 / 0 | 1.414 / 0.806 |
+| Grid focus-only selection, 129 retained terms, 20,000 changed identities | 20,000 / 0 | 207,180,000 / 0 | 13.055 / 0.647 |
+
+The allocation probe counts calls and bytes requested through the executable's C++ `operator new`.
+These bytes are cumulative allocation traffic, not retained memory, process working set, or GPU memory.
+MSVC's large-vector alignment overhead is included.
+Grid uses 2 KiB of call-local track arrays instead of heap scratch vectors; small-source enumeration uses a 4 KiB local key buffer.
+Neither change adds a retained per-control cache.
+Grid still measures each child four times per unstyled pair and five times per styled pair.
+Selection output remains sorted, unique, and limited to the current identity domain.
+Larger-source term enumeration, cancellation, native input, and source ownership are unchanged.
+These microbenchmarks do not establish an application-wide frame-rate improvement.
+
+Six focused CTest fixtures passed: layout performance, collections, style layouts, style grid, collection presentation, and Miller columns.
+New checks include reentrant measurement/arrangement, measurement failures, 256-track boundaries, spans, sparse and empty enumeration, source exceptions, and same-focus/reentrant callback behavior.
+The native DLL built from the same sources.
+`xui_style_grid_tests --desktop` also passed its native grid/chart pixel and provider checks.
+
+Two broader native executables did not pass in this environment.
+`xui_style_layouts_window_tests` reported an authored-border pixel mismatch at `(15,446)` (`0x80b6d6` versus `0xabcdef`).
+`xui_collections_window_tests` failed the popup-peer retirement assertion and isolated UIA client, after its native/UIA collection matrix reported success.
+Both failures reproduced with the unchanged baseline versions of all three modified source files, compiled against archived baseline headers and relinked into the same native fixtures.
+They are not claimed as passing integration coverage, and their unrelated behavior was not changed.
+A separate `--miller-only` run also failed, at hover suppression during captured input; the baseline failed at a fractional-scroll separator pixel in the same Classic/dark/120-DPI matrix segment.
+That mode is not accepted as passing native coverage, nor does the different baseline assertion prove that specific hover failure is unrelated.
+Session-local evidence is `performance-comparison-final.txt`, `native-baseline-results.txt`, and `native-miller-baseline-results.txt` in the session artifacts directory.
+
 ### Binding validation and measurement scope
 
 The C test compiles the public header as C11 and checks layouts, imports, version discovery, and lifecycle.

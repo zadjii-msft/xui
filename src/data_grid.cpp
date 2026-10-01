@@ -225,14 +225,14 @@ bool DataGrid::select(RowKey key, bool reveal) {
 bool DataGrid::select(RowKey key, SelectionGesture gesture, bool reveal) {
     if (!enabled() || !source_ || !source_->find(key)) return false;
     if (file_press_key_ && file_press_key_ != key) end_file_press(false);
-    const auto before = selection_;
     const bool changed = selected_ != key;
+    const auto before = changed ? std::nullopt : std::optional{selection_};
     selected_ = key;
     selection_.select(source_, key, gesture);
     header_focus_ = false;
     if (reveal) reveal_selection();
     invalidate(Invalidation::paint);
-    if ((changed || !(before == selection_)) && select_callback_) { auto callback = select_callback_; callback(); }
+    if ((changed || !(*before == selection_)) && select_callback_) { auto callback = select_callback_; callback(); }
     return true;
 }
 void DataGrid::clear_selection() {

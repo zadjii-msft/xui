@@ -1,5 +1,6 @@
 #include "xui/core.hpp"
 #include "xui/control_styling.hpp"
+#include "xui/adaptive_layout.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -11,9 +12,11 @@
 
 namespace {
 std::atomic<std::size_t> allocations{};
+std::atomic<std::size_t> allocated_bytes{};
 }
 void* operator new(std::size_t size) {
     allocations.fetch_add(1, std::memory_order_relaxed);
+    allocated_bytes.fetch_add(size, std::memory_order_relaxed);
     if (auto memory = std::malloc(size ? size : 1)) return memory;
     throw std::bad_alloc{};
 }
@@ -186,14 +189,119 @@ void cross_alignment() {
         }
     }
 }
+
+void repeated_grid(bool styled, bool benchmark) {
+    xui::Grid root;
+    std::vector<xui::GridTrack> tracks(8);
+    tracks[0] = {xui::TrackSizing::fixed, 24};
+    tracks[1] = {xui::TrackSizing::automatic};
+    tracks[2].maximum = 40;
+    root.set_tracks(tracks, tracks);
+    root.set_gap(2, 3);
+    root.set_padding({3, 4, 5, 6});
+    if (styled) {
+        xui::PartStyleValues style;
+        style.horizontal_alignment = xui::StyleAlignment::center;
+        style.vertical_alignment = xui::StyleAlignment::end;
+        root.set_control_style_values(xui::StylePart::root, style);
+    }
+    std::shared_ptr<Probe> first;
+    for (std::size_t row = 0; row < 8; ++row) {
+        for (std::size_t column = 0; column < 8; ++column) {
+            auto child = std::make_shared<Probe>();
+            child->set_preferred_size({12, 16});
+            if (!first) first = child;
+            root.add(std::move(child), row, column);
+        }
+    }
+    const auto layout = [&](int frame) {
+        const auto width = 640.0f + frame % 31;
+        const auto height = 480.0f + frame % 17;
+        const auto measured = root.measure({width, height});
+        close(measured.width, width, "Grid star tracks fill measured width");
+        close(measured.height, height, "Grid star tracks fill measured height");
+        root.arrange({7, 9, width, height});
+    };
+    layout(0);
+    const auto calls = first->measurements;
+    const auto before = allocations.load(), bytes_before = allocated_bytes.load();
+    const auto start = std::chrono::steady_clock::now();
+    constexpr int frames = 10000;
+    for (int frame = 0; frame < frames; ++frame) layout(frame);
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+    const auto allocated = allocations.load() - before, bytes = allocated_bytes.load() - bytes_before;
+    if (!benchmark) require(allocated == 0, "Grid layout must not allocate track buffers");
+    require(first->measurements == calls + frames * (styled ? 5 : 4),
+        "Track storage changes must preserve each child measurement");
+    close(first->bounds().x, styled ? 16.0f : 10.0f, "Grid preserves horizontal alignment");
+    close(first->bounds().y, styled ? 21.0f : 13.0f, "Grid preserves vertical alignment");
+    std::cout << "grid styled=" << styled << " frames=" << frames << " allocations=" << allocated
+        << " allocated_bytes=" << bytes << " elapsed_ms=" << elapsed << '\n';
 }
 
-int main() {
+void grid_track_lifetime() {
+    xui::Grid root;
+    root.set_tracks({{xui::TrackSizing::automatic}}, {{xui::TrackSizing::automatic}, {xui::TrackSizing::star}});
+    auto first = std::make_shared<Probe>();
+    auto second = std::make_shared<Probe>();
+    first->set_preferred_size({20, 10});
+    second->set_preferred_size({30, 10});
+    root.add(first, 0, 0);
+    root.add(second, 0, 1);
+    bool entered{};
+    first->measuring = [&] {
+        if (entered) return;
+        entered = true;
+        close(root.measure({5, 5}).width, 5, "Reentrant Grid measurement keeps its constraints");
+        entered = false;
+    };
+    root.arrange({0, 0, 100, 40});
+    close(second->bounds().x, 20, "Reentrant Grid measurement preserves pending track sizes");
+    close(second->bounds().width, 80, "Grid star track retains remaining width");
+    first->measuring = {};
+    first->arranging = [&] { root.measure({5, 5}); };
+    root.arrange({0, 0, 100, 40});
+    close(second->bounds().x, 20, "Reentrant Grid arrangement preserves pending tracks");
+    first->arranging = {};
+    second->fail = true;
+    bool threw{};
+    try { root.measure({100, 40}); } catch (const std::runtime_error&) { threw = true; }
+    require(threw, "Grid measurement errors propagate");
+    second->fail = false;
+    first->set_preferred_size({35, 15});
+    root.arrange({0, 0, 100, 40});
+    close(second->bounds().x, 35, "Grid recomputes sizes after measurement failure and child changes");
+    close(second->bounds().height, 15, "Grid recomputes automatic row heights");
+
+    root.set_tracks(std::vector<xui::GridTrack>(256), std::vector<xui::GridTrack>(256));
+    auto last = std::make_shared<Probe>();
+    root.add(last, 254, 254, 2, 2);
+    root.set_gap(1, 1);
+    root.arrange({0, 0, 511, 511});
+    close(last->bounds().x, 508, "Maximum Grid track count keeps the final column");
+    close(last->bounds().y, 508, "Maximum Grid track count keeps the final row");
+    close(last->bounds().width, 3, "Column spans include the interior gap");
+    close(last->bounds().height, 3, "Row spans include the interior gap");
+    threw = false;
+    try { root.set_tracks(std::vector<xui::GridTrack>(257), {{}}); }
+    catch (const std::invalid_argument&) { threw = true; }
+    require(threw, "Grid rejects track counts beyond its bounded storage");
+    root.arrange({0, 0, 511, 511});
+    close(last->bounds().width, 3, "Rejected track changes preserve the prior layout");
+}
+}
+
+int main(int argc, char** argv) {
     try {
+        const bool benchmark = argc > 1 && std::string_view(argv[1]) == "--benchmark";
         repeated_layout(false);
         repeated_layout(true);
+        repeated_grid(false, benchmark);
+        repeated_grid(true, benchmark);
         scratch_lifetime();
         cross_alignment();
+        grid_track_lifetime();
         std::cout << "Layout performance tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

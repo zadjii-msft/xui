@@ -1,6 +1,7 @@
 #include "xui/collections.hpp"
 #include "collection_presentation.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <climits>
 #include <stdexcept>
@@ -179,11 +180,31 @@ bool CollectionSelection::operator==(const CollectionSelection& other) const {
     return true;
 }
 std::optional<std::vector<ItemKey>> CollectionSelection::selected_keys(const std::shared_ptr<const CollectionIndex>& index, std::size_t limit) const {
-    std::set<ItemKey> keys;
     if (!index) return std::vector<ItemKey>{};
     if (index->size() <= limit) {
-        for (std::size_t i = 0; i < index->size(); ++i) if (contains(index->key(i))) keys.insert(index->key(i));
-    } else for (const auto& term : terms_) {
+        // The default automation limit fits locally; allocate only the returned keys.
+        std::array<ItemKey, 256> buffered;
+        if (index->size() <= buffered.size()) {
+            std::size_t count{};
+            for (std::size_t i = 0; i < index->size(); ++i) {
+                const auto key = index->key(i);
+                if (contains(key)) buffered[count++] = key;
+            }
+            const auto end = buffered.begin() + count;
+            std::sort(buffered.begin(), end);
+            return std::vector<ItemKey>(buffered.begin(), std::unique(buffered.begin(), end));
+        }
+        std::vector<ItemKey> keys;
+        for (std::size_t i = 0; i < index->size(); ++i) {
+            const auto key = index->key(i);
+            if (contains(key)) keys.push_back(key);
+        }
+        std::sort(keys.begin(), keys.end());
+        keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+        return keys;
+    }
+    std::set<ItemKey> keys;
+    for (const auto& term : terms_) {
         if (!term.selected) continue;
         if (!term.index) {
             if (index->find(term.key) && contains(term.key)) keys.insert(term.key);

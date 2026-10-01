@@ -25,6 +25,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
 - [Test coverage and protocols](testing.md): Regression scope, project templates, sample and Designer release checks, fixture behavior, and measurement methods.
 - [Framework performance evidence](testing.md#framework-performance-pass-september-19-2026): Allocation counts, retained cache sizes, and measurement limits.
+- [Layout and selection allocation pass](testing.md#layout-and-selection-allocation-pass-october-1-2026): Grid track buffers, selection enumeration, grid focus changes, and baseline native-test limitations.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.

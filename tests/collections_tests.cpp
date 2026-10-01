@@ -1,6 +1,7 @@
 #include "collections_fixture.hpp"
 #include "xui/adaptive_layout.hpp"
 #include "xui/foundation.hpp"
+#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <new>
@@ -130,6 +131,146 @@ void collection_hot_paths(bool benchmark) {
     view.disclose({9000004095, 1}, true);
     require(view.source()->find({1048575, 1}) == projection->size() - 2,
         "Reopening reconstructs the correct projection offsets");
+}
+
+void selection_enumeration_hot_path(bool benchmark) {
+    for (const std::size_t count : {1, 32, 256, 4096}) {
+        const auto source = std::make_shared<Rows>(count, true);
+        CollectionSelection selection;
+        selection.select_all(source, SelectAllScope::filtered);
+        allocation_probe::calls = allocation_probe::bytes = 0;
+        const auto start = std::chrono::steady_clock::now();
+        allocation_probe::active = true;
+        constexpr std::size_t repeats = 100;
+        for (std::size_t repeat = 0; repeat < repeats; ++repeat) {
+            const auto keys = selection.selected_keys(source, count);
+            require(keys && keys->size() == count && keys->front() == ItemKey{1, 1} &&
+                keys->back() == ItemKey{count, 1} && std::is_sorted(keys->begin(), keys->end()),
+                "Enumeration returns sorted stable keys even for reverse-ordered sources");
+        }
+        allocation_probe::active = false;
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+        if (!benchmark) {
+            require(allocation_probe::calls <= repeats * 24,
+                "Bounded source enumeration must not allocate a tree node for each selected key");
+            if (count <= 256) require(allocation_probe::calls == repeats &&
+                allocation_probe::bytes >= repeats * count * sizeof(ItemKey) &&
+                allocation_probe::bytes <= repeats * (count * sizeof(ItemKey) + 64),
+                "Automation-sized enumeration allocates only returned keys and allocator alignment overhead");
+        }
+        std::cout << "selection_enumeration rows=" << count << " repeats=" << repeats
+            << " allocations=" << allocation_probe::calls << " allocated_bytes=" << allocation_probe::bytes
+            << " elapsed_ms=" << elapsed << '\n';
+    }
+}
+
+void selection_enumeration_contracts() {
+    const auto source = std::make_shared<Rows>(8, true);
+    CollectionSelection selection;
+    require(selection.selected_keys(source, 8)->empty() && selection.selected_keys(nullptr, 0)->empty(),
+        "Empty selections and absent sources enumerate no keys");
+    selection.select_all(source, SelectAllScope::filtered);
+    selection.range(source, 2, 5, true);
+    selection.set({3, 1}, false);
+    const auto snapshot = selection;
+    const auto keys = selection.selected_keys(source, 8);
+    require(keys && *keys == std::vector<ItemKey>{{1, 1}, {2, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}},
+        "Enumeration preserves overlap, exclusions, and sorted order");
+    require(selection == snapshot, "Enumeration never mutates selection");
+    const auto filtered = std::make_shared<Rows>(4, false, 2);
+    require(selection.selected_keys(filtered, 4) == std::optional{std::vector<ItemKey>{{2, 1}, {4, 1}, {6, 1}, {8, 1}}},
+        "Enumeration uses the current filtered identity domain");
+    selection.clear();
+    selection.set({3, 2}, true);
+    require(selection.selected_keys(source, 8)->empty(), "Recycled identity versions cannot alias");
+    selection.set({4, 1}, true);
+    require(!selection.selected_keys(source, 0) && selection.selected_keys(source, 1)->size() == 1,
+        "Zero and exact enumeration limits retain their large-source behavior");
+    selection.set({5, 1}, true);
+    require(!selection.selected_keys(source, 1), "Enumeration explicitly rejects an exceeded limit");
+    allocation_probe::calls = allocation_probe::bytes = 0;
+    allocation_probe::active = true;
+    const auto sparse = selection.selected_keys(source, 8);
+    allocation_probe::active = false;
+    require(sparse && sparse->size() == 2 && allocation_probe::bytes == 2 * sizeof(ItemKey),
+        "Sparse small-source results allocate for selected keys rather than all rows");
+    selection.clear();
+    allocation_probe::calls = 0;
+    allocation_probe::active = true;
+    const auto empty = selection.selected_keys(source, 8);
+    allocation_probe::active = false;
+    require(empty && empty->empty() && !allocation_probe::calls, "Empty enumeration needs no heap allocation");
+    selection.set({4, 1}, true);
+    class FailingIndex final : public CollectionIndex {
+        std::size_t size() const override { return 1; }
+        ItemKey key(std::size_t) const override { throw std::runtime_error("Injected key failure"); }
+        std::optional<std::size_t> find(ItemKey) const override { return {}; }
+    };
+    const auto before_error = selection;
+    bool threw{};
+    try { selection.selected_keys(std::make_shared<FailingIndex>()); }
+    catch (const std::runtime_error&) { threw = true; }
+    require(threw && selection == before_error, "Source errors propagate without changing selection");
+}
+
+void grid_selection_hot_path(bool benchmark) {
+    const auto source = std::make_shared<Rows>(1000000);
+    DataGrid grid;
+    grid.set_source(source);
+    std::size_t changes{};
+    grid.on_select([&] { ++changes; });
+    for (const auto gesture : {SelectionGesture::replace, SelectionGesture::focus_only}) {
+        CollectionSelection selection;
+        selection.select(source, {1, 1}, SelectionGesture::replace);
+        if (gesture == SelectionGesture::focus_only)
+            for (std::size_t i = 0; i < 128; ++i) selection.range(source, i * 4, i * 4 + 1, true);
+        grid.set_selection(std::move(selection));
+        changes = 0;
+        allocation_probe::calls = allocation_probe::bytes = 0;
+        const auto start = std::chrono::steady_clock::now();
+        allocation_probe::active = true;
+        constexpr std::size_t operations = 20000;
+        for (std::size_t i = 0; i < operations; ++i)
+            require(grid.select({i % 2 + 2, 1}, gesture, false), "Grid focus changes accept valid identities");
+        allocation_probe::active = false;
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+        require(changes == operations && grid.selected() == RowKey{3, 1},
+            "Every changed grid focus publishes the existing selection callback");
+        if (!benchmark) require(allocation_probe::calls == 0,
+            "Changed grid focus must not copy selection history");
+        require(grid.selection().contains(gesture == SelectionGesture::replace ? RowKey{3, 1} : RowKey{1, 1}),
+            "Grid focus-only gestures preserve membership");
+        std::cout << "grid_selection focus_only=" << (gesture == SelectionGesture::focus_only)
+            << " operations=" << operations << " allocations=" << allocation_probe::calls
+            << " allocated_bytes=" << allocation_probe::bytes << " elapsed_ms=" << elapsed << '\n';
+    }
+}
+
+void grid_selection_callbacks() {
+    DataGrid grid;
+    grid.set_source(std::make_shared<Rows>(10));
+    int changes{};
+    grid.on_select([&] { ++changes; });
+    grid.select({1, 1}, false);
+    grid.select({1, 1}, false);
+    require(changes == 1, "Repeated identical replacement remains silent");
+    grid.select({2, 1}, SelectionGesture::toggle, false);
+    grid.select({2, 1}, SelectionGesture::replace, false);
+    require(changes == 3 && !grid.selection().contains({1, 1}),
+        "Same-focus membership changes still notify");
+    grid.select({2, 1}, SelectionGesture::toggle, false);
+    require(changes == 4 && !grid.selection().contains({2, 1}), "Same-focus toggle still notifies");
+    grid.select({2, 1}, SelectionGesture::focus_only, false);
+    require(changes == 4, "Repeated focus-only gesture remains silent");
+    grid.set_invalidator([&](Invalidation) { grid.on_select({}); });
+    grid.select({3, 1}, false);
+    require(changes == 4, "Invalidation may remove the selection callback before dispatch");
+    grid.set_invalidator({});
+    grid.on_select([&] { ++changes; grid.on_select({}); grid.select({4, 1}, false); });
+    grid.select({5, 1}, false);
+    require(changes == 5 && grid.selected() == RowKey{4, 1}, "Selection callbacks support reentrant changes");
 }
 void allocation_contract() {
     const auto measure = [](std::size_t count) {
@@ -487,7 +628,10 @@ int main(int argc, char** argv) {
     try {
         const bool benchmark = argc > 1 && std::string_view(argv[1]) == "--benchmark";
         collection_hot_paths(benchmark);
+        selection_enumeration_hot_path(benchmark);
+        grid_selection_hot_path(benchmark);
         if (benchmark) return 0;
+        selection_enumeration_contracts(); grid_selection_callbacks();
         allocation_contract(); selection_contracts(); items_contracts(); gallery_contracts(); trees(); tree_collapse_notifications(); tree_error_retry_contract(); tree_details_contract(); grids(); layouts(); std::cout << "Collection selection, million-row virtualization, lazy trees, filters, and adaptive layout passed\n";
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

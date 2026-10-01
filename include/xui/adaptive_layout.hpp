@@ -23,7 +23,9 @@ protected:
     std::optional<StyleTarget> control_style_target() const override;
 private:
     struct Cell { std::size_t row, column, rows, columns; };
-    std::pair<std::vector<float>, std::vector<float>> sizes(Size available);
+    static constexpr std::size_t maximum_tracks = 256;
+    struct TrackSizes;
+    TrackSizes sizes(Size available);
     std::vector<GridTrack> rows_{{}}, columns_{{}};
     std::vector<Cell> cells_;
     Insets padding_{};

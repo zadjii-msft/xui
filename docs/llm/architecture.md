@@ -216,6 +216,12 @@ Each pass still measures children against the current constraints.
 Retained capacity depends on the largest child count, not the number of frames.
 Cross-axis alignment reads the selected alignment directly instead of copying a complete `PartStyleValues` for each child.
 
+Grid track sizing uses two call-local arrays bounded by the existing 256-track-per-axis limit.
+Each array starts with desired sizes and is resolved in place to fixed, automatic, or star allocations.
+This removes the temporary desired/result vectors without caching measurements or adding retained storage to a Grid.
+The arrays contain 2 KiB of floats per active sizing result; nested and reentrant passes have independent storage.
+Child measurement order, star saturation, spans, gaps, and alignment are unchanged.
+
 `Window::Impl::paint` submits visible peers and captures native control pixels into the shared frame.
 Complete native capture preserves text, selection, scrolling, and popup composition.
 Tree collection, peer synchronization, and native capture remain profiling candidates for large forms.
@@ -250,6 +256,17 @@ Consecutive ranges from the same source reuse one source lookup, including range
 A source change resets the reused lookup.
 Each call owns its lookup state, so later calls cannot use stale results.
 Source exceptions still propagate.
+
+`CollectionSelection::selected_keys` buffers matches locally for sources of at most 256 rows, then sorts and deduplicates them before allocating the returned vector.
+Empty results need no heap storage; nonempty results allocate only for the selected keys, plus allocator overhead.
+Larger sources within the caller's enumeration limit use a vector and sort, not per-key tree nodes.
+Sources exceeding the limit retain the term-based bounded enumeration path and its explicit refusal of uncounted selections.
+Enumeration never retains new data in the source or selection.
+
+`DataGrid::select` snapshots selection history only when the focused identity is unchanged.
+A changed identity already guarantees notification, so copying and comparing the term vector serves no purpose.
+Same-focus gestures retain full equality comparison, including anchors and term structure, rather than substituting a revision counter.
+Invalidation and callback ordering remain unchanged, including callback removal and reentrant selection during dispatch.
 
 ### Opt-in reveal
 
