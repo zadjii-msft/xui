@@ -2,6 +2,7 @@
 #include "../src/drawing.hpp"
 #include "../src/list_peer.hpp"
 #include "../src/control_accessibility.hpp"
+#include "collections_fixture.hpp"
 #include "native_focus_diagnostics.hpp"
 #include <windows.h>
 #include <commctrl.h>
@@ -93,6 +94,139 @@ public:
     }
     unsigned measurements{};
 };
+void precision_scroll_window() {
+    Window window({L"XUI precision scroll", {760, 760}});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_spacing(8);
+    auto list = std::make_shared<FileList>(L"Precise files");
+    auto files = std::make_shared<std::vector<FileItem>>();
+    for (int i = 0; i < 100; ++i)
+        files->push_back({static_cast<ItemId>(i + 1), L"File", L"path", false});
+    list->set_items(std::move(files));
+    list->set_preferred_size({650, 140});
+    root->add(list);
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->add(std::make_shared<TextInput>(L"Wheel edit"));
+    auto nested_content = std::make_shared<Stack>(Axis::vertical);
+    for (int i = 0; i < 20; ++i) nested_content->add(std::make_shared<Label>(L"Nested row"));
+    auto nested = std::make_shared<ScrollView>(nested_content, L"Nested wheel");
+    nested->set_preferred_size({600, 100});
+    content->add(nested);
+    for (int i = 0; i < 30; ++i) content->add(std::make_shared<Label>(L"Outer row"));
+    auto scroll = std::make_shared<ScrollView>(content, L"Precise viewport");
+    scroll->set_preferred_size({650, 140});
+    root->add(scroll);
+    auto items = std::make_shared<ItemsView>(L"Precise items");
+    items->set_items(std::make_shared<collections_test::Items>(100));
+    items->set_preferred_size({650, 140});
+    root->add(items);
+    auto grid = std::make_shared<DataGrid>(L"Precise grid");
+    grid->set_columns({{L"First", 650}, {L"Second", 650}});
+    grid->set_source(std::make_shared<collections_test::Rows>(100));
+    grid->set_preferred_size({650, 140});
+    root->add(grid);
+    window.set_content(root);
+    bool completed{};
+    window.post([&] {
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI precision scroll");
+        require(hwnd != nullptr, "Find precision scroll host");
+        const auto list_hwnd = FindWindowExW(hwnd, nullptr, L"Xui.FileList.1", L"Precise files");
+        const auto scroll_hwnd = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Precise viewport");
+        const auto items_hwnd = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Precise items");
+        const auto grid_hwnd = FindWindowExW(hwnd, nullptr, L"Xui.Control.1", L"Precise grid");
+        require(list_hwnd && scroll_hwnd && items_hwnd && grid_hwnd, "All precision scroll peers exist");
+        const auto scroll_content = FindWindowExW(scroll_hwnd, nullptr, L"Xui.ScrollContent.1", nullptr);
+        const auto edit = FindWindowExW(scroll_content, nullptr, L"EDIT", nullptr);
+        const auto nested_hwnd = FindWindowExW(scroll_content, nullptr, L"Xui.Control.1", L"Nested wheel");
+        require(scroll_content && edit && nested_hwnd, "Native edit and nested scroll peers exist");
+        const auto wheel = [](HWND target, int delta, WORD keys = 0, UINT message = WM_MOUSEWHEEL) {
+            SendMessageW(target, message, MAKEWPARAM(keys, static_cast<WORD>(delta)), 0);
+        };
+        const auto approximately = [](double actual, double expected) { return std::abs(actual - expected) < 0.02; };
+        UINT lines{};
+        require(SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0), "Read Windows wheel distance");
+        const double list_notch = lines == WHEEL_PAGESCROLL ?
+            list->content_height() : static_cast<double>(lines) * 16;
+        const double view_notch = lines == WHEEL_PAGESCROLL ?
+            scroll->viewport().height : static_cast<double>(lines) * 16;
+
+        wheel(list_hwnd, -30);
+        require(approximately(list->offset(), list_notch / 4), "FileList moves by a partial notch, not a whole row");
+        for (int i = 0; i < 3; ++i) wheel(list_hwnd, -30);
+        require(approximately(list->offset(), list_notch), "Four partial FileList wheels equal one full notch");
+        list->scroll_to(0); wheel(list_hwnd, -120);
+        require(approximately(list->offset(), list_notch), "Full FileList notch preserves the configured distance");
+        if (lines == 3) require(std::fmod(list->offset(), list->row_height()) != 0,
+            "A standard mouse-wheel notch need not land on a FileList row boundary");
+        wheel(list_hwnd, 30);
+        require(approximately(list->offset(), list_notch * 0.75), "FileList reverse wheel moves immediately");
+        list->set_enabled(false); wheel(list_hwnd, -30);
+        require(approximately(list->offset(), list_notch * 0.75), "Disabled FileList ignores partial wheels");
+        list->set_enabled(true); list->scroll_to(0); wheel(list_hwnd, -1);
+        require(approximately(list->offset(), list_notch / WHEEL_DELTA),
+            "FileList accepts one wheel unit without waiting for a notch");
+
+        wheel(edit, -30);
+        require(approximately(scroll->offset(), view_notch / 4), "Wheel over native EDIT scrolls by a partial notch");
+        for (int i = 0; i < 3; ++i) wheel(scroll_hwnd, -30);
+        require(approximately(scroll->offset(), view_notch), "Four partial viewport wheels equal one full notch");
+        scroll->set_offset(0); wheel(scroll_hwnd, -120);
+        require(approximately(scroll->offset(), view_notch), "Full viewport notch preserves Windows wheel settings");
+        scroll->set_offset(0);
+        nested->set_offset(nested->maximum_offset());
+        wheel(nested_hwnd, -30);
+        require(approximately(nested->offset(), nested->maximum_offset()) && approximately(scroll->offset(), view_notch / 4),
+            "Partial wheel at a nested endpoint scrolls the outer viewport");
+        scroll->set_enabled(false); wheel(scroll_hwnd, -30);
+        require(approximately(scroll->offset(), view_notch / 4), "Disabled viewport ignores partial wheels");
+        scroll->set_enabled(true); scroll->set_offset(0); wheel(scroll_hwnd, -1);
+        require(approximately(scroll->offset(), view_notch / WHEEL_DELTA),
+            "Viewport accepts one wheel unit without waiting for a notch");
+
+        const double items_notch = lines == WHEEL_PAGESCROLL ?
+            items->content_viewport().height : static_cast<double>(lines) * 16;
+        wheel(items_hwnd, -30);
+        require(approximately(items->offset(), items_notch / 4), "Virtual collection scrolls within an item");
+        for (int i = 0; i < 3; ++i) wheel(items_hwnd, -30);
+        require(approximately(items->offset(), items_notch), "Virtual collection accumulates partial wheel movement");
+        items->set_offset(0); wheel(items_hwnd, -120);
+        require(approximately(items->offset(), items_notch), "Full collection notch uses Windows wheel lines");
+        if (lines == 3) require(items->offset() < items->item_size().height,
+            "A standard mouse-wheel notch can stop inside a collection item");
+
+        const double grid_notch = lines == WHEEL_PAGESCROLL ?
+            grid->viewport_height() : static_cast<double>(lines) * 16;
+        wheel(grid_hwnd, -30);
+        require(approximately(grid->offset(), grid_notch / 4), "Grid scrolls within a row");
+        grid->set_offset(0, 0); wheel(grid_hwnd, -120);
+        require(approximately(grid->offset(), grid_notch), "Full grid notch uses Windows wheel lines");
+        if (lines == 3) require(std::fmod(grid->offset(), grid->effective_row_height()) != 0,
+            "A standard mouse-wheel notch need not land on a grid row boundary");
+        grid->set_offset(0, 0); wheel(grid_hwnd, -30, MK_SHIFT);
+        require(approximately(grid->horizontal_offset(), 24) && approximately(grid->offset(), 0),
+            "Shift+partial wheel scrolls the grid horizontally only");
+        wheel(grid_hwnd, 30, MK_SHIFT);
+        require(approximately(grid->horizontal_offset(), 0), "Reverse Shift+wheel immediately reverses horizontal scroll");
+        wheel(grid_hwnd, 30, 0, WM_MOUSEHWHEEL);
+        require(approximately(grid->horizontal_offset(), 24), "Horizontal precision wheel remains continuous");
+
+        window.set_presentation("Segoe UI", 14, true, true);
+        SendMessageW(hwnd, WM_APP + 12, 0, 0);
+        items->set_offset(0); grid->set_offset(0, 0);
+        wheel(items_hwnd, -1); wheel(grid_hwnd, -1);
+        require(approximately(items->offset(), items_notch / WHEEL_DELTA) &&
+            approximately(grid->offset(), grid_notch / WHEEL_DELTA),
+            "Partial wheels update immediately even with smooth scrolling enabled");
+        items->set_offset(0); wheel(items_hwnd, -120); wheel(items_hwnd, -30);
+        require(approximately(items->offset(), items_notch * 1.25),
+            "A partial wheel after an animated notch preserves the combined distance");
+        completed = true;
+        window.close();
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << L'\n';
+    require(result == 0 && completed, "Precision wheel checks complete");
+}
 struct NativeMoveCounter {
     explicit NativeMoveCounter(HWND value) : window(value) {
         require(SetWindowSubclass(window, procedure, 91, reinterpret_cast<DWORD_PTR>(this)) != FALSE, "Observe owned editor placement");
@@ -626,6 +760,10 @@ int main(int argc, char** argv) {
     if (FAILED(initialized)) return 1;
     struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
     try {
+        if (argc > 1 && std::string_view(argv[1]) == "--precision-only") {
+            precision_scroll_window();
+            return 0;
+        }
         retained_scroll_window();
         if (argc > 1 && std::string_view(argv[1]) == "--retained-only") return 0;
         AutomationRunner runner;

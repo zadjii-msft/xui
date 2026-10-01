@@ -114,6 +114,19 @@ XUI_API xui_status XUI_CALL xui_application_post(xui_handle application,
 XUI_API xui_status XUI_CALL xui_application_destroy(xui_handle application) XUI_NOEXCEPT;
 /* State: created=0, open=1, closing=2, closed=3. Closed event kind is 100. */
 XUI_API xui_status XUI_CALL xui_window_state(xui_handle window, uint32_t* state) XUI_NOEXCEPT;
+/* Borrowed Windows HWND, valid only on the creating UI thread while the window is open.
+   XUI retains ownership; do not destroy it or replace its window procedure. */
+XUI_API xui_status XUI_CALL xui_window_native_handle(xui_handle window, uintptr_t* hwnd) XUI_NOEXCEPT;
+/* Register before Show/Run. Event kind 101 carries the HWND in value, after
+   CreateWindowEx and before first paint/show. Only Win32 configuration is safe here. */
+XUI_API xui_status XUI_CALL xui_window_native_created(xui_handle window,
+    xui_callback callback, void* context) XUI_NOEXCEPT;
+/* Before Show/Run: a borderless per-pixel-alpha window (0 restores ordinary hosting).
+   Incompatible with the XUI custom title bar. */
+XUI_API xui_status XUI_CALL xui_window_transparent(xui_handle window, uint32_t enabled) XUI_NOEXCEPT;
+/* Client DIPs; set before Show/Run. Reserved for caption dragging, not controls. */
+XUI_API xui_status XUI_CALL xui_window_drag_region(xui_handle window,
+    float x, float y, float width, float height) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_closed(xui_handle window,
     xui_callback callback, void* context) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_window_error(xui_handle window, char* buffer,

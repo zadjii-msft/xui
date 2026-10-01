@@ -873,23 +873,59 @@ void Drawing::symbol(Symbol value, Rect bounds, D2D1_COLOR_F color, float size) 
     target_->SetTextAntialiasMode(antialias);
 }
 
-bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset) {
+bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset, bool transparent) {
     RECT client{};
     win32_require(GetClientRect(window, &client) != 0, "Read window size");
     const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
     if (!size.width || !size.height) return false;
+    if (transparent && (size.width > 4096 || size.height > 4096))
+        throw std::invalid_argument("Transparent windows support at most 4096 physical pixels per edge");
+    if (target_ && (host_window_ != window || static_cast<bool>(layered_target_) != transparent ||
+        (transparent && (layered_size_.width != size.width || layered_size_.height != size.height))))
+        discard();
     if (!target_) {
-        hr_require(factory_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(),
-            D2D1::HwndRenderTargetProperties(window, size), &target_), "Create graphics target");
-        ++live_targets_;
-        hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
+        try {
+            if (transparent) {
+                layered_dc_ = CreateCompatibleDC(nullptr);
+                win32_require(layered_dc_ != nullptr, "Create transparent window context");
+                BITMAPINFO info{};
+                info.bmiHeader = {sizeof(BITMAPINFOHEADER), static_cast<LONG>(size.width),
+                    -static_cast<LONG>(size.height), 1, 32, BI_RGB};
+                void* bits{};
+                layered_bitmap_ = CreateDIBSection(layered_dc_, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+                win32_require(layered_bitmap_ != nullptr, "Create transparent window bitmap");
+                layered_previous_ = SelectObject(layered_dc_, layered_bitmap_);
+                win32_require(layered_previous_ && layered_previous_ != HGDI_ERROR, "Select transparent window bitmap");
+                const auto properties = D2D1::RenderTargetProperties(
+                    D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+                hr_require(factory_->CreateDCRenderTarget(&properties, &layered_target_),
+                    "Create transparent graphics target");
+                layered_size_ = size;
+                target_ = layered_target_;
+            } else {
+                hr_require(factory_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(),
+                    D2D1::HwndRenderTargetProperties(window, size), &hwnd_target_), "Create graphics target");
+                target_ = hwnd_target_;
+            }
+            host_window_ = window;
+            ++live_targets_;
+            hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
+        } catch (...) {
+            discard();
+            throw;
+        }
     } else if (target_->GetPixelSize().width != size.width || target_->GetPixelSize().height != size.height) {
-        const HRESULT result = target_->Resize(size);
+        const HRESULT result = hwnd_target_->Resize(size);
         if (result == D2DERR_RECREATE_TARGET) {
             discard();
-            return begin(window, dpi, background, offset);
+            return begin(window, dpi, background, offset, transparent);
         }
         hr_require(result, "Resize graphics target");
+    }
+    if (transparent) {
+        RECT bounds{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};
+        hr_require(layered_target_->BindDC(layered_dc_, &bounds), "Bind transparent graphics target");
     }
     target_->SetDpi(dpi, dpi);
     target_->BeginDraw();
@@ -908,7 +944,7 @@ bool Drawing::native_windows(std::span<const NativeWindow> windows) {
     for (const auto& entry : windows) {
         RECT bounds{}, clip{};
         win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native buffer bounds");
-        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        MapWindowPoints(entry.window, host_window_, reinterpret_cast<POINT*>(&bounds), 2);
         if (IntersectRect(&clip, &bounds, &entry.clip)) {
             required.width = std::max(required.width, static_cast<UINT32>(clip.right - clip.left));
             required.height = std::max(required.height, static_cast<UINT32>(clip.bottom - clip.top));
@@ -923,7 +959,7 @@ bool Drawing::native_windows(std::span<const NativeWindow> windows) {
     for (const auto& entry : windows) {
         RECT bounds{};
         win32_require(GetClientRect(entry.window, &bounds) != FALSE, "Read native drawing bounds");
-        MapWindowPoints(entry.window, target_->GetHwnd(), reinterpret_cast<POINT*>(&bounds), 2);
+        MapWindowPoints(entry.window, host_window_, reinterpret_cast<POINT*>(&bounds), 2);
         RECT clip{};
         if (!IntersectRect(&clip, &bounds, &entry.clip)) continue;
         const auto width = static_cast<UINT32>(clip.right - clip.left);
@@ -1018,9 +1054,23 @@ bool Drawing::end() {
         return false;
     }
     hr_require(result, "Draw window");
+    if (layered_target_) {
+        RECT bounds{};
+        win32_require(GetWindowRect(host_window_, &bounds) != 0, "Read transparent window position");
+        POINT position{bounds.left, bounds.top}, origin{};
+        SIZE size{static_cast<LONG>(layered_size_.width), static_cast<LONG>(layered_size_.height)};
+        BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        HDC screen = GetDC(nullptr);
+        win32_require(screen != nullptr, "Get desktop context for transparent window");
+        const BOOL presented = UpdateLayeredWindow(host_window_, screen, &position, &size,
+            layered_dc_, &origin, 0, &blend, ULW_ALPHA);
+        const int released = ReleaseDC(nullptr, screen);
+        win32_require(released != 0, "Release desktop context for transparent window");
+        win32_require(presented != 0, "Present transparent window");
+    }
     std::erase_if(scenes_, [](const auto& scene) { return !scene.used; });
     if (scenes_.empty()) scene_stroke_.Reset();
-    if (present_observer_) present_observer_(target_->GetHwnd());
+    if (present_observer_) present_observer_(host_window_);
     return true;
 }
 
@@ -1039,6 +1089,15 @@ void Drawing::discard() {
     native_size_ = {};
     if (target_) --live_targets_;
     target_.Reset();
+    hwnd_target_.Reset();
+    layered_target_.Reset();
+    if (layered_previous_ && layered_previous_ != HGDI_ERROR && layered_dc_)
+        SelectObject(layered_dc_, layered_previous_);
+    if (layered_bitmap_) DeleteObject(std::exchange(layered_bitmap_, nullptr));
+    if (layered_dc_) DeleteDC(std::exchange(layered_dc_, nullptr));
+    layered_previous_ = nullptr;
+    layered_size_ = {};
+    host_window_ = nullptr;
 }
 void Drawing::erase_bitmap(std::size_t index) {
     const auto bytes = bitmaps_[index].bytes;

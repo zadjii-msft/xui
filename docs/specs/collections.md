@@ -21,6 +21,10 @@ The compatibility `selected()` accessor returns the focused row key. `selection(
 A missing or filtered key cannot activate a process. A provider for a missing identity rejects later actions.
 `ScrollIntoView` changes the viewport without selection.
 Column headers expose Invoke for sorting. F6 and arrow keys provide the keyboard equivalent.
+Vertical wheel input moves collections and grids in 16-DIP lines (or pages, per Windows settings),
+including proportional partial notches instead of whole-row steps.
+Shift+wheel moves the grid horizontally by a proportional fraction of 96 DIPs per notch.
+Sub-notch input updates directly even when smooth scrolling is enabled for full notches.
 
 `set_columns` assigns source identities from zero in the supplied order. It resets the display order and widths.
 Column names do not serve as identities. Duplicate names are valid.
@@ -211,7 +215,7 @@ Left and Right move between existing columns. Up and Down move within a column.
 Clicking a column header or empty list space focuses that column without selection or activation callbacks.
 Horizontal wheel input and Shift+wheel scroll the path without changing selection or the active column.
 A bottom scrollbar supports thumb dragging and track paging when the path exceeds the viewport.
-Ordinary wheel input scrolls the current list vertically.
+Ordinary wheel input scrolls the current list vertically, including partial wheel deltas.
 Manual horizontal positions survive layout updates. Column activation and width changes reveal the active column.
 `horizontal_offset`, `maximum_horizontal`, and `set_horizontal_offset` expose the horizontal position in DIPs.
 `scroll_horizontal` applies a relative movement and clamps the result to the available range.

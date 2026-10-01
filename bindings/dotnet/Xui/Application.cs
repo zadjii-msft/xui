@@ -28,10 +28,11 @@ public sealed unsafe class Application : IDisposable
         ObjectDisposedException.ThrowIf(Handle == 0, this);
     }
     public Window CreateWindow(string title = "XUI", float width = 600, float height = 720,
-        Theme theme = Theme.Dark, bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic)
+        Theme theme = Theme.Dark, bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic,
+        bool transparent = false)
     {
         Guard();
-        var window = new Window(this, title, width, height, theme, customTitlebar, visualStyle);
+        var window = new Window(this, title, width, height, theme, customTitlebar, visualStyle, transparent);
         try { windows.Add(window); }
         catch { window.Dispose(); throw; }
         return window;

@@ -13,6 +13,7 @@ internal static class Tests
             if (args is ["--window-drag"]) { WindowDragTests.Run(); return 0; }
             if (args is ["--split-first-visible"]) { SplitVisibilityTests.Run(); return 0; }
             if (args is ["--window-icons"]) { WindowIconTests.Run(); return 0; }
+            if (args is ["--window-native"]) { WindowNativeTests.Run(); return 0; }
             if (args is ["--document-editing"]) { DocumentEditingTests.Run(); return 0; }
             if (args is ["--file-dialogs"]) { FileDialogTests.Run(); return 0; }
             if (args is ["--reveal"]) { RevealTests.Run(); return 0; }

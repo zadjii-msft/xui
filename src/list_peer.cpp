@@ -1,5 +1,6 @@
 #include "list_peer.hpp"
 #include "platform.hpp"
+#include "wheel.hpp"
 #include "context_menu.hpp"
 #include <UIAutomation.h>
 #include <windowsx.h>
@@ -461,13 +462,8 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     }
     case WM_MOUSEWHEEL: {
         if (!IsWindowEnabled(hwnd)) return 0;
-        UINT lines = 3;
-        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-        wheel_delta_ += GET_WHEEL_DELTA_WPARAM(wparam);
-        const int ticks = wheel_delta_ / WHEEL_DELTA;
-        wheel_delta_ %= WHEEL_DELTA;
-        list_->scroll_to(list_->offset() - ticks * (lines == WHEEL_PAGESCROLL ?
-            list_->content_height() : lines * list_->row_height()));
+        list_->scroll_to(static_cast<float>(list_->offset() -
+            vertical_wheel_dips(wparam, list_->content_height())));
         changed();
         return 0;
     }

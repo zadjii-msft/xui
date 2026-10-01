@@ -1,4 +1,5 @@
 #pragma once
+#include <windows.h>
 
 #include "xui/controls.hpp"
 #include "xui/theme.hpp"
@@ -54,6 +55,8 @@ struct WindowOptions {
     // Experimental solid-surface skin. Does not change control behavior or density.
     VisualStyle visual_style = VisualStyle::classic;
     bool show_activated = true;
+    // Borderless per-pixel-alpha top-level window. Cannot use the XUI title bar.
+    bool transparent = false;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -153,6 +156,14 @@ public:
     void set_visual_style(VisualStyle style);
     VisualStyle visual_style() const;
     void set_show_activated(bool value);
+    void set_transparent(bool value);
+    // Borrowed HWND, valid on the UI thread only while the Window is open.
+    HWND native_window() const;
+    // Invoked after HWND creation and before first paint/show. Configure Win32 only;
+    // XUI content and callbacks are not ready yet.
+    void on_native_created(std::function<void(HWND)> callback);
+    // Client DIPs. The designated area is a caption drag target; keep controls out of it.
+    void set_drag_region(Rect region);
     void set_tooltip_style(std::shared_ptr<const ControlStyle> style);
     std::shared_ptr<const ControlStyle> tooltip_style() const;
     void set_tooltip_style_values(StylePart part, PartStyleValues values);

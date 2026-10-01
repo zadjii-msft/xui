@@ -16,8 +16,10 @@ struct DrawingTestAccess {
             D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                 D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
                 96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE),
-            D2D1::HwndRenderTargetProperties(hwnd, D2D1::SizeU(160, 160)), &drawing.target_);
+            D2D1::HwndRenderTargetProperties(hwnd, D2D1::SizeU(160, 160)), &drawing.hwnd_target_);
         collections_test::require(SUCCEEDED(status), "Create presentation software target");
+        drawing.target_ = drawing.hwnd_target_;
+        drawing.host_window_ = hwnd;
         ++Drawing::live_targets_;
         collections_test::require(SUCCEEDED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)),
             "Create presentation brush");
@@ -208,9 +210,16 @@ int main() {
                 "Clearing the compact override restores window typography");
             items->set_offset(0); grid->set_offset(0, 0);
             const auto wheel = MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA));
+            UINT lines{};
+            require(SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0), "Read presentation wheel distance");
+            const double items_distance = lines == WHEEL_PAGESCROLL ?
+                items->content_viewport().height : static_cast<double>(lines) * 16;
+            const double grid_distance = lines == WHEEL_PAGESCROLL ?
+                grid->viewport_height() : static_cast<double>(lines) * 16;
             SendMessageW(item_peer, WM_MOUSEWHEEL, wheel, 0);
             SendMessageW(grid_peer, WM_MOUSEWHEEL, wheel, 0);
-            require(items->offset() == 126 && grid->offset() == 126, "Disabled smooth scrolling is immediate");
+            require(items->offset() == items_distance && grid->offset() == grid_distance,
+                "Disabled smooth scrolling applies the configured wheel distance immediately");
             window->set_theme(ThemeMode::light);
             window->set_presentation("Segoe UI", 16, true, false);
             items->set_offset(0); grid->set_offset(0, 0);
@@ -219,19 +228,22 @@ int main() {
             SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
             SendMessageW(item_peer, WM_MOUSEWHEEL, wheel, 0);
             SendMessageW(grid_peer, WM_MOUSEWHEEL, wheel, 0);
-            if (motion && !(contrast.dwFlags & HCF_HIGHCONTRASTON)) {
+            if (motion && !(contrast.dwFlags & HCF_HIGHCONTRASTON) && items_distance && grid_distance) {
                 require(items->offset() == 0 && grid->offset() == 0, "Smooth wheel input starts without a jump");
                 flush(hwnd);
                 Sleep(40); SendMessageW(hwnd, WM_TIMER, 43, 0);
-                require(items->offset() > 0 && items->offset() < 126 && grid->offset() > 0 && grid->offset() < 126,
+                require(items->offset() > 0 && items->offset() < items_distance &&
+                    grid->offset() > 0 && grid->offset() < grid_distance,
                     "Smooth wheel motion advances through an intermediate offset");
                 Sleep(160); SendMessageW(hwnd, WM_TIMER, 43, 0);
-                require(items->offset() == 126 && grid->offset() == 126, "Smooth wheel motion settles");
-            } else require(items->offset() == 126 && grid->offset() == 126, "Windows reduced motion overrides smooth scrolling");
+                require(items->offset() == items_distance && grid->offset() == grid_distance,
+                    "Smooth wheel motion settles at the configured distance");
+            } else require(items->offset() == items_distance && grid->offset() == grid_distance,
+                "Windows reduced motion or disabled wheel input prevents animated scrolling");
             window->set_theme(ThemeMode::high_contrast);
             items->set_offset(0);
             SendMessageW(item_peer, WM_MOUSEWHEEL, wheel, 0);
-            require(items->offset() == 126, "High contrast disables smooth scrolling");
+            require(items->offset() == items_distance, "High contrast disables smooth scrolling");
             auto future = std::make_shared<MultilineText>(L"Future preview");
             future->set_text(L"Future preview contents");
             future->set_read_only(true);

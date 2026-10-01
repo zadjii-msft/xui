@@ -60,7 +60,6 @@ private:
     std::optional<Point> pointer_;
     bool hover_scrollbar_{}, dragging_{}, tracking_{};
     float drag_offset_{};
-    int wheel_delta_{};
     std::shared_ptr<AccessibilityState> accessibility_{std::make_shared<AccessibilityState>()};
     IRawElementProviderSimple* provider_{};
     const FilteredView* published_{};

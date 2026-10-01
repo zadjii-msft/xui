@@ -33,11 +33,11 @@ public sealed unsafe partial class Window : IDisposable
     internal static readonly UTF8Encoding Encoding = new(false, true);
 
     public Window(string title = "XUI bindings", float width = 600, float height = 720, Theme theme = Theme.Dark,
-        bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic)
-        : this(null, title, width, height, theme, customTitlebar, visualStyle) { }
+        bool customTitlebar = false, VisualStyle visualStyle = VisualStyle.Classic, bool transparent = false)
+        : this(null, title, width, height, theme, customTitlebar, visualStyle, transparent) { }
 
     internal Window(Application? application, string title, float width, float height, Theme theme,
-        bool customTitlebar, VisualStyle visualStyle)
+        bool customTitlebar, VisualStyle visualStyle, bool transparent)
     {
         Application = application;
         if (!Enum.IsDefined(visualStyle)) throw new ArgumentOutOfRangeException(nameof(visualStyle));
@@ -64,6 +64,7 @@ public sealed unsafe partial class Window : IDisposable
         try
         {
             InitializeClosed();
+            if (transparent) SetTransparent(true);
             if (visualStyle != VisualStyle.Classic) SetVisualStyle(visualStyle);
         }
         catch
@@ -177,6 +178,7 @@ public sealed unsafe partial class Window : IDisposable
         foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
         ReleaseIconCallback();
         ReleaseTabDragCallback();
+        ReleaseNativeCreatedCallback();
         Handle = 0;
         if (closedRoot.IsAllocated) closedRoot.Free();
         Closed = null;

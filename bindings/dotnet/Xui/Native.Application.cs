@@ -22,6 +22,14 @@ internal static unsafe partial class Native
     internal static partial int ApplicationPost(ulong application, delegate* unmanaged[Cdecl]<nint, uint, int> callback, nint context);
     [LibraryImport("xui", EntryPoint = "xui_window_state")]
     internal static partial int WindowState(ulong window, out uint state);
+    [LibraryImport("xui", EntryPoint = "xui_window_native_handle")]
+    internal static partial int WindowNativeHandle(ulong window, out nint hwnd);
+    [LibraryImport("xui", EntryPoint = "xui_window_native_created")]
+    internal static partial int WindowNativeCreated(ulong window, delegate* unmanaged[Cdecl]<nint, Event*, int> callback, nint context);
+    [LibraryImport("xui", EntryPoint = "xui_window_transparent")]
+    internal static partial int WindowTransparent(ulong window, uint enabled);
+    [LibraryImport("xui", EntryPoint = "xui_window_drag_region")]
+    internal static partial int WindowDragRegion(ulong window, float x, float y, float width, float height);
     [LibraryImport("xui", EntryPoint = "xui_window_closed")]
     internal static partial int WindowClosed(ulong window, delegate* unmanaged[Cdecl]<nint, Event*, int> callback, nint context);
     [LibraryImport("xui", EntryPoint = "xui_window_error")]

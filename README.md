@@ -84,6 +84,7 @@ The [binding reference](docs/specs/bindings.md#rust-ownership-and-use) includes 
 - **[Control gallery](docs/specs/gallery.md):** Interactive controls with API excerpts and copyable code.
 - **[File explorers](docs/specs/file-explorers.md):** C# and C++ applications with tabs, split panes, and folder navigation.
 - **[Minesweeper](bindings/dotnet/Minesweeper/README.md):** A playable game with declarative layout and C# state.
+- **[Floating C# card](bindings/dotnet/FloatingCard/README.md):** A transparent window with a rounded XUI control surface and native HWND interop.
 - **[Task Manager](docs/specs/task-manager.md):** Live process data, virtual grids, and history charts.
 - **[Thumbnails](docs/specs/thumbnail-sample.md):** Asynchronous images with a fixed pool of reusable tiles.
 

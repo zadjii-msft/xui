@@ -10,6 +10,27 @@ Rust has no typed wrapper. The host does not implement terminal input or termina
 
 ## Feature bindings (1.1 extension)
 
+### Native HWND and floating windows
+
+`Window.NativeHwnd` returns a borrowed `nint` for the actual top-level HWND after `Application.Show(window)` and before it closes.
+Before Show it throws `XuiException` with status `XUI_BUSY`; during or after close it throws `XUI_CLOSED`.
+`Window.Run()` blocks, so set `Window.NativeHwndCreated` before Run (or Show) to configure the HWND before it is visible.
+The callback receives a borrowed `nint` on the UI thread, exactly once. It must use Win32 configuration only, not XUI content APIs. Managed exceptions are preserved as callback failures. Do not destroy or replace XUI's WndProc.
+
+`new Window(..., transparent: true)` and `Application.CreateWindow(..., transparent: true)` opt into a borderless per-pixel-alpha window.
+`SetTransparent(bool)` can change this choice before Show/Run. It is incompatible with `customTitlebar: true`.
+`SetDragRegion(x, y, width, height)` chooses a caption-drag area in client DIPs before Show/Run.
+XUI continues to own its native controls and text editor; unpainted outer pixels pass through to other windows.
+The software layered buffer is limited to 4,096 physical pixels per edge.
+High contrast replaces transparent clear with a solid system-color background.
+It does not supply blur, acrylic, or a compositor drop shadow.
+Use the [floating-card sample](../../bindings/dotnet/FloatingCard/README.md) for a complete C# application and a transparency smoke check.
+
+The additive C ABI functions are `xui_window_native_handle` (borrowed `uintptr_t`),
+`xui_window_native_created` (event kind 101 with the HWND in `value`),
+`xui_window_transparent`, and `xui_window_drag_region`.
+They keep the opaque `xui_handle` identity separate from the Win32 HWND.
+
 ### Window presentation
 
 C# `Window.SetPresentation(fontFamily, fontSize, smoothScrolling, animations)` applies typography to current and future controls in that window.

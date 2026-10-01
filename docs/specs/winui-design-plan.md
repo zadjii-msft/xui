@@ -438,7 +438,7 @@ The documented `DWM_SYSTEMBACKDROP_TYPE` API supports Windows 11 build 22621 and
 These correspond to Mica, Mica Alt, and Desktop Acrylic on Windows 11.
 Their documented minimum differs from the minimum for Windows App SDK material controllers.
 
-The current opaque HWND target can cover the system backdrop.
+The default opaque HWND target can cover the system backdrop; the opt-in transparent layered window is a separate software presentation path, not Mica.
 Its child-background fills can also hide layered surfaces.
 Therefore, a successful `DwmSetWindowAttribute` call is not proof of visible Mica.
 

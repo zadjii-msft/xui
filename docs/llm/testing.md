@@ -1048,6 +1048,9 @@ This prevents stale factory references between separate `Application::run` calls
 It also covers injected text metrics, cached measurement, fixed and automatic sizes, size limits, unbounded flex measurement, scroll reveal, and content ownership.
 `xui_scroll_tests` covers DirectWrite measurements, narrow windows, native viewport clipping, UIA bounds, offscreen state, native keyboard input, and focus reveal.
 It also covers wheel input over EDIT, thumb drag, keyboard scrolling, disabled descendants, nested Stacks, and an embedded FileList.
+`xui_precision_scroll_tests` (`xui_scroll_tests --precision-only`) checks fractional and full-notch wheel
+distances for FileList, ScrollView (including native EDIT and nested endpoints), virtual collections,
+and DataGrid, including Shift/horizontal input, disabled peers, and smooth-scrolling opt-in.
 Eight window cycles exercise dark, light, explicit high-contrast colors, and 96/120/144/192-DPI messages without changes to Windows settings.
 Repeated paints and scrolling must reuse the cached text layouts and the single render target.
 The tests compare native text-pattern support with an unmodified EDIT provider.

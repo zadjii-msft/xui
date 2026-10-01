@@ -20,6 +20,14 @@ The host draws captions in the retained frame. Their STATIC HWNDs supply accessi
 The host clips each custom control and uses pixel-rounded bounds at the current DPI.
 Window closure releases graphics resources before the COM runtime stops, even if the caller retains the closed `Window`.
 
+Optional transparent top-level windows are configured before Show/Run in `WindowOptions` and `src\application.cpp`.
+Only they use a layered `WS_POPUP` host and `src\drawing.cpp`'s premultiplied-alpha Direct2D DC target plus `UpdateLayeredWindow`; the ordinary HWND target remains unchanged.
+The native host paints the first layered frame after layout and before `ShowWindow`, so alpha hit testing is correct from first visibility.
+The renderer discards and recreates the layered DIB/DC on resize or device loss, and a 4,096-physical-pixel edge limit bounds the buffer.
+`src\c_api.cpp` separates the borrowed native HWND from the C ABI's registry `xui_handle`.
+`bindings\dotnet\Xui\WindowNative.cs` retains the one-shot pre-show callback and exposes the checked borrowed `nint`.
+`tests\transparent_window_tests.cpp` checks actual premultiplied pixels, resizing, and alpha hit testing; the [C# sample](../../bindings/dotnet/FloatingCard/README.md) checks a painted card's click-through, drag region, and native EDIT.
+
 `include\xui\swap_chain_panel.hpp` defines the Windows-only `SwapChainPanel` interop control.
 `src\native_swap_chain_host.cpp` owns its DirectComposition device, target, visual, and producer reference.
 `src\application.cpp` supplies native peer lifetime, viewport clips, size/DPI notifications, and native-surface popup restrictions.
@@ -186,6 +194,10 @@ Clipped controls skip drawing and native pixel capture.
 Native controls without popup overlap skip occlusion-region allocation.
 
 Wheel dispatch still completes the update synchronously, and the Windows wheel-distance setting stays unchanged.
+`src\wheel.hpp` converts signed deltas to 16-DIP Windows wheel lines (or viewport pages).
+FileList, ScrollView, VirtualCollection, and DataGrid use the same distance instead of row-sized steps.
+The collection wheel animation remains for whole notches, while partial deltas update immediately to
+avoid repeatedly restarting an animation during a trackpad gesture. Scrollbar offsets remain continuous.
 `tests\scroll_tests.cpp --retained-only` covers the native path.
 The FileExplorer `--settings-scroll-smoke` check measures both dispatch and pending paint work with the complete inline settings editor.
 

@@ -53,6 +53,7 @@ Public headers and binding source define the available symbols.
 - [Control gallery](gallery.md)
 - [C# and C++ file explorers](file-explorers.md): Navigation, icon galleries, List, Tree, Details, Columns, commands, and C# file previews.
 - [Minesweeper](../../bindings/dotnet/Minesweeper/README.md)
+- [Floating C# card](../../bindings/dotnet/FloatingCard/README.md): Borderless alpha window with borrowed HWND, drag area, native input, and a pixel/hit-test smoke check.
 - [Task Manager](task-manager.md)
 - [Thumbnail sample](thumbnail-sample.md)
 

@@ -154,6 +154,26 @@ Invalid arguments preserve the existing icons.
 Each window owns its icon handles, replaces their sizes on DPI changes, and releases them on closure.
 Custom title bars retain their own visual controls. The HWND icons supply Windows taskbar and window-switching surfaces.
 
+### Borrowed HWND and transparent windows
+
+The Windows host exposes `Window::native_window()` as a **borrowed** HWND on the creating UI thread while its state is `open`.
+It is not available before `Application::show` or during/after closure, and callers must never destroy it, replace its WndProc, or assume that changing window styles also changes XUI's renderer.
+`Window::on_native_created(callback)` runs once after `CreateWindowExW` and before first paint or `ShowWindow`.
+Register it before Show/Run to configure Win32 attributes without a frame flash. The callback receives the HWND but must not call XUI content or input APIs until the window is open. A callback failure prevents Show/Run and propagates as an error.
+
+`WindowOptions::transparent` (or `Window::set_transparent(true)` before Show/Run) selects a borderless `WS_POPUP | WS_EX_LAYERED` top-level window. It cannot be combined with XUI's custom title bar.
+The opt-in renderer clears to transparent and presents premultiplied-alpha pixels from an offscreen Direct2D DC target using `UpdateLayeredWindow`; normal windows keep their existing HWND renderer.
+The first layered frame is painted before Show so the empty HWND does not briefly intercept input.
+Style an inset `Stack` with an opaque background and rounded corners to make a floating card; unpainted pixels outside it show the desktop and pass pointer hit testing through.
+The layered buffer is capped at 4,096 physical pixels on each edge; exceeding the limit fails explicitly.
+Windows high contrast paints a solid system-color background instead of leaving text over an unpredictable desktop.
+This is a software-rendered per-pixel surface, **not** Mica, acrylic, or a live blur. The sample uses a solid border rather than CmdPal's compositor shadow.
+
+`Window::set_drag_region({x, y, width, height})` marks one client-DIP rectangle as a caption drag target; call it before Show/Run and leave controls out of that rectangle.
+It requires transparent hosting and finite, positive bounds within 16,000 DIPs of the client origin.
+The native parent and its transparent child peers agree on hit testing. XUI still owns child HWNDs, native text editing, focus, accessibility, and teardown.
+The [C# floating-card sample](../../bindings/dotnet/FloatingCard/README.md) exercises the public binding and interop handle.
+
 ### Independent application windows
 
 An instance of `Application` owns one STA message dispatcher.
@@ -217,7 +237,7 @@ There are at most 32 filters. Empty filter names, malformed patterns, device pat
 The caller must use the window's UI thread during its active run.
 The window must be visible and enabled, with no active text composition, popup, file dialog, or content replacement.
 Calls before startup, during native synchronization, or after closure produce errors.
-The existing COM and manifest requirements apply. The API does not expose a native window handle.
+The existing COM and manifest requirements apply. The [borrowed HWND](#borrowed-hwnd-and-transparent-windows) is available while the window is open, including before opening a file dialog.
 
 The native dialog owns a modal loop and disables its XUI owner.
 Messages and native callbacks can run inside that loop, but ordinary `Window::post` delivery waits until it returns.
@@ -285,7 +305,10 @@ Its content has one layout parent. Null content, duplicate ownership, and cycles
 `set_offset`, `scroll_by`, and `reveal` clamp the offset to the content range.
 The viewport reserves 12 DIPs for its vertical scrollbar. A larger viewport clamps obsolete offsets automatically.
 
-The mouse wheel follows Windows wheel settings. The scrollbar supports thumb drag and track paging.
+The mouse wheel follows Windows wheel settings: one line is 16 DIPs, and page scrolling uses the
+viewport height. Partial wheel deltas move proportionally without waiting for a whole notch.
+FileList and retained collection and grid rows can stop between items. The scrollbar supports
+continuous thumb drag and track paging.
 With viewport focus, arrow keys, Home, End, Page Up, and Page Down move the viewport.
 Page keys also work from ordinary descendants. Native input retains its text-editing keys and IME path.
 Tab, Shift+Tab, `Window::focus`, and UIA focus reveal the target through ancestor viewports.

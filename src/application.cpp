@@ -8,6 +8,7 @@
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
 #include "platform.hpp"
+#include "wheel.hpp"
 #include "list_peer.hpp"
 #include "layout_styling.hpp"
 #include "context_menu.hpp"
@@ -123,7 +124,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         bool dragging{};
         float drag_y{}, drag_offset{};
-        int wheel_remainder{};
         bool wheel_motion{};
         double wheel_start{}, wheel_target{}, wheel_last{};
         Animation::Clock::time_point wheel_started{};
@@ -313,7 +313,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     explicit Impl(WindowOptions value) : options(std::move(value)) {
         if (options.visual_style < VisualStyle::classic || options.visual_style > VisualStyle::winui)
             throw std::invalid_argument("Invalid visual style");
+        if (options.transparent && options.custom_titlebar)
+            throw std::invalid_argument("A transparent window cannot use the XUI title bar");
         if (options.custom_titlebar) titlebar = std::make_shared<TitleBar>(options.title);
+    }
+    std::function<void(HWND)> native_created;
+    std::optional<Rect> drag_region;
+    bool drag_hit(LPARAM position) const {
+        if (!options.transparent || !drag_region) return false;
+        POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
+        win32_require(ScreenToClient(window, &point) != 0, "Locate transparent caption hit");
+        const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
+        const auto& area = *drag_region;
+        return x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height;
     }
     ~Impl() { teardown(); }
     void destroy() {
@@ -639,6 +651,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
+        if (message == WM_NCHITTEST && peer.host.drag_hit(lparam)) return HTCAPTION;
+        if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && peer.host.options.transparent)
+            return SendMessageW(peer.host.window, message, wparam, lparam);
         const bool caption = hwnd == peer.caption;
         // Keep STATIC for EDIT's accessible name, but paint its text in the retained frame.
         if (caption && message == WM_ERASEBKGND) return 1;
@@ -1659,13 +1674,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto extent = [](float value, int fallback) {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
-        const DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN |
+        const DWORD style = (options.transparent ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN |
             (initial_placement && initial_placement->maximized ? WS_MAXIMIZE : 0);
+        const DWORD ex_style = WS_EX_CONTROLPARENT | (options.transparent ? WS_EX_LAYERED : 0);
         const UINT initial_dpi = GetDpiForSystem();
         RECT outer{0, 0, MulDiv(extent(options.size.width, 600), initial_dpi, 96),
             MulDiv(extent(options.size.height, 520), initial_dpi, 96)};
-        win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, WS_EX_CONTROLPARENT, initial_dpi) != 0, "Size application window");
-        window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class, options.title.c_str(),
+        win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, ex_style, initial_dpi) != 0, "Size application window");
+        window = CreateWindowExW(ex_style, window_class, options.title.c_str(),
             style, initial_placement ? initial_placement->x : CW_USEDEFAULT,
             initial_placement ? initial_placement->y : CW_USEDEFAULT,
             initial_placement ? initial_placement->width : outer.right - outer.left,
@@ -1673,6 +1689,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
+        if (auto configure = std::move(native_created)) configure(window);
         if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
             std::weak_ptr<Impl> weak = shared_from_this();
@@ -1693,6 +1710,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
+        if (options.transparent) paint();
         if (!options.show_activated && moving_tabs && moving_tabs->window && moving_tabs != this &&
             moving_tabs->application.lock() == application.lock())
             win32_require(SetWindowPos(window, moving_tabs->window, 0, 0, 0, 0,
@@ -2477,14 +2495,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         update();
         return true;
     }
-    void wheel_scroll(Peer& peer, double delta) {
+    void wheel_scroll(Peer& peer, double delta, bool precise = false) {
         auto* collection = dynamic_cast<VirtualCollection*>(peer.control.get());
         auto* grid = dynamic_cast<DataGrid*>(peer.control.get());
         const double current = collection ? collection->offset() : grid->offset();
         const double maximum = collection ? collection->maximum_offset() : grid->maximum_offset();
         const double target = std::clamp((peer.wheel_motion && current == peer.wheel_last ?
             peer.wheel_target : current) + delta, 0.0, maximum);
-        if (!smooth_scrolling || !client_animation || palette.high_contrast) {
+        if (precise || !smooth_scrolling || !client_animation || palette.high_contrast) {
             peer.wheel_motion = false;
             if (collection) collection->set_offset(target);
             else grid->set_offset(target, grid->horizontal_offset());
@@ -2505,16 +2523,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         auto& scroll = static_cast<ScrollView&>(*owner->control);
         if (scroll.passthrough()) return owner->parent ? scroll_wheel(*owner->parent, wparam) : false;
         if (!scroll.enabled()) return true;
-        owner->wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
-        const int ticks = owner->wheel_remainder / WHEEL_DELTA;
-        owner->wheel_remainder %= WHEEL_DELTA;
-        UINT lines = 3;
-        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-        const float distance = lines == WHEEL_PAGESCROLL ? scroll.viewport().height : 16.0f * lines;
+        const double distance = vertical_wheel_dips(wparam, scroll.viewport().height);
         const auto before = scroll.offset();
-        scroll.scroll_by(-ticks * distance);
+        scroll.scroll_by(static_cast<float>(-distance));
         update();
-        if (ticks && before == scroll.offset() && owner->parent) return scroll_wheel(*owner->parent, wparam);
+        if (distance && before == scroll.offset() && owner->parent) return scroll_wheel(*owner->parent, wparam);
         return true;
     }
     void paint_surfaces(const Stack& stack) {
@@ -2642,7 +2655,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         bool split_middle{};
         bool reveal_middle{};
         try {
-            if (drawing().begin(window, static_cast<float>(dpi), palette.background)) {
+            if (drawing().begin(window, static_cast<float>(dpi),
+                options.transparent && !palette.high_contrast ? D2D1::ColorF(0, 0.0f) : palette.background,
+                {}, options.transparent)) {
                 paint_surfaces(*root);
                 Peer* external_focus{};
                 if (palette.style == VisualStyle::winui && keyboard_focus_visible)
@@ -4694,18 +4709,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
                 if (!enabled(peer)) return 0;
-                peer.wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
-                const int ticks = peer.wheel_remainder / WHEEL_DELTA; peer.wheel_remainder %= WHEEL_DELTA;
-                wheel_scroll(peer, -ticks * collection->item_size().height * 3); return 0;
+                const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                wheel_scroll(peer, -vertical_wheel_dips(wparam, collection->content_viewport().height),
+                    std::abs(delta) < WHEEL_DELTA); return 0;
             }
             if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
                 if (!enabled(peer)) return 0;
-                peer.wheel_remainder += GET_WHEEL_DELTA_WPARAM(wparam);
-                const int ticks = peer.wheel_remainder / WHEEL_DELTA;
-                peer.wheel_remainder %= WHEEL_DELTA;
+                const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                const double steps = static_cast<double>(delta) / WHEEL_DELTA;
                 if (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT)
-                    grid->set_offset(grid->offset(), grid->horizontal_offset() - ticks * 96);
-                else wheel_scroll(peer, -ticks * 3.0 * grid->effective_row_height());
+                    grid->set_offset(grid->offset(), grid->horizontal_offset() - steps * 96);
+                else wheel_scroll(peer, -vertical_wheel_dips(wparam, grid->viewport_height()),
+                    std::abs(delta) < WHEEL_DELTA);
                 return 0;
             }
             if (scroll_wheel(peer, wparam)) return 0;
@@ -5699,6 +5714,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return 0;
         }
         if (titlebar && message == WM_NCHITTEST) return caption_hit(hwnd, lparam);
+        if (message == WM_NCHITTEST && drag_hit(lparam)) return HTCAPTION;
         if (auto result = navigation_message(hwnd, message, wparam, lparam)) return *result;
         switch (message) {
         case WM_ENTERSIZEMOVE:
@@ -6339,6 +6355,33 @@ void Window::set_show_activated(bool value) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set initial activation on its UI thread");
     if (impl_->used || impl_->closing) throw std::logic_error("Set initial activation before Application::run");
     impl_->options.show_activated = value;
+}
+void Window::set_transparent(bool value) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set transparency on the Window UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Set transparency before showing the Window");
+    if (value && impl_->titlebar) throw std::invalid_argument("A transparent window cannot use the XUI title bar");
+    impl_->options.transparent = value;
+    if (!value) impl_->drag_region.reset();
+}
+HWND Window::native_window() const {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read native window on the Window UI thread");
+    if (!impl_->ready || impl_->closing || !impl_->window) throw std::logic_error("The native window is not open");
+    return impl_->window;
+}
+void Window::on_native_created(std::function<void(HWND)> callback) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Configure the native window on its UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Configure the native window before showing it");
+    impl_->native_created = std::move(callback);
+}
+void Window::set_drag_region(Rect region) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set the drag region on its UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Set the drag region before showing the Window");
+    if (!impl_->options.transparent) throw std::invalid_argument("A drag region requires a transparent window");
+    if (!std::isfinite(region.x) || !std::isfinite(region.y) || !std::isfinite(region.width) ||
+        !std::isfinite(region.height) || region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0 ||
+        region.x + region.width > 16000 || region.y + region.height > 16000)
+        throw std::invalid_argument("The drag region must have finite positive bounds");
+    impl_->drag_region = region;
 }
 void Window::set_tooltip_style(std::shared_ptr<const ControlStyle> style) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set tooltip styles on the window UI thread");

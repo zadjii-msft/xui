@@ -62,7 +62,7 @@ public:
     const wchar_t* symbol_font_family() const { return symbol_family_; }
     bool has_symbol(Symbol symbol) const;
     void symbol(Symbol symbol, Rect bounds, D2D1_COLOR_F color, float size = 16);
-    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {});
+    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false);
     struct NativeWindow { HWND window; RECT clip; };
     bool native_windows(std::span<const NativeWindow> windows);
     void present_native(std::span<const HWND> windows);
@@ -199,7 +199,14 @@ private:
     std::array<UINT16, symbol_codepoints.size()> symbol_indices_{};
     std::array<DWRITE_GLYPH_METRICS, symbol_codepoints.size()> symbol_metrics_{};
     void prepare_symbols();
-    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> target_;
+    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hwnd_target_;
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> layered_target_;
+    HWND host_window_{};
+    HDC layered_dc_{};
+    HBITMAP layered_bitmap_{};
+    HGDIOBJ layered_previous_{};
+    D2D1_SIZE_U layered_size_{};
     Point offset_{};
     struct NativeBitmap {
         HWND window{};

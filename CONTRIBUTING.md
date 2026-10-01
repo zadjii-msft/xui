@@ -97,6 +97,19 @@ ctest --test-dir $build -C Release -R "^xui_gallery_catalog_tests$" --output-on-
 The last command opens a desktop window.
 It checks shared language selection, native code text, copy actions, handbook URLs, and navigation links without opening a browser.
 
+### Floating C# card
+
+After building the native runtime, run the floating card and its interactive-window smoke check:
+
+```powershell
+dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release
+dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --smoke
+```
+
+The `--smoke` run paints a visible layered frame, checks transparent hit testing, caption dragging, native text delivery, and closes without user input.
+For native pixel-alpha and resize coverage, enable desktop tests with `cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON`, build `xui_transparent_window_tests`, and run `ctest --test-dir $build -C Release -R "^xui_transparent_window_tests$" --output-on-failure`.
+For the C# lifecycle tests, run `dotnet run --project bindings\dotnet\Tests\Tests.csproj -c Release -- --window-native`.
+
 ### Swap chain sample
 
 Build and run the DirectComposition sample:

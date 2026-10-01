@@ -115,6 +115,8 @@ struct State {
     xui_status callback_failure{};
     xui_callback closed_callback{};
     void* closed_context{};
+    xui_callback native_created_callback{};
+    void* native_created_context{};
     xui_handle application{};
     std::unique_ptr<ButtonStyleCache> button_styles;
     std::unique_ptr<ControlStyleCache> control_styles;
@@ -518,7 +520,11 @@ xui_status XUI_CALL xui_application_show(xui_handle application, xui_handle wind
         require(!state->building_content && !state->content_context, XUI_BUSY, "Finish the content update before show.");
         state->used = true;
         state->running = true;
-        app->application->show(*state->window);
+        try { app->application->show(*state->window); }
+        catch (...) {
+            if (state->callback_failure) throw Failure{XUI_CALLBACK_FAILED, "A native-window callback failed."};
+            throw;
+        }
     });
 }
 xui_status XUI_CALL xui_application_run(xui_handle application) noexcept {
@@ -604,6 +610,57 @@ xui_status XUI_CALL xui_window_state(xui_handle window, uint32_t* state) noexcep
         require(state != nullptr, XUI_INVALID_ARGUMENT, "Missing state output.");
         *state = static_cast<uint32_t>(get(window, XUI_WINDOW)->owner->window->state());
     });
+}
+xui_status XUI_CALL xui_window_native_handle(xui_handle window, uintptr_t* hwnd) noexcept {
+    return boundary([&] {
+        require(hwnd != nullptr, XUI_INVALID_ARGUMENT, "Missing HWND output.");
+        *hwnd = 0;
+        const auto state = get(window, XUI_WINDOW)->owner->window;
+        require(state->state() != xui::WindowState::created, XUI_BUSY, "The HWND has not been created.");
+        require(state->state() == xui::WindowState::open, XUI_CLOSED, "The HWND is no longer open.");
+        *hwnd = reinterpret_cast<uintptr_t>(state->native_window());
+    });
+}
+xui_status XUI_CALL xui_window_native_created(xui_handle window, xui_callback callback, void* context) noexcept {
+    return boundary([&] {
+        auto node = get(window, XUI_WINDOW);
+        auto state = node->owner;
+        require(!state->used && !state->closed, XUI_BUSY, "Configure the HWND before Show or Run.");
+        state->window->on_native_created([weak = std::weak_ptr<State>(state), handle = window](HWND hwnd) {
+            const auto s = weak.lock();
+            if (!s || !s->native_created_callback) return;
+            const xui_event event{sizeof(xui_event), 101, handle, reinterpret_cast<uintptr_t>(hwnd)};
+            ++s->callbacks;
+            xui_status result{};
+            try { result = s->native_created_callback(s->native_created_context, &event); }
+            catch (...) { result = XUI_CALLBACK_FAILED; }
+            --s->callbacks;
+            if (result) {
+                s->callback_failure = result;
+                throw std::runtime_error("A native-window callback failed");
+            }
+        });
+        state->native_created_callback = callback;
+        state->native_created_context = context;
+    });
+}
+xui_status XUI_CALL xui_window_transparent(xui_handle window, uint32_t enabled) noexcept {
+    return boundary([&] {
+        auto state = get(window, XUI_WINDOW)->owner;
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Invalid window transparency value.");
+        require(!state->used && !state->closed, XUI_BUSY, "Set window transparency before Show or Run.");
+        state->window->set_transparent(enabled != 0);
+    }, true);
+}
+xui_status XUI_CALL xui_window_drag_region(xui_handle window,
+    float x, float y, float width, float height) noexcept {
+    return boundary([&] {
+        auto state = get(window, XUI_WINDOW)->owner;
+        require(!state->used && !state->closed, XUI_BUSY, "Set the drag region before Show or Run.");
+        require(std::isfinite(x) && std::isfinite(y) && std::isfinite(width) && std::isfinite(height) &&
+            x >= 0 && y >= 0 && width > 0 && height > 0, XUI_INVALID_ARGUMENT, "Invalid drag region.");
+        state->window->set_drag_region({x, y, width, height});
+    }, true);
 }
 xui_status XUI_CALL xui_window_closed(xui_handle window, xui_callback callback, void* context) noexcept {
     return boundary([&] {
