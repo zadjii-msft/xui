@@ -42,6 +42,10 @@ function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 try {
+    [xml]$consumer = Get-Content "$repo\tests\packaging\native\Consumer.vcxproj" -Raw
+    $toolset = $consumer.SelectSingleNode("//*[local-name()='PropertyGroup'][@Label='Configuration']/*[local-name()='PlatformToolset']")
+    Assert ($null -ne $toolset -and $toolset.InnerText -ceq '$(DefaultPlatformToolset)' -and
+        $toolset.Condition -ceq "'`$(PlatformToolset)' == ''") 'The native consumer must default to the selected Visual Studio toolset and preserve explicit overrides.'
     $expectedAssets = @('Xui.1.2.3.nupkg', 'Xui.Templates.1.2.3.nupkg', 'xui-sys-1.2.3.crate', 'xui-1.2.3.crate',
         'Xui.Samples.1.2.3.win-x64.zip', 'Xui.Samples.1.2.3.win-arm64.zip',
         'Xui.Designer.1.2.3.win-x64.zip', 'Xui.Designer.1.2.3.win-arm64.zip')

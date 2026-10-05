@@ -840,6 +840,8 @@ For local builds, select the matching SDK through `PATH` before each architectur
 ```
 
 NativeAOT release publishes and Rust/MSBuild consumers enter the selected Visual Studio developer environment automatically, including the installer directory needed by `vcvars` on machines without `vswhere` in `PATH`.
+The MSBuild consumer fixture uses that installation's default platform toolset instead of a fixed `v143` toolset.
+This keeps the consumer linker compatible with the release static libraries on Visual Studio 2022 and 2026.
 
 Use a fresh staging directory for each release build.
 The scripts preserve existing staging directories and stop instead of mixing old and new outputs.
