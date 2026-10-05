@@ -69,6 +69,11 @@ Tab data can change without these tree operations.
 Applications supply a path of immutable sibling sources, not filesystem callbacks.
 Column lists reuse virtual collection drawing, input, image resources, and accessibility.
 `RowImages` in `src\images.cpp` retains image state for every current visible row, including deferred requests.
+`sync_visuals` reconciles at most 512 rows with a sorted call-local lookup instead of two quadratic scans.
+Identity includes the item key/version, path, source kind, and physical image size.
+Only lookup pointers are sorted: retained slots keep their insertion order, while admission and retained pixel IDs follow input order.
+Duplicate visual identities share a slot, and obsolete slots cancel before replacement requests enter the queue.
+The two lookup arrays total 16 KiB on x64 and add no retained cache or temporary heap allocation.
 `try_request_image` pauses admission at the row queue threshold, with headroom for explicit images and native window icons.
 The image service stores one weak wake reference per waiting window.
 Queue removal and cancellation wake these owners to admit the next visible requests.

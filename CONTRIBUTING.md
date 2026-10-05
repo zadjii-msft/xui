@@ -956,11 +956,11 @@ ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 
 ### Performance regression checks
 
-Build the layout, collection, and text-cache fixtures:
+Build the layout, collection, row-image, and text-cache fixtures:
 
 ```powershell
-cmake --build $build --config Release --target xui_layout_performance_tests xui_collections_tests xui_collection_presentation_tests xui_style_layouts_tests xui_style_collections_tests xui_style_grid_tests xui_style_basic_render_tests xui_style_navigation_render_tests
-ctest --test-dir $build -C Release -R "^xui_(layout_performance|collections|collection_presentation|style_layouts|style_collections|style_grid)_tests$" --output-on-failure
+cmake --build $build --config Release --target xui_layout_performance_tests xui_collections_tests xui_collection_presentation_tests xui_image_tests xui_style_layouts_tests xui_style_collections_tests xui_style_grid_tests xui_style_basic_render_tests xui_style_navigation_render_tests
+ctest --test-dir $build -C Release -R "^xui_(layout_performance|collections|collection_presentation|row_image_performance|style_layouts|style_collections|style_grid)_tests$" --output-on-failure
 & ".\$build\Release\xui_style_basic_render_tests.exe"
 & ".\$build\Release\xui_style_navigation_render_tests.exe"
 ```
@@ -969,6 +969,8 @@ The layout fixture requires zero steady-state Stack scratch allocations and zero
 It also covers reentrant layout, exceptions, changed constraints, child growth, styled alignment, and the 256-track Grid limit.
 The collection fixtures cover projection boundaries, source lookup counts, identity, collapse, exceptions, and grid geometry.
 They also require allocation-free grid focus changes and a single result allocation for nonempty selection enumeration over sources of at most 256 rows.
+The row-image fixture runs `xui_image_tests --row-sync-only` without windows, fixture files, or image I/O.
+It requires zero temporary allocations when reconciling settled images and checks identity, duplicates, input order, removal, and the 512-row limit.
 The rendering fixtures cover text-cache identity, ownership, allocation counts, cache limits, and pixels.
 The rendering fixtures create their own Windows rendering surfaces.
 
@@ -978,16 +980,20 @@ After other builds and tests stop, run the microbenchmarks:
 & ".\$build\Release\xui_style_basic_render_tests.exe" --benchmark
 & ".\$build\Release\xui_collections_tests.exe" --benchmark
 & ".\$build\Release\xui_layout_performance_tests.exe" --benchmark
+& ".\$build\Release\xui_image_tests.exe" --benchmark
 ```
 
 The text benchmark reports median lookup time for small and full caches.
 It also reports the size of each retained cache entry.
 The collection benchmark reports selection and projection workloads with source lookup counts, allocation counts, and cumulative requested bytes.
 The layout benchmark reports changing-size measurement/arrangement pairs for styled and unstyled Stack and Grid layouts.
+The row-image benchmark reconciles 8, 64, and 512 preloaded synthetic image rows in rotating input order.
+It excludes input-vector/string construction and output capacity growth; it performs no image decode or GPU upload.
 Benchmark mode permits historical baselines to report allocation counts that exceed the current regression budgets; run without `--benchmark` to enforce those budgets.
 These results describe individual workloads, not application frame time or retained process memory.
 The [maintainer report](docs/llm/testing.md#framework-performance-pass-september-19-2026) records the measurement scope.
 The [October allocation pass](docs/llm/testing.md#layout-and-selection-allocation-pass-october-1-2026) records Grid and selection comparisons.
+The [row-image reconciliation pass](docs/llm/testing.md#row-image-reconciliation-pass-october-1-2026) records lookup comparisons and native image coverage.
 
 ### Native presentation checks
 

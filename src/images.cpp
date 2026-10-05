@@ -7,10 +7,12 @@
 #include <shellapi.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <deque>
 #include <list>
 #include <stdexcept>
+#include <tuple>
 
 namespace xui {
 std::atomic<void(*)(ImageDecodeStage)> ImageDecodeTestAccess::hook{};
@@ -537,34 +539,52 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         changed = !slots_.empty(); slots_.clear(); pixels_ = pixels;
     }
     rows_ = std::move(rows);
-    std::vector<const RowVisual*> wanted;
+    struct Wanted {
+        const RowVisual* row;
+        ImageKind kind;
+        UINT pixels;
+        Slot* slot;
+        auto identity() const {
+            return std::tuple{row->key, std::wstring_view{row->visual.image_path}, kind, pixels};
+        }
+    };
+    std::array<Wanted, maximum_rows> wanted;
+    std::array<Wanted*, maximum_rows> lookup;
+    std::size_t count{};
     for (const auto& row : rows_) {
-        if (!row.visual.image_path.empty()) wanted.push_back(&row);
-    }
-    const auto kind = [](const RowVisual& row) {
-        return thumbnail_kind(row.visual.image_path, row.directory || row.visual.icon == ButtonIcon::folder);
-    };
-    const auto size = [&](const RowVisual& row) {
-        return row.image_dips == 0 ? pixels : static_cast<UINT>(std::clamp(
+        if (row.visual.image_path.empty()) continue;
+        const auto kind = thumbnail_kind(row.visual.image_path, row.directory || row.visual.icon == ButtonIcon::folder);
+        const auto size = row.image_dips == 0 ? pixels : static_cast<UINT>(std::clamp(
             std::round(row.image_dips * dpi / 96.0), 1.0, double(ImageLimits::output_dimension)));
-    };
-    const auto matches = [&](const Slot& slot, const RowVisual& row) {
-        return slot.key == row.key && slot.path == row.visual.image_path && slot.kind == kind(row) && slot.pixels_size == size(row);
+        wanted[count] = {&row, kind, size, nullptr};
+        lookup[count] = &wanted[count];
+        ++count;
+    }
+    const auto end = lookup.begin() + count;
+    std::sort(lookup.begin(), end, [](const auto* a, const auto* b) { return a->identity() < b->identity(); });
+    const auto find = [&](const auto& identity) -> Wanted* {
+        const auto found = std::lower_bound(lookup.begin(), end, identity,
+            [](const auto* entry, const auto& key) { return entry->identity() < key; });
+        return found != end && (*found)->identity() == identity ? *found : nullptr;
     };
     // Navigation and tabs retain visual identity; ordinary source refreshes reload changed files.
     const auto removed = std::erase_if(slots_, [&](const auto& slot) {
-        return std::none_of(wanted.begin(), wanted.end(), [&](const auto* row) { return matches(*slot, *row); });
+        const auto match = find(std::tuple{slot->key, std::wstring_view{slot->path}, slot->kind, slot->pixels_size});
+        if (!match) return true;
+        if (!match->slot) match->slot = slot.get();
+        return false;
     });
     changed = removed != 0 || changed;
-    for (const auto* row : wanted) {
-        auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return matches(*slot, *row); });
-        if (found == slots_.end()) {
+    for (std::size_t i = 0; i < count; ++i) {
+        // Duplicate visuals share one slot; request admission still follows input order.
+        auto& match = *find(wanted[i].identity());
+        if (!match.slot) {
             auto slot = std::make_unique<Slot>();
-            slot->key = row->key; slot->path = row->visual.image_path; slot->kind = kind(*row);
-            slot->pixels_size = size(*row);
-            slots_.push_back(std::move(slot)); found = std::prev(slots_.end());
+            slot->key = match.row->key; slot->path = match.row->visual.image_path; slot->kind = match.kind;
+            slot->pixels_size = match.pixels;
+            slots_.push_back(std::move(slot)); match.slot = slots_.back().get();
         }
-        auto& slot = **found;
+        auto& slot = *match.slot;
         if (!slot.request && !slot.pixels && !slot.failed)
             slot.request = try_request_image(slot.path, {slot.pixels_size, slot.pixels_size}, wake, slot.kind);
         if (const auto request = slot.request) {

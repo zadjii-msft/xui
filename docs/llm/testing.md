@@ -1255,6 +1255,40 @@ A separate `--miller-only` run also failed, at hover suppression during captured
 That mode is not accepted as passing native coverage, nor does the different baseline assertion prove that specific hover failure is unrelated.
 Session-local evidence is `performance-comparison-final.txt`, `native-baseline-results.txt`, and `native-miller-baseline-results.txt` in the session artifacts directory.
 
+### Row-image reconciliation pass, October 1, 2026
+
+The baseline was `623be76cb7cbf47717723744956bc4937f30788b` with the added image allocation harness.
+The working-tree build used Windows x64, MSVC 19.44.35207, and Release configuration in `build\x64`.
+Three sequential baseline/optimized pairs ran after builds and other tests from this session stopped.
+Times below are medians of those three runs; only allocation counts are regression gates.
+The [contributor procedure](../../CONTRIBUTING.md#performance-regression-checks) contains the benchmark and deterministic test commands.
+
+| Preloaded rows, 1,000 sync calls | Allocations before / after | Requested bytes before / after | Median ms before / after |
+| --- | ---: | ---: | ---: |
+| 8 | 6,000 / 0 | 200,000 / 0 | 1.0873 / 0.7494 |
+| 64 | 12,000 / 0 | 2,272,000 / 0 | 13.4298 / 8.0215 |
+| 512 | 17,000 / 0 | 17,135,000 / 0 | 585.141 / 90.6721 |
+
+The fixture seeds completed synthetic image metadata, rotates the input order each frame, and checks the retained pixel IDs.
+Only reconciliation is measured: input-vector/string construction and output-vector capacity growth happen outside the probe.
+There is no file access, decode, pixel buffer, or GPU upload in this benchmark.
+The probe counts cumulative requests through C++ `operator new`, not retained memory, working set, or graphics residency.
+Input preparation, cold requests, and pixel ownership can still allocate in an application.
+These measurements do not establish whole-frame or application-wide memory improvements.
+
+`RowImages::sync_visuals` now uses bounded local arrays and sorted full-identity lookup instead of a growing temporary vector and two quadratic scans.
+The arrays total 16 KiB on x64 per active call, without a retained per-control cache.
+Only lookup pointers are sorted: slot insertion order, input-order request admission, and input-order retained IDs stay unchanged.
+The deterministic `xui_row_image_performance_tests` passed its zero-allocation gate for all three sizes.
+It also covers key versions, paths, WIC/Shell kinds, physical sizes, duplicates, first-slot lookup, vector-only rows, removal, and rejection above 512 rows.
+
+The native DLL built, and `xui_image_tests` passed using `build\image-performance-fixtures`.
+This includes WIC/Shell decode and cancellation, source refresh, DPI replacement, failed-row terminal state, navigation/tab/gallery reuse, GPU eviction, and CPU/GPU ownership limits.
+Blocked-worker checks verify that exact duplicates share a cold request, sorted lookup preserves queue-admission order, and obsolete requests cancel before replacement admission.
+The full run's controlled CPU and GPU peaks stayed at 8,388,608 bytes each.
+It is image-specific coverage, not a rerun or acceptance of the broader native layout/collection failures documented above.
+Session-local timing evidence is `row-image-comparison.txt` in the session artifacts directory.
+
 ### Binding validation and measurement scope
 
 The C test compiles the public header as C11 and checks layouts, imports, version discovery, and lifecycle.

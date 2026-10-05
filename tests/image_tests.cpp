@@ -3,10 +3,30 @@
 #include "../src/async.hpp"
 #include "../src/drawing.hpp"
 #include "xui/navigation.hpp"
+#include <algorithm>
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <array>
+#include <cstdlib>
+#include <new>
+
+namespace allocation_probe {
+thread_local bool active{};
+thread_local std::size_t calls{}, bytes{};
+}
+void* operator new(std::size_t size) {
+    if (auto* value = std::malloc(size ? size : 1)) {
+        if (allocation_probe::active) { ++allocation_probe::calls; allocation_probe::bytes += size; }
+        return value;
+    }
+    throw std::bad_alloc{};
+}
+void* operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void* value) noexcept { std::free(value); }
+void operator delete[](void* value) noexcept { std::free(value); }
+void operator delete(void* value, std::size_t) noexcept { std::free(value); }
+void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 
 namespace xui {
 struct DrawingTestAccess {
@@ -16,6 +36,24 @@ struct RowImagesTestAccess {
     static std::shared_ptr<ImageRequest> request(const RowImages& images, ItemKey key) {
         for (const auto& slot : images.slots_) if (slot->key == key) return slot->request;
         return {};
+    }
+    static void seed(RowImages& images, const std::vector<RowVisual>& rows) {
+        images.clear();
+        images.rows_ = rows;
+        images.pixels_ = 24;
+        for (const auto& row : rows) {
+            if (row.visual.image_path.empty()) continue;
+            auto slot = std::make_unique<RowImages::Slot>();
+            slot->key = row.key;
+            slot->path = row.visual.image_path;
+            slot->kind = thumbnail_kind(slot->path, row.directory || row.visual.icon == ButtonIcon::folder);
+            slot->pixels_size = row.image_dips ? static_cast<UINT>(row.image_dips) : 24;
+            auto pixels = std::make_shared<ImagePixels>();
+            pixels->id = images.slots_.size() + 1;
+            pixels->size = {slot->pixels_size, slot->pixels_size};
+            slot->pixels = std::move(pixels);
+            images.slots_.push_back(std::move(slot));
+        }
     }
 };
 }
@@ -48,6 +86,78 @@ void bounds() {
     check(s.cpu_bytes + s.cpu_reserved <= ImageLimits::cpu_bytes && s.cpu_peak <= ImageLimits::cpu_bytes, "CPU budget and peak");
     check(s.gpu_bytes + s.gpu_reserved <= ImageLimits::gpu_bytes && s.gpu_peak <= ImageLimits::gpu_bytes, "GPU budget and peak");
     check(s.queued <= ImageLimits::queue && s.active <= 1 && s.cache_entries <= ImageLimits::cache_entries, "Bounded metadata and worker count");
+}
+void row_sync_hot_path(bool benchmark) {
+    for (const auto count : std::array<std::size_t, 3>{8, 64, RowImages::maximum_rows}) {
+        std::vector<RowVisual> rows;
+        for (std::size_t i = 0; i < count; ++i)
+            rows.push_back({{i + 1, 1}, {ButtonIcon::none,
+                L"C:\\synthetic\\row-image-" + std::to_wstring(i) + L".png"}});
+        RowImages images;
+        RowImagesTestAccess::seed(images, rows);
+        std::vector<std::uint64_t> retained;
+        retained.reserve(count);
+        allocation_probe::calls = allocation_probe::bytes = 0;
+        constexpr std::size_t frames = 1000;
+        double elapsed{};
+        for (std::size_t frame = 0; frame < frames; ++frame) {
+            auto input = rows;
+            const auto first = frame % count;
+            std::rotate(input.begin(), input.begin() + first, input.end());
+            retained.clear();
+            allocation_probe::active = true;
+            const auto start = std::chrono::steady_clock::now();
+            const auto changed = images.sync_visuals(std::move(input), 96, {}, retained);
+            elapsed += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+            allocation_probe::active = false;
+            check(!changed && retained.size() == count && images.count() == count,
+                "Settled image reconciliation preserves every decoded slot without requesting paint");
+            for (std::size_t i = 0; i < count; ++i)
+                check(retained[i] == (first + i) % count + 1, "Reordered rows retain matching pixels in input order");
+        }
+        if (!benchmark) check(allocation_probe::calls == 0,
+            "Settled row-image reconciliation must not allocate temporary lookup storage");
+        std::cout << "row_image_sync rows=" << count << " frames=" << frames
+            << " allocations=" << allocation_probe::calls << " allocated_bytes=" << allocation_probe::bytes
+            << " elapsed_ms=" << elapsed << '\n';
+    }
+}
+
+void row_sync_identity_contracts() {
+    const std::vector<RowVisual> rows{
+        {{1, 1}, {ButtonIcon::none, L"C:\\synthetic\\same.png"}},
+        {{1, 2}, {ButtonIcon::none, L"C:\\synthetic\\same.png"}},
+        {{1, 1}, {ButtonIcon::none, L"C:\\synthetic\\different.png"}},
+        {{1, 1}, {ButtonIcon::folder, L"C:\\synthetic\\same.png"}},
+        {{1, 1}, {ButtonIcon::none, L"C:\\synthetic\\same.png"}, false, 48}
+    };
+    RowImages images;
+    RowImagesTestAccess::seed(images, rows);
+    std::vector<std::uint64_t> retained;
+    auto reordered = rows;
+    std::reverse(reordered.begin(), reordered.end());
+    reordered.push_back(rows.front());
+    check(!images.sync_visuals(reordered, 96, {}, retained) &&
+        retained == std::vector<std::uint64_t>{5, 4, 3, 2, 1, 1} && images.count() == 5,
+        "Version, path, kind, and size distinguish slots while exact duplicate rows share pixels");
+    check(images.pixels({1, 1})->id == 1,
+        "Reconciliation preserves the existing first-slot lookup for repeated keys");
+    bool rejected{};
+    try { images.sync_visuals(std::vector<RowVisual>(RowImages::maximum_rows + 1), 96, {}, retained); }
+    catch (const std::length_error&) { rejected = true; }
+    check(rejected && images.count() == 5, "Excessive input is rejected before bounded scratch storage is used");
+    retained.clear();
+    check(images.sync_visuals({rows[2], rows[0], rows[2], {{9, 1}, {ButtonIcon::open, {}}}}, 96, {}, retained) &&
+        retained == std::vector<std::uint64_t>{3, 1, 3} && images.count() == 2,
+        "Removed identities retire while duplicate inputs and vector-only rows keep their semantics");
+    check(!images.pixels({1, 2}) && images.visual({9, 1}).icon == ButtonIcon::open,
+        "Removed versions disappear without losing fallback-only visuals");
+    retained.clear();
+    check(images.sync_visuals({{{9, 1}, {ButtonIcon::open, {}}}}, 96, {}, retained) &&
+        !images.count() && retained.empty(), "A vector-only visible set releases every image slot");
+    check(!images.sync_visuals({}, 96, {}, retained) && images.visual({9, 1}).icon == ButtonIcon::none,
+        "Hidden rows also release fallback-only visuals");
 }
 void row_image_tests() {
     struct Source final : ItemsSource {
@@ -288,9 +398,24 @@ void row_image_queue_tests() {
             std::vector<std::uint64_t> retained;
             for (std::size_t i = 0; i < 100; ++i)
                 rows.push_back({{i + 1, 1}, {ButtonIcon::none, path(i)}, kind == ImageKind::shell});
+            std::rotate(rows.begin(), rows.begin() + 37, rows.end());
+            rows.push_back(rows.front());
             images.sync_visuals(rows, 96, wake, retained);
             check(ImageResources::statistics().queued == RowImages::maximum_queued,
                 "Row admission bounds outstanding work without limiting retained row count");
+            check(images.count() == 100, "Cold duplicate visuals share one slot and one pending request");
+            for (std::size_t i = 0; i < 100; ++i)
+                check(bool(RowImagesTestAccess::request(images, rows[i].key)) == (i < RowImages::maximum_queued),
+                    "Sorted lookup must not change visible input order at the queue admission limit");
+            const auto cancelled = ImageResources::statistics().cancelled;
+            for (auto& row : rows) ++row.key.version;
+            images.sync_visuals(rows, 96, wake, retained);
+            check(ImageResources::statistics().cancelled == cancelled + RowImages::maximum_queued &&
+                ImageResources::statistics().queued == RowImages::maximum_queued,
+                "Obsolete slots cancel before replacement requests compete for admission");
+            for (std::size_t i = 0; i < 100; ++i)
+                check(bool(RowImagesTestAccess::request(images, rows[i].key)) == (i < RowImages::maximum_queued),
+                    "Replacement rows immediately reuse freed capacity in visible input order");
             auto preview = request_image(path(101), {24, 24}, {}, kind);
             check(!preview->done && ImageResources::statistics().queued == RowImages::maximum_queued + 1,
                 "Row loading reserves queue headroom for a preview or window icon");
@@ -745,6 +870,12 @@ void gpu_tests() {
 }
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc > 1 && (std::wstring_view(argv[1]) == L"--row-sync-only" ||
+            std::wstring_view(argv[1]) == L"--benchmark")) {
+            row_sync_hot_path(std::wstring_view(argv[1]) == L"--benchmark");
+            row_sync_identity_contracts();
+            return 0;
+        }
         check(argc > 1, "Pass a project-local fixture directory");
         directory = std::filesystem::absolute(argv[1]);
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
@@ -760,5 +891,8 @@ int wmain(int argc, wchar_t** argv) {
             << " upload_max_ms=" << s.upload_max_ms << '\n';
         CoUninitialize();
         return 0;
-    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
+    } catch (const std::exception& error) {
+        allocation_probe::active = false;
+        std::cerr << error.what() << '\n'; return 1;
+    }
 }
