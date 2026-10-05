@@ -353,6 +353,8 @@ internal static partial int CommandBarButton(ulong @target, ulong @id, ulong* @r
 internal static partial int PanelAdd(ulong @target, ulong @child, uint @row, uint @column, uint @row_span, uint @column_span);
 [LibraryImport("xui", EntryPoint = "xui_popup_show")]
 internal static partial int PopupShow(ulong @target, ulong @anchor);
+[LibraryImport("xui", EntryPoint = "xui_command_surface_show_item")]
+internal static partial int CommandSurfaceShowItem(ulong @target, ulong @anchor, ulong @id, ulong @version);
 [LibraryImport("xui", EntryPoint = "xui_rich_runs")]
 internal static partial int RichRuns(ulong @target, TextRun* @runs, uint @count);
 [LibraryImport("xui", EntryPoint = "xui_password_read")]
@@ -361,8 +363,14 @@ internal static partial int PasswordRead(ulong @target, delegate* unmanaged[Cdec
 internal static partial int SourceCreate(ulong @window, SourceOptions* @options, ulong* @result);
 [LibraryImport("xui", EntryPoint = "xui_source_create_visual")]
 internal static partial int SourceCreateVisual(ulong @window, SourceOptions* @options, delegate* unmanaged[Cdecl]<nint, ulong, ulong, uint*, byte*, uint, uint*, int> @visual, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_source_create_extended")]
+internal static partial int SourceCreateExtended(ulong @window, SourceOptions* @options, delegate* unmanaged[Cdecl]<nint, ulong, ulong, uint*, byte*, uint, uint*, int> @visual, delegate* unmanaged[Cdecl]<nint, ulong, byte*, uint, uint*, int> @action, ulong* @result);
+[LibraryImport("xui", EntryPoint = "xui_navigation_item_image")]
+internal static partial int NavigationItemImage(ulong @target, ulong @id, Text @path);
 [LibraryImport("xui", EntryPoint = "xui_source_attach")]
 internal static partial int SourceAttach(ulong @target, ulong @source);
+[LibraryImport("xui", EntryPoint = "xui_collection_stable_image_identity")]
+internal static partial int CollectionStableImageIdentity(ulong @target, uint @enabled);
 [LibraryImport("xui", EntryPoint = "xui_source_release")]
 internal static partial int SourceRelease(ulong @source);
 [LibraryImport("xui", EntryPoint = "xui_collection_contains")]

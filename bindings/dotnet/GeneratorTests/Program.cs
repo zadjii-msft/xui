@@ -69,6 +69,7 @@ internal static partial class Program
         Assert(!swapChainCompilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
             string.Join("\n", swapChainCompilation.GetDiagnostics()));
         TestButtonIconContract();
+        TestMemberHandlerNames();
         TestPortableStyleCatalog();
         TestExecution();
         TestSizeAndHelp();
@@ -920,6 +921,35 @@ internal static partial class Program
             Assert((uint)icons[i] == 23 + i, "Document icons append stable ABI values");
         Assert((uint)RealXui.ButtonIcon.Open == 22, "The published Open icon ABI value remains unchanged");
         Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 33, "The managed icon contract has no gaps or aliases");
+    }
+    private static void TestMemberHandlerNames()
+    {
+        foreach (var name in new[] { "Search", "Settings", "Back", "Refresh" })
+        {
+            var (_, compilation) = Generate(new File(@"C:\fixture\Member.xui", $$"""
+                component Example {
+                    view { VStack() { Button("Action", click: {{name}}, icon: global::Xui.ButtonIcon.{{name}}); } }
+                    code csharp { void {{name}}() { } }
+                }
+                """));
+            Assert(!compilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
+                string.Join("\n", compilation.GetDiagnostics()));
+        }
+        foreach (var expression in new[] { "Search()", "this.Search()", "(Search())" })
+            Invalid($$"""
+                component Bad {
+                    view { VStack() { Text({{expression}}); } }
+                    code csharp { string Search() => "computed"; }
+                }
+                """);
+        var (_, external) = Generate(new File(@"C:\fixture\External.xui", """
+            component External {
+                view { VStack() { Text(global::ExpressionProbe.Constant()); } }
+                code csharp { string Constant() => "component"; }
+            }
+            """));
+        Assert(!external.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
+            string.Join("\n", external.GetDiagnostics()));
     }
     private static void TestExecution()
     {

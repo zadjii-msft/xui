@@ -65,11 +65,12 @@ void Drawing::scene(const std::shared_ptr<const VectorScene>& source, std::optio
         if (s.clip) pop_clip();
     }
 }
-void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink, bool fill) {
+void Drawing::item_visual(const ItemVisual& visual, const std::shared_ptr<const ImagePixels>& pixels, Rect bounds, D2D1_COLOR_F ink, bool fill, bool loading) {
     if (pixels) {
         if (image(pixels, bounds, fill)) return;
         OutputDebugStringW(L"XUI thumbnail: Bitmap upload failed. Drawing the fallback icon.\n");
     }
+    else if (loading && !visual.image_path.empty()) return;
     if (visual.icon != ButtonIcon::none) button_icon(bounds, ink, visual.icon);
     else if (!visual.image_path.empty()) icon(bounds, ink, false);
 }
@@ -146,7 +147,8 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
                 const Rect icon_bounds{label_bounds.x, label_bounds.y + (label_bounds.height - size) / 2, size, size};
                 // Disabled and high-contrast tabs keep a theme-colored fallback instead of Shell pixels.
                 item_visual({tab.icon, tab.image_path},
-                    images && enabled && !palette.high_contrast ? images->pixels({tab.id, 0}) : nullptr, icon_bounds, ink);
+                    images && enabled && !palette.high_contrast ? images->pixels({tab.id, 0}) : nullptr, icon_bounds, ink, false,
+                    images && enabled && !palette.high_contrast && images->loading({tab.id, 0}));
             }
             const float advance = std::min(label_bounds.width, 22.0f);
             label_bounds.x += advance; label_bounds.width -= advance;
@@ -312,7 +314,7 @@ float Drawing::shortcut_keycaps(std::wstring_view shortcut, Rect lane, const Pal
 }
 void Drawing::styled_collection_row(const VirtualCollection &owner, const CollectionRow &row, bool selected, bool focused, bool enabled,
                                     const Palette &palette, bool hovered, const std::shared_ptr<const ImagePixels> &pixels,
-                                    bool trailing_shortcut_badges, bool command_menu) {
+                                    bool trailing_shortcut_badges, bool command_menu, bool image_loading) {
     const auto state = collection_row_style_state(row, selected, focused, enabled, hovered);
     const bool disabled = (state & style_states::disabled) != 0;
     const bool hot = (state & style_states::hovered) != 0;
@@ -406,7 +408,7 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
         if (row.expandable && !row.content.submenu)
             chevron(geometry.disclosure, color(resolve(StylePart::disclosure).foreground, ink), row.expanded);
         if (visual && geometry.icon.width > 0)
-            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.icon, icon_ink);
+            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.icon, icon_ink, false, image_loading);
         const auto name = (row.pending || row.error) && geometry.columns.size() == 1 ?
             row.content.primary + L" — " + row.content.secondary : row.content.primary;
         cell_text(name, geometry.name, StylePart::primary_text, tree->detail_columns().front().numeric, ink);
@@ -441,7 +443,7 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
     if (owner.presentation() == ItemsPresentation::gallery && !row.group) {
         const auto geometry = owner.gallery_layout(row, state);
         if (visual && geometry.image.width > 0)
-            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.image, icon_ink, owner.thumbnail_fill());
+            item_visual({row.content.icon, row.content.image_path}, pixels, geometry.image, icon_ink, owner.thumbnail_fill(), image_loading);
         const auto label = [&](std::wstring_view value, Rect box, StylePart part, D2D1_COLOR_F fallback, TextStyle style) {
             auto values = resolve(part);
             if (!values.horizontal_alignment) values.horizontal_alignment = StyleAlignment::center;
@@ -495,7 +497,7 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
     if (visual) {
         item_visual({row.content.icon, row.content.image_path}, pixels,
                     {left, content.y + (content.height - icon_size) / 2, icon_size, icon_size},
-                    icon_ink);
+                    icon_ink, false, image_loading);
         left += icon_size + 8;
     }
     if (row.compact) {
@@ -581,11 +583,11 @@ void Drawing::styled_collection_row(const VirtualCollection &owner, const Collec
     pop_clip();
 }
 void Drawing::collection_row(const CollectionRow& row, bool selected, bool focused, bool enabled, const Palette& palette, bool hovered,
-    const std::shared_ptr<const ImagePixels>& pixels, bool trailing_shortcut_badges, bool command_menu, const VirtualCollection* owner) {
+    const std::shared_ptr<const ImagePixels>& pixels, bool trailing_shortcut_badges, bool command_menu, const VirtualCollection* owner, bool image_loading) {
     const auto* tree = dynamic_cast<const TreeView*>(owner);
     if (owner && (owner->has_control_styling() || owner->presentation() == ItemsPresentation::gallery ||
         (tree && !tree->detail_columns().empty()))) {
-        styled_collection_row(*owner, row, selected, focused, enabled, palette, hovered, pixels, trailing_shortcut_badges, command_menu);
+        styled_collection_row(*owner, row, selected, focused, enabled, palette, hovered, pixels, trailing_shortcut_badges, command_menu, image_loading);
         return;
     }
     const auto b = row.bounds;
@@ -600,7 +602,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
             b.x + 12 + std::min(static_cast<float>(row.depth) * 16, b.width / 3);
         const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
         if (visual)
-            item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - 20) / 2, 20, 20}, ink);
+            item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - 20) / 2, 20, 20}, ink, false, image_loading);
         else if (row.compact)
             text(row.content.primary.substr(0, 1), {left, b.y, 20, b.height}, ink);
         if (!row.compact) {
@@ -632,7 +634,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
     }
     if (row.group && !row.expandable) {
         const bool visual = row.content.icon != ButtonIcon::none || !row.content.image_path.empty();
-        if (visual) item_visual({row.content.icon, row.content.image_path}, pixels, {b.x + 10, b.y + (b.height - 20) / 2, 20, 20}, palette.secondary);
+        if (visual) item_visual({row.content.icon, row.content.image_path}, pixels, {b.x + 10, b.y + (b.height - 20) / 2, 20, 20}, palette.secondary, false, image_loading);
         text(row.content.primary, {b.x + (visual ? 38 : 10), b.y, std::max(0.0f, b.width - (visual ? 48 : 20)), b.height}, palette.secondary, true);
         return;
     }
@@ -660,7 +662,7 @@ void Drawing::collection_row(const CollectionRow& row, bool selected, bool focus
     }
     if (row.content.icon != ButtonIcon::none || !row.content.image_path.empty()) {
         const float size = row.content.image_path.empty() ? 20.0f : 24.0f;
-        item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - size) / 2, size, size}, ink); left += size + 8;
+        item_visual({row.content.icon, row.content.image_path}, pixels, {left, b.y + (b.height - size) / 2, size, size}, ink, false, image_loading); left += size + 8;
     }
     const bool action_visible = !row.content.action.empty() && b.width >= 160;
     const bool secondary_visible = !trailing_shortcut_badges && !row.content.secondary.empty() && b.height >= 48;

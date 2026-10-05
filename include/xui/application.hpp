@@ -174,6 +174,7 @@ public:
     void show_dialog(std::shared_ptr<ContentDialog> dialog, Control& anchor, Control* initial_focus = nullptr);
     void dismiss_popup(Popup& popup, PopupDismissReason reason = PopupDismissReason::cancel);
     void show_commands(std::shared_ptr<CommandSurface> surface, Control& anchor);
+    bool show_item_commands(std::shared_ptr<CommandSurface> surface, VirtualCollection& anchor, ItemKey key);
     void show_location_picker(std::shared_ptr<LocationPicker> picker, Control& anchor);
     // Explicit native fallback for third-party Shell extensions. No verbs run during discovery.
     void show_shell_commands(Control& anchor, const std::vector<std::wstring>& paths);

@@ -21,6 +21,7 @@ internal static class Tests
             if (args is ["--expander-animation"]) { ExpanderAnimationTests.Run(); return 0; }
             if (args is ["--progress-animation"]) { ProgressAnimationTests.Run(); return 0; }
             if (args is ["--navigation-animation"]) { NavigationAnimationTests.Run(); return 0; }
+            if (args is ["--item-actions"]) { ItemActionTests.Run(); return 0; }
             if (args is ["--tab-animation"]) { TabAnimationTests.Run(); return 0; }
             StylingTests.Definitions();
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }

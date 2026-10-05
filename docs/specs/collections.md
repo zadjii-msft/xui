@@ -241,6 +241,10 @@ The [binding reference](bindings.md#advanced-api-gaps) describes the remaining C
 Sources are immutable and thread-safe. Identity lookup must not scan all rows.
 `ItemsSource::item(index)` supplies primary text, secondary text, an icon, optional progress, and an optional inline action.
 The shared row renderer requests only visible content. It omits secondary text and inline buttons when the available space is too small.
+C# sources supply the inline label through `ItemContent.Action`.
+Pointer and accessibility activation emit `EventKind.Action` for that row.
+`CommandSurface.Show(collection, key)` anchors a command menu to the visible action.
+An invalid row produces an explicit error.
 
 `ItemsView` supports list, tile, grouped, and gallery presentations through `set_presentation`.
 Groups describe ordered, nonoverlapping source ranges. Group IDs must not collide with item IDs.

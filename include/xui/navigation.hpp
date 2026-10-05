@@ -4,6 +4,7 @@
 #include "xui/animation.hpp"
 
 namespace xui {
+namespace detail { struct NavigationImages; }
 enum class NavigationSection { header, main, footer };
 struct NavigationItem {
     ItemKey key;
@@ -65,6 +66,7 @@ public:
     ~NavigationView() override;
     // Keys are unique across sections. Parents precede children in display order, not necessarily input order.
     void set_items(std::vector<NavigationItem> items);
+    bool set_item_image(ItemKey key, std::wstring path);
     const std::vector<NavigationItem>& entries() const { return entries_; }
     const NavigationItem* find(ItemKey key) const;
     bool expanded() const { return expanded_; }
@@ -120,6 +122,7 @@ private:
     bool navigate(ItemKey key);
     void activate_item(ItemKey key);
     std::vector<NavigationItem> entries_;
+    std::shared_ptr<detail::NavigationImages> images_;
     std::map<ItemKey, std::size_t> index_;
     std::set<ItemKey> closed_, matching_, filter_matches_;
     std::map<ItemKey, bool> filter_expansion_;

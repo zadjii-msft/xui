@@ -496,7 +496,18 @@ ImageKind thumbnail_kind(std::wstring_view path, bool directory) {
     }
     return ImageKind::shell;
 }
-void RowImages::clear() { slots_.clear(); rows_.clear(); source_.reset(); pixels_ = 0; }
+void RowImages::clear() {
+    slots_.clear(); recent_.clear(); rows_.clear(); source_.reset(); pixels_ = 0; stable_source_identity_ = false;
+}
+void RowImages::remember(const Slot& slot) {
+    if (!slot.pixels) return;
+    std::erase_if(recent_, [&](const auto& entry) {
+        return entry.pixels.expired() || (entry.key == slot.key && entry.path == slot.path &&
+            entry.kind == slot.kind && entry.pixels_size == slot.pixels_size);
+    });
+    if (recent_.size() == ImageLimits::cache_entries) recent_.erase(recent_.begin());
+    recent_.push_back({slot.key, slot.path, slot.kind, slot.pixels_size, slot.pixels});
+}
 ItemVisual RowImages::visual(ItemKey key) const {
     const auto found = std::find_if(rows_.begin(), rows_.end(), [&](const auto& row) { return row.key == key; });
     return found == rows_.end() ? ItemVisual{} : found->visual;
@@ -504,6 +515,10 @@ ItemVisual RowImages::visual(ItemKey key) const {
 std::shared_ptr<const ImagePixels> RowImages::pixels(ItemKey key) const {
     const auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return slot->key == key; });
     return found == slots_.end() ? nullptr : (*found)->pixels;
+}
+bool RowImages::loading(ItemKey key) const {
+    const auto found = std::find_if(slots_.begin(), slots_.end(), [&](const auto& slot) { return slot->key == key; });
+    return found != slots_.end() && !(*found)->pixels && !(*found)->failed;
 }
 static void validate_row_visuals(const std::vector<RowVisual>& rows) {
     if (rows.size() > RowImages::maximum_rows) throw std::length_error("Too many visible row visuals");
@@ -517,27 +532,26 @@ static void validate_row_visuals(const std::vector<RowVisual>& rows) {
 }
 bool RowImages::sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
     const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained,
-    bool retain_on_source_change) {
-    if (!source || rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
+    bool retain_on_source_change, bool stable_image_identity) {
+    if (!source) { const bool changed = !slots_.empty(); clear(); return changed; }
     validate_row_visuals(rows);
     bool changed{};
-    if (!retain_on_source_change && source_.lock() != source) {
+    if ((stable_source_identity_ && !stable_image_identity) ||
+        (!retain_on_source_change && !stable_image_identity && source_.lock() != source)) {
         changed = !slots_.empty(); clear();
     }
     source_ = source;
+    stable_source_identity_ = stable_image_identity;
     return sync_visuals(std::move(rows), dpi, wake, retained) || changed;
 }
 bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
     std::vector<std::uint64_t>& retained, float image_dips) {
-    if (rows.empty()) { const bool changed = !slots_.empty(); clear(); return changed; }
     validate_row_visuals(rows);
     if (!std::isfinite(image_dips) || image_dips <= 0 || image_dips > ImageLimits::output_dimension)
         throw std::invalid_argument("Invalid visual image size");
     const auto pixels = std::clamp(static_cast<UINT>(std::lround(image_dips * dpi / 96.0)), 1u, ImageLimits::output_dimension);
     bool changed{};
-    if (pixels_ != pixels) {
-        changed = !slots_.empty(); slots_.clear(); pixels_ = pixels;
-    }
+    pixels_ = pixels;
     rows_ = std::move(rows);
     struct Wanted {
         const RowVisual* row;
@@ -570,7 +584,7 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
     // Navigation and tabs retain visual identity; ordinary source refreshes reload changed files.
     const auto removed = std::erase_if(slots_, [&](const auto& slot) {
         const auto match = find(std::tuple{slot->key, std::wstring_view{slot->path}, slot->kind, slot->pixels_size});
-        if (!match) return true;
+        if (!match) { remember(*slot); return true; }
         if (!match->slot) match->slot = slot.get();
         return false;
     });
@@ -582,6 +596,14 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
             auto slot = std::make_unique<Slot>();
             slot->key = match.row->key; slot->path = match.row->visual.image_path; slot->kind = match.kind;
             slot->pixels_size = match.pixels;
+            for (auto it = recent_.rbegin(); it != recent_.rend(); ++it) {
+                if (it->key == slot->key && it->path == slot->path && it->kind == slot->kind &&
+                    it->pixels_size == slot->pixels_size) {
+                    slot->pixels = it->pixels.lock();
+                    break;
+                }
+            }
+            changed = true;
             slots_.push_back(std::move(slot)); match.slot = slots_.back().get();
         }
         auto& slot = *match.slot;

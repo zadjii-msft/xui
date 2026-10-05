@@ -120,7 +120,15 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     private string[] Dependencies(Expression value)
     {
         var expression = SyntaxFactory.ParseExpression(value.Text);
-        var identifiers = expression.DescendantNodesAndSelf().OfType<SimpleNameSyntax>().Select(n => n.Identifier.ValueText).ToHashSet();
+        var identifiers = expression.DescendantNodesAndSelf().OfType<SimpleNameSyntax>()
+            .Where(n => n.Parent switch
+            {
+                MemberAccessExpressionSyntax member when member.Name == n => member.Expression is ThisExpressionSyntax,
+                MemberBindingExpressionSyntax => false,
+                QualifiedNameSyntax or AliasQualifiedNameSyntax => false,
+                _ => true
+            })
+            .Select(n => n.Identifier.ValueText).ToHashSet();
         var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
             .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
         if (methods.Any(identifiers.Contains))

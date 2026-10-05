@@ -612,7 +612,7 @@ CollectionGalleryLayout VirtualCollection::gallery_layout(const CollectionRow& r
     const float secondary = row.content.secondary.empty() ? 0.0f : std::min(20.0f, b.height / 3);
     const float primary = std::min(40.0f, b.height - secondary);
     const float label_top = b.y + b.height - primary - secondary;
-    const float image_height = std::max(0.0f, label_top - b.y - 4);
+    const float image_height = std::max(0.0f, b.height - primary - secondary - 4);
     const float extent = std::max(0.0f, std::min({b.width, image_height,
         icon.size.value_or(std::max(0.0f, item_size().width - 16))}));
     return {{b.x + (b.width - extent) / 2, b.y + (image_height - extent) / 2, extent, extent},

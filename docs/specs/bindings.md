@@ -724,6 +724,25 @@ Borrowed children retain their window owner and reject use after native disposal
 The immutable source interface supplies `Count`, `Key`, `Find`, and row content.
 `Find` must not enumerate the source. The count and identity mapping must remain stable for each snapshot.
 The binding copies only requested row fields, not the complete source.
+
+C# `ItemContent.Action` supplies the optional inline action label for an `ItemsView` or `TreeView` row.
+An empty label omits the action. Pointer and accessibility activation emit `EventKind.Action` with the row ID.
+The label limit is 1,024 UTF-8 bytes. Invalid labels use the existing callback-error path.
+`CommandSurface.Show(collection, key)` opens a menu at the visible action for that exact row key.
+Missing, disabled, and offscreen rows produce `XUI_INVALID_ARGUMENT`.
+
+`ItemsView.SetStableImageIdentity(true)` and `TreeView.SetStableImageIdentity(true)` preserve resident artwork across immutable source updates.
+This opt-in requires unchanged item versions and immutable image paths for unchanged artwork.
+The default source-replacement behavior still reloads row images.
+`NavigationView.SetItemImage(id, path)` changes one cover without replacing the navigation tree.
+An empty path clears the cover. A missing ID produces `XUI_INVALID_ARGUMENT`.
+
+The additive C functions are `xui_source_create_extended`, `xui_command_surface_show_item`,
+`xui_collection_stable_image_identity`, and `xui_navigation_item_image`.
+The extended source accepts separate visual and action callbacks with the original source-context lifetime.
+Existing source structures, callbacks, and creation functions retain their layouts and behavior.
+Rust exposes these functions through `xui-sys`, without typed wrappers for these additions.
+
 Selection exposes the focused key and compact term count.
 `Contains` in C#, or `contains` in Rust, tests membership without expanding all selected identities.
 Each primary or secondary field has a 1,024-byte UTF-8 limit.

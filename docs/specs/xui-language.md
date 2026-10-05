@@ -571,6 +571,9 @@ The first version rejects unsupported view expressions instead of adding runtime
 External helpers must be pure and receive their state dependencies as explicit arguments.
 Pure methods on a state value, such as `Game.CellText(0)`, also expose that state dependency.
 The compiler does not prove the purity of arbitrary external C# code.
+Member names on external types do not identify component methods.
+For example, `ButtonIcon.Search` remains valid when the component also declares a `Search` handler.
+Direct calls to component methods, including `this.Search()`, remain invalid in view expressions.
 
 ## Configure a project
 

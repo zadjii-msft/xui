@@ -11,6 +11,7 @@
 #include <commctrl.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <algorithm>
 #include <thread>
 #include <chrono>
 #include <cmath>
@@ -192,7 +193,13 @@ void generic_popup_case(ThemeMode theme, UINT dpi) {
             window.set_visual_style(style);
             for (const bool window_background : {true, false}) {
                 popup->set_window_background(window_background);
+                const auto foreground = GetForegroundWindow(), focus = GetFocus();
                 window.show_popup(popup, *backdrop, editor.get()); flush(hwnd);
+                if (foreground != hwnd) {
+                    require(GetForegroundWindow() == foreground && GetFocus() == focus,
+                        "A background popup preserves activation and focus");
+                    require(window.focus(*editor), "Explicitly focus the owned background popup editor");
+                }
                 require(editor->focused(), "Generic palette retains native search focus");
                 const auto pixels = owned_window_capture::capture(hwnd);
                 const auto pixel = [&](float x, float y) {
@@ -419,7 +426,13 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
             }
             require(GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS) == before, "Repeated menu use has stable native peers during dispatch");
             window.focus(*anchor);
+            const auto foreground = GetForegroundWindow(), opener_focus = GetFocus();
             window.show_commands(surface, *anchor); flush(hwnd);
+            if (foreground != hwnd) {
+                require(GetForegroundWindow() == foreground && GetFocus() == opener_focus && anchor->focused(),
+                    "A background palette preserves its opener focus and activation");
+                require(window.focus(*surface->editor()), "Explicitly focus the owned background palette editor");
+            }
             const auto search = GetFocus();
             require(surface->editor()->focused() && IsWindowVisible(search), "Palette opens with native search focus");
             RECT edit_bounds{}; GetClientRect(search, &edit_bounds);
@@ -472,7 +485,13 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
             SendMessageW(GetParent(search), WM_LBUTTONDOWN, MK_LBUTTON, search_icon);
             SendMessageW(GetParent(search), WM_LBUTTONUP, 0, search_icon);
             require(GetFocus() == search && surface->editor()->focused(), "Clicking the search icon restores native editor focus");
+            const auto dismissal_foreground = GetForegroundWindow();
             window.dismiss_popup(*surface->popup()); flush(hwnd);
+            if (dismissal_foreground != hwnd) {
+                require(GetForegroundWindow() == dismissal_foreground,
+                    "Dismissing a background palette does not activate its owner");
+                require(window.focus(*anchor), "Explicitly restore the owned background palette opener");
+            }
             require(anchor->focused(), "Palette dismissal restores opener focus");
             window.show_commands(surface, *anchor); flush(hwnd); window.focus(*surface->menu());
             const auto menu = child(hwnd, L"Native command rows");
@@ -734,6 +753,145 @@ void navigation_view_case(ThemeMode theme, UINT dpi) {
     if (!window.error().empty()) std::wcerr << window.error() << L'\n';
     require(driver_error.empty() && result == 0 && done, driver_error.empty() ? "Navigation view native scenario completes" : driver_error.c_str());
 }
+void scrolled_chevron_case() {
+    Application app;
+    WindowOptions options{L"Scrolled navigation chevrons", {400, 420}, ThemeMode::dark};
+    options.visual_style = VisualStyle::winui; options.show_activated = false;
+    auto window = app.create_window(options);
+    auto nav = std::make_shared<NavigationView>(L"Scrolled tree");
+    nav->set_search_visible(false); nav->set_header_visible(false);
+    std::vector<NavigationItem> entries;
+    for (std::uint64_t i = 1; i <= 50; ++i) entries.push_back({{i, 1}, {}, L"Page"});
+    entries.push_back({{100, 1}, {}, L"Folder", ButtonIcon::folder, {}, {}, true, false, false});
+    entries.push_back({{101, 1}, ItemKey{100, 1}, L"Child"});
+    for (std::uint64_t i = 200; i < 230; ++i) entries.push_back({{i, 1}, {}, L"Later page"});
+    nav->set_items(entries);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(nav, 1);
+    window->set_content(root); app.show(*window);
+    const auto hwnd = window->native_window();
+    int selected{}, activated{};
+    nav->on_select([&](ItemKey) { ++selected; });
+    nav->on_activate([&](ItemKey) { ++activated; });
+    nav->select({1, 1}); flush(hwnd);
+    const auto list = child(hwnd, L"Scrolled tree items");
+    const auto dpi = GetDpiForWindow(hwnd);
+    for (const auto duration : {0u, 180u}) {
+        nav->set_duration(duration);
+        nav->items()->set_offset(1900); flush(hwnd);
+        for (const bool opening : {true, false}) {
+            const auto source = nav->items()->source();
+            const auto row = nav->items()->item_bounds(*source->find({100, 1}));
+            const auto viewport = nav->items()->content_viewport();
+            require(row.y >= viewport.y && row.y + row.height <= viewport.y + viewport.height,
+                "Chevron target is visible before native input");
+            const auto offset = nav->items()->offset();
+            const auto point = MAKELPARAM(MulDiv(static_cast<int>(row.width - 16), dpi, 96),
+                MulDiv(static_cast<int>(row.y + row.height / 2), dpi, 96));
+            SendMessageW(list, WM_LBUTTONDOWN, MK_LBUTTON, point);
+            SendMessageW(list, WM_LBUTTONUP, 0, point); flush(hwnd);
+            require(nav->item_expanded({100, 1}) == opening && nav->items()->selection().focused() == ItemKey{100, 1},
+                "Native chevron expansion and collapse focus their own row");
+            require(nav->selected() == ItemKey{1, 1} && selected == 1 && activated == 0 &&
+                nav->items()->offset() == offset && !nav->items()->source()->selectable(*nav->items()->source()->find({100, 1})),
+                "Chevron input preserves page selection, callbacks, viewport and folder semantics");
+            nav->items()->settle(); flush(hwnd);
+        }
+    }
+    window->close(); app.run();
+}
+void item_command_anchor_case(UINT dpi) {
+    struct Source final : ItemsSource {
+        explicit Source(std::uint64_t version) : version(version) {}
+        std::uint64_t version;
+        std::size_t size() const override { return 40; }
+        ItemKey key(std::size_t i) const override { return {i + 1, version}; }
+        std::optional<std::size_t> find(ItemKey value) const override {
+            return value.version == version && value.id && value.id <= size()
+                ? std::optional<std::size_t>{value.id - 1} : std::nullopt;
+        }
+        ItemContent item(std::size_t i) const override {
+            ItemContent content;
+            content.primary = L"Album " + std::to_wstring(i + 1);
+            if (i != 0) content.action = L"More";
+            content.enabled = i != 1;
+            return content;
+        }
+    };
+    Window window({L"XUI item command anchor", {960, 800}});
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->set_padding({20, 80, 400, 400});
+    auto items = std::make_shared<ItemsView>(L"Album actions");
+    items->set_item_size({180, 44});
+    items->set_preferred_size({500, 176});
+    items->set_items(std::make_shared<Source>(7));
+    root->add(items); window.set_content(root);
+    auto surface = std::make_shared<CommandSurface>(L"Album commands", false);
+    surface->menu()->set_name(L"Album anchor menu rows");
+    int calls{};
+    surface->set_commands(std::make_shared<CommandSet>(
+        std::vector<CommandRecord>{{1, 0, L"Inspect album", [&] { ++calls; }}}));
+    bool done{};
+    window.on_key([&](const KeyEvent& event) {
+        if (event.key != Key::f12) return false;
+        const auto hwnd = FindWindowW(L"Xui.Window.1", L"XUI item command anchor");
+        RECT rect{}; GetWindowRect(hwnd, &rect);
+        const auto current = GetDpiForWindow(hwnd);
+        rect.right = rect.left + MulDiv(rect.right - rect.left, dpi, current);
+        rect.bottom = rect.top + MulDiv(rect.bottom - rect.top, dpi, current);
+        SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
+        flush(hwnd);
+        const auto open = [&](ItemKey key) {
+            const auto rows = items->visible_content();
+            const auto found = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return row.key == key; });
+            require(found != rows.end(), "Anchor row is visible in the native fixture");
+            const auto row = found->bounds;
+            require(window.show_item_commands(surface, *items, key), "Visible current row opens its command surface");
+            flush(hwnd);
+            const auto popup = surface->popup()->bounds();
+            require(items->bounds().x > 0 && items->bounds().y > 0,
+                "The row-action fixture has a nonzero native control origin");
+            require(std::abs(popup.x - (items->bounds().x + row.x + row.width - 70)) < 1 &&
+                std::abs(popup.y - (items->bounds().y + row.y + row.height - 8)) < 1,
+                "Native command popup uses the actual row action bounds instead of the collection bounds");
+            window.dismiss_popup(*surface->popup()); flush(hwnd);
+        };
+        open({3, 7});
+        for (const auto key : {ItemKey{2, 7}, ItemKey{1, 7}, ItemKey{99, 7}, ItemKey{3, 8}, ItemKey{40, 7}})
+            require(!window.show_item_commands(surface, *items, key) && !surface->popup()->is_open(),
+                "Disabled, actionless, absent, stale, and offscreen rows never fall back to a whole-control anchor");
+        items->set_enabled(false);
+        require(!window.show_item_commands(surface, *items, {3, 7}), "Disabled collections reject row command anchors");
+        items->set_enabled(true); items->set_visible(false);
+        require(!window.show_item_commands(surface, *items, {3, 7}), "Hidden collections reject row command anchors");
+        items->set_visible(true); flush(hwnd);
+        items->set_items(std::make_shared<Source>(8)); flush(hwnd);
+        require(!window.show_item_commands(surface, *items, {3, 7}), "Source replacement rejects retired row versions");
+        open({3, 8});
+        items->set_offset(220); flush(hwnd);
+        require(!window.show_item_commands(surface, *items, {3, 8}), "Scrolling cannot reopen an offscreen row anchor");
+        open({8, 8});
+        require(window.show_item_commands(surface, *items, {8, 8}), "Current scrolled row reopens its menu");
+        const auto menu = child(hwnd, L"Album anchor menu rows");
+        items->set_items(std::make_shared<Source>(9));
+        require(!surface->current(), "Open row menus reject a replaced source before another host update");
+        SendMessageW(menu, WM_KEYDOWN, VK_RETURN, 0);
+        flush(hwnd);
+        require(!surface->popup()->is_open() && calls == 0,
+            "Source replacement dismisses the row menu and prevents stale command execution");
+        done = true; window.close(); return true;
+    });
+    std::jthread driver([] {
+        HWND hwnd{};
+        for (int i = 0; i < 500 && !hwnd; ++i) { hwnd = FindWindowW(L"Xui.Window.1", L"XUI item command anchor"); Sleep(10); }
+        if (hwnd) { Sleep(100); PostMessageW(hwnd, WM_KEYDOWN, VK_F12, 0); }
+        for (int i = 0; i < 500 && IsWindow(hwnd); ++i) Sleep(10);
+        if (IsWindow(hwnd)) PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    });
+    const auto result = Application::run(window); driver.join();
+    if (!window.error().empty()) std::wcerr << window.error() << L'\n';
+    require(result == 0 && done, "Native row action anchor regression completes");
+}
 void command_lifecycle(int mode) {
     auto window = std::make_unique<Window>(WindowOptions{L"XUI command lifecycle", {520, 440}});
     auto root = std::make_shared<Stack>(Axis::vertical);
@@ -776,6 +934,13 @@ void command_lifecycle(int mode) {
 }
 int wmain(int argc, wchar_t** argv) {
     try {
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--item-command-anchor") {
+            for (const UINT dpi : {96u, 120u, 144u, 192u}) item_command_anchor_case(dpi);
+            std::cout << "Native row command anchor checks passed\n"; return 0;
+        }
+        if (argc == 2 && std::wstring_view(argv[1]) == L"--spotify-navigation") {
+            scrolled_chevron_case(); std::cout << "Scrolled native navigation chevron checks passed\n"; return 0;
+        }
         if (argc == 3 && std::wstring_view(argv[1]) == L"--uia") return client(reinterpret_cast<HWND>(std::stoull(argv[2])));
         if (argc == 2 && std::wstring_view(argv[1]) == L"--generic-popup") {
             // Capture factories must outlive every Application::run apartment in this matrix.

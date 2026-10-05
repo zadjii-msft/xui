@@ -18,6 +18,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Application-discovered regressions](architecture.md#application-discovered-regressions): Enum-handler names, navigation artwork, disclosure focus, and managed row actions.
 - [Retained scrolling](architecture.md#retained-scrolling): Offset-only native placement, editor identity, popup layout, and clipped paint work.
 - [Layout and frame hot paths](architecture.md#layout-and-frame-hot-paths): Reusable layout storage, reentrant measurements, and native frame boundaries.
 - [Text cache lookup](architecture.md#text-cache-lookup): Compact typography keys, cache limits, and retained ownership.

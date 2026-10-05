@@ -27,6 +27,10 @@ Switching to another application leaves the palette and its query open.
 Searchable palettes center horizontally in the available window area, with a stable search position near the top.
 Their height follows the results, up to the configured popup height. Longer results scroll; empty results retain one message row.
 Menus without search remain anchored to their invoking control.
+`Window::show_item_commands(surface, collection, key)` anchors a menu to a visible row action.
+It returns false for a missing, disabled, or offscreen row.
+The C# equivalent is `CommandSurface.Show(collection, key)`.
+An invalid row produces an explicit binding error, without an alternative anchor.
 In C#, `Window.MenuFlyout(name)` creates a compact menu without palette controls or a keyboard footer.
 Its command rows show icons beside labels and checkmarks for checked commands.
 
@@ -85,6 +89,19 @@ Activation sends a navigation request. It does not silently change the committed
 Navigation queries have a 1,024-code-unit limit and owner-specific cancellation tokens.
 Hidden, collapsed, or closed navigation cancels its current query.
 Sources supply cached rows and stable IDs. The framework performs no directory enumeration.
+
+`NavigationView::set_item_image(key, path)` updates one image without replacing the navigation snapshot.
+An empty path clears the image. A missing key returns false.
+The update preserves the hierarchy, selection, focus, filter, hover, scroll offset, and disclosure motion.
+Snapshots within one tree generation share image metadata.
+A complete `set_items` replacement creates separate metadata for the new generation.
+The path limit is 32,767 UTF-16 units. Embedded NUL characters are invalid.
+The C# equivalent is `NavigationView.SetItemImage(id, path)`.
+Applications must reject obsolete asynchronous results after an account or tree reset.
+
+A pointer click on a navigation chevron focuses that folder before expansion or collapse.
+This focus change does not select the folder or activate its page.
+The viewport does not return to a previously focused, offscreen page.
 
 The explorer consumes command search, breadcrumbs, and a path-location picker.
 The picker filters cached current-path locations. The existing address suggestions retain their separate asynchronous directory provider.

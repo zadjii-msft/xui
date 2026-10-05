@@ -45,6 +45,25 @@ Run `.\tests\build-toolchain.ps1` to check Visual Studio discovery, CMake, and x
 
 ## Native samples
 
+### Application-discovered regressions
+
+With `XUI_DESKTOP_TESTS=ON`, build the artwork, navigation, and inline overlay fixtures:
+
+```powershell
+cmake --build $build --config Release --target xui xui_image_tests xui_navigation_view_tests xui_navigation_window_tests xui_inline_overlay_window_tests xui_abi_features_tests
+ctest --test-dir $build -C Release -R "^xui_(navigation_view|scrolled_navigation_chevron|item_command_anchor|inline_overlay_window|abi_features)_tests$" --output-on-failure -j 1
+& ".\$build\Release\xui_image_tests.exe" --row-sync-only
+& ".\$build\Release\xui_image_tests.exe" "$build\row-artwork-fixtures"
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --item-actions
+```
+
+The overlay fixture captures only its own window.
+It requires opaque panel pixels above collection rows in both themes.
+The navigation fixtures send native pointer messages and reject stale row commands after source replacement.
+The artwork fixture checks resident pixels before another decoder completion.
+The managed fixture checks inline action delivery and explicit callback errors.
+
 After the native build, run a sample:
 
 ```powershell
