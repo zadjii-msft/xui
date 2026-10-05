@@ -314,6 +314,15 @@ xui_status XUI_CALL xui_navigation_hover_delay(xui_handle target, uint32_t milli
         as<xui::NavigationView>(n).set_hover_delay(milliseconds);
     });
 }
+xui_status XUI_CALL xui_navigation_item_image(xui_handle target, uint64_t id, xui_string path) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_NAVIGATION_VIEW); editable(n->owner);
+        auto image = decode(path);
+        require(image.size() <= 32767, XUI_INVALID_ARGUMENT, "Navigation image path exceeds 32767 UTF-16 units.");
+        require(as<xui::NavigationView>(n).set_item_image({id, 0}, std::move(image)),
+            XUI_INVALID_ARGUMENT, "Navigation image item does not exist.");
+    });
+}
 xui_status XUI_CALL xui_navigation_items_visual(xui_handle target, const xui_navigation_entry* items,
     const xui_item_visual* visuals, uint32_t count) noexcept {
     return boundary([&] {
@@ -1056,6 +1065,16 @@ xui_status XUI_CALL xui_popup_show(xui_handle target, xui_handle anchor) noexcep
         callback_result(n->owner);
     });
 }
+xui_status XUI_CALL xui_command_surface_show_item(xui_handle target, xui_handle anchor,
+    uint64_t id, uint64_t version) noexcept {
+    return boundary([&] {
+        auto n = get(target, XUI_COMMAND_SURFACE); auto a = get(anchor); same(n, a); editable(n->owner);
+        auto& collection = feature<xui::VirtualCollection>(a);
+        require(n->owner->window->show_item_commands(resource<xui::CommandSurface>(n, n->kind),
+            collection, {id, version}), XUI_INVALID_ARGUMENT, "Menu row is stale, disabled, or outside the viewport.");
+        callback_result(n->owner);
+    });
+}
 xui_status XUI_CALL xui_rich_runs(xui_handle target, const xui_text_run* runs, uint32_t count) noexcept {
     return boundary([&] {
         auto n = get(target, XUI_RICH_TEXT); editable(n->owner);
@@ -1095,6 +1114,7 @@ constexpr uint32_t source_kind = 100, request_kind = 101;
 struct ForeignSource final : xui::ItemsSource {
     xui_source_options options;
     xui_source_visual_query visual_query{};
+    xui_source_action_query action_query{};
     std::weak_ptr<const xui::ItemsSource> miller_source;
     std::weak_ptr<State> owner;
     ForeignSource(xui_source_options value, const std::shared_ptr<State>& state) : options(value), owner(state) {
@@ -1134,7 +1154,35 @@ struct ForeignSource final : xui::ItemsSource {
         item.enabled = !(r.flags & 1);
         if (r.flags & 2) { require(r.progress >= 0 && r.progress <= 1, XUI_INVALID_ARGUMENT, "Inline progress must be in [0,1]."); item.progress = r.progress; }
         if (r.flags & 8) item.checked = bool(r.flags & 4);
+        if (action_query) item.action = read_action(index);
         return item;
+    }
+    std::wstring read_action(size_t index) const {
+        auto state = owner.lock();
+        require(state && !state->closed && state->window, XUI_CLOSED, "The snapshot owner is closed.");
+        require(state->thread == GetCurrentThreadId(), XUI_WRONG_THREAD, "Source access requires the UI thread.");
+        require(!state->source_callbacks, XUI_BUSY, "A source callback cannot reenter its source.");
+        uint32_t required{};
+        const auto query = [&](char* buffer, uint32_t capacity) {
+            ++state->callbacks; ++state->source_callbacks;
+            xui_status status{};
+            try { status = action_query(options.context, index, buffer, capacity, &required); }
+            catch (...) { status = XUI_CALLBACK_FAILED; }
+            --state->callbacks; --state->source_callbacks;
+            if (status && !(status == XUI_BUFFER_TOO_SMALL && !capacity)) {
+                state->callback_failure = status; state->window->close();
+                throw Failure{XUI_CALLBACK_FAILED, "An immutable action callback failed."};
+            }
+            require(required <= 1024, XUI_INVALID_ARGUMENT, "Action label exceeds 1024 UTF-8 bytes.");
+        };
+        query(nullptr, 0);
+        const uint32_t length = required;
+        std::vector<char> bytes(length);
+        if (length) {
+            query(bytes.data(), length);
+            require(required == length, XUI_INVALID_ARGUMENT, "Immutable action label changed between reads.");
+        }
+        return decode({bytes.data(), length, 0});
     }
     std::wstring cell(size_t index, size_t column) const override {
         require(index < size() && column < 64, XUI_INVALID_ARGUMENT, "Source cell is out of range.");
@@ -1293,6 +1341,10 @@ xui_status XUI_CALL xui_source_create(xui_handle window, const xui_source_option
 }
 xui_status XUI_CALL xui_source_create_visual(xui_handle window, const xui_source_options* options,
     xui_source_visual_query visual, xui_handle* out) noexcept {
+    return xui_source_create_extended(window, options, visual, nullptr, out);
+}
+xui_status XUI_CALL xui_source_create_extended(xui_handle window, const xui_source_options* options,
+    xui_source_visual_query visual, xui_source_action_query action, xui_handle* out) noexcept {
     return boundary([&] {
         require(out != nullptr, XUI_INVALID_ARGUMENT, "Missing output handle."); *out = 0;
         auto n = get(window, XUI_WINDOW); editable(n->owner);
@@ -1301,6 +1353,7 @@ xui_status XUI_CALL xui_source_create_visual(xui_handle window, const xui_source
             XUI_INVALID_ARGUMENT, "Invalid immutable source callbacks or count.");
         auto source = std::make_shared<ForeignSource>(*options, n->owner);
         source->visual_query = visual;
+        source->action_query = action;
         *out = insert(n->owner, source_kind); get(*out)->resource = std::move(source);
     });
 }
@@ -1317,6 +1370,12 @@ xui_status XUI_CALL xui_source_attach(xui_handle target, xui_handle source) noex
 }
 xui_status XUI_CALL xui_source_release(xui_handle source) noexcept {
     return boundary([&] { revoke(get(source, source_kind)); });
+}
+xui_status XUI_CALL xui_collection_stable_image_identity(xui_handle target, uint32_t enabled) noexcept {
+    return boundary([&] {
+        auto n = get(target); editable(n->owner); limit(enabled, 1);
+        feature<xui::VirtualCollection>(n).set_stable_image_identity(enabled != 0);
+    });
 }
 xui_status XUI_CALL xui_miller_set_columns(xui_handle target, const xui_miller_column* columns, uint32_t count) noexcept {
     return boundary([&] {

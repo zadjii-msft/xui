@@ -1,6 +1,8 @@
 #include "xui/navigation.hpp"
 #include <iostream>
 #include <limits>
+#include <atomic>
+#include <thread>
 
 namespace {
 using namespace xui;
@@ -259,6 +261,61 @@ void hover_help() {
     requested->hover_item(ItemKey{11, 1}); requested->request_hover_help();
     require(!owned && !requested->hover_anchor(), "Delayed hover callback can release its owner");
 }
+void artwork_updates() {
+    NavigationView nav; nav.set_items(fixture()); nav.arrange({0, 0, 280, 400});
+    nav.select({13, 1}); nav.set_filter(L"Members"); nav.set_duration(180);
+    const auto source = nav.items()->source();
+    const auto selected = nav.selected(), focus = nav.items()->selection().focused();
+    const auto offset = nav.items()->offset();
+    nav.items()->hover_item(ItemKey{13, 1});
+    const auto hover = nav.items()->hover_revision();
+    int callbacks{};
+    nav.on_select([&](ItemKey) { ++callbacks; });
+    require(nav.set_item_image({13, 1}, L"C:\\cover.png"), "Update a navigation image in place");
+    require(source == nav.items()->source() && source->item(*source->find({13, 1})).image_path == L"C:\\cover.png",
+        "Current and retained snapshots share generation image metadata");
+    require(nav.find({13, 1})->image_path == L"C:\\cover.png" && nav.selected() == selected &&
+        nav.items()->selection().focused() == focus && nav.items()->offset() == offset && nav.filter() == L"Members" &&
+        nav.items()->hover_revision() == hover && callbacks == 0 && nav.item_expanded({12, 1}),
+        "Artwork updates retain selection, focus, viewport, hover, filter and disclosure");
+    require(!nav.set_item_image({13, 2}, L"stale.png") && !nav.set_item_image({999, 1}, L"missing.png"),
+        "Artwork updates reject missing and stale keys");
+    require(nav.set_item_image({1, 1}, L"header.png") && nav.set_item_image({40, 1}, L"footer.png"),
+        "Pinned rows accept artwork updates");
+    require(nav.header_items()->source()->item(0).image_path == L"header.png" &&
+        nav.footer_items()->source()->item(0).image_path == L"footer.png", "All sections use current artwork");
+    require(nav.set_item_image({13, 1}, L"") && source->item(*source->find({13, 1})).image_path.empty(),
+        "Empty artwork restores the existing glyph");
+    const std::wstring first(512, L'a'), second(512, L'b');
+    nav.set_item_image({13, 1}, first);
+    std::atomic<unsigned> reads{};
+    std::atomic<bool> invalid{};
+    std::jthread reader([&](std::stop_token stop) {
+        const auto index = *source->find({13, 1});
+        while (!stop.stop_requested()) {
+            const auto image = source->item(index).image_path;
+            if (image != first && image != second) invalid = true;
+            ++reads;
+        }
+    });
+    while (!reads.load()) std::this_thread::yield();
+    for (unsigned i = 0; i < 1000; ++i) nav.set_item_image({13, 1}, i % 2 ? first : second);
+    reader.request_stop(); reader.join();
+    require(reads > 0 && !invalid, "Accessibility snapshot readers see complete image updates across threads");
+    nav.set_item_image({13, 1}, L"");
+    rejects([&] { nav.set_item_image({13, 1}, std::wstring(32768, L'x')); });
+    rejects([&] { nav.set_item_image({13, 1}, std::wstring(L"a\0b", 3)); });
+    nav.set_items(fixture());
+    require(nav.set_item_image({13, 1}, L"new-generation.png") &&
+        source->item(*source->find({13, 1})).image_path.empty(),
+        "A replacement tree cannot mutate retained artwork from an old generation");
+    nav.set_filter(L""); nav.set_duration(180); nav.arrange({0, 0, 280, 400});
+    nav.items()->disclose({12, 1}, false);
+    require(nav.animating(), "Start disclosure motion before artwork delivery");
+    const auto moving = nav.items()->source();
+    require(nav.set_item_image({11, 1}, L"during-motion.png") && nav.animating() && nav.items()->source() == moving,
+        "Artwork delivery does not settle or replace disclosure motion");
+}
 void validation_and_lifetime() {
     NavigationView nav; nav.set_items(fixture()); nav.select({13, 1});
     auto invalid = fixture(); invalid.push_back(invalid.front());
@@ -326,6 +383,6 @@ void validation_and_lifetime() {
 }
 }
 int main() {
-    try { state_and_input(); search_disclosure(); scrolled_focus_repair(); hover_help(); validation_and_lifetime(); std::cout << checks << " navigation view checks passed\n"; return 0; }
+    try { state_and_input(); search_disclosure(); scrolled_focus_repair(); hover_help(); artwork_updates(); validation_and_lifetime(); std::cout << checks << " navigation view checks passed\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

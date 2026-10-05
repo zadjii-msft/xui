@@ -297,6 +297,24 @@ root->add(viewport, 1);
 window.set_content(root);
 ```
 
+### Inline overlap
+
+Stack and Grid children paint in declared order, from back to front.
+Each child paints its background, border, and descendants as one subtree.
+Later siblings cover earlier siblings, including collection rows and native editor pixels.
+An opaque panel therefore covers the content beneath its bounds.
+Ancestor viewports and authored rounded corners still clip that subtree.
+
+Native sibling order matches this visual order.
+An inline Reveal does not require a popup or an application-specific HWND operation.
+Opening, closing, scrolling, and resizing an inline overlay do not activate the window or move keyboard focus.
+Native editors retain their HWND, text, selection, and composition state.
+Visible controls outside the overlay remain interactive.
+An explicit pointer or keyboard action retains the normal focus behavior of its target.
+
+Popups and compact navigation overlays retain their separate foreground order.
+Inline overlap does not change popup dismissal, modal input, or native text composition.
+
 ### Retained scrolling
 
 `ScrollView` accepts one retained `Element`, including a nested Stack.

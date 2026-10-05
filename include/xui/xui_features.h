@@ -456,6 +456,10 @@ XUI_API xui_status XUI_CALL xui_command_bar_button(xui_handle target,
 XUI_API xui_status XUI_CALL xui_panel_add(xui_handle target, xui_handle child,
     uint32_t row, uint32_t column, uint32_t row_span, uint32_t column_span) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_popup_show(xui_handle target, xui_handle anchor) XUI_NOEXCEPT;
+/* Command menu anchored to a current visible collection row's inline action.
+   Returns XUI_INVALID_ARGUMENT for stale, disabled, or offscreen rows. */
+XUI_API xui_status XUI_CALL xui_command_surface_show_item(xui_handle target, xui_handle anchor,
+    uint64_t id, uint64_t version) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_rich_runs(xui_handle target, const xui_text_run* runs,
     uint32_t count) XUI_NOEXCEPT;
 /* Plaintext is valid only during this callback. The callback must not throw or retain it. */
@@ -491,7 +495,22 @@ typedef xui_status (XUI_CALL *xui_source_visual_query)(void*, uint64_t, uint64_t
     uint32_t*, char*, uint32_t, uint32_t*);
 XUI_API xui_status XUI_CALL xui_source_create_visual(xui_handle window,
     const xui_source_options* options, xui_source_visual_query visual, xui_handle* result) XUI_NOEXCEPT;
+/* Optional inline action label. Uses the source context and retain/release lifetime.
+   Two-call UTF-8 protocol as above; labels have a 1024-byte limit. */
+typedef xui_status (XUI_CALL *xui_source_action_query)(void*, uint64_t,
+    char*, uint32_t, uint32_t*);
+XUI_API xui_status XUI_CALL xui_source_create_extended(xui_handle window,
+    const xui_source_options* options, xui_source_visual_query visual,
+    xui_source_action_query action, xui_handle* result) XUI_NOEXCEPT;
+/* Changes only image metadata in the current navigation generation.
+   Empty clears artwork. Missing IDs return XUI_INVALID_ARGUMENT. */
+XUI_API xui_status XUI_CALL xui_navigation_item_image(xui_handle target,
+    uint64_t id, xui_string path) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_source_attach(xui_handle target, xui_handle source) XUI_NOEXCEPT;
+/* Opt in to immutable artwork identity across source replacement on virtual collections.
+   The application must keep key versions and artwork paths stable for unchanged images. */
+XUI_API xui_status XUI_CALL xui_collection_stable_image_identity(xui_handle target,
+    uint32_t enabled) XUI_NOEXCEPT;
 /* Release the caller's snapshot handle. Attached controls and selection terms retain their own source references. */
 XUI_API xui_status XUI_CALL xui_source_release(xui_handle source) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_collection_contains(xui_handle target,

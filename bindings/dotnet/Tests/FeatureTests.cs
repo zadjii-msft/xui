@@ -539,6 +539,10 @@ internal static class FeatureTests
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
                 ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };
                 navigation.Select(2); Expect(selected == 2);
+                Expect(ReferenceEquals(navigation, navigation.SetItemImage(2, @"C:\cover.png")));
+                navigation.SetItemImage(2, ""); Expect(selected == 2);
+                Fails(() => navigation.SetItemImage(99, "missing.png"));
+                Fails(() => navigation.SetItemImage(2, new string('x', 32768)));
                 navigation.SetExpanded(false); Expect(!navigation.Expanded);
                 Expect(ReferenceEquals(navigation.Search, navigation.Search));
                 Fails(() => navigation.SetItems([new(1, "Bad parent", 2)]));

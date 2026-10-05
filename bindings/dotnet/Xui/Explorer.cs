@@ -39,6 +39,12 @@ public sealed unsafe partial class NavigationView
     public Label Title => title ??= new(Window, Features.Child(this, 5));
     public Label EmptyMessage => emptyMessage ??= new(Window, Features.Child(this, 6));
     public NavigationView Select(ulong id) { Features.Action(this, 1, id); return this; }
+    public NavigationView SetItemImage(ulong id, string path)
+    {
+        Window.Guard(); using var pins = new Window.Pins();
+        Window.Check(Native.NavigationItemImage(Handle, id, pins.Text(path)));
+        return this;
+    }
     public NavigationView SetItems(ReadOnlySpan<NavigationEntry> items)
     {
         Window.Guard();
@@ -72,6 +78,10 @@ public sealed partial class SplitView
 }
 public sealed partial class ItemsView
 {
+    public ItemsView SetStableImageIdentity(bool enabled)
+    {
+        Window.Guard(); Window.Check(Native.CollectionStableImageIdentity(Handle, enabled ? 1u : 0u)); return this;
+    }
     public ItemsView Step(int delta) { Features.Action(this, 16, unchecked((uint)delta)); return this; }
     /// <summary>Moves vertical selection without moving input focus. Supports Control and Shift selection gestures.</summary>
     public ItemsView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
@@ -79,6 +89,10 @@ public sealed partial class ItemsView
 }
 public sealed partial class TreeView
 {
+    public TreeView SetStableImageIdentity(bool enabled)
+    {
+        Window.Guard(); Window.Check(Native.CollectionStableImageIdentity(Handle, enabled ? 1u : 0u)); return this;
+    }
     /// <summary>Moves visible row selection without moving input focus. Supports Control and Shift selection gestures.</summary>
     public TreeView Navigate(GridNavigation direction, KeyModifiers modifiers = KeyModifiers.None)
     { Features.Action(this, 17, (uint)direction, (uint)modifiers); return this; }

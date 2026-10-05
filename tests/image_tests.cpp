@@ -31,8 +31,38 @@ void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 namespace xui {
 struct DrawingTestAccess {
     static void lose() { Drawing::end_result_override_ = D2DERR_RECREATE_TARGET; }
+    static void software_target(Drawing& drawing, HWND window) {
+        const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+            96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
+        Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target;
+        image_fixture::hr(drawing.factory_->CreateHwndRenderTarget(properties,
+            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(240, 260)), &target));
+        image_fixture::hr(target.As(&drawing.target_));
+        drawing.hwnd_target_ = target;
+        drawing.host_window_ = window;
+        ++Drawing::live_targets_;
+        image_fixture::hr(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_));
+    }
+    static std::vector<COLORREF> pixels(Drawing& drawing) {
+        Microsoft::WRL::ComPtr<ID2D1GdiInteropRenderTarget> interop;
+        image_fixture::hr(drawing.target_.As(&interop));
+        HDC dc{};
+        image_fixture::hr(interop->GetDC(D2D1_DC_INITIALIZE_MODE_COPY, &dc));
+        std::vector<COLORREF> result(240 * 260);
+        for (int y = 0; y < 260; ++y) for (int x = 0; x < 240; ++x)
+            result[y * 240 + x] = GetPixel(dc, x, y);
+        const RECT unchanged{};
+        image_fixture::hr(interop->ReleaseDC(&unchanged));
+        return result;
+    }
 };
 struct RowImagesTestAccess {
+    static std::size_t recent_count(const RowImages& images) { return images.recent_.size(); }
+    static bool recent_live(const RowImages& images, ItemKey key) {
+        for (const auto& entry : images.recent_) if (entry.key == key) return !entry.pixels.expired();
+        return false;
+    }
     static std::shared_ptr<ImageRequest> request(const RowImages& images, ItemKey key) {
         for (const auto& slot : images.slots_) if (slot->key == key) return slot->request;
         return {};
@@ -87,6 +117,36 @@ void bounds() {
     check(s.gpu_bytes + s.gpu_reserved <= ImageLimits::gpu_bytes && s.gpu_peak <= ImageLimits::gpu_bytes, "GPU budget and peak");
     check(s.queued <= ImageLimits::queue && s.active <= 1 && s.cache_entries <= ImageLimits::cache_entries, "Bounded metadata and worker count");
 }
+HANDLE entered{}, release_gate{};
+bool gate_active{};
+ImageDecodeStage gated_stage;
+void hook(ImageDecodeStage stage) {
+    if (stage != gated_stage) return;
+    SetEvent(entered);
+    WaitForSingleObject(release_gate, 10000);
+}
+struct Gate {
+    ImageKind kind;
+    Gate(ImageDecodeStage stage, ImageKind worker = ImageKind::wic) : kind(worker) {
+        check(!gate_active, "Decode test gates share event handles and must not overlap");
+        gate_active = true;
+        entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        release_gate = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        gated_stage = stage;
+        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = hook;
+    }
+    void await() { check(WaitForSingleObject(entered, 10000) == WAIT_OBJECT_0, "Decode reaches gated boundary"); }
+    void release() {
+        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = nullptr;
+        SetEvent(release_gate);
+    }
+    ~Gate() {
+        release();
+        wait([] { return !ImageResources::statistics().active; });
+        CloseHandle(entered); CloseHandle(release_gate);
+        gate_active = false;
+    }
+};
 void row_sync_hot_path(bool benchmark) {
     for (const auto count : std::array<std::size_t, 3>{8, 64, RowImages::maximum_rows}) {
         std::vector<RowVisual> rows;
@@ -159,6 +219,59 @@ void row_sync_identity_contracts() {
     check(!images.sync_visuals({}, 96, {}, retained) && images.visual({9, 1}).icon == ButtonIcon::none,
         "Hidden rows also release fallback-only visuals");
 }
+void gallery_dimension_contracts() {
+    ItemsView gallery;
+    check(!gallery.stable_image_identity(), "Source replacement reloads artwork by default");
+    gallery.set_stable_image_identity(true);
+    check(gallery.stable_image_identity(), "Stable artwork identity requires explicit opt-in");
+    gallery.set_presentation(ItemsPresentation::gallery);
+    for (const auto size : {Size{180, 214}, Size{240, 300}, Size{80, 96}, Size{180.5f, 213.75f}}) {
+        gallery.set_item_size(size);
+        for (const bool secondary : {false, true}) {
+            CollectionRow row;
+            row.content.primary = L"Album";
+            if (secondary) row.content.secondary = L"Artist";
+            row.bounds = {0, 50, size.width, size.height};
+            const auto extent = gallery.gallery_layout(row).image.width;
+            for (const float offset : {50.10810852050781f, -0.25f, 0.0f, 1048576.125f, -1048576.125f}) {
+                row.bounds.y = offset;
+                const auto geometry = gallery.gallery_layout(row);
+                check(geometry.image.width == extent && geometry.image.height == extent,
+                    "Fractional scrolling must change gallery position, not image dimensions");
+                for (const UINT dpi : {96u, 120u, 144u, 192u})
+                    check(std::lround(geometry.image.width * dpi / 96.0) == std::lround(extent * dpi / 96.0),
+                        "Gallery scroll positions retain physical decode sizes at every DPI");
+            }
+        }
+    }
+}
+void recent_identity_bounds() {
+    RowImages images;
+    std::vector<RowVisual> rows;
+    for (std::size_t i = 0; i < RowImages::maximum_rows; ++i)
+        rows.push_back({{i + 1, 1}, {ButtonIcon::none, L"C:\\synthetic\\cover.png"}});
+    RowImagesTestAccess::seed(images, rows);
+    std::vector<std::shared_ptr<const ImagePixels>> resident;
+    for (const auto& row : rows) resident.push_back(images.pixels(row.key));
+    auto last = images.pixels(rows.back().key);
+    std::vector<std::uint64_t> retained;
+    images.sync_visuals({}, 96, {}, retained);
+    check(images.count() == 0 && RowImagesTestAccess::recent_count(images) == ImageLimits::cache_entries &&
+        !RowImagesTestAccess::recent_live(images, rows.front().key),
+        "Empty viewports release all strong pixels with bounded weak identity history");
+    check(RowImagesTestAccess::recent_live(images, rows.back().key),
+        "Recent identities refer to resident pixels without owning them");
+    images.sync_visuals({rows.back()}, 96, {}, retained);
+    check(images.pixels(rows.back().key) == last && !RowImagesTestAccess::request(images, rows.back().key),
+        "Recent resident identity restores synchronously without a request");
+    images.sync_visuals({}, 96, {}, retained);
+    resident.clear();
+    last.reset();
+    check(!RowImagesTestAccess::recent_live(images, rows.back().key),
+        "Weak identity history does not pin pixel allocations");
+    images.clear();
+    check(RowImagesTestAccess::recent_count(images) == 0, "Control teardown clears recent identities");
+}
 void row_image_tests() {
     struct Source final : ItemsSource {
         size_t size() const override { return 100; }
@@ -200,8 +313,13 @@ void row_image_tests() {
     for (const auto* images : controls) for (const auto& row : rows)
         check(images->pixels(row.key) != nullptr, "Every visible row loads, including lower rows in later columns");
     const auto id = first.pixels({1, 1})->id;
-    retained.clear(); first.sync(source, rows, 192, wake, retained);
-    check(!first.pixels({1, 1}), "DPI change releases old pixel slots before completion");
+    {
+        Gate gate(ImageDecodeStage::before_decode);
+        retained.clear(); first.sync(source, rows, 192, wake, retained);
+        gate.await();
+        check(!first.pixels({1, 1}), "DPI change releases old pixel slots before completion");
+        gate.release();
+    }
     wait([&] { retained.clear(); first.sync(source, rows, 192, wake, retained); return retained.size() == rows.size(); });
     check(first.pixels({1, 1}) && first.pixels({1, 1})->id != id, "DPI change uses newly sized pixels");
     rows = {{{1, 2}, {ButtonIcon::none, (directory / L"missing.png").wstring()}}};
@@ -315,32 +433,6 @@ void decode_tests() {
     check(ImageResources::statistics().evicted > 400, "Sustained navigation must exercise cache eviction");
     empty();
 }
-HANDLE entered{}, release_gate{};
-ImageDecodeStage gated_stage;
-void hook(ImageDecodeStage stage) {
-    if (stage != gated_stage) return;
-    SetEvent(entered);
-    WaitForSingleObject(release_gate, 10000);
-}
-struct Gate {
-    ImageKind kind;
-    Gate(ImageDecodeStage stage, ImageKind worker = ImageKind::wic) : kind(worker) {
-        entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        release_gate = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        gated_stage = stage;
-        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = hook;
-    }
-    void await() { check(WaitForSingleObject(entered, 10000) == WAIT_OBJECT_0, "Decode reaches gated boundary"); }
-    void release() {
-        (kind == ImageKind::shell ? ImageDecodeTestAccess::shell_hook : ImageDecodeTestAccess::hook) = nullptr;
-        SetEvent(release_gate);
-    }
-    ~Gate() {
-        release();
-        wait([] { return !ImageResources::statistics().active; });
-        CloseHandle(entered); CloseHandle(release_gate);
-    }
-};
 void row_image_queue_tests() {
     for (const auto kind : {ImageKind::wic, ImageKind::shell}) {
         {
@@ -404,6 +496,8 @@ void row_image_queue_tests() {
             check(ImageResources::statistics().queued == RowImages::maximum_queued,
                 "Row admission bounds outstanding work without limiting retained row count");
             check(images.count() == 100, "Cold duplicate visuals share one slot and one pending request");
+            for (std::size_t i = 0; i < 100; ++i)
+                check(images.loading(rows[i].key), "Admitted and deferred cold images both retain explicit loading state");
             for (std::size_t i = 0; i < 100; ++i)
                 check(bool(RowImagesTestAccess::request(images, rows[i].key)) == (i < RowImages::maximum_queued),
                     "Sorted lookup must not change visible input order at the queue admission limit");
@@ -594,13 +688,210 @@ void gallery_image_tests() {
             "Compact tree icon extents request 16 DIPs at the current DPI");
         sync(0);
         const auto list = RowImagesTestAccess::request(images, {1, 1});
-        check(compact->cancelled && list && list->size == ImageSize{24, 24},
-            "Leaving gallery restores the existing small row image request");
+        check(!compact->cancelled && list == compact && list->size == ImageSize{24, 24},
+            "Leaving gallery retains the pending request when the actual physical image size is unchanged");
         images.clear();
         check(list->cancelled && images.count() == 0, "Gallery teardown cancels pending images");
         gate.release();
     }
     empty();
+}
+void row_reentry_tests() {
+    struct Source final : ItemsSource {
+        size_t size() const override { return 1; }
+        ItemKey key(size_t) const override { return {1, 7}; }
+        std::optional<size_t> find(ItemKey key) const override {
+            return key == ItemKey{1, 7} ? std::optional<size_t>{0} : std::nullopt;
+        }
+        ItemContent item(size_t) const override { return {}; }
+    };
+    auto wake = std::make_shared<TaskWake>();
+    for (const bool shell : {false, true}) for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        RowImages images;
+        auto source = std::make_shared<Source>();
+        std::vector<std::uint64_t> retained;
+        ItemsView gallery;
+        gallery.set_item_size({180, 214});
+        CollectionRow card;
+        card.bounds = {0, 50, 180, 214};
+        card.content.primary = L"Album"; card.content.secondary = L"Artist";
+        const RowVisual row{{1, 7}, {shell ? ButtonIcon::folder : ButtonIcon::open, path(0)}, shell,
+            shell ? 16.0f : gallery.gallery_layout(card).image.width};
+        const auto sync = [&](std::vector<RowVisual> rows, bool stable = false) {
+            retained.clear();
+            return images.sync(source, std::move(rows), dpi, wake, retained, stable, stable);
+        };
+        {
+            Gate gate(ImageDecodeStage::before_decode, shell ? ImageKind::shell : ImageKind::wic);
+            sync({row}); gate.await();
+            check(images.loading(row.key), "Cold row artwork is explicitly loading");
+            gate.release();
+        }
+        wait([&] { sync({row}); return bool(images.pixels(row.key)); });
+        auto original = images.pixels(row.key);
+        check(!images.loading(row.key), "Completed artwork is not loading");
+        for (const float y : {50.10810852050781f, -0.25f, 999.875f}) {
+            card.bounds.y = y;
+            auto scrolled = row;
+            if (!shell) scrolled.image_dips = gallery.gallery_layout(card).image.width;
+            const auto before = ImageResources::statistics();
+            sync({scrolled});
+            const auto after = ImageResources::statistics();
+            check(images.pixels(row.key) == original && after.decoded == before.decoded &&
+                after.cache_hits == before.cache_hits && !RowImagesTestAccess::request(images, row.key),
+                "Fractional gallery scrolling retains decoded pixels without asynchronous lookups");
+        }
+        retained.clear();
+        images.sync(source, {row}, dpi, wake, retained, true);
+        sync({row});
+        check(images.pixels(row.key) == original && !RowImagesTestAccess::request(images, row.key),
+            "Retiring presentation-only source retention preserves loaded artwork in the current source");
+        sync({});
+        check(!images.pixels(row.key) && !images.loading(row.key), "Hidden rows release visible state");
+        {
+            const auto kind = shell ? ImageKind::shell : ImageKind::wic;
+            Gate gate(ImageDecodeStage::before_decode, kind);
+            auto blocker = request_image(path(1), {29, 29}, {}, kind);
+            gate.await();
+            const auto before = ImageResources::statistics();
+            sync({row});
+            const auto after = ImageResources::statistics();
+            check(images.pixels(row.key) == original && retained == std::vector<std::uint64_t>{original->id} &&
+                !RowImagesTestAccess::request(images, row.key) && after.decoded == before.decoded &&
+                after.cache_hits == before.cache_hits && after.queued == before.queued,
+                "Page-sized scroll restores resident artwork before any worker completion");
+            sync({});
+            source = std::make_shared<Source>();
+            sync({row}, true);
+            check(images.pixels(row.key) == original && !RowImagesTestAccess::request(images, row.key),
+                "Explicit stable identity preserves offscreen artwork across immutable snapshots");
+            sync({row}, false);
+            const auto disabled = RowImagesTestAccess::request(images, row.key);
+            check(!images.pixels(row.key) && images.loading(row.key) && disabled &&
+                RowImagesTestAccess::recent_count(images) == 0,
+                "Disabling stable identity invalidates retained artwork even with the same source snapshot");
+            sync({});
+            check(disabled->cancelled, "Disabling stable identity preserves hidden-request cancellation");
+            source = std::make_shared<Source>();
+            sync({row});
+            check(!images.pixels(row.key) && images.loading(row.key) &&
+                RowImagesTestAccess::request(images, row.key),
+                "Default replacement invalidates even matching offscreen weak identities");
+            images.clear();
+            blocker->cancel();
+            gate.release();
+        }
+        original.reset(); empty();
+    }
+    RowImages images;
+    std::vector<std::uint64_t> retained;
+    const RowVisual row{{1, 7}, {ButtonIcon::open, path(0)}, false, 24};
+    const auto sync = [&](RowVisual value, UINT dpi = 96) {
+        retained.clear(); images.sync_visuals({std::move(value)}, dpi, wake, retained);
+    };
+    sync(row);
+    wait([&] { sync(row); return bool(images.pixels(row.key)); });
+    images.sync_visuals({}, 96, wake, retained);
+    {
+        Gate gate(ImageDecodeStage::before_decode);
+        auto blocker = request_image(path(1), {31, 31}, {});
+        gate.await();
+        for (int change = 0; change < 4; ++change) {
+            auto different = row;
+            UINT dpi = 96;
+            if (change == 0) ++different.key.version;
+            if (change == 1) different.visual.image_path = path(2);
+            if (change == 2) different.image_dips = 48;
+            if (change == 3) dpi = 120;
+            sync(different, dpi);
+            const auto pending = RowImagesTestAccess::request(images, different.key);
+            check(!images.pixels(different.key) && images.loading(different.key) && pending,
+                "Changed generations, paths, sizes, and DPI cannot restore unrelated pixels");
+            images.sync_visuals({}, dpi, wake, retained);
+            check(pending->cancelled, "Hidden pending reentry requests still cancel");
+        }
+        images.clear(); blocker->cancel(); gate.release();
+    }
+    empty();
+    sync(row);
+    wait([&] { sync(row); return bool(images.pixels(row.key)); });
+    images.sync_visuals({}, 96, wake, retained);
+    {
+        Gate gate(ImageDecodeStage::before_decode, ImageKind::shell);
+        auto blocker = request_image(path(1), {31, 31}, {}, ImageKind::shell);
+        gate.await();
+        auto different = row; different.directory = true;
+        sync(different);
+        const auto pending = RowImagesTestAccess::request(images, different.key);
+        check(!images.pixels(different.key) && images.loading(different.key) &&
+            pending && pending->kind == ImageKind::shell,
+            "Changed decode kinds cannot restore unrelated WIC pixels");
+        images.sync_visuals({}, 96, wake, retained);
+        check(pending->cancelled, "Hidden requests cancel after a decode-kind change");
+        images.clear(); blocker->cancel(); gate.release();
+    }
+    empty();
+    sync(row);
+    wait([&] { sync(row); return bool(images.pixels(row.key)); });
+    images.sync_visuals({}, 96, wake, retained);
+    clear_image_cache();
+    check(!RowImagesTestAccess::recent_live(images, row.key), "Cache eviction expires weak history");
+    {
+        Gate gate(ImageDecodeStage::before_decode);
+        sync(row); gate.await();
+        check(images.loading(row.key) && !images.pixels(row.key), "Expired history returns to asynchronous loading");
+        images.clear(); gate.release();
+    }
+    empty();
+    auto missing = row; missing.visual.image_path = (directory / L"missing-reentry.png").wstring();
+    sync(missing);
+    wait([&] { sync(missing); return !images.loading(missing.key); });
+    check(!images.pixels(missing.key) && !RowImagesTestAccess::request(images, missing.key),
+        "Failed artwork stops loading and permits fallback without retrying");
+    images.clear(); empty();
+}
+void row_loading_render_tests() {
+    const auto window = CreateWindowExW(WS_EX_NOACTIVATE, L"STATIC", L"Artwork loading fixture",
+        WS_POPUP, 0, 0, 240, 260, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    check(window != nullptr, "Create loading render fixture");
+    Drawing drawing;
+    drawing.initialize();
+    DrawingTestAccess::software_target(drawing, window);
+    auto palette = Palette::system(ThemeMode::dark, VisualStyle::winui);
+    palette.high_contrast = false;
+    auto decoded = load(path(0), {24, 24});
+    check(decoded->pixels != nullptr, "Decode upload-error fixture");
+    for (const bool styled : {false, true}) for (const int presentation : {0, 1, 2}) {
+        ItemsView owner;
+        owner.set_presentation(presentation == 1 ? ItemsPresentation::gallery : ItemsPresentation::list);
+        owner.set_item_size({180, 214});
+        if (styled) owner.set_control_style(ControlStyle::create(StyleTarget::items_view, {}, {}));
+        CollectionRow row;
+        row.key = {1, 1}; row.bounds = {0, 0, 180, presentation == 1 ? 214.0f : 44.0f};
+        row.navigation = presentation == 2;
+        row.content.icon = ButtonIcon::open; row.content.image_path = path(0);
+        const auto render = [&](bool loading, std::shared_ptr<const ImagePixels> pixels = {}) {
+            check(drawing.begin(window, 96, D2D1::ColorF(0x101010)), "Begin loading render frame");
+            drawing.collection_row(row, false, false, true, palette, false, pixels, false, false, &owner, loading);
+            auto result = DrawingTestAccess::pixels(drawing);
+            check(drawing.end(), "Finish loading render frame");
+            return result;
+        };
+        const auto loading = render(true);
+        const auto failed = render(false);
+        check(loading != failed, "Loading suppresses fallback in styled and unstyled list, gallery, and navigation rows");
+        check(reserve_bitmap(ImageLimits::gpu_bytes), "Reserve the GPU budget for an upload-error regression");
+        const auto upload_error = render(true, decoded->pixels);
+        finish_bitmap(ImageLimits::gpu_bytes, false, 0);
+        check(upload_error == failed, "Bitmap upload errors retain fallback even when loading was supplied");
+        row.content.image_path.clear();
+        check(render(true) == render(false) && render(true) != loading,
+            "Missing artwork retains fallback regardless of pending state");
+        row.content.icon = ButtonIcon::none;
+        const auto empty = render(false);
+        check(empty == loading, "Loading artwork retains the same pixels as an empty reserved image lane");
+    }
+    drawing.release(); DestroyWindow(window); decoded.reset(); empty();
 }
 void ordinary_row_image_refresh_test() {
     struct Source final : ItemsSource {
@@ -870,10 +1161,13 @@ void gpu_tests() {
 }
 int wmain(int argc, wchar_t** argv) {
     try {
+        std::cout << std::unitbuf;
+        std::cerr << std::unitbuf;
         if (argc > 1 && (std::wstring_view(argv[1]) == L"--row-sync-only" ||
             std::wstring_view(argv[1]) == L"--benchmark")) {
             row_sync_hot_path(std::wstring_view(argv[1]) == L"--benchmark");
             row_sync_identity_contracts();
+            gallery_dimension_contracts(); recent_identity_bounds();
             return 0;
         }
         check(argc > 1, "Pass a project-local fixture directory");
@@ -881,8 +1175,20 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
         image_fixture::create(directory);
         if (argc > 2 && std::wstring(argv[2]) == L"--fixtures") { CoUninitialize(); return 0; }
-        decode_tests(); cancellation_tests(); shell_image_tests(); row_image_queue_tests(); row_image_tests(); ordinary_row_image_refresh_test();
-        navigation_row_image_tests(); tab_image_tests(); gallery_image_tests(); gpu_tests();
+        std::cerr << "decode\n"; decode_tests();
+        std::cerr << "cancellation\n"; cancellation_tests();
+        std::cerr << "shell\n"; shell_image_tests();
+        std::cerr << "row queues\n"; row_image_queue_tests();
+        std::cerr << "rows\n"; row_image_tests();
+        std::cerr << "ordinary refresh\n"; ordinary_row_image_refresh_test();
+        std::cerr << "navigation\n"; navigation_row_image_tests();
+        std::cerr << "tabs\n"; tab_image_tests();
+        std::cerr << "gallery\n"; gallery_image_tests();
+        std::cerr << "reentry\n"; row_reentry_tests();
+        std::cerr << "dimensions\n"; gallery_dimension_contracts();
+        std::cerr << "weak history\n"; recent_identity_bounds();
+        std::cerr << "loading render\n"; row_loading_render_tests();
+        std::cerr << "GPU\n"; gpu_tests();
         const auto s = ImageResources::statistics();
         std::cout << "image resources: decoded=" << s.decoded << " hits=" << s.cache_hits << " evicted=" << s.evicted
             << " rejected=" << s.rejected << " cancelled=" << s.cancelled << " cpu_peak=" << s.cpu_peak

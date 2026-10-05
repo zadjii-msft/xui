@@ -41,6 +41,9 @@ int main() {
             if ((xui::DrawingTestAccess::pixel(drawing, 24, 16) >> 24) == 255)
                 throw std::runtime_error("Rounded corner is still square");
             ShowWindow(hwnd, SW_SHOWNA);
+            if (!SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+                throw std::runtime_error("Expose the owned transparent test window without activation");
             if (!drawing.begin(hwnd, 96, D2D1::ColorF(0, 0.0f), {}, true))
                 throw std::runtime_error("Begin visible frame");
             drawing.rounded({24, 16, 80, 64}, D2D1::ColorF(0x3875ab), 12);

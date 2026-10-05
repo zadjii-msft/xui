@@ -155,6 +155,12 @@ public:
     virtual void set_presentation(ItemsPresentation value);
     ItemsPresentation presentation() const { return presentation_; }
     bool wraps_items() const { return presentation_ == ItemsPresentation::tiles || presentation_ == ItemsPresentation::gallery; }
+    // Opt-in requires stable item versions and immutable artwork paths across source snapshots.
+    void set_stable_image_identity(bool value) {
+        if (stable_image_identity_ == value) return;
+        stable_image_identity_ = value; invalidate(Invalidation::paint);
+    }
+    bool stable_image_identity() const { return stable_image_identity_; }
     void set_item_size(Size size);
     Size item_size() const;
     float scrollbar_width() const;
@@ -201,6 +207,7 @@ private:
     std::shared_ptr<const detail::CollectionPresentation> collection_presentation_;
     std::uint64_t collection_presentation_version_{};
     ItemsPresentation presentation_{};
+    bool stable_image_identity_{};
     SelectAllScope scope_{SelectAllScope::filtered};
     Size item_size_{180, 56};
     double offset_{};

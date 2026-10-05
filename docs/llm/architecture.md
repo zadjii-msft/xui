@@ -3,6 +3,26 @@
 These notes map retained controls to their native implementation.
 Public lifecycle contracts are in [the application reference](../specs/application.md).
 
+## Application-discovered regressions
+
+`bindings\dotnet\Xui.Generator\XuiGenerator.cs` distinguishes component identifiers from member names on external expressions.
+`GeneratorTests.TestMemberHandlerNames` covers enum values that share handler names and direct component calls.
+
+`src\navigation_view.cpp` shares image metadata across snapshots within one navigation generation.
+`set_item_image` changes this metadata without `NavigationList::replace`.
+The metadata mutex protects retained snapshots during accessibility reads from another thread.
+`NavigationList::disclose` focuses the disclosure row before snapshot replacement.
+`navigation_view_tests.cpp` covers image updates and generation isolation.
+`navigation_window_tests.cpp --spotify-navigation` sends native pointer messages to scrolled chevrons.
+
+`src\c_api_features.inc` adds a separate action callback through `xui_source_create_extended`.
+The original source structures remain unchanged.
+`bindings\dotnet\Xui\Features.cs` supplies `ItemContent.Action` through a NativeAOT-compatible callback.
+`ItemActionTests.cs` covers pointer delivery, row menus, obsolete keys, disabled rows, and managed callback errors.
+The public contracts are in [bindings](../specs/bindings.md) and [commands and navigation](../specs/commands-and-navigation.md).
+
+## Native hosts
+
 All three applications use `Window` for their native host.
 `src\window_host.cpp` supplies COM initialization, the blocking message loop, focus traversal, child placement, and title-bar appearance.
 The shared backend uses `Drawing`, theme tokens, and `NativeEditBridge`.

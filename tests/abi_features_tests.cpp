@@ -37,7 +37,7 @@ xui_handle create(xui_handle w,uint32_t kind,xui_handle content=0,xui_handle sec
     xui_feature_options o{sizeof(o),XUI_FEATURE_VERSION,text("Feature"),content,second};
     xui_handle h{};ok(xui_feature_create(w,kind,&o,&h));return h;
 }
-struct Source {unsigned refs{1}, queries{}, items{}, visuals{}; bool fail{}; uint64_t count{1000000}; xui_handle mutation_target{}; bool mutation_blocked{};};
+struct Source {unsigned refs{1}, queries{}, items{}, visuals{}, actions{}; bool fail{}, action_fail{}; uint32_t action_length{4}; uint64_t count{1000000}; xui_handle mutation_target{}; bool mutation_blocked{};};
 void XUI_CALL retain(void* c) {++static_cast<Source*>(c)->refs;}
 void XUI_CALL release(void* c) {--static_cast<Source*>(c)->refs;}
 xui_status XUI_CALL query(void* c,uint32_t op,uint64_t first,uint64_t second,xui_source_row* row) {
@@ -55,6 +55,40 @@ xui_status XUI_CALL secret(void* c,const char* bytes,uint32_t size) {
 }
 xui_status XUI_CALL visual_query(void* context, uint64_t, uint64_t, uint32_t* icon, char*, uint32_t, uint32_t* required) {
     ++static_cast<Source*>(context)->visuals; *icon = 18; *required = 0; return XUI_OK;
+}
+xui_status XUI_CALL action_query(void* context, uint64_t, char* output, uint32_t capacity, uint32_t* required) {
+    auto& source = *static_cast<Source*>(context); ++source.actions;
+    if (source.action_fail) return XUI_NATIVE_ERROR;
+    *required = source.action_length;
+    if (capacity < *required) return XUI_BUFFER_TOO_SMALL;
+    if (*required) std::memset(output, 'a', *required);
+    return XUI_OK;
+}
+void extended_source_contracts() {
+    for (const uint32_t length : {0u, 4u, 1024u, 1025u}) {
+        xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Source actions"), 400, 300};
+        xui_handle window{}; ok(xui_window_create(&options, &window));
+        Source source; source.count = 3; source.action_length = length;
+        xui_source_options configuration{sizeof(configuration), XUI_FEATURE_VERSION, source.count, &source, query, retain, release};
+        xui_handle snapshot{};
+        ok(xui_source_create_extended(window, &configuration, visual_query, action_query, &snapshot));
+        expect(source.refs == 2 && source.actions == 0);
+        const auto items = create(window, XUI_ITEMS_VIEW);
+        ok(xui_collection_stable_image_identity(items, 1));
+        expect(xui_collection_stable_image_identity(items, 2) == XUI_INVALID_ARGUMENT);
+        expect(xui_collection_stable_image_identity(create(window, XUI_RANGE_INPUT), 0) == XUI_WRONG_KIND);
+        ok(xui_collection_stable_image_identity(items, 0));
+        ok(xui_source_attach(items, snapshot));
+        ok(xui_source_release(snapshot)); expect(source.refs == 2);
+        const auto status = xui_feature_action(items, XUI_A_COLLECTION_STEP, 1, 0);
+        expect(status == (length > 1024 ? XUI_INVALID_ARGUMENT : XUI_OK));
+        expect(source.actions > 0 && source.actions < 8);
+        if (length <= 1024) {
+            source.action_fail = true;
+            expect(xui_feature_action(items, XUI_A_COLLECTION_STEP, 1, 0) == XUI_CALLBACK_FAILED);
+        }
+        ok(xui_window_destroy(window)); expect(source.refs == 1);
+    }
 }
 xui_status XUI_CALL event(void* c,const xui_event* e) { *static_cast<xui_event*>(c)=*e; return 0; }
 xui_status XUI_CALL count_event(void* c, const xui_event*) { ++*static_cast<unsigned*>(c); return XUI_OK; }
@@ -983,6 +1017,14 @@ void explorer_contracts() {
         {sizeof(xui_navigation_entry), 0, 2, 1, text("Home"), text("folder")}
     };
     ok(xui_navigation_items(navigation, entries, 2));
+    ok(xui_navigation_item_image(navigation, 2, text("C:\\cover.png")));
+    ok(xui_navigation_item_image(navigation, 2, text("")));
+    expect(xui_navigation_item_image(navigation, 99, text("missing.png")) == XUI_INVALID_ARGUMENT);
+    expect(xui_navigation_item_image(first_pane, 2, text("cover.png")) == XUI_WRONG_KIND);
+    const char nul_path[] = {'a', 0, 'b'};
+    expect(xui_navigation_item_image(navigation, 2, {nul_path, 3, 0}) == XUI_INVALID_ARGUMENT);
+    const std::string long_path(32768, 'x');
+    expect(xui_navigation_item_image(navigation, 2, text(long_path.c_str())) == XUI_INVALID_ARGUMENT);
     ok(xui_navigation_hover_delay(navigation, 1000));
     expect(xui_navigation_hover_delay(navigation, 99) == XUI_INVALID_ARGUMENT);
     expect(xui_navigation_hover_delay(navigation, 60001) == XUI_INVALID_ARGUMENT);
@@ -1286,6 +1328,7 @@ int main(int argc, char** argv) {
         std::cout << "Toggle control ABI contracts built " << __DATE__ << ' ' << __TIME__ << std::endl;
         parity_control_contracts();
         toggle_control_contracts();
+        extended_source_contracts();
         std::cout << "Toggle control contracts: " << assertions << " assertions\n";
         return 0;
     }

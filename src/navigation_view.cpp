@@ -4,8 +4,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
+#include <mutex>
 
 namespace xui {
+namespace detail {
+struct NavigationImages {
+    mutable std::mutex mutex;
+    std::map<ItemKey, std::wstring> paths;
+};
+}
 namespace {
 std::wstring folded(std::wstring_view text) {
     std::wstring result(text);
@@ -17,9 +24,18 @@ public:
     struct Row { ItemKey key; ItemContent content; ItemHierarchy hierarchy; };
     std::vector<Row> rows;
     std::map<ItemKey, std::size_t> index;
+    std::shared_ptr<const detail::NavigationImages> images;
     std::size_t size() const override { return rows.size(); }
     ItemKey key(std::size_t i) const override { return rows.at(i).key; }
-    ItemContent item(std::size_t i) const override { return rows.at(i).content; }
+    ItemContent item(std::size_t i) const override {
+        auto result = rows.at(i).content;
+        if (images) {
+            const std::lock_guard lock(images->mutex);
+            if (const auto image = images->paths.find(rows.at(i).key); image != images->paths.end())
+                result.image_path = image->second;
+        }
+        return result;
+    }
     ItemHierarchy hierarchy(std::size_t i) const override { return rows.at(i).hierarchy; }
     bool selectable(std::size_t i) const override { return rows.at(i).content.enabled && !rows.at(i).hierarchy.group; }
     std::optional<std::size_t> find(ItemKey key) const override {
@@ -303,7 +319,11 @@ void NavigationList::edge(bool last, SelectionGesture gesture) {
     }
 }
 bool NavigationList::disclose(ItemKey key, bool value) {
-    if (!owner_ || !enabled() || !source_ || !source_->find(key)) return false;
+    const auto row = source_ ? source_->find(key) : std::nullopt;
+    if (!owner_ || !owner_->enabled() || !enabled() || !row ||
+        !source_->item(*row).enabled || !source_->hierarchy(*row).expandable) return false;
+    selection_.set_focus(key);
+    invalidate(Invalidation::paint);
     return owner_->set_item_expanded(key, value);
 }
 void NavigationList::horizontal(bool right, SelectionGesture gesture) {
@@ -436,7 +456,8 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
         if (!item.key.id || !index.emplace(item.key, i).second || item.label.empty() || item.label.size() > 1024 ||
             item.keywords.size() > 4096 || item.badge.size() > 32 ||
             item.section < NavigationSection::header || item.section > NavigationSection::footer ||
-            item.icon < ButtonIcon::none || item.icon > ButtonIcon::mixed)
+            item.icon < ButtonIcon::none || item.icon > ButtonIcon::mixed ||
+            item.image_path.size() > 32767 || item.image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid navigation item");
     }
     for (const auto& item : items) {
@@ -452,16 +473,35 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
         }
     }
     std::set<ItemKey> closed;
-    for (const auto& item : items)
+    auto images = std::make_shared<detail::NavigationImages>();
+    for (const auto& item : items) {
         if (index_.contains(item.key) ? closed_.contains(item.key) : !item.expanded) closed.insert(item.key);
+        images->paths.emplace(item.key, item.image_path);
+    }
     settle_motion();
     entries_ = std::move(items); index_ = std::move(index); closed_ = std::move(closed);
+    images_ = std::move(images);
     std::erase_if(filter_expansion_, [&](const auto& entry) {
         const auto* item = find(entry.first);
         return !item || item->section != NavigationSection::main;
     });
     if (selected_ && (!find(*selected_) || !find(*selected_)->selectable || !effective_enabled(*selected_))) selected_.reset();
     rebuild();
+}
+bool NavigationView::set_item_image(ItemKey key, std::wstring path) {
+    if (path.size() > 32767 || path.find(L'\0') != std::wstring::npos)
+        throw std::invalid_argument("Invalid navigation image path");
+    const auto entry = index_.find(key);
+    if (entry == index_.end()) return false;
+    if (entries_[entry->second].image_path == path) return true;
+    {
+        const std::lock_guard lock(images_->mutex);
+        images_->paths.at(key) = path;
+    }
+    entries_[entry->second].image_path = std::move(path);
+    for (const auto& list : {header_, main_, footer_}) list->invalidate(Invalidation::paint);
+    invalidate(Invalidation::paint);
+    return true;
 }
 void NavigationView::rebuild(std::optional<ItemKey> transition) {
     const auto query = folded(filter_);
@@ -482,6 +522,7 @@ void NavigationView::rebuild(std::optional<ItemKey> transition) {
     filter_matches_ = included;
     for (const auto section : {NavigationSection::header, NavigationSection::main, NavigationSection::footer}) {
         auto snapshot = std::make_shared<NavigationSnapshot>();
+        snapshot->images = images_;
         const auto append = [&](auto&& self, std::optional<ItemKey> parent, std::size_t depth) -> void {
             const auto children = siblings.find(parent);
             if (children == siblings.end()) return;

@@ -52,12 +52,13 @@ public:
     static constexpr std::size_t maximum_rows = 512, maximum_queued = 48;
     bool sync(std::shared_ptr<const CollectionIndex> source, std::vector<RowVisual> rows, UINT dpi,
         const std::shared_ptr<TaskWake>& wake, std::vector<std::uint64_t>& retained,
-        bool retain_on_source_change = false);
+        bool retain_on_source_change = false, bool stable_image_identity = false);
     bool sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::shared_ptr<TaskWake>& wake,
         std::vector<std::uint64_t>& retained, float image_dips = 24);
     void clear();
     ItemVisual visual(ItemKey key) const;
     std::shared_ptr<const ImagePixels> pixels(ItemKey key) const;
+    bool loading(ItemKey key) const;
     std::size_t count() const { return slots_.size(); }
 private:
     friend struct RowImagesTestAccess;
@@ -72,8 +73,18 @@ private:
         ~Slot() { if (request) request->cancel(); }
     };
     std::vector<std::unique_ptr<Slot>> slots_;
+    struct Recent {
+        ItemKey key;
+        std::wstring path;
+        ImageKind kind{};
+        UINT pixels_size{};
+        std::weak_ptr<const ImagePixels> pixels;
+    };
+    void remember(const Slot& slot);
+    std::vector<Recent> recent_;
     std::vector<RowVisual> rows_;
     std::weak_ptr<const CollectionIndex> source_;
+    bool stable_source_identity_{};
     UINT pixels_{};
 };
 std::shared_ptr<ImageRequest> request_image(std::wstring path, ImageSize size, std::shared_ptr<TaskWake> wake,

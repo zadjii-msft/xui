@@ -4,6 +4,8 @@ pub type WindowIconErrorCallback = Option<unsafe extern "C" fn(*mut c_void, *con
 pub type MillerCallback = Option<unsafe extern "C" fn(*mut c_void, *const MillerEvent) -> i32>;
 pub type SourceVisualQuery =
     Option<unsafe extern "C" fn(*mut c_void, u64, u64, *mut u32, *mut u8, u32, *mut u32) -> i32>;
+pub type SourceActionQuery =
+    Option<unsafe extern "C" fn(*mut c_void, u64, *mut u8, u32, *mut u32) -> i32>;
 pub type KeyHandler = Option<unsafe extern "C" fn(*mut c_void, *const KeyEvent, *mut u32) -> i32>;
 pub type NavigationHandler =
     Option<unsafe extern "C" fn(*mut c_void, *const NavigationEvent, *mut u32) -> i32>;
@@ -559,6 +561,7 @@ unsafe extern "C" {
         column_span: u32,
     ) -> i32;
     pub fn xui_popup_show(target: u64, anchor: u64) -> i32;
+    pub fn xui_command_surface_show_item(target: u64, anchor: u64, id: u64, version: u64) -> i32;
     pub fn xui_rich_runs(target: u64, runs: *const TextRun, count: u32) -> i32;
     pub fn xui_password_read(target: u64, receiver: SecretReceiver, context: *mut c_void) -> i32;
     pub fn xui_source_create(window: u64, options: *const SourceOptions, result: *mut u64) -> i32;
@@ -568,7 +571,16 @@ unsafe extern "C" {
         visual: SourceVisualQuery,
         result: *mut u64,
     ) -> i32;
+    pub fn xui_source_create_extended(
+        window: u64,
+        options: *const SourceOptions,
+        visual: SourceVisualQuery,
+        action: SourceActionQuery,
+        result: *mut u64,
+    ) -> i32;
+    pub fn xui_navigation_item_image(target: u64, id: u64, path: Text) -> i32;
     pub fn xui_source_attach(target: u64, source: u64) -> i32;
+    pub fn xui_collection_stable_image_identity(target: u64, enabled: u32) -> i32;
     pub fn xui_source_release(source: u64) -> i32;
     pub fn xui_collection_contains(target: u64, id: u64, version: u64, selected: *mut u32) -> i32;
     pub fn xui_tree_expand(target: u64, id: u64, version: u64, expanded: u32) -> i32;

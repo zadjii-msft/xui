@@ -173,7 +173,29 @@ Miller columns, virtual collections, grids, and tabs load image paths from their
 The host inspects at most 512 row visuals per control.
 Within that visible set, completed images do not consume a fixed slot allowance that prevents later rows from loading.
 Visible rows retain their completed pixels, subject to the shared byte budgets.
-Pending requests and failed requests use their vector icons.
+Pending and deferred requests keep their image lane empty instead of displaying a fallback icon.
+Rows without an image path and failed requests retain their fallback icons.
+Bitmap upload errors also retain the fallback icon.
+
+Each control keeps at most `ImageLimits::cache_entries` recent image identities through weak pixel references.
+A returning row immediately uses resident pixels with the same item key, version, path, decode kind, and physical size.
+This lookup does not access files, decode pixels, or submit another worker request.
+Weak references do not increase the shared pixel budget or prevent cache eviction.
+Only visible rows retain strong pixel references and GPU bitmaps.
+Expired references use the normal asynchronous request path.
+Control teardown clears the recent identities and cancels pending requests.
+
+Gallery image dimensions depend on card dimensions and label space, not the absolute scroll position.
+Fractional scroll offsets do not change the physical decode size.
+
+Source replacement invalidates row artwork by default, even when keys and paths match.
+`VirtualCollection::set_stable_image_identity(true)` explicitly preserves image identity across source replacements.
+This policy requires stable item versions and immutable artwork paths within one source domain.
+An application must change the item version or path when the artwork changes.
+An application must disable this policy before it replaces the source with an unrelated domain.
+The default remains `false`.
+Disabling this policy invalidates retained artwork and recent identities on the next host update.
+Navigation and tabs retain their existing stable visual identity policy.
 
 Row requests enter the shared queue incrementally.
 At 48 queued requests, row admission pauses and leaves capacity for explicit images and native window icons.
