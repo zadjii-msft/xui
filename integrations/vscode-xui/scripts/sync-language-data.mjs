@@ -60,7 +60,7 @@ const data = JSON.stringify({ controls, aliases, enums }, null, 2).slice(0, -2) 
   ',\n  "schemas": [\n' + [...schemas.values()].map((schema) => `    ${JSON.stringify(schema)}`).join(",\n") + "\n  ]\n}\n";
 const destination = new URL("../data/language.json", import.meta.url);
 if (process.argv.includes("--check")) {
-  assert.equal(await readFile(destination, "utf8"), data,
+  assert.equal((await readFile(destination, "utf8")).replaceAll("\r\n", "\n"), data,
     "Language metadata is stale. Run npm run sync:language.");
   console.log("Language metadata matches the compiler and managed enums.");
 } else {
