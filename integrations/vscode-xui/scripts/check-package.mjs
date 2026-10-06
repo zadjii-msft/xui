@@ -38,14 +38,19 @@ const required = [
   "extension/images/zoey.png",
   "extension/language-configuration.json",
   "extension/syntaxes/xui.tmLanguage.json",
-  "extension/snippets/xui.json"
+  "extension/snippets/xui.json",
+  "extension/src/extension.js",
+  "extension/src/language-service.js",
+  "extension/src/metadata.js",
+  "extension/data/language.json"
 ];
 assert.deepEqual(entries.sort(), required.sort(), "VSIX must contain only the runtime assets and package metadata");
 const packaged = JSON.parse(contents.get("extension/package.json"));
 assert.equal(packaged.publisher, "zadjii-msft");
 assert.equal(packaged.name, "xui");
 assert.equal(packaged.version, manifest.version);
-assert.equal(packaged.main, undefined);
+assert.equal(packaged.main, "./src/extension.js");
+assert.deepEqual(packaged.activationEvents, ["onLanguage:xui"]);
 assert.equal(packaged.icon, "images/zoey.png");
 assert.ok(contents.get("extension/images/zoey.png").equals(
   await readFile(new URL("../images/zoey.png", import.meta.url))
@@ -54,6 +59,10 @@ for (const [name, packagedName] of [
   ["language-configuration.json", "language-configuration.json"],
   ["syntaxes/xui.tmLanguage.json", "syntaxes/xui.tmLanguage.json"],
   ["snippets/xui.json", "snippets/xui.json"],
+  ["src/extension.js", "src/extension.js"],
+  ["src/language-service.js", "src/language-service.js"],
+  ["src/metadata.js", "src/metadata.js"],
+  ["data/language.json", "data/language.json"],
   ["README.md", "readme.md"],
   ["LICENSE", "LICENSE.txt"]
 ]) {

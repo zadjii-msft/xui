@@ -701,11 +701,46 @@ dotnet watch --project bindings\dotnet\Minesweeper\Minesweeper.csproj --non-inte
 ## Install VS Code syntax support
 
 The extension is in `integrations\vscode-xui`.
-Its [README](../../integrations/vscode-xui/README.md) contains the package and installation commands.
+Its [README](../../integrations/vscode-xui/README.md) describes installation and editor shortcuts.
+See [CONTRIBUTING](../../CONTRIBUTING.md#vs-code-extension) to build a local VSIX.
 
 The extension supplies `.xui` highlighting, embedded C# highlighting, brackets, comments, and snippets.
-It is a syntax package.
-It does not provide a language server, semantic completion, or a visual designer.
+It also supplies IntelliSense without requiring a language server, .NET SDK, or running application.
+Use **Ctrl+Space** to request suggestions explicitly.
+After upgrading from the syntax-only package, run **Developer: Reload Window** to load the IntelliSense runtime.
+If only snippets appear, confirm that XUI is enabled in the current VS Code profile and the document language mode is **XUI**.
+
+| Context | Suggestions |
+| --- | --- |
+| View and container bodies | All supported native nodes, with constructor and child-block snippets |
+| Node argument names | Control-specific properties, excluding duplicates and mutually exclusive badge arguments |
+| Direct Grid or Stack children | Grid cell placement or Stack `flex`, respectively |
+| Argument values | Booleans, qualified native enums, local state and parameters, and named C# handlers |
+| Style declarations | Catalog targets and aliases, named parts, supported states, and part/state-specific properties |
+| Style values | Bounded style enums, color resources, theme-color snippets, and insets |
+| Style references and `basedOn` | Matching local style declarations, including forward declarations |
+
+Hover provides control and property documentation.
+**Ctrl+Shift+Space** shows the control signature and active named argument.
+**F12** on XUI references navigates to local state, parameters, handlers, references, styles, and resources.
+The Outline lists these declarations beneath the component.
+Suggestions and navigation use the current unsaved document.
+They preserve UTF-16 editor ranges and tolerate unfinished delimiters.
+
+The metadata follows the compiler's supported nodes, arguments, managed enums, and exported style catalog.
+Style completion excludes Window-only targets and does not turn catalog targets into constructors.
+`Content` local style suggestions require a named style to identify the target.
+Legacy Button styles are not suggested for `Content`.
+Style values do not suggest reactive state; construction-only inputs omit state suggestions.
+
+This is lexical XUI tooling, not a C# semantic service.
+Local member suggestions do not verify assignability or handler signatures.
+There is no XUI completion inside comments, strings (including interpolation), or `code csharp`.
+Arbitrary nested C# expressions do not receive XUI property suggestions.
+An unclosed string or comment can suppress suggestions until its delimiter is repaired.
+The extension does not provide cross-file navigation, C# member completion, diagnostics, rename, formatting, or a visual designer.
+Compiler diagnostics remain authoritative for validity and runtime contracts.
+The extension does not execute authored code, read project assemblies, or modify workspace trust settings.
 
 ## Microsoft Edit syntax support
 

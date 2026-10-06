@@ -29,7 +29,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Layout and selection allocation pass](testing.md#layout-and-selection-allocation-pass-october-1-2026): Grid track buffers, selection enumeration, grid focus changes, and baseline native-test limitations.
 - [Row-image reconciliation pass](testing.md#row-image-reconciliation-pass-october-1-2026): Bounded identity lookup, allocation and CPU comparisons, and image ownership/cancellation coverage.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
-- [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
+- [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, VS Code IntelliSense source map, editor syntax packages, delivery stages, and acceptance evidence.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
