@@ -810,12 +810,26 @@ The extension registers the `.xui` file association.
 It supplies a TextMate grammar, bracket pairs, comments, indentation rules, and snippets.
 The grammar distinguishes the UI language from embedded C#.
 
+`integrations/vscode-xui/src/extension.js` activates completion, hover, signature, definition, and document-symbol providers.
+It caches one parsed model per document version in a WeakMap and honors request cancellation.
+`src/language-service.js` is the VS Code-independent tolerant scanner and local declaration index.
+It treats comments and C# strings as opaque, balances argument delimiters, and distinguishes XUI blocks from C# methods.
+It does not implement Roslyn semantics or execute authored code.
+`src/metadata.js` combines compiler-derived vocabulary with descriptions, value types, and parent-placement rules.
+`scripts/sync-language-data.mjs` exports `data/language.json` from the working-tree parser, style catalog, aliases, and managed enums.
+The extension does not need repository sources at runtime.
+`test/language-service.test.mjs` checks snapshot parity, all node argument sets, and every style part/state property set.
+`test/providers.test.mjs` checks adapter ranges, cancellation, and cache lifetime.
+`test/extension-host.cjs` exercises real VS Code commands and applies actual completion edits in an isolated profile.
+It waits for automatic language activation instead of forcing activation, and covers property completion immediately after a trailing comma and its following whitespace.
+The [contributor guide](../../CONTRIBUTING.md#vs-code-extension) owns build, test, and regeneration commands.
+
 Tokenizer checks cover keywords, control names, named arguments, state declarations, and namespace declarations.
 They also cover nested C# blocks, interpolated strings, comments with braces, and the transition back to UI syntax.
 
 The extension produces an installable `.vsix`.
 The package excludes development dependencies and test fixtures.
-Syntax support does not imply a language server, semantic completion, or a designer.
+IntelliSense is lexical and local to the document, not a C# language server or designer.
 The implementation does not publish the extension or change global VS Code configuration.
 
 ## Delivery stages

@@ -8,7 +8,7 @@ For ARM64 builds, include the ARM64 C++ tools.
 The Windows backend requires a 64-bit build.
 
 C# samples require the .NET 10 SDK. Rust samples require the Rust MSVC toolchain.
-The VS Code syntax package requires Node.js and npm.
+The VS Code extension requires Node.js 22 or later and npm.
 Binding generation uses Python.
 
 Run the commands from the repository root in Visual Studio Developer PowerShell.
@@ -1546,10 +1546,63 @@ ctest --test-dir $build -C Release -R '^xui_hosts_window_tests$' --output-on-fai
 
 The [native-host reference](docs/specs/scenes-and-hosts.md) describes explicit loads, allowed origins, and cleanup.
 
-## VS Code syntax package
+<a id="vs-code-syntax-package"></a>
 
-Use the [extension README](integrations/vscode-xui/README.md) for packaging, installation, and tokenizer commands.
-The package supplies syntax support, not a language server or visual designer.
+## VS Code extension
+
+The [extension README](integrations/vscode-xui/README.md) describes installation and editor usage.
+The [language guide](docs/specs/xui-language.md#install-vs-code-syntax-support) defines IntelliSense coverage and limits.
+No native build or .NET SDK is needed.
+
+From the repository root, using Node.js 22 or later:
+
+```powershell
+cd integrations\vscode-xui
+npm ci
+npm test
+npm run test:editor
+npm run package
+```
+
+`npm test` covers completion context, compiler metadata parity, hover, signatures, definitions,
+UTF-16 ranges, cancellation, provider caching, snippets, and TextMate tokenization.
+The tokenizer uses `vscode-textmate`, `vscode-oniguruma`, and a pinned upstream C# grammar.
+The first run downloads the C# grammar and its MIT license to `test\cache`; subsequent runs verify their SHA-256.
+The revision and attribution are in `test\fixtures\NOTICE.md`.
+
+`npm run test:editor` downloads an isolated VS Code 1.85.2, exercising the extension's supported baseline.
+It opens a separate test window, checks automatic language activation, applies snippets and property completions (including empty trailing arguments),
+and checks signatures, hover, definitions, Outline, and cache invalidation after an edit.
+Its runtime, user data, extensions directory, and result file stay under ignored `test\cache`.
+It does not install into or change your normal VS Code profile.
+A graphical desktop is required (use a virtual display for Linux CI).
+
+`npm run package` runs the unit/tokenizer tests, creates `dist\xui-0.3.0.vsix`, and verifies its exact contents.
+It includes only the manifest, runtime JavaScript, generated language metadata, syntax assets, icon,
+README, license, and VSIX metadata. Tests, development dependencies, and downloaded runtimes are excluded.
+It does not publish or install anything.
+Use `npm run check:package` to check an existing VSIX.
+
+After a node, argument, enum, or style-schema change, regenerate IntelliSense metadata:
+
+```powershell
+npm run sync:language
+npm run check:language
+npm test
+```
+
+The exporter reads the current compiler parser, style aliases/catalog, and managed binding enums.
+The checked-in `data\language.json` is the runtime snapshot; tests reject drift from compiler sources.
+Review `src\metadata.js` for descriptions, types, construction-only rules, and new control behavior.
+
+TextMate vocabulary uses its existing independently pinned snapshot:
+
+```powershell
+node scripts\sync-style-catalog.mjs <validated-git-ref>
+```
+
+That script updates four grammar rules and `test\fixtures\style-catalog.json` from the committed catalog,
+excluding Window-only Tooltip. Review parser aliases, value syntax, and snippets when the compiler changes.
 
 ## Microsoft Edit LSH grammar
 

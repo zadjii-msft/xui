@@ -22,11 +22,11 @@ function expand(body) {
   );
 }
 
-test("manifest associates .xui files without activation code", () => {
+test("manifest activates local IntelliSense for .xui files", () => {
   assert.equal(`${manifest.publisher}.${manifest.name}`, "zadjii-msft.xui");
-  assert.equal(manifest.main, undefined);
+  assert.equal(manifest.main, "./src/extension.js");
   assert.equal(manifest.browser, undefined);
-  assert.equal(manifest.activationEvents, undefined);
+  assert.deepEqual(manifest.activationEvents, ["onLanguage:xui"]);
   assert.equal(manifest.contributes.languages[0].id, "xui");
   assert.deepEqual(manifest.contributes.languages[0].extensions, [".xui"]);
   assert.equal(manifest.contributes.grammars[0].scopeName, "source.xui");
@@ -80,7 +80,7 @@ test("control snippets use canonical property and handler names", () => {
   assert.equal(expand(snippets.SelectorBar.body), 'SelectorBar("Pages", items: Items, selected: Selected, change: OnSelected);');
   assert.equal(expand(snippets.InfoBadge.body), 'InfoBadge("Notifications", count: Count);');
   assert.equal(expand(snippets.MenuBar.body), 'MenuBar("Menu", commands: Commands, invoke: OnInvoked);');
-  assert.equal(expand(snippets["Text input"].body), 'TextInput(text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
+  assert.equal(expand(snippets["Text input"].body), 'TextInput("Input", text: Input, change: OnChanged, submit: OnSubmit, id: "input");');
   assert.deepEqual(Object.values(snippets).map((snippet) => snippet.prefix).sort(),
     ["component", "namespace", "state", "resources", "style", "when", "stylebasedon", "styledbutton",
       "togglestyle", "styledtoggle", "controlstyle", "part", "typographystyle", "styledcontent",
