@@ -76,6 +76,7 @@ internal static partial class Program
         TestParsing();
         TestUserNames();
         TestDiagnostics();
+        TestAuthorDiagnostics();
         TestIncremental();
         TestComposition();
         TestCompositionDiagnostics();
@@ -1033,7 +1034,7 @@ internal static partial class Program
             [new File(@"C:\fixture\Bad.xui", source)]);
         driver.RunGeneratorsAndUpdateCompilation(Empty(), out var compilation, out var diagnostics);
         var diagnostic = diagnostics.FirstOrDefault(d => d.Id == "XUI001");
-        Assert(diagnostic is not null, "Expected XUI001: " + string.Join("\n", diagnostics));
+        Assert(diagnostic is not null, "Expected XUI001 for " + source + ": " + string.Join("\n", diagnostics));
         Assert(diagnostic!.Location.GetLineSpan().Path.EndsWith("Bad.xui"), "Diagnostic maps to authoring path");
         Assert(compilation.GetDiagnostics().Any(d => d.Id == "CS1029"), "Every invalid source blocks the C# compilation pipeline");
         return diagnostic;

@@ -39,6 +39,10 @@ The `view` block describes the native tree.
 The `code csharp` block supplies C# methods.
 Fields belong in `state` declarations.
 
+Leaf controls end with a semicolon, for example `Text("Hello");`.
+Containers have a child block and end with its closing brace, for example `HStack() { Text("Hello"); }`.
+Do not add a semicolon after a child block or after a `view`, `resources`, `style`, or `code csharp` block.
+
 Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, and `Reveal`.
 Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
@@ -89,6 +93,27 @@ The [animation contract](animations.md#split-pane-transitions) describes pane ge
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
+
+## Compiler diagnostics
+
+XUI syntax and validation errors use `XUI001` and point to the authored `.xui` file, line, and column.
+Messages identify the relevant declaration, control, argument, or style part and explain the correction.
+For example, a semicolon after `HStack() { ... }` reports:
+
+```text
+Unexpected ';' after the child block of 'HStack'. Remove the semicolon: blocks end with '}', not '};'.
+```
+
+The location points to the extra semicolon, outside the child block.
+Missing delimiters name the block or argument list being parsed and identify the unexpected token, including end of file.
+Unknown arguments and unsupported style keywords list the choices allowed in that context.
+Value errors describe the required literal form or numeric bounds.
+Duplicate names and mismatched style references identify the conflicting declaration or target.
+
+Builds and Designer previews use the same compiler diagnostics.
+Invalid source still blocks compilation; a helpful message does not silently accept or repair invalid syntax.
+C# type and name errors retain their C# diagnostic codes and map back to the authored expression or method.
+C# syntax errors reported through XUI retain the compiler's explanation with added declaration or expression context.
 
 ## Opt-in bottom reveal
 

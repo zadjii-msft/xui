@@ -13,12 +13,13 @@ internal sealed record StyleDefinition(string Name, string? BasedOn, int Offset,
 
 internal sealed partial class Parser
 {
-    private Expression ReadStyleExpression()
+    private Expression ReadStyleExpression(string context)
     {
         int start = position;
         var expression = SyntaxFactory.ParseExpression(text, position, consumeFullText: false);
-        Check(expression, start);
-        if (expression.IsMissing) throw new ParseError("Expected a style value.", Offset);
+        if (expression.IsMissing)
+            throw new ParseError($"Missing value for {context}; found {Found}. Add a style literal or a supported color expression before ';'.", Offset);
+        Check(expression, start, $"style value for {context}");
         position += expression.FullSpan.Length;
         return new(expression.ToString(), start + expression.SpanStart);
     }
@@ -26,27 +27,32 @@ internal sealed partial class Parser
     private void ReadStyleProperty(Dictionary<string, Expression> values, string target, string part, bool stateRule = false)
     {
         int start = Offset;
-        string key = Identifier();
+        string key = Identifier($"a style property name on {target} part '{part}'");
+        string context = $"'{key}' on {target} part '{part}'{(stateRule ? " in this state rule" : "")}";
         if (!StyleCompiler.AllowedProperties(target, part, stateRule).Contains(key))
-            throw new ParseError($"Unsupported {target} style property '{key}' on part '{part}'.", start);
-        Expect(":");
-        if (!values.TryAdd(key, ReadStyleExpression())) throw new ParseError($"Duplicate style property '{key}'.", start);
-        Expect(";");
+            throw new ParseError($"Unsupported style property {context}. Remove or replace this property. " +
+                DiagnosticText.Choices(StyleCompiler.AllowedProperties(target, part, stateRule)), start);
+        Expect(":", $"after style property {context}");
+        if (!values.TryAdd(key, ReadStyleExpression(context)))
+            throw new ParseError($"Duplicate style property {context}. Keep one value in this block and remove the repeated entry.", start);
+        Expect(";", $"after the value of style property {context}");
     }
 
     private StyleDefinition ParseStyle()
     {
         Take();
         int start = Offset;
-        string name = Identifier();
-        Expect("for");
-        string target = StyleCompiler.TargetName(Identifier());
+        string name = Identifier("a style name after 'style'");
+        Expect("for", $"after style name '{name}'", "Declare a style as 'style Name for Control { ... }'.");
+        int targetStart = Offset;
+        string target = StyleCompiler.TargetName(Identifier($"a control target after 'for' in style '{name}'"));
         if (target == "Tooltip")
-            throw new ParseError("Tooltip styles require the Window API. The .xui compiler cannot apply them.", start);
-        if (target != "Button" && !StyleCatalog.TargetExists(target)) throw new ParseError($"Unsupported style target '{target}'.", start);
+            throw new ParseError($"Style '{name}' targets Tooltip, which the .xui compiler cannot apply. Use the Window API to apply Tooltip styles from C#.", targetStart);
+        if (target != "Button" && !StyleCatalog.TargetExists(target))
+            throw new ParseError($"Unsupported control target '{target}' in style '{name}'. Use a supported style target, such as Button, Text, or TextInput; see docs/specs/control-styling.md.", targetStart);
         string? basedOn = null;
-        if (Is("basedOn")) { Take(); basedOn = Identifier(); }
-        Expect("{");
+        if (Is("basedOn")) { Take(); basedOn = Identifier($"a base style name after 'basedOn' in style '{name}'"); }
+        Expect("{", $"to begin style '{name}'");
         var values = new Dictionary<string, Expression>(StringComparer.Ordinal);
         var rules = new List<StyleRule>();
         var parts = new Dictionary<string, Dictionary<string, Expression>>(StringComparer.Ordinal);
@@ -54,39 +60,52 @@ internal sealed partial class Parser
         {
             while (!Is("}"))
             {
+                CheckBlockEnd($"style '{name}', {target} part '{part}'");
                 if (Is("part"))
                 {
                     int partStart = Offset;
-                    if (!root) throw new ParseError("Parts are not supported here.", partStart);
+                    if (!root)
+                        throw new ParseError($"A part block cannot be nested inside part '{part}' of style '{name}'. Move it directly inside the style's root block.", partStart);
                     Take();
-                    string name = Identifier();
-                    if (name == "root" || StyleCompiler.AllowedProperties(target, name).Length == 0)
-                        throw new ParseError($"Unsupported {target} part '{name}'.", partStart);
+                    string partName = Identifier($"a part name in style '{name}'");
+                    if (partName == "root" || StyleCompiler.AllowedProperties(target, partName).Length == 0)
+                        throw new ParseError($"Unsupported {target} part '{partName}' in style '{name}'. " +
+                            (partName == "root" ? "Put root properties directly inside the style, without a 'part root' block." : "Use a named part supported by this control; see docs/specs/control-styling-inventory.md."), partStart);
                     var partValues = new Dictionary<string, Expression>(StringComparer.Ordinal);
-                    if (!parts.TryAdd(name, partValues)) throw new ParseError($"Duplicate style part '{name}'.", partStart);
-                    Expect("{"); Body(partValues, name, false); Expect("}");
+                    if (!parts.TryAdd(partName, partValues))
+                        throw new ParseError($"Duplicate part '{partName}' in style '{name}'. Merge its properties into one part block.", partStart);
+                    Expect("{", $"to begin part '{partName}' in style '{name}'");
+                    Body(partValues, partName, false);
+                    CloseBlock($"part '{partName}' in style '{name}'");
                 }
                 else if (Is("when"))
                 {
                     Take();
                     int stateStart = Offset;
+                    string stateDescription = Found;
                     string state = Take().Text;
                     if (!StyleCompiler.AllowedStates(target, part).Contains(state))
-                        throw new ParseError($"Unsupported {target} style state '{state}'.", stateStart);
+                        throw new ParseError($"Unsupported state {stateDescription} on {target} part '{part}' in style '{name}'. " +
+                            "Remove or replace this when block. " + DiagnosticText.Choices(StyleCompiler.AllowedStates(target, part)), stateStart);
                     if (target != "Button" && rules.Any(r => r.Part == part && r.State == state))
-                        throw new ParseError($"Duplicate style state '{state}' on part '{part}'.", stateStart);
-                    Expect("{");
+                        throw new ParseError($"Duplicate state '{state}' on part '{part}' in style '{name}'. Merge its properties into one when block.", stateStart);
+                    Expect("{", $"to begin the '{state}' state rule in style '{name}'");
                     var ruleValues = new Dictionary<string, Expression>(StringComparer.Ordinal);
-                    while (!Is("}")) ReadStyleProperty(ruleValues, target, part, true);
-                    Expect("}");
+                    while (!Is("}"))
+                    {
+                        CheckBlockEnd($"the '{state}' state rule in style '{name}'");
+                        ReadStyleProperty(ruleValues, target, part, true);
+                    }
+                    CloseBlock($"the '{state}' state rule in style '{name}'");
                     rules.Add(new(state, ruleValues, part));
-                    if (rules.Count > 256) throw new ParseError("A control style supports at most 256 rules.", stateStart);
+                    if (rules.Count > 256)
+                        throw new ParseError($"Style '{name}' has more than 256 state rules. Remove or combine when blocks to stay within this limit.", stateStart);
                 }
                 else ReadStyleProperty(body, target, part);
             }
         }
         Body(values, "root", true);
-        Expect("}");
+        CloseBlock($"style '{name}'");
         return new(name, basedOn, start, values, rules, target, parts);
     }
 }
@@ -122,27 +141,31 @@ internal sealed class StyleCompiler(Component component)
     {
         foreach (var resource in component.Resources)
             if (!resources.TryAdd(Key(resource.Name), resource))
-                throw new ParseError($"Duplicate resource '{resource.Name}'.", resource.Offset);
+                throw new ParseError($"Duplicate color resource '{resource.Name}'. Remove the repeated declaration or give it a different name; escaped names refer to the same identifier.", resource.Offset);
         foreach (var style in component.Styles)
             if (!styles.TryAdd(Key(style.Name), style))
-                throw new ParseError($"Duplicate style '{style.Name}'.", style.Offset);
+                throw new ParseError($"Duplicate style '{style.Name}'. Remove the repeated declaration or give it a different name; escaped names refer to the same identifier.", style.Offset);
         foreach (var resource in component.Resources) Resolve(Key(resource.Name), resource.Offset, []);
         var depths = new Dictionary<string, int>(StringComparer.Ordinal);
         int Visit(StyleDefinition style, HashSet<string> visiting)
         {
             string key = Key(style.Name);
             if (depths.TryGetValue(key, out int found)) return found;
-            if (!visiting.Add(key)) throw new ParseError($"Style inheritance contains a cycle at '{key}'.", style.Offset);
-            if (visiting.Count > 16) throw new ParseError("Button style inheritance exceeds 16 layers.", style.Offset);
+            if (!visiting.Add(key))
+                throw new ParseError($"Style inheritance contains a cycle at '{key}'. Remove or change a basedOn reference so no style inherits from itself, directly or indirectly.", style.Offset);
+            if (visiting.Count > 16)
+                throw new ParseError($"Style inheritance through '{key}' exceeds 16 layers. Shorten the basedOn chain or combine base styles.", style.Offset);
             int depth = 1;
             if (style.BasedOn is { } parent)
             {
                 if (!styles.TryGetValue(Key(parent), out var definition))
-                    throw new ParseError($"Style '{parent}' was not found.", style.Offset);
-                if (definition.Target != style.Target) throw new ParseError("A style base must target the same control.", style.Offset);
+                    throw new ParseError($"Base style '{parent}' for style '{style.Name}' was not found. Declare 'style {parent} for {style.Target} {{ ... }}' in this component or correct the basedOn name.", style.Offset);
+                if (definition.Target != style.Target)
+                    throw new ParseError($"Style '{style.Name}' targets {style.Target}, but its base '{parent}' targets {definition.Target}. Choose a base style for {style.Target} or change the target; both must match.", style.Offset);
                 depth += Visit(definition, visiting);
             }
-            if (depth > 16) throw new ParseError("Button style inheritance exceeds 16 layers.", style.Offset);
+            if (depth > 16)
+                throw new ParseError($"Style '{style.Name}' has an inheritance chain of {depth} layers; at most 16 are supported. Shorten its basedOn chain or combine base styles.", style.Offset);
             visiting.Remove(key);
             depths.Add(key, depth);
             bool generic = style.Target != "Button" || style.Parts.Count != 0 ||
@@ -150,8 +173,9 @@ internal sealed class StyleCompiler(Component component)
                 (style.BasedOn is { } baseName && genericStyles.Contains(Key(baseName)));
             if (generic) {
                 genericStyles.Add(key);
-                if (style.Rules.GroupBy(r => (r.Part, r.State)).Any(group => group.Count() > 1))
-                    throw new ParseError("Duplicate state block in a generic control style.", style.Offset);
+                var duplicate = style.Rules.GroupBy(r => (r.Part, r.State)).FirstOrDefault(group => group.Count() > 1);
+                if (duplicate is not null)
+                    throw new ParseError($"Duplicate state '{duplicate.Key.State}' on part '{duplicate.Key.Part}' in style '{style.Name}'. Generic control styles require one when block per state and part; merge the repeated blocks.", style.Offset);
             }
             string valuesTarget = generic ? "generic" : "Button";
             Values(style.Values, valuesTarget, style.Target);
@@ -166,15 +190,17 @@ internal sealed class StyleCompiler(Component component)
     private string Resolve(string name, int offset, HashSet<string> visiting)
     {
         if (colors.TryGetValue(name, out string? found)) return found;
-        if (!resources.TryGetValue(name, out var resource)) throw new ParseError($"Color resource '{name}' was not found.", offset);
-        if (!visiting.Add(name)) throw new ParseError($"Color resource aliases contain a cycle at '{name}'.", offset);
-        string color = Color(resource.Value, visiting);
+        if (!resources.TryGetValue(name, out var resource))
+            throw new ParseError($"Color resource '{name}' was not found. Declare '{name}: 0xRRGGBB;' inside this component's resources block or correct the resource(...) name.", offset);
+        if (!visiting.Add(name))
+            throw new ParseError($"Color resource aliases contain a cycle at '{name}'. Replace an alias with a color literal or change its resource(...) reference to break the cycle.", offset);
+        string color = Color(resource.Value, $"color resource '{name}'", visiting);
         visiting.Remove(name);
         colors.Add(name, color);
         return color;
     }
 
-    private static uint Rgb(ExpressionSyntax syntax, int offset)
+    private static uint Rgb(ExpressionSyntax syntax, int offset, string context)
     {
         if (syntax is LiteralExpressionSyntax literal && literal.Token.Value is { } value &&
             value is byte or ushort or uint or ulong or sbyte or short or int or long)
@@ -182,27 +208,35 @@ internal sealed class StyleCompiler(Component component)
             decimal number = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
             if (number >= 0 && number <= 0xffffff) return (uint)number;
         }
-        throw new ParseError("A color requires an RGB24 integer literal between 0x000000 and 0xFFFFFF.", offset);
+        throw new ParseError($"Invalid color {DiagnosticText.Quote(syntax.ToString())} for {context}. Use an RGB24 integer literal between 0x000000 and 0xFFFFFF, for example 0xB91C1C; alpha bytes, strings, and computed expressions are not supported.", offset);
     }
 
-    private string Color(Expression value, HashSet<string>? visiting = null)
+    private string Color(Expression value, string context, HashSet<string>? visiting = null)
     {
         var syntax = SyntaxFactory.ParseExpression(value.Text);
         if (syntax is InvocationExpressionSyntax call && call.Expression is IdentifierNameSyntax function)
         {
             var args = call.ArgumentList.Arguments;
-            if (function.Identifier.ValueText == "resource" && args.Count == 1 && args[0].NameColon is null &&
-                args[0].RefKindKeyword.RawKind == 0 && args[0].Expression is IdentifierNameSyntax name)
-                return Resolve(name.Identifier.ValueText, value.Offset, visiting ?? []);
-            if (function.Identifier.ValueText == "theme" && args.Count == 2 &&
-                args[0].NameColon?.Name.Identifier.ValueText == "light" && args[1].NameColon?.Name.Identifier.ValueText == "dark" &&
-                args.All(a => a.RefKindKeyword.RawKind == 0))
-                return $"new global::Xui.ThemeColor({Rgb(args[0].Expression, value.Offset)}u, {Rgb(args[1].Expression, value.Offset)}u)";
+            if (function.Identifier.ValueText == "resource")
+            {
+                if (args.Count == 1 && args[0].NameColon is null && args[0].RefKindKeyword.RawKind == 0 &&
+                    args[0].Expression is IdentifierNameSyntax name)
+                    return Resolve(name.Identifier.ValueText, value.Offset, visiting ?? []);
+                throw new ParseError($"Invalid resource reference {DiagnosticText.Quote(value.Text)} for {context}. Use 'resource(ResourceName)' with one unquoted resource name, without named or ref arguments.", value.Offset);
+            }
+            if (function.Identifier.ValueText == "theme")
+            {
+                if (args.Count != 2 || args[0].NameColon?.Name.Identifier.ValueText != "light" ||
+                    args[1].NameColon?.Name.Identifier.ValueText != "dark" || args.Any(a => a.RefKindKeyword.RawKind != 0))
+                    throw new ParseError($"Invalid theme color {DiagnosticText.Quote(value.Text)} for {context}. Use 'theme(light: 0xRRGGBB, dark: 0xRRGGBB)' with light first and dark second.", value.Offset);
+                return $"new global::Xui.ThemeColor({Rgb(args[0].Expression, value.Offset + args[0].Expression.SpanStart, $"the light value of {context}")}u, " +
+                    $"{Rgb(args[1].Expression, value.Offset + args[1].Expression.SpanStart, $"the dark value of {context}")}u)";
+            }
         }
-        return $"new global::Xui.ThemeColor({Rgb(syntax, value.Offset)}u)";
+        return $"new global::Xui.ThemeColor({Rgb(syntax, value.Offset, context)}u)";
     }
 
-    private static string Dimension(ExpressionSyntax syntax, int offset)
+    private static string Dimension(ExpressionSyntax syntax, int offset, string context)
     {
         if (syntax is LiteralExpressionSyntax literal && literal.Token.Value is { } value &&
             value is byte or ushort or uint or ulong or sbyte or short or int or long or float or double or decimal)
@@ -211,7 +245,19 @@ internal sealed class StyleCompiler(Component component)
             if (double.IsFinite(number) && number >= 0 && number <= 32768)
                 return ((float)number).ToString("R", CultureInfo.InvariantCulture) + "f";
         }
-        throw new ParseError("A style dimension requires a numeric literal between 0 and 32768 DIPs.", offset);
+        throw new ParseError($"Invalid dimension {DiagnosticText.Quote(syntax.ToString())} for {context}. Use a numeric literal between 0 and 32768 DIPs, for example 8 or 0.5; state and computed expressions are not supported in styles.", offset);
+    }
+
+    private static int FontFamilyBytes(string family, string context, int offset)
+    {
+        try
+        {
+            return new System.Text.UTF8Encoding(false, true).GetByteCount(family);
+        }
+        catch (System.Text.EncoderFallbackException)
+        {
+            throw new ParseError($"Font family for {context} contains an unpaired Unicode surrogate. Replace the invalid Unicode escape or use a valid font name such as '\"Segoe UI\"'.", offset);
+        }
     }
 
     internal string Values(Dictionary<string, Expression> values, string target = "Button", string? schemaTarget = null, string part = "root")
@@ -220,8 +266,9 @@ internal sealed class StyleCompiler(Component component)
         var limits = StyleCatalog.Limits(schemaTarget ?? target, part);
         foreach (var (key, value) in values)
         {
+            string context = $"'{key}' on {schemaTarget ?? target} part '{part}'";
             string compiled;
-            if (key is "background" or "foreground" or "borderBrush") compiled = Color(value);
+            if (key is "background" or "foreground" or "borderBrush") compiled = Color(value, context);
             else
             {
                 var syntax = SyntaxFactory.ParseExpression(value.Text);
@@ -230,51 +277,57 @@ internal sealed class StyleCompiler(Component component)
                     if (syntax is TupleExpressionSyntax tuple)
                     {
                         if (tuple.Arguments.Count != 4 || tuple.Arguments.Any(a => a.NameColon is not null))
-                            throw new ParseError("Insets require four values in left, top, right, bottom order.", value.Offset);
-                        compiled = "new global::Xui.Insets(" + string.Join(", ", tuple.Arguments.Select(a => Dimension(a.Expression, value.Offset))) + ")";
+                            throw new ParseError($"Invalid insets {DiagnosticText.Quote(value.Text)} for {context}. Use one uniform number or four unnamed values in (left, top, right, bottom) order, for example '(4, 8, 4, 8)'.", value.Offset);
+                        string[] edges = ["left", "top", "right", "bottom"];
+                        compiled = "new global::Xui.Insets(" + string.Join(", ", tuple.Arguments.Select((a, i) =>
+                            Dimension(a.Expression, value.Offset + a.Expression.SpanStart, $"the {edges[i]} inset of {context}"))) + ")";
                     }
-                    else compiled = $"new global::Xui.Insets({Dimension(syntax, value.Offset)})";
+                    else compiled = $"new global::Xui.Insets({Dimension(syntax, value.Offset, context)})";
                 }
                 else if (key == "fontFamily") {
                     if (syntax is not LiteralExpressionSyntax literal || literal.Token.Value is not string family ||
-                        family.Length == 0 || family.Contains('\0') || new System.Text.UTF8Encoding(false, true).GetByteCount(family) > 1024)
-                        throw new ParseError("Font family requires a nonempty UTF-8 string literal of at most 1024 bytes.", value.Offset);
+                        family.Length == 0 || family.Contains('\0') || FontFamilyBytes(family, context, value.Offset) > 1024)
+                        throw new ParseError($"Invalid font family {DiagnosticText.Quote(value.Text)} for {context}. Use a nonempty string literal of at most 1024 UTF-8 bytes, without NUL characters, for example '\"Segoe UI\"'.", value.Offset);
                     if (family.Length > limits.FontFamilyUtf16)
-                        throw new ParseError("Font family exceeds the part's UTF-16 limit.", value.Offset);
+                        throw new ParseError($"Font family for {context} has {family.Length} UTF-16 code units; this part allows at most {limits.FontFamilyUtf16}. Use a shorter font family name.", value.Offset);
                     compiled = Quote(family);
                 }
                 else if (key is "fontStyle" or "horizontalAlignment" or "verticalAlignment") {
                     var options = key == "fontStyle" ? new[] { "normal", "italic", "oblique" } : ["start", "center", "end", "stretch"];
                     if (syntax is not IdentifierNameSyntax identifier || !options.Contains(identifier.Identifier.ValueText))
-                        throw new ParseError($"Unsupported {key} value.", value.Offset);
+                        throw new ParseError($"Unsupported value {DiagnosticText.Quote(value.Text)} for {context}. Use an unquoted style keyword. " + DiagnosticText.Choices(options), value.Offset);
                     var name = identifier.Identifier.ValueText;
                     if (key == "fontStyle" && (limits.FontStyles & (1u << Array.IndexOf(options, name))) == 0)
-                        throw new ParseError("Font style is not supported on this part.", value.Offset);
+                        throw new ParseError($"Font style '{name}' is not supported for {context}. " +
+                            DiagnosticText.Choices(options.Where((_, i) => (limits.FontStyles & (1u << i)) != 0)), value.Offset);
                     if ((key == "horizontalAlignment" && (limits.HorizontalAlignments & (1u << Array.IndexOf(options, name))) == 0) ||
                         (key == "verticalAlignment" && (limits.VerticalAlignments & (1u << Array.IndexOf(options, name))) == 0))
-                        throw new ParseError("Alignment is not supported on this part.", value.Offset);
+                        throw new ParseError($"Alignment '{name}' is not supported for {context}. " +
+                            DiagnosticText.Choices(options.Where((_, i) => ((key == "horizontalAlignment" ? limits.HorizontalAlignments : limits.VerticalAlignments) & (1u << i)) != 0)), value.Offset);
                     compiled = $"global::Xui.{(key == "fontStyle" ? "StyleFontStyle" : "StyleAlignment")}.{char.ToUpperInvariant(name[0]) + name[1..]}";
                 }
                 else if (key == "wrapping") {
                     if (!syntax.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.TrueLiteralExpression) &&
                         !syntax.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.FalseLiteralExpression))
-                        throw new ParseError("Wrapping requires true or false.", value.Offset);
+                        throw new ParseError($"Invalid value {DiagnosticText.Quote(value.Text)} for {context}. Use the boolean literal true or false, not a string or computed expression.", value.Offset);
                     compiled = syntax.ToString();
                 }
                 else if (key is "fontWeight" or "maximumLines") {
                     if (syntax is not LiteralExpressionSyntax literal || literal.Token.Value is not (byte or ushort or uint or ulong or sbyte or short or int or long))
-                        throw new ParseError($"{key} requires an integer literal.", value.Offset);
+                        throw new ParseError($"Invalid value {DiagnosticText.Quote(value.Text)} for {context}. Use an integer literal {(key == "fontWeight" ? "between 1 and 999, for example 400" : "between 0 and 32768; 0 means unlimited")}.", value.Offset);
                     var number = Convert.ToDecimal(literal.Token.Value, CultureInfo.InvariantCulture);
                     if (number < (key == "fontWeight" ? 1 : 0) || number > (key == "fontWeight" ? 999 : 32768))
-                        throw new ParseError($"{key} is outside its supported range.", value.Offset);
+                        throw new ParseError($"Value {DiagnosticText.Quote(value.Text)} for {context} is outside its supported range. Use an integer from {(key == "fontWeight" ? "1 through 999" : "0 through 32768 (0 means unlimited)")}.", value.Offset);
                     compiled = number.ToString(CultureInfo.InvariantCulture) + "u";
                 }
                 else {
-                    compiled = Dimension(syntax, value.Offset);
-                    if (key == "fontSize" && compiled == "0f") throw new ParseError("Font size must be positive.", value.Offset);
+                    compiled = Dimension(syntax, value.Offset, context);
+                    if (key == "fontSize" && compiled == "0f")
+                        throw new ParseError($"Font size for {context} must be greater than zero. Use a positive numeric literal up to {limits.FontSize} DIPs.", value.Offset);
                     if (key == "fontSize" && float.Parse(compiled[..^1], CultureInfo.InvariantCulture) > limits.FontSize)
-                        throw new ParseError("Font size exceeds the part's limit.", value.Offset);
-                    if (key == "rowHeight" && compiled == "0f") throw new ParseError("Row height must be positive.", value.Offset);
+                        throw new ParseError($"Font size {DiagnosticText.Quote(value.Text)} for {context} exceeds this part's limit of {limits.FontSize} DIPs. Use a smaller positive font size.", value.Offset);
+                    if (key == "rowHeight" && compiled == "0f")
+                        throw new ParseError($"Row height for {context} must be greater than zero. Use a positive numeric literal up to 32768 DIPs.", value.Offset);
                 }
             }
             fields.Add(char.ToUpperInvariant(key[0]) + key[1..] + " = " + compiled);
@@ -284,15 +337,18 @@ internal sealed class StyleCompiler(Component component)
 
     internal string Reference(Expression value, string target = "Button")
     {
-        if (SyntaxFactory.ParseExpression(value.Text) is not IdentifierNameSyntax name ||
-            !styles.TryGetValue(name.Identifier.ValueText, out var style) || style.Target != target)
-            throw new ParseError($"Expected a declared {target} style name, not '{value.Text}'.", value.Offset);
+        if (SyntaxFactory.ParseExpression(value.Text) is not IdentifierNameSyntax name)
+            throw new ParseError($"Invalid style reference {DiagnosticText.Quote(value.Text)} for {target}. Use 'style: StyleName' with a style declared in this component, not a string or a C# expression.", value.Offset);
+        if (!styles.TryGetValue(name.Identifier.ValueText, out var style))
+            throw new ParseError($"Style '{name.Identifier.ValueText}' was not found for {target}. Declare 'style {name.Identifier.ValueText} for {target} {{ ... }}' in this component or correct the style name.", value.Offset);
+        if (style.Target != target)
+            throw new ParseError($"Style '{style.Name}' targets {style.Target}, not {target}. Choose or declare a style targeting {target}.", value.Offset);
         return $"(global::Xui.{(genericStyles.Contains(Key(style.Name)) ? "ControlStyle" : "ButtonStyle")})__xuiGetStyles()[" + Quote(name.Identifier.ValueText) + "]";
     }
     internal string ReferenceTarget(Expression value) {
         if (SyntaxFactory.ParseExpression(value.Text) is IdentifierNameSyntax name && styles.TryGetValue(name.Identifier.ValueText, out var style))
             return style.Target;
-        throw new ParseError("Expected a declared style name.", value.Offset);
+        throw new ParseError($"Content requires a declared style name, not {DiagnosticText.Quote(value.Text)}. Declare a style for the embedded control's target and reference it with 'style: StyleName'.", value.Offset);
     }
     internal bool GenericReference(Expression value) => genericStyles.Contains(Key(value.Text));
 

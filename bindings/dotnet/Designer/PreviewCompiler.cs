@@ -30,7 +30,7 @@ internal static class PreviewCompiler
         if (source is null)
             return Failure("Supply a self-contained XUI component.");
         if (source.Length > MaximumSourceLength)
-            return Failure($"Source must not exceed {MaximumSourceLength} UTF-16 code units.");
+            return Failure($"Source has {source.Length} UTF-16 code units; preview supports at most {MaximumSourceLength}. Shorten the component before compiling its preview.");
 
         source = source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         var text = SourceText.From(source, Encoding.UTF8);

@@ -33,8 +33,9 @@ public sealed class XuiGenerator : IIncrementalGenerator
             string suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(file.Path)))[..12];
             if (file.Text is null)
             {
-                output.ReportDiagnostic(Diagnostic.Create(Invalid, Location.None, $"Cannot read '{file.Path}'."));
-                output.AddSource("Xui.Error." + suffix + ".g.cs", "#error XUI001: Cannot read XUI source.\n");
+                string message = $"Cannot read XUI source {DiagnosticText.Quote(file.Path)}. Check that the file exists, is readable, and is included as a .xui input in the project.";
+                output.ReportDiagnostic(Diagnostic.Create(Invalid, Location.None, message));
+                output.AddSource("Xui.Error." + suffix + ".g.cs", "#error XUI001: " + message + "\n");
                 return;
             }
             try
@@ -131,12 +132,15 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             .Select(n => n.Identifier.ValueText).ToHashSet();
         var methods = SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
             .DescendantNodes().OfType<MethodDeclarationSyntax>().Select(m => m.Identifier.ValueText);
-        if (methods.Any(identifiers.Contains))
-            Errors.Add(new ParseError("View expressions cannot call component methods. Use state directly; computed dependencies must be explicit.", value.Offset));
+        string? method = methods.FirstOrDefault(identifiers.Contains);
+        if (method is not null)
+            Errors.Add(new ParseError($"View expression {DiagnosticText.Quote(value.Text)} references component method '{method}'. " +
+                "Component methods hide reactive dependencies; bind to state directly and update computed state from event handlers instead.", value.Offset));
         if (expression.DescendantNodesAndSelf().Any(n => n is AssignmentExpressionSyntax or AnonymousFunctionExpressionSyntax or AwaitExpressionSyntax ||
             n.IsKind(SyntaxKind.PreIncrementExpression) || n.IsKind(SyntaxKind.PreDecrementExpression) ||
             n.IsKind(SyntaxKind.PostIncrementExpression) || n.IsKind(SyntaxKind.PostDecrementExpression)))
-            Errors.Add(new ParseError("View expressions must be side-effect-free; assignments, increment, lambdas, and await are unsupported.", value.Offset));
+            Errors.Add(new ParseError($"View expression {DiagnosticText.Quote(value.Text)} is not side-effect-free. " +
+                "Move assignments, increment/decrement, lambdas, or await into code csharp methods; bind this argument to a value without those operations.", value.Offset));
         return component.States.Where(s => identifiers.Contains(s.Name.TrimStart('@'))).Select(s => s.Name).ToArray();
     }
     private void Collect(Node node, Node? parent = null)
@@ -153,11 +157,13 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         {
             if (!node.Arguments.TryGetValue(key, out var placement)) continue;
             if (key == "flex" ? parent?.Kind is not ("VStack" or "HStack") : parent?.Kind != "Grid")
-                Errors.Add(new ParseError($"'{key}' requires a {(key == "flex" ? "Stack" : "Grid")} parent.", placement.Offset));
+                Errors.Add(new ParseError($"Argument '{key}' on {node.Kind} requires a direct {(key == "flex" ? "VStack or HStack" : "Grid")} parent, " +
+                    $"but this control {(parent is null ? "is the view root" : $"is inside {parent.Kind}")}. Move it into the required container or remove '{key}'.", placement.Offset));
             if (Dependencies(placement).Length != 0)
-                Errors.Add(new ParseError($"'{key}' cannot depend on state. Placement is fixed for the component lifetime.", placement.Offset));
+                Errors.Add(new ParseError($"Argument '{key}' on {node.Kind} cannot depend on state. Placement is fixed for the component lifetime; use a literal or a state-free constructor parameter expression.", placement.Offset));
             if (key != "flex" && int.TryParse(placement.Text, out int literal) && literal < (key.EndsWith("Span") ? 1 : 0))
-                Errors.Add(new ParseError($"'{key}' must be {(key.EndsWith("Span") ? "positive" : "nonnegative")}.", placement.Offset));
+                Errors.Add(new ParseError($"Value {DiagnosticText.Quote(placement.Text)} for '{key}' on {node.Kind} is invalid. " +
+                    $"Use an integer {(key.EndsWith("Span") ? "of at least 1" : "of at least 0")}; Grid row and column indices start at 0, and spans count occupied cells.", placement.Offset));
         }
         if (node.Kind is "VStack" or "HStack")
         {
@@ -184,11 +190,11 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Bind("help", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
         }
         else if (Dependencies(node.Arguments["value"]).Length != 0)
-            Errors.Add(new ParseError($"{node.Kind} positional input cannot depend on state. This constructor input is fixed for the component lifetime.", node.Arguments["value"].Offset));
+            Errors.Add(new ParseError($"{node.Kind}'s first positional argument cannot depend on state. This constructor input is fixed for the component lifetime; use a literal or a state-free constructor parameter expression.", node.Arguments["value"].Offset));
         if (node.Kind is "RangeInput" or "Progress" or "ProgressRing")
         {
             if (node.Arguments.TryGetValue("range", out var range) && Dependencies(range).Length != 0)
-                Errors.Add(new ParseError("'range' is evaluated only during construction and cannot depend on component state.", range.Offset));
+                Errors.Add(new ParseError($"Argument 'range' on {node.Kind} is evaluated only during construction and cannot depend on component state. Use a state-free NumericRange expression; bind changing values through 'currentValue' instead.", range.Offset));
             if (node.Arguments.ContainsKey("currentValue")) Bind("currentValue", "double", "SetValue({0})", "0");
             if (node.Arguments.ContainsKey("orientation")) Bind("orientation", "global::Xui.Axis", "SetOrientation({0})", "default");
             if (node.Arguments.ContainsKey("reversed")) Bind("reversed", "bool", "SetReversed({0})", "false");
@@ -211,7 +217,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         if (node.Kind == "InfoBadge")
         {
             if (node.Arguments.ContainsKey("count") && node.Arguments.ContainsKey("icon"))
-                throw new ParseError("InfoBadge accepts either count or icon, not both.", node.Offset);
+                throw new ParseError("InfoBadge has both 'count' and 'icon' arguments. Choose one presentation and remove the other argument; omit both for a dot badge.", node.Arguments["icon"].Offset);
             if (node.Arguments.ContainsKey("count")) Bind("count", "uint", "SetCount({0})", "0");
         }
         if (node.Kind == "SelectorBar")
@@ -245,12 +251,12 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         if (node.Kind == "Content" && styleValue is null) {
             var untypedLocal = node.Arguments.FirstOrDefault(pair => StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key));
             if (untypedLocal.Value is not null)
-                throw new ParseError("Content style properties require a named style to identify the target schema.", untypedLocal.Value.Offset);
+                throw new ParseError($"Content argument '{untypedLocal.Key}' requires a named style to identify the embedded control's target. Declare a style for that control and add 'style: StyleName', or remove the local style argument.", untypedLocal.Value.Offset);
         }
         if (styleValue is not null) {
             string reference = styling.Reference(styleValue, styleTarget);
             if (!genericStyle && node.Kind is not ("Button" or "ToggleButton" or "HyperlinkButton"))
-                throw new ParseError("A legacy Button style requires a Button node.", styleValue.Offset);
+                throw new ParseError($"This legacy Button style cannot be applied to {node.Kind}. Use it on Button, ToggleButton, or HyperlinkButton, or declare a style for the embedded control's target.", styleValue.Offset);
             bindings.Add(new($"__xuiB{index}_style", index, genericStyle ? "global::Xui.ControlStyle" : "global::Xui.ButtonStyle",
                 genericStyle ? $"__xuiN{index}.SetControlStyle({{0}})" : $"__xuiN{index}.Style = {{0}}",
                 new(reference, styleValue.Offset), []));
@@ -261,7 +267,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 !((node.Kind is "VStack" or "HStack") && (pair.Key is "spacing" or "padding"))).ToDictionary();
             foreach (var pair in local)
                 if (!StyleCompiler.AllowedProperties(styleTarget, "root").Contains(pair.Key))
-                    throw new ParseError($"Unsupported {styleTarget} root style property '{pair.Key}'.", pair.Value.Offset);
+                    throw new ParseError($"Unsupported local style property '{pair.Key}' on {node.Kind} (target {styleTarget}, part 'root'). Remove or replace this argument. " +
+                        DiagnosticText.Choices(StyleCompiler.AllowedProperties(styleTarget, "root")), pair.Value.Offset);
             bool genericLocal = styleTarget != "Button" || genericStyle || local.Keys.Any(key => !StyleCompiler.Properties.Contains(key));
             if (local.Count != 0)
                 bindings.Add(new($"__xuiB{index}_styleValues", index, genericLocal ? "global::Xui.PartStyleValues" : "global::Xui.ButtonStyleValues",
@@ -312,27 +319,33 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     {
         styling.Validate();
         Collect(component.Root);
-        var names = new HashSet<string>(StringComparer.Ordinal) { "Root", component.Name.TrimStart('@') };
-        void Reserve(string name, int offset)
+        var names = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Root"] = "the generated Root property",
+            [component.Name.TrimStart('@')] = "the component name"
+        };
+        void Reserve(string name, int offset, string role)
         {
             name = name.TrimStart('@');
-            if (name.StartsWith("__xui", StringComparison.Ordinal) || !names.Add(name))
-                Errors.Add(new ParseError($"Member name '{name}' is reserved or duplicated.", offset));
+            if (name.StartsWith("__xui", StringComparison.Ordinal))
+                Errors.Add(new ParseError($"{role} name '{name}' starts with the reserved prefix '__xui'. Rename it without that prefix.", offset));
+            else if (!names.TryAdd(name, role))
+                Errors.Add(new ParseError($"{role} name '{name}' conflicts with {names[name]}. Rename this member; state, parameters, styles, methods, and control references share the component's names.", offset));
         }
-        foreach (var state in component.States) Reserve(state.Name, state.Offset);
-        foreach (var style in component.Styles) Reserve(SyntaxFactory.ParseToken(style.Name).ValueText, style.Offset);
+        foreach (var state in component.States) Reserve(state.Name, state.Offset, "State");
+        foreach (var style in component.Styles) Reserve(SyntaxFactory.ParseToken(style.Name).ValueText, style.Offset, "Style");
         foreach (var parameter in component.Parameters)
         {
-            Reserve(parameter.Name, parameter.Offset);
+            Reserve(parameter.Name, parameter.Offset, "Parameter");
             if (parameter.Name.TrimStart('@') is "window" or "attach")
-                Errors.Add(new ParseError("Parameter names 'window' and 'attach' are reserved.", parameter.Offset));
+                Errors.Add(new ParseError($"Parameter name '{parameter.Name}' is reserved by the generated constructor. Rename it; 'window' and 'attach' are supplied by XUI.", parameter.Offset));
         }
         foreach (var method in SyntaxFactory.ParseCompilationUnit("class C {" + component.Code.Text + "}")
             .DescendantNodes().OfType<ClassDeclarationSyntax>().First().Members.OfType<MethodDeclarationSyntax>()
             .GroupBy(m => m.Identifier.ValueText))
-            Reserve(method.Key, component.Code.Offset);
+            Reserve(method.Key, component.Code.Offset + method.First().Identifier.SpanStart - 9, "Method");
         foreach (var node in nodes)
-            if (node.Arguments.TryGetValue("ref", out var reference)) Reserve(reference.Text, reference.Offset);
+            if (node.Arguments.TryGetValue("ref", out var reference)) Reserve(reference.Text, reference.Offset, $"{node.Kind} reference");
         Line("// <auto-generated/>");
         Line("#nullable enable");
         if (component.Namespace.Length != 0) Line($"namespace {component.Namespace};");
@@ -351,7 +364,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("return nodeId switch");
         Line("{");
         for (int i = 0; i < nodes.Count; i++) Line($"{i} => __xuiN{i},");
-        Line("_ => throw new global::System.ArgumentOutOfRangeException(nameof(nodeId))");
+        Line($"_ => throw new global::System.ArgumentOutOfRangeException(nameof(nodeId), nodeId, {Literal($"Invalid preview node ID for component '{component.Name}'. Use an ID from 0 through {nodes.Count - 1} from the current source snapshot.")})");
         Line("};");
         Line("}");
         Line("#endif");
@@ -414,7 +427,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("global::System.ArgumentNullException.ThrowIfNull(window);");
         Line("window.VerifyAccess();");
         if (component.Root.Kind is not ("VStack" or "HStack"))
-            Line("if (attach) throw new global::System.ArgumentException(\"Only a Stack root can attach to a window. Use attach: false for this component.\", nameof(attach));");
+            Line($"if (attach) throw new global::System.ArgumentException({Literal($"Component '{component.Name}' has a {component.Root.Kind} root, but window attachment requires a VStack or HStack. Construct it with attach: false and embed its Root in a container, or wrap the view root in a stack.")}, nameof(attach));");
         Line("__xuiWindow = window;");
         foreach (var parameter in component.Parameters) Line($"this.{parameter.Name} = {parameter.Name};");
         for (int i = nodes.Count - 1; i >= 0; i--)
@@ -474,7 +487,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                         Map(value);
                         Line(value.Text + ";");
                         Unmap();
-                        Line($"if (__xuiP{childIndex}_{key} < {(key.EndsWith("Span") ? 1 : 0)}) throw new global::System.ArgumentOutOfRangeException(\"{key}\");");
+                        Line($"if (__xuiP{childIndex}_{key} < {(key.EndsWith("Span") ? 1 : 0)}) throw new global::System.ArgumentOutOfRangeException(\"{key}\", __xuiP{childIndex}_{key}, " +
+                            Literal($"Invalid '{key}' for {child.Kind} inside Grid in component '{component.Name}'. Use an integer of at least {(key.EndsWith("Span") ? 1 : 0)}.") + ");");
                     }
                     Line($"__xuiN{i}.Add(__xuiN{childIndex}, (uint)__xuiP{childIndex}_row, (uint)__xuiP{childIndex}_column, (uint)__xuiP{childIndex}_rowSpan, (uint)__xuiP{childIndex}_columnSpan);");
                 }

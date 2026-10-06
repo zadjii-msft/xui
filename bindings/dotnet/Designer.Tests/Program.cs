@@ -118,6 +118,23 @@ internal static class Program
             Assert(Failure(invalidCSharp.ReplaceLineEndings(newline), "CS0029").Diagnostics == csharp.Diagnostics,
                 "C# mapping must be unchanged after newline normalization.");
         }
+        const string semicolon = """
+            component Broken {
+                view {
+                    VStack() {
+                        HStack() {} ;
+                    }
+                }
+            }
+            """;
+        foreach (string newline in new[] { "\n", "\r", "\r\n" })
+        {
+            var result = Failure(semicolon.ReplaceLineEndings(newline), "XUI001");
+            Assert(result.Diagnostics.Contains("Preview.xui(4,25): error XUI001: Unexpected ';' after the child block of 'HStack'.", StringComparison.Ordinal),
+                "Preview points to the stray semicolon and identifies its container: " + result.Diagnostics);
+            Assert(result.Diagnostics.Contains("Remove the semicolon", StringComparison.Ordinal),
+                "Preview retains the actionable correction from the shared parser.");
+        }
         Failure("""component First { view { Text("A"); } } component Second { view { Text("B"); } }""", "XUI001");
         Failure(Counter.Replace("Example", "Xui.Designer.GeneratedPreview", StringComparison.Ordinal), "CS0101");
     }

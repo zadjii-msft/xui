@@ -4,6 +4,30 @@ This plan records the initial implementation and its acceptance evidence.
 The [language guide](../specs/xui-language.md) describes the current syntax and expanded control set.
 Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 
+## Compiler diagnostics
+
+The [public diagnostic guide](../specs/xui-language.md#compiler-diagnostics) describes messages for application authors.
+`Xui.Generator/Parser.cs` owns token expectations, declaration rules, control arguments, and child-block structure.
+Its expectation helpers require authoring context; unexpected tokens and end of file must not produce a bare "Expected an identifier."
+Closing a block explicitly rejects a following semicolon at that semicolon's offset, naming the block that just ended.
+This preserves the grammar rather than accepting stray punctuation.
+
+`Styling.cs` supplies style-part and property context, allowed keywords, literal forms, actual limits, and reference/inheritance failures.
+Nested theme colors and inset values map errors to the offending subexpression.
+`XuiGenerator.cs` supplies reactive-expression, placement, naming-conflict, and generated-constructor errors.
+`DiagnosticText.cs` bounds and escapes source excerpts and formats allowed choices.
+Roslyn explanations remain intact, with authoring context added for C# syntax errors.
+
+The shared `XuiSourceParser` projects the parser's messages and offsets for visual editing.
+The generator emits both `XUI001` and a mapped blocking C# `#error` with the same explanation.
+Keep recoverable declarations and hot-reload rejection behavior unchanged.
+`Designer/PreviewCompiler.cs` displays those generator diagnostics without substituting a generic message.
+
+`GeneratorTests/Program.AuthorDiagnostics.cs` covers contextual messages, corrections, exact offsets, shared-parser parity, bounds, and quoted source excerpts.
+It includes the extra-semicolon regression and verifies that the proposed correction compiles.
+`Designer.Tests` checks the actual preview message and column across all supported line endings.
+The existing source diagnostic fixtures retain exact C# expression mappings and UTF-16 columns.
+
 ## Designer source map
 
 The [designer guide](../specs/designer.md) describes the standalone development tool.

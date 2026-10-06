@@ -30,6 +30,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Row-image reconciliation pass](testing.md#row-image-reconciliation-pass-october-1-2026): Bounded identity lookup, allocation and CPU comparisons, and image ownership/cancellation coverage.
 - [WinUI maintainer handoff](winui-maintainer-handoff.md): Current choice, badge, menu, toggle, and progress notes, historical source ownership, and regression procedures.
 - [Declarative language plan](xui-language-plan.md): Compiler and reload contracts, editor syntax packages, delivery stages, and acceptance evidence.
+- [Compiler diagnostics](xui-language-plan.md#compiler-diagnostics): Contextual syntax errors, style and value rules, source locations, and build/Designer delivery.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.

@@ -38,7 +38,7 @@ public static class XuiSourceParser
         ArgumentNullException.ThrowIfNull(source);
         cancellation.ThrowIfCancellationRequested();
         if (source.Length > MaximumSourceLength)
-            return Failure($"Source must not exceed {MaximumSourceLength} UTF-16 code units.", 0);
+            return Failure($"Source has {source.Length} UTF-16 code units; visual tooling supports at most {MaximumSourceLength}. Shorten the component before editing it in the Designer.", 0);
         for (int i = 0; i < source.Length; i++)
         {
             cancellation.ThrowIfCancellationRequested();
