@@ -315,7 +315,36 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             throw std::invalid_argument("Invalid visual style");
         if (options.transparent && options.custom_titlebar)
             throw std::invalid_argument("A transparent window cannot use the XUI title bar");
+        if (options.backdrop < WindowBackdrop::none || options.backdrop > WindowBackdrop::acrylic)
+            throw std::invalid_argument("Invalid window backdrop");
+        if (options.transparent && options.backdrop != WindowBackdrop::none)
+            throw std::invalid_argument("A transparent window cannot use a system backdrop");
         if (options.custom_titlebar) titlebar = std::make_shared<TitleBar>(options.title);
+    }
+    // The DWM type currently applied, and whether client pixels expose it.
+    DWORD backdrop_type{};
+    bool backdrop_presented{}, transparency_effects{true};
+    void sync_backdrop() {
+        transparency_effects = platform::transparency_effects_enabled();
+        if (!window) return;
+        DWORD type{};
+        if (!palette.high_contrast && transparency_effects) switch (options.backdrop) {
+        case WindowBackdrop::mica: type = DWMSBT_MAINWINDOW; break;
+        case WindowBackdrop::mica_alt: type = DWMSBT_TABBEDWINDOW; break;
+        case WindowBackdrop::acrylic: type = DWMSBT_TRANSIENTWINDOW; break;
+        default: break;
+        }
+        bool presented = backdrop_presented;
+        if (type != backdrop_type) {
+            presented = (type || backdrop_type) && platform::system_backdrop(window, type, titlebar != nullptr);
+            backdrop_type = presented ? type : 0;
+        }
+        if (presented == backdrop_presented) return;
+        backdrop_presented = presented;
+        root_drawing.discard();
+        for (const auto& peer : peers)
+            if (peer->edit || peer->document) platform::opaque_native_paint(peer->window, presented);
+        InvalidateRect(window, nullptr, FALSE);
     }
     std::function<void(HWND)> native_created;
     std::optional<Rect> drag_region;
@@ -1054,6 +1083,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             });
+        if (backdrop_presented && (peer->edit || peer->document)) platform::opaque_native_paint(peer->window, true);
         prepare_popup_surface(*peer);
         if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
             const std::weak_ptr<Impl> weak = shared_from_this();
@@ -1855,7 +1885,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (options.visual_style != VisualStyle::winui) hover_edit(nullptr, nullptr);
         palette = Palette::system(options.theme, options.visual_style);
         drawing().set_visual_style(options.visual_style);
-        platform::appearance(window, palette.mode, palette);
+        sync_backdrop();
+        palette.backdrop = backdrop_presented;
+        platform::appearance(window, palette.mode, palette, backdrop_presented);
         HBRUSH next_background = CreateSolidBrush(platform::native_color(palette.background));
         HBRUSH next_field = CreateSolidBrush(platform::native_color(palette.field));
         if (!next_background || !next_field) {
@@ -2667,7 +2699,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     using SubtreePaint = std::function<void(Peer*)>;
     void paint_surfaces(const Stack& stack, const SubtreePaint& paint_peer = {},
         std::uint64_t owner = 0, const AdaptiveLayout* adaptive = nullptr) {
-        if (const auto* style = stack.effective_control_style_values(StylePart::root)) {
+        if (stack.material() == SurfaceMaterial::acrylic) {
+            const auto* style = stack.effective_control_style_values(StylePart::root);
+            const float radius = palette.high_contrast ? 0.0f : style && style->corner_radius ? *style->corner_radius :
+                style_metrics(palette.style).surface_radius;
+            drawing().acrylic(stack.bounds(), palette, radius, transparency_effects);
+            if (style) drawing().styled_surface(stack.bounds(), palette, *style, D2D1::ColorF(0, 0.0f),
+                palette.border, radius, {1, 1, 1, 1});
+            else drawing().rounded(stack.bounds(), palette.border, radius, true);
+        } else if (const auto* style = stack.effective_control_style_values(StylePart::root)) {
             drawing().styled_surface(stack.bounds(), palette, *style, stack.surface() ? palette.surface : D2D1::ColorF(0, 0.0f),
                 palette.border, stack.surface() ? 4.0f : 0.0f, stack.surface() ? Insets{1, 1, 1, 1} : Insets{});
         } else if (stack.surface()) {
@@ -2829,8 +2869,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
             } caret(window);
             if (drawing().begin(window, static_cast<float>(dpi),
-                options.transparent && !palette.high_contrast ? D2D1::ColorF(0, 0.0f) : palette.background,
-                {}, options.transparent)) {
+                (options.transparent && !palette.high_contrast) || backdrop_presented ? D2D1::ColorF(0, 0.0f) : palette.background,
+                {}, options.transparent, backdrop_presented)) {
                 Peer* external_focus{};
                 if (palette.style == VisualStyle::winui && keyboard_focus_visible)
                     for (const auto& peer : peers)
@@ -3667,7 +3707,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
             const auto hovered_key = hovered ?
                 std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
-            const auto collection_background = commands || (fluent && peer.surface) ? palette.surface : palette.background;
+            const auto collection_background = commands || (fluent && peer.surface) ? palette.surface :
+                palette.backdrop ? D2D1::ColorF(0, 0.0f) : palette.background;
             if (collection->has_control_styling())
                 canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette,
                     collection->resolve_control_style_part(StylePart::root, 0), collection_background, palette.border, 0, {});
@@ -6049,6 +6090,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         case WM_SETTINGCHANGE:
         case WM_SYSCOLORCHANGE:
+        case WM_DWMCOMPOSITIONCHANGED:
         case WM_THEMECHANGED: if (ready) apply_theme(); break;
         case WM_DISPLAYCHANGE:
             drawing().discard();
@@ -6521,8 +6563,25 @@ void Window::set_transparent(bool value) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set transparency on the Window UI thread");
     if (impl_->used || impl_->closing) throw std::logic_error("Set transparency before showing the Window");
     if (value && impl_->titlebar) throw std::invalid_argument("A transparent window cannot use the XUI title bar");
+    if (value && impl_->options.backdrop != WindowBackdrop::none)
+        throw std::invalid_argument("A transparent window cannot use a system backdrop");
     impl_->options.transparent = value;
     if (!value) impl_->drag_region.reset();
+}
+void Window::set_backdrop(WindowBackdrop backdrop) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set the backdrop on the Window UI thread");
+    if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
+    if (backdrop < WindowBackdrop::none || backdrop > WindowBackdrop::acrylic)
+        throw std::invalid_argument("Invalid window backdrop");
+    if (backdrop != WindowBackdrop::none && impl_->options.transparent)
+        throw std::invalid_argument("A transparent window cannot use a system backdrop");
+    if (impl_->options.backdrop == backdrop) return;
+    impl_->options.backdrop = backdrop;
+    if (impl_->ready && impl_->window) impl_->apply_theme();
+}
+WindowBackdrop Window::backdrop() const { return impl_->options.backdrop; }
+bool Window::backdrop_active() const {
+    return impl_->backdrop_presented && impl_->ready && impl_->window && !impl_->closing;
 }
 HWND Window::native_window() const {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read native window on the Window UI thread");

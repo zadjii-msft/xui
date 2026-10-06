@@ -1130,6 +1130,57 @@ void initial_activation_contracts() {
     ok(xui_window_destroy(window));
     expect(xui_window_show_activated(window, 1) == XUI_INVALID_HANDLE);
 }
+void backdrop_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("XUI backdrop contract"), 320, 240};
+    xui_handle window{}, root{}, material{}, label{};
+    ok(xui_window_create(&options, &window));
+    ok(xui_stack_create(window, 1, &root));
+    ok(xui_stack_create(window, 1, &material));
+    ok(xui_create(window, XUI_LABEL, text("Acrylic"), 0, &label));
+    ok(xui_stack_add(material, label, 0));
+    ok(xui_stack_add(root, material, 1));
+    ok(xui_window_content(window, root));
+    uint32_t backdrop = 9, active = 9;
+    ok(xui_window_backdrop_get(window, &backdrop, &active));
+    expect(backdrop == XUI_BACKDROP_NONE && active == 0);
+    ok(xui_window_backdrop_set(window, XUI_BACKDROP_MICA));
+    ok(xui_window_backdrop_get(window, &backdrop, nullptr));
+    expect(backdrop == XUI_BACKDROP_MICA);
+    ok(xui_window_backdrop_get(window, nullptr, &active));
+    expect(active == 0);
+    expect(xui_window_backdrop_set(window, 4) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_transparent(window, 1) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_backdrop_set(root, XUI_BACKDROP_MICA) == XUI_WRONG_KIND);
+    ok(xui_stack_material(material, XUI_MATERIAL_ACRYLIC));
+    expect(xui_stack_material(material, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_stack_material(label, XUI_MATERIAL_ACRYLIC) == XUI_WRONG_KIND);
+    std::thread worker([&] {
+        expect(xui_window_backdrop_set(window, XUI_BACKDROP_NONE) == XUI_WRONG_THREAD);
+        expect(xui_stack_material(material, XUI_MATERIAL_SOLID) == XUI_WRONG_THREAD);
+    });
+    worker.join();
+    ok(xui_window_backdrop_set(window, XUI_BACKDROP_NONE));
+    ok(xui_window_transparent(window, 1));
+    expect(xui_window_backdrop_set(window, XUI_BACKDROP_ACRYLIC) == XUI_INVALID_ARGUMENT);
+    ok(xui_window_transparent(window, 0));
+    ok(xui_window_backdrop_set(window, XUI_BACKDROP_MICA_ALT));
+    struct Context { xui_handle window, material; } context{window, material};
+    ok(xui_window_post(window, [](void* data, uint32_t execute) -> xui_status {
+        if (!execute) return XUI_OK;
+        const auto& context = *static_cast<Context*>(data);
+        uint32_t value{};
+        expect(xui_window_backdrop_set(context.window, XUI_BACKDROP_ACRYLIC) == XUI_OK);
+        expect(xui_window_backdrop_get(context.window, &value, nullptr) == XUI_OK && value == XUI_BACKDROP_ACRYLIC);
+        expect(xui_stack_material(context.material, XUI_MATERIAL_SOLID) == XUI_OK);
+        return xui_window_close(context.window);
+    }, &context));
+    ok(xui_window_run(window));
+    expect(xui_window_backdrop_set(window, XUI_BACKDROP_MICA) == XUI_CLOSED);
+    ok(xui_window_backdrop_get(window, &backdrop, &active));
+    expect(backdrop == XUI_BACKDROP_ACRYLIC && active == 0);
+    ok(xui_window_destroy(window));
+    expect(xui_window_backdrop_get(window, &backdrop, &active) == XUI_INVALID_HANDLE);
+}
 void split_first_visibility_contracts() {
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Split first visibility"), 400, 300};
     xui_handle window{}, first{}, second{};
@@ -1350,6 +1401,12 @@ int main(int argc, char** argv) {
         std::cout << "Initial activation contracts: " << assertions << " assertions\n";
         return 0;
     }
+    if (argc == 2 && std::strcmp(argv[1], "--backdrop") == 0) {
+        backdrop_contracts();
+        std::cout << "Backdrop contracts: " << assertions << " assertions\n";
+        return 0;
+    }
+    backdrop_contracts();
     toggle_control_contracts();
     retained_navigation_style_bridges();
     split_first_visibility_contracts();

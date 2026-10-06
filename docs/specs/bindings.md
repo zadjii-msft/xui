@@ -31,6 +31,16 @@ The additive C ABI functions are `xui_window_native_handle` (borrowed `uintptr_t
 `xui_window_transparent`, and `xui_window_drag_region`.
 They keep the opaque `xui_handle` identity separate from the Win32 HWND.
 
+### Window backdrops and acrylic surfaces
+
+`Window.SetBackdrop(WindowBackdrop.Mica)` requests Mica, Mica Alt, or Desktop Acrylic before Show/Run or while the window is open.
+`Window.BackdropActive` reports whether Windows presents the material; unsupported systems, disabled transparency effects, and high contrast keep a solid background.
+A backdrop is incompatible with `transparent: true` and reports `XUI_INVALID_ARGUMENT`.
+`Stack.Material(SurfaceMaterial.Acrylic)` paints an in-app acrylic surface.
+The C functions are `xui_window_backdrop_set`, `xui_window_backdrop_get`, and `xui_stack_material` in `xui_layout.h`.
+Rust has no wrapper for these functions.
+The [materials contract](materials.md) describes the presentation, fallbacks, and limits.
+
 ### Window presentation
 
 C# `Window.SetPresentation(fontFamily, fontSize, smoothScrolling, animations)` applies typography to current and future controls in that window.

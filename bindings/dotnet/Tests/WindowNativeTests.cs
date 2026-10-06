@@ -72,6 +72,34 @@ internal static class WindowNativeTests
                     "Native-window callback failure lost its managed exception.");
             }
         }
+        using (var window = new Window("Backdrop contract"))
+        {
+            Require(window.Backdrop == WindowBackdrop.None && !window.BackdropActive, "A window requested a backdrop by default.");
+            window.SetBackdrop(WindowBackdrop.Mica);
+            Require(window.Backdrop == WindowBackdrop.Mica && !window.BackdropActive, "A backdrop was active before Run.");
+            Status(() => window.SetTransparent(true), 1);
+            try
+            {
+                window.SetBackdrop((WindowBackdrop)7);
+                throw new InvalidOperationException("An undefined backdrop was accepted.");
+            }
+            catch (ArgumentOutOfRangeException) { }
+            var acrylic = window.Stack().Material(SurfaceMaterial.Acrylic).Add(window.Label("Acrylic"));
+            window.SetContent(window.Stack().Add(acrylic));
+            bool changed = false;
+            Require(window.Post(() =>
+            {
+                window.SetBackdrop(WindowBackdrop.Acrylic);
+                _ = window.BackdropActive;
+                changed = window.Backdrop == WindowBackdrop.Acrylic;
+                acrylic.Material(SurfaceMaterial.Solid);
+                window.Close();
+            }), "Backdrop update was not accepted.");
+            window.Run();
+            Require(changed, "The backdrop did not change while open.");
+        }
+        using (var transparent = new Window("Transparent backdrop", transparent: true))
+            Status(() => transparent.SetBackdrop(WindowBackdrop.Mica), 1);
         Console.WriteLine("Managed HWND ownership, creation, threading, and callback failures passed");
     }
 

@@ -140,6 +140,62 @@ The tab-strip painter remains responsible for its own baseline, colors, and open
 `tests\collections_window_tests.cpp --miller-only` also covers hover transitions and separator pixels after fractional scrolling.
 These tests need a Windows desktop. Static checks do not establish a passing native test result.
 
+## System backdrops and acrylic
+
+The [materials contract](../specs/materials.md) describes the public behavior.
+
+`Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`.
+It reads the transparency preference, maps the request to a `DWM_SYSTEMBACKDROP_TYPE`, and calls `platform::system_backdrop` only when the applied type changes.
+High contrast and disabled transparency request type zero, which restores the frame margins and `DWMSBT_AUTO`.
+A change in presentation discards the root `Drawing` target and toggles the opaque native paint subclass on EDIT and document peers.
+New native peers receive the subclass in `collect` when a backdrop is already active.
+`WM_SETTINGCHANGE`, `WM_THEMECHANGED`, `WM_SYSCOLORCHANGE`, and `WM_DWMCOMPOSITIONCHANGED` reach `apply_theme`.
+
+`src\window_host.cpp` owns the DWM calls, the build check, the registry preference, and the native paint subclass.
+`DwmExtendFrameIntoClientArea` is required: DWM ignores client alpha without it.
+Ordinary windows use `-1` margins.
+A custom title bar uses a bottom band covering the whole client area instead: a nonzero top margin makes DWM draw its own caption and buttons beneath the XUI title bar (see the frame notes in Windows Terminal's `NonClientIslandWindow`).
+While a backdrop is active, `Palette::backdrop` makes resting caption buttons, unstyled collection backgrounds, and unselected tab rails transparent instead of filling the window color.
+`E_INVALIDARG` and `DWM_E_COMPOSITIONDISABLED` become a debugger diagnostic and a solid fallback. Other failures throw.
+The caption color is reset to `DWMWA_COLOR_DEFAULT`; an explicit caption color hides the material in the system title bar.
+
+`Drawing::begin` takes a `backdrop` flag.
+It recreates the HWND target with `D2D1_ALPHA_MODE_PREMULTIPLIED` and grayscale text when the flag changes.
+The default HWND target uses `D2D1_ALPHA_MODE_IGNORE`, which DWM treats as opaque; overlay popup child surfaces keep it.
+Native pixels composed into the root frame use an ignore-alpha bitmap and stay opaque.
+
+GDI writes zero alpha. Without repair, EDIT backgrounds add to the material and dark text disappears.
+`opaque_paint` replaces `WM_PAINT` with a buffered `WM_PRINTCLIENT` and `BufferedPaintSetAlpha(255)`.
+`WM_PRINTCLIENT` passes through the whole subclass chain, so the search hint, line numbers, and occlusion clipping still apply.
+Input that EDIT or RichEdit draws immediately triggers a synchronous `RedrawWindow`; programmatic text and format changes only invalidate.
+Layered child windows would also make native peers opaque, but they require a Windows 8 manifest entry in every host executable.
+
+`Drawing::acrylic` implements the in-app material.
+`CopyFromRenderTarget` fails while clips or layers are active, so `Drawing` now records its clip stack.
+`suspend_clips` pops every clip, the copy runs, and `resume_clips` restores each clip with its original transform.
+The effect graph is Gaussian blur (24 DIPs, hard border) into a luminosity blend with a flood color, followed by a tint fill and a 64-pixel noise brush at 2% opacity.
+The source bitmap matches the copied rectangle and is recreated when its size changes. Effects and the noise brush live until the target is discarded.
+`ID2D1DeviceContext` comes from the existing render target; `E_NOINTERFACE` uses the solid fallback.
+Direct2D's luminosity blend inverts hues when the target lightness is near white, which turned blue swatches yellow under the light material.
+Light tints therefore blend inverted colors between two `ColorMatrix` inversions; `1 - SetLum(1 - c, 1 - l)` equals `SetLum(c, l)`.
+A 16-bit float buffer precision did not change the artifact.
+
+`tests\backdrop_window_tests.cpp` checks acrylic pixels through the software layered target, which exposes its DIB.
+That part needs no desktop capture. The window part needs an unlocked desktop for owned Graphics Capture.
+A non-activated test window can receive the solid inactive material, so the test checks DWM attributes rather than material pixels.
+
+### Material evidence (October 6, 2026)
+
+Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Preview, SDK 10.0.26100.0.
+
+- A standalone Win32 probe confirmed that a premultiplied HWND target with `-1` frame margins shows Mica and Desktop Acrylic behind cleared pixels, and that an ignore-alpha HWND target is opaque.
+- The same probe showed GDI EDIT backgrounds adding to the material. The buffered-paint subclass made them match the surrounding opaque surface, including text typed through `WM_CHAR`.
+- `xui_backdrop_window_tests` passed: layered acrylic pixels in both themes, clip restoration, the solid fallback, DWM attributes for all three materials, and identical opaque surface and EDIT pixels with and without a backdrop.
+- `xui_abi_features_tests`, `xui_abi_features_tests --backdrop`, `xui_gallery_catalog_tests`, and the C# `--window-native` tests passed.
+- Screen captures of the gallery with a custom title bar and with `--system-titlebar` showed the material in the caption, catalog, and margins, with no DWM caption buttons beneath the XUI title bar.
+- The workstation was locked for part of the session. During that time, Graphics Capture omitted Direct2D content and many existing window tests failed identically on an unmodified baseline build.
+- Not established: battery-saver behavior, transparency-setting changes while running, remote sessions, mixed-DPI moves, and Narrator review.
+
 ## Tab drag ownership
 
 `src\application_tab_drag.inc` contains the native title-bar drag session inside `Window::Impl`.

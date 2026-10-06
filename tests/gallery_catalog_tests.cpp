@@ -46,7 +46,16 @@ int main() {
             }
         }
         for (auto count : language_examples) require(count > 0);
-        require(gallery::entries.size() == 60);
+        require(gallery::entries.size() == 61);
+        require(std::wstring_view(gallery::entries[60].id) == L"materials");
+        require(std::wstring_view(gallery::references[60].docs) == L"docs/specs/materials.md");
+        require(std::wstring_view(gallery::entries[60].code).find(L"WindowBackdrop::mica") != std::wstring_view::npos);
+        require(std::wstring_view(gallery::entries[60].code).find(L"SurfaceMaterial::acrylic") != std::wstring_view::npos);
+        for (const auto* query : {L"mica", L"ACRYLIC", L"backdrop"}) {
+            catalog.set_filter(query);
+            require(catalog.item_matches({61, 1}));
+        }
+        catalog.set_filter(L"");
         require(std::wstring_view(gallery::entries[51].id) == L"document-motion");
         require(std::wstring_view(gallery::references[51].docs) == L"docs/specs/animations.md");
         require(std::wstring_view(gallery::entries[50].id) == L"content-motion");
@@ -151,6 +160,8 @@ int main() {
             L"https://zadjii-msft.github.io/xui/contracts/menus-and-input/");
         require(gallery::documentation_url(L"docs/specs/winui-style.md") ==
             L"https://zadjii-msft.github.io/xui/contracts/winui-style/");
+        require(gallery::documentation_url(L"docs/specs/materials.md") ==
+            L"https://zadjii-msft.github.io/xui/contracts/materials/");
         gallery::FixtureMillerPath miller;
         require(miller.columns().size() == 1 && miller.columns().front().title == L"Projects");
         const auto roots = miller.columns().front().source;

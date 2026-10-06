@@ -68,6 +68,8 @@ root->add(row);
 {% endtabs %}
 
 `set_surface` requests a surface.
+`set_material(SurfaceMaterial::acrylic)` paints an [in-app acrylic surface](../materials.md#acrylic-surfaces) instead.
+C# uses `Stack.Material(SurfaceMaterial.Acrylic)`. Rust and `.xui` cannot select the material.
 `set_separator_after` requests a separator after the content.
 The style target is `stack`.
 Explicit padding and spacing override style values, including zero.

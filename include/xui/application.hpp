@@ -44,6 +44,10 @@ struct ContentInspectionTarget {
 };
 enum class ContentHighlightResult { applied = 0, cleared = 1, not_visible = 2, occluded_native = 3, unsupported_surface = 4 };
 
+// Windows 11 system backdrop materials behind unpainted client pixels.
+// mica_alt is the tabbed-window material; acrylic is Desktop Acrylic.
+enum class WindowBackdrop { none = 0, mica = 1, mica_alt = 2, acrylic = 3 };
+
 struct WindowOptions {
     std::wstring title = L"XUI";
     // Initial client size in device-independent pixels.
@@ -57,6 +61,8 @@ struct WindowOptions {
     bool show_activated = true;
     // Borderless per-pixel-alpha top-level window. Cannot use the XUI title bar.
     bool transparent = false;
+    // Requested system backdrop. Cannot be combined with transparent.
+    WindowBackdrop backdrop = WindowBackdrop::none;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -157,6 +163,12 @@ public:
     VisualStyle visual_style() const;
     void set_show_activated(bool value);
     void set_transparent(bool value);
+    // UI thread, before or while open. Unsupported systems, disabled transparency effects,
+    // and high contrast present the solid theme background instead.
+    void set_backdrop(WindowBackdrop backdrop);
+    WindowBackdrop backdrop() const;
+    // True only while the requested material is applied behind transparent client pixels.
+    bool backdrop_active() const;
     // Borrowed HWND, valid on the UI thread only while the Window is open.
     HWND native_window() const;
     // Invoked after HWND creation and before first paint/show. Configure Win32 only;

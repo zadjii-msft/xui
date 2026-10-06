@@ -178,7 +178,11 @@ inline constexpr std::array entries{
     Entry{L"info-badge", L"Appearance", L"Info badge", L"Display a dot, count, or icon without adding a keyboard focus stop.",
         L"auto badge = std::make_shared<InfoBadge>(L\"Unread notifications\");\nbadge->set_count(7);\n// Other presentations:\nbadge->set_dot();\nbadge->set_icon(ButtonIcon::bookmark);"},
     Entry{L"menu-bar", L"Commands", L"Menu bar", L"Top-level menus share nested command records, access keys, and focus restoration.",
-        L"auto menu = std::make_shared<MenuBar>(L\"Document menu\");\nmenu->set_commands(commands);\n// Root records are submenus; child records are actions.\n// The window owns opening, navigation, and dismissal."}
+        L"auto menu = std::make_shared<MenuBar>(L\"Document menu\");\nmenu->set_commands(commands);\n// Root records are submenus; child records are actions.\n// The window owns opening, navigation, and dismissal."},
+    Entry{L"materials", L"Appearance", L"Mica and acrylic", L"Show the Windows 11 Mica or acrylic backdrop and blur in-app surfaces with acrylic.",
+        L"WindowOptions options;\noptions.backdrop = WindowBackdrop::mica;\nWindow window(options);\n"
+        L"// Later: window.set_backdrop(WindowBackdrop::acrylic);\n"
+        L"auto flyout = std::make_shared<Stack>(Axis::vertical);\nflyout->set_material(SurfaceMaterial::acrylic);"}
 };
 inline std::wstring fold(std::wstring text) {
     std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });

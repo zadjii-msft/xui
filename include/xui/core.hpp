@@ -96,6 +96,8 @@ private:
 };
 
 enum class Axis { horizontal, vertical };
+// Acrylic blurs the window pixels already painted behind the surface, then tints them.
+enum class SurfaceMaterial { solid = 0, acrylic = 1 };
 
 class Stack : public Element {
 public:
@@ -107,8 +109,11 @@ public:
     void set_default_padding(Insets padding);
     // A composition can reserve and paint its separator outside the Stack's content.
     void set_separator_inset_enabled(bool value);
-    bool surface() const { return surface_; }
+    // An acrylic material always paints a surface.
+    bool surface() const { return surface_ || material_ == SurfaceMaterial::acrylic; }
     void set_surface(bool value) { surface_ = value; invalidate(Invalidation::paint); }
+    SurfaceMaterial material() const { return material_; }
+    void set_material(SurfaceMaterial value);
     bool separator_after() const { return separator_after_; }
     void set_separator_after(bool value) { separator_after_ = value; invalidate(Invalidation::paint); }
     // Children have one layout parent. Null, duplicate, and already-parented children
@@ -137,6 +142,7 @@ private:
     Insets padding_{};
     bool spacing_explicit_{}, padding_explicit_{};
     bool surface_{};
+    SurfaceMaterial material_{SurfaceMaterial::solid};
     bool separator_after_{};
     bool separator_inset_enabled_{true};
     std::vector<Child> children_;

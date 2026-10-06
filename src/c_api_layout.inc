@@ -153,6 +153,27 @@ xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint32_t* sty
         *style = static_cast<uint32_t>(w->owner->window->visual_style());
     });
 }
+xui_status XUI_CALL xui_window_backdrop_set(xui_handle window, uint32_t backdrop) noexcept {
+    return boundary([&] {
+        auto w = get(window, XUI_WINDOW); editable(w->owner);
+        require(backdrop <= XUI_BACKDROP_ACRYLIC, XUI_INVALID_ARGUMENT, "Invalid window backdrop.");
+        w->owner->window->set_backdrop(static_cast<xui::WindowBackdrop>(backdrop));
+    }, true);
+}
+xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdrop, uint32_t* active) noexcept {
+    return boundary([&] {
+        auto w = get(window, XUI_WINDOW);
+        if (backdrop) *backdrop = static_cast<uint32_t>(w->owner->window->backdrop());
+        if (active) *active = w->owner->window->backdrop_active() ? 1u : 0u;
+    });
+}
+xui_status XUI_CALL xui_stack_material(xui_handle stack, uint32_t material) noexcept {
+    return boundary([&] {
+        auto n = get(stack, XUI_STACK); editable(n->owner);
+        require(material <= XUI_MATERIAL_ACRYLIC, XUI_INVALID_ARGUMENT, "Invalid surface material.");
+        as<xui::Stack>(n).set_material(static_cast<xui::SurfaceMaterial>(material));
+    });
+}
 
 xui_status XUI_CALL xui_popup_placement(xui_handle target, uint32_t placement) noexcept {
     return boundary([&] {

@@ -43,6 +43,25 @@ XUI_API xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint3
 /* Before run only. Zero shows without activation or initial keyboard focus.
    The default is one. Does not prevent subsequent user activation. */
 XUI_API xui_status XUI_CALL xui_window_show_activated(xui_handle window, uint32_t activated) XUI_NOEXCEPT;
+typedef enum xui_window_backdrop {
+    XUI_BACKDROP_NONE = 0,
+    XUI_BACKDROP_MICA = 1,
+    XUI_BACKDROP_MICA_ALT = 2,
+    XUI_BACKDROP_ACRYLIC = 3
+} xui_window_backdrop;
+/* Windows 11 system material behind unpainted client pixels. UI thread, before or while open.
+   Incompatible with xui_window_transparent. Windows before build 22621, disabled transparency
+   effects, and high contrast keep the solid theme background. */
+XUI_API xui_status XUI_CALL xui_window_backdrop_set(xui_handle window, uint32_t backdrop) XUI_NOEXCEPT;
+/* Active is 1 only while DWM presents the requested material. Either output can be null. */
+XUI_API xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdrop, uint32_t* active) XUI_NOEXCEPT;
+typedef enum xui_surface_material {
+    XUI_MATERIAL_SOLID = 0,
+    XUI_MATERIAL_ACRYLIC = 1
+} xui_surface_material;
+/* Acrylic paints a surface that blurs and tints the window pixels behind the stack.
+   Disabled transparency effects and high contrast use a solid surface. */
+XUI_API xui_status XUI_CALL xui_stack_material(xui_handle stack, uint32_t material) XUI_NOEXCEPT;
 /* Pane bounds determine the tab bands after each content layout. The OS window
    title is independent of show_title. Pane handles must belong to the window. */
 XUI_API xui_status XUI_CALL xui_window_titlebar_layout(xui_handle window,

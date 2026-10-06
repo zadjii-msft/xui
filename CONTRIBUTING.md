@@ -127,6 +127,9 @@ dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release
 
 The `--smoke` run paints a visible layered frame, checks transparent hit testing, caption dragging, native text delivery, and closes without user input.
 For native pixel-alpha and resize coverage, enable desktop tests with `cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON`, build `xui_transparent_window_tests`, and run `ctest --test-dir $build -C Release -R "^xui_transparent_window_tests$" --output-on-failure`.
+For Mica, acrylic, and in-app acrylic coverage, build `xui_backdrop_window_tests` and run `ctest --test-dir $build -C Release -R "^xui_backdrop_window_tests$" --output-on-failure` on an unlocked Windows 11 desktop.
+Pass an output directory to `xui_backdrop_window_tests.exe` to keep its owned-window captures for visual review.
+`xui_abi_features_tests.exe --backdrop` checks the C ABI contract without the other ABI suites.
 For the C# lifecycle tests, run `dotnet run --project bindings\dotnet\Tests\Tests.csproj -c Release -- --window-native`.
 
 ### Swap chain sample

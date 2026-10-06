@@ -7,7 +7,7 @@
 #include "xui/vector_canvas.hpp"
 #include "symbols.hpp"
 #include <windows.h>
-#include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <string_view>
@@ -23,6 +23,8 @@ struct Palette {
     D2D1_COLOR_F disabled{};
     VisualStyle style{};
     ThemeMode mode{};
+    // Unpainted window pixels show a system backdrop.
+    bool backdrop{};
     static Palette system(ThemeMode mode = ThemeMode::dark, VisualStyle style = VisualStyle::classic);
     D2D1_COLOR_F input_fill(bool enabled, bool focused, bool hovered, bool on_surface) const;
 };
@@ -62,7 +64,10 @@ public:
     const wchar_t* symbol_font_family() const { return symbol_family_; }
     bool has_symbol(Symbol symbol) const;
     void symbol(Symbol symbol, Rect bounds, D2D1_COLOR_F color, float size = 16);
-    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false);
+    // A backdrop target presents premultiplied alpha so DWM shows the system material
+    // behind transparent pixels. Text uses grayscale antialiasing on that target.
+    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false,
+        bool backdrop = false);
     struct NativeWindow { HWND window; RECT clip; };
     bool native_windows(std::span<const NativeWindow> windows);
     void present_native(std::span<const HWND> windows);
@@ -83,6 +88,13 @@ public:
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
     void surface_frame(Rect bounds, const Palette& palette);
+    // In-app acrylic: blurs the pixels already drawn beneath bounds, applies the
+    // theme luminosity and tint, and adds low-opacity noise. Without effects, or when
+    // the target cannot supply them, it fills the documented solid fallback color.
+    // Returns true when the blurred material was drawn.
+    bool acrylic(Rect bounds, const Palette& palette, float radius, bool effects);
+    static D2D1_COLOR_F acrylic_fallback(const Palette& palette);
+    static std::size_t acrylic_draws() { return acrylic_draws_; }
     void styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
         D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness,
         SurfaceCorners corners = SurfaceCorners::all);
@@ -159,6 +171,7 @@ private:
     static thread_local std::size_t created_text_layouts_;
     static thread_local std::size_t created_field_brushes_;
     inline static thread_local std::size_t created_symbol_faces_{};
+    inline static thread_local std::size_t acrylic_draws_{};
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> pin_geometry_;
     Microsoft::WRL::ComPtr<IDWriteFactory> text_factory_;
@@ -205,6 +218,23 @@ private:
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hwnd_target_;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> layered_target_;
     HWND host_window_{};
+    bool backdrop_{};
+    // Clips and layers in push order. Acrylic must suspend them to copy target pixels.
+    struct ClipEntry {
+        bool rounded{};
+        D2D1_RECT_F bounds{};
+        D2D1_MATRIX_3X2_F transform{};
+        D2D1_MATRIX_3X2_F mask{};
+        Microsoft::WRL::ComPtr<ID2D1Geometry> geometry;
+    };
+    std::vector<ClipEntry> clips_;
+    void suspend_clips();
+    void resume_clips();
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> context_;
+    bool context_checked_{};
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> acrylic_source_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> acrylic_blur_, acrylic_flood_, acrylic_blend_, acrylic_invert_, acrylic_restore_;
+    Microsoft::WRL::ComPtr<ID2D1BitmapBrush> acrylic_noise_;
     HDC layered_dc_{};
     HBITMAP layered_bitmap_{};
     HGDIOBJ layered_previous_{};

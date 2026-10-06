@@ -57,6 +57,10 @@ Other IDs include `navigation-view`, `shell`, `titlebar`, `dialog`, `status`, `m
 **Layout > Motion** contains a replayable motion lab.
 Search for **motion** or **animations** to find it.
 Its stable page ID remains `animations`, so `--page animations` opens it directly.
+**Appearance > Mica and acrylic** (`--page materials`) switches the window backdrop and toggles an acrylic surface over colored swatches.
+Its status line reports whether Windows presents the material or the solid fallback.
+`--backdrop mica`, `--backdrop mica-alt`, or `--backdrop acrylic` selects the initial window backdrop.
+The [materials contract](materials.md) describes the fallbacks.
 The `navigation-view` page provides normal, slow, and immediate group durations.
 The Projects, Reports, and Reference arrows act on real nested navigation rows.
 Filtering settles group motion. Header and footer shortcuts remain pinned.

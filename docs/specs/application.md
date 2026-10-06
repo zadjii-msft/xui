@@ -168,6 +168,7 @@ Style an inset `Stack` with an opaque background and rounded corners to make a f
 The layered buffer is capped at 4,096 physical pixels on each edge; exceeding the limit fails explicitly.
 Windows high contrast paints a solid system-color background instead of leaving text over an unpredictable desktop.
 This is a software-rendered per-pixel surface, **not** Mica, acrylic, or a live blur. The sample uses a solid border rather than CmdPal's compositor shadow.
+Ordinary windows can request a system backdrop instead; see [Mica and acrylic materials](materials.md). The two options are exclusive.
 
 `Window::set_drag_region({x, y, width, height})` marks one client-DIP rectangle as a caption drag target; call it before Show/Run and leave controls out of that rectangle.
 It requires transparent hosting and finite, positive bounds within 16,000 DIPs of the client origin.

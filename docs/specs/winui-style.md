@@ -161,7 +161,8 @@ In light and dark themes, NavigationView rows use two-tone keyboard focus around
 The outline extends two DIPs from the inset face and follows its resolved corner radius.
 Classic and high-contrast navigation outlines retain their existing treatment.
 Catalog-wide paint coverage does not establish pixel or behavior parity with WinUI.
-It does not implement Mica, acrylic, general default control transitions, automatic system accent selection, or WinUI API compatibility.
+It does not implement general default control transitions, automatic system accent selection, or WinUI API compatibility.
+Mica, Mica Alt, Desktop Acrylic, and in-app acrylic are separate opt-in [materials](materials.md) that work with either style.
 Applications can select [opt-in transitions](animations.md) independently of the visual style.
 These transitions default to zero duration and share a timer only while active.
 Indeterminate bars and rings use a window-owned animation timer while attached, visible, and effectively enabled.

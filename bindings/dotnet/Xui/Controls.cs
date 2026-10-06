@@ -56,6 +56,14 @@ public sealed class Stack : Element
     }
     public Stack Spacing(float value) { Window.Update(new Property(this, PropertyKind.Spacing, A: value)); return this; }
     public Stack Padding(float value) { Window.Update(new Property(this, PropertyKind.Padding, A: value, B: value, C: value, D: value)); return this; }
+    /// <summary>Acrylic paints a surface that blurs and tints the window pixels behind the stack.</summary>
+    public Stack Material(SurfaceMaterial value)
+    {
+        Window.Guard();
+        if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+        Window.Check(Native.StackMaterial(Handle, (uint)value));
+        return this;
+    }
 }
 public abstract unsafe partial class Control : Element
 {
