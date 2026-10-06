@@ -145,6 +145,9 @@ These tests need a Windows desktop. Static checks do not establish a passing nat
 The [materials contract](../specs/materials.md) describes the public behavior.
 
 `Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`.
+`material_popup` records, at HWND creation, whether a transparent window also requested a backdrop.
+Such a window omits `WS_EX_LAYERED`, requests `DWMWCP_ROUND`, and uses the premultiplied HWND target; `layered()` selects the `UpdateLayeredWindow` path only for the other transparent windows.
+A non-layered `WS_POPUP` accepts `DWMWA_SYSTEMBACKDROP_TYPE`, rounded corners, and the DWM shadow without `WS_THICKFRAME`; a standalone probe confirmed this on build 26200.
 It reads the transparency preference, maps the request to a `DWM_SYSTEMBACKDROP_TYPE`, and calls `platform::system_backdrop` only when the applied type changes.
 High contrast and disabled transparency request type zero, which restores the frame margins and `DWMSBT_AUTO`.
 A change in presentation discards the root `Drawing` target and toggles the opaque native paint subclass on EDIT and document peers.
@@ -195,6 +198,8 @@ Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Pre
 - Screen captures of the gallery with a custom title bar and with `--system-titlebar` showed the material in the caption, catalog, and margins, with no DWM caption buttons beneath the XUI title bar.
 - The workstation was locked for part of the session. During that time, Graphics Capture omitted Direct2D content and many existing window tests failed identically on an unmodified baseline build.
 - Not established: battery-saver behavior, transparency-setting changes while running, remote sessions, mixed-DPI moves, and Narrator review.
+- The FloatingCard `--smoke` and `--acrylic --smoke` runs passed when started directly. Under `dotnet run`, both failed hit testing while two earlier topmost card instances still covered the screen center.
+- A screen capture of `FloatingCard --acrylic` showed the wallpaper blurred behind the card, with rounded corners and a compositor shadow.
 
 ## Tab drag ownership
 

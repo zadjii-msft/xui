@@ -10,9 +10,10 @@ public enum SurfaceMaterial : uint { Solid, Acrylic }
 
 public sealed partial class Window
 {
-    /// <summary>Requests a system backdrop before or while the window is open. Incompatible with
-    /// <see cref="SetTransparent"/>. Unsupported systems, disabled transparency effects, and high
-    /// contrast keep the solid theme background; read <see cref="BackdropActive"/>.</summary>
+    /// <summary>Requests a system backdrop before or while the window is open. With
+    /// <see cref="SetTransparent"/> before Show, the window is a borderless material card.
+    /// Unsupported systems, disabled transparency effects, and high contrast keep the solid
+    /// theme background; read <see cref="BackdropActive"/>.</summary>
     public Window SetBackdrop(WindowBackdrop backdrop)
     {
         Guard();

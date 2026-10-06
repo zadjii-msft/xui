@@ -61,7 +61,8 @@ struct WindowOptions {
     bool show_activated = true;
     // Borderless per-pixel-alpha top-level window. Cannot use the XUI title bar.
     bool transparent = false;
-    // Requested system backdrop. Cannot be combined with transparent.
+    // Requested system backdrop. With transparent, chosen before show, the window is a borderless
+    // non-layered card: unpainted pixels show the material and DWM rounds its corners.
     WindowBackdrop backdrop = WindowBackdrop::none;
 };
 
@@ -164,7 +165,8 @@ public:
     void set_show_activated(bool value);
     void set_transparent(bool value);
     // UI thread, before or while open. Unsupported systems, disabled transparency effects,
-    // and high contrast present the solid theme background instead.
+    // and high contrast present the solid theme background instead. A shown layered
+    // transparent window cannot add a backdrop.
     void set_backdrop(WindowBackdrop backdrop);
     WindowBackdrop backdrop() const;
     // True only while the requested material is applied behind transparent client pixels.

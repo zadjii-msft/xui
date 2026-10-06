@@ -75,11 +75,28 @@ Other DWM errors use the window's error path.
 Windows can also show a solid material, for example in battery saver or for inactive windows.
 `backdrop_active()` reports the XUI request, not the pixels that DWM chooses to compose.
 
+### Borderless material windows
+
+A backdrop can be combined with `WindowOptions::transparent` (or `Window::set_transparent(true)`) before Show.
+The window is then a borderless `WS_POPUP` window without `WS_EX_LAYERED`.
+Unpainted pixels show the material instead of the desktop, and Windows 11 rounds the corners and draws a compositor shadow.
+The whole window rectangle receives pointer input; there are no pass-through margins.
+`Window::set_drag_region` still marks a caption drag area.
+
+```cpp
+xui::WindowOptions options{L"Quick note", {420, 200}};
+options.transparent = true;
+options.backdrop = xui::WindowBackdrop::acrylic;
+```
+
+The material can change, or be removed, while the window is open.
+Without a presented material, the window paints its solid theme background.
+A layered transparent window that was shown without a backdrop cannot add one later; `set_backdrop` throws `std::invalid_argument`.
+The layered software surface is described in [borrowed HWND and transparent windows](application.md#borrowed-hwnd-and-transparent-windows).
+The [floating C# card](../../bindings/dotnet/FloatingCard/README.md) shows both presentations; `--acrylic` selects this one.
+
 ### Restrictions
 
-A backdrop cannot be combined with `WindowOptions::transparent`.
-The layered transparent window uses a separate software surface; see [borrowed HWND and transparent windows](application.md#borrowed-hwnd-and-transparent-windows).
-Combining them throws `std::invalid_argument`.
 Mica is the desktop wallpaper, not a blur of other windows.
 Desktop Acrylic blurs the content behind the window.
 
@@ -130,7 +147,7 @@ The blur runs only during a paint. Large acrylic areas increase the cost of ever
 
 The C functions are in `xui_layout.h`.
 `xui_window_backdrop_set` accepts `XUI_BACKDROP_NONE`, `XUI_BACKDROP_MICA`, `XUI_BACKDROP_MICA_ALT`, and `XUI_BACKDROP_ACRYLIC`.
-It returns `XUI_INVALID_ARGUMENT` for another value or a transparent window.
+It returns `XUI_INVALID_ARGUMENT` for another value, or to add a backdrop to a layered transparent window that is already shown.
 `xui_window_backdrop_get` writes the request and the active state; either output can be null.
 `xui_stack_material` accepts `XUI_MATERIAL_SOLID` and `XUI_MATERIAL_ACRYLIC`.
 

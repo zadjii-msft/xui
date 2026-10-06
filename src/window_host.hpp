@@ -24,6 +24,8 @@ void appearance(HWND window, ThemeMode theme, const Palette& palette, bool backd
 // Windows version or the current DWM state cannot present the material.
 bool system_backdrop(HWND window, DWORD type, bool custom_frame = false);
 bool system_backdrop_supported();
+// Requests Windows 11 rounded corners for a borderless window. Earlier systems ignore it.
+void round_corners(HWND window);
 bool transparency_effects_enabled();
 // GDI writes zero alpha. Over a system backdrop, repaint the native child through an
 // opaque buffer after input that can draw outside WM_PAINT.

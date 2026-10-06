@@ -123,9 +123,12 @@ After building the native runtime, run the floating card and its interactive-win
 ```powershell
 dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release
 dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --smoke
+dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --acrylic --smoke
 ```
 
 The `--smoke` run paints a visible layered frame, checks transparent hit testing, caption dragging, native text delivery, and closes without user input.
+With `--acrylic`, it checks the non-layered Desktop Acrylic card instead of transparent hit testing.
+Close earlier card instances first: they are topmost and centered, so they can intercept the smoke check's hit tests.
 For native pixel-alpha and resize coverage, enable desktop tests with `cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON`, build `xui_transparent_window_tests`, and run `ctest --test-dir $build -C Release -R "^xui_transparent_window_tests$" --output-on-failure`.
 For Mica, acrylic, and in-app acrylic coverage, build `xui_backdrop_window_tests` and run `ctest --test-dir $build -C Release -R "^xui_backdrop_window_tests$" --output-on-failure` on an unlocked Windows 11 desktop.
 Pass an output directory to `xui_backdrop_window_tests.exe` to keep its owned-window captures for visual review.

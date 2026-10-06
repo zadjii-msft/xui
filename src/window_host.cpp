@@ -77,6 +77,11 @@ bool system_backdrop_supported() {
     }();
     return supported;
 }
+void round_corners(HWND window) {
+    const DWORD preference = DWMWCP_ROUND;
+    const HRESULT result = DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
+    if (result != E_INVALIDARG && result != DWM_E_COMPOSITIONDISABLED) hr_require(result, "Round the window corners");
+}
 bool transparency_effects_enabled() {
     DWORD value{1}, size{sizeof(value)};
     const auto result = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",

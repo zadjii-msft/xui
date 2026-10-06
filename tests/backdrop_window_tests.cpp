@@ -155,21 +155,17 @@ void run(const std::wstring& output) {
     layered_acrylic();
 
     WindowOptions invalid;
-    invalid.transparent = true;
-    invalid.backdrop = WindowBackdrop::mica;
-    require(rejects([&] { Window rejected(invalid); }), "Layered transparency and a system backdrop are exclusive");
-    invalid.transparent = false;
     invalid.backdrop = static_cast<WindowBackdrop>(9);
     require(rejects([&] { Window rejected(invalid); }), "Reject an unknown backdrop");
     {
         Window window;
         window.set_transparent(true);
-        require(rejects([&] { window.set_backdrop(WindowBackdrop::acrylic); }), "A transparent window rejects a backdrop");
+        window.set_backdrop(WindowBackdrop::acrylic);
         window.set_transparent(false);
         window.set_backdrop(WindowBackdrop::mica_alt);
         require(window.backdrop() == WindowBackdrop::mica_alt && !window.backdrop_active(),
             "A requested backdrop is inactive before the window exists");
-        require(rejects([&] { window.set_transparent(true); }), "A backdrop window rejects layered transparency");
+        window.set_transparent(true);
         require(rejects([&] { window.set_backdrop(static_cast<WindowBackdrop>(4)); }), "Reject an unknown backdrop setter value");
         Stack stack(Axis::vertical);
         require(rejects([&] { stack.set_material(static_cast<SurfaceMaterial>(2)); }), "Reject an unknown surface material");
@@ -294,6 +290,50 @@ void run(const std::wstring& output) {
     require(pixel(light, card_point()) == pixel(light_solid, card_point()), "Light surfaces stay opaque over the material");
     require(pixel(light, edit_point()) == pixel(light_solid, edit_point()), "Light native pixels stay opaque over the material");
     window.close();
+    pump();
+
+    // A transparent window with a backdrop becomes a borderless material card instead of a layered surface.
+    WindowOptions card_options;
+    card_options.title = L"XUI acrylic card regression";
+    card_options.size = {320, 160};
+    card_options.visual_style = VisualStyle::winui;
+    card_options.show_activated = false;
+    card_options.transparent = true;
+    card_options.backdrop = WindowBackdrop::acrylic;
+    auto card_window = app.create_window(card_options);
+    card_window->set_drag_region({0, 0, 320, 16});
+    auto content = std::make_shared<Stack>(Axis::vertical);
+    content->set_padding({16, 16, 16, 16});
+    auto field = std::make_shared<TextInput>(L"Card editor");
+    field->set_caption_visible(false);
+    field->set_text(L"Card text");
+    content->add(std::make_shared<Label>(L"Acrylic card"));
+    content->add(field);
+    card_window->set_content(content);
+    app.show(*card_window);
+    pump(400);
+    const auto card_hwnd = titled(card_options.title.c_str());
+    require((GetWindowLongPtrW(card_hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0, "A material card is not layered");
+    require((GetWindowLongPtrW(card_hwnd, GWL_STYLE) & (WS_POPUP | WS_CAPTION)) == WS_POPUP, "A material card is borderless");
+    require(card_window->backdrop_active() == supported, "Present the card material where Windows supports it");
+    if (supported) {
+        require(backdrop_attribute(card_hwnd) == DWMSBT_TRANSIENTWINDOW, "The card selects Desktop Acrylic");
+        DWORD corners{};
+        require(SUCCEEDED(DwmGetWindowAttribute(card_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners))) &&
+            corners == DWMWCP_ROUND, "The card requests rounded corners");
+    }
+    RECT card_bounds{};
+    GetWindowRect(card_hwnd, &card_bounds);
+    const auto dpi = GetDpiForWindow(card_hwnd);
+    require(SendMessageW(card_hwnd, WM_NCHITTEST, 0, MAKELPARAM(card_bounds.left + MulDiv(100, dpi, 96),
+        card_bounds.top + MulDiv(8, dpi, 96))) == HTCAPTION, "The card drag region moves the window");
+    card_window->set_backdrop(WindowBackdrop::mica);
+    pump();
+    if (supported) require(backdrop_attribute(card_hwnd) == DWMSBT_MAINWINDOW, "The card switches materials while open");
+    card_window->set_backdrop(WindowBackdrop::none);
+    pump();
+    require(!card_window->backdrop_active(), "Removing the card material uses the solid background");
+    card_window->close();
     pump();
 }
 }

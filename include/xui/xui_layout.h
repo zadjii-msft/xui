@@ -50,8 +50,9 @@ typedef enum xui_window_backdrop {
     XUI_BACKDROP_ACRYLIC = 3
 } xui_window_backdrop;
 /* Windows 11 system material behind unpainted client pixels. UI thread, before or while open.
-   Incompatible with xui_window_transparent. Windows before build 22621, disabled transparency
-   effects, and high contrast keep the solid theme background. */
+   Combined with xui_window_transparent before Show/Run, the window is a borderless, non-layered
+   material card. A shown layered window returns XUI_INVALID_ARGUMENT. Windows before build 22621,
+   disabled transparency effects, and high contrast keep the solid theme background. */
 XUI_API xui_status XUI_CALL xui_window_backdrop_set(xui_handle window, uint32_t backdrop) XUI_NOEXCEPT;
 /* Active is 1 only while DWM presents the requested material. Either output can be null. */
 XUI_API xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdrop, uint32_t* active) XUI_NOEXCEPT;

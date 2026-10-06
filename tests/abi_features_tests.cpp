@@ -1149,7 +1149,9 @@ void backdrop_contracts() {
     ok(xui_window_backdrop_get(window, nullptr, &active));
     expect(active == 0);
     expect(xui_window_backdrop_set(window, 4) == XUI_INVALID_ARGUMENT);
-    expect(xui_window_transparent(window, 1) == XUI_INVALID_ARGUMENT);
+    // Before Show, transparency and a backdrop select a borderless material window.
+    ok(xui_window_transparent(window, 1));
+    ok(xui_window_transparent(window, 0));
     expect(xui_window_backdrop_set(root, XUI_BACKDROP_MICA) == XUI_WRONG_KIND);
     ok(xui_stack_material(material, XUI_MATERIAL_ACRYLIC));
     expect(xui_stack_material(material, 2) == XUI_INVALID_ARGUMENT);
@@ -1161,7 +1163,8 @@ void backdrop_contracts() {
     worker.join();
     ok(xui_window_backdrop_set(window, XUI_BACKDROP_NONE));
     ok(xui_window_transparent(window, 1));
-    expect(xui_window_backdrop_set(window, XUI_BACKDROP_ACRYLIC) == XUI_INVALID_ARGUMENT);
+    ok(xui_window_backdrop_set(window, XUI_BACKDROP_ACRYLIC));
+    ok(xui_window_backdrop_set(window, XUI_BACKDROP_NONE));
     ok(xui_window_transparent(window, 0));
     ok(xui_window_backdrop_set(window, XUI_BACKDROP_MICA_ALT));
     struct Context { xui_handle window, material; } context{window, material};

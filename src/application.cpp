@@ -317,10 +317,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             throw std::invalid_argument("A transparent window cannot use the XUI title bar");
         if (options.backdrop < WindowBackdrop::none || options.backdrop > WindowBackdrop::acrylic)
             throw std::invalid_argument("Invalid window backdrop");
-        if (options.transparent && options.backdrop != WindowBackdrop::none)
-            throw std::invalid_argument("A transparent window cannot use a system backdrop");
         if (options.custom_titlebar) titlebar = std::make_shared<TitleBar>(options.title);
     }
+    // A transparent window that requests a backdrop at creation is a borderless,
+    // non-layered popup: DWM draws the material, rounded corners, and shadow.
+    bool material_popup{};
+    bool layered() const { return options.transparent && !material_popup; }
     // The DWM type currently applied, and whether client pixels expose it.
     DWORD backdrop_type{};
     bool backdrop_presented{}, transparency_effects{true};
@@ -328,7 +330,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         transparency_effects = platform::transparency_effects_enabled();
         if (!window) return;
         DWORD type{};
-        if (!palette.high_contrast && transparency_effects) switch (options.backdrop) {
+        if (!palette.high_contrast && transparency_effects && !layered()) switch (options.backdrop) {
         case WindowBackdrop::mica: type = DWMSBT_MAINWINDOW; break;
         case WindowBackdrop::mica_alt: type = DWMSBT_TABBEDWINDOW; break;
         case WindowBackdrop::acrylic: type = DWMSBT_TRANSIENTWINDOW; break;
@@ -1828,9 +1830,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto extent = [](float value, int fallback) {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
+        material_popup = options.transparent && options.backdrop != WindowBackdrop::none;
         const DWORD style = (options.transparent ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN |
             (initial_placement && initial_placement->maximized ? WS_MAXIMIZE : 0);
-        const DWORD ex_style = WS_EX_CONTROLPARENT | (options.transparent ? WS_EX_LAYERED : 0);
+        const DWORD ex_style = WS_EX_CONTROLPARENT | (layered() ? WS_EX_LAYERED : 0);
         const UINT initial_dpi = GetDpiForSystem();
         RECT outer{0, 0, MulDiv(extent(options.size.width, 600), initial_dpi, 96),
             MulDiv(extent(options.size.height, 520), initial_dpi, 96)};
@@ -1843,6 +1846,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
+        if (material_popup) platform::round_corners(window);
         if (auto configure = std::move(native_created)) configure(window);
         if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
@@ -1864,7 +1868,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        if (options.transparent) paint();
+        if (layered()) paint();
         if (!options.show_activated && moving_tabs && moving_tabs->window && moving_tabs != this &&
             moving_tabs->application.lock() == application.lock())
             win32_require(SetWindowPos(window, moving_tabs->window, 0, 0, 0, 0,
@@ -2869,8 +2873,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
             } caret(window);
             if (drawing().begin(window, static_cast<float>(dpi),
-                (options.transparent && !palette.high_contrast) || backdrop_presented ? D2D1::ColorF(0, 0.0f) : palette.background,
-                {}, options.transparent, backdrop_presented)) {
+                (layered() && !palette.high_contrast) || backdrop_presented ? D2D1::ColorF(0, 0.0f) : palette.background,
+                {}, layered(), backdrop_presented)) {
                 Peer* external_focus{};
                 if (palette.style == VisualStyle::winui && keyboard_focus_visible)
                     for (const auto& peer : peers)
@@ -6563,8 +6567,6 @@ void Window::set_transparent(bool value) {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set transparency on the Window UI thread");
     if (impl_->used || impl_->closing) throw std::logic_error("Set transparency before showing the Window");
     if (value && impl_->titlebar) throw std::invalid_argument("A transparent window cannot use the XUI title bar");
-    if (value && impl_->options.backdrop != WindowBackdrop::none)
-        throw std::invalid_argument("A transparent window cannot use a system backdrop");
     impl_->options.transparent = value;
     if (!value) impl_->drag_region.reset();
 }
@@ -6573,8 +6575,9 @@ void Window::set_backdrop(WindowBackdrop backdrop) {
     if (impl_->closing || (impl_->used && !impl_->ready)) throw std::logic_error("The Window is closed");
     if (backdrop < WindowBackdrop::none || backdrop > WindowBackdrop::acrylic)
         throw std::invalid_argument("Invalid window backdrop");
-    if (backdrop != WindowBackdrop::none && impl_->options.transparent)
-        throw std::invalid_argument("A transparent window cannot use a system backdrop");
+    // The layered presentation is chosen when the HWND is created.
+    if (backdrop != WindowBackdrop::none && impl_->used && impl_->layered())
+        throw std::invalid_argument("A shown layered window cannot add a system backdrop");
     if (impl_->options.backdrop == backdrop) return;
     impl_->options.backdrop = backdrop;
     if (impl_->ready && impl_->window) impl_->apply_theme();
