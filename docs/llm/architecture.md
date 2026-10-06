@@ -144,10 +144,12 @@ These tests need a Windows desktop. Static checks do not establish a passing nat
 
 The [materials contract](../specs/materials.md) describes the public behavior.
 
-`Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`.
+`Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`, after `platform::appearance`.
 `material_popup` records, at HWND creation, whether a transparent window also requested a backdrop.
 Such a window omits `WS_EX_LAYERED`, requests `DWMWCP_ROUND`, and uses the premultiplied HWND target; `layered()` selects the `UpdateLayeredWindow` path only for the other transparent windows.
-A non-layered `WS_POPUP` accepts `DWMWA_SYSTEMBACKDROP_TYPE`, rounded corners, and the DWM shadow without `WS_THICKFRAME`. On build 26200 a probe showed the DWM material layer, corners, and shadow; it did not show a blur (see the evidence below).
+A frameless `WS_POPUP` receives only the flat fallback color (`#545454` for dark Desktop Acrylic), which is what the first version of the acrylic card showed.
+The material window therefore uses `WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX`, returns 0 from every `WM_NCCALCSIZE` so the client covers the window, and answers `WM_NCHITTEST` with `HTCAPTION` for the drag region and `HTCLIENT` elsewhere.
+It uses the same bottom-band margins as a custom title bar; `-1` margins made DWM draw its caption buttons over the card.
 It reads the transparency preference, maps the request to a `DWM_SYSTEMBACKDROP_TYPE`, and calls `platform::system_backdrop` only when the applied type changes.
 High contrast and disabled transparency request type zero, which restores the frame margins and `DWMSBT_AUTO`.
 A change in presentation discards the root `Drawing` target and toggles the opaque native paint subclass on EDIT and document peers.
@@ -199,8 +201,10 @@ Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Pre
 - The workstation was locked for part of the session. During that time, Graphics Capture omitted Direct2D content and many existing window tests failed identically on an unmodified baseline build.
 - Not established: battery-saver behavior, transparency-setting changes while running, remote sessions, mixed-DPI moves, and Narrator review.
 - The FloatingCard `--smoke` and `--acrylic --smoke` runs passed when started directly. Under `dotnet run`, both failed hit testing while two earlier topmost card instances still covered the screen center.
-- A screen capture of `FloatingCard --acrylic` showed rounded corners, a compositor shadow, and a flat `#545454` fill: the Desktop Acrylic fallback color, not a blur. An earlier note in this session misreported it as blurred.
-- Every DWM material on that machine rendered as its solid fallback during the session: Desktop Acrylic was uniformly `#545454` and Mica `#202020` over a striped probe window, even while the probe was the foreground window, with or without `DWMWA_USE_HOSTBACKDROPBRUSH`. The taskbar was also uniformly `#1C1C1C`. Transparency effects were on and Energy Saver was off, but the laptop was on battery. Live blur from the system backdrop therefore remains unverified; the in-app acrylic blur is XUI's own and was verified by pixels.
+- A screen capture of the first `FloatingCard --acrylic` (a frameless `WS_POPUP`) showed rounded corners, a compositor shadow, and a flat `#545454` fill: the Desktop Acrylic fallback color, not a blur. An earlier note in this session misreported it as blurred.
+- Before Explorer was restarted, every DWM material on the machine, including the taskbar, rendered as a flat fallback. After the restart the taskbar was translucent again.
+- Afterwards, screen captures of XUI windows over a striped test window showed real Desktop Acrylic: blurred, saturated stripe edges behind both an ordinary captioned window and the material card. The frameless `WS_POPUP` still showed only `#545454`; the captioned frame with its non-client area removed showed the blur. With `-1` margins the card also showed DWM caption buttons; the bottom-band margins removed them.
+- Single-pixel samples at stripe centers can look nearly unchanged under dark acrylic, because blurring a wide uniform stripe preserves its color. Use edge softness, not center pixels, to judge the blur.
 
 ## Tab drag ownership
 

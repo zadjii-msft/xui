@@ -326,19 +326,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     // The DWM type currently applied, and whether client pixels expose it.
     DWORD backdrop_type{};
     bool backdrop_presented{}, transparency_effects{true};
-    void sync_backdrop() {
-        transparency_effects = platform::transparency_effects_enabled();
-        if (!window) return;
-        DWORD type{};
-        if (!palette.high_contrast && transparency_effects && !layered()) switch (options.backdrop) {
-        case WindowBackdrop::mica: type = DWMSBT_MAINWINDOW; break;
-        case WindowBackdrop::mica_alt: type = DWMSBT_TABBEDWINDOW; break;
-        case WindowBackdrop::acrylic: type = DWMSBT_TRANSIENTWINDOW; break;
-        default: break;
+    DWORD desired_backdrop_type() const {
+        if (palette.high_contrast || !transparency_effects || layered()) return 0;
+        switch (options.backdrop) {
+        case WindowBackdrop::mica: return DWMSBT_MAINWINDOW;
+        case WindowBackdrop::mica_alt: return DWMSBT_TABBEDWINDOW;
+        case WindowBackdrop::acrylic: return DWMSBT_TRANSIENTWINDOW;
+        default: return 0;
         }
+    }
+    // The window appearance attributes are applied first, so DWM selects the material last.
+    void sync_backdrop() {
+        if (!window) return;
+        const DWORD type = desired_backdrop_type();
         bool presented = backdrop_presented;
         if (type != backdrop_type) {
-            presented = (type || backdrop_type) && platform::system_backdrop(window, type, titlebar != nullptr);
+            presented = (type || backdrop_type) && platform::system_backdrop(window, type, titlebar != nullptr || material_popup);
             backdrop_type = presented ? type : 0;
         }
         if (presented == backdrop_presented) return;
@@ -1831,13 +1834,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
         material_popup = options.transparent && options.backdrop != WindowBackdrop::none;
-        const DWORD style = (options.transparent ? WS_POPUP : WS_OVERLAPPEDWINDOW) | WS_CLIPCHILDREN |
+        // DWM draws only the solid fallback behind a frameless WS_POPUP. A captioned frame whose
+        // non-client area is removed in WM_NCCALCSIZE receives the live material.
+        const DWORD frame = material_popup ? WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX :
+            options.transparent ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+        const DWORD style = frame | WS_CLIPCHILDREN |
             (initial_placement && initial_placement->maximized ? WS_MAXIMIZE : 0);
         const DWORD ex_style = WS_EX_CONTROLPARENT | (layered() ? WS_EX_LAYERED : 0);
         const UINT initial_dpi = GetDpiForSystem();
         RECT outer{0, 0, MulDiv(extent(options.size.width, 600), initial_dpi, 96),
             MulDiv(extent(options.size.height, 520), initial_dpi, 96)};
-        win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, ex_style, initial_dpi) != 0, "Size application window");
+        if (!material_popup)
+            win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, ex_style, initial_dpi) != 0, "Size application window");
         window = CreateWindowExW(ex_style, window_class, options.title.c_str(),
             style, initial_placement ? initial_placement->x : CW_USEDEFAULT,
             initial_placement ? initial_placement->y : CW_USEDEFAULT,
@@ -1846,7 +1854,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
-        if (material_popup) platform::round_corners(window);
+        if (material_popup) {
+            platform::round_corners(window);
+            win32_require(SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                SWP_NOACTIVATE | SWP_FRAMECHANGED) != 0, "Remove the material window frame");
+        }
         if (auto configure = std::move(native_created)) configure(window);
         if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
@@ -1889,9 +1901,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (options.visual_style != VisualStyle::winui) hover_edit(nullptr, nullptr);
         palette = Palette::system(options.theme, options.visual_style);
         drawing().set_visual_style(options.visual_style);
+        transparency_effects = platform::transparency_effects_enabled();
+        const bool backdrop_wanted = desired_backdrop_type() != 0;
+        platform::appearance(window, palette.mode, palette, backdrop_wanted);
         sync_backdrop();
+        if (backdrop_wanted && !backdrop_presented) platform::appearance(window, palette.mode, palette, false);
         palette.backdrop = backdrop_presented;
-        platform::appearance(window, palette.mode, palette, backdrop_presented);
         HBRUSH next_background = CreateSolidBrush(platform::native_color(palette.background));
         HBRUSH next_field = CreateSolidBrush(platform::native_color(palette.field));
         if (!next_background || !next_field) {
@@ -5912,6 +5927,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     LRESULT message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         if (auto result = inspect_pointer(hwnd, message, wparam, lparam)) return *result;
+        if (material_popup && message == WM_NCCALCSIZE) return 0;
+        if (material_popup && message == WM_NCHITTEST) return window && drag_hit(lparam) ? HTCAPTION : HTCLIENT;
         if (titlebar && message == WM_NCCALCSIZE && wparam) {
             auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
             const auto top = params.rgrc[0].top;

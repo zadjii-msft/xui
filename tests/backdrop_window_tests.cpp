@@ -314,7 +314,13 @@ void run(const std::wstring& output) {
     pump(400);
     const auto card_hwnd = titled(card_options.title.c_str());
     require((GetWindowLongPtrW(card_hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0, "A material card is not layered");
-    require((GetWindowLongPtrW(card_hwnd, GWL_STYLE) & (WS_POPUP | WS_CAPTION)) == WS_POPUP, "A material card is borderless");
+    RECT card_client{}, card_outer{};
+    GetClientRect(card_hwnd, &card_client);
+    GetWindowRect(card_hwnd, &card_outer);
+    require(card_client.right == card_outer.right - card_outer.left && card_client.bottom == card_outer.bottom - card_outer.top,
+        "A material card has no visible frame");
+    require(SendMessageW(card_hwnd, WM_NCHITTEST, 0, MAKELPARAM(card_outer.left + 2, card_outer.bottom - 2)) == HTCLIENT,
+        "A material card has no resize border");
     require(card_window->backdrop_active() == supported, "Present the card material where Windows supports it");
     if (supported) {
         require(backdrop_attribute(card_hwnd) == DWMSBT_TRANSIENTWINDOW, "The card selects Desktop Acrylic");

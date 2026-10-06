@@ -78,7 +78,8 @@ Windows can also show a solid material, for example in battery saver or for inac
 ### Borderless material windows
 
 A backdrop can be combined with `WindowOptions::transparent` (or `Window::set_transparent(true)`) before Show.
-The window is then a borderless `WS_POPUP` window without `WS_EX_LAYERED`.
+The window is then a non-layered captioned window whose frame is removed in `WM_NCCALCSIZE`, so it has no visible border, caption, or caption buttons.
+DWM draws only the solid fallback behind a frameless `WS_POPUP`; the hidden caption frame is what receives the live material.
 Unpainted pixels show the material instead of the desktop, and Windows 11 rounds the corners and draws a compositor shadow.
 The whole window rectangle receives pointer input; there are no pass-through margins.
 `Window::set_drag_region` still marks a caption drag area.
