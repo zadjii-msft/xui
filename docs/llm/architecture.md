@@ -147,7 +147,7 @@ The [materials contract](../specs/materials.md) describes the public behavior.
 `Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`.
 `material_popup` records, at HWND creation, whether a transparent window also requested a backdrop.
 Such a window omits `WS_EX_LAYERED`, requests `DWMWCP_ROUND`, and uses the premultiplied HWND target; `layered()` selects the `UpdateLayeredWindow` path only for the other transparent windows.
-A non-layered `WS_POPUP` accepts `DWMWA_SYSTEMBACKDROP_TYPE`, rounded corners, and the DWM shadow without `WS_THICKFRAME`; a standalone probe confirmed this on build 26200.
+A non-layered `WS_POPUP` accepts `DWMWA_SYSTEMBACKDROP_TYPE`, rounded corners, and the DWM shadow without `WS_THICKFRAME`. On build 26200 a probe showed the DWM material layer, corners, and shadow; it did not show a blur (see the evidence below).
 It reads the transparency preference, maps the request to a `DWM_SYSTEMBACKDROP_TYPE`, and calls `platform::system_backdrop` only when the applied type changes.
 High contrast and disabled transparency request type zero, which restores the frame margins and `DWMSBT_AUTO`.
 A change in presentation discards the root `Drawing` target and toggles the opaque native paint subclass on EDIT and document peers.
@@ -191,15 +191,16 @@ A non-activated test window can receive the solid inactive material, so the test
 
 Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Preview, SDK 10.0.26100.0.
 
-- A standalone Win32 probe confirmed that a premultiplied HWND target with `-1` frame margins shows Mica and Desktop Acrylic behind cleared pixels, and that an ignore-alpha HWND target is opaque.
+- A standalone Win32 probe showed that a premultiplied HWND target with `-1` frame margins exposes the DWM material layer behind cleared pixels, and that an ignore-alpha HWND target is opaque.
 - The same probe showed GDI EDIT backgrounds adding to the material. The buffered-paint subclass made them match the surrounding opaque surface, including text typed through `WM_CHAR`.
 - `xui_backdrop_window_tests` passed: layered acrylic pixels in both themes, clip restoration, the solid fallback, DWM attributes for all three materials, and identical opaque surface and EDIT pixels with and without a backdrop.
 - `xui_abi_features_tests`, `xui_abi_features_tests --backdrop`, `xui_gallery_catalog_tests`, and the C# `--window-native` tests passed.
-- Screen captures of the gallery with a custom title bar and with `--system-titlebar` showed the material in the caption, catalog, and margins, with no DWM caption buttons beneath the XUI title bar.
+- Screen captures of the gallery with a custom title bar and with `--system-titlebar` showed the DWM material layer in the caption, catalog, and margins, with no DWM caption buttons beneath the XUI title bar.
 - The workstation was locked for part of the session. During that time, Graphics Capture omitted Direct2D content and many existing window tests failed identically on an unmodified baseline build.
 - Not established: battery-saver behavior, transparency-setting changes while running, remote sessions, mixed-DPI moves, and Narrator review.
 - The FloatingCard `--smoke` and `--acrylic --smoke` runs passed when started directly. Under `dotnet run`, both failed hit testing while two earlier topmost card instances still covered the screen center.
-- A screen capture of `FloatingCard --acrylic` showed the wallpaper blurred behind the card, with rounded corners and a compositor shadow.
+- A screen capture of `FloatingCard --acrylic` showed rounded corners, a compositor shadow, and a flat `#545454` fill: the Desktop Acrylic fallback color, not a blur. An earlier note in this session misreported it as blurred.
+- Every DWM material on that machine rendered as its solid fallback during the session: Desktop Acrylic was uniformly `#545454` and Mica `#202020` over a striped probe window, even while the probe was the foreground window, with or without `DWMWA_USE_HOSTBACKDROPBRUSH`. The taskbar was also uniformly `#1C1C1C`. Transparency effects were on and Energy Saver was off, but the laptop was on battery. Live blur from the system backdrop therefore remains unverified; the in-app acrylic blur is XUI's own and was verified by pixels.
 
 ## Tab drag ownership
 
