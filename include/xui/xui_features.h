@@ -14,7 +14,8 @@ enum {
     XUI_BUTTON_ICON_SAVE = 23, XUI_BUTTON_ICON_SAVE_AS = 24,
     XUI_BUTTON_ICON_UNDO = 25, XUI_BUTTON_ICON_REDO = 26,
     XUI_BUTTON_ICON_CHEVRON_UP = 27, XUI_BUTTON_ICON_CHEVRON_DOWN = 28, XUI_BUTTON_ICON_CHEVRON_RIGHT = 29,
-    XUI_BUTTON_ICON_FOLDERS_FIRST = 30, XUI_BUTTON_ICON_FILES_FIRST = 31, XUI_BUTTON_ICON_MIXED = 32
+    XUI_BUTTON_ICON_FOLDERS_FIRST = 30, XUI_BUTTON_ICON_FILES_FIRST = 31, XUI_BUTTON_ICON_MIXED = 32,
+    XUI_BUTTON_ICON_PIN = 33, XUI_BUTTON_ICON_PIN_FILLED = 34
 };
 /* Stage-1 Button styles. Colors are opaque 0xRRGGBB values in light/dark order.
    Dimensions are finite DIPs in [0,32768]. Absent fields must contain zero.
@@ -260,7 +261,14 @@ enum {
     XUI_F_CHECK_STATE, XUI_F_THREE_STATE, XUI_F_SELECTED,
     XUI_F_BADGE_KIND, XUI_F_BADGE_COUNT, XUI_F_BADGE_ICON,
     XUI_F_SINGLE_CLICK_ACTIVATION = 54,
-    XUI_F_CONTENT_SIZED = 55
+    XUI_F_CONTENT_SIZED = 55,
+    /* AdaptiveLayout: first is Responsive/InlinePane/Overlay (0..2), Left/Right
+       (0..1), or a boolean respectively. Defaults preserve responsive behavior. */
+    XUI_F_ADAPTIVE_PRESENTATION = 56,
+    XUI_F_NAVIGATION_SIDE = 57,
+    XUI_F_DISMISS_ON_FOCUS_OUTSIDE = 58,
+    /* Button: first = boolean. Rotate its text 90 degrees clockwise; default false. */
+    XUI_F_VERTICAL_TEXT = 59
 };
 /* CONTENT_SIZED: first = boolean, for AdaptiveLayout, default false.
    Measure both children to choose the breakpoint and navigation extent instead of fixed values. */
@@ -309,7 +317,7 @@ typedef struct xui_item_visual {
    minimize=8, maximize=9, restore=10, close=11, more=12, menu=13, home=14,
    folder=15, settings=16, search=17, library=18, history=19, bookmark=20, drive=21,
    open=22, save=23, save_as=24, undo=25, redo=26, chevron_up=27, chevron_down=28, chevron_right=29,
-   folders_first=30, files_first=31, mixed=32.
+   folders_first=30, files_first=31, mixed=32, pin=33, pin_filled=34.
    This range also applies to XUI_F_BUTTON_ICON, command records, and source visuals.
    Button icons do not change the accessible name or register command handlers. */
 /* Optional parallel visual records. Existing navigation records remain unchanged. */

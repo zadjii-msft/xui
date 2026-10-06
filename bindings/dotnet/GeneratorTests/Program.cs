@@ -83,6 +83,7 @@ internal static partial class Program
         TestValueControls();
         TestReveal();
         TestSplitAnimation();
+        TestAdaptivePanes();
         TestNavigationAnimation();
         TestToggleControls();
         TestParityControls();
@@ -891,7 +892,8 @@ internal static partial class Program
         const string source = """
             component Sized {
               state float Side = 36;
-              view { VStack() { Button("Cell", size: (Side, 36), help: $"Width: {Side}", id: "cell"); } }
+              state bool Vertical = false;
+              view { VStack() { Button("Cell", size: (Side, 36), help: $"Width: {Side}", verticalText: Vertical, id: "cell"); } }
             }
             """;
         var (_, compilation) = Generate(new File(@"C:\fixture\Sized.xui", source));
@@ -909,6 +911,12 @@ internal static partial class Program
         Assert(cell.Size == (48, 36) && cell.HelpText == "Width: 48", "Size and help depend on explicit state.");
         type.GetProperty("Side")!.SetValue(component, 48f);
         Assert(cell.SizeSets == 2, "Unchanged size does not call the setter.");
+        Assert(!cell.VerticalText, "Button text starts horizontal.");
+        type.GetProperty("Vertical")!.SetValue(component, true);
+        Assert(cell.VerticalText && ReferenceEquals(cell, window.Elements.OfType<Xui.Button>().Single()),
+            "Vertical text changes in place without rebuilding the button.");
+        type.GetProperty("Vertical")!.SetValue(component, true);
+        Assert(cell.VerticalTextSets == 2, "Unchanged orientation does not call the setter.");
         context.Unload();
     }
     private static void TestButtonIconContract()
@@ -916,11 +924,12 @@ internal static partial class Program
         Assert((uint)RealXui.ButtonIcon.Drive == 21, "Existing button icon ABI values remain unchanged");
         var icons = new[] { RealXui.ButtonIcon.Save, RealXui.ButtonIcon.SaveAs, RealXui.ButtonIcon.Undo, RealXui.ButtonIcon.Redo,
             RealXui.ButtonIcon.ChevronUp, RealXui.ButtonIcon.ChevronDown, RealXui.ButtonIcon.ChevronRight,
-            RealXui.ButtonIcon.FoldersFirst, RealXui.ButtonIcon.FilesFirst, RealXui.ButtonIcon.Mixed };
+            RealXui.ButtonIcon.FoldersFirst, RealXui.ButtonIcon.FilesFirst, RealXui.ButtonIcon.Mixed,
+            RealXui.ButtonIcon.Pin, RealXui.ButtonIcon.PinFilled };
         for (var i = 0; i < icons.Length; ++i)
             Assert((uint)icons[i] == 23 + i, "Document icons append stable ABI values");
         Assert((uint)RealXui.ButtonIcon.Open == 22, "The published Open icon ABI value remains unchanged");
-        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 33, "The managed icon contract has no gaps or aliases");
+        Assert(Enum.GetValues<RealXui.ButtonIcon>().Length == 35, "The managed icon contract has no gaps or aliases");
     }
     private static void TestMemberHandlerNames()
     {

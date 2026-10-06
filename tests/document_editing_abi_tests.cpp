@@ -29,6 +29,11 @@ int main() {
         status(xui_document_syntax_language(0, text("xui")), XUI_INVALID_HANDLE);
         status(xui_document_syntax_language(document, {"\xc0\x80", 2, 0}), XUI_INVALID_ARGUMENT);
         status(xui_document_syntax_path(document, text("notes.txt")), XUI_OK);
+        status(xui_document_line_numbers(document, 1), XUI_OK);
+        status(xui_document_line_numbers(document, 0), XUI_OK);
+        status(xui_document_line_numbers(document, 2), XUI_INVALID_ARGUMENT);
+        status(xui_document_line_numbers(rich, 1), XUI_WRONG_KIND);
+        status(xui_document_line_numbers(0, 1), XUI_INVALID_HANDLE);
         if (syntax) {
             status(xui_document_syntax_language(document, text("xui")), XUI_OK);
             status(xui_document_syntax_language(document, text("missing")), XUI_INVALID_ARGUMENT);
@@ -57,10 +62,14 @@ int main() {
         std::thread syntax_worker([&] { threaded = xui_document_syntax_path(document, text("code.xui")); });
         syntax_worker.join();
         status(threaded, XUI_WRONG_THREAD);
+        std::thread numbers_worker([&] { threaded = xui_document_line_numbers(document, 1); });
+        numbers_worker.join();
+        status(threaded, XUI_WRONG_THREAD);
         require(start == 77 && end == 88, "Rejected ABI edit leaves output offsets untouched");
         status(xui_window_close(window), XUI_OK);
         status(replace(document, text("X")), XUI_CLOSED);
         status(xui_document_syntax_language(document, text("")), XUI_CLOSED);
+        status(xui_document_line_numbers(document, 1), XUI_CLOSED);
         require(start == 77 && end == 88, "Closing before run rejects edits without changing output offsets");
         status(xui_window_destroy(window), XUI_OK);
         status(replace(document, text("X")), XUI_INVALID_HANDLE);

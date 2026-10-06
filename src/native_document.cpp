@@ -36,6 +36,7 @@ struct DocumentPresentation {
     CHARRANGE selection{};
     POINT scroll{};
     LRESULT modified{}, events{};
+    bool frozen{};
     explicit DocumentPresentation(HWND value) : window(value) {
         Microsoft::WRL::ComPtr<IRichEditOle> ole;
         win32_require(SendMessageW(window, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(ole.GetAddressOf())) != 0,
@@ -46,16 +47,30 @@ struct DocumentPresentation {
         SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
         SendMessageW(window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
         events = SendMessageW(window, EM_SETEVENTMASK, 0, 0);
+        LONG count{};
+        frozen = SUCCEEDED(document->Freeze(&count));
+        if (!frozen) {
+            document->Undo(tomResume, nullptr);
+            SendMessageW(window, EM_SETEVENTMASK, 0, events);
+            throw std::runtime_error("Freeze native document presentation");
+        }
     }
     ~DocumentPresentation() {
         CHARRANGE current{};
         SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&current));
         if (current.cpMin != selection.cpMin || current.cpMax != selection.cpMax)
             SendMessageW(window, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-        SendMessageW(window, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+        POINT current_scroll{};
+        SendMessageW(window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&current_scroll));
+        if (current_scroll.x != scroll.x || current_scroll.y != scroll.y)
+            SendMessageW(window, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
         SendMessageW(window, EM_SETMODIFY, modified, 0);
         document->Undo(tomResume, nullptr);
         SendMessageW(window, EM_SETEVENTMASK, 0, events);
+        if (frozen) {
+            LONG count{};
+            document->Unfreeze(&count);
+        }
     }
 };
 void document_defaults(HWND window, CHARFORMAT2W& format, bool all) {
@@ -135,6 +150,7 @@ NativeDocumentBridge::~NativeDocumentBridge() {
     }
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     if (font_) DeleteObject(font_);
+    if (line_number_font_) DeleteObject(line_number_font_);
 }
 void NativeDocumentBridge::attach(HWND parent, int id) {
     DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
@@ -328,6 +344,7 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
                 syntax_colors_ = colors;
                 syntax_dirty_ = false;
             }
+            if (!composing_) update_line_numbers(document->text());
         }
     } else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
         if (recolor) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh native password colors");
@@ -350,13 +367,128 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
         SendMessageW(window_, calendar ? MCM_SETCURSEL : DTM_SETSYSTEMTIME, calendar ? 0 : GDT_VALID, reinterpret_cast<LPARAM>(&value));
     }
 }
+void NativeDocumentBridge::invalidate_line_numbers() {
+    if (!line_number_width_) return;
+    RECT bounds{};
+    GetClientRect(window_, &bounds);
+    bounds.right = std::min(bounds.right, static_cast<LONG>(line_number_width_));
+    win32_require(InvalidateRect(window_, &bounds, FALSE) != FALSE, "Refresh native document line numbers");
+}
+void NativeDocumentBridge::update_line_numbers(std::wstring_view value) {
+    const auto document = std::dynamic_pointer_cast<MultilineText>(model_);
+    if (!document || !document->line_numbers()) {
+        if (line_number_width_) {
+            line_number_width_ = 0;
+            SendMessageW(window_, EM_SETMARGINS, EC_LEFTMARGIN, 0);
+            win32_require(InvalidateRect(window_, nullptr, FALSE) != FALSE, "Hide native document line numbers");
+        }
+        numbered_text_.clear();
+        line_starts_.clear();
+        return;
+    }
+    bool changed = line_starts_.empty() || numbered_text_ != value;
+    if (changed) {
+        numbered_text_ = value;
+        line_starts_ = {0};
+        for (std::size_t i = 0; i < numbered_text_.size(); ++i)
+            if (numbered_text_[i] == L'\r') line_starts_.push_back(static_cast<LONG>(i + 1));
+    }
+    CHARFORMAT2W format{sizeof(format)};
+    SendMessageW(window_, EM_GETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&format));
+    LOGFONTW desired{};
+    desired.lfHeight = -MulDiv(format.yHeight, dpi_, 1440);
+    desired.lfWeight = format.wWeight;
+    desired.lfItalic = (format.dwEffects & CFE_ITALIC) != 0;
+    desired.lfCharSet = DEFAULT_CHARSET;
+    wcscpy_s(desired.lfFaceName, format.szFaceName);
+    if (!line_number_font_ || std::memcmp(&desired, &line_number_font_description_, sizeof(desired)) != 0) {
+        auto font = CreateFontIndirectW(&desired);
+        win32_require(font != nullptr, "Create native line-number font");
+        if (line_number_font_) DeleteObject(line_number_font_);
+        line_number_font_ = font;
+        line_number_font_description_ = desired;
+        changed = true;
+    }
+    if (!changed) return;
+    std::wstring digits(std::max<std::size_t>(2, std::to_wstring(line_starts_.size()).size()), L'0');
+    auto dc = GetDC(window_);
+    win32_require(dc != nullptr, "Measure native line numbers");
+    auto previous = SelectObject(dc, line_number_font_);
+    SIZE size{};
+    const auto measured = GetTextExtentPoint32W(dc, digits.data(), static_cast<int>(digits.size()), &size);
+    SelectObject(dc, previous);
+    ReleaseDC(window_, dc);
+    win32_require(measured != FALSE, "Measure native line-number width");
+    const int width = size.cx + MulDiv(16, dpi_, 96);
+    if (line_number_width_ != width) {
+        line_number_width_ = width;
+        SendMessageW(window_, EM_SETMARGINS, EC_LEFTMARGIN, MAKELPARAM(width, 0));
+    }
+    invalidate_line_numbers();
+}
+void NativeDocumentBridge::paint_line_numbers(HDC dc) {
+    if (!line_number_width_ || line_starts_.empty()) return;
+    RECT bounds{};
+    GetClientRect(window_, &bounds);
+    bounds.right = std::min(bounds.right, static_cast<LONG>(line_number_width_));
+    const int saved = SaveDC(dc);
+    win32_require(saved != 0, "Save native line-number drawing state");
+    struct Restore { HDC dc; int saved; ~Restore() { RestoreDC(dc, saved); } } restore{dc, saved};
+    IntersectClipRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+    SetDCBrushColor(dc, background_);
+    FillRect(dc, &bounds, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SelectObject(dc, line_number_font_);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, platform::native_color(palette_.high_contrast ? palette_.text : palette_.secondary));
+    TEXTMETRICW metrics{};
+    win32_require(GetTextMetricsW(dc, &metrics) != FALSE, "Read native line-number font metrics");
+    const auto visible = SendMessageW(window_, EM_GETFIRSTVISIBLELINE, 0, 0);
+    const auto first = SendMessageW(window_, EM_LINEINDEX, visible, 0);
+    auto start = std::upper_bound(line_starts_.begin(), line_starts_.end(), static_cast<LONG>(first));
+    if (start != line_starts_.begin()) --start;
+    for (auto line = start; line != line_starts_.end(); ++line) {
+        POINTL position{};
+        SendMessageW(window_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&position), *line);
+        if (position.y >= bounds.bottom) break;
+        if (position.y + metrics.tmHeight <= bounds.top) continue;
+        RECT label{bounds.left, position.y, bounds.right - MulDiv(8, dpi_, 96), position.y + metrics.tmHeight};
+        const auto number = std::to_wstring(line - line_starts_.begin() + 1);
+        DrawTextW(dc, number.data(), static_cast<int>(number.size()), &label, DT_RIGHT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+    }
+}
+void NativeDocumentBridge::paint_document() {
+    PAINTSTRUCT paint{};
+    const auto dc = BeginPaint(window_, &paint);
+    struct End { HWND window; PAINTSTRUCT& paint; ~End() { EndPaint(window, &paint); } } end{window_, paint};
+    win32_require(dc != nullptr, "Begin native document paint");
+    RECT bounds{};
+    GetClientRect(window_, &bounds);
+    if (bounds.right <= 0 || bounds.bottom <= 0 || IsRectEmpty(&paint.rcPaint)) return;
+    const auto buffer = CreateCompatibleDC(dc);
+    win32_require(buffer != nullptr, "Create native document paint context");
+    struct DeleteContext { HDC dc; ~DeleteContext() { DeleteDC(dc); } } context{buffer};
+    const auto bitmap = CreateCompatibleBitmap(dc, bounds.right, bounds.bottom);
+    win32_require(bitmap != nullptr, "Create native document paint buffer");
+    struct DeleteBitmap { HBITMAP bitmap; ~DeleteBitmap() { DeleteObject(bitmap); } } image{bitmap};
+    const auto previous = SelectObject(buffer, bitmap);
+    struct Restore { HDC dc; HGDIOBJ object; ~Restore() { SelectObject(dc, object); } } restore{buffer, previous};
+    // RichEdit and the gutter publish one complete frame, never a blank margin
+    // followed by individual numbers drawn with an unrestricted window DC.
+    SendMessageW(window_, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(buffer), PRF_CLIENT | PRF_ERASEBKGND);
+    win32_require(BitBlt(dc, paint.rcPaint.left, paint.rcPaint.top,
+        paint.rcPaint.right - paint.rcPaint.left, paint.rcPaint.bottom - paint.rcPaint.top,
+        buffer, paint.rcPaint.left, paint.rcPaint.top, SRCCOPY) != FALSE, "Publish native document paint buffer");
+}
 void NativeDocumentBridge::changed() {
     if (setting_ || composing_) return;
     if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
         auto value = text();
         // WM_CHAR can deliver a surrogate pair in two notifications. Publish only
         // complete text, without treating the first half as an application error.
-        if (complete_utf16(value)) document->commit_text(std::move(value));
+        if (complete_utf16(value)) {
+            update_line_numbers(value);
+            document->commit_text(std::move(value));
+        }
     }
     else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
         auto value = text();
@@ -452,12 +584,18 @@ TextSelection NativeDocumentBridge::replace_range(TextSelection range, const std
     }
     // The callback can destroy the window and this bridge. Keep the model alive,
     // publish only after RichEdit returns, and do not access bridge state afterward.
+    update_line_numbers(result);
     document->commit_text(std::move(result), selection);
     return selection;
 }
 LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) noexcept {
     auto& self = *reinterpret_cast<NativeDocumentBridge*>(data);
     try {
+        if (self.line_number_width_ && message == WM_ERASEBKGND) return 1;
+        if (self.line_number_width_ && message == WM_PAINT) {
+            self.paint_document();
+            return 0;
+        }
         if (message == WM_IME_STARTCOMPOSITION) self.composing_ = true;
         if (message == WM_IME_ENDCOMPOSITION) {
             const auto result = DefSubclassProc(hwnd, message, wp, lp);
@@ -493,7 +631,28 @@ LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM 
                 document->bind_range_replacement({});
             }
         }
-        return DefSubclassProc(hwnd, message, wp, lp);
+        const bool scrolling = self.line_number_width_ && (message == WM_VSCROLL || message == WM_MOUSEWHEEL ||
+            message == EM_LINESCROLL || message == EM_SCROLL || message == EM_SETSCROLLPOS ||
+            message == EM_SCROLLCARET || message == WM_KEYDOWN || message == WM_TIMER ||
+            (message == WM_MOUSEMOVE && (wp & MK_LBUTTON)));
+        POINT before{};
+        if (scrolling) SendMessageW(hwnd, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&before));
+        const auto result = DefSubclassProc(hwnd, message, wp, lp);
+        DWORD_PTR live{};
+        if (GetWindowSubclass(hwnd, subclass, id, &live) && live == data && self.line_number_width_) {
+            if (message == WM_PRINTCLIENT) {
+                auto dc = reinterpret_cast<HDC>(wp);
+                win32_require(dc != nullptr, "Paint native document line numbers");
+                self.paint_line_numbers(dc);
+            } else if (message == WM_SIZE) {
+                self.invalidate_line_numbers();
+            } else if (scrolling) {
+                POINT after{};
+                SendMessageW(hwnd, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&after));
+                if (before.x != after.x || before.y != after.y) self.invalidate_line_numbers();
+            }
+        }
+        return result;
     } catch (...) { if (self.failure_) { auto callback = self.failure_; callback(); } return 0; }
 }
 }

@@ -18,7 +18,10 @@ internal sealed class DesignerHierarchy
     internal TreeView Tree { get; }
     internal DesignerHierarchyLayout Layout { get; }
     internal event Action<XuiSourceNode>? Selected;
+    internal Action? RevealPane { get; set; }
     internal XuiSourceNode? Selection { get; private set; }
+    internal void Focus() { RevealPane?.Invoke(); Tree.Focus(); }
+    internal void FocusSearch() { RevealPane?.Invoke(); Layout.Query.Focus(); }
 
     internal DesignerHierarchy(Window window)
     {
@@ -46,7 +49,7 @@ internal sealed class DesignerHierarchy
         });
         Tree.Event += e =>
         {
-            if (selecting || e.Kind != EventKind.Selection) return;
+            if (selecting || !searchCurrent || e.Kind != EventKind.Selection) return;
             if (Tree.Selection.Focused is { } key && key.Version == generation &&
                 nodes.TryGetValue(checked((int)key.Id - 1), out var node))
             {
@@ -61,11 +64,21 @@ internal sealed class DesignerHierarchy
     {
         if (revision == document.Revision) return;
         revision = document.Revision;
+        if (document.Root is { } root && nodes.TryGetValue(root.Id, out var previous) && SameRows(previous, root))
+        {
+            int? selected = Selection?.Id;
+            nodes.Clear();
+            parents.Clear();
+            Add(root, null);
+            Selection = selected is { } id ? nodes.GetValueOrDefault(id) : null;
+            RefreshSearch();
+            return;
+        }
         generation = checked(generation + 1);
         nodes = [];
         parents = [];
         Selection = null;
-        if (document.Root is { } root) Add(root, null);
+        if (document.Root is { } newRoot) Add(newRoot, null);
         using var source = window.ImmutableSource(new Rows(document.Root is { } value ? [value] : [], generation, nodes));
         selecting = true;
         try { Tree.SetSource(source); }
@@ -73,6 +86,13 @@ internal sealed class DesignerHierarchy
         if (document.Root is { Children.Count: > 0 } expanded) Tree.Expand(Key(expanded));
         RefreshSearch();
     }
+
+    private static bool SameRows(XuiSourceNode previous, XuiSourceNode next) =>
+        previous.Id == next.Id && previous.Kind == next.Kind &&
+        previous.Arguments.Select(a => (a.Name, a.Value, a.IsPositional))
+            .SequenceEqual(next.Arguments.Select(a => (a.Name, a.Value, a.IsPositional))) &&
+        previous.Children.Count == next.Children.Count &&
+        previous.Children.Zip(next.Children).All(pair => SameRows(pair.First, pair.Second));
 
     internal void SetSearchCurrent(bool current)
     {

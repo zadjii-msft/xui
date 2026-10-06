@@ -164,7 +164,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             if (node.Arguments.ContainsKey("spacing")) Bind("spacing", "float", "Spacing({0})", "0");
             if (node.Arguments.ContainsKey("padding")) Bind("padding", "float", "Padding({0})", "0");
         }
-        else if (node.Kind is not ("Content" or "Grid"))
+        else if (node.Kind is not ("Content" or "Grid" or "AdaptiveLayout"))
         {
             if (node.Kind != "TextInput")
                 Bind("value", "string", node.Kind is "Text" or "Button" or "Toggle" or "ToggleSwitch" or "ToggleButton" or "CheckBox" or "HyperlinkButton" ? "Text = {0}" : "Name = {0}", "\"\"");
@@ -203,6 +203,18 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         if (node.Kind == "SplitView" && node.Arguments.ContainsKey("duration"))
             Bind("duration", "uint", "SetTransitionDuration({0})", "0");
+        if (node.Kind == "Button" && node.Arguments.ContainsKey("verticalText"))
+            Bind("verticalText", "bool", "SetVerticalText({0})", "false");
+        if (node.Kind == "AdaptiveLayout")
+        {
+            if (node.Arguments.ContainsKey("presentation")) Bind("presentation", "global::Xui.AdaptivePresentation", "SetPresentation({0})", "default");
+            if (node.Arguments.ContainsKey("navigationSide")) Bind("navigationSide", "global::Xui.NavigationSide", "SetNavigationSide({0})", "default");
+            if (node.Arguments.ContainsKey("navigationExtent")) Bind("navigationExtent", "double", "SetNavigationExtent({0})", "220");
+            if (node.Arguments.ContainsKey("navigationOpen")) Bind("navigationOpen", "bool", "SetNavigationOpen({0})", "true");
+            if (node.Arguments.ContainsKey("dismissOnFocusOutside")) Bind("dismissOnFocusOutside", "bool", "SetDismissOnFocusOutside({0})", "false");
+            if (node.Arguments.ContainsKey("breakpoint")) Bind("breakpoint", "double", "SetBreakpoint({0})", "640");
+            if (node.Arguments.ContainsKey("compactNavigation")) Bind("compactNavigation", "global::Xui.CompactNavigation", "SetCompactNavigation({0})", "default");
+        }
         if (node.Kind == "CheckBox")
         {
             if (node.Arguments.ContainsKey("threeState")) Bind("threeState", "bool", "SetThreeState({0})", "false");
@@ -304,7 +316,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Part(string.Join(",", node.Arguments.Keys.Order())) +
         string.Concat(new[] { "ref", "row", "column", "rowSpan", "columnSpan", "flex" }
             .Select(key => Part(node.Arguments.GetValueOrDefault(key)?.Text ?? ""))) +
-        Part(node.Kind is "Content" or "Grid" ? node.Arguments["value"].Text : "") +
+        Part(node.Kind is "Content" or "Grid" or "AdaptiveLayout" ? node.Arguments["value"].Text : "") +
         (node.Kind is "RangeInput" or "Progress" or "ProgressRing" ? Part(node.Arguments.GetValueOrDefault("range")?.Text ?? "") : "") +
         Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
@@ -431,6 +443,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 "Reveal" => $"Reveal({Child(0)}, \"\")",
                 "Popup" => $"Popup(\"\", {Child(0)})",
                 "SplitView" => $"SplitView(\"\", {Child(0)}, {Child(1)})",
+                "AdaptiveLayout" => $"AdaptiveLayout({node.Arguments["value"].Text}, {Child(0)}, {Child(1)})",
                 _ => node.Kind + "(\"\")"
             };
             if (node.Kind == "Content")

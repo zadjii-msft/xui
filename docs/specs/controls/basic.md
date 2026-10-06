@@ -292,7 +292,7 @@ root.Add(repeat).Add(pin).Add(more);
 {% endtab %}
 {% tab title="Rust" %}
 
-Rust exposes the behaviors but has no button-icon setter.
+Rust exposes the behaviors and `set_icon`.
 It has no silent checked-state setter for Button, so the Pin button starts unchecked.
 
 ```rust
@@ -335,8 +335,17 @@ root->add(more);
 A dropdown appearance does not create a menu. Connect it to [Popup](choices.md#popup) or [CommandSurface](commands.md#commandsurface).
 
 Icon-only buttons retain their name for accessibility.
+`ButtonIcon.Pin` and `ButtonIcon.PinFilled` provide matching outlined and filled pushpins
+(`pin`/`pin_filled` in C++, `Pin`/`PinFilled` in Rust, C icon IDs 33/34).
 Pointer capture loss, drag-out release, and window deactivation cancel pending presses.
 Enter activates a focused button. Space activates it on release.
+
+For a narrow edge tab, `Button("Properties", verticalText: true, size: (32, 120));`
+rotates the full label 90 degrees clockwise. The reactive `verticalText` argument defaults to false.
+C# exposes `VerticalText`/`SetVerticalText`, C++ and Rust expose `vertical_text`/`set_vertical_text`,
+and C exposes the Button-only boolean `XUI_F_VERTICAL_TEXT`.
+Automatic sizing swaps text dimensions; explicit sizes and authored padding remain in physical axes.
+Icons and dropdown arrows stay upright. The full accessible name, hit area, and keyboard activation are unchanged.
 
 The style target is `button`, with text, icon, and dropdown presentation parts.
 The older `ButtonStyle` API remains supported.

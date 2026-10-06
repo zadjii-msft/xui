@@ -122,10 +122,16 @@ public double Breakpoint { set => Features.Set(this,31,a: value); }
 public AdaptiveLayout SetBreakpoint(double value) { Breakpoint = value; return this; }
 public double NavigationExtent { set => Features.Set(this,32,a: value); }
 public AdaptiveLayout SetNavigationExtent(double value) { NavigationExtent = value; return this; }
-public bool NavigationOpen { set => Features.Set(this,33,first: value ? 1u : 0u); }
+public bool NavigationOpen { get { var v = Features.Get(this,33); return v.First != 0; } set => Features.Set(this,33,first: value ? 1u : 0u); }
 public AdaptiveLayout SetNavigationOpen(bool value) { NavigationOpen = value; return this; }
 public CompactNavigation CompactNavigation { set => Features.Set(this,34,first: (uint)value); }
 public AdaptiveLayout SetCompactNavigation(CompactNavigation value) { CompactNavigation = value; return this; }
+public AdaptivePresentation Presentation { get { var v = Features.Get(this,56); return (AdaptivePresentation)v.First; } set => Features.Set(this,56,first: (uint)value); }
+public AdaptiveLayout SetPresentation(AdaptivePresentation value) { Presentation = value; return this; }
+public NavigationSide NavigationSide { get { var v = Features.Get(this,57); return (NavigationSide)v.First; } set => Features.Set(this,57,first: (uint)value); }
+public AdaptiveLayout SetNavigationSide(NavigationSide value) { NavigationSide = value; return this; }
+public bool DismissOnFocusOutside { get { var v = Features.Get(this,58); return v.First != 0; } set => Features.Set(this,58,first: value ? 1u : 0u); }
+public AdaptiveLayout SetDismissOnFocusOutside(bool value) { DismissOnFocusOutside = value; return this; }
 }
 public sealed unsafe partial class CommandBar : Control {
 internal CommandBar(Window w, ulong h) : base(w,h) { }

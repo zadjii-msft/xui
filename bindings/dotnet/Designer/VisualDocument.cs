@@ -284,7 +284,7 @@ public sealed class VisualDocument
     {
         if (Target(revision, parentId, out var parent) is { } error) return Failure(error);
         if (parent.Kind is not ("VStack" or "HStack" or "Grid"))
-            return Failure("Insert into a Stack or Grid. ScrollView and Popup require one child; SplitView requires exactly two.");
+            return Failure("Insert into a Stack or Grid. ScrollView and Popup require one child; SplitView and AdaptiveLayout require exactly two.");
         if (index < 0 || index > parent.Children.Count)
             return Failure("The insertion index must be between zero and the number of children.");
         if (parent.Kind == "Grid" && placement is null)
@@ -397,7 +397,7 @@ public sealed class VisualDocument
         if (!parents.TryGetValue(node.Id, out var found)) return "The view requires one root; its root cannot have siblings, be deleted, or be duplicated.";
         parent = found;
         if (parent.Kind is not ("VStack" or "HStack" or "Grid"))
-            return $"{parent.Kind} requires exactly {(parent.Kind == "SplitView" ? "two children" : "one child")}. Edit its child in place.";
+            return $"{parent.Kind} requires exactly {(parent.Kind is "SplitView" or "AdaptiveLayout" ? "two children" : "one child")}. Edit its child in place.";
         return null;
     }
 

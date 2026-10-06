@@ -768,6 +768,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
+        if (message == WM_SETFOCUS) {
+            try { peer.host.dismiss_adaptive_outside(peer); }
+            catch (...) { peer.host.fail(); return 0; }
+        }
         if (peer.document && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
             try {
                 peer.control->set_focused(message == WM_SETFOCUS);
@@ -1548,6 +1552,25 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         const auto owner = destination ? popup_owner(destination) : 0;
         dismiss_above(owner, PopupDismissReason::focus_lost);
+    }
+    void dismiss_adaptive_outside(const Peer& destination) {
+        // Popup teardown and layout repair can temporarily focus an unrelated native peer.
+        if (syncing || !visible(destination)) return;
+        for (auto* layout : adaptive_layouts) {
+            if (!layout->overlay_active() || !layout->dismiss_on_focus_outside()) continue;
+            std::set<std::uint64_t> navigation_ids;
+            content_ids(layout->navigation(), navigation_ids);
+            const Peer* target = &destination;
+            while (target && target->adaptive != layout && !navigation_ids.contains(target->control->id()) &&
+                (!target->adaptive || !navigation_ids.contains(target->adaptive->id()))) {
+                const auto owner = popup_owner(target);
+                const auto entry = std::find_if(popups.begin(), popups.end(),
+                    [owner](const auto& entry) { return entry.popup->id() == owner; });
+                if (entry == popups.end()) { target = nullptr; break; }
+                target = find_peer(entry->anchor.get());
+            }
+            if (!target) layout->set_navigation_open(false);
+        }
     }
     void repeat_start(Peer& peer, bool activate) {
         auto* button = dynamic_cast<Button*>(peer.control.get());
@@ -2423,6 +2446,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             dismiss_popup(*popup, PopupDismissReason::cancel);
             return true;
         }
+        if (msg.wParam == VK_ESCAPE && target) {
+            auto* peer = find_peer(target);
+            if (peer && peer->adaptive && peer->adaptive->overlay_active() && peer->adaptive->dismiss_on_focus_outside()) {
+                peer->adaptive->set_navigation_open(false);
+                update();
+                traverse(false);
+                return true;
+            }
+        }
         if (!popups.empty() && popups.back().dialog) {
             if (msg.wParam == VK_RETURN && !dynamic_cast<DocumentText*>(target)) {
                 auto dialog = popups.back().dialog;
@@ -2779,6 +2811,23 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         bool split_middle{};
         bool reveal_middle{};
         try {
+            // A composed frame can cover native descendants of transparent viewports.
+            // Balance the native caret's XOR before replacing pixels beneath it.
+            struct CaretPresentation {
+                HWND owner{};
+                explicit CaretPresentation(HWND host) {
+                    GUITHREADINFO info{sizeof(info)};
+                    win32_require(GetGUIThreadInfo(GetCurrentThreadId(), &info) != FALSE, "Read native caret owner");
+                    if (info.hwndCaret && IsChild(host, info.hwndCaret)) {
+                        win32_require(HideCaret(info.hwndCaret) != FALSE, "Suspend native caret presentation");
+                        owner = info.hwndCaret;
+                    }
+                }
+                ~CaretPresentation() {
+                    if (owner && IsWindow(owner) && !ShowCaret(owner))
+                        OutputDebugStringW(L"XUI: Cannot restore native caret presentation.\n");
+                }
+            } caret(window);
             if (drawing().begin(window, static_cast<float>(dpi),
                 options.transparent && !palette.high_contrast ? D2D1::ColorF(0, 0.0f) : palette.background,
                 {}, options.transparent)) {
@@ -4523,7 +4572,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             canvas.hyperlink(*link, {0, 0, bounds.width, bounds.height}, palette, enabled(peer), focus_visible);
             return;
         }
-        if (role == ControlRole::button && control.has_control_styling()) {
+        if (role == ControlRole::button && (control.has_control_styling() || static_cast<const Button&>(control).vertical_text())) {
             std::optional<bool> step_increment;
             if (peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
                 const auto& numeric = static_cast<const NumericInput&>(*peer.parent->control);

@@ -286,6 +286,14 @@ The style target is `wrap`, with frame, separator, padding, and spacing.
 Use `AdaptiveLayout` for navigation and content that share a row at wide widths.
 Compact mode can stack the same children or show a navigation overlay.
 
+`SetPresentation(AdaptivePresentation.InlinePane)` pins navigation beside the content.
+`AdaptivePresentation.Overlay` overlays it at any width; `Responsive` retains the default breakpoint behavior.
+`SetNavigationSide(NavigationSide.Right)` changes the inline/overlay edge from left to right.
+Opt into focus-based auto-hide with `SetDismissOnFocusOutside(true)`.
+Descendants and popups opened from within navigation keep the overlay open.
+`NavigationOpen` is readable and writable; it does not hide an inline pane.
+See the [adaptive layout contract](../collections.md) for focus and native occlusion details.
+
 C# `SetContentSized(true)` uses the measured child widths for the breakpoint and the navigation extent.
 C++ and Rust expose `set_content_sized(true)`. The C ABI property is `XUI_F_CONTENT_SIZED` (55).
 The default is false, which retains the configured breakpoint and extent.
@@ -295,34 +303,26 @@ This mode suits content-sized buttons and labels, not children that request all 
 {% tabs %}
 {% tab title=".xui" %}
 
-`AdaptiveLayout` has no markup constructor.
-This component requires a C# layout from the same window, without an existing parent.
+The first child is navigation; the second is content. Both are retained.
 
 ```text
 namespace ControlExamples;
 component AdaptiveWorkspace {
-    param global::Xui.AdaptiveLayout Layout;
     view {
         VStack() {
             Button("Open navigation", click: OpenNavigation);
-            Content(Layout, flex: 1);
+            AdaptiveLayout("Workspace", ref: Layout, flex: 1,
+                breakpoint: 640, navigationExtent: 220,
+                compactNavigation: global::Xui.CompactNavigation.Overlay, navigationOpen: false) {
+                VStack() { Button("Home"); }
+                VStack() { Text("Home page"); }
+            }
         }
     }
     code csharp {
         void OpenNavigation() => Layout.SetNavigationOpen(true);
     }
 }
-```
-
-C# constructs the layout. The component supplies the navigation button:
-
-```csharp
-var navigation = window.Stack().Add(window.Button("Home"));
-var content = window.Stack().Add(window.Label("Home page"));
-var adaptive = window.AdaptiveLayout("Workspace", navigation, content)
-    .SetBreakpoint(640).SetNavigationExtent(220)
-    .SetCompactNavigation(CompactNavigation.Overlay).SetNavigationOpen(false);
-var view = new ControlExamples.AdaptiveWorkspace(window, adaptive);
 ```
 
 {% endtab %}

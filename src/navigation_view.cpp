@@ -456,7 +456,7 @@ void NavigationView::set_items(std::vector<NavigationItem> items) {
         if (!item.key.id || !index.emplace(item.key, i).second || item.label.empty() || item.label.size() > 1024 ||
             item.keywords.size() > 4096 || item.badge.size() > 32 ||
             item.section < NavigationSection::header || item.section > NavigationSection::footer ||
-            item.icon < ButtonIcon::none || item.icon > ButtonIcon::mixed ||
+            item.icon < ButtonIcon::none || item.icon > ButtonIcon::pin_filled ||
             item.image_path.size() > 32767 || item.image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid navigation item");
     }

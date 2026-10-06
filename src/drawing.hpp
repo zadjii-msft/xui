@@ -121,7 +121,7 @@ public:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> styled_layout(std::wstring_view value, TextStyle fallback,
         const PartStyleValues& values, Size& measured, float width = 0, std::size_t maximum_lines = 0);
     void styled_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
-        const PartStyleValues& values, TextStyle fallback = TextStyle::body);
+        const PartStyleValues& values, TextStyle fallback = TextStyle::body, bool vertical = false);
     void private_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
         const PartStyleValues& values, TextStyle fallback = TextStyle::body);
     void text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F color);
@@ -160,6 +160,7 @@ private:
     static thread_local std::size_t created_field_brushes_;
     inline static thread_local std::size_t created_symbol_faces_{};
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> pin_geometry_;
     Microsoft::WRL::ComPtr<IDWriteFactory> text_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> format_, small_format_, heading_format_, subtitle_format_, strong_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> numeric_format_;

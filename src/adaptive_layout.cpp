@@ -164,13 +164,32 @@ AdaptiveLayout::AdaptiveLayout(std::shared_ptr<Element> navigation, std::shared_
 std::optional<StyleTarget> AdaptiveLayout::control_style_target() const { return StyleTarget::adaptive_layout; }
 StyleStateMask AdaptiveLayout::control_style_state_bits() const {
     return Element::control_style_state_bits() | (compact_ ? style_states::compact : 0) |
-        (!compact_ || mode_ != CompactNavigation::overlay || open_ ? style_states::expanded : 0);
+        (!overlay() || open_ ? style_states::expanded : 0);
 }
 void AdaptiveLayout::set_breakpoint(float value) { positive(value); if (breakpoint_ == value) return; breakpoint_ = value; invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_navigation_extent(float value) { positive(value); if (extent_ == value) return; extent_ = value; invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_content_sized(bool value) { if (content_sized_ == value) return; content_sized_ = value; invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_compact_navigation(CompactNavigation value) { if (mode_ == value) return; mode_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); }
 void AdaptiveLayout::set_navigation_open(bool value) { if (open_ == value) return; open_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout); }
+void AdaptiveLayout::set_presentation(AdaptivePresentation value) {
+    if (value < AdaptivePresentation::responsive || value > AdaptivePresentation::overlay)
+        throw std::invalid_argument("Invalid adaptive presentation");
+    if (presentation_ == value) return;
+    presentation_ = value; invalidate_control_style_state(); invalidate(Invalidation::layout);
+}
+void AdaptiveLayout::set_navigation_side(NavigationSide value) {
+    if (value != NavigationSide::left && value != NavigationSide::right)
+        throw std::invalid_argument("Invalid navigation side");
+    if (side_ == value) return;
+    side_ = value; invalidate(Invalidation::layout);
+}
+bool AdaptiveLayout::is_compact(bool responsive) const {
+    return presentation_ == AdaptivePresentation::responsive ? responsive : presentation_ == AdaptivePresentation::overlay;
+}
+bool AdaptiveLayout::overlay() const {
+    return presentation_ == AdaptivePresentation::overlay ||
+        (presentation_ == AdaptivePresentation::responsive && compact_ && mode_ == CompactNavigation::overlay);
+}
 Size AdaptiveLayout::measure(Size available) {
     if (!auto_size()) return Element::measure(available);
     if (content_sized_) {
@@ -179,19 +198,19 @@ Size AdaptiveLayout::measure(Size available) {
         const Size natural{(std::numeric_limits<float>::max)(), inner.height};
         const auto nav = navigation()->measure(natural), body = content()->measure(natural);
         const auto gap = effective_spacing();
-        const bool compact = inner.width < nav.width + gap + body.width;
-        const auto desired = compact && mode_ == CompactNavigation::overlay ? body :
+        const bool compact = is_compact(inner.width < nav.width + gap + body.width);
+        const auto desired = compact && (presentation_ == AdaptivePresentation::overlay || mode_ == CompactNavigation::overlay) ? body :
             compact ? Size{std::max(nav.width, body.width), nav.height + gap + body.height} :
             Size{nav.width + gap + body.width, std::max(nav.height, body.height)};
         return constrain(layout_style::outer(desired, p), available);
     }
-    if (compact_ != (available.width < breakpoint_)) {
-        compact_ = available.width < breakpoint_;
+    if (compact_ != is_compact(available.width < breakpoint_)) {
+        compact_ = is_compact(available.width < breakpoint_);
         invalidate_control_style_state();
     }
     const auto p = effective_layout_insets();
     auto inner = layout_style::inner(available, p);
-    if (compact_ && mode_ == CompactNavigation::overlay)
+    if (overlay())
         return constrain(layout_style::outer(content()->measure(inner), p), available);
     const auto gap = std::min(effective_spacing(), compact_ ? inner.height : inner.width);
     const auto extent = std::min(extent_, ((compact_ ? inner.height : inner.width) - gap) * 0.5f);
@@ -207,34 +226,40 @@ void AdaptiveLayout::arrange(Rect value) {
         value = layout_style::inset(value, effective_layout_insets());
         const Size natural{(std::numeric_limits<float>::max)(), value.height};
         const auto nav = navigation()->measure(natural), body = content()->measure(natural);
-        const bool compact = value.width < nav.width + effective_spacing() + body.width;
+        const bool compact = is_compact(value.width < nav.width + effective_spacing() + body.width);
         if (compact_ != compact) { compact_ = compact; invalidate_control_style_state(); }
-        if (compact_ && mode_ == CompactNavigation::overlay) {
-            content()->arrange(value);
-            navigation()->arrange(open_ ? Rect{value.x, value.y, std::min(nav.width, value.width * 0.85f), value.height} : Rect{});
+        if (overlay()) {
+            arrange_panes(value, std::min(nav.width, value.width * 0.85f), 0);
             return;
         }
         const auto gap = std::min(effective_spacing(), compact_ ? value.height : value.width);
         const auto extent = std::min(compact_ ? nav.height : nav.width, (compact_ ? value.height : value.width) - gap);
-        navigation()->arrange({value.x, value.y, compact_ ? value.width : extent, compact_ ? extent : value.height});
-        content()->arrange({value.x + (compact_ ? 0 : extent + gap), value.y + (compact_ ? extent + gap : 0),
-            value.width - (compact_ ? 0 : extent + gap), value.height - (compact_ ? extent + gap : 0)});
+        arrange_panes(value, extent, gap);
         return;
     }
-    if (compact_ != (value.width < breakpoint_)) {
-        compact_ = value.width < breakpoint_;
+    if (compact_ != is_compact(value.width < breakpoint_)) {
+        compact_ = is_compact(value.width < breakpoint_);
         invalidate_control_style_state();
     }
     value = layout_style::inset(value, effective_layout_insets());
-    if (compact_ && mode_ == CompactNavigation::overlay) {
-        content()->arrange(value);
-        navigation()->arrange(open_ ? Rect{value.x, value.y, std::min(extent_, value.width * 0.85f), value.height} : Rect{});
+    if (overlay()) {
+        arrange_panes(value, std::min(extent_, value.width * 0.85f), 0);
         return;
     }
     const auto gap = std::min(effective_spacing(), compact_ ? value.height : value.width);
     const auto extent = std::min(extent_, ((compact_ ? value.height : value.width) - gap) * 0.5f);
-    navigation()->arrange({value.x, value.y, compact_ ? value.width : extent, compact_ ? extent : value.height});
-    content()->arrange({value.x + (compact_ ? 0 : extent + gap), value.y + (compact_ ? extent + gap : 0),
-        value.width - (compact_ ? 0 : extent + gap), value.height - (compact_ ? extent + gap : 0)});
+    arrange_panes(value, extent, gap);
+}
+void AdaptiveLayout::arrange_panes(Rect value, float extent, float gap) {
+    const bool right = side_ == NavigationSide::right;
+    if (overlay()) {
+        content()->arrange(value);
+        navigation()->arrange(open_ ? Rect{right ? value.x + value.width - extent : value.x, value.y, extent, value.height} : Rect{});
+    } else {
+        navigation()->arrange({!compact_ && right ? value.x + value.width - extent : value.x, value.y,
+            compact_ ? value.width : extent, compact_ ? extent : value.height});
+        content()->arrange({value.x + (compact_ || right ? 0 : extent + gap), value.y + (compact_ ? extent + gap : 0),
+            value.width - (compact_ ? 0 : extent + gap), value.height - (compact_ ? extent + gap : 0)});
+    }
 }
 }

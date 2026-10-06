@@ -3,6 +3,7 @@
 The designer is a XUI application for editing one `.xui` component.
 Its [layout](../../bindings/dotnet/Designer/DesignerLayout.xui) uses `.xui`.
 Its native `MultilineText` editor uses Consolas and keeps Windows selection, clipboard, undo, and IME behavior.
+The left gutter shows one-based source line numbers, follows native scrolling, and numbers each logical line once even when it wraps.
 The [default native build](../../CONTRIBUTING.md#lsh-highlighting-in-xui-applications) uses the checked-in LSH package to highlight XUI and embedded C#.
 The dedicated Designer build script requires LSH rather than silently producing a plain-text editor.
 Highlighting remains active when live preview is paused.
@@ -39,11 +40,24 @@ The divider between source and preview changes their widths.
 The inspector scrolls independently.
 The source editor retains native selection, clipboard, undo, and IME behavior.
 
+Hierarchy and Properties start pinned beside the workspace.
+Each pane's header has a pushpin button: filled when pinned, outlined when auto-hidden.
+Unpinning collapses that pane into a narrow **Hierarchy** or **Properties** tab at its left or right edge.
+The tab label is rotated clockwise to read top-to-bottom, rather than stacking individual letters.
+Activate the edge button to open the pane over the workspace without shrinking the source or preview.
+Moving focus outside that pane closes the overlay; moving between its controls or into a popup opened from it keeps it open.
+Escape closes an overlay after any active editor or popup-specific Escape action has been handled.
+Pinning an open overlay docks it again. The two panes are independent.
+Explicit hierarchy/property focus commands reveal an auto-hidden pane; background source and selection updates do not.
+These transitions retain native controls, search queries, property drafts, source selection, and undo history.
+
 Enter copies the current line's leading spaces and tabs onto the new line.
 Within the indentation, Enter copies only the whitespace before the caret.
 With no selection, Tab within the leading whitespace adds four spaces.
 Shift+Tab removes up to four leading spaces or one leading tab, without moving focus.
-Tab after source text or with a selection keeps the existing focus-navigation behavior.
+With a selection, Tab adds four spaces to every selected line; Shift+Tab removes up to four leading spaces or one leading tab from each.
+A selection ending at the next line's start excludes that line. The selection follows the original characters, and focus stays in the editor.
+Tab after source text with no selection keeps the existing focus-navigation behavior.
 Each indentation edit creates one native undo action.
 
 **Source: Toggle line comments** in the command palette comments or uncomments the selected source lines.
@@ -202,9 +216,10 @@ The hierarchy uses a native TreeView with expandable controls.
 Each row shows the control kind and its optional positional value, without source offsets.
 Selecting a control selects its source range and scrolls the source editor to that range.
 **Select from caret**, or Ctrl+Shift+L, selects the control that contains the source caret.
-Hierarchy identities belong to one exact source revision.
-A new source revision resets tree expansion and selects the control at the current caret.
-It does not reuse identities from an older document.
+Source nodes and their spans belong to one exact source revision.
+When control structure and argument values are unchanged, the hierarchy retains its rows and expansion while rebinding them to the new source spans.
+Other changes replace the hierarchy rows. A valid source revision selects the control at the current caret.
+Pending parsing disables source-navigation actions; stale rows cannot apply source edits.
 
 The command palette includes **Selection:** actions for the parent, first child, previous sibling, next sibling, and root.
 These actions use the current hierarchy selection, not the source caret.
@@ -688,6 +703,7 @@ For example, `VStack` maps to `Stack`, while `Content` maps to its supplied elem
 The reads return `false` when no preview exists or the requested version differs from `AppliedVersion`.
 For the matching version, an invalid node ID throws `ArgumentOutOfRangeException`.
 A pending or failed edit does not relabel the last successful map with a newer source revision.
+After successful compilation proves identical emitted behavior, the retained preview map advances to that source revision without replacing its controls.
 The caller must compare the source revision before it uses node IDs for source selection.
 After retirement, the old map is no longer available through the adapter.
 
@@ -752,15 +768,21 @@ Generated-file locations do not point into the source editor.
 Source changes invalidate navigation until the compiler supplies new diagnostics.
 
 The preview supports styles, C# state, and event handlers.
-Each successful update replaces the content of the embedded preview and resets component state.
+Automatic updates compare a fingerprint of deterministic emitted code, not raw source text.
+If behavior is unchanged, the existing controls and component state remain intact.
+Ordinary formatting and comment edits therefore do not replace the preview.
+Whitespace inside strings and source-sensitive C# such as `CallerLineNumber` still trigger replacement when their emitted behavior changes.
+Updates that change emitted behavior replace the embedded preview and reset component state.
 The editor retains its text, selection, and undo history.
 Replacement does not activate another window or take focus from the editor.
 The preview keeps its place in the designer layout.
 
 With **Live preview** off, automatic compilation pauses.
 **Render**, or Ctrl+Enter, compiles the current source even during a pause.
+It explicitly rebuilds the preview and resets state even when the emitted behavior is unchanged.
 This command also restores a preview after a managed callback error.
 **Light theme** changes the designer theme, including the preview.
+Theme changes preserve the current preview without recompilation.
 The preview does not have an independent theme.
 Preview construction errors leave the previous content unchanged.
 A managed event exception stops further callbacks from that preview.

@@ -13,7 +13,6 @@ component DesignerInspectorLayout {
     view {
         ScrollView("Properties and structure") {
             VStack(padding: 10, spacing: 8) {
-                Text("Properties", fontSize: 20, fontWeight: 600);
                 Text("Select a control", ref: Selected, id: "designer-selected-node", wrapping: true);
                 HStack(spacing: 6) {
                     TextInput("Find a property", ref: ArgumentFilter, id: "designer-argument-filter", captionVisible: false,

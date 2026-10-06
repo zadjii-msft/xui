@@ -34,6 +34,14 @@ xui_status XUI_CALL xui_syntax_highlighting_available(uint32_t* available) noexc
         *available = xui::syntax_highlighting_available() ? 1u : 0u;
     });
 }
+xui_status XUI_CALL xui_document_line_numbers(xui_handle handle, uint32_t enabled) noexcept {
+    return boundary([&] {
+        auto node = get(handle, XUI_MULTILINE_TEXT);
+        editable(node->owner);
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Line-number visibility must be 0 or 1.");
+        as<xui::MultilineText>(node).set_line_numbers(enabled != 0);
+    });
+}
 xui_status XUI_CALL xui_document_syntax_language(xui_handle handle, xui_string language) noexcept {
     return boundary([&] {
         auto node = get(handle, XUI_MULTILINE_TEXT);

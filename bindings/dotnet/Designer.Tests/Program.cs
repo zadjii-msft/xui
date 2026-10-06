@@ -35,6 +35,7 @@ internal static class Program
             TestInput();
             TestCancellation();
             TestMetadata();
+            TestPreviewIdentity();
             Console.WriteLine($"Designer compiler assertions: {assertions} passed.");
             return 0;
         }
@@ -135,6 +136,39 @@ internal static class Program
         Success(Counter.PadRight(65536));
         Failure((Counter + new string('\r', 65536)).Replace("\r", "\r\n", StringComparison.Ordinal), "65536");
         Success("""component Emoji { view { Text("😀"); } }""");
+    }
+
+    private static void TestPreviewIdentity()
+    {
+        var initial = Compile(Counter);
+        Assert(initial.Fingerprint is not null, "Successful compilation supplies a behavior fingerprint.");
+        foreach (var source in new[] { Counter, "\n\n" + Counter, Counter.Replace("spacing: 8", "spacing:   8"),
+            Counter + "\n// comment", Counter.ReplaceLineEndings("\r\n") })
+            Assert(Compile(source).Fingerprint == initial.Fingerprint, "Formatting and comments retain emitted preview behavior.");
+        Assert(Compile(Counter.Replace("Count: ", "Count:  ")).Fingerprint != initial.Fingerprint,
+            "Whitespace inside a string must update preview content.");
+        Assert(Compile(Counter.Replace("Count = 0", "Count = 1")).Fingerprint != initial.Fingerprint,
+            "Changed initial state must update preview content.");
+        const string lines = """
+            component Lines {
+                state int Value = Line();
+                view { Text($"{Value}"); }
+                code csharp {
+                    static int Line([global::System.Runtime.CompilerServices.CallerLineNumber] int line = 0) => line;
+                }
+            }
+            """;
+        Assert(Compile(lines).Fingerprint != Compile("\n" + lines).Fingerprint,
+            "Source line changes that affect CallerLineNumber must rebuild the preview.");
+        var invalid = PreviewCompiler.Compile("!", fingerprint: true);
+        Assert(!invalid.Success && invalid.Fingerprint is null, "Invalid source cannot reuse a valid preview fingerprint.");
+
+        static PreviewCompilation Compile(string source)
+        {
+            var result = PreviewCompiler.Compile(source, fingerprint: true);
+            Assert(result.Success, result.Diagnostics);
+            return result;
+        }
     }
 
     private static void TestCancellation()

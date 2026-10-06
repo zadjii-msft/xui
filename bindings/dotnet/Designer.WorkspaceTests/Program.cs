@@ -8,6 +8,8 @@ internal static partial class Program
     {
         try
         {
+            RunAutoHideNavigation(VisualStyle.Classic);
+            RunAutoHideNavigation(VisualStyle.WinUI);
             RunPaletteFlyout(VisualStyle.Classic);
             RunPaletteFlyout(VisualStyle.WinUI);
             RunHierarchySearch(VisualStyle.Classic);
@@ -35,6 +37,8 @@ internal static partial class Program
             var templates = window.ComboBox("Document template", false);
             var view = new DesignerLayout(window, editor, diagnostics, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, window.Label("Workspace smoke does not execute authored previews."), templates, window);
+            workspace.Hierarchy.RevealPane = view.RevealHierarchy;
+            workspace.Inspector.RevealPane = view.RevealInspector;
             editor.Event += e => { if (e.Kind == EventKind.Change) workspace.SourceChanged(); };
             view.Undo.Click += () => { editor.Focus(); editor.Command(TextCommand.Undo); };
             view.Redo.Click += () => { editor.Focus(); editor.Command(TextCommand.Redo); };

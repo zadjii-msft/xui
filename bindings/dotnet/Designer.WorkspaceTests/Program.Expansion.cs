@@ -78,6 +78,9 @@ internal static partial class Program
                 await Ready();
                 await Ui(() =>
                 {
+                    Visible(workspace.Document!.Root!.Children[39].Children[0], true);
+                    foreach (var child in workspace.Document.Root.Children)
+                        hierarchy.Tree.Expand(hierarchy.Key(child), expanded: false);
                     Root();
                     workspace.ExpandHierarchy();
                     if (!window.Post(workspace.CancelHierarchyExpansion)) throw new InvalidOperationException("Cancel dispatch failed.");
@@ -118,7 +121,7 @@ internal static partial class Program
                 await Ui(() =>
                 {
                     Root();
-                    Visible(workspace.Document!.Root!.Children[0].Children[0], false);
+                    Visible(workspace.Document!.Root!.Children[0].Children[0], true);
                     editor.Command(TextCommand.Undo);
                 });
                 await Ready();
