@@ -38,8 +38,10 @@ struct DrawingTestAccess {
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
             96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
         if (FAILED(drawing.factory_->CreateHwndRenderTarget(properties,
-            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(200, 100)), &drawing.target_)))
+            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(200, 100)), &drawing.hwnd_target_)))
             throw std::runtime_error("Create basic style software target");
+        drawing.target_ = drawing.hwnd_target_;
+        drawing.host_window_ = window;
         ++Drawing::live_targets_;
         if (FAILED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)))
             throw std::runtime_error("Create basic style brush");
@@ -152,6 +154,81 @@ void partition_icons(Fixture& fixture) {
                             require(pixels[y * 200 + x] == 0x101010, "Partition strokes stay inside their icon bounds");
                 }
             }
+        }
+    }
+    fixture.drawing.set_visual_style(VisualStyle::classic);
+}
+void pane_tabs(Fixture& fixture) {
+    for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
+        fixture.drawing.set_visual_style(style);
+        for (const auto size : {16.0f, 20.0f, 32.0f}) {
+            for (const auto ink : {0x202020u, 0xffffffu, 0xffff00u}) {
+                const auto outline = fixture.render([&] {
+                    fixture.drawing.button_icon({20, 20, size, size}, D2D1::ColorF(ink), ButtonIcon::pin);
+                });
+                const auto filled = fixture.render([&] {
+                    fixture.drawing.button_icon({20, 20, size, size}, D2D1::ColorF(ink), ButtonIcon::pin_filled);
+                    fixture.drawing.fill({100, 20, 10, 10}, D2D1::ColorF(0xff0000));
+                });
+                require(count(outline, 0x101010) < outline.size() && count(filled, ink) > count(outline, ink),
+                    "Pins have visible outlined and filled bodies at toolbar sizes in both styles and theme colors");
+                require(filled[25 * 200 + 105] == 0xff0000 && count(filled, 0xff0000) == 100,
+                    "Pin drawing restores the sibling transform");
+                for (int y = 0; y < 100; ++y) for (int x = 0; x < 200; ++x)
+                    if (x < 20 || y < 20 || x >= 20 + size || y >= 20 + size)
+                        require(outline[y * 200 + x] == 0x101010, "Pin strokes stay inside their icon bounds");
+            }
+        }
+        PartStyleValues values;
+        values.font_size = 12.0f;
+        for (const auto label : {L"Hierarchy", L"Properties"}) {
+            const auto horizontal = fixture.render([&] {
+                fixture.drawing.styled_text(label, {20, 10, 76, 24}, D2D1::ColorF(0xffffff), values);
+            });
+            const auto vertical = fixture.render([&] {
+                fixture.drawing.styled_text(label, {20, 10, 24, 76}, D2D1::ColorF(0xffffff), values, TextStyle::body, true);
+                fixture.drawing.fill({100, 20, 10, 10}, D2D1::ColorF(0xff0000));
+            });
+            std::size_t different{}, ink{};
+            for (int y = 0; y < 24; ++y) for (int x = 0; x < 76; ++x) {
+                const auto pixel = horizontal[(10 + y) * 200 + 20 + x];
+                if (pixel != 0x101010) ++ink;
+                if (vertical[(10 + x) * 200 + 20 + 23 - y] != pixel) ++different;
+            }
+            require(ink > 80 && different < ink / 20,
+                "Pane labels rotate clockwise as complete text, without clipping or stacking characters");
+            require(vertical[25 * 200 + 105] == 0xff0000 && count(vertical, 0xff0000) == 100,
+                "Vertical text restores the sibling transform");
+            for (int y = 0; y < 100; ++y) for (int x = 0; x < 200; ++x)
+                if (x < 20 || y < 10 || x >= 44 || y >= 86)
+                    require(vertical[y * 200 + x] != 0xffffff, "Rotated text stays inside the tab");
+            Button tab(label);
+            tab.set_visual_style(style);
+            auto tab_style = values;
+            tab_style.padding = Insets{};
+            tab_style.border_thickness = Insets{};
+            tab_style.foreground = ThemeColor{0xffffff};
+            tab_style.background = ThemeColor{0x101010};
+            tab.set_control_style_values(StylePart::root, tab_style);
+            auto palette = Palette::system(ThemeMode::dark, style);
+            palette.high_contrast = false;
+            const auto horizontal_button = fixture.render([&] {
+                fixture.drawing.origin(3, 4);
+                fixture.drawing.styled_button(tab, {20, 10, 76, 24}, palette, true, false);
+            });
+            tab.set_vertical_text(true);
+            const auto vertical_button = fixture.render([&] {
+                fixture.drawing.origin(3, 4);
+                fixture.drawing.styled_button(tab, {20, 10, 24, 76}, palette, true, false);
+            });
+            different = ink = 0;
+            for (int y = 0; y < 24; ++y) for (int x = 0; x < 76; ++x) {
+                const auto pixel = horizontal_button[(14 + y) * 200 + 23 + x];
+                if (pixel == 0xffffff) ++ink;
+                if (vertical_button[(14 + x) * 200 + 23 + 23 - y] != pixel) ++different;
+            }
+            require(ink > 80 && different < ink / 20,
+                "Real Button rendering rotates styled captions within a translated parent without clipping");
         }
     }
     fixture.drawing.set_visual_style(VisualStyle::classic);
@@ -583,7 +660,7 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--benchmark") { typography_benchmark(); return 0; }
         typography_cache_keys();
-        Fixture fixture; document_icons(fixture); partition_icons(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture);
+        Fixture fixture; document_icons(fixture); partition_icons(fixture); pane_tabs(fixture); typography_cache(fixture); surfaces_and_text(fixture); button_variants(fixture); clear_glyph_and_state(fixture); open_icon(fixture);
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Basic style DirectWrite and software rendering contracts passed\n";

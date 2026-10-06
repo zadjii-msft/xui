@@ -14,4 +14,7 @@ XUI_API xui_status XUI_CALL xui_syntax_highlighting_available(uint32_t* availabl
    mapping only, without file access. Unknown extensions use plain text. */
 XUI_API xui_status XUI_CALL xui_document_syntax_language(xui_handle document, xui_string language) XUI_NOEXCEPT;
 XUI_API xui_status XUI_CALL xui_document_syntax_path(xui_handle document, xui_string path) XUI_NOEXCEPT;
+/* Optional one-based logical line numbers in the native left margin. Plain
+   documents only; enabled must be 0 or 1. Does not modify text or undo. */
+XUI_API xui_status XUI_CALL xui_document_line_numbers(xui_handle document, uint32_t enabled) XUI_NOEXCEPT;
 #endif

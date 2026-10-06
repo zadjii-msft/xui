@@ -8,7 +8,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private const int MaximumLength = 65536;
     private readonly Window window = new("XUI Designer", 1440, 960, visualStyle: VisualStyle.WinUI);
     private readonly CancellationTokenSource lifetime = new();
-    private readonly Channel<(long Version, string Source)> edits = Channel.CreateBounded<(long, string)>(
+    private readonly Channel<(long Version, string Source, bool Force)> edits = Channel.CreateBounded<(long, string, bool)>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
     private readonly MultilineText editor;
     private readonly MultilineText diagnostics;
@@ -35,6 +35,7 @@ internal sealed partial class DesignerApplication : IDisposable
     private int templateIndex;
     private int smokeStage;
     private Exception? smokeError;
+    private IReadOnlyList<PreviewNodeSnapshot>? smokePreviewNodes;
     private bool pickControls;
     private long pickRequest;
     private bool highlightPosted;
@@ -44,7 +45,7 @@ internal sealed partial class DesignerApplication : IDisposable
     {
         try
         {
-            editor = window.MultilineText("XUI source").SetMaximumLength(MaximumLength);
+            editor = window.MultilineText("XUI source").SetMaximumLength(MaximumLength).SetLineNumbers();
             if (MultilineText.SyntaxHighlightingAvailable) editor.SetSyntaxLanguage("xui");
             editor.SetControlStyleValues(StylePart.Text, new PartStyleValues { FontFamily = "Consolas", FontSize = 14 });
             diagnostics = window.MultilineText("Compiler diagnostics").SetReadOnly(true).SetMaximumLength(MaximumLength);
@@ -63,6 +64,8 @@ internal sealed partial class DesignerApplication : IDisposable
             templates.Event += e => { if (e.Kind == EventKind.Selection) templateIndex = checked((int)e.Value - 1); };
             view = new DesignerLayout(window, sourceSearch.View, diagnosticNavigator.View, workspace.Hierarchy.Layout.Root,
                 workspace.Inspector.Layout.Root, viewport.View, templates, window);
+            workspace.Hierarchy.RevealPane = view.RevealHierarchy;
+            workspace.Inspector.RevealPane = view.RevealInspector;
             viewport.SetToolbarButton(view.PreviewSize);
             window.IconErrorHandler = error => ShowError($"Cannot load the application icon: {error}");
             window.SetIconSource(Path.Combine(AppContext.BaseDirectory, "zoey.ico"));
@@ -94,7 +97,7 @@ internal sealed partial class DesignerApplication : IDisposable
             view.Redo.Click += () => SourceCommand(TextCommand.Redo);
             view.Render.Click += () => Schedule(immediate: true);
             view.Live.Changed += value => { live = value; Schedule(); };
-            view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); Schedule(immediate: true); };
+            view.Light.Changed += value => { light = value; window.SetTheme(value ? Theme.Light : Theme.Dark); };
             view.Commands.Click += ShowCommands;
             view.PreviewSize.Click += ShowPreviewSize;
             view.AddControl.Click += ShowControlPalette;
@@ -177,7 +180,6 @@ internal sealed partial class DesignerApplication : IDisposable
     private void OnEditorEvent(UiEvent e)
     {
         if (e.Kind != EventKind.Change) return;
-        workspace.SourceChanged();
         PersistDraft();
         Schedule();
     }
@@ -214,7 +216,7 @@ internal sealed partial class DesignerApplication : IDisposable
             return;
         }
         view.Status.Text = "Compiling...";
-        if (!edits.Writer.TryWrite((version, editor.Text)))
+        if (!edits.Writer.TryWrite((version, editor.Text, immediate)))
             throw new InvalidOperationException("The compiler queue is closed.");
     }
 
@@ -237,7 +239,7 @@ internal sealed partial class DesignerApplication : IDisposable
                 try
                 {
                     await Task.Delay(300, cancellation.Token);
-                    var result = PreviewCompiler.Compile(edit.Source, cancellation.Token);
+                    var result = PreviewCompiler.Compile(edit.Source, cancellation.Token, fingerprint: true);
                     window.Post(() =>
                     {
                         if (edit.Version != version || disposed || edit.Source != editor.Text) return;
@@ -250,8 +252,9 @@ internal sealed partial class DesignerApplication : IDisposable
                             SmokeCompileError();
                             return;
                         }
-                        previewSource = edit;
-                        preview.Publish(edit.Version, result.Assembly!, light ? Theme.Light : Theme.Dark);
+                        previewSource = (edit.Version, edit.Source);
+                        preview.Publish(edit.Version, result.Assembly!, light ? Theme.Light : Theme.Dark,
+                            result.Fingerprint, edit.Force);
                     });
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -288,22 +291,62 @@ internal sealed partial class DesignerApplication : IDisposable
             return;
         }
         RequestHighlight();
-        if (smokeStage == 1)
-        {
-            if (editor.GetBounds().Height < 100 || view.OutputToggle.GetBounds().Width != 32 || view.OutputExpanded)
-            {
-                smokeError = new InvalidOperationException("The initial source layout or collapsed output status row is incorrect.");
-                window.Close();
-                return;
-            }
-            smokeStage = 2;
-            editor.Text = "component Broken { view { VStack() { Text(\"missing terminator\") } } }";
-            Schedule(immediate: true);
-        }
+        if (smokeStage is 1 or 6 or 7 or 8) SmokeFormatting();
         else if (smokeStage == 4)
         {
             smokeStage = 5;
             FileSmoke();
+            window.Close();
+        }
+    }
+
+    private void SmokeFormatting()
+    {
+        try
+        {
+            if (!preview.TryReadNodeMap(version, out var nodes)) throw new InvalidOperationException("Missing smoke preview map.");
+            if (smokeStage == 1)
+            {
+                if (editor.GetBounds().Height < 100 || view.OutputToggle.GetBounds().Width != 32 || view.OutputExpanded)
+                    throw new InvalidOperationException("The initial source layout or collapsed output status row is incorrect.");
+                smokePreviewNodes = nodes;
+                SelectionNative.Invoke(nodes.Single(node => node.ElementType == "Button").ControlId!.Value);
+                smokeStage = 6;
+                editor.ReplaceRange(new(0, 0), editor.Text, "\r// Formatting only\r");
+                return;
+            }
+            bool sameControls = nodes.Select(node => node.ControlId).SequenceEqual(smokePreviewNodes!.Select(node => node.ControlId));
+            string expected = smokeStage == 8 ? "Count: 0" : "Count: 1";
+            if (sameControls != (smokeStage != 8) || !nodes.Any(node =>
+                node.ControlId is { } id && node.ElementType == "Label" && SelectionNative.ReadText(id) == expected))
+                throw new InvalidOperationException("Formatting/undo must retain preview controls and state; Render must replace them.");
+            if (smokeStage == 6)
+            {
+                if (preview.TryReadNodeMap(smokePreviewNodes![0].Version, out _))
+                    throw new InvalidOperationException("A retained preview exposed stale source metadata.");
+                long beforeTheme = version;
+                view.Light.Invoke();
+                view.Light.Invoke();
+                if (version != beforeTheme || preview.AppliedVersion != beforeTheme)
+                    throw new InvalidOperationException("Theme changes must not recompile the preview.");
+                smokeStage = 7;
+                editor.Command(TextCommand.Undo);
+            }
+            else if (smokeStage == 7)
+            {
+                smokeStage = 8;
+                Schedule(immediate: true);
+            }
+            else
+            {
+                smokeStage = 2;
+                editor.Text = "component Broken { view { VStack() { Text(\"missing terminator\") } } }";
+                Schedule(immediate: true);
+            }
+        }
+        catch (Exception error)
+        {
+            smokeError = error;
             window.Close();
         }
     }

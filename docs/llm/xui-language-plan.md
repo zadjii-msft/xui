@@ -19,6 +19,19 @@ The toggle posts through the supplied dispatcher before it moves focus or change
 This avoids a nested native focus event inside the button callback.
 The application expands Output for compile, preview, and file errors.
 `DesignerApplication.cs` owns native documents, file operations, recovery drafts, and the bounded compiler queue.
+The source editor opts into `MultilineText.SetLineNumbers`. `NativeDocumentBridge` reserves a RichEdit left margin and paints only visible logical line starts using native character positions.
+The gutter shares the document's font, DPI, palette, and scroll position without changing text or the native accessibility provider.
+Native edit notifications update the logical-line cache before highlighting and application callbacks.
+Gutter-enabled `WM_PAINT` composes RichEdit's `WM_PRINTCLIENT` output and line numbers in a memory bitmap, then publishes the invalidated area with one blit.
+The subclass consumes background erase, and scroll messages invalidate the gutter only when the native offset changes.
+TOM `Freeze`/`Unfreeze` batches syntax formatting without changing selection, scroll, or undo ownership.
+`document_syntax_window_tests` covers gutter pixels, scrolling, themes, and retained selection and undo; `document_editing_abi_tests` covers the additive API's validation and thread affinity.
+
+Automatic compilation fingerprints a deterministic PE with a stable assembly name, then emits the independently named runtime assembly.
+`PreviewHost` retains a matching applied candidate and advances its version only after successful compilation; source guards remain invalid during compilation.
+This compares actual emitted behavior, including string whitespace and C# caller-line constants, rather than stripping source trivia.
+Explicit Render forces replacement. Theme changes no longer compile source.
+`Designer.Tests` covers the fingerprint boundary, and the regular application smoke checks retained native control IDs and authored state through formatting edits and undo, theme changes, and forced Render.
 
 `DesignerApplication.Commands.cs` maps stable command IDs to existing application actions and current availability checks.
 `DesignerCommandPalette.cs` uses the native `CommandSurface` for search, keyboard navigation, dismissal, and focus restoration.
@@ -47,7 +60,8 @@ The source-only Ctrl+G route leaves hierarchy grouping unchanged.
 `Designer.NavigationTests` covers native input, Enter/Escape, validation, exact caret positions, cancellation, stale revisions, and undo in both visual styles.
 The application selection smoke covers the header action, command palette, focus routing, pointer-mode exit, hierarchy synchronization, and retained preview state.
 
-`DesignerSourceIndentation.cs` handles Enter and leading-whitespace Tab shortcuts only in the focused source editor.
+`DesignerSourceIndentation.cs` handles Enter, leading-whitespace Tab, and selected-line Tab/Shift+Tab only in the focused source editor.
+Selected-line indentation shares `DesignerSourceLines.SelectedLineBounds`, maps both UTF-16 endpoints through the prefix changes, and excludes a line touched only at the selection's end.
 It uses native range replacement for single-action undo and reports rejected edits through Output.
 The window's native key router excludes IME composition and modal dialogs before these shortcuts.
 `Designer.IndentationTests` covers native text, caret positions, change callbacks, undo, focus, and length-limit errors.
@@ -83,9 +97,11 @@ The caret moves to the deletion boundary. Empty or read-only source disables pal
 The application selection smoke checks palette and shortcut deletion, the actual removed preview control, caret placement, and exact source undo.
 
 `DesignerWorkspace.cs` owns a bounded parse queue and one cancellable visual edit operation.
+Parsing coalesces edits for 150 ms. Pending-source feedback does not open transient layout rows or repeatedly rebuild the inspector's property choices.
 It parses exact native editor snapshots and applies edits with the native range-replacement API.
 It rejects stale source or revision results before the native call.
-`DesignerHierarchy.cs` owns revision-scoped TreeView keys and releases immutable source handles after attachment.
+`DesignerHierarchy.cs` retains TreeView keys and expansion when node IDs, kinds, arguments, and child structure match; its node dictionaries are rebound to the current source spans.
+Other changes advance the row generation. Immutable source handles are released after attachment.
 It applies 28-DIP rows, 16-DIP indentation, and reduced row padding through local style values.
 `SelectionTarget` resolves parent, first-child, sibling, and root targets against the current hierarchy objects.
 `DesignerWorkspace.SelectRelative` checks the exact source snapshot and pending edits before using the existing `SelectNode` path.
@@ -335,6 +351,72 @@ Positional operands and expression-backed arguments remain protected in the insp
 The designer's `--smoke` mode covers the native editor and preview lifecycle.
 `xui_abi_features_tests --activation` covers the opt-in no-activation window contract.
 The normal window activation default remains unchanged.
+
+### Auto-hide panes (October 6, 2026)
+
+`DesignerLayout.xui` composes two retained `AdaptiveLayout` instances, left hierarchy and right properties.
+Each starts in explicit inline presentation. Unpinning switches presentation to overlay, closes navigation,
+and exposes a named edge button. Header and edge actions run through the UI dispatcher.
+No pane is reparented or rebuilt. Explicit focus helpers on `DesignerHierarchy` and `DesignerInspector`
+invoke reveal hooks wired by `DesignerApplication`; parsing, hierarchy selection, and inspector refresh do not invoke those hooks.
+
+`AdaptivePresentation`, `NavigationSide`, and opt-in outside-focus dismissal are additive native features.
+The C ABI property IDs are 56-58; generated C# and Rust facades share `bindings/features.json`.
+`NavigationOpen` is now readable as well as writable.
+The markup constructor takes navigation first and content second and includes the fixed name in its structural signature.
+VS Code and LSH recognize the new constructor.
+
+`Window::Impl::dismiss_adaptive_outside` follows popup anchors back into their owning navigation subtree.
+It ignores hidden destinations and focus changes during layout synchronization: closing a native popup in a
+non-foreground window can briefly focus its hidden parent, then trigger generic focus repair outside the pane.
+Treating either transition as an explicit outside-focus request incorrectly hid the pane and rejected the next field focus.
+Native-editor Escape respects IME/suggestions, application handlers, and child popups before closing an opt-in overlay.
+
+On the Windows x64 Release build based on `a2784915`, `Designer.LayoutTests` passed 191 assertions
+across Classic/WinUI and light/dark/high contrast, repeated three times.
+The checks cover left/right geometry, native HWND occlusion, pin/unpin, child popup focus, Escape,
+source and property selection, retained native identity, searches, drafts, and source undo.
+`Designer.WorkspaceTests/Program.AutoHide.cs` checks production reveal-before-focus helpers and passive-update retention.
+`GeneratorTests` passed 42,045 assertions, including constructor arity, reactive presentation, and shape signatures.
+Native style layout and feature ABI checks passed; Rust's `adaptive_pane_contract`, LSH's adaptive constructor check,
+the 39 VS Code grammar checks, and regular Designer smoke passed.
+Physical screen-reader speech and mixed-DPI monitor transitions remain manual checks.
+
+The edge tabs now show clockwise sideways `Hierarchy`/`Properties` labels through Button's
+`verticalText` property (C ABI ID 59), with retained accessibility and activation.
+`Drawing::styled_text` rotates inside physical content bounds and restores the parent transform;
+automatic Button measurement swaps text dimensions without rotating authored padding or icon/dropdown artwork.
+Pin artwork is one cached native path with outlined/filled variants, IDs 33/34.
+Filled means docked; outlined means auto-hidden. Existing icon IDs remain unchanged.
+
+The follow-up x64 Release checks passed 215 Designer layout assertions and 42,050 generator assertions.
+`xui_style_basic_render_tests` compares the sideways glyph pixels with a clockwise rotation of the original,
+including real styled Buttons inside translated parents, and checks pin strokes/fills at toolbar sizes in both styles.
+Its software target now fills the renderer's HWND-specific target and host fields, preserving GDI pixel access.
+Native control, image, and feature ABI tests passed, as did Rust's `shell_image_and_open_icon`,
+the targeted managed wrapper/bridge checks, and Designer smoke.
+The broader managed `--features` run stopped at `VisualTests`' existing fixed-pixel image deadline,
+before its Explorer primitives phase; this run does not establish the full managed visual suite.
+
+### Editor retention evidence (October 6, 2026)
+
+Windows x64 Release checks on the editor-retention changes based on `a2784915` passed:
+`Designer.Tests` (109 assertions), `Designer.IndentationTests` (1,262), `Designer.Preview.Tests` (2,091), and `Designer.LayoutTests` (47).
+`Designer.WorkspaceTests`, `Designer.TextModeTests`, and `Designer --smoke` also passed.
+The managed commands use `dotnet run --project bindings\dotnet\<project> -c Release -r win-x64`; the application smoke appends `-- --smoke`.
+Native `build\x64\Release\xui_document_syntax_window_tests.exe` and `xui_document_editing_abi_tests.exe` passed, including owned-window gutter pixels, wrapped/empty lines, and 144-DPI margins.
+
+Those initial final-image checks did not detect transient gutter flicker reported during live scrolling and newline entry.
+The follow-up fixture checks buffered paint dispatch, non-destructive background erase, no unchanged-scroll invalidation, and immediate numbering before the application's refresh.
+It also checks 999-to-1000-line margin growth and undo, native caret/focus retention, visible-row-bounded work, and stable GDI counts.
+On the same x64 build, a 999-line document with 998 highlighted spans completed 80 synchronous scroll frames in 177 ms and 20 newline frames with syntax refreshes in 356 ms.
+Each batch has a two-second regression budget; these are fixture measurements, not end-to-end Designer compiler timings.
+The native editing fixture, 1,262 managed indentation assertions, and regular Designer smoke also passed after the painting change.
+
+`Designer --selection-smoke` stopped at its first pointer-mode request with `Pointer inspection requires the original native ancestry`.
+An independently built, unchanged archive of `a2784915` reproduced the same failure at version 2.
+The formatting/state-retention checks therefore run in the regular application smoke, independently of that existing pointer-inspection limitation.
+The standalone preview suite had one focus/activation assertion failure, then passed when rerun sequentially; it also passed on the unchanged archive.
 
 ### Applied node-map evidence
 

@@ -40,6 +40,8 @@ public class Window
     { var result = Add(new Popup()); result.AddContent(content); return result; }
     public SplitView SplitView(string name, Element first, Element second)
     { var result = Add(new SplitView()); result.AddContent(first); result.AddContent(second); return result; }
+    public AdaptiveLayout AdaptiveLayout(string name, Element navigation, Element content)
+    { var result = Add(new AdaptiveLayout()); result.Add(navigation); result.Add(content); return result; }
     public void SetContent(Stack root) { root.Claim(this); Content = root; ContentSets++; }
 }
 public abstract class Element
@@ -95,6 +97,25 @@ public abstract class Control : Element
     public string HelpText { get; set; } = "";
     public bool IsVisible = true;
 }
+public enum AdaptivePresentation { Responsive, InlinePane, Overlay }
+public enum NavigationSide { Left, Right }
+public enum CompactNavigation { Stacked, Overlay }
+public sealed class AdaptiveLayout : Stack
+{
+    public AdaptivePresentation Presentation;
+    public NavigationSide NavigationSide;
+    public CompactNavigation CompactNavigation;
+    public double NavigationExtent, Breakpoint;
+    public bool NavigationOpen = true, DismissOnFocusOutside;
+    public int PresentationSets;
+    public void SetPresentation(AdaptivePresentation value) { Presentation = value; PresentationSets++; }
+    public void SetNavigationSide(NavigationSide value) => NavigationSide = value;
+    public void SetCompactNavigation(CompactNavigation value) => CompactNavigation = value;
+    public void SetNavigationExtent(double value) => NavigationExtent = value;
+    public void SetBreakpoint(double value) => Breakpoint = value;
+    public void SetNavigationOpen(bool value) => NavigationOpen = value;
+    public void SetDismissOnFocusOutside(bool value) => DismissOnFocusOutside = value;
+}
 public sealed class Label : Control;
 public sealed class SwapChainPanel : Control;
 public enum RevealLayout : uint { Fixed = 0, Expand = 1 }
@@ -132,6 +153,9 @@ public sealed class Reveal : ContentControl
 }
 public class Button : Control
 {
+    public bool VerticalText { get; private set; }
+    public int VerticalTextSets;
+    public void SetVerticalText(bool value) { VerticalText = value; VerticalTextSets++; }
     private ButtonStyle? style;
     public int StyleSets;
     public ButtonStyle? Style { get => style; set { style = value; StyleSets++; } }

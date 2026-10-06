@@ -471,6 +471,7 @@ It covers repeated replacement, bounded handles, candidate rollback, source vers
 It also checks that replacement does not change foreground activation.
 The smoke test opens the designer with its embedded preview.
 It covers native layout, compiler diagnostics, preview construction errors, recovery after those errors, and file operations.
+It also checks retained native control IDs and authored state after formatting-only edits and undo, theme changes without recompilation, and deliberate state reset on explicit Render.
 The recovery UI test uses isolated drafts and a real native `ContentDialog`.
 It covers draft selection, recovery copies, dirty-source protection, confirmed deletion, corrupt metadata, and file races.
 The grouping UI test uses the production hierarchy and inspector with native source editing.
@@ -482,11 +483,16 @@ It also covers Unicode word boundaries, single and bulk replacement, no-op edits
 The viewport UI test covers preset and custom dimensions, invalid input, vertical scrolling, and retained preview state.
 It also covers the anchored size flyout, Reset cropping, requested versus actual dimensions, native Escape, and a narrow preview pane.
 The workspace UI test covers the Add control flyout in both styles, native query input, focus restoration, source guards, cancellation, and disposal.
+It also checks reveal-before-focus commands for auto-hidden hierarchy and properties panes without opening them during background parsing or source selection.
 The layout UI test checks toolbar spacing at the default width and at 980 DIP.
+It also checks independent pane pinning, manual overlay opening, left/right geometry, native field occlusion, outside-focus dismissal,
+pane-owned popups, native-editor Escape, and retained HWNDs, queries, drafts, source selection, and undo across both styles and all three themes.
+Adaptive presentation geometry and ABI validation are covered by `xui_style_layouts_tests` and `xui_abi_features_tests`.
+`GeneratorTests` covers the two-child markup constructor and retained reactive presentation.
 Run native UI suites sequentially because they share desktop focus.
 The command UI test uses the native CommandSurface in Classic and WinUI.
 It covers native query input, Enter, Escape, focus, disabled commands, changed availability, duplicate invocation, cancellation, and source undo.
-The source-indentation UI test covers Enter, leading-whitespace Tab and Shift+Tab, native undo, caret positions, focus, and length-limit errors.
+The source-indentation UI test covers Enter, leading-whitespace and selected-line Tab/Shift+Tab, native undo, selection mapping, focus, and atomic length-limit errors.
 It also covers line comments in both visual styles, selected-line boundaries, Unicode, blank lines, mixed prefixes, read-only source, and atomic length refusals.
 Source-line duplication coverage includes both styles, exact text and selections, trailing empty lines, Unicode, one-action undo/redo, focus routing, and length limits.
 Source-line movement coverage includes both styles, multiline selections, final and empty lines, Unicode, maximum-length source, boundary refusals, and native undo/redo.
@@ -985,6 +991,9 @@ ctest --test-dir $build -C Release -R "^xui_(layout_performance|collections|coll
 & ".\$build\Release\xui_style_basic_render_tests.exe"
 & ".\$build\Release\xui_style_navigation_render_tests.exe"
 ```
+
+The basic render fixture also checks clockwise pane-tab text, parent-transform restoration,
+and outlined/filled pushpin pixels in both visual styles.
 
 The layout fixture requires zero steady-state Stack scratch allocations and zero Grid track-buffer allocations.
 It also covers reentrant layout, exceptions, changed constraints, child growth, styled alignment, and the 256-track Grid limit.
@@ -1678,6 +1687,12 @@ dotnet run --project bindings\dotnet\Syntax.Tests -c Release -r $rid
 The native syntax test also supports an LSH-disabled build.
 The managed syntax fixture requires LSH.
 Native window checks need an interactive Windows desktop.
+The document syntax window fixture also checks the optional line-number gutter: owned-window pixels, scrolling, wrapped and empty lines, DPI, themes, and retained native undo.
+Its live checks cover buffered painting, suppressed background erase, synchronous newline numbering and digit-boundary growth, native caret/focus, and GDI resource retention.
+The 999-line highlighted fixture requires 80 synchronous scroll frames and 20 newline frames with syntax refreshes to finish within two seconds per batch.
+Run `& "$build\Release\xui_document_syntax_window_tests.exe" --caret` for just the hosted caret pixel regression.
+It places RichEdit inside a scrolling viewport and checks parent-only repaints and subsequent keyboard/mouse caret movement at line ends, empty lines, and whitespace-only lines.
+The owned-window captures cover both visual styles, three themes, visible/hidden native carets, and gutters on/off; the full document fixture includes these checks too.
 
 For the native document scrollbar regression, enable the desktop tests:
 

@@ -120,6 +120,25 @@ The final implementation uses small native bitmaps instead.
 All 23 native tests and five binding clients passed, including their callback-failure cases.
 Logs, frame samples, and measurements are in `build\flicker`. The updated demo is `build\flicker\Release\xui_demo.exe`.
 
+### Native caret presentation, October 6, 2026
+
+A Designer report of stale line-end carets reproduced with `MultilineText` inside a `ScrollView`.
+Standalone RichEdit repaint tests and direct-child editors did not reproduce it.
+The root's composed frame could overwrite the visible native caret beneath a transparent viewport.
+RichEdit's `WM_PRINTCLIENT` image contained source pixels without the caret; Windows still considered the caret drawn.
+Its later XOR erase on movement could therefore leave a caret-shaped mark, particularly obvious after the last character of a line.
+
+`Window::Impl::paint` now balances `HideCaret`/`ShowCaret` for the current thread's caret only when its owner is a descendant of that host.
+The scope covers native snapshot capture and root/popup presentation, and restores visibility on failed or exceptional frame paths too.
+Already hidden carets remain hidden. No caret renderer, movement interception, extra invalidation, or idle repaint timer was added.
+
+The x64 Release `document_syntax_window_tests --caret` fixture uses owned-window Graphics Capture, not desktop capture.
+It reproduces the missing visible caret with the guard disabled and passes with it enabled.
+It covers light/dark/high-contrast palettes, both visual styles, gutters on/off, line ends, empty/whitespace-only lines, keyboard/mouse movement, hidden-caret balancing, focus/selection retention, and native typing/undo/redo.
+The complete document fixture, 1,262 Designer indentation assertions, and regular Designer smoke passed.
+The Classic and WinUI native-state cases in `content_highlight_window_tests` passed; its full run stopped at `Newly active page is visible`.
+Attempts to compare that full suite with the caret guard disabled instead stopped earlier at a foreground-window physical-hit check, so the full highlight suite remains unverified.
+
 ## Command and navigation delivery
 
 The command/navigation tests cover callback exceptions, host closure, public-window deletion, stale queries, and separate pin identity.

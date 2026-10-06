@@ -20,7 +20,7 @@ enum class TextTone { normal, secondary, accent, error };
 enum class ButtonIcon { none, back, forward, up, refresh, split, theme, add, minimize, maximize, restore, close, more,
     menu, home, folder, settings, search, library, history, bookmark, drive, open,
     save = 23, save_as = 24, undo = 25, redo = 26, chevron_up = 27, chevron_down = 28, chevron_right = 29,
-    folders_first = 30, files_first = 31, mixed = 32 };
+    folders_first = 30, files_first = 31, mixed = 32, pin = 33, pin_filled = 34 };
 enum class ButtonBehavior { momentary, repeat, toggle, dropdown };
 enum class CheckState { unchecked, checked, indeterminate };
 enum class InfoBadgeKind { dot, count, icon };
@@ -212,12 +212,17 @@ public:
     void set_repeat_timing(unsigned delay, unsigned interval);
     // Icon-only presentation retains name() for accessibility and commands.
     void set_icon(ButtonIcon value) {
-        if (value < ButtonIcon::none || value > ButtonIcon::mixed)
+        if (value < ButtonIcon::none || value > ButtonIcon::pin_filled)
             throw std::invalid_argument("Invalid button icon");
         if (icon_ == value) return;
         icon_ = value; invalidate(Invalidation::layout);
     }
     ButtonIcon icon() const { return icon_; }
+    bool vertical_text() const { return vertical_text_; }
+    void set_vertical_text(bool value) {
+        if (vertical_text_ == value) return;
+        vertical_text_ = value; invalidate(Invalidation::layout);
+    }
     void set_style(std::shared_ptr<const ButtonStyle> style);
     std::shared_ptr<const ButtonStyle> style() const;
     void set_style_values(ButtonStyleValues values);
@@ -232,6 +237,7 @@ public:
     Rect icon_bounds(Rect bounds) const;
     Rect dropdown_bounds(Rect bounds) const;
     Size measure(Size available) override {
+        if (vertical_text_ && icon_ == ButtonIcon::none) return measure_vertical(available);
         if (has_control_styling()) return measure_control_styled(available);
         if (style_data_) return measure_styled(available);
         const float size = style_metrics(visual_style()).button_height;
@@ -244,6 +250,7 @@ private:
         return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
     }
     Size measure_control_styled(Size available);
+    Size measure_vertical(Size available);
     PartStyleValues own_surface_style_values() const;
     Size measure_styled(Size available);
     struct StyleData {
@@ -260,6 +267,7 @@ private:
     ButtonBehavior behavior_{};
     ButtonAppearance appearance_{};
     bool checked_{};
+    bool vertical_text_{};
     unsigned repeat_delay_{400}, repeat_interval_{80};
     std::function<void(bool)> toggle_;
     void activate() override;

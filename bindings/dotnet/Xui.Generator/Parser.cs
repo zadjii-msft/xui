@@ -181,7 +181,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         {
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
-            "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
+            "Button" => ["value", "click", "icon", "verticalText", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "Toggle" or "ToggleSwitch" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
             "ToggleButton" => ["value", "checked", "change", "icon"],
             "CheckBox" => ["value", "checkState", "threeState", "change"],
@@ -199,6 +199,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             "Reveal" => ["value", "open", "duration", "layout", "direction"],
             "Popup" => ["value", "placement", "windowBackground"],
             "SplitView" => ["value", "secondVisible", "duration"],
+            "AdaptiveLayout" => ["value", "presentation", "navigationSide", "navigationExtent", "navigationOpen", "dismissOnFocusOutside", "breakpoint", "compactNavigation"],
             "Content" => ["value"],
             _ => throw new ParseError($"Unsupported control '{kind}'.", start)
         };
@@ -208,9 +209,9 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         else if (kind == "Button" || StyleCatalog.TargetExists(styleTarget))
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
-        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal";
+        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal" or "AdaptiveLayout";
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
-        if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
+        if (!stack && kind is not ("Content" or "Grid" or "AdaptiveLayout")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         var authoredArguments = new List<XuiSourceArgument>();
         Expect("(");
@@ -266,7 +267,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             while (!Is("}")) children.Add(ParseNode(depth + 1));
             bodySpan = new(bodyStart, Offset - bodyStart);
             Expect("}");
-            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind == "SplitView" ? 2 : -1;
+            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind is "SplitView" or "AdaptiveLayout" ? 2 : -1;
             if (required >= 0 && children.Count != required)
                 throw new ParseError($"{kind} requires exactly {required} content children.", start);
         }

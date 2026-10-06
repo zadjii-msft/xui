@@ -507,12 +507,31 @@ PartStyleValues Button::own_surface_style_values() const {
 }
 Rect Button::content_bounds(Rect bounds) const {
     const auto values = surface_style_values();
-    const auto padding = values.padding.value_or(default_button_padding(visual_style()));
+    auto defaults = default_button_padding(visual_style());
+    if (vertical_text_ && icon_ == ButtonIcon::none) defaults = {defaults.top, defaults.left, defaults.bottom, defaults.right};
+    const auto padding = values.padding.value_or(defaults);
     const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
     bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
     bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
     bounds.height = std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom);
     return bounds;
+}
+Size Button::measure_vertical(Size available) {
+    if (!visible()) return {};
+    if (!auto_size()) return Element::measure(available);
+    const auto text = measured_text();
+    const auto values = surface_style_values();
+    const auto defaults = default_button_padding(visual_style());
+    const auto padding = values.padding.value_or(Insets{defaults.top, defaults.left, defaults.bottom, defaults.right});
+    const auto border = values.border_thickness.value_or(Insets{1, 1, 1, 1});
+    const auto* arrow_style = effective_control_style_values(StylePart::arrow);
+    const auto arrow_padding = arrow_style && arrow_style->padding ? *arrow_style->padding : Insets{};
+    const float arrow_size = arrow_style && arrow_style->size ? *arrow_style->size : 20.0f;
+    const float arrow = behavior_ == ButtonBehavior::dropdown ? arrow_size + arrow_padding.left + arrow_padding.right : 0;
+    const float height = behavior_ == ButtonBehavior::dropdown ?
+        std::max(text.width, arrow_size + arrow_padding.top + arrow_padding.bottom) : text.width;
+    return constrain({text.height + padding.left + padding.right + border.left + border.right + arrow,
+        height + padding.top + padding.bottom + border.top + border.bottom}, available);
 }
 PartStyleValues Button::content_style_values(StylePart part) const {
     if (part != StylePart::label && part != StylePart::icon && part != StylePart::arrow)
@@ -881,7 +900,7 @@ void TabStrip::set_colors(TabColors colors) {
 }
 void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> selected) {
     for (std::size_t i = 0; i < tabs.size(); ++i) {
-        if (tabs[i].icon < ButtonIcon::none || tabs[i].icon > ButtonIcon::mixed ||
+        if (tabs[i].icon < ButtonIcon::none || tabs[i].icon > ButtonIcon::pin_filled ||
             tabs[i].image_path.size() > 32767 || tabs[i].image_path.find(L'\0') != std::wstring::npos)
             throw std::invalid_argument("Invalid tab icon or image path");
         if (!tabs[i].id || tabs[i].id > static_cast<std::uint64_t>(std::numeric_limits<std::intptr_t>::max()) - 100)

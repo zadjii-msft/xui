@@ -806,6 +806,12 @@ impl AdaptiveLayout {
     }
 }
 impl AdaptiveLayout {
+    pub fn navigation_open(&self) -> Result<bool> {
+        let v = self.0.feature_get(33)?;
+        Ok(v.first != 0)
+    }
+}
+impl AdaptiveLayout {
     pub fn set_compact_navigation(&self, value: CompactNavigation) -> Result<()> {
         self.0.feature_set(
             34,
@@ -814,6 +820,57 @@ impl AdaptiveLayout {
                 ..value_record()
             },
         )
+    }
+}
+impl AdaptiveLayout {
+    pub fn set_presentation(&self, value: AdaptivePresentation) -> Result<()> {
+        self.0.feature_set(
+            56,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl AdaptiveLayout {
+    pub fn presentation(&self) -> Result<AdaptivePresentation> {
+        let v = self.0.feature_get(56)?;
+        AdaptivePresentation::from_native(v.first)
+    }
+}
+impl AdaptiveLayout {
+    pub fn set_navigation_side(&self, value: NavigationSide) -> Result<()> {
+        self.0.feature_set(
+            57,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl AdaptiveLayout {
+    pub fn navigation_side(&self) -> Result<NavigationSide> {
+        let v = self.0.feature_get(57)?;
+        NavigationSide::from_native(v.first)
+    }
+}
+impl AdaptiveLayout {
+    pub fn set_dismiss_on_focus_outside(&self, value: bool) -> Result<()> {
+        self.0.feature_set(
+            58,
+            sys::FeatureValue {
+                first: value as u64,
+                ..value_record()
+            },
+        )
+    }
+}
+impl AdaptiveLayout {
+    pub fn dismiss_on_focus_outside(&self) -> Result<bool> {
+        let v = self.0.feature_get(58)?;
+        Ok(v.first != 0)
     }
 }
 #[derive(Clone)]

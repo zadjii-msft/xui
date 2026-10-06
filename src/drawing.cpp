@@ -1159,6 +1159,7 @@ void Drawing::release() {
     small_format_.Reset();
     format_.Reset();
     text_factory_.Reset();
+    pin_geometry_.Reset();
     factory_.Reset();
 }
 
@@ -1822,7 +1823,8 @@ void Drawing::styled_button(const Button& button, Rect bounds, const Palette& pa
         if (!typography.horizontal_alignment) typography.horizontal_alignment = StyleAlignment::center;
         if (!palette.high_contrast && label && label->foreground) ink = D2D1::ColorF(label->foreground->resolve(palette.mode));
         if (step_increment) label_override = *step_increment ? L"+" : L"\u2212";
-        styled_text(label_override.empty() ? std::wstring_view(button.name()) : label_override, content, ink, typography, button.text_style());
+        styled_text(label_override.empty() ? std::wstring_view(button.name()) : label_override, content, ink, typography,
+            button.text_style(), button.vertical_text());
     }
     pop_clip();
     if (focus_visible) {
@@ -1968,6 +1970,33 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
 }
 
 void Drawing::button_icon(Rect box, D2D1_COLOR_F color, ButtonIcon icon) {
+    if (icon == ButtonIcon::pin || icon == ButtonIcon::pin_filled) {
+        const float size = std::min(box.width, box.height);
+        if (size <= 0) return;
+        if (!pin_geometry_) {
+            Microsoft::WRL::ComPtr<ID2D1PathGeometry> geometry;
+            hr_require(factory_->CreatePathGeometry(&geometry), "Create pin outline");
+            Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+            hr_require(geometry->Open(&sink), "Open pin outline");
+            constexpr D2D1_POINT_2F points[]{{5, 1}, {11, 1}, {11, 3}, {10, 3}, {10, 7},
+                {13, 9}, {13, 10}, {3, 10}, {3, 9}, {6, 7}, {6, 3}, {5, 3}};
+            sink->BeginFigure(points[0], D2D1_FIGURE_BEGIN_FILLED);
+            sink->AddLines(points + 1, static_cast<UINT32>(std::size(points) - 1));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            hr_require(sink->Close(), "Finish pin outline");
+            pin_geometry_ = std::move(geometry);
+        }
+        D2D1_MATRIX_3X2_F previous;
+        target_->GetTransform(&previous);
+        target_->SetTransform(D2D1::Matrix3x2F::Scale(size / 16, size / 16) *
+            D2D1::Matrix3x2F::Translation(box.x + (box.width - size) / 2, box.y + (box.height - size) / 2) * previous);
+        brush_->SetColor(color);
+        if (icon == ButtonIcon::pin_filled) target_->FillGeometry(pin_geometry_.Get(), brush_.Get());
+        target_->DrawGeometry(pin_geometry_.Get(), brush_.Get(), 1.25f);
+        target_->DrawLine(D2D1::Point2F(8, 10), D2D1::Point2F(8, 15), brush_.Get(), 1.25f);
+        target_->SetTransform(previous);
+        return;
+    }
     if (icon == ButtonIcon::folders_first || icon == ButtonIcon::files_first || icon == ButtonIcon::mixed) {
         // Native vector equivalents of assets/icons/{folders-first,files-first,mixed}.svg.
         const float size = std::min(box.width, box.height);
@@ -2245,7 +2274,18 @@ Microsoft::WRL::ComPtr<IDWriteTextLayout> Drawing::styled_layout(std::wstring_vi
     return result;
 }
 void Drawing::styled_text(std::wstring_view value, Rect bounds, D2D1_COLOR_F color,
-    const PartStyleValues& values, TextStyle fallback) {
+    const PartStyleValues& values, TextStyle fallback, bool vertical_text) {
+    if (vertical_text) {
+        struct TransformScope {
+            ID2D1RenderTarget* target;
+            D2D1_MATRIX_3X2_F previous;
+            explicit TransformScope(ID2D1RenderTarget* target) : target(target) { target->GetTransform(&previous); }
+            ~TransformScope() { target->SetTransform(previous); }
+        } transform(target_.Get());
+        target_->SetTransform(D2D1::Matrix3x2F(0, 1, -1, 0, bounds.x + bounds.width, bounds.y) * transform.previous);
+        styled_text(value, {0, 0, bounds.height, bounds.width}, color, values, fallback);
+        return;
+    }
     if (bounds.width <= 0 || bounds.height <= 0) return;
     if (values.maximum_lines.value_or(0)) {
         Size measured;

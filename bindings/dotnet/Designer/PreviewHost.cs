@@ -5,7 +5,7 @@ namespace Xui.Designer;
 
 internal sealed class PreviewHost : IDisposable
 {
-    private sealed record Request(long Version, byte[] Assembly);
+    private sealed record Request(long Version, byte[] Assembly, string? Fingerprint, bool Force);
     private readonly Window window;
     private readonly ContentHost host;
     private readonly Action<long, string, bool> report;
@@ -119,14 +119,14 @@ internal sealed class PreviewHost : IDisposable
         }
     }
 
-    internal void Publish(long value, byte[] assembly, Theme theme)
+    internal void Publish(long value, byte[] assembly, Theme theme, string? fingerprint = null, bool force = false)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         if (!Enum.IsDefined(theme)) throw new ArgumentOutOfRangeException(nameof(theme));
         lock (gate)
         {
             if (stopping || version != value) return;
-            pending = new(value, assembly);
+            pending = new(value, assembly, fingerprint, force);
             if (posted) return;
             posted = true;
             if (!window.Post(Refresh))
@@ -147,6 +147,12 @@ internal sealed class PreviewHost : IDisposable
             request = pending;
             pending = null;
             if (stopping || request is null || request.Version != version) return;
+            if (!request.Force && request.Fingerprint is not null && current?.Fingerprint == request.Fingerprint)
+            {
+                current.Version = request.Version;
+                report(request.Version, "Preview unchanged. Component state was preserved.", true);
+                return;
+            }
         }
         Candidate? candidate = null;
         try
@@ -235,13 +241,15 @@ internal sealed class PreviewHost : IDisposable
         private Element? root;
         private Func<object, int, Element>? getNode;
         private bool disposed;
-        internal long Version { get; }
+        internal long Version { get; set; }
+        internal string? Fingerprint { get; }
         internal int NodeCount { get; }
 
         internal Candidate(Window window, ContentHost host, Request request, Action<Candidate, Exception> failed,
             Action<Candidate, int> picked)
         {
             Version = request.Version;
+            Fingerprint = request.Fingerprint;
             update = host.BeginUpdate();
             update.CallbackFailed += error => failed(this, error);
             try

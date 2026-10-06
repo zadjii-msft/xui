@@ -43,6 +43,7 @@ Actual screen-reader speech still requires a manual check.
 
 `MultilineText` and `RichText` use the Windows `Msftedit.dll` RichEdit engine.
 Windows owns composition, selection, caret movement, scrolling, clipboard operations, and undo.
+Parent-window refreshes preserve native caret visibility without leaving a painted copy at its previous position.
 Dark documents request the Windows dark scrollbar theme through `SetWindowTheme`.
 Light and high-contrast palettes clear that override.
 Scrollbar appearance depends on the Windows theme implementation. XUI does not replace native scrolling or install theme hooks.
@@ -55,6 +56,17 @@ Native surrogate-pair input publishes one complete value, not an intermediate ha
 RichEdit retains at most 16 undo actions. Windows determines their byte cost.
 Property changes replace text once per revision, not once per paint.
 `MultilineText` also supports [undo-preserving range replacement](#undo-preserving-range-replacement).
+
+### Line numbers
+
+`MultilineText::set_line_numbers(true)` enables a native left gutter; it is off by default.
+C# uses `editor.SetLineNumbers()`, and the C ABI exposes `xui_document_line_numbers(document, 1)`.
+There is no Rust convenience wrapper for this additive function.
+Numbers start at 1 and count CR-separated logical lines, including empty and final empty lines.
+Wrapped continuations have no extra number. The gutter follows native scrolling and adapts to font, DPI, digit count, and theme.
+Native edits update numbering without waiting for an application refresh. The editor and gutter paint together without a separate visible background-clear pass.
+Numbers are presentation only: they do not enter source text, clipboard contents, undo history, or the native UIA Text value.
+The gutter does not create a second editor, focus target, or selection model.
 
 ### Syntax highlighting
 

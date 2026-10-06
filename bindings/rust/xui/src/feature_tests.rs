@@ -10,7 +10,7 @@ fn partition_button_icons() -> Result<()> {
         assert_eq!(button.feature_get(45)?.first, icon as u64);
         assert_eq!(ButtonIcon::from_native(icon as u64)?, icon);
     }
-    assert!(ButtonIcon::from_native(33).is_err());
+    assert!(ButtonIcon::from_native(35).is_err());
     assert!(ButtonIcon::from_native(u64::MAX).is_err());
     Ok(())
 }
@@ -29,6 +29,25 @@ fn items_single_click_activation() -> Result<()> {
     assert!(items.single_click_activation()?);
     items.set_single_click_activation(false)?;
     assert!(!items.single_click_activation()?);
+    Ok(())
+}
+#[test]
+fn adaptive_pane_contract() -> Result<()> {
+    let window = Window::new("Docked panes", 400., 300.)?;
+    let layout = window.adaptive_layout("Workspace", &*window.stack(Axis::Vertical)?, &*window.stack(Axis::Vertical)?)?;
+    assert_eq!(layout.presentation()?, AdaptivePresentation::Responsive);
+    assert_eq!(layout.navigation_side()?, NavigationSide::Left);
+    assert!(layout.navigation_open()?);
+    assert!(!layout.dismiss_on_focus_outside()?);
+    for presentation in [AdaptivePresentation::InlinePane, AdaptivePresentation::Overlay, AdaptivePresentation::Responsive] {
+        layout.set_presentation(presentation)?;
+        assert_eq!(layout.presentation()?, presentation);
+    }
+    layout.set_navigation_side(NavigationSide::Right)?;
+    layout.set_dismiss_on_focus_outside(true)?;
+    layout.set_navigation_open(false)?;
+    assert_eq!(layout.navigation_side()?, NavigationSide::Right);
+    assert!(layout.dismiss_on_focus_outside()? && !layout.navigation_open()?);
     Ok(())
 }
 #[test]
@@ -298,7 +317,16 @@ fn shell_image_and_open_icon() -> Result<()> {
     button.set_icon(ButtonIcon::ChevronRight)?;
     assert_eq!(button.feature_get(45)?.first, 29);
     assert_eq!(ButtonIcon::from_native(29)?, ButtonIcon::ChevronRight);
-    assert!(ButtonIcon::from_native(33).is_err());
+    for icon in [ButtonIcon::Pin, ButtonIcon::PinFilled] {
+        button.set_icon(icon)?;
+        assert_eq!(ButtonIcon::from_native(button.feature_get(45)?.first)?, icon);
+    }
+    assert!(!button.vertical_text()?);
+    button.set_vertical_text(true)?;
+    assert!(button.vertical_text()?);
+    button.set_vertical_text(false)?;
+    assert!(!button.vertical_text()?);
+    assert!(ButtonIcon::from_native(35).is_err());
     Ok(())
 }
 #[test]

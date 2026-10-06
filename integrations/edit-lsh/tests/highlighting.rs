@@ -73,6 +73,19 @@ fn expect(source: &str, checks: &[(usize, &str, &str)]) {
 }
 
 #[test]
+fn adaptive_pane_node_and_arguments() {
+    expect(
+        "view {\nAdaptiveLayout(\"Pane\", presentation: Mode, navigationSide: Side, dismissOnFocusOutside: true) {\nText(\"Navigation\"); Text(\"Content\");\n}\n}",
+        &[
+            (1, "AdaptiveLayout", "storage.type"),
+            (1, "presentation", "variable"),
+            (1, "navigationSide", "variable"),
+            (1, "dismissOnFocusOutside", "variable"),
+        ],
+    );
+}
+
+#[test]
 fn reveal_node_and_arguments() {
     expect(
         "view {\nReveal(\"Find\", open: FindOpen, duration: 180) {\nHStack() { TextInput(\"Find\"); }\n}\n}",

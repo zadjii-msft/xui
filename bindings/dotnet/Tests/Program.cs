@@ -111,8 +111,16 @@ internal static class Tests
             var image = w.Image("Image").FixedSize(100, 100).Source("");
             var open = w.Button("Open selected file").SetIcon(ButtonIcon.Open);
             Assert((uint)ButtonIcon.Drive == 21 && (uint)ButtonIcon.Open == 22 && open.Icon == ButtonIcon.Open);
-            Throws<XuiException>(() => open.SetIcon((ButtonIcon)33));
+            Throws<XuiException>(() => open.SetIcon((ButtonIcon)35));
             Assert(open.Icon == ButtonIcon.Open);
+            foreach (var pin in new[] { ButtonIcon.Pin, ButtonIcon.PinFilled })
+            {
+                Assert(ReferenceEquals(open, open.SetIcon(pin)) && open.Icon == pin);
+            }
+            Assert(!open.VerticalText);
+            Assert(ReferenceEquals(open, open.SetVerticalText(true)) && open.VerticalText);
+            open.VerticalText = false;
+            Assert(!open.VerticalText && open.Text == "Open selected file");
             Assert(ReferenceEquals(image, image.Source("")));
             Assert(ReferenceEquals(image, image.ShellSource(".", 160, 160)));
             Assert(image.Status == ImageStatus.Loading);

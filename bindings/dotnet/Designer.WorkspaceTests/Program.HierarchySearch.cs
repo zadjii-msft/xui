@@ -134,8 +134,8 @@ internal static partial class Program
                 await Ready();
                 await Ui(() =>
                 {
-                    Require(hierarchy.Layout.Query.Text == "Button" && hierarchy.Key(Save()) != oldKey,
-                        "A new hierarchy revision retains the query but retires every old native key.");
+                    Require(hierarchy.Layout.Query.Text == "Button" && hierarchy.Key(Save()) == oldKey,
+                        "A comment-only revision retains unchanged rows while rebinding their current source nodes.");
                     hierarchy.MoveSearch();
                     Require(ReferenceEquals(hierarchy.Selection, Save()) && hierarchy.Tree.Selection.Focused == hierarchy.Key(Save()),
                         "Retained queries navigate only nodes from the new revision.");
