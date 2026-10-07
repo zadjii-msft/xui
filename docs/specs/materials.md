@@ -136,21 +136,66 @@ Disabled transparency effects and high contrast paint the solid fallback color.
 So does a graphics target that cannot supply Direct2D effects.
 The blur runs only during a paint. Large acrylic areas increase the cost of every repaint of the window.
 
+## Experimental composition presentation
+
+A composition window can show Desktop Acrylic inside any rounded `Stack`, including on a transparent card.
+This presentation is experimental and opt-in. Its API and behavior can change.
+
+```cpp
+xui::WindowOptions options{L"Quick note", {440, 240}};
+options.transparent = true;
+options.composition = true;
+xui::Window window(options);
+
+auto card = std::make_shared<xui::Stack>(xui::Axis::vertical);
+card->set_material(xui::SurfaceMaterial::backdrop_acrylic);
+xui::PartStyleValues shape;
+shape.corner_radius = 28.0f;
+card->set_control_style_values(xui::StylePart::root, shape);
+```
+
+`WindowOptions::composition` or `Window::set_composition(true)` must be chosen before Show.
+The window then renders through a Direct2D composition swap chain instead of the default HWND target.
+Each `SurfaceMaterial::backdrop_acrylic` stack clears its pixels and places a Windows composition backdrop visual beneath them.
+The visual blurs whatever is behind the window and follows the stack's bounds, rounded corners, and enclosing clips.
+Its tint follows the light or dark theme.
+
+On a transparent composition window, unpainted pixels show the desktop.
+The window is a frameless, non-layered window without a DWM border or rounded corners.
+Its window region follows the painted surfaces and controls, so the empty margins pass pointer input through.
+`Window::set_drag_region` still marks a caption drag area.
+
+Native text editors remain native child windows.
+XUI makes them layered children so that they stay visible above the composition content.
+Layered child windows require a Windows 8 or later compatibility entry in the application manifest; without it, creating the editor fails with an explicit error.
+
+Restrictions:
+
+- A composition window cannot also request a system backdrop.
+- `RuntimeHost` (media and web content) and `SwapChainPanel` are not supported in a composition window and fail when created.
+- Text uses grayscale antialiasing.
+- Without a composition window, or with transparency effects off, `backdrop_acrylic` paints in-app acrylic or its solid fallback.
+- High contrast paints the solid fallback.
+
+Windows that do not opt in keep the default presentation.
+The [composition decision report](../llm/architecture.md#composition-presentation-prototype) records the measured cost of both paths.
+
 ## Bindings
 
-| Language | Window backdrop | Acrylic surface |
-| --- | --- | --- |
-| C++ | `WindowOptions::backdrop`, `Window::set_backdrop`, `backdrop_active` | `Stack::set_material` |
-| C ABI | `xui_window_backdrop_set`, `xui_window_backdrop_get` | `xui_stack_material` |
-| C# | `Window.SetBackdrop`, `Backdrop`, `BackdropActive` | `Stack.Material` |
-| Rust | Not available | Not available |
-| `.xui` | Not available | Not available |
+| Language | Window backdrop | Acrylic surface | Composition presentation |
+| --- | --- | --- | --- |
+| C++ | `WindowOptions::backdrop`, `Window::set_backdrop`, `backdrop_active` | `Stack::set_material` | `WindowOptions::composition`, `Window::set_composition` |
+| C ABI | `xui_window_backdrop_set`, `xui_window_backdrop_get` | `xui_stack_material` | `xui_window_composition` |
+| C# | `Window.SetBackdrop`, `Backdrop`, `BackdropActive` | `Stack.Material` | `Window.SetComposition` |
+| Rust | Not available | Not available | Not available |
+| `.xui` | Not available | Not available | Not available |
 
 The C functions are in `xui_layout.h`.
 `xui_window_backdrop_set` accepts `XUI_BACKDROP_NONE`, `XUI_BACKDROP_MICA`, `XUI_BACKDROP_MICA_ALT`, and `XUI_BACKDROP_ACRYLIC`.
-It returns `XUI_INVALID_ARGUMENT` for another value, or to add a backdrop to a layered transparent window that is already shown.
+It returns `XUI_INVALID_ARGUMENT` for another value, to add a backdrop to a layered transparent window that is already shown, or for a composition window.
 `xui_window_backdrop_get` writes the request and the active state; either output can be null.
-`xui_stack_material` accepts `XUI_MATERIAL_SOLID` and `XUI_MATERIAL_ACRYLIC`.
+`xui_stack_material` accepts `XUI_MATERIAL_SOLID`, `XUI_MATERIAL_ACRYLIC`, and `XUI_MATERIAL_BACKDROP_ACRYLIC`.
+`xui_window_composition` accepts 0 or 1 before Show/Run. It returns `XUI_INVALID_ARGUMENT` while a system backdrop is requested and `XUI_BUSY` afterward.
 
 ```csharp
 window.SetBackdrop(WindowBackdrop.Mica);
@@ -166,3 +211,5 @@ Start the gallery with `--backdrop mica`, `--backdrop mica-alt`, or `--backdrop 
 `xui_backdrop_window_tests` checks the acrylic pixels, fallback, clipping, DWM attributes, and opaque native pixels.
 The C ABI and C# window tests cover argument validation, threading, and runtime changes.
 `xui_backdrop_window_tests` needs an unlocked interactive desktop for its window captures.
+`xui_composition_window_tests` checks a transparent composition card over a striped window: blurred stripe edges inside the rounded card, click-through margins and corners, a layered native editor that still edits, and resizing.
+The [floating C# card](../../bindings/dotnet/FloatingCard/README.md) shows the composition card with `--composition`.

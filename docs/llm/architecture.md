@@ -206,6 +206,80 @@ Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Pre
 - Afterwards, screen captures of XUI windows over a striped test window showed real Desktop Acrylic: blurred, saturated stripe edges behind both an ordinary captioned window and the material card. The frameless `WS_POPUP` still showed only `#545454`; the captioned frame with its non-client area removed showed the blur. With `-1` margins the card also showed DWM caption buttons; the bottom-band margins removed them.
 - Single-pixel samples at stripe centers can look nearly unchanged under dark acrylic, because blurring a wide uniform stripe preserves its color. Use edge softness, not center pixels, to judge the blur.
 
+## Composition presentation prototype
+
+Status: experimental, opt-in (`WindowOptions::composition`). Classic windows are unchanged.
+The [public contract](../specs/materials.md#experimental-composition-presentation) describes the API and restrictions.
+
+### Why a separate presentation
+
+DWM system backdrops fill the whole window rectangle, and a window region makes DWM fall back to its flat color.
+In-app acrylic (`Drawing::acrylic`) can only blur pixels the window has already painted.
+A `Windows.UI.Composition` `HostBackdropBrush` blurs the desktop in any clipped shape, but a composition tree attached with `CreateDesktopWindowTarget` always composes above the HWND's redirection surface, even with `isTopmost=FALSE`.
+A probe confirmed that a Direct2D HWND target drawn on that surface disappears under the backdrop visual.
+So the window content must itself be a composition visual: a premultiplied swap chain above the backdrop sprites, in a `WS_EX_NOREDIRECTIONBITMAP` window.
+
+### Source map
+
+- `src\composition_presenter.{hpp,cpp}`: the only C++/WinRT code. Lazily creates a CoreMessaging `DispatcherQueue`, a `Compositor`, a `DesktopWindowTarget`, a backdrop container of `HostBackdropBrush` sprites (rounded `RectangleClip` and a tint child), and a content sprite whose surface brush wraps the swap chain. Content uses `RelativeSizeAdjustment` so a resize needs no composition commit; an explicit `Size` made every resize show one stale frame.
+- `src\drawing.cpp`: `begin_composition` creates a D3D11 device (`d3d11.dll` resolved with `LoadLibraryExW` on first use), a D2D device context, and a `FLIP_SEQUENTIAL` composition swap chain with premultiplied alpha. Resizes release the target bitmap before `ResizeBuffers`. `backdrop_hole` suspends the clip/layer stack, clips to the visible pixels, and clears the rounded area with `D2D1_PRIMITIVE_BLEND_COPY`; a COPY fill inside a rounded-clip layer only clears the layer, which then blends over the parent (found in review).
+- `src\application.cpp`: `options.composition` selects `begin_composition`; `present_composition` mirrors the frame's holes into the presenter after `Present`. `composition_card()` windows reuse the hidden-caption frame, square corners and no DWM border (`platform::composition_frame`), and a `SetWindowRgn` built from painted surfaces and controls (`add_hit_shape`, `apply_hit_region`, keyed by DPI). Composition cards paint once before show so the hit region exists before the first input.
+- `platform::layered_child` makes EDIT, RichEdit, and date/time peers layered: without a redirection surface, only layered children show their pixels. This needs a Windows 8+ compatibility manifest; `demo\xui.manifest` has one.
+- `RuntimeHost` and `SwapChainPanel` are rejected in composition windows.
+- Linking: `xui_windows` links `runtimeobject` for WinRT activation. `windowsapp` was tried first and pulled about 30 `api-ms-win-core-*` imports into `xui.dll`. With `runtimeobject`, `xui.dll` gains only `api-ms-win-core-winrt-l1-1-0` and `api-ms-win-core-winrt-error-l1-1-1`; CoreMessaging and Direct3D 11 load on demand.
+
+Known gaps (October 6, 2026): popups, overlay surfaces, and native menus are untested in composition windows. Device-loss recovery reuses the generation counter but has not been exercised. A review flagged `TextInput` caption `STATIC` children as invisible without a redirection surface; that does not apply, because `paint_edit` draws the caption text in the frame and the `STATIC` only supplies the accessible name (the test card shows its caption).
+
+### Measurements (October 6, 2026)
+
+Machine: Windows 11 build 26200, AMD Radeon 780M, 120 DPI, x64 Release, Visual Studio 2022 Preview. Desktop unlocked, transparency effects on.
+Baseline: commit `6353a24f` built in a separate worktree with the same probe source (`XUI_PROBE_BASELINE` removes the composition option).
+Tool: `tests\composition_probe.cpp` (one configuration per process) driven by `tests\measure-composition.ps1` with `-Runs 8 -Sizes 800x600,1600x1000 -ResizeCycles 40 -HoldSeconds 8`; configurations alternate in ABBA order. Values are medians of 8 processes.
+Workload: WinUI window, heading, a rounded panel with six labels, a native editor, and a button. `classic` uses a solid surface panel; `classic-acrylic` uses in-app acrylic; `composition` uses backdrop acrylic; `composition-card` is the transparent card form.
+
+Opt-out cost (classic windows, prototype vs baseline):
+
+| Measure | 800×600 baseline | 800×600 prototype | 1600×1000 baseline | 1600×1000 prototype |
+| --- | --- | --- | --- | --- |
+| Paint, Mcycles per full repaint | 13.22 | 13.32 | 14.39 | 14.10 |
+| Paint p95, ms (vsync-bound) | 18.27 | 18.10 | 18.14 | 18.34 |
+| Resize p50 / p95, ms | 31.7 / 47.8 | 32.0 / 62.7 | 30.6 / 34.2 | 30.6 / 33.4 |
+| Private commit shown / after 40 resizes, MiB | 41.6 / 50.2 | 41.3 / 49.9 | 56.5 / 80.4 | 56.1 / 80.0 |
+| GPU local memory, MiB | 23.2 | 23.2 | 44.0 | 44.0 |
+| Threads / loaded modules | 20 / 48 | 20 / 48 | 20 / 48 | 20 / 48 |
+| Idle paints in 2 s | 0 | 0 | 0 | 0 |
+
+`xui.dll` grew from 2,915,328 to 2,949,120 bytes (+33 KB; this includes the earlier backdrop work). Classic windows load no new modules (CoreMessaging absent, same module count). The single 800×600 resize p95 outlier (62.7 ms) is within run-to-run noise: the same configuration's 1600×1000 p95 is below baseline, and its resize Mcycles (71.4 vs 65.3) overlap the baseline spread. In-app acrylic (`classic-acrylic`) matches its baseline too.
+
+Opt-in cost (composition vs classic, prototype):
+
+| Measure | classic 800×600 | composition 800×600 | classic 1600×1000 | composition 1600×1000 |
+| --- | --- | --- | --- | --- |
+| First paint, ms from launch | 210 | 245 | 192 | 199 |
+| Paint, Mcycles per full repaint | 13.32 | 16.08 (+21%) | 14.10 | 15.19 (+8%) |
+| Paint p50 / p95, ms | 16.6 / 18.1 | 16.6 / 17.7 | 16.6 / 18.3 | 16.6 / 18.2 |
+| Resize p50 / p95 / max, ms | 32.0 / 62.7 / 84.4 | 31.7 / 47.5 / 55.6 | 30.6 / 33.4 / 40.4 | 30.1 / 44.4 / 46.2 |
+| Resize Mcycles per step | 71.4 | 66.6 | 47.8 | 49.2 |
+| Private commit shown / after resizes, MiB | 41.3 / 49.9 | 40.3 / 45.3 | 56.1 / 80.0 | 46.7 / 56.5 |
+| GPU local memory shown / after resizes, MiB | 23.2 / 25.5 | 20.1 / 20.6 | 44.0 / 46.5 | 35.9 / 39.9 |
+| Threads / modules | 20 / 48 | 22 / 53 | 20 / 48 | 22 / 53 |
+| Idle Mcycles in 2 s / idle paints | 5.2 / 0 | 6.0 / 0 | 4.3 / 0 | 5.6 / 0 |
+| Resize frames with stale edge or missing backdrop (20 steps × 8 runs) | 0 | 0 | 0 | 0 |
+
+The composition card form (`composition-card`) matched `composition` within noise (paint 17.4 / 16.9 Mcycles).
+Compared with in-app acrylic on a classic window, backdrop acrylic used less memory at 1600×1000 (46.7 vs 78.9 MiB private, 35.9 vs 63.0 MiB GPU) because the blur runs in the compositor rather than in a per-window Direct2D effect graph.
+
+Compositor load: a 60 Hz full-screen GDI stripe animation behind each window, system-wide 3D engine utilization sampled each second for 6 s, 4 runs per configuration. Medians: none 5.45%, classic 5.42%, composition 5.57%, composition card 5.58% at 800×600; none 7.25%, classic 7.27%, composition 7.30%, composition card 7.50% at 1600×1000. The backdrop blur's added GPU load was within the variance of this counter. The counter is coarse: `dwm.exe` reported no 3D usage of its own, so compositor work is attributed elsewhere (for example `csrss`), and this does not measure frame latency or power.
+
+Method limits: process cycles exclude DWM. Synchronous paint wall time is vsync-bound (~16.6 ms) for both paths, so cycles are the useful paint cost. One machine, one GPU, one DPI. Resize uses `SetWindowPos` from the UI thread, not an interactive drag; interactive live-resize smoothness was not measured. The artifact check samples the newly exposed edge and the panel interior over a solid magenta window after each 8-pixel growth step. The raw JSON was kept outside the repository; rerun the command above to reproduce.
+
+### Decision inputs
+
+- Not opting in costs nothing measurable at runtime; the binary grows by tens of kilobytes and links `runtimeobject`.
+- Opting in costs about 1–3 Mcycles more CPU per full repaint (8–21%), two threads, five modules, and about 35 ms more first-paint time at the smaller size. It saved private and GPU memory compared with classic presentation in this workload.
+- Resizes showed no stale frames after the content sprite switched to relative sizing.
+- The remaining risk is breadth, not cost: captions, popups, menus, native runtime hosts, swap chain panels, device loss, and interactive resize need work or verification before this could be more than an opt-in experiment.
+
 ## Tab drag ownership
 
 `src\application_tab_drag.inc` contains the native title-bar drag session inside `Window::Impl`.

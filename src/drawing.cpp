@@ -886,7 +886,7 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offse
     if (transparent && backdrop) throw std::invalid_argument("A layered window cannot present a system backdrop");
     if (transparent && (size.width > 4096 || size.height > 4096))
         throw std::invalid_argument("Transparent windows support at most 4096 physical pixels per edge");
-    if (target_ && (host_window_ != window || static_cast<bool>(layered_target_) != transparent ||
+    if (target_ && (host_window_ != window || composition_ || static_cast<bool>(layered_target_) != transparent ||
         backdrop_ != backdrop ||
         (transparent && (layered_size_.width != size.width || layered_size_.height != size.height))))
         discard();
@@ -938,15 +938,161 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offse
         RECT bounds{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};
         hr_require(layered_target_->BindDC(layered_dc_, &bounds), "Bind transparent graphics target");
     }
+    start_frame(dpi, background, offset);
+    return true;
+}
+
+void Drawing::start_frame(float dpi, D2D1_COLOR_F background, Point offset) {
     target_->SetDpi(dpi, dpi);
     // ClearType requires opaque destination pixels.
-    if (backdrop_) target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    if (backdrop_ || composition_) target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     target_->BeginDraw();
     clips_.clear();
+    backdrop_holes_.clear();
     offset_ = offset;
     origin(0, 0);
     target_->Clear(background);
     for (auto& scene : scenes_) scene.used = false;
+}
+
+namespace {
+using CreateD3D11Device = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*,
+    UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+// XUI does not link Direct3D 11; composition windows resolve it on first use.
+CreateD3D11Device d3d11_create_device() {
+    static const auto create = [] {
+        const HMODULE module = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        win32_require(module != nullptr, "Load Direct3D 11");
+        const auto function = reinterpret_cast<CreateD3D11Device>(GetProcAddress(module, "D3D11CreateDevice"));
+        win32_require(function != nullptr, "Find D3D11CreateDevice");
+        return function;
+    }();
+    return create;
+}
+bool device_lost(HRESULT result) {
+    return result == D2DERR_RECREATE_TARGET || result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET;
+}
+}
+
+void Drawing::create_composition_target(HWND window, D2D1_SIZE_U size) {
+    const auto create = d3d11_create_device();
+    HRESULT result = create(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        nullptr, 0, D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    if (result == DXGI_ERROR_UNSUPPORTED)
+        result = create(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            nullptr, 0, D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    hr_require(result, "Create composition graphics device");
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
+    hr_require(d3d_device_.As(&dxgi), "Read composition graphics device");
+    Microsoft::WRL::ComPtr<ID2D1Factory1> factory;
+    hr_require(factory_.As(&factory), "Read Direct2D device support");
+    hr_require(factory->CreateDevice(dxgi.Get(), &d2d_device_), "Create Direct2D device");
+    hr_require(d2d_device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &context_),
+        "Create Direct2D device context");
+    context_checked_ = true;
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    hr_require(dxgi->GetAdapter(&adapter), "Read composition adapter");
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory;
+    hr_require(adapter->GetParent(IID_PPV_ARGS(&dxgi_factory)), "Read DXGI factory");
+    DXGI_SWAP_CHAIN_DESC1 description{};
+    description.Width = size.width;
+    description.Height = size.height;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    description.BufferCount = 2;
+    description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    hr_require(dxgi_factory->CreateSwapChainForComposition(d3d_device_.Get(), &description, nullptr, &swap_chain_),
+        "Create composition swap chain");
+    swap_size_ = size;
+    ++swap_generation_;
+    composition_ = true;
+    host_window_ = window;
+    target_ = context_;
+    ++live_targets_;
+}
+
+bool Drawing::bind_swap_target() {
+    Microsoft::WRL::ComPtr<IDXGISurface> surface;
+    HRESULT result = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
+    if (device_lost(result)) return false;
+    hr_require(result, "Read composition back buffer");
+    result = context_->CreateBitmapFromDxgiSurface(surface.Get(), D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &swap_target_);
+    if (device_lost(result)) return false;
+    hr_require(result, "Bind composition back buffer");
+    context_->SetTarget(swap_target_.Get());
+    return true;
+}
+
+bool Drawing::begin_composition(HWND window, float dpi, D2D1_COLOR_F background) {
+    RECT client{};
+    win32_require(GetClientRect(window, &client) != 0, "Read window size");
+    const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
+    if (!size.width || !size.height) return false;
+    if (target_ && (!composition_ || host_window_ != window)) discard();
+    if (!target_) {
+        try {
+            create_composition_target(window, size);
+            hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
+            if (!bind_swap_target()) { discard(); return false; }
+        } catch (...) {
+            discard();
+            throw;
+        }
+    } else if (swap_size_.width != size.width || swap_size_.height != size.height) {
+        // The context must release the back buffer before DXGI resizes it.
+        context_->SetTarget(nullptr);
+        swap_target_.Reset();
+        const HRESULT result = swap_chain_->ResizeBuffers(0, size.width, size.height, DXGI_FORMAT_UNKNOWN, 0);
+        if (device_lost(result)) { discard(); return false; }
+        hr_require(result, "Resize composition swap chain");
+        swap_size_ = size;
+        if (!bind_swap_target()) { discard(); return false; }
+    }
+    start_frame(dpi, background, {});
+    return true;
+}
+
+bool Drawing::backdrop_hole(Rect bounds, float radius) {
+    if (!composition_ || bounds.width <= 0 || bounds.height <= 0) return false;
+    float dpi_x{}, dpi_y{};
+    target_->GetDpi(&dpi_x, &dpi_y);
+    const float scale_x = dpi_x / 96.0f, scale_y = dpi_y / 96.0f;
+    D2D1_MATRIX_3X2_F transform{};
+    target_->GetTransform(&transform);
+    const auto device = [&](float x, float y, const D2D1_MATRIX_3X2_F& matrix) {
+        return POINT{static_cast<LONG>(std::lround((x + matrix._31) * scale_x)),
+            static_cast<LONG>(std::lround((y + matrix._32) * scale_y))};
+    };
+    const auto top_left = device(bounds.x, bounds.y, transform);
+    const auto bottom_right = device(bounds.x + bounds.width, bounds.y + bounds.height, transform);
+    RECT area{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+    RECT visible = area;
+    for (const auto& clip : clips_) {
+        const auto a = device(clip.bounds.left, clip.bounds.top, clip.transform);
+        const auto b = device(clip.bounds.right, clip.bounds.bottom, clip.transform);
+        const RECT limit{a.x, a.y, b.x, b.y};
+        if (!IntersectRect(&visible, &visible, &limit)) return true;
+    }
+    if (IsRectEmpty(&visible)) return true;
+    // A COPY fill inside a layer (rounded clip) only clears the layer, which then blends over the
+    // parent. Clear the target directly, limited to the visible pixels.
+    suspend_clips();
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    target_->PushAxisAlignedClip(D2D1::RectF(visible.left / scale_x, visible.top / scale_y,
+        visible.right / scale_x, visible.bottom / scale_y), D2D1_ANTIALIAS_MODE_ALIASED);
+    target_->SetTransform(transform);
+    context_->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+    brush_->SetColor(D2D1::ColorF(0, 0.0f));
+    if (radius > 0) target_->FillRoundedRectangle(D2D1::RoundedRect(rectangle(bounds), radius, radius), brush_.Get());
+    else target_->FillRectangle(rectangle(bounds), brush_.Get());
+    context_->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    target_->PopAxisAlignedClip();
+    resume_clips();
+    backdrop_holes_.push_back({area, visible, radius * scale_x});
     return true;
 }
 
@@ -1068,6 +1214,11 @@ bool Drawing::end() {
         return false;
     }
     hr_require(result, "Draw window");
+    if (composition_) {
+        const HRESULT presented = swap_chain_->Present(1, 0);
+        if (device_lost(presented)) { discard(); return false; }
+        hr_require(presented, "Present composition frame");
+    }
     if (layered_target_) {
         RECT bounds{};
         win32_require(GetWindowRect(host_window_, &bounds) != 0, "Read transparent window position");
@@ -1113,6 +1264,13 @@ void Drawing::discard() {
     context_.Reset();
     context_checked_ = false;
     backdrop_ = false;
+    swap_target_.Reset();
+    swap_chain_.Reset();
+    d2d_device_.Reset();
+    d3d_device_.Reset();
+    swap_size_ = {};
+    backdrop_holes_.clear();
+    composition_ = false;
     target_.Reset();
     hwnd_target_.Reset();
     layered_target_.Reset();

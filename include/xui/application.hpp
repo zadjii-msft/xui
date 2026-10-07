@@ -64,6 +64,10 @@ struct WindowOptions {
     // Requested system backdrop. With transparent, chosen before show, the window is a borderless
     // non-layered card: unpainted pixels show the material and DWM rounds its corners.
     WindowBackdrop backdrop = WindowBackdrop::none;
+    // Experimental composition presentation: the window renders through a composition swap
+    // chain so SurfaceMaterial::backdrop_acrylic can show the blurred desktop in any shape.
+    // With transparent, the window is a frameless, non-layered card. Fixed before show.
+    bool composition = false;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -171,6 +175,9 @@ public:
     WindowBackdrop backdrop() const;
     // True only while the requested material is applied behind transparent client pixels.
     bool backdrop_active() const;
+    // Experimental. Before show only; see WindowOptions::composition.
+    void set_composition(bool value);
+    bool composition() const;
     // Borrowed HWND, valid on the UI thread only while the Window is open.
     HWND native_window() const;
     // Invoked after HWND creation and before first paint/show. Configure Win32 only;

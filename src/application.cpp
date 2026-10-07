@@ -7,6 +7,7 @@
 #include "native_swap_chain_host.hpp"
 #include "control_accessibility.hpp"
 #include "window_host.hpp"
+#include "composition_presenter.hpp"
 #include "platform.hpp"
 #include "wheel.hpp"
 #include "list_peer.hpp"
@@ -317,12 +318,70 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             throw std::invalid_argument("A transparent window cannot use the XUI title bar");
         if (options.backdrop < WindowBackdrop::none || options.backdrop > WindowBackdrop::acrylic)
             throw std::invalid_argument("Invalid window backdrop");
+        if (options.composition && options.backdrop != WindowBackdrop::none)
+            throw std::invalid_argument("A composition window cannot use a system backdrop");
         if (options.custom_titlebar) titlebar = std::make_shared<TitleBar>(options.title);
     }
     // A transparent window that requests a backdrop at creation is a borderless,
     // non-layered popup: DWM draws the material, rounded corners, and shadow.
     bool material_popup{};
-    bool layered() const { return options.transparent && !material_popup; }
+    // A transparent composition window is frameless and non-layered. Its window region
+    // follows the painted shapes so empty pixels pass pointer input through.
+    bool composition_card() const { return options.composition && options.transparent; }
+    bool frameless() const { return material_popup || composition_card(); }
+    bool layered() const { return options.transparent && !material_popup && !options.composition; }
+    std::unique_ptr<platform::CompositionPresenter> presenter;
+    struct HitShape {
+        Rect bounds; float radius;
+        bool operator==(const HitShape& other) const {
+            return bounds.x == other.bounds.x && bounds.y == other.bounds.y && bounds.width == other.bounds.width &&
+                bounds.height == other.bounds.height && radius == other.radius;
+        }
+    };
+    std::vector<HitShape> hit_shapes, applied_hit_shapes;
+    UINT applied_hit_dpi{};
+    void add_hit_shape(Rect bounds, float radius) {
+        if (composition_card() && bounds.width > 0 && bounds.height > 0) hit_shapes.push_back({bounds, radius});
+    }
+    void apply_hit_region() {
+        if (!composition_card() || (hit_shapes == applied_hit_shapes && applied_hit_dpi == dpi)) return;
+        applied_hit_shapes = hit_shapes;
+        applied_hit_dpi = dpi;
+        if (hit_shapes.empty()) {
+            win32_require(SetWindowRgn(window, nullptr, FALSE) != 0, "Clear composition hit region");
+            return;
+        }
+        const float scale = dpi / 96.0f;
+        HRGN region = CreateRectRgn(0, 0, 0, 0);
+        win32_require(region != nullptr, "Create composition hit region");
+        for (const auto& shape : hit_shapes) {
+            const int left = static_cast<int>(std::floor(shape.bounds.x * scale));
+            const int top = static_cast<int>(std::floor(shape.bounds.y * scale));
+            const int right = static_cast<int>(std::ceil((shape.bounds.x + shape.bounds.width) * scale));
+            const int bottom = static_cast<int>(std::ceil((shape.bounds.y + shape.bounds.height) * scale));
+            const int diameter = static_cast<int>(std::lround(2 * shape.radius * scale));
+            HRGN part = diameter ? CreateRoundRectRgn(left, top, right + 1, bottom + 1, diameter, diameter) :
+                CreateRectRgn(left, top, right, bottom);
+            if (!part) { DeleteObject(region); win32_require(false, "Create composition hit shape"); }
+            CombineRgn(region, region, part, RGN_OR);
+            DeleteObject(part);
+        }
+        if (!SetWindowRgn(window, region, FALSE)) {
+            DeleteObject(region);
+            win32_require(false, "Apply composition hit region");
+        }
+    }
+    void present_composition() {
+        auto& target = root_drawing;
+        const auto size = target.composition_size();
+        std::vector<platform::BackdropRegion> regions;
+        regions.reserve(target.backdrop_holes().size());
+        for (const auto& hole : target.backdrop_holes()) regions.push_back({hole.bounds, hole.visible, hole.radius});
+        presenter->update(target.composition_swap_chain(), target.composition_generation(),
+            SIZE{static_cast<LONG>(size.width), static_cast<LONG>(size.height)}, regions,
+            palette.mode == ThemeMode::light ? 0x99f3f3f3u : 0x8c202020u);
+        apply_hit_region();
+    }
     // The DWM type currently applied, and whether client pixels expose it.
     DWORD backdrop_type{};
     bool backdrop_presented{}, transparency_effects{true};
@@ -341,7 +400,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const DWORD type = desired_backdrop_type();
         bool presented = backdrop_presented;
         if (type != backdrop_type) {
-            presented = (type || backdrop_type) && platform::system_backdrop(window, type, titlebar != nullptr || material_popup);
+            presented = (type || backdrop_type) && platform::system_backdrop(window, type, titlebar != nullptr || frameless());
             backdrop_type = presented ? type : 0;
         }
         if (presented == backdrop_presented) return;
@@ -1078,6 +1137,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     dynamic_cast<MenuBar*>(peer->control.get()) || dynamic_cast<MenuBar::Heading*>(peer->control.get()) ?
                 create_workspace_provider(peer->accessibility) : create_control_provider(peer->accessibility);
         }
+        if (options.composition && (dynamic_cast<RuntimeHost*>(peer->control.get()) || dynamic_cast<SwapChainPanel*>(peer->control.get())))
+            throw std::invalid_argument("Composition windows do not support native runtime hosts or swap chain panels");
         if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer->control))
             peer->runtime = std::make_unique<NativeRuntimeHost>(runtime, peer->window, [this] { fail(); }, [this] {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
@@ -1089,6 +1150,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     [](const auto* layout) { return layout->overlay_active(); });
             });
         if (backdrop_presented && (peer->edit || peer->document)) platform::opaque_native_paint(peer->window, true);
+        if (options.composition && (peer->edit || peer->document)) platform::layered_child(peer->window);
         prepare_popup_surface(*peer);
         if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
             const std::weak_ptr<Impl> weak = shared_from_this();
@@ -1833,18 +1895,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto extent = [](float value, int fallback) {
             return std::isfinite(value) && value > 0 ? static_cast<int>(std::clamp(value, 240.0f, 16000.0f)) : fallback;
         };
-        material_popup = options.transparent && options.backdrop != WindowBackdrop::none;
+        material_popup = options.transparent && options.backdrop != WindowBackdrop::none && !options.composition;
         // DWM draws only the solid fallback behind a frameless WS_POPUP. A captioned frame whose
         // non-client area is removed in WM_NCCALCSIZE receives the live material.
-        const DWORD frame = material_popup ? WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX :
+        const DWORD frame = frameless() ? WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX :
             options.transparent ? WS_POPUP : WS_OVERLAPPEDWINDOW;
         const DWORD style = frame | WS_CLIPCHILDREN |
             (initial_placement && initial_placement->maximized ? WS_MAXIMIZE : 0);
-        const DWORD ex_style = WS_EX_CONTROLPARENT | (layered() ? WS_EX_LAYERED : 0);
+        // A composition window has no redirection surface; its visual tree supplies every pixel.
+        const DWORD ex_style = WS_EX_CONTROLPARENT | (layered() ? WS_EX_LAYERED : 0) |
+            (options.composition ? WS_EX_NOREDIRECTIONBITMAP : 0);
         const UINT initial_dpi = GetDpiForSystem();
         RECT outer{0, 0, MulDiv(extent(options.size.width, 600), initial_dpi, 96),
             MulDiv(extent(options.size.height, 520), initial_dpi, 96)};
-        if (!material_popup)
+        if (!frameless())
             win32_require(AdjustWindowRectExForDpi(&outer, style, FALSE, ex_style, initial_dpi) != 0, "Size application window");
         window = CreateWindowExW(ex_style, window_class, options.title.c_str(),
             style, initial_placement ? initial_placement->x : CW_USEDEFAULT,
@@ -1854,11 +1918,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             nullptr, GetModuleHandleW(nullptr), this);
         win32_require(window != nullptr, "Create application window");
         dpi = GetDpiForWindow(window);
-        if (material_popup) {
-            platform::round_corners(window);
-            win32_require(SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                SWP_NOACTIVATE | SWP_FRAMECHANGED) != 0, "Remove the material window frame");
+        if (options.composition) {
+            platform::composition_frame(window, composition_card());
+            presenter = std::make_unique<platform::CompositionPresenter>(window);
         }
+        if (material_popup) platform::round_corners(window);
+        if (frameless())
+            win32_require(SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                SWP_NOACTIVATE | SWP_FRAMECHANGED) != 0, "Remove the window frame");
         if (auto configure = std::move(native_created)) configure(window);
         if (icon_configured) apply_icons(file_type_icons(icon_extension, icon_directory, dpi));
         if (titlebar) {
@@ -1880,7 +1947,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         apply_theme();
         layout_pending = true;
         update();
-        if (layered()) paint();
+        if (layered() || composition_card()) paint();
         if (!options.show_activated && moving_tabs && moving_tabs->window && moving_tabs != this &&
             moving_tabs->application.lock() == application.lock())
             win32_require(SetWindowPos(window, moving_tabs->window, 0, 0, 0, 0,
@@ -2718,19 +2785,28 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     using SubtreePaint = std::function<void(Peer*)>;
     void paint_surfaces(const Stack& stack, const SubtreePaint& paint_peer = {},
         std::uint64_t owner = 0, const AdaptiveLayout* adaptive = nullptr) {
-        if (stack.material() == SurfaceMaterial::acrylic) {
+        if (stack.material() != SurfaceMaterial::solid) {
             const auto* style = stack.effective_control_style_values(StylePart::root);
             const float radius = palette.high_contrast ? 0.0f : style && style->corner_radius ? *style->corner_radius :
                 style_metrics(palette.style).surface_radius;
-            drawing().acrylic(stack.bounds(), palette, radius, transparency_effects);
+            // Without a composition window, or without transparency effects, backdrop acrylic
+            // falls back to the in-app material or its solid color.
+            const bool backdrop = stack.material() == SurfaceMaterial::backdrop_acrylic && options.composition &&
+                transparency_effects && !palette.high_contrast;
+            if (!(backdrop && drawing().backdrop_hole(stack.bounds(), radius)))
+                drawing().acrylic(stack.bounds(), palette, radius, transparency_effects);
             if (style) drawing().styled_surface(stack.bounds(), palette, *style, D2D1::ColorF(0, 0.0f),
                 palette.border, radius, {1, 1, 1, 1});
             else drawing().rounded(stack.bounds(), palette.border, radius, true);
+            add_hit_shape(stack.bounds(), radius);
         } else if (const auto* style = stack.effective_control_style_values(StylePart::root)) {
             drawing().styled_surface(stack.bounds(), palette, *style, stack.surface() ? palette.surface : D2D1::ColorF(0, 0.0f),
                 palette.border, stack.surface() ? 4.0f : 0.0f, stack.surface() ? Insets{1, 1, 1, 1} : Insets{});
+            if (stack.surface() || style->background)
+                add_hit_shape(stack.bounds(), palette.high_contrast ? 0.0f : style->corner_radius.value_or(stack.surface() ? 4.0f : 0.0f));
         } else if (stack.surface()) {
             drawing().surface_frame(stack.bounds(), palette);
+            add_hit_shape(stack.bounds(), style_metrics(palette.style).surface_radius);
         }
         if (const auto* style = stack.effective_separator_style()) {
             const bool dialog_footer = palette.style == VisualStyle::winui && std::any_of(popups.begin(), popups.end(),
@@ -2801,6 +2877,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             paint_content_surface(split->second(), paint_peer, owner, adaptive);
             drawing().pop_clip();
         } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
+            if (control->visible()) add_hit_shape(control->bounds(), 0);
             drawing().push_clip(control->bounds());
             if (control->visible() && (dynamic_cast<NavigationView*>(control.get()) || dynamic_cast<NavigationPane*>(control.get()) ||
                 dynamic_cast<Breadcrumb*>(control.get()) || dynamic_cast<CommandBar*>(control.get()) ||
@@ -2887,9 +2964,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         OutputDebugStringW(L"XUI: Cannot restore native caret presentation.\n");
                 }
             } caret(window);
-            if (drawing().begin(window, static_cast<float>(dpi),
-                (layered() && !palette.high_contrast) || backdrop_presented ? D2D1::ColorF(0, 0.0f) : palette.background,
-                {}, layered(), backdrop_presented)) {
+            if (options.composition) hit_shapes.clear();
+            const bool begun = options.composition ?
+                drawing().begin_composition(window, static_cast<float>(dpi),
+                    options.transparent && !palette.high_contrast ? D2D1::ColorF(0, 0.0f) : palette.background) :
+                drawing().begin(window, static_cast<float>(dpi),
+                    (layered() && !palette.high_contrast) || backdrop_presented ? D2D1::ColorF(0, 0.0f) : palette.background,
+                    {}, layered(), backdrop_presented);
+            if (begun) {
                 Peer* external_focus{};
                 if (palette.style == VisualStyle::winui && keyboard_focus_visible)
                     for (const auto& peer : peers)
@@ -3163,6 +3245,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                 }
                 redraw = !composed || !drawing().end();
+                if (!redraw && options.composition && presenter) present_composition();
                 if (composed && !closing) for (const auto& [entry, generation] : popup_frames) {
                     auto* surface = find_peer(entry.popup.get());
                     if (closing || !surface || !surface->overlay_drawing || !entry.popup->current(generation)) continue;
@@ -5927,8 +6010,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     LRESULT message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         if (auto result = inspect_pointer(hwnd, message, wparam, lparam)) return *result;
-        if (material_popup && message == WM_NCCALCSIZE) return 0;
-        if (material_popup && message == WM_NCHITTEST) return window && drag_hit(lparam) ? HTCAPTION : HTCLIENT;
+        if (frameless() && message == WM_NCCALCSIZE) return 0;
+        if (frameless() && message == WM_NCHITTEST) return window && drag_hit(lparam) ? HTCAPTION : HTCLIENT;
         if (titlebar && message == WM_NCCALCSIZE && wparam) {
             auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
             const auto top = params.rgrc[0].top;
@@ -6223,6 +6306,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == 30) return static_cast<LRESULT>(drawing().native_buffer_bytes());
             if (wparam == 31) return static_cast<LRESULT>(drawing().native_bitmap_bytes());
             if (wparam == 32) return static_cast<LRESULT>(drawing().scene_paths());
+            if (wparam == 39) return static_cast<LRESULT>(presenter ? presenter->backdrop_visuals() : 0);
+            if (wparam == 40) return options.composition && presenter ? 1 : 0;
             if (wparam == 22 || wparam == 23) {
                 std::size_t count{};
                 for (const auto& peer : peers) if (peer->list)
@@ -6287,6 +6372,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (auto& task : samples) task->cancel();
             ready = false;
             drawing().discard();
+            presenter.reset();
             for (auto& task : tasks) task->cancel();
             detach();
             if (!application_managed) {
@@ -6595,6 +6681,8 @@ void Window::set_backdrop(WindowBackdrop backdrop) {
     // The layered presentation is chosen when the HWND is created.
     if (backdrop != WindowBackdrop::none && impl_->used && impl_->layered())
         throw std::invalid_argument("A shown layered window cannot add a system backdrop");
+    if (backdrop != WindowBackdrop::none && impl_->options.composition)
+        throw std::invalid_argument("A composition window cannot use a system backdrop");
     if (impl_->options.backdrop == backdrop) return;
     impl_->options.backdrop = backdrop;
     if (impl_->ready && impl_->window) impl_->apply_theme();
@@ -6603,6 +6691,14 @@ WindowBackdrop Window::backdrop() const { return impl_->options.backdrop; }
 bool Window::backdrop_active() const {
     return impl_->backdrop_presented && impl_->ready && impl_->window && !impl_->closing;
 }
+void Window::set_composition(bool value) {
+    if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Set composition on the Window UI thread");
+    if (impl_->used || impl_->closing) throw std::logic_error("Set composition before showing the Window");
+    if (value && impl_->options.backdrop != WindowBackdrop::none)
+        throw std::invalid_argument("A composition window cannot use a system backdrop");
+    impl_->options.composition = value;
+}
+bool Window::composition() const { return impl_->options.composition; }
 HWND Window::native_window() const {
     if (GetCurrentThreadId() != impl_->owner_thread) throw std::logic_error("Read native window on the Window UI thread");
     if (!impl_->ready || impl_->closing || !impl_->window) throw std::logic_error("The native window is not open");

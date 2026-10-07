@@ -5,8 +5,9 @@ namespace Xui;
 /// <summary>Windows 11 system material behind unpainted client pixels.</summary>
 public enum WindowBackdrop : uint { None, Mica, MicaAlt, Acrylic }
 
-/// <summary>The material painted by a <see cref="Stack"/> surface.</summary>
-public enum SurfaceMaterial : uint { Solid, Acrylic }
+/// <summary>The material painted by a <see cref="Stack"/> surface. BackdropAcrylic blurs the desktop
+/// behind a composition window (<see cref="Window.SetComposition"/>) and otherwise paints Acrylic.</summary>
+public enum SurfaceMaterial : uint { Solid, Acrylic, BackdropAcrylic }
 
 public sealed partial class Window
 {
@@ -33,6 +34,16 @@ public sealed partial class Window
     {
         get { Guard(); Check(Native.WindowBackdropGet(Handle, out _, out var active)); return active != 0; }
     }
+
+    /// <summary>Experimental. Before Show or Run, renders through a composition swap chain so
+    /// <see cref="SurfaceMaterial.BackdropAcrylic"/> can take any shape. With
+    /// <see cref="SetTransparent"/>, the window is a frameless card whose painted shapes receive input.</summary>
+    public Window SetComposition(bool enabled = true)
+    {
+        Guard();
+        Check(Native.WindowComposition(Handle, enabled ? 1u : 0u));
+        return this;
+    }
 }
 
 internal static partial class Native
@@ -43,4 +54,6 @@ internal static partial class Native
     internal static partial int WindowBackdropGet(ulong window, out uint backdrop, out uint active);
     [LibraryImport("xui", EntryPoint = "xui_stack_material")]
     internal static partial int StackMaterial(ulong stack, uint material);
+    [LibraryImport("xui", EntryPoint = "xui_window_composition")]
+    internal static partial int WindowComposition(ulong window, uint enabled);
 }

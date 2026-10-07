@@ -58,11 +58,17 @@ XUI_API xui_status XUI_CALL xui_window_backdrop_set(xui_handle window, uint32_t 
 XUI_API xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdrop, uint32_t* active) XUI_NOEXCEPT;
 typedef enum xui_surface_material {
     XUI_MATERIAL_SOLID = 0,
-    XUI_MATERIAL_ACRYLIC = 1
+    XUI_MATERIAL_ACRYLIC = 1,
+    XUI_MATERIAL_BACKDROP_ACRYLIC = 2
 } xui_surface_material;
 /* Acrylic paints a surface that blurs and tints the window pixels behind the stack.
-   Disabled transparency effects and high contrast use a solid surface. */
+   Backdrop acrylic blurs the desktop behind the window; it needs a composition window
+   and otherwise paints acrylic. Disabled transparency effects and high contrast use a solid surface. */
 XUI_API xui_status XUI_CALL xui_stack_material(xui_handle stack, uint32_t material) XUI_NOEXCEPT;
+/* Experimental. Before Show/Run: 1 renders through a composition swap chain so backdrop
+   acrylic can take any shape. Incompatible with a system backdrop. With xui_window_transparent,
+   the window is a frameless card whose painted shapes receive input. */
+XUI_API xui_status XUI_CALL xui_window_composition(xui_handle window, uint32_t enabled) XUI_NOEXCEPT;
 /* Pane bounds determine the tab bands after each content layout. The OS window
    title is independent of show_title. Pane handles must belong to the window. */
 XUI_API xui_status XUI_CALL xui_window_titlebar_layout(xui_handle window,

@@ -164,6 +164,7 @@ if(WIN32)
         src/suggestion_worker.cpp
         src/suggestion_peer.cpp
         src/window_host.cpp
+        src/composition_presenter.cpp
         src/application.cpp
         src/list_peer.cpp
         src/context_menu.cpp
@@ -177,7 +178,7 @@ if(WIN32)
         src/images.cpp
         )
     target_link_libraries(xui_windows PUBLIC xui_core
-        d2d1 dxguid dwrite dwmapi dcomp uiautomationcore ole32 oleaut32 comctl32 shell32 user32 gdi32 windowscodecs uxtheme mfuuid)
+        d2d1 dxguid dwrite dwmapi dcomp uiautomationcore ole32 oleaut32 comctl32 shell32 user32 gdi32 windowscodecs uxtheme mfuuid runtimeobject)
     option(XUI_ENABLE_WEBVIEW2 "Enable the optional WebView2 host (requires an explicit SDK path)" OFF)
     set(XUI_WEBVIEW2_SDK_DIR "" CACHE PATH "Extracted Microsoft.Web.WebView2 1.0.2903.40 package")
     if(XUI_ENABLE_WEBVIEW2)
@@ -210,6 +211,14 @@ if(WIN32)
         target_link_libraries(xui_backdrop_window_tests PRIVATE xui_windows d3d11 dxgi windowsapp)
         target_compile_options(xui_backdrop_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         target_link_options(xui_backdrop_window_tests PRIVATE /MANIFEST:NO)
+        add_executable(xui_composition_window_tests tests/composition_window_tests.cpp demo/xui.rc)
+        target_link_libraries(xui_composition_window_tests PRIVATE xui_windows)
+        target_compile_options(xui_composition_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_composition_window_tests PRIVATE /MANIFEST:NO)
+        add_executable(xui_composition_probe EXCLUDE_FROM_ALL tests/composition_probe.cpp demo/xui.rc)
+        target_link_libraries(xui_composition_probe PRIVATE xui_windows psapi dxgi dwmapi)
+        target_compile_options(xui_composition_probe PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_composition_probe PRIVATE /MANIFEST:NO)
         add_executable(xui_navigation_animation_window_tests tests/navigation_animation_window_tests.cpp demo/xui.rc)
         target_link_libraries(xui_navigation_animation_window_tests PRIVATE xui_windows d3d11 dxgi windowsapp)
         target_compile_options(xui_navigation_animation_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
@@ -666,6 +675,8 @@ if(WIN32)
             set_tests_properties(xui_transparent_window_tests PROPERTIES TIMEOUT 30 LABELS desktop RUN_SERIAL TRUE)
             add_test(NAME xui_backdrop_window_tests COMMAND xui_backdrop_window_tests)
             set_tests_properties(xui_backdrop_window_tests PROPERTIES TIMEOUT 90 LABELS desktop RUN_SERIAL TRUE)
+            add_test(NAME xui_composition_window_tests COMMAND xui_composition_window_tests)
+            set_tests_properties(xui_composition_window_tests PROPERTIES TIMEOUT 90 LABELS desktop RUN_SERIAL TRUE)
             add_test(NAME xui_document_theme_window_tests COMMAND xui_document_syntax_window_tests --theme)
             set_tests_properties(xui_document_theme_window_tests PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE LABELS desktop)
             add_test(NAME xui_native_branding_tests COMMAND xui_native_branding_tests

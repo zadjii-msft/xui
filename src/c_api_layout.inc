@@ -170,9 +170,17 @@ xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdro
 xui_status XUI_CALL xui_stack_material(xui_handle stack, uint32_t material) noexcept {
     return boundary([&] {
         auto n = get(stack, XUI_STACK); editable(n->owner);
-        require(material <= XUI_MATERIAL_ACRYLIC, XUI_INVALID_ARGUMENT, "Invalid surface material.");
+        require(material <= XUI_MATERIAL_BACKDROP_ACRYLIC, XUI_INVALID_ARGUMENT, "Invalid surface material.");
         as<xui::Stack>(n).set_material(static_cast<xui::SurfaceMaterial>(material));
     });
+}
+xui_status XUI_CALL xui_window_composition(xui_handle window, uint32_t enabled) noexcept {
+    return boundary([&] {
+        auto w = get(window, XUI_WINDOW);
+        require(enabled <= 1, XUI_INVALID_ARGUMENT, "Invalid composition value.");
+        require(!w->owner->used && !w->owner->closed, XUI_BUSY, "Set composition before Show or Run.");
+        w->owner->window->set_composition(enabled != 0);
+    }, true);
 }
 
 xui_status XUI_CALL xui_popup_placement(xui_handle target, uint32_t placement) noexcept {

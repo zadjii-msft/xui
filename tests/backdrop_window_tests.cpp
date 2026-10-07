@@ -168,7 +168,7 @@ void run(const std::wstring& output) {
         window.set_transparent(true);
         require(rejects([&] { window.set_backdrop(static_cast<WindowBackdrop>(4)); }), "Reject an unknown backdrop setter value");
         Stack stack(Axis::vertical);
-        require(rejects([&] { stack.set_material(static_cast<SurfaceMaterial>(2)); }), "Reject an unknown surface material");
+        require(rejects([&] { stack.set_material(static_cast<SurfaceMaterial>(3)); }), "Reject an unknown surface material");
         stack.set_material(SurfaceMaterial::acrylic);
         require(stack.surface(), "An acrylic material paints a surface");
     }

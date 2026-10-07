@@ -1154,7 +1154,14 @@ void backdrop_contracts() {
     ok(xui_window_transparent(window, 0));
     expect(xui_window_backdrop_set(root, XUI_BACKDROP_MICA) == XUI_WRONG_KIND);
     ok(xui_stack_material(material, XUI_MATERIAL_ACRYLIC));
-    expect(xui_stack_material(material, 2) == XUI_INVALID_ARGUMENT);
+    ok(xui_stack_material(material, XUI_MATERIAL_BACKDROP_ACRYLIC));
+    expect(xui_stack_material(material, 3) == XUI_INVALID_ARGUMENT);
+    ok(xui_window_composition(window, 0));
+    expect(xui_window_composition(window, 2) == XUI_INVALID_ARGUMENT);
+    expect(xui_window_composition(root, 1) == XUI_WRONG_KIND);
+    // The window currently requests Mica, which composition presentation does not support.
+    expect(xui_window_composition(window, 1) == XUI_INVALID_ARGUMENT);
+    ok(xui_stack_material(material, XUI_MATERIAL_ACRYLIC));
     expect(xui_stack_material(label, XUI_MATERIAL_ACRYLIC) == XUI_WRONG_KIND);
     std::thread worker([&] {
         expect(xui_window_backdrop_set(window, XUI_BACKDROP_NONE) == XUI_WRONG_THREAD);
@@ -1162,6 +1169,9 @@ void backdrop_contracts() {
     });
     worker.join();
     ok(xui_window_backdrop_set(window, XUI_BACKDROP_NONE));
+    ok(xui_window_composition(window, 1));
+    expect(xui_window_backdrop_set(window, XUI_BACKDROP_MICA) == XUI_INVALID_ARGUMENT);
+    ok(xui_window_composition(window, 0));
     ok(xui_window_transparent(window, 1));
     ok(xui_window_backdrop_set(window, XUI_BACKDROP_ACRYLIC));
     ok(xui_window_backdrop_set(window, XUI_BACKDROP_NONE));
@@ -1179,6 +1189,7 @@ void backdrop_contracts() {
     }, &context));
     ok(xui_window_run(window));
     expect(xui_window_backdrop_set(window, XUI_BACKDROP_MICA) == XUI_CLOSED);
+    expect(xui_window_composition(window, 1) == XUI_BUSY);
     ok(xui_window_backdrop_get(window, &backdrop, &active));
     expect(backdrop == XUI_BACKDROP_ACRYLIC && active == 0);
     ok(xui_window_destroy(window));

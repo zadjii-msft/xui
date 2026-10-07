@@ -9,9 +9,13 @@ internal static partial class Program
     {
         try
         {
-            if (args is not ([] or ["--smoke"] or ["--acrylic"] or ["--acrylic", "--smoke"] or ["--smoke", "--acrylic"]))
-                throw new ArgumentException("Usage: FloatingCard [--acrylic] [--smoke]");
+            var options = args.Where(arg => arg != "--smoke").ToArray();
+            if (options.Length > 1 || args.Length - options.Length > 1 ||
+                (options.Length == 1 && options[0] is not ("--acrylic" or "--composition")))
+                throw new ArgumentException("Usage: FloatingCard [--acrylic | --composition] [--smoke]");
             bool acrylic = args.Contains("--acrylic");
+            // Experimental: the original rounded card, with a Desktop Acrylic body in any shape.
+            bool composition = args.Contains("--composition");
 
             // Acrylic makes the whole borderless window the card; DWM supplies its corners and shadow.
             int logicalWidth = acrylic ? 494 : 548, logicalHeight = acrylic ? 204 : 260;
@@ -19,6 +23,7 @@ internal static partial class Program
             using var window = app.CreateWindow("Floating XUI card", logicalWidth, logicalHeight, Theme.Dark,
                 visualStyle: VisualStyle.WinUI, transparent: true);
             if (acrylic) window.SetBackdrop(WindowBackdrop.Acrylic);
+            if (composition) window.SetComposition();
             uint dpi = GetDpiForSystem();
             int width = (int)(logicalWidth * dpi / 96), height = (int)(logicalHeight * dpi / 96);
             window.Placement = new((GetSystemMetrics(0) - width) / 2, (GetSystemMetrics(1) - height) / 2,
@@ -26,6 +31,10 @@ internal static partial class Program
             window.SetDragRegion(acrylic ? 0 : 26, acrylic ? 0 : 26, acrylic ? 494 : 490, acrylic ? 18 : 19);
 
             nint configuredHwnd = 0;
+            // Observed on Windows 11 build 26200: while another application is foreground,
+            // SetWindowPos(HWND_TOPMOST) can be ignored unless the process already owns a window
+            // created topmost. The smoke check hit-tests the screen, so it needs the card on top.
+            if (args.Contains("--smoke")) CreateTopmostHelper();
             window.NativeHwndCreated = hwnd =>
             {
                 configuredHwnd = hwnd;
@@ -37,6 +46,7 @@ internal static partial class Program
             var heading = window.Label("Floating XUI card").SetAutomationId("card-heading");
             var detail = window.Label(acrylic
                 ? "Desktop Acrylic blurs the windows behind this card. Drag its top edge."
+                : composition ? "Desktop Acrylic in a rounded card. Drag its top edge."
                 : "Desktop visible beyond the rounded card. Drag its top edge.");
             var input = window.TextInput("Try native input").SetAutomationId("card-input");
             var close = window.Button("Close").SetAutomationId("card-close");
@@ -52,11 +62,12 @@ internal static partial class Program
             {
                 card.SetControlStyleValues(StylePart.Root, new PartStyleValues
                 {
-                    Background = new ThemeColor(0x26364c),
+                    Background = composition ? null : new ThemeColor(0x26364c),
                     BorderBrush = new ThemeColor(0x8193a9),
                     BorderThickness = new Insets(1),
                     CornerRadius = 17
                 });
+                if (composition) card.Material(SurfaceMaterial.BackdropAcrylic);
                 var root = window.Stack().Padding(22);
                 var outline = window.Stack().Padding(5).FixedSize(504, 214);
                 outline.SetControlStyleValues(StylePart.Root, new PartStyleValues
@@ -98,7 +109,9 @@ internal static partial class Program
                         }
                         else
                         {
-                            if (!layered) throw new InvalidOperationException("The floating card is not layered.");
+                            // A composition card is not layered; its window region follows the painted shapes.
+                            if (layered == composition)
+                                throw new InvalidOperationException(composition ? "A composition card must not be layered." : "The floating card is not layered.");
                             var transparent = WindowFromPoint(new(bounds.Left + 2, bounds.Top + 2));
                             if (!solidFallback && (transparent == window.NativeHwnd || IsChild(window.NativeHwnd, transparent)))
                                 throw new InvalidOperationException("The empty corner did not pass pointer input through.");
@@ -119,6 +132,7 @@ internal static partial class Program
                             throw new InvalidOperationException("The native editor did not deliver its text.");
                         string presentation = acrylic
                             ? solidFallback ? "acrylic request with solid fallback" : "Desktop Acrylic"
+                            : composition ? "composition acrylic card"
                             : solidFallback ? "high-contrast solid fallback" : "alpha";
                         Console.WriteLine($"Floating card: {presentation}, drag, native input, and borrowed HWND passed");
                     }
@@ -170,4 +184,15 @@ internal static partial class Program
     private static partial nint GetWindowLongPtr(nint hwnd, int index);
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmGetWindowAttribute(nint hwnd, uint attribute, out int value, int size);
+    [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial nint CreateWindowEx(uint exStyle, string className, string? title, uint style,
+        int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+
+    private static void CreateTopmostHelper()
+    {
+        // WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE; a hidden 1x1 STATIC popup.
+        if (CreateWindowEx(0x00000008 | 0x00000080 | 0x08000000, "STATIC", null, 0x80000000,
+            0, 0, 1, 1, 0, 0, 0, 0) == 0)
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+    }
 }

@@ -18,3 +18,9 @@ dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release
 ```
 
 The [application window contract](../../../docs/specs/application.md#borrowed-hwnd-and-transparent-windows) defines hosting, ownership, and size limits. The [materials contract](../../../docs/specs/materials.md#borderless-material-windows) describes the acrylic card.
+
+`--composition` keeps the original rounded layout and makes the inner card Desktop Acrylic with the experimental [composition presentation](../../../docs/specs/materials.md#experimental-composition-presentation). The outer margins stay transparent and pass input through.
+
+```powershell
+dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --composition
+```

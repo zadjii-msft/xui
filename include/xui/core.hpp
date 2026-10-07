@@ -96,8 +96,10 @@ private:
 };
 
 enum class Axis { horizontal, vertical };
-// Acrylic blurs the window pixels already painted behind the surface, then tints them.
-enum class SurfaceMaterial { solid = 0, acrylic = 1 };
+// acrylic blurs the window pixels already painted behind the surface, then tints them.
+// backdrop_acrylic blurs whatever is behind the window. It needs a composition window
+// (WindowOptions::composition) and otherwise paints acrylic.
+enum class SurfaceMaterial { solid = 0, acrylic = 1, backdrop_acrylic = 2 };
 
 class Stack : public Element {
 public:
@@ -110,7 +112,7 @@ public:
     // A composition can reserve and paint its separator outside the Stack's content.
     void set_separator_inset_enabled(bool value);
     // An acrylic material always paints a surface.
-    bool surface() const { return surface_ || material_ == SurfaceMaterial::acrylic; }
+    bool surface() const { return surface_ || material_ != SurfaceMaterial::solid; }
     void set_surface(bool value) { surface_ = value; invalidate(Invalidation::paint); }
     SurfaceMaterial material() const { return material_; }
     void set_material(SurfaceMaterial value);

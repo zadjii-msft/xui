@@ -120,6 +120,21 @@ internal static class WindowNativeTests
             Require(app.Post(card.Close), "Cannot schedule card closure.");
             app.Run();
         }
+        using (var app = new Xui.Application())
+        using (var card = app.CreateWindow("Composition card", 240, 160, transparent: true))
+        {
+            Status(() => card.SetBackdrop(WindowBackdrop.Mica).SetComposition(), 1);
+            card.SetBackdrop(WindowBackdrop.None).SetComposition();
+            Status(() => card.SetBackdrop(WindowBackdrop.Acrylic), 1);
+            var body = card.Stack().Material(SurfaceMaterial.BackdropAcrylic).Add(card.Label("Composition"));
+            card.SetContent(card.Stack().Padding(12).Add(body));
+            app.Show(card);
+            Require((GetWindowLongPtr(card.NativeHwnd, -20) & 0x00200000) != 0, "A composition card kept its redirection surface.");
+            Require((GetWindowLongPtr(card.NativeHwnd, -20) & 0x00080000) == 0, "A composition card used a layered window.");
+            Status(() => card.SetComposition(false), 7);
+            Require(app.Post(card.Close), "Cannot schedule composition closure.");
+            app.Run();
+        }
         Console.WriteLine("Managed HWND ownership, creation, threading, and callback failures passed");
     }
 

@@ -26,6 +26,10 @@ bool system_backdrop(HWND window, DWORD type, bool custom_frame = false);
 bool system_backdrop_supported();
 // Requests Windows 11 rounded corners for a borderless window. Earlier systems ignore it.
 void round_corners(HWND window);
+// Enables HostBackdropBrush for a composition window. A card also loses the DWM border and corners.
+void composition_frame(HWND window, bool card);
+// In a window without a redirection surface, only layered children show their own pixels.
+void layered_child(HWND window);
 bool transparency_effects_enabled();
 // GDI writes zero alpha. Over a system backdrop, repaint the native child through an
 // opaque buffer after input that can draw outside WM_PAINT.

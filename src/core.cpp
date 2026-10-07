@@ -296,7 +296,7 @@ void Stack::set_separator_inset_enabled(bool value) {
     invalidate(Invalidation::layout);
 }
 void Stack::set_material(SurfaceMaterial value) {
-    if (value != SurfaceMaterial::solid && value != SurfaceMaterial::acrylic)
+    if (value != SurfaceMaterial::solid && value != SurfaceMaterial::acrylic && value != SurfaceMaterial::backdrop_acrylic)
         throw std::invalid_argument("Invalid surface material");
     if (material_ == value) return;
     material_ = value;

@@ -8,6 +8,8 @@
 #include "symbols.hpp"
 #include <windows.h>
 #include <d2d1_1.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <string_view>
@@ -68,6 +70,18 @@ public:
     // behind transparent pixels. Text uses grayscale antialiasing on that target.
     bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false,
         bool backdrop = false);
+    // Opt-in composition presentation: a premultiplied composition swap chain for one window.
+    // The caller binds composition_swap_chain() to a visual; generation changes on recreation.
+    bool begin_composition(HWND window, float dpi, D2D1_COLOR_F background);
+    IDXGISwapChain1* composition_swap_chain() const { return swap_chain_.Get(); }
+    std::uint64_t composition_generation() const { return swap_generation_; }
+    D2D1_SIZE_U composition_size() const { return swap_size_; }
+    // Physical-pixel areas cleared for a system backdrop visual beneath the swap chain.
+    struct BackdropHole { RECT bounds; RECT visible; float radius; };
+    const std::vector<BackdropHole>& backdrop_holes() const { return backdrop_holes_; }
+    // Clears bounds to transparent in a composition frame and records the visible pixels.
+    // Returns false for other targets.
+    bool backdrop_hole(Rect bounds, float radius);
     struct NativeWindow { HWND window; RECT clip; };
     bool native_windows(std::span<const NativeWindow> windows);
     void present_native(std::span<const HWND> windows);
@@ -219,6 +233,17 @@ private:
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> layered_target_;
     HWND host_window_{};
     bool backdrop_{};
+    bool composition_{};
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> swap_target_;
+    D2D1_SIZE_U swap_size_{};
+    std::uint64_t swap_generation_{};
+    std::vector<BackdropHole> backdrop_holes_;
+    void create_composition_target(HWND window, D2D1_SIZE_U size);
+    bool bind_swap_target();
+    void start_frame(float dpi, D2D1_COLOR_F background, Point offset);
     // Clips and layers in push order. Acrylic must suspend them to copy target pixels.
     struct ClipEntry {
         bool rounded{};

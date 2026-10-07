@@ -124,6 +124,7 @@ After building the native runtime, run the floating card and its interactive-win
 dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release
 dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --smoke
 dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --acrylic --smoke
+dotnet run --project bindings\dotnet\FloatingCard\FloatingCard.csproj -c Release -- --composition --smoke
 ```
 
 The `--smoke` run paints a visible layered frame, checks transparent hit testing, caption dragging, native text delivery, and closes without user input.
@@ -133,6 +134,9 @@ For native pixel-alpha and resize coverage, enable desktop tests with `cmake -S 
 For Mica, acrylic, and in-app acrylic coverage, build `xui_backdrop_window_tests` and run `ctest --test-dir $build -C Release -R "^xui_backdrop_window_tests$" --output-on-failure` on an unlocked Windows 11 desktop.
 Pass an output directory to `xui_backdrop_window_tests.exe` to keep its owned-window captures for visual review.
 `xui_abi_features_tests.exe --backdrop` checks the C ABI contract without the other ABI suites.
+`xui_composition_window_tests` covers the experimental composition presentation on an unlocked desktop.
+To measure composition against classic presentation (and optionally a baseline build of the same probe), build `xui_composition_probe` and run `.\tests\measure-composition.ps1 -Baseline <baseline probe path> -Output build\composition-measurements`.
+It opens windows above the desktop, animates a background window, and samples system GPU counters, so leave the desktop unlocked and otherwise idle.
 For the C# lifecycle tests, run `dotnet run --project bindings\dotnet\Tests\Tests.csproj -c Release -- --window-native`.
 
 ### Swap chain sample

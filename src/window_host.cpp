@@ -82,6 +82,27 @@ void round_corners(HWND window) {
     const HRESULT result = DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
     if (result != E_INVALIDARG && result != DWM_E_COMPOSITIONDISABLED) hr_require(result, "Round the window corners");
 }
+void composition_frame(HWND window, bool card) {
+    const auto attribute = [window](DWORD id, const void* data, DWORD size, const char* operation) {
+        const HRESULT result = DwmSetWindowAttribute(window, id, data, size);
+        if (result != E_INVALIDARG && result != DWM_E_COMPOSITIONDISABLED) hr_require(result, operation);
+    };
+    const BOOL host = TRUE;
+    attribute(DWMWA_USE_HOSTBACKDROPBRUSH, &host, sizeof(host), "Enable composition backdrops");
+    if (!card) return;
+    // The card's own shapes are its edges; DWM would otherwise draw a border and round the rectangle.
+    const COLORREF border = DWMWA_COLOR_NONE;
+    attribute(DWMWA_BORDER_COLOR, &border, sizeof(border), "Remove the composition card border");
+    const DWORD corners = DWMWCP_DONOTROUND;
+    attribute(DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners), "Square the composition card");
+}
+void layered_child(HWND window) {
+    const auto style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    SetWindowLongPtrW(window, GWL_EXSTYLE, style | WS_EX_LAYERED);
+    // Child layering needs a Windows 8 or later compatibility manifest; otherwise USER drops the style.
+    if (!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYERED) || !SetLayeredWindowAttributes(window, 0, 255, LWA_ALPHA))
+        throw std::runtime_error("Composition windows require a Windows 8 or later application manifest for native controls");
+}
 bool transparency_effects_enabled() {
     DWORD value{1}, size{sizeof(value)};
     const auto result = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
