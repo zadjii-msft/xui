@@ -230,6 +230,19 @@ So the window content must itself be a composition visual: a premultiplied swap 
 
 Known gaps (October 6, 2026): popups, overlay surfaces, and native menus are untested in composition windows. Device-loss recovery reuses the generation counter but has not been exercised. A review flagged `TextInput` caption `STATIC` children as invisible without a redirection surface; that does not apply, because `paint_edit` draws the caption text in the frame and the `STATIC` only supplies the accessible name (the test card shows its caption).
 
+### Overlays and device loss (October 7, 2026)
+
+`tests\composition_window_tests.cpp --overlays` runs the same flow on a composition window and, with `--overlays-classic`, on a classic window. It checks a root-drawn popup with its own native editor over another native editor, backdrop acrylic inside a popup, a combo box popup, a menu bar submenu, a command surface, a tooltip, a content dialog's dim, the separate suggestion list window, and a native `#32768` context menu driven from a worker thread. `--card-overlays` checks the transparent card hit region with an open popup and an open dialog. `--device-loss` injects `D2DERR_RECREATE_TARGET` and `DXGI_ERROR_DEVICE_REMOVED` at `EndDraw`, sends `WM_DISPLAYCHANGE`, and repeats the removal with a popup open; it compares composed pixels, the backdrop visual count, live targets, and editor text after each recovery.
+
+Defects found and fixed:
+
+- Clearing a native editor's occlusion region (`SetWindowRgn(hwnd, nullptr)`) left the layered child showing black where a dismissed popup had covered it. Layered children keep their last pixels; `sync_native_occlusion` now invalidates them after removing a region in composition windows.
+- `backdrop_acrylic` inside a popup punched a hole to the desktop through the window content beneath. Popups (`owner != 0`) now paint the in-app material.
+- A content dialog's dim on a transparent card did not block input to the windows behind the card. The dim now adds a full-window hit shape.
+- `Drawing::end` treated only `D2DERR_RECREATE_TARGET` as recoverable. A composition device can also report `DXGI_ERROR_DEVICE_REMOVED` or `DXGI_ERROR_DEVICE_RESET` from `EndDraw`; those now discard and recreate the target too.
+
+Not covered: a real GPU reset (TDR) or driver update. Injected results exercise the same recovery path, and recovery always creates a fresh D3D device. Popups were tested at one DPI and in the dark theme. The test drives tooltips with the delay timer message, as `foundation_window_tests` does, because a synthetic hover is cancelled by the real cursor position.
+
 ### Measurements (October 6, 2026)
 
 Machine: Windows 11 build 26200, AMD Radeon 780M, 120 DPI, x64 Release, Visual Studio 2022 Preview. Desktop unlocked, transparency effects on.
@@ -278,7 +291,7 @@ Method limits: process cycles exclude DWM. Synchronous paint wall time is vsync-
 - Not opting in costs nothing measurable at runtime; the binary grows by tens of kilobytes and links `runtimeobject`.
 - Opting in costs about 1–3 Mcycles more CPU per full repaint (8–21%), two threads, five modules, and about 35 ms more first-paint time at the smaller size. It saved private and GPU memory compared with classic presentation in this workload.
 - Resizes showed no stale frames after the content sprite switched to relative sizing.
-- The remaining risk is breadth, not cost: captions, popups, menus, native runtime hosts, swap chain panels, device loss, and interactive resize need work or verification before this could be more than an opt-in experiment.
+- The remaining risk is breadth, not cost: native runtime hosts, swap chain panels, and interactive resize need work or verification before this could be more than an opt-in experiment. Popups, menus, and device loss are covered by [the overlay and device-loss tests](#overlays-and-device-loss-october-7-2026).
 
 ## Tab drag ownership
 

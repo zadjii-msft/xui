@@ -1209,7 +1209,8 @@ bool Drawing::end() {
     HRESULT result = target_->EndDraw();
     const auto injected = std::exchange(end_result_override_, S_OK);
     if (SUCCEEDED(result) && FAILED(injected)) result = injected;
-    if (result == D2DERR_RECREATE_TARGET) {
+    // A composition device can also report DXGI device removal or reset.
+    if (result == D2DERR_RECREATE_TARGET || (composition_ && device_lost(result))) {
         discard();
         return false;
     }

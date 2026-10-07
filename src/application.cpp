@@ -1538,7 +1538,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         if (it->bounds.width > 0 && it->bounds.height > 0) subtract(it->bounds, it->radius);
                 const auto existing_type = GetWindowRgn(hwnd, existing.handle);
                 if (!occluded) {
-                    if (existing_type != ERROR) win32_require(SetWindowRgn(hwnd, nullptr, TRUE) != 0, "Restore native window region");
+                    if (existing_type != ERROR) {
+                        win32_require(SetWindowRgn(hwnd, nullptr, TRUE) != 0, "Restore native window region");
+                        // A layered child keeps the clipped pixels until it paints again.
+                        if (options.composition) RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME);
+                    }
                 } else if (existing_type == ERROR || !EqualRgn(existing.handle, region.handle)) {
                     win32_require(SetWindowRgn(hwnd, region.handle, TRUE) != 0, "Set native window region");
                     region.handle = nullptr;
@@ -2790,9 +2794,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const float radius = palette.high_contrast ? 0.0f : style && style->corner_radius ? *style->corner_radius :
                 style_metrics(palette.style).surface_radius;
             // Without a composition window, or without transparency effects, backdrop acrylic
-            // falls back to the in-app material or its solid color.
+            // falls back to the in-app material or its solid color. Popups also use the in-app
+            // material: a backdrop hole would show the desktop instead of the window beneath them.
             const bool backdrop = stack.material() == SurfaceMaterial::backdrop_acrylic && options.composition &&
-                transparency_effects && !palette.high_contrast;
+                transparency_effects && !palette.high_contrast && owner == 0;
             if (!(backdrop && drawing().backdrop_hole(stack.bounds(), radius)))
                 drawing().acrylic(stack.bounds(), palette, radius, transparency_effects);
             if (style) drawing().styled_surface(stack.bounds(), palette, *style, D2D1::ColorF(0, 0.0f),
@@ -3172,8 +3177,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (composed) paint_content_highlights();
                 const auto paint_popup = [&](const PopupEntry& entry, bool native_surface) {
                     const auto bounds = entry.popup->bounds();
-                    if (!native_surface && entry.dialog && palette.style == VisualStyle::winui && !palette.high_contrast)
+                    if (!native_surface && entry.dialog && palette.style == VisualStyle::winui && !palette.high_contrast) {
                         drawing().fill(root->bounds(), D2D1::ColorF(0, 0.25f));
+                        // A modal dim on a transparent card also blocks input to the windows beneath it.
+                        add_hit_shape(root->bounds(), 0);
+                    }
                     const float inset = 1;
                     const Rect frame{bounds.x + inset, bounds.y + inset,
                         std::max(0.0f, bounds.width - 2 * inset), std::max(0.0f, bounds.height - 2 * inset)};
@@ -6308,6 +6316,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == 32) return static_cast<LRESULT>(drawing().scene_paths());
             if (wparam == 39) return static_cast<LRESULT>(presenter ? presenter->backdrop_visuals() : 0);
             if (wparam == 40) return options.composition && presenter ? 1 : 0;
+            if (wparam == 41) return static_cast<LRESULT>(root_drawing.composition_generation());
             if (wparam == 22 || wparam == 23) {
                 std::size_t count{};
                 for (const auto& peer : peers) if (peer->list)

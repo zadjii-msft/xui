@@ -177,6 +177,13 @@ Restrictions:
 - Without a composition window, or with transparency effects off, `backdrop_acrylic` paints in-app acrylic or its solid fallback.
 - High contrast paints the solid fallback.
 
+Popups, flyouts, menu bar submenus, command surfaces, tooltips, and content dialogs work in composition windows.
+They draw over the window content, including over native editors, and their own native editors are editable.
+`backdrop_acrylic` inside a popup paints in-app acrylic: a popup sits above window content, so a desktop backdrop would show through the content beneath it.
+On a transparent composition card, an open popup receives input over the transparent margin, and a content dialog's dimming layer blocks input to the windows behind the card until it closes.
+Native context menus and suggestion lists are separate top-level windows and are unaffected.
+After the graphics device is lost or the display changes, the window recreates its swap chain, rebinds its composition content, and repaints; native editors keep their state.
+
 Windows that do not opt in keep the default presentation.
 The [composition decision report](../llm/architecture.md#composition-presentation-prototype) records the measured cost of both paths.
 
@@ -212,4 +219,6 @@ Start the gallery with `--backdrop mica`, `--backdrop mica-alt`, or `--backdrop 
 The C ABI and C# window tests cover argument validation, threading, and runtime changes.
 `xui_backdrop_window_tests` needs an unlocked interactive desktop for its window captures.
 `xui_composition_window_tests` checks a transparent composition card over a striped window: blurred stripe edges inside the rounded card, click-through margins and corners, a layered native editor that still edits, and resizing.
+It also covers popups over native editors, combo box, menu bar, command surface, tooltip, content dialog, suggestion list, and native context menu overlays; popup and dialog hit regions on a transparent card; and recovery from injected target loss, device removal, and display changes.
+Pass `--overlays`, `--card-overlays`, or `--device-loss` to run one section.
 The [floating C# card](../../bindings/dotnet/FloatingCard/README.md) shows the composition card with `--composition`.
