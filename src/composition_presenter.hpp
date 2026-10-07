@@ -28,6 +28,18 @@ public:
     void update(IDXGISwapChain1* swap_chain, std::uint64_t generation, SIZE pixels,
         std::span<const BackdropRegion> regions, std::uint32_t tint);
     std::size_t backdrop_visuals() const;
+    // Swap chain panels compose above window content and below the overlay layer; panels inside
+    // popups compose above the overlay, which holds their popup faces.
+    std::uint64_t add_panel();
+    // A composition swap chain, a DCompositionCreateSurfaceHandle handle, or neither to detach.
+    void panel_content(std::uint64_t id, IDXGISwapChain1* swap_chain, HANDLE surface);
+    // Window-client physical pixels. The clip is panel-local; producer pixels keep their native size.
+    void place_panel(std::uint64_t id, POINT origin, SIZE size, RECT clip, bool visible, bool above_overlay);
+    void remove_panel(std::uint64_t id) noexcept;
+    std::size_t panel_visuals() const;
+    // Popups and tooltips over panels: a second premultiplied swap chain above them.
+    void overlay(IDXGISwapChain1* swap_chain, std::uint64_t generation, bool visible);
+    bool overlay_visible() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

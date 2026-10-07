@@ -5,6 +5,10 @@
 #include "xui/documents.hpp"
 #include "xui/menu_bar.hpp"
 #include "xui/suggestions.hpp"
+#include "xui/runtime_hosts.hpp"
+#include "xui/swap_chain_panel.hpp"
+#include "../demo/host_fixtures.hpp"
+#include "../demo/swap_chain_renderer.hpp"
 #include "../src/drawing.hpp"
 #include <windows.h>
 #include <dwmapi.h>
@@ -448,7 +452,9 @@ void overlays(const std::wstring& output, bool composition_window = true) {
     row->add(anchor);
     auto help = std::make_shared<Button>(L"Help");
     help->set_help_text(L"Tooltip over composition content");
-    help->set_tooltip_delay(100);
+    // The test drives the tooltip timer; a long delay keeps focus changes, such as the focus a
+    // dismissed popup returns to this button, from showing the tooltip in later captures.
+    help->set_tooltip_delay(60000);
     row->add(help);
     int context_invoked{};
     auto context = std::make_shared<Button>(L"Context target");
@@ -740,6 +746,280 @@ void card_overlays() {
     pump();
 }
 
+// Swap chain panels join the composition tree: translucent producer pixels show the backdrop
+// acrylic beneath them, and popups and tooltips compose above them.
+void panels(const std::wstring& output) {
+    const int dpi = static_cast<int>(GetDpiForSystem());
+    const auto px = [&](float dips) { return static_cast<int>(std::lround(dips * dpi / 96.0f)); };
+    StripeBackground stripes_behind(px(120), px(120), px(820), px(560));
+    Application app;
+    WindowOptions options;
+    options.title = L"XUI composition panels";
+    options.size = {720, 440};
+    options.visual_style = VisualStyle::winui;
+    options.composition = true;
+    auto owned = app.create_window(options);
+    auto& window = *owned;
+    window.on_native_created([](HWND hwnd) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    });
+    window.set_placement({px(160), px(160), px(740), px(480), false});
+    auto root = std::make_shared<Stack>(Axis::horizontal);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(20);
+    auto card = std::make_shared<Stack>(Axis::vertical);
+    card->set_material(SurfaceMaterial::backdrop_acrylic);
+    card->set_padding({24, 24, 24, 24});
+    card->set_spacing(8);
+    PartStyleValues rounded;
+    rounded.corner_radius = 20.0f;
+    card->set_control_style_values(StylePart::root, rounded);
+    card->add(std::make_shared<Label>(L"Panel over acrylic"));
+    auto panel = std::make_shared<SwapChainPanel>(L"Composition panel");
+    panel->set_preferred_size({280, 200});
+    card->add(panel, 1);
+    auto anchor = std::make_shared<Button>(L"Panel anchor");
+    anchor->set_help_text(L"Tooltip over the panel");
+    // The initial focus offers a tooltip; a long delay keeps it out of the captures until the
+    // test drives the tooltip timer.
+    anchor->set_tooltip_delay(60000);
+    card->add(anchor);
+    root->add(card, 1);
+    // A second, opaque panel uses the composition surface handle path.
+    auto handle_panel = std::make_shared<SwapChainPanel>(L"Handle panel");
+    handle_panel->set_preferred_size({260, 200});
+    root->add(handle_panel, 1);
+    window.set_content(root);
+    std::unique_ptr<swap_chain_sample::Renderer> renderer, handle_renderer;
+    panel->on_metrics_changed([&](const SwapChainPanelMetrics& metrics) {
+        if (!metrics.visible) return;
+        if (!renderer) {
+            renderer = std::make_unique<swap_chain_sample::Renderer>();
+            panel->set_swap_chain(renderer->chain());
+        }
+        renderer->render_translucent(metrics);
+    });
+    handle_panel->on_metrics_changed([&](const SwapChainPanelMetrics& metrics) {
+        if (!metrics.visible) return;
+        if (!handle_renderer) {
+            handle_renderer = std::make_unique<swap_chain_sample::Renderer>(true);
+            handle_panel->set_swap_chain_handle(handle_renderer->surface_handle());
+            // The panel keeps its own duplicate, so the producer can close its handle.
+            handle_renderer->close_surface_handle();
+        }
+        handle_renderer->render(metrics, true);
+    });
+    app.show(window);
+    require(wait_for([&] { return renderer && handle_renderer && renderer->presents() && handle_renderer->presents(); }, 5000),
+        "Both producers present a frame");
+    pump(400);
+    const HWND hwnd = window.native_window();
+    require(metric(hwnd, 42) == 2, "Two panel visuals join the window composition tree");
+    require(panel->has_content() && handle_panel->has_content(), "Both panels report content");
+    const auto save = [&](const wchar_t* name) {
+        if (output.empty()) return;
+        RECT bounds{};
+        GetWindowRect(hwnd, &bounds);
+        save_screen(bounds, output + L"\\" + name + L".bmp");
+    };
+    save(L"panels");
+    const auto rgb = [](std::uint32_t value) { return RGB((value >> 16) & 255, (value >> 8) & 255, value & 255); };
+    const auto pixel_at = [&](Point point) { return at(capture(screen_rect(hwnd, {point.x, point.y, 1, 1})), 0, 0); };
+    const auto pb = panel->bounds();
+    require(channel_difference(pixel_at(center(pb)), rgb(swap_chain_sample::Renderer::gold)) < 24,
+        "The producer's opaque pixels are visible");
+    // Around the opaque square, the transparent producer pixels show the blurred stripes.
+    const Point corner{pb.x + 8, pb.y + pb.height - 8};
+    const auto corner_pixel = pixel_at(corner);
+    const auto field = Palette::system(ThemeMode::dark, VisualStyle::winui).field;
+    const auto field_rgb = RGB(std::lround(field.r * 255), std::lround(field.g * 255), std::lround(field.b * 255));
+    require(channel_difference(corner_pixel, field_rgb) > 30 && channel_difference(corner_pixel, rgb(swap_chain_sample::Renderer::gold)) > 60,
+        "Transparent producer pixels show the backdrop acrylic beneath the panel");
+    const auto hb = handle_panel->bounds();
+    require(channel_difference(pixel_at({hb.x + 8, hb.y + 8}), rgb(swap_chain_sample::Renderer::pink)) < 24 &&
+        channel_difference(pixel_at(center(hb)), rgb(swap_chain_sample::Renderer::cyan)) < 24,
+        "The surface-handle producer is visible");
+
+    // A popup over the panel composes above it in the overlay layer.
+    auto face = solid_stack({240, 110});
+    auto popup = std::make_shared<Popup>(face, L"Panel popup");
+    popup->set_placement(PopupPlacement::center);
+    window.show_popup(popup, *anchor);
+    pump(400);
+    require(popup->is_open() && metric(hwnd, 43) == 1, "A popup over an active panel uses the overlay layer");
+    save(L"panels-popup");
+    const auto fb = face->bounds();
+    const auto overlap = intersect(fb, pb);
+    require(overlap.width > 10 && overlap.height > 10, "The popup overlaps the panel");
+    require(near_color(pixel_at(center(overlap)), popup_color), "The popup face covers the producer pixels");
+    require(panel->metrics().visible && renderer->presents() > 0, "The producer stays visible and attached under the popup");
+    window.dismiss_popup(*popup);
+    pump(400);
+    require(metric(hwnd, 43) == 0, "Dismissal hides the overlay layer");
+    require(channel_difference(pixel_at(center(pb)), rgb(swap_chain_sample::Renderer::gold)) < 24, "The producer is visible after dismissal");
+
+    // A panel inside a popup composes above its own popup face, which is in the overlay layer.
+    auto popup_panel = std::make_shared<SwapChainPanel>(L"Popup panel");
+    popup_panel->set_preferred_size({160, 100});
+    auto popup_face = std::make_shared<Stack>(Axis::vertical);
+    popup_face->set_padding({16, 16, 16, 16});
+    popup_face->add(popup_panel);
+    auto panel_popup = std::make_shared<Popup>(popup_face, L"Panel inside popup");
+    panel_popup->set_placement(PopupPlacement::center);
+    std::unique_ptr<swap_chain_sample::Renderer> popup_renderer;
+    popup_panel->on_metrics_changed([&](const SwapChainPanelMetrics& metrics) {
+        if (!metrics.visible) return;
+        if (!popup_renderer) {
+            popup_renderer = std::make_unique<swap_chain_sample::Renderer>();
+            popup_panel->set_swap_chain(popup_renderer->chain());
+        }
+        popup_renderer->render(metrics, true);
+    });
+    window.show_popup(panel_popup, *anchor);
+    require(wait_for([&] { return popup_renderer && popup_renderer->presents(); }, 5000), "The popup producer presents a frame");
+    pump(400);
+    save(L"panels-in-popup");
+    require(metric(hwnd, 43) == 1 && metric(hwnd, 42) == 3, "The popup face uses the overlay layer beside three panels");
+    const auto ppb = popup_panel->bounds();
+    require(channel_difference(pixel_at(center(ppb)), rgb(swap_chain_sample::Renderer::cyan)) < 24 &&
+        channel_difference(pixel_at({ppb.x + 6, ppb.y + 6}), rgb(swap_chain_sample::Renderer::pink)) < 24,
+        "A panel inside a popup is visible above its popup face");
+    window.dismiss_popup(*panel_popup);
+    pump(300);
+    require(metric(hwnd, 42) == 2 && metric(hwnd, 43) == 0, "Dismissing the popup hides its panel");
+
+    // Tooltips are available over active panels in composition windows.
+    const HWND anchor_peer = named_child(hwnd, L"Panel anchor");
+    SendMessageW(anchor_peer, WM_MOUSEMOVE, 0, MAKELPARAM(6, 6));
+    SendMessageW(hwnd, WM_TIMER, 41, 0);
+    SendMessageW(hwnd, WM_APP + 12, 0, 0);
+    UpdateWindow(hwnd);
+    require(metric(hwnd, 25) != 0 && metric(hwnd, 43) == 1, "A tooltip over an active panel uses the overlay layer");
+    SendMessageW(anchor_peer, WM_MOUSELEAVE, 0, 0);
+    SendMessageW(hwnd, WM_APP + 12, 0, 0);
+    UpdateWindow(hwnd);
+    pump(300);
+    require(metric(hwnd, 25) == 0 && metric(hwnd, 43) == 0, "The tooltip clears");
+
+    // Hiding removes the visual; showing restores it without reattachment.
+    panel->set_visible(false);
+    pump(300);
+    require(!panel->metrics().visible && metric(hwnd, 42) == 1, "A hidden panel removes its visual");
+    panel->set_visible(true);
+    pump(300);
+    require(panel->metrics().visible && metric(hwnd, 42) == 2, "A shown panel restores its visual");
+
+    // Root device loss recreates the window swap chain; the producers are independent.
+    const auto generation = metric(hwnd, 41);
+    DrawingTestAccess::fail_next_frame(DXGI_ERROR_DEVICE_REMOVED);
+    InvalidateRect(hwnd, nullptr, FALSE);
+    UpdateWindow(hwnd);
+    require(wait_for([&] { return metric(hwnd, 41) != generation; }), "Recover the window target with panels attached");
+    pump(300);
+    require(metric(hwnd, 42) == 2 && channel_difference(pixel_at(center(pb)), rgb(swap_chain_sample::Renderer::gold)) < 24,
+        "Panels survive window target recovery");
+
+    // Detachment removes the producer from the tree.
+    handle_panel->set_swap_chain(nullptr);
+    pump(300);
+    require(!handle_panel->has_content() && metric(hwnd, 42) == 1, "Detachment removes the panel visual");
+    window.close();
+    pump();
+    require(!panel->has_content() && panel->native_window() == nullptr, "Window closure releases panel content");
+}
+
+// Media and web hosts are child HWNDs with their own presentation; they work in composition windows.
+void runtime_hosts(const std::wstring& output) {
+    const int dpi = static_cast<int>(GetDpiForSystem());
+    const auto px = [&](float dips) { return static_cast<int>(std::lround(dips * dpi / 96.0f)); };
+    StripeBackground stripes_behind(px(120), px(120), px(820), px(560));
+    const auto fixtures = std::filesystem::absolute(L"composition-host-fixtures");
+    std::filesystem::create_directories(fixtures);
+    host_fixtures::video(fixtures / L"video.avi");
+    Application app;
+    WindowOptions options;
+    options.title = L"XUI composition runtime hosts";
+    options.size = {720, 440};
+    options.visual_style = VisualStyle::winui;
+    options.composition = true;
+    auto owned = app.create_window(options);
+    auto& window = *owned;
+    window.on_native_created([](HWND hwnd) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    });
+    window.set_placement({px(160), px(160), px(740), px(480), false});
+    auto root = std::make_shared<Stack>(Axis::horizontal);
+    root->set_padding({20, 20, 20, 20});
+    root->set_spacing(20);
+    auto card = std::make_shared<Stack>(Axis::vertical);
+    card->set_material(SurfaceMaterial::backdrop_acrylic);
+    card->set_padding({16, 16, 16, 16});
+    auto anchor = std::make_shared<Button>(L"Runtime anchor");
+    card->add(anchor);
+    auto media = std::make_shared<MediaPlayback>(L"Composition media");
+    media->set_volume(0);
+    media->set_preferred_size({300, 200});
+    card->add(media, 1);
+    root->add(card, 1);
+#ifdef XUI_ENABLE_WEBVIEW2
+    const auto profiles = std::filesystem::absolute(L"composition-web-profiles");
+    std::filesystem::create_directories(profiles);
+    auto web = std::make_shared<WebContent>(L"Composition web");
+    web->set_profile_root(profiles.wstring());
+    web->set_preferred_size({300, 300});
+    root->add(web, 1);
+#endif
+    window.set_content(root);
+    app.show(window);
+    pump(400);
+    const HWND hwnd = window.native_window();
+    media->load_local((fixtures / L"video.avi").wstring());
+    require(wait_for([&] { return media->state() == HostState::ready || media->state() == HostState::error; }, 8000) &&
+        media->state() == HostState::ready, "Load local video in a composition window");
+    media->play();
+    pump(1000);
+    const auto host_visual = [](const RuntimeHost& host) {
+        const auto b = host.bounds();
+        const auto v = host.visual_bounds();
+        return Rect{b.x + v.x, b.y + v.y, v.width, v.height};
+    };
+    const auto video = capture(screen_rect(hwnd, host_visual(*media)));
+    int saturated{};
+    for (const auto value : video.pixels) {
+        const int r = (value >> 16) & 255, g = (value >> 8) & 255, b = value & 255;
+        if ((r > 200 && g < 60 && b < 60) || (b > 200 && r < 60 && g < 60)) ++saturated;
+    }
+    require(saturated > static_cast<int>(video.pixels.size()) / 4, "Video frames are visible in a composition window");
+    // The classic contract still applies: an XUI popup cannot cover active native runtime content.
+    bool rejected{};
+    try { window.show_popup(std::make_shared<Popup>(solid_stack({100, 60})), *anchor); }
+    catch (const std::logic_error&) { rejected = true; }
+    require(rejected, "Popups still require detaching native media");
+#ifdef XUI_ENABLE_WEBVIEW2
+    web->set_html(L"<!doctype html><html><body style='margin:0;background:rgb(15,90,45)'></body></html>");
+    require(wait_for([&] { return web->state() == HostState::ready || web->state() == HostState::error; }, 30000) &&
+        web->state() == HostState::ready, "Load owned web content in a composition window");
+    pump(1500);
+    const auto page = capture(screen_rect(hwnd, host_visual(*web)));
+    require(channel_difference(at(page, page.width / 2, page.height / 2), RGB(15, 90, 45)) < 24,
+        "Web content is visible in a composition window");
+#endif
+    if (!output.empty()) {
+        RECT bounds{};
+        GetWindowRect(hwnd, &bounds);
+        save_screen(bounds, output + L"\\runtime-hosts.bmp");
+    }
+    media->unload();
+#ifdef XUI_ENABLE_WEBVIEW2
+    web->unload();
+#endif
+    pump(300);
+    window.show_popup(std::make_shared<Popup>(solid_stack({100, 60})), *anchor);
+    pump(200);
+    require(metric(hwnd, 24) == 1, "Popups open after the runtime content unloads");
+    window.close();
+    pump();
+}
 // Lost targets recreate the swap chain, rebind the composition content, and keep the backdrop.
 void device_loss(const std::wstring& output) {
     const int dpi = static_cast<int>(GetDpiForSystem());
@@ -848,8 +1128,10 @@ int main(int argc, char** argv) {
         if (only == "overlays-classic") overlays(output, false);
         if (run("card-overlays")) card_overlays();
         if (run("device-loss")) device_loss(output);
+        if (run("panels")) panels(output);
+        if (run("runtime-hosts")) runtime_hosts(output);
         DestroyWindow(topmost);
-        std::cout << "Composition presentation, backdrop acrylic, overlays, menus, device loss, layered native input, and click-through passed.\n";
+        std::cout << "Composition presentation, backdrop acrylic, overlays, menus, device loss, swap chain panels, runtime hosts, layered native input, and click-through passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

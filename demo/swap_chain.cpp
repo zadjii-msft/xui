@@ -10,7 +10,7 @@
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     using namespace xui;
     try {
-        bool use_handle{}, force_warp{}, smoke{};
+        bool use_handle{}, force_warp{}, smoke{}, acrylic{};
         int count{};
         auto args = CommandLineToArgvW(GetCommandLineW(), &count);
         if (!args) throw std::runtime_error("Cannot read command-line arguments");
@@ -18,11 +18,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             use_handle |= std::wstring_view(args[i]) == L"--handle";
             force_warp |= std::wstring_view(args[i]) == L"--warp";
             smoke |= std::wstring_view(args[i]) == L"--smoke";
+            acrylic |= std::wstring_view(args[i]) == L"--acrylic";
         }
         LocalFree(args);
 
         WindowOptions options{L"XUI DirectComposition rainbow triangle", {760, 600}, ThemeMode::dark, {420, 360}};
         options.show_activated = !smoke;
+        // --acrylic composes the panel in the window's composition tree, over a desktop acrylic card.
+        if (acrylic) {
+            options.visual_style = VisualStyle::winui;
+            options.composition = true;
+        }
         Window window(options);
         auto root = std::make_shared<Stack>(Axis::vertical);
         root->set_padding({20, 20, 20, 20});
@@ -41,10 +47,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         actions->add(show_overlay, 1);
         root->add(actions);
         auto panel = std::make_shared<SwapChainPanel>(L"Spinning rainbow triangle");
-        root->add(panel, 1);
+        if (acrylic) {
+            auto card = std::make_shared<Stack>(Axis::vertical);
+            card->set_material(SurfaceMaterial::backdrop_acrylic);
+            PartStyleValues rounded;
+            rounded.corner_radius = 16.0f;
+            card->set_control_style_values(StylePart::root, rounded);
+            card->add(panel, 1);
+            root->add(card, 1);
+        } else {
+            root->add(panel, 1);
+        }
         auto status = std::make_shared<Label>(L"Preparing graphics...");
         root->add(status);
-        auto hint = std::make_shared<Label>(L"Resize the window or move it between displays. Use --handle or --warp to select a producer.");
+        auto hint = std::make_shared<Label>(L"Resize the window or move it between displays. Use --handle or --warp to select a producer, "
+            L"and --acrylic to draw the triangle over desktop acrylic.");
         hint->set_wrapping(true);
         hint->set_caption(true);
         root->add(hint);
@@ -110,7 +127,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                     angle = std::fmod(angle + std::chrono::duration<float>(now - last_frame).count() * 1.2f, 6.2831853f);
                 last_frame = now;
                 advancing = !paused;
-                producer->render_triangle(metrics, angle);
+                producer->render_triangle(metrics, angle, acrylic);
                 if (status_metrics != metrics) {
                     status_metrics = metrics;
                     status->set_text(std::wstring(producer->warp() ? L"WARP" : L"Hardware") +

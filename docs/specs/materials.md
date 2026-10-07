@@ -172,10 +172,33 @@ Layered child windows require a Windows 8 or later compatibility entry in the ap
 Restrictions:
 
 - A composition window cannot also request a system backdrop.
-- `RuntimeHost` (media and web content) and `SwapChainPanel` are not supported in a composition window and fail when created.
 - Text uses grayscale antialiasing.
 - Without a composition window, or with transparency effects off, `backdrop_acrylic` paints in-app acrylic or its solid fallback.
 - High contrast paints the solid fallback.
+
+### Swap chain panels and runtime hosts
+
+A `SwapChainPanel` in a composition window joins the window's composition tree instead of creating its own DirectComposition target.
+The producer's pixels compose above the window content, so transparent pixels in a premultiplied producer show what XUI painted beneath the panel, including a `backdrop_acrylic` stack:
+
+```cpp
+auto card = std::make_shared<xui::Stack>(xui::Axis::vertical);
+card->set_material(xui::SurfaceMaterial::backdrop_acrylic);
+auto panel = std::make_shared<xui::SwapChainPanel>(L"Scene");
+card->add(panel, 1);
+// Clear the producer's back buffer to transparent, then draw the scene.
+```
+
+XUI does not paint the panel's field background while a composed producer is attached.
+Popups, menus, and tooltips over an active panel draw into a separate composition layer above the panel visuals; the producer keeps presenting underneath.
+A panel inside a popup composes above that layer, so it shows above its popup's face. A popup nested over it, or a tooltip, does not cover it.
+Both `set_swap_chain` and `set_swap_chain_handle` work. The panel keeps its own duplicate of a surface handle.
+The producer's device is independent of the window's device: after the window recovers its own swap chain, the panel keeps its content.
+
+`MediaPlayback` and `WebContent` keep their native child windows, which draw above the composition content.
+As in other windows, an XUI popup cannot open while their content is active; unload or detach it first.
+
+### Overlays and device loss
 
 Popups, flyouts, menu bar submenus, command surfaces, tooltips, and content dialogs work in composition windows.
 They draw over the window content, including over native editors, and their own native editors are editable.
@@ -220,5 +243,7 @@ The C ABI and C# window tests cover argument validation, threading, and runtime 
 `xui_backdrop_window_tests` needs an unlocked interactive desktop for its window captures.
 `xui_composition_window_tests` checks a transparent composition card over a striped window: blurred stripe edges inside the rounded card, click-through margins and corners, a layered native editor that still edits, and resizing.
 It also covers popups over native editors, combo box, menu bar, command surface, tooltip, content dialog, suggestion list, and native context menu overlays; popup and dialog hit regions on a transparent card; and recovery from injected target loss, device removal, and display changes.
-Pass `--overlays`, `--card-overlays`, or `--device-loss` to run one section.
+Its panel section checks translucent and surface-handle producers over acrylic, popups and tooltips above an active panel, hiding, detachment, and window target recovery; its runtime host section plays local video and, in builds with WebView2, shows web content.
+Pass `--overlays`, `--card-overlays`, `--device-loss`, `--panels`, or `--runtime-hosts` to run one section.
+`xui_swap_chain_sample --acrylic` draws its spinning triangle over desktop acrylic.
 The [floating C# card](../../bindings/dotnet/FloatingCard/README.md) shows the composition card with `--composition`.

@@ -7,6 +7,7 @@
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Composition.h>
 #include <winrt/Windows.UI.Composition.Desktop.h>
+#include <algorithm>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -53,12 +54,45 @@ struct CompositionPresenter::Impl {
     WUC::ContainerVisual root{nullptr};
     WUC::ContainerVisual backdrops{nullptr};
     WUC::SpriteVisual content{nullptr};
+    WUC::ContainerVisual panels{nullptr};
+    WUC::SpriteVisual overlay{nullptr};
+    WUC::ContainerVisual popup_panels{nullptr};
     WUC::CompositionBrush backdrop{nullptr};
     WUC::CompositionColorBrush tint{nullptr};
     std::vector<WUC::SpriteVisual> sprites;
     std::size_t visible{};
     std::uint64_t generation{};
+    std::uint64_t overlay_generation{};
     std::uint32_t tint_value{};
+    struct Panel {
+        std::uint64_t id{};
+        WUC::SpriteVisual sprite{nullptr};
+        bool content{};
+        bool shown{};
+        bool above_overlay{};
+    };
+    WUC::ContainerVisual& layer(const Panel& item) { return item.above_overlay ? popup_panels : panels; }
+    std::vector<Panel> panel_list;
+    std::uint64_t next_panel{1};
+    Panel* panel(std::uint64_t id) {
+        for (auto& item : panel_list) if (item.id == id) return &item;
+        return nullptr;
+    }
+    WUC::CompositionSurfaceBrush surface_brush(const WUC::ICompositionSurface& surface) const {
+        auto brush = compositor.CreateSurfaceBrush(surface);
+        // Producer and overlay pixels keep their native size at the top-left corner.
+        brush.Stretch(WUC::CompositionStretch::None);
+        brush.HorizontalAlignmentRatio(0);
+        brush.VerticalAlignmentRatio(0);
+        return brush;
+    }
+    WUC::ICompositionSurface swap_chain_surface(IDXGISwapChain1* swap_chain) const {
+        auto interop = compositor.as<ABI::Windows::UI::Composition::ICompositorInterop>();
+        WUC::ICompositionSurface surface{nullptr};
+        winrt::check_hresult(interop->CreateCompositionSurfaceForSwapChain(swap_chain,
+            reinterpret_cast<ABI::Windows::UI::Composition::ICompositionSurface**>(winrt::put_abi(surface))));
+        return surface;
+    }
 };
 
 CompositionPresenter::CompositionPresenter(HWND window) : impl_(std::make_unique<Impl>()) {
@@ -80,6 +114,16 @@ CompositionPresenter::CompositionPresenter(HWND window) : impl_(std::make_unique
         // Relative sizing keeps resizes free of composition commits, which land a frame late.
         s.content.RelativeSizeAdjustment({1, 1});
         s.root.Children().InsertAtTop(s.content);
+        s.panels = s.compositor.CreateContainerVisual();
+        s.panels.RelativeSizeAdjustment({1, 1});
+        s.root.Children().InsertAtTop(s.panels);
+        s.overlay = s.compositor.CreateSpriteVisual();
+        s.overlay.RelativeSizeAdjustment({1, 1});
+        s.overlay.IsVisible(false);
+        s.root.Children().InsertAtTop(s.overlay);
+        s.popup_panels = s.compositor.CreateContainerVisual();
+        s.popup_panels.RelativeSizeAdjustment({1, 1});
+        s.root.Children().InsertAtTop(s.popup_panels);
         s.backdrop = s.compositor.CreateHostBackdropBrush();
         s.tint = s.compositor.CreateColorBrush();
     } catch (const winrt::hresult_error& error) {
@@ -102,15 +146,7 @@ void CompositionPresenter::update(IDXGISwapChain1* swap_chain, std::uint64_t gen
     try {
         auto& s = *impl_;
         if (generation != s.generation) {
-            auto interop = s.compositor.as<ABI::Windows::UI::Composition::ICompositorInterop>();
-            WUC::ICompositionSurface surface{nullptr};
-            winrt::check_hresult(interop->CreateCompositionSurfaceForSwapChain(swap_chain,
-                reinterpret_cast<ABI::Windows::UI::Composition::ICompositionSurface**>(winrt::put_abi(surface))));
-            auto brush = s.compositor.CreateSurfaceBrush(surface);
-            brush.Stretch(WUC::CompositionStretch::None);
-            brush.HorizontalAlignmentRatio(0);
-            brush.VerticalAlignmentRatio(0);
-            s.content.Brush(brush);
+            s.content.Brush(s.surface_brush(s.swap_chain_surface(swap_chain)));
             s.generation = generation;
         }
         static_cast<void>(pixels);
@@ -151,5 +187,93 @@ void CompositionPresenter::update(IDXGISwapChain1* swap_chain, std::uint64_t gen
         rethrow(error, "Update composition presentation");
     }
 }
+
+std::uint64_t CompositionPresenter::add_panel() {
+    try {
+        auto& s = *impl_;
+        Impl::Panel item{s.next_panel++, s.compositor.CreateSpriteVisual()};
+        item.sprite.IsVisible(false);
+        s.panels.Children().InsertAtTop(item.sprite);
+        s.panel_list.push_back(std::move(item));
+        return s.panel_list.back().id;
+    } catch (const winrt::hresult_error& error) {
+        rethrow(error, "Create swap chain panel visual");
+    }
+}
+
+void CompositionPresenter::panel_content(std::uint64_t id, IDXGISwapChain1* swap_chain, HANDLE surface) {
+    try {
+        auto& s = *impl_;
+        auto* item = s.panel(id);
+        if (!item) throw std::logic_error("Unknown swap chain panel visual");
+        if (swap_chain) item->sprite.Brush(s.surface_brush(s.swap_chain_surface(swap_chain)));
+        else if (surface) {
+            auto interop = s.compositor.as<ABI::Windows::UI::Composition::ICompositorInterop>();
+            WUC::ICompositionSurface imported{nullptr};
+            winrt::check_hresult(interop->CreateCompositionSurfaceForHandle(surface,
+                reinterpret_cast<ABI::Windows::UI::Composition::ICompositionSurface**>(winrt::put_abi(imported))));
+            item->sprite.Brush(s.surface_brush(imported));
+        } else item->sprite.Brush(nullptr);
+        item->content = swap_chain || surface;
+        item->sprite.IsVisible(item->content && item->shown);
+    } catch (const winrt::hresult_error& error) {
+        rethrow(error, "Attach swap chain panel content");
+    }
+}
+
+void CompositionPresenter::place_panel(std::uint64_t id, POINT origin, SIZE size, RECT clip, bool visible,
+    bool above_overlay) {
+    try {
+        auto& s = *impl_;
+        auto* item = s.panel(id);
+        if (!item) throw std::logic_error("Unknown swap chain panel visual");
+        if (item->above_overlay != above_overlay) {
+            s.layer(*item).Children().Remove(item->sprite);
+            item->above_overlay = above_overlay;
+            s.layer(*item).Children().InsertAtTop(item->sprite);
+        }
+        item->sprite.Offset({static_cast<float>(origin.x), static_cast<float>(origin.y), 0});
+        item->sprite.Size({static_cast<float>(size.cx), static_cast<float>(size.cy)});
+        item->sprite.Clip(s.compositor.CreateInsetClip(static_cast<float>(clip.left), static_cast<float>(clip.top),
+            static_cast<float>(size.cx - clip.right), static_cast<float>(size.cy - clip.bottom)));
+        item->shown = visible;
+        item->sprite.IsVisible(item->content && visible);
+    } catch (const winrt::hresult_error& error) {
+        rethrow(error, "Place swap chain panel visual");
+    }
+}
+
+void CompositionPresenter::remove_panel(std::uint64_t id) noexcept {
+    try {
+        auto& s = *impl_;
+        const auto found = std::find_if(s.panel_list.begin(), s.panel_list.end(), [&](const auto& item) { return item.id == id; });
+        if (found == s.panel_list.end()) return;
+        found->sprite.Brush(nullptr);
+        s.layer(*found).Children().Remove(found->sprite);
+        s.panel_list.erase(found);
+    } catch (...) {
+        OutputDebugStringW(L"XUI: Cannot remove a swap chain panel visual.\n");
+    }
+}
+
+std::size_t CompositionPresenter::panel_visuals() const {
+    return static_cast<std::size_t>(std::count_if(impl_->panel_list.begin(), impl_->panel_list.end(),
+        [](const auto& item) { return item.content && item.shown; }));
+}
+
+void CompositionPresenter::overlay(IDXGISwapChain1* swap_chain, std::uint64_t generation, bool visible) {
+    try {
+        auto& s = *impl_;
+        if (visible && swap_chain && generation != s.overlay_generation) {
+            s.overlay.Brush(s.surface_brush(s.swap_chain_surface(swap_chain)));
+            s.overlay_generation = generation;
+        }
+        s.overlay.IsVisible(visible && swap_chain);
+    } catch (const winrt::hresult_error& error) {
+        rethrow(error, "Update composition overlay");
+    }
+}
+
+bool CompositionPresenter::overlay_visible() const { return impl_->overlay.IsVisible(); }
 
 }

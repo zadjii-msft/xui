@@ -330,7 +330,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool composition_card() const { return options.composition && options.transparent; }
     bool frameless() const { return material_popup || composition_card(); }
     bool layered() const { return options.transparent && !material_popup && !options.composition; }
-    std::unique_ptr<platform::CompositionPresenter> presenter;
+    std::shared_ptr<platform::CompositionPresenter> presenter;
+    // Popups and tooltips over active swap chain panels render into a second composition layer.
+    Drawing composition_overlay;
+    bool composition_overlay_ready{};
+    // Panels inside popups compose above the overlay layer, so only window-level panels need it.
+    bool active_panel() const {
+        return std::any_of(peers.begin(), peers.end(), [&](const auto& peer) {
+            return peer->swap_chain && peer->swap_chain->active() && !popup_owner(peer.get());
+        });
+    }
     struct HitShape {
         Rect bounds; float radius;
         bool operator==(const HitShape& other) const {
@@ -456,6 +465,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             catch (...) { failed = true; error = L"A popup dismissal callback failed."; }
         }
         root_drawing.discard();
+        composition_overlay.discard();
         for (const auto& peer : peers) if (peer->overlay_drawing) peer->overlay_drawing->discard();
         if (window) DestroyWindow(window);
         destroying = false;
@@ -975,6 +985,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return true;
     }
     void prepare_popup_surface(Peer& peer) {
+        // Composition windows draw popups in their own composition layers, not child HWND surfaces.
+        if (options.composition) return;
         if (peer.control->role() != ControlRole::popup || peer.overlay_drawing ||
             std::none_of(peers.begin(), peers.end(), [](const auto& item) { return bool(item->swap_chain); })) return;
         auto surface = std::make_unique<Drawing>();
@@ -1137,8 +1149,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     dynamic_cast<MenuBar*>(peer->control.get()) || dynamic_cast<MenuBar::Heading*>(peer->control.get()) ?
                 create_workspace_provider(peer->accessibility) : create_control_provider(peer->accessibility);
         }
-        if (options.composition && (dynamic_cast<RuntimeHost*>(peer->control.get()) || dynamic_cast<SwapChainPanel*>(peer->control.get())))
-            throw std::invalid_argument("Composition windows do not support native runtime hosts or swap chain panels");
         if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer->control))
             peer->runtime = std::make_unique<NativeRuntimeHost>(runtime, peer->window, [this] { fail(); }, [this] {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
@@ -1148,7 +1158,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer->swap_chain = std::make_unique<NativeSwapChainHost>(panel, peer->window, [this] {
                 return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
-            });
+            }, presenter, window);
         if (backdrop_presented && (peer->edit || peer->document)) platform::opaque_native_paint(peer->window, true);
         if (options.composition && (peer->edit || peer->document)) platform::layered_child(peer->window);
         prepare_popup_surface(*peer);
@@ -1554,7 +1564,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     void offer_tooltip(Peer& peer) {
         for (const auto& item : peers)
-            if ((item->runtime && item->runtime->active()) || (item->swap_chain && item->swap_chain->active())) {
+            if ((item->runtime && item->runtime->active()) ||
+                (item->swap_chain && item->swap_chain->active() && !options.composition)) {
                 hide_tooltip(); return;
             }
         if (!window || !ready || !onscreen(peer) || !enabled(peer) || !in_top_popup(peer) ||
@@ -1924,7 +1935,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         dpi = GetDpiForWindow(window);
         if (options.composition) {
             platform::composition_frame(window, composition_card());
-            presenter = std::make_unique<platform::CompositionPresenter>(window);
+            presenter = std::make_shared<platform::CompositionPresenter>(window);
         }
         if (material_popup) platform::round_corners(window);
         if (frameless())
@@ -2326,9 +2337,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     IsWindowVisible(window) && !IsIconic(window);
                 clip.x -= peer->paint_bounds.x;
                 clip.y -= peer->paint_bounds.y;
-                peer->swap_chain->sync(shown, dpi, clip);
+                peer->swap_chain->sync(shown, dpi, clip, popup_owner(peer) != 0);
                 if (!window || closing) return;
-                if (peer->swap_chain->active()) hide_tooltip();
+                if (peer->swap_chain->active() && !options.composition) hide_tooltip();
             }
             if (scroll_only) {
                 // UIA reads native bounds on demand. Only scroll state changed; do not rewrite
@@ -3219,12 +3230,40 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     if (!popup_style) drawing().rounded(frame, entry.commands && palette.style == VisualStyle::classic ?
                         palette.secondary : palette.border, radius, true);
                 };
-                if (composed) for (const auto& [entry, generation] : popup_frames) {
+                // Over an active swap chain panel, popups and tooltips need a composition layer above
+                // the panel visuals: finish the window content here and continue in the overlay layer.
+                const bool overlay_layer = composed && options.composition && presenter && active_panel() &&
+                    (!popup_frames.empty() || tooltip_shown);
+                struct OverlayScope {
+                    Impl& host;
+                    Drawing* previous;
+                    bool active{};
+                    ~OverlayScope() { if (active) host.paint_drawing = previous; }
+                } overlay_scope{*this, paint_drawing};
+                bool overlay_began{};
+                if (overlay_layer) {
+                    redraw = !drawing().end();
+                    if (!redraw) {
+                        present_composition();
+                        if (!composition_overlay_ready) {
+                            composition_overlay.initialize(options.visual_style);
+                            composition_overlay_ready = true;
+                        }
+                        composition_overlay.set_visual_style(options.visual_style);
+                        paint_drawing = &composition_overlay;
+                        overlay_scope.active = true;
+                        overlay_began = drawing().begin_composition(window, static_cast<float>(dpi), D2D1::ColorF(0, 0.0f));
+                    }
+                } else if (presenter && presenter->overlay_visible()) {
+                    presenter->overlay(nullptr, 0, false);
+                }
+                const bool paint_overlays = composed && (!overlay_layer || overlay_began);
+                if (paint_overlays) for (const auto& [entry, generation] : popup_frames) {
                     if (closing || !entry.popup->current(generation)) continue;
                     const auto* peer = find_peer(entry.popup.get());
                     if (peer && !peer->overlay_drawing) paint_popup(entry, false);
                 }
-                if (composed && tooltip_shown) {
+                if (paint_overlays && tooltip_shown) {
                     for (const auto& peer : peers) if (peer->control->id() == tooltip_target) {
                         const bool navigation_card = dynamic_cast<NavigationList*>(peer->control.get()) != nullptr;
                         if (tooltip_styling || navigation_card) {
@@ -3252,8 +3291,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         }
                     }
                 }
-                redraw = !composed || !drawing().end();
-                if (!redraw && options.composition && presenter) present_composition();
+                if (overlay_layer) {
+                    if (overlay_began) {
+                        const bool overlay_lost = !drawing().end();
+                        redraw = redraw || overlay_lost;
+                        if (!overlay_lost)
+                            presenter->overlay(composition_overlay.composition_swap_chain(),
+                                composition_overlay.composition_generation(), true);
+                        apply_hit_region();
+                    }
+                    paint_drawing = overlay_scope.previous;
+                    overlay_scope.active = false;
+                } else {
+                    redraw = !composed || !drawing().end();
+                    if (!redraw && options.composition && presenter) present_composition();
+                }
                 if (composed && !closing) for (const auto& [entry, generation] : popup_frames) {
                     auto* surface = find_peer(entry.popup.get());
                     if (closing || !surface || !surface->overlay_drawing || !entry.popup->current(generation)) continue;
@@ -3440,6 +3492,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
         }
         drawing().keep_images(retained);
+        if (composition_overlay_ready) composition_overlay.keep_images(retained);
         for (const auto& peer : peers) if (peer->overlay_drawing) peer->overlay_drawing->keep_images(retained);
         return changed;
     }
@@ -3565,7 +3618,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const bool fluent = palette.style == VisualStyle::winui;
         const bool focus_visible = include_focus && control.focused() && (!fluent || keyboard_focus_visible);
         if (control.role() == ControlRole::swap_chain_panel) {
-            canvas.fill({0, 0, bounds.width, bounds.height}, palette.field);
+            // Composed producers can be translucent; leave the content beneath them visible.
+            if (!(options.composition && peer.swap_chain && peer.swap_chain->active()))
+                canvas.fill({0, 0, bounds.width, bounds.height}, palette.field);
             return;
         }
         if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
@@ -6317,6 +6372,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == 39) return static_cast<LRESULT>(presenter ? presenter->backdrop_visuals() : 0);
             if (wparam == 40) return options.composition && presenter ? 1 : 0;
             if (wparam == 41) return static_cast<LRESULT>(root_drawing.composition_generation());
+            if (wparam == 42) return static_cast<LRESULT>(presenter ? presenter->panel_visuals() : 0);
+            if (wparam == 43) return presenter && presenter->overlay_visible() ? 1 : 0;
             if (wparam == 22 || wparam == 23) {
                 std::size_t count{};
                 for (const auto& peer : peers) if (peer->list)
@@ -6381,6 +6438,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             for (auto& task : samples) task->cancel();
             ready = false;
             drawing().discard();
+            composition_overlay.discard();
             presenter.reset();
             for (auto& task : tasks) task->cancel();
             detach();

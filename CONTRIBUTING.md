@@ -135,6 +135,7 @@ For Mica, acrylic, and in-app acrylic coverage, build `xui_backdrop_window_tests
 Pass an output directory to `xui_backdrop_window_tests.exe` to keep its owned-window captures for visual review.
 `xui_abi_features_tests.exe --backdrop` checks the C ABI contract without the other ABI suites.
 `xui_composition_window_tests` covers the experimental composition presentation on an unlocked desktop.
+Pass a section such as `--overlays`, `--device-loss`, `--panels`, or `--runtime-hosts`, and optionally an output directory for captures. Run it from a writable directory: `--runtime-hosts` writes fixture and profile folders there. Configure with WebView2 enabled (see the `XUI_ENABLE_WEBVIEW2` configure command below) to include web content in that section.
 To measure composition against classic presentation (and optionally a baseline build of the same probe), build `xui_composition_probe` and run `.\tests\measure-composition.ps1 -Baseline <baseline probe path> -Output build\composition-measurements`.
 It opens windows above the desktop, animates a background window, and samples system GPU counters, so leave the desktop unlocked and otherwise idle.
 For the C# lifecycle tests, run `dotnet run --project bindings\dotnet\Tests\Tests.csproj -c Release -- --window-native`.
@@ -153,6 +154,7 @@ The Pause button stops rotation. Hidden panels stop frame delivery.
 The Show overlay button opens a popup with a native text input above the live triangle.
 The triangle keeps its proportions after a resize or DPI change.
 `--handle` selects the composition-handle path. `--warp` selects software rendering.
+`--acrylic` uses the experimental composition presentation and draws the triangle with a transparent background over a desktop acrylic card.
 `--smoke` closes the sample after 60 presented frames.
 The smoke run opens the overlay at frame 15 and closes it at frame 45 without changing producer geometry.
 The [swap chain contract](docs/specs/swap-chain-panel.md) describes the renderer boundary and Windows Terminal integration limits.
