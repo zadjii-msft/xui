@@ -1,10 +1,20 @@
 {
   "name": "xui",
-  "displayName": "XUI Syntax",
-  "description": "Syntax highlighting and snippets for the XUI declarative UI language.",
-  "version": "0.2.0",
+  "displayName": "XUI",
+  "description": "IntelliSense, navigation, syntax highlighting and snippets for the XUI declarative UI language.",
+  "version": "0.3.0",
   "publisher": "zadjii-msft",
   "license": "MIT",
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:xui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
   "icon": "images/zoey.png",
   "engines": {
     "vscode": "^1.85.0",
@@ -12,7 +22,8 @@
   },
   "categories": [
     "Programming Languages",
-    "Snippets"
+    "Snippets",
+    "Other"
   ],
   "keywords": [
     "xui",
@@ -27,6 +38,9 @@
   "scripts": {
     "pretest": "node scripts/fetch-test-grammar.mjs",
     "test": "node --test test/*.test.mjs",
+    "test:editor": "node scripts/test-editor.mjs",
+    "sync:language": "node scripts/sync-language-data.mjs",
+    "check:language": "node scripts/sync-language-data.mjs --check",
     "package": "npm test && node scripts/package.mjs && npm run check:package",
     "check:package": "node scripts/check-package.mjs"
   },
@@ -63,6 +77,7 @@
     ]
   },
   "devDependencies": {
+    "@vscode/test-electron": "2.5.2",
     "@vscode/vsce": "4.0.0",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",

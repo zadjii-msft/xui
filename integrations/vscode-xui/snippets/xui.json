@@ -213,7 +213,7 @@
   },
   "Text input": {
     "prefix": "textinput",
-    "body": "TextInput(text: ${1:Input}, change: ${2:OnChanged}, submit: ${3:OnSubmit}, id: \"${4:input}\");",
+    "body": "TextInput(\"${1:Input}\", text: ${2:Input}, change: ${3:OnChanged}, submit: ${4:OnSubmit}, id: \"${5:input}\");",
     "description": "Text input with named change and submit handlers"
   }
 }
