@@ -46,9 +46,11 @@ public abstract class Element
 {
     public ControlStyle? ControlStyle { get; private set; }
     public int ControlStyleSets { get; private set; }
+    public int ControlStyleValuesSets { get; private set; }
     public readonly Dictionary<StylePart, PartStyleValues> Locals = [];
     public Element SetControlStyle(ControlStyle? value) { ControlStyle = value; ControlStyleSets++; return this; }
-    public Element SetControlStyleValues(StylePart part, PartStyleValues values) { Locals[part] = values; return this; }
+    public Element SetControlStyleValues(StylePart part, PartStyleValues values)
+    { Locals[part] = values; ControlStyleValuesSets++; return this; }
     public (float Width, float Height) Size;
     public int SizeSets;
     public (float Width, float Height) Preferred;
@@ -132,10 +134,6 @@ public sealed class Reveal : ContentControl
 }
 public class Button : Control
 {
-    private ButtonStyle? style;
-    public int StyleSets;
-    public ButtonStyle? Style { get => style; set { style = value; StyleSets++; } }
-    public ButtonStyleValues StyleValues { get; set; } = new();
     public ButtonIcon Icon;
     public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
     public event Action? Click;
@@ -149,28 +147,8 @@ public readonly record struct Insets(float Left, float Top, float Right, float B
 {
     public Insets(float uniform) : this(uniform, uniform, uniform, uniform) { }
 }
-public sealed record ButtonStyleValues
-{
-    public ThemeColor? Background { get; init; }
-    public ThemeColor? Foreground { get; init; }
-    public ThemeColor? BorderBrush { get; init; }
-    public float? CornerRadius { get; init; }
-    public Insets? BorderThickness { get; init; }
-    public Insets? Padding { get; init; }
-}
-public enum ButtonStyleState { Focused, Checked, Hovered, Pressed, Disabled }
-public sealed record ButtonStyleRule(ButtonStyleState State, ButtonStyleValues Values);
-public sealed class ButtonStyle(ButtonStyleValues values, IReadOnlyList<ButtonStyleRule>? rules = null, ButtonStyle? basedOn = null)
-{
-    public ButtonStyleValues Values { get; } = values;
-    public IReadOnlyList<ButtonStyleRule> Rules { get; } = rules ?? [];
-    public ButtonStyle? BasedOn { get; } = basedOn;
-}
 public class Toggle : Control
 {
-    public int StyleSets => ControlStyleSets;
-    public ControlStyle? Style { get => ControlStyle; set => SetControlStyle(value); }
-    public Toggle SetStyleValues(StylePart part, PartStyleValues values) { SetControlStyleValues(part, values); return this; }
     public bool Checked { get; set; }
     public event Action<bool>? Changed;
     public void Invoke(bool value) { Checked = value; Changed?.Invoke(value); }

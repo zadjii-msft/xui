@@ -32,10 +32,10 @@ void checkbox() {
     binary.invoke(); binary.invoke();
     require(!binary.checked() && !binary.indeterminate(), "Existing Toggle stays binary");
     PartStyleValues fill; fill.background = ThemeColor{0x123456};
-    check.set_style(ControlStyle::create(StyleTarget::toggle, {},
+    check.set_control_style(ControlStyle::create(StyleTarget::toggle, {},
         {{StylePart::indicator, style_states::checked, fill}}));
     check.set_state(CheckState::indeterminate);
-    require(check.effective_style_values(StylePart::indicator)->background.has_value(), "Mixed state participates in checked styles");
+    require(check.effective_control_style_values(StylePart::indicator)->background.has_value(), "Mixed state participates in checked styles");
 }
 void hyperlink() {
     HyperlinkButton link(L"Documentation"); int clicks{};

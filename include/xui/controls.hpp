@@ -218,14 +218,6 @@ public:
         icon_ = value; invalidate(Invalidation::layout);
     }
     ButtonIcon icon() const { return icon_; }
-    void set_style(std::shared_ptr<const ButtonStyle> style);
-    std::shared_ptr<const ButtonStyle> style() const;
-    void set_style_values(ButtonStyleValues values);
-    const ButtonStyleValues& style_values() const;
-    const ButtonStyleValues* effective_style_values() const;
-    // Backend context includes disabled ancestors and modal input restrictions.
-    void set_style_enabled(bool enabled);
-    Invalidation style_state_changed();
     PartStyleValues surface_style_values() const;
     PartStyleValues content_style_values(StylePart part) const;
     Rect content_bounds(Rect bounds) const;
@@ -233,29 +225,16 @@ public:
     Rect dropdown_bounds(Rect bounds) const;
     Size measure(Size available) override {
         if (has_control_styling()) return measure_control_styled(available);
-        if (style_data_) return measure_styled(available);
         const float size = style_metrics(visual_style()).button_height;
         return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
     }
 private:
-    friend class Control;
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::button; }
     StyleStateMask control_style_state_bits() const override {
         return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
     }
     Size measure_control_styled(Size available);
     PartStyleValues own_surface_style_values() const;
-    Size measure_styled(Size available);
-    struct StyleData {
-        std::shared_ptr<const ButtonStyle> style;
-        ButtonStyleValues local;
-        mutable ButtonStyleValues effective;
-        mutable unsigned mask{32};
-        bool context_enabled{true};
-    };
-    unsigned style_state_mask() const;
-    void replace_style_data(std::unique_ptr<StyleData> next);
-    std::unique_ptr<StyleData> style_data_;
     ButtonIcon icon_{};
     ButtonBehavior behavior_{};
     ButtonAppearance appearance_{};
@@ -285,12 +264,6 @@ public:
     // Property updates do not invoke the application callback.
     void set_checked(bool checked);
     void on_change(std::function<void(bool)> callback) { change_ = std::move(callback); }
-    // Thin forwarders onto Control's shared styling engine.
-    void set_style(std::shared_ptr<const ControlStyle> style) { set_control_style(std::move(style)); }
-    std::shared_ptr<const ControlStyle> style() const { return control_style(); }
-    void set_style_values(StylePart part, PartStyleValues values) { set_control_style_values(part, std::move(values)); }
-    const PartStyleValues& style_values(StylePart part) const { return control_style_values(part); }
-    const PartStyleValues* effective_style_values(StylePart part) const { return effective_control_style_values(part); }
     // Only diverges from the default measurement when a layout-affecting
     // property (root padding/border, or indicator size) is actually
     // authored; an unstyled or paint-only-styled Toggle measures identically

@@ -91,7 +91,7 @@ internal static partial class Program
         TestStylingDiagnostics();
         TestStylingShape();
         TestToggleStyling();
-        TestMixedButtonInheritance();
+        TestButtonInheritance();
         TestStackStyleDefaults();
         TestCatalogStyleInitializationAndReload();
         Console.WriteLine($"XUI generator assertions: {count} passed.");
@@ -294,12 +294,12 @@ internal static partial class Program
         var realContext = new AssemblyLoadContext("catalog-real-styles", isCollectible: true);
         var realType = realContext.LoadFromStream(realPe).GetType("CatalogStyles")!;
         var getStyles = realType.GetMethod("__xuiGetStyles", BindingFlags.Static | BindingFlags.NonPublic)!;
-        var definitions = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
-        var unchanged = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        var definitions = (Dictionary<string, RealXui.ControlStyle>)getStyles.Invoke(null, null)!;
+        var unchanged = (Dictionary<string, RealXui.ControlStyle>)getStyles.Invoke(null, null)!;
         Assert(ReferenceEquals(definitions, unchanged) && definitions.Count == targets.Length,
             "Actual managed initialization caches one generated definition for each compiler-supported target.");
         realType.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
-        var reloaded = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        var reloaded = (Dictionary<string, RealXui.ControlStyle>)getStyles.Invoke(null, null)!;
         for (int i = 0; i < targets.Length; ++i)
         {
             var initial = (RealXui.ControlStyle)definitions[$"S{i}"];
@@ -316,19 +316,17 @@ internal static partial class Program
         Assert(tooltip.GetMessage().Contains("Window", StringComparison.Ordinal),
             "Tooltip retains its explicit Window-only diagnostic instead of an unsupported Element application.");
     }
-    private static void TestMixedButtonInheritance()
+    private static void TestButtonInheritance()
     {
         const string source = """
-            component MixedStyles {
+            component ButtonStyles {
               style Rich for Button basedOn Middle { fontSize: 22; }
               style Parts for Button basedOn Middle { part label { fontWeight: 600; } }
               style RichChild for Button basedOn Rich { cornerRadius: 0; }
               style Middle for Button basedOn Base { padding: 0; }
               style Base for Button {
                 foreground: theme(light: 0x123456, dark: 0x654321);
-                when hovered { background: 0x111111; }
-                when hovered { foreground: 0; }
-                when hovered { background: 0x333333; }
+                when hovered { background: 0x333333; foreground: 0; }
               }
               view { VStack() {
                 Button("Base", ref: BaseButton, style: Base);
@@ -340,13 +338,13 @@ internal static partial class Program
               } }
             }
             """;
-        var (_, compilation) = Generate(new File(@"C:\fixture\MixedStyles.xui", source));
+        var (_, compilation) = Generate(new File(@"C:\fixture\ButtonStyles.xui", source));
         using var pe = new MemoryStream();
         var emitted = compilation.Emit(pe);
         Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
         pe.Position = 0;
-        var context = new AssemblyLoadContext("mixed-styles", isCollectible: true);
-        var type = context.LoadFromStream(pe).GetType("MixedStyles")!;
+        var context = new AssemblyLoadContext("button-styles", isCollectible: true);
+        var type = context.LoadFromStream(pe).GetType("ButtonStyles")!;
         var window = new Xui.Window();
         var instance = Activator.CreateInstance(type, window, true)!;
         Xui.Button Button(string name) => (Xui.Button)type.GetProperty(name)!.GetValue(instance)!;
@@ -358,38 +356,41 @@ internal static partial class Program
         var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
         void Graph()
         {
-            Assert(root.Style is not null && root.ControlStyle is null && middle.Style is not null,
-                "Legacy references retain ButtonStyle definitions.");
-            Assert(ReferenceEquals(middle.Style!.BasedOn, root.Style) && root.Style!.Rules.Count == 3,
-                "Legacy inheritance and repeated state declarations stay unchanged.");
-            Assert(rich.Style is null && rich.ControlStyle!.Parts[0].Values.FontSize == 22 &&
+            Assert(root.ControlStyle?.Target == Xui.StyleTarget.Button && middle.ControlStyle?.Target == Xui.StyleTarget.Button,
+                "Foundation-only Button definitions use the shared control schema.");
+            Assert(ReferenceEquals(middle.ControlStyle!.BasedOn, root.ControlStyle) && root.ControlStyle!.Rules.Count == 1,
+                "Foundation styles keep the same shared inheritance chain as their derivatives.");
+            Assert(rich.ControlStyle!.Parts[0].Values.FontSize == 22 &&
                 parts.ControlStyle!.Parts.Single(p => p.Part == Xui.StylePart.Label).Values.FontWeight == 600,
-                "Typography and named-part derivatives construct generic styles.");
+                "Typography and named-part derivatives use shared definitions.");
             Assert(ReferenceEquals(rich.ControlStyle!.BasedOn, parts.ControlStyle!.BasedOn) &&
-                ReferenceEquals(child.ControlStyle!.BasedOn, rich.ControlStyle),
-                "Mixed descendants share promoted ancestors and generic bases.");
-            var promoted = rich.ControlStyle.BasedOn!;
-            Assert(promoted.Parts[0].Values.Padding == new Xui.Insets(0) &&
-                promoted.BasedOn!.Parts[0].Values.Foreground == new Xui.ThemeColor(0x123456, 0x654321),
-                "Promotion preserves sparse zero values, themes and the full base chain.");
-            var hover = promoted.BasedOn!.Rules.Single();
-            Assert(hover.State == Xui.StyleState.Hovered && hover.Values.Background == new Xui.ThemeColor(0x333333) &&
+                ReferenceEquals(child.ControlStyle!.BasedOn, rich.ControlStyle) &&
+                ReferenceEquals(rich.ControlStyle.BasedOn, middle.ControlStyle),
+                "Every Button descendant references the original shared ancestors without copying graphs.");
+            Assert(middle.ControlStyle.Parts[0].Values.Padding == new Xui.Insets(0) &&
+                root.ControlStyle!.Parts[0].Values.Foreground == new Xui.ThemeColor(0x123456, 0x654321),
+                "Shared inheritance preserves sparse zero values, themes and the full base chain.");
+            var hover = root.ControlStyle!.Rules.Single();
+            Assert(hover.Part == Xui.StylePart.Root && hover.State == Xui.StyleState.Hovered &&
+                hover.Values.Background == new Xui.ThemeColor(0x333333) &&
                 hover.Values.Foreground == new Xui.ThemeColor(0),
-                "Promotion merges repeated legacy states with field-wise last-write precedence.");
+                "Root state properties stay sparse and preserve authored values.");
         }
         Graph();
         var previous = rich.ControlStyle;
-        var originalLegacy = root.Style;
+        var originalBase = root.ControlStyle;
         var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
         refresh.Invoke(instance, null);
-        Assert(ReferenceEquals(previous, rich.ControlStyle), "Unchanged refresh preserves mixed style identities.");
-        input.Edit("Retained mixed-style input");
+        Assert(ReferenceEquals(previous, rich.ControlStyle) && root.ControlStyleSets == 1,
+            "Unchanged refresh preserves every shared Button style identity.");
+        input.Edit("Retained Button-style input");
         type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
         refresh.Invoke(instance, null);
         Graph();
-        Assert(!ReferenceEquals(previous, rich.ControlStyle) && !ReferenceEquals(originalLegacy, root.Style) &&
-            ReferenceEquals(rich, Button("RichButton")) && input.Text == "Retained mixed-style input" && window.ContentSets == 1,
-            "Reload replaces both style graphs without replacing controls or user input.");
+        Assert(!ReferenceEquals(previous, rich.ControlStyle) && !ReferenceEquals(originalBase, root.ControlStyle) &&
+            root.ControlStyleSets == 2 && rich.ControlStyleSets == 2 &&
+            ReferenceEquals(rich, Button("RichButton")) && input.Text == "Retained Button-style input" && window.ContentSets == 1,
+            "Reload replaces one shared style graph without replacing controls or user input.");
         context.Unload();
 
         var real = compilation.WithReferences(References
@@ -399,22 +400,25 @@ internal static partial class Program
         emitted = real.Emit(realPe);
         Assert(emitted.Success, string.Join("\n", emitted.Diagnostics));
         realPe.Position = 0;
-        var realContext = new AssemblyLoadContext("mixed-real-styles", isCollectible: true);
-        var realType = realContext.LoadFromStream(realPe).GetType("MixedStyles")!;
+        var realContext = new AssemblyLoadContext("button-real-styles", isCollectible: true);
+        var realType = realContext.LoadFromStream(realPe).GetType("ButtonStyles")!;
         var getStyles = realType.GetMethod("__xuiGetStyles", BindingFlags.Static | BindingFlags.NonPublic)!;
-        var definitions = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
-        Assert(definitions["Base"] is RealXui.ButtonStyle && definitions["Middle"] is RealXui.ButtonStyle &&
-            definitions["Rich"] is RealXui.ControlStyle && definitions["Parts"] is RealXui.ControlStyle,
-            "Generated initialization constructs real managed definitions without a native DLL.");
-        var realRich = (RealXui.ControlStyle)definitions["Rich"];
+        var definitions = (Dictionary<string, RealXui.ControlStyle>)getStyles.Invoke(null, null)!;
+        Assert(definitions.Count == 5 && definitions.Values.All(style => style.Target == RealXui.StyleTarget.Button),
+            "Generated initialization constructs one real shared definition per declared Button style without a native DLL.");
+        var realRich = definitions["Rich"];
         Assert(realRich.BasedOn!.BasedOn!.Rules.Count == 1 &&
-            ReferenceEquals(realRich.BasedOn, ((RealXui.ControlStyle)definitions["Parts"]).BasedOn),
-            "Real generic constructors accept promoted duplicate-state bases and preserve sharing.");
+            ReferenceEquals(realRich.BasedOn, definitions["Parts"].BasedOn) &&
+            ReferenceEquals(realRich.BasedOn, definitions["Middle"]) &&
+            ReferenceEquals(realRich.BasedOn.BasedOn, definitions["Base"]),
+            "Real shared constructors preserve the original named ancestor identities.");
         realType.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
-        var reloaded = (Dictionary<string, object>)getStyles.Invoke(null, null)!;
+        var reloaded = (Dictionary<string, RealXui.ControlStyle>)getStyles.Invoke(null, null)!;
         Assert(!ReferenceEquals(definitions["Rich"], reloaded["Rich"]) &&
-            reloaded["Base"] is RealXui.ButtonStyle && reloaded["Rich"] is RealXui.ControlStyle,
-            "Real managed definitions retain mixed types after a generated reload.");
+            !ReferenceEquals(definitions["Base"], reloaded["Base"]) &&
+            ReferenceEquals(reloaded["Rich"].BasedOn, reloaded["Middle"]) &&
+            ReferenceEquals(reloaded["Middle"].BasedOn, reloaded["Base"]),
+            "Real managed reload replaces shared definitions and preserves their named inheritance graph.");
         realContext.Unload();
     }
     private static void TestStackStyleDefaults()
@@ -505,8 +509,8 @@ internal static partial class Program
         var first = (Xui.Toggle)type.GetProperty("First")!.GetValue(instance)!;
         var second = (Xui.Toggle)type.GetProperty("Second")!.GetValue(instance)!;
         var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
-        var style = first.Style!;
-        Assert(ReferenceEquals(style, second.Style), "Named Toggle styles share one immutable definition.");
+        var style = first.ControlStyle!;
+        Assert(ReferenceEquals(style, second.ControlStyle), "Named Toggle styles share one immutable definition.");
         Assert(style.Parts.Single(p => p.Part == Xui.StylePart.Indicator).Values.Size == 18, "Indicator metrics compile.");
         Assert(style.Rules.Single(r => r.Part == Xui.StylePart.Indicator).State == Xui.StyleState.Checked, "Part-local state compiles.");
         Assert(style.BasedOn!.Parts[0].Values.Foreground == new Xui.ThemeColor(0x123456, 0x654321), "Root inherits both theme colors.");
@@ -514,10 +518,10 @@ internal static partial class Program
         input.Edit("Keep selection owner");
         var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
         refresh.Invoke(instance, null);
-        Assert(first.StyleSets == 1, "Unchanged refresh keeps Toggle style identity.");
+        Assert(first.ControlStyleSets == 1, "Unchanged refresh keeps Toggle style identity.");
         type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "stale");
         refresh.Invoke(instance, null);
-        Assert(!ReferenceEquals(style, first.Style) && ReferenceEquals(first.Style, second.Style), "Reload replaces shared Toggle styles.");
+        Assert(!ReferenceEquals(style, first.ControlStyle) && ReferenceEquals(first.ControlStyle, second.ControlStyle), "Reload replaces shared Toggle styles.");
         Assert(input.Text == "Keep selection owner" && window.ContentSets == 1, "Reload preserves controls and native input ownership.");
         context.Unload();
         Assert(Invalid("component Bad { style A for Tooltip {} view { VStack() {} } }").GetMessage().Contains("Window API"),
@@ -558,39 +562,63 @@ internal static partial class Program
         var context = new AssemblyLoadContext("styling-test", isCollectible: true);
         var type = context.LoadFromStream(pe).GetType("Demo.Styling")!;
         var window = new Xui.Window();
-        var instance = Activator.CreateInstance(type, window, true)!;
+        var existing = window.Button("Existing");
+        var instance = Activator.CreateInstance(type, window, existing, true)!;
         var button = (Xui.Button)type.GetProperty("DeleteButton")!.GetValue(instance)!;
         var other = (Xui.Button)type.GetProperty("OtherButton")!.GetValue(instance)!;
+        var local = (Xui.Button)type.GetProperty("LocalButton")!.GetValue(instance)!;
+        var unstyled = (Xui.Button)type.GetProperty("DefaultButton")!.GetValue(instance)!;
         var input = (Xui.TextInput)type.GetProperty("Input")!.GetValue(instance)!;
-        var style = button.Style!;
-        Assert(ReferenceEquals(style, other.Style), "Buttons share immutable named style definitions.");
-        Assert(style.Values.Background == new Xui.ThemeColor(0xB42318, 0x8F1D16), "Theme colors retain both modes.");
-        Assert(style.Values.Foreground == new Xui.ThemeColor(0xFFFFFF), "Uniform resources retain their color.");
-        Assert(style.Values.BorderBrush == new Xui.ThemeColor(0x68110C, 0xFFA198), "Forward resource aliases resolve.");
-        Assert(style.Values.CornerRadius == 0 && style.Values.Padding is null &&
-            style.Values.BorderThickness == new Xui.Insets(3, 0, 0, 0), "Sparse style values preserve explicit zero and asymmetric edges.");
-        Assert(style.BasedOn!.Values.Padding == new Xui.Insets(8) && style.BasedOn.Values.Background is null,
+        var style = button.ControlStyle!;
+        Assert(ReferenceEquals(style, other.ControlStyle), "Buttons share immutable named style definitions.");
+        Assert(ReferenceEquals(existing, type.GetProperty("EmbeddedButton")!.GetValue(instance)) &&
+            ReferenceEquals(style, existing.ControlStyle) && existing.Locals[Xui.StylePart.Root].CornerRadius == 0 &&
+            existing.Locals[Xui.StylePart.Root].Foreground == new Xui.ThemeColor(0),
+            "Content applies foundation-only Button styles and root local values to the original Element.");
+        Assert(style.Target == Xui.StyleTarget.Button && style.Parts.Single().Part == Xui.StylePart.Root,
+            "Foundation-only Button declarations use the shared root schema.");
+        var values = style.Parts.Single().Values;
+        Assert(values.Background == new Xui.ThemeColor(0xB42318, 0x8F1D16), "Theme colors retain both modes.");
+        Assert(values.Foreground == new Xui.ThemeColor(0xFFFFFF), "Uniform resources retain their color.");
+        Assert(values.BorderBrush == new Xui.ThemeColor(0x68110C, 0xFFA198), "Forward resource aliases resolve.");
+        Assert(values.CornerRadius == 0 && values.Padding is null &&
+            values.BorderThickness == new Xui.Insets(3, 0, 0, 0), "Sparse style values preserve explicit zero and asymmetric edges.");
+        Assert(style.BasedOn!.Parts.Single().Values.Padding == new Xui.Insets(8) &&
+            style.BasedOn.Parts.Single().Values.Background is null,
             "Forward derivation preserves sparse base definitions.");
-        Assert(style.Rules.Select(rule => rule.State).SequenceEqual(Enum.GetValues<Xui.ButtonStyleState>()),
+        Assert(style.Rules.Select(rule => rule.State).SequenceEqual(new[] { Xui.StyleState.Focused, Xui.StyleState.Checked, Xui.StyleState.Hovered, Xui.StyleState.Pressed, Xui.StyleState.Disabled }),
             "All five style states preserve declaration order.");
+        Assert(style.Rules.All(rule => rule.Part == Xui.StylePart.Root), "Unqualified states apply to the shared root part.");
         Assert(style.Rules[2].Values.Background == new Xui.ThemeColor(0xD92D20, 0xB42318) &&
             style.Rules[2].Values.Foreground is null, "State overrides remain sparse and theme-aware.");
-        Assert(other.StyleValues.Background == new Xui.ThemeColor(0) &&
-            other.StyleValues.Padding == new Xui.Insets(0, 1, 2, 3) && other.StyleValues.Foreground is null,
+        Assert(other.Locals[Xui.StylePart.Root].Background == new Xui.ThemeColor(0) &&
+            other.Locals[Xui.StylePart.Root].Padding == new Xui.Insets(0, 1, 2, 3) &&
+            other.Locals[Xui.StylePart.Root].Foreground is null,
             "Local properties preserve sparse values.");
+        Assert(local.ControlStyleSets == 0 && local.ControlStyleValuesSets == 1 &&
+            local.Locals[Xui.StylePart.Root].Padding == new Xui.Insets(0) &&
+            local.Locals[Xui.StylePart.Root].Background == new Xui.ThemeColor(0),
+            "Local-only Button arguments use shared root values without creating a named style.");
+        Assert(unstyled.ControlStyleSets == 0 && unstyled.ControlStyleValuesSets == 0 && unstyled.Locals.Count == 0,
+            "Omitted styling never creates a style or local override and preserves defaults.");
         input.Edit("Retained input");
         var refresh = type.GetMethod("__xuiRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!;
         refresh.Invoke(instance, null);
-        Assert(ReferenceEquals(button.Style, style) && button.StyleSets == 1,
+        Assert(ReferenceEquals(button.ControlStyle, style) && button.ControlStyleSets == 1,
             "Unchanged refresh does not allocate or assign new named styles.");
-        var second = Activator.CreateInstance(type, new Xui.Window(), true)!;
-        Assert(ReferenceEquals(((Xui.Button)type.GetProperty("DeleteButton")!.GetValue(second)!).Style, style),
+        var secondWindow = new Xui.Window();
+        var second = Activator.CreateInstance(type, secondWindow, secondWindow.Button("Existing"), true)!;
+        Assert(ReferenceEquals(((Xui.Button)type.GetProperty("DeleteButton")!.GetValue(second)!).ControlStyle, style),
             "Style definitions are shared across component instances, not native control ownership.");
         // Emulate the stale revision that remains after a method-body update.
         type.GetField("__xuiStyleRevision", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, "old revision");
         refresh.Invoke(instance, null);
-        Assert(!ReferenceEquals(button.Style, style) && button.StyleSets == 2 &&
-            ReferenceEquals(button.Style, other.Style), "Changed definition revisions replace styles on existing controls.");
+        Assert(!ReferenceEquals(button.ControlStyle, style) && button.ControlStyleSets == 2 &&
+            ReferenceEquals(button.ControlStyle, other.ControlStyle), "Changed definition revisions replace styles on existing controls.");
+        Assert(ReferenceEquals(existing, type.GetProperty("EmbeddedButton")!.GetValue(instance)) &&
+            ReferenceEquals(existing.ControlStyle, button.ControlStyle) && existing.ControlStyleSets == 2 &&
+            existing.ControlStyleValuesSets == 1 && other.ControlStyleValuesSets == 1 && local.ControlStyleValuesSets == 1,
+            "Reload retains embedded Buttons and unchanged local override bindings.");
         Assert(input.Text == "Retained input" && (string)type.GetProperty("Entry")!.GetValue(instance)! == "Retained input" &&
             window.ContentSets == 1, "A style refresh preserves input, component state, and the existing tree.");
         context.Unload();
@@ -646,7 +674,7 @@ internal static partial class Program
         foreach (string node in new[]
         {
             "Button(\"X\", style: Missing);",
-            "Button(\"X\", style: new global::Xui.ButtonStyle(new()));",
+            "Button(\"X\", style: new global::Xui.ControlStyle(global::Xui.StyleTarget.Button, []));",
             "Button(\"X\", background: resource(Missing));",
             "Button(\"X\", padding: -1);",
             "Text(\"X\", style: Missing);",
@@ -658,13 +686,18 @@ internal static partial class Program
         string Styles(int n) => string.Join(" ", Enumerable.Range(0, n)
             .Select(i => $"style S{i} for Button" + (i + 1 < n ? $" basedOn S{i + 1}" : "") + " {}"));
         string Rules(int n) => "style Rules for Button { " + string.Concat(Enumerable.Repeat("when hovered { padding: 0; } ", n)) + " }";
-        foreach (string limit in new[] { Resources(257), Styles(17), Rules(257) })
+        foreach (string limit in new[] { Resources(257), Styles(17), Rules(2), Rules(257) })
             Invalid("component Bad { " + limit + " view { VStack() {} } }");
+        string states = string.Concat(new[] { "focused", "checked", "hovered", "pressed", "disabled" }
+            .Select(state => $"when {state} {{ foreground: 0; }} "));
+        string allParts = "style AllParts for Button { " + states +
+            string.Concat(new[] { "label", "icon", "arrow" }.Select(part => $"part {part} {{ {states} }}")) + " }";
         var (_, boundary) = Generate(new File(@"C:\fixture\Limits.xui",
-            "component Limits { " + Resources(256) + Styles(16) + Rules(256) +
-            " view { VStack() { Button(\"X\", style: S0, padding: 32768, cornerRadius: 0.5, foreground: 0xFFFFFF); } } }"));
+            "component Limits { " + Resources(256) + Styles(16) + allParts +
+            " view { VStack() { Button(\"X\", style: S0, padding: 32768, cornerRadius: 0.5, foreground: 0xFFFFFF); " +
+            "Button(\"All parts\", style: AllParts); } } }"));
         Assert(!boundary.GetDiagnostics().Any(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning),
-            "Maximum resources, inheritance, rules, colors, and dimensions compile without warnings.");
+            "Maximum resources and inheritance, all unique Button part states, colors, and dimensions compile without warnings.");
         var (_, escaped) = Generate(new File(@"C:\fixture\EscapedStyles.xui", """
             component EscapedStyles {
                 resources { \u0041: 0; @default: resource(A); }
@@ -702,7 +735,7 @@ internal static partial class Program
         foreach (string edit in new[]
         {
             original.Replace("0xB42318", "0xF04438"),
-            original.Replace("when hovered { background: resource(DangerHover); }", "when pressed { foreground: 0; }"),
+            original.Replace("when hovered { background: resource(DangerHover); }", "when hovered { foreground: 0; }"),
             original.Replace("basedOn BaseButton", ""),
             original.Replace("style: DangerButton", "style: BaseButton"),
             original.Replace("background: 0,", "background: 1,"),
@@ -719,7 +752,7 @@ internal static partial class Program
             "Resource declaration identity changes require replacement.");
         Assert(Shape(Generated(original.Replace(", background: 0", ""))) != Shape(generated),
             "Local property removal cannot leave an old override on a retained control.");
-        Assert(Shape(Generated(original.Replace(", style: DangerButton", ""))) != Shape(generated),
+        Assert(Shape(Generated(original.Replace("Button(\"Delete\", style: DangerButton,", "Button(\"Delete\","))) != Shape(generated),
             "Style binding removal requires replacement.");
     }
     private static string CompositionSource()

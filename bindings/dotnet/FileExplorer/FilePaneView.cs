@@ -42,7 +42,7 @@ internal sealed partial class FilePaneView
         Tabs.SetAutomationId($"pane-{number}-tabs");
         Tabs.NewTabButtonVisible = true;
         Tabs.Duration = 180;
-        Tabs.NewTabButton.SetStyle(ExplorerStyles.IconButton);
+        Tabs.NewTabButton.SetControlStyle(ExplorerStyles.IconButton);
         TabMenu = new(app, this);
         Tabs.OnContextMenu(TabMenu.GetCommands, TabMenu.Invoke);
         AddressBar = new(app, this, number);
@@ -53,7 +53,7 @@ internal sealed partial class FilePaneView
         Tree.Visible(false);
         layout = new(window, number, AddressBar.Root, Columns, Tree, attach: false);
         foreach (var button in new[] { layout.Back, layout.Forward, layout.Up, layout.Refresh, layout.Commands })
-            button.SetStyle(ExplorerStyles.IconButton);
+            button.SetControlStyle(ExplorerStyles.IconButton);
         Root = layout.Root;
         BackButton = back = layout.Back;
         forward = layout.Forward;

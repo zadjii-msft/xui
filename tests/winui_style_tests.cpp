@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "xui/application.hpp"
 #include "xui/documents.hpp"
 #include "xui/navigation.hpp"
@@ -233,9 +234,9 @@ void presentation_measurement() {
         const auto text = link.content_bounds({0, 0, size.width, size.height});
         require(text.width >= 87 && text.height >= 19,
             "Natural-width hyperlinks retain the complete measured text with default and rounded styles");
-        ButtonStyleValues border;
+        PartStyleValues border;
         border.border_thickness = Insets{};
-        link.set_style_values(border);
+        link.set_control_style_values(StylePart::root, border);
         const auto borderless = link.measure(available);
         const auto borderless_text = link.content_bounds({0, 0, borderless.width, borderless.height});
         require(borderless.width == 109 && borderless_text.width == 87,

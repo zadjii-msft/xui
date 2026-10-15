@@ -363,7 +363,7 @@ internal static class ExplorerCustomizationSmoke
                 Check(!editor.Row(id).ResetVisible, "A default setting exposed its reset button: " + id);
             var reset = editor.Row("font").Reset;
             Check(reset.Text == "" && reset.Icon == ButtonIcon.Undo &&
-                reset.EffectiveStyleValues.BorderThickness == new Insets(0),
+                reset.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0),
                 "Inline reset must be an icon-only, borderless button.");
         });
         await until(() => editor.Row("font").Text!.GetBounds().Height > 20);

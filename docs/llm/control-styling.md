@@ -1,7 +1,59 @@
 # Control styling implementation and evidence
 
+## Current source map: shared-only styling
+
+All authored styling now uses `ControlStyle`, `PartStyleValues`, and the optional
+Element-owned attachment. The separate Button definitions, sidecar storage,
+precomputed state matrix, ABI records/exports, and managed/Rust control-specific
+attachment aliases have been removed. Built-in Button appearance and real target
+aliases such as ToggleButton-to-Button remain semantic control behavior.
+
+`include/xui/control_styling.hpp` and `src/control_styling.cpp` define the shared resolver;
+`src/controls.cpp`, `src/application.cpp`, and `src/drawing.cpp` consume shared values
+for Button state, measurement, geometry, and painting. Composite projections stay
+below explicit child styles and locals. Backend disabled context stays private to Element.
+`src/c_api.cpp` owns one shared weak definition cache and versioned property records.
+The base ABI is version 2; shared property-record versions are unchanged.
+
+The generator now emits one `ControlStyle` graph for every declaration, without
+legacy selection or ancestor promotion. Matching styles work on embedded Button content.
+Duplicate declarative state blocks are rejected uniformly.
+`tests/styling_tests.cpp`, `tests/control_styling_tests.cpp`,
+`tests/styling_window_tests.cpp`, and `tests/abi_features_tests.cpp` cover the consolidated
+state, rendering, local precedence, identity, lifetime, and error paths.
+Binding and compiler regressions cover the same shared public surface.
+
+### Consolidation verification limits
+
+The focused shared-style model, raster, ABI, schema, WinUI appearance, and
+Button/choice/Expander interaction checks pass. The native ABI test also checks
+that the removed exports are absent and version-1 window options are rejected.
+The ancestor/modal fixture covers Button label, icon, and arrow values through
+the same context-aware attachment, alongside retained editor selection and UIA.
+
+The broader desktop fixtures still have baseline failures. A separately built
+snapshot of `dcce2078`, with only the software-target fixture repair and the
+lifetime-only entry point, reproduces the SelectorBar sixteen-DIP marker assertion,
+the native-edit completion timeout, and the style lifetime USER count change
+from 17 to 18. Both lifetime traces show the same MSCTF timer callback and unchanged
+native HWND inventory. These checks are not recorded as passing, and their
+assertions have not been relaxed.
+
+The final version-2 DLL also passes managed styling, Minesweeper, FileExplorer
+models/customization, Toggle/parity, navigation bridges, and Designer native layout
+checks. The Designer round-trip timing assertion passes on the final isolated run.
+The Explorer ancestor-width expectation is not a Button measurement regression:
+ABI-1 and ABI-2 isolated probes both measure the ancestor text at 27 DIPs; the
+current path receives a 200-DIP layout allocation. No application expectations
+were relaxed to make the consolidation pass.
+
+The evidence below is historical. References to the Button foundation and
+compatibility paths describe the implementation at the recorded date, not current APIs.
+
+## Historical integration evidence
+
 Latest integration evidence: 2026-09-16.
-The current delivery is the control-family expansion after Astra completed the Sonnet-5 pilot takeover.
+That delivery was the control-family expansion after Astra completed the Sonnet-5 pilot takeover.
 Earlier foundation evidence dates from 2026-09-15 and uses base commit `70a009f4cac55bc74250ae7500a9abbf0b20a1f9`.
 This note separates current integration results, accepted performance costs, and historical investigations.
 

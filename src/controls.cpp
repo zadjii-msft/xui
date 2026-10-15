@@ -402,108 +402,18 @@ void Button::set_checked(bool value) {
     invalidate_state();
 }
 void Control::invalidate_state() {
-    auto kind = Invalidation::paint;
-    if (role_ == ControlRole::button) {
-        auto& button = static_cast<Button&>(*this);
-        if (button.style_data_) kind = button.style_state_changed();
-    }
-    if (!invalidate_control_style_state() || kind == Invalidation::layout) invalidate(kind);
+    if (!invalidate_control_style_state()) invalidate(Invalidation::paint);
 }
 StyleStateMask Control::control_style_state_bits() const {
     return (focused() ? style_states::focused : 0) | (hovered() ? style_states::hovered : 0) |
         (pressed() ? style_states::pressed : 0) |
         (!enabled() ? style_states::disabled : 0) | Element::control_style_state_bits();
 }
-unsigned Button::style_state_mask() const {
-    return unsigned(focused()) | (unsigned(checked()) << 1) | (unsigned(hovered()) << 2) |
-        (unsigned(pressed()) << 3) | (unsigned(!enabled() || (style_data_ && !style_data_->context_enabled)) << 4);
-}
-void Button::set_style_enabled(bool enabled) {
-    if (!style_data_ || style_data_->context_enabled == enabled) return;
-    style_data_->context_enabled = enabled;
-    invalidate_state();
-}
-const ButtonStyleValues* Button::effective_style_values() const {
-    if (!style_data_) return nullptr;
-    const auto mask = style_state_mask();
-    if (style_data_->mask != mask) {
-        style_data_->effective = merge_style_values(
-            style_data_->style ? style_data_->style->values(mask) : ButtonStyleValues{}, style_data_->local);
-        style_data_->mask = mask;
-    }
-    return &style_data_->effective;
-}
-Invalidation Button::style_state_changed() {
-    if (!style_data_) return Invalidation::paint;
-    const auto previous = style_data_->effective;
-    return style_layout_equal(previous, *effective_style_values()) ? Invalidation::paint : Invalidation::layout;
-}
-std::shared_ptr<const ButtonStyle> Button::style() const {
-    return style_data_ ? style_data_->style : nullptr;
-}
-const ButtonStyleValues& Button::style_values() const {
-    static const ButtonStyleValues empty;
-    return style_data_ ? style_data_->local : empty;
-}
-void Button::replace_style_data(std::unique_ptr<StyleData> next) {
-    const auto previous = style_data_ ? *effective_style_values() : ButtonStyleValues{};
-    if (next && !next->style && next->local.empty()) next.reset();
-    style_data_ = std::move(next);
-    const auto current = style_data_ ? *effective_style_values() : ButtonStyleValues{};
-    invalidate(style_layout_equal(previous, current) ? Invalidation::paint : Invalidation::layout);
-}
-void Button::set_style(std::shared_ptr<const ButtonStyle> style) {
-    if ((!style_data_ && !style) || (style_data_ && style_data_->style == style)) return;
-    auto next = std::make_unique<StyleData>();
-    next->style = std::move(style);
-    if (style_data_) {
-        next->local = style_data_->local;
-        next->context_enabled = style_data_->context_enabled;
-    }
-    replace_style_data(std::move(next));
-}
-void Button::set_style_values(ButtonStyleValues values) {
-    validate_style_values(values);
-    if (!style_data_ && values.empty()) return;
-    auto next = std::make_unique<StyleData>();
-    if (style_data_) {
-        next->style = style_data_->style;
-        next->context_enabled = style_data_->context_enabled;
-    }
-    next->local = std::move(values);
-    replace_style_data(std::move(next));
-}
-Size Button::measure_styled(Size available) {
-    if (!visible()) return {};
-    const auto* values = effective_style_values();
-    const auto metrics = style_metrics(visual_style());
-    if (auto_size() && values && (values->padding || values->border_thickness)) {
-        const auto text = icon_ == ButtonIcon::none ? measured_text() : Size{16, 16};
-        const auto padding = values->padding.value_or(default_button_padding(visual_style()));
-        const auto border = values->border_thickness.value_or(Insets{1, 1, 1, 1});
-        const auto extra = behavior_ == ButtonBehavior::dropdown ? 20.0f : 0.0f;
-        return constrain({text.width + padding.left + padding.right + border.left + border.right + extra,
-            std::max(values->padding ? 0.0f : metrics.button_height,
-                text.height + padding.top + padding.bottom + border.top + border.bottom)}, available);
-    }
-    return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) :
-        constrain({metrics.button_height, metrics.button_height}, available);
-}
 PartStyleValues Button::surface_style_values() const {
     return merge_part_values(control_style_projection_values(StylePart::root), own_surface_style_values());
 }
 PartStyleValues Button::own_surface_style_values() const {
-    const auto convert = [](const ButtonStyleValues& values) {
-        PartStyleValues result;
-        result.background = values.background; result.foreground = values.foreground;
-        result.border_brush = values.border_brush; result.border_thickness = values.border_thickness;
-        result.padding = values.padding; result.corner_radius = values.corner_radius;
-        return result;
-    };
-    auto result = style_data_ ? convert(*effective_style_values()) : PartStyleValues{};
-    result = merge_part_values(std::move(result), own_control_style_values(StylePart::root));
-    if (style_data_) result = merge_part_values(std::move(result), convert(style_data_->local));
-    return merge_part_values(std::move(result), control_style_values(StylePart::root));
+    return own_control_style_values(StylePart::root);
 }
 Rect Button::content_bounds(Rect bounds) const {
     const auto values = surface_style_values();
@@ -536,10 +446,7 @@ PartStyleValues Button::content_style_values(StylePart part) const {
         if (own_root.horizontal_alignment) result.horizontal_alignment = own_root.horizontal_alignment;
         if (own_root.vertical_alignment) result.vertical_alignment = own_root.vertical_alignment;
     }
-    if (const auto source = control_style())
-        if (const auto authored = source->resolve(part, control_style_state_bits()))
-            result = merge_part_values(std::move(result), *authored);
-    return merge_part_values(std::move(result), control_style_values(part));
+    return merge_part_values(std::move(result), own_control_style_values(part));
 }
 Rect Button::dropdown_bounds(Rect bounds) const {
     auto content = content_bounds(bounds);
@@ -583,7 +490,7 @@ Size Button::measure_control_styled(Size available) {
     const auto* arrow = effective_control_style_values(StylePart::arrow);
     if (part_style_layout_equal(values, {}) && (!label || part_style_layout_equal(*label, {})) &&
         (!icon || part_style_layout_equal(*icon, {})) && (!arrow || part_style_layout_equal(*arrow, {})))
-        return style_data_ ? measure_styled(available) : icon_ == ButtonIcon::none ? Control::measure(available) :
+        return icon_ == ButtonIcon::none ? Control::measure(available) :
             constrain({style_metrics(visual_style()).button_height, style_metrics(visual_style()).button_height}, available);
     const auto metrics = style_metrics(visual_style());
     const auto padding = values.padding.value_or(default_button_padding(visual_style()));
@@ -665,8 +572,8 @@ Size InfoBadge::measure(Size available) {
         size + padding.top + padding.bottom + border.top + border.bottom}, available);
 }
 Toggle::Layout Toggle::layout_metrics() const {
-    const auto* root = effective_style_values(StylePart::root);
-    const auto* indicator = effective_style_values(StylePart::indicator);
+    const auto* root = effective_control_style_values(StylePart::root);
+    const auto* indicator = effective_control_style_values(StylePart::indicator);
     const bool winui = visual_style() == VisualStyle::winui;
     Layout layout;
     layout.gap = winui && !switch_ ? 9.0f : 12.0f;
@@ -729,8 +636,8 @@ Rect Toggle::mark_bounds(Rect bounds, bool enabled) const {
 }
 Size Toggle::measure(Size available) {
     if (!visible()) return {};
-    const auto* root = effective_style_values(StylePart::root);
-    const auto* indicator = effective_style_values(StylePart::indicator);
+    const auto* root = effective_control_style_values(StylePart::root);
+    const auto* indicator = effective_control_style_values(StylePart::indicator);
     const bool layout_affecting = (root && (root->padding || root->border_thickness)) || (indicator && indicator->size);
     if (!auto_size() || (!layout_affecting && !switch_)) return Control::measure(available);
     const auto text = measured_text();

@@ -2,7 +2,7 @@
 
 This inventory records implemented styling coverage for the public XUI control catalog.
 It distinguishes owned presentation from native or application-authored content.
-The [control-style contract](control-styling.md) describes shared behavior and the compatible Button foundation.
+The [control-style contract](control-styling.md) describes the shared API and target-specific behavior.
 The [template design](styling-and-templates-design.md) describes separate, later structural customization.
 Control templates and item templates are not shipped.
 
@@ -149,7 +149,7 @@ Drawing, hit testing, scrolling, and UIA use the same resulting geometry.
 Sonnet-5 began the shared-engine pilot.
 Astra completed the Toggle pilot and integrated the control-family expansion with the family owners and coordinator.
 The delivered native adapters use the shared sparse engine, named parts, state rules, and bounded effective values.
-The Button foundation remains compatible.
+Button uses the same style definitions and attachment API as the other supported elements.
 Its foundation examples do not limit the current shared engine to Button or Toggle.
 
 The ABI, C#, Rust, and compiler use the same exported property/state masks and value limits.

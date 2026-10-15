@@ -76,7 +76,7 @@ internal static class Program
                         Require(layout.OutputToggle.Text == "Expand output" && layout.OutputToggle.Icon == ButtonIcon.ChevronUp &&
                             layout.OutputToggle.GetBounds().Width == 32,
                             "The bottom status row exposes an accessible up-chevron button");
-                        var disclosure = layout.OutputToggle.EffectiveStyleValues;
+                        var disclosure = layout.OutputToggle.GetControlStyleValues(StylePart.Root, effective: true);
                         Require(disclosure.Background == layout.OutputPanel.GetControlStyleValues(StylePart.Root, effective: true).Background &&
                             disclosure.BorderThickness == new Insets(0),
                             "The output disclosure has no contrasting button background or border");
@@ -144,7 +144,7 @@ internal static class Program
                         Require(window.Style == VisualStyle.Classic && layout.StyleToggle.Text == "Style: Classic",
                             "The toolbar button switches the live window to Classic");
                         Require(layout.OutputToggle.Icon == ButtonIcon.ChevronUp &&
-                            layout.OutputToggle.EffectiveStyleValues.BorderThickness == new Insets(0),
+                            layout.OutputToggle.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0),
                             "Classic retains the borderless output chevron");
                         Require(editor.Text == "Test Native editor layout fixture" && editor.Selection == new TextSelection(7, 13),
                             "Classic style preserves native source text and selection");
@@ -158,7 +158,7 @@ internal static class Program
                         Require(window.Style == VisualStyle.WinUI && layout.StyleToggle.Text == "Style: WinUI",
                             "The toolbar button switches back to WinUI");
                         Require(editor.GetBounds().Height == collapsedHeight && layout.OutputToggle.GetBounds().Y == collapsedBottom,
-                            "Switching back to WinUI restores the original layout");
+                            $"Switching back to WinUI restores the original layout (source height {editor.GetBounds().Height}, expected {collapsedHeight}; output Y {layout.OutputToggle.GetBounds().Y}, expected {collapsedBottom})");
                         editor.Command(TextCommand.Undo);
                         Require(editor.Text == "Native editor layout fixture", "Panel and style changes preserve native editor undo");
                         layout.Root.MaximumSize(980, 850);

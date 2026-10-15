@@ -4,7 +4,7 @@ mod features;
 pub use features::*;
 pub type Handle = u64;
 pub type Status = i32;
-pub const ABI_VERSION: u32 = 0x10000;
+pub const ABI_VERSION: u32 = 0x20000;
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct TabColors {
@@ -199,6 +199,7 @@ mod tests {
     use super::*;
     #[test]
     fn layouts() {
+        assert_eq!(ABI_VERSION, 0x20000);
         assert_eq!(size_of::<Text>(), 16);
         assert_eq!(size_of::<Options>(), 40);
         assert_eq!(size_of::<Property>(), 56);

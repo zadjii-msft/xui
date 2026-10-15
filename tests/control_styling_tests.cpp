@@ -60,7 +60,7 @@ template<class F> std::pair<std::size_t, std::size_t> measure_allocations(F acti
 
 void schema_allowlists() {
     // Full part x property matrix, mirroring the documented pilot schema
-    // exactly: root gets the six legacy surface properties, label and mark
+    // exactly: root gets the six surface surface properties, label and mark
     // are foreground-only, indicator is background/border/radius/size.
     struct Property { StyleProperty id; void (*set)(PartStyleValues&); };
     const Property properties[] = {
@@ -194,11 +194,11 @@ void target_and_part_validation() {
     // Control-level: an unsupported part is rejected even before any
     // attachment has ever been created.
     Toggle fresh(L"x");
-    rejects([&] { fresh.style_values(static_cast<StylePart>(50)); },
+    rejects([&] { fresh.control_style_values(static_cast<StylePart>(50)); },
         "control_style_values rejects an unsupported part even with no attachment yet");
-    rejects([&] { (void)fresh.effective_style_values(static_cast<StylePart>(50)); },
+    rejects([&] { (void)fresh.effective_control_style_values(static_cast<StylePart>(50)); },
         "effective_control_style_values rejects an unsupported part even with no attachment yet");
-    require(!fresh.effective_style_values(StylePart::root), "A valid, unauthored part returns nullptr without throwing");
+    require(!fresh.effective_control_style_values(StylePart::root), "A valid, unauthored part returns nullptr without throwing");
 }
 
 void inheritance_bounds() {
@@ -239,35 +239,35 @@ void root_to_label_inheritance() {
     // dependent-part relationship, not by unconditionally creating both
     // parts for every family.
     PartStyleValues local_root; local_root.foreground = ThemeColor{0x123456};
-    toggle.set_style_values(StylePart::root, local_root);
-    require(toggle.effective_style_values(StylePart::label) &&
-        toggle.effective_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
+    toggle.set_control_style_values(StylePart::root, local_root);
+    require(toggle.effective_control_style_values(StylePart::label) &&
+        toggle.effective_control_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
         "A local-only root foreground is inherited by label with no style ever attached");
 
     // An explicit label override always wins over inheritance.
     PartStyleValues explicit_label; explicit_label.foreground = ThemeColor{0x654321};
-    toggle.set_style_values(StylePart::label, explicit_label);
-    require(toggle.effective_style_values(StylePart::label)->foreground == ThemeColor{0x654321},
+    toggle.set_control_style_values(StylePart::label, explicit_label);
+    require(toggle.effective_control_style_values(StylePart::label)->foreground == ThemeColor{0x654321},
         "An explicitly authored label foreground is never overridden by inheritance");
 
     // Clearing the label override reveals root inheritance again.
-    toggle.set_style_values(StylePart::label, {});
-    require(toggle.effective_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
+    toggle.set_control_style_values(StylePart::label, {});
+    require(toggle.effective_control_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
         "Clearing an explicit label override reveals root inheritance again");
 
     // A style-authored root overrides the local root value while attached...
     PartStyleValues style_root; style_root.foreground = ThemeColor{0xaaaaaa};
     auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::root, style_root}}, {});
-    toggle.set_style(style);
-    require(toggle.effective_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
+    toggle.set_control_style(style);
+    require(toggle.effective_control_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
         "The root local value still wins over the style's root base (locals win over style)");
 
     // ...and clearing the shared style while the root local value remains
     // must continue to resolve and inherit correctly.
-    toggle.set_style(nullptr);
-    require(!toggle.style(), "Style is cleared");
-    require(toggle.effective_style_values(StylePart::label) &&
-        toggle.effective_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
+    toggle.set_control_style(nullptr);
+    require(!toggle.control_style(), "Style is cleared");
+    require(toggle.effective_control_style_values(StylePart::label) &&
+        toggle.effective_control_style_values(StylePart::label)->foreground == ThemeColor{0x123456},
         "Clearing the shared style while the root local value remains still resolves and inherits correctly");
 }
 
@@ -275,7 +275,7 @@ void toggle_model() {
     Toggle toggle(L"Enable feature");
     toggle.set_text_measurer([](auto, auto) { return Size{60, 14}; });
     const auto original = toggle.measure({1000, 1000});
-    require(!toggle.effective_style_values(StylePart::root) && !toggle.style(), "Unstyled Toggle has no style state");
+    require(!toggle.effective_control_style_values(StylePart::root) && !toggle.control_style(), "Unstyled Toggle has no style state");
 
     PartStyleValues root, indicator_base, indicator_checked, mark, disabled_root;
     root.background = ThemeColor{0xcccccc, 0x111111};
@@ -294,12 +294,12 @@ void toggle_model() {
     Invalidation invalidation{};
     unsigned notifications{};
     toggle.set_invalidator([&](Invalidation value) { invalidation = value; ++notifications; });
-    toggle.set_style(style);
+    toggle.set_control_style(style);
     require(invalidation == Invalidation::layout, "Padding, borders, and indicator size require layout");
-    const auto* cached_root = toggle.effective_style_values(StylePart::root);
+    const auto* cached_root = toggle.effective_control_style_values(StylePart::root);
     const auto cached_notifications = notifications;
-    for (unsigned i = 0; i < 8192; ++i) toggle.set_style(style);
-    require(toggle.style().get() == style.get() && toggle.effective_style_values(StylePart::root) == cached_root,
+    for (unsigned i = 0; i < 8192; ++i) toggle.set_control_style(style);
+    require(toggle.control_style().get() == style.get() && toggle.effective_control_style_values(StylePart::root) == cached_root,
         "Same definition preserves native identity and cached effective values");
     require(notifications == cached_notifications, "Same definition does not invalidate");
 
@@ -308,13 +308,13 @@ void toggle_model() {
     auto size = toggle.measure({1000, 1000});
     require(size.width == 103 && size.height == 30, "Measurement includes root padding, border, and indicator size");
 
-    require(toggle.effective_style_values(StylePart::indicator)->size == 18.0f, "Indicator resolves its size metric");
+    require(toggle.effective_control_style_values(StylePart::indicator)->size == 18.0f, "Indicator resolves its size metric");
     require(!toggle.checked(), "Toggle starts unchecked");
-    require(toggle.effective_style_values(StylePart::indicator)->background == ThemeColor{0x222222},
+    require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0x222222},
         "Unchecked indicator uses the base color");
     toggle.set_checked(true);
     require(invalidation == Invalidation::paint, "Checked indicator color is a paint-only change");
-    require(toggle.effective_style_values(StylePart::indicator)->background == ThemeColor{0x00ff00},
+    require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0x00ff00},
         "Checked state resolves the checked rule");
     toggle.set_checked(false);
 
@@ -333,44 +333,44 @@ void toggle_model() {
 
     PartStyleValues local_indicator;
     local_indicator.background = ThemeColor{0};
-    toggle.set_style_values(StylePart::indicator, local_indicator);
-    require(toggle.effective_style_values(StylePart::indicator)->background == ThemeColor{0},
+    toggle.set_control_style_values(StylePart::indicator, local_indicator);
+    require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0},
         "Local value wins active state and supports black");
-    toggle.set_style(nullptr);
-    require(toggle.style_values(StylePart::indicator).background == ThemeColor{0} && !toggle.style(),
+    toggle.set_control_style(nullptr);
+    require(toggle.control_style_values(StylePart::indicator).background == ThemeColor{0} && !toggle.control_style(),
         "Clear style preserves stored local values");
-    toggle.set_style(style);
-    require(toggle.effective_style_values(StylePart::indicator)->background == ThemeColor{0},
+    toggle.set_control_style(style);
+    require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0},
         "Apply style preserves local value");
 
     auto invalid = local_indicator;
     invalid.corner_radius = -1.0f;
-    rejects([&] { toggle.set_style_values(StylePart::indicator, invalid); }, "Negative dimension fails");
-    require(toggle.style_values(StylePart::indicator).background == ThemeColor{0} &&
-        !toggle.style_values(StylePart::indicator).corner_radius, "Failed local update is atomic");
-    rejects([&] { toggle.set_style_values(StylePart::indicator, PartStyleValues{.foreground = ThemeColor{1}}); },
+    rejects([&] { toggle.set_control_style_values(StylePart::indicator, invalid); }, "Negative dimension fails");
+    require(toggle.control_style_values(StylePart::indicator).background == ThemeColor{0} &&
+        !toggle.control_style_values(StylePart::indicator).corner_radius, "Failed local update is atomic");
+    rejects([&] { toggle.set_control_style_values(StylePart::indicator, PartStyleValues{.foreground = ThemeColor{1}}); },
         "Indicator does not support foreground even via a control's local setter");
 
-    toggle.set_style(nullptr);
-    toggle.set_style_values(StylePart::indicator, {});
-    toggle.set_style_values(StylePart::root, {});
-    toggle.set_style_values(StylePart::mark, {});
+    toggle.set_control_style(nullptr);
+    toggle.set_control_style_values(StylePart::indicator, {});
+    toggle.set_control_style_values(StylePart::root, {});
+    toggle.set_control_style_values(StylePart::mark, {});
     toggle.set_enabled(true);
     size = toggle.measure({1000, 1000});
-    require(!toggle.effective_style_values(StylePart::root) && size.width == original.width && size.height == original.height,
+    require(!toggle.effective_control_style_values(StylePart::root) && size.width == original.width && size.height == original.height,
         "Clearing local and style releases the attachment and restores original measurement");
 
     const auto before = notifications;
-    toggle.set_style(nullptr);
-    toggle.set_style_values(StylePart::root, {});
+    toggle.set_control_style(nullptr);
+    toggle.set_control_style_values(StylePart::root, {});
     require(notifications == before, "Repeated empty clears do not invalidate");
 
     for (unsigned i = 0; i < 10000; ++i) {
-        toggle.set_style(style);
-        require(toggle.style().get() == style.get(), "Toggles share immutable definitions");
+        toggle.set_control_style(style);
+        require(toggle.control_style().get() == style.get(), "Toggles share immutable definitions");
         toggle.pointer_move(i % 2 == 0);
-        toggle.set_style(nullptr);
-        require(!toggle.effective_style_values(StylePart::root), "Clear drops effective state");
+        toggle.set_control_style(nullptr);
+        require(!toggle.effective_control_style_values(StylePart::root), "Clear drops effective state");
     }
     require(style.use_count() == 1, "Apply/clear does not retain style definitions");
 }
@@ -389,7 +389,7 @@ void measurement_geometry() {
     auto& paint_only = *paint_only_ptr;
     const auto original = paint_only.measure({1000, 1000});
     PartStyleValues background_only; background_only.background = ThemeColor{0x445566};
-    paint_only.set_style_values(StylePart::root, background_only);
+    paint_only.set_control_style_values(StylePart::root, background_only);
     const auto still = paint_only.measure({1000, 1000});
     require(still.width == original.width && still.height == original.height,
         "A paint-only style change does not affect measurement");
@@ -400,7 +400,7 @@ void measurement_geometry() {
     for (const auto& size_case : {SizeCase{0, 96, 14}, SizeCase{18, 114, 18}, SizeCase{80, 176, 80}}) {
         auto toggle_ptr = make(VisualStyle::classic); auto& toggle = *toggle_ptr;
         PartStyleValues indicator; indicator.size = size_case.size;
-        toggle.set_style_values(StylePart::indicator, indicator);
+        toggle.set_control_style_values(StylePart::indicator, indicator);
         const auto measured = toggle.measure({1000, 1000});
         require(measured.width == size_case.width && measured.height == size_case.height,
             "Indicator size 0/18/80 changes measurement by exactly the size delta");
@@ -413,9 +413,9 @@ void measurement_geometry() {
         auto toggle_ptr = make(VisualStyle::classic); auto& toggle = *toggle_ptr;
         toggle.set_text_measurer([](auto, auto) { return Size{50, 10}; });
         PartStyleValues root; root.padding = Insets{1, 2, 3, 4}; root.border_thickness = Insets{5, 6, 7, 8};
-        toggle.set_style_values(StylePart::root, root);
+        toggle.set_control_style_values(StylePart::root, root);
         PartStyleValues indicator; indicator.size = 20.0f;
-        toggle.set_style_values(StylePart::indicator, indicator);
+        toggle.set_control_style_values(StylePart::indicator, indicator);
         const auto measured = toggle.measure({1000, 1000});
         require(measured.width == 98 && measured.height == 40, "Asymmetric root padding/border are each applied on their own edge");
         const auto bounds = toggle.indicator_bounds({10, 20, measured.width, measured.height});
@@ -434,7 +434,7 @@ void measurement_geometry() {
         PartStyleValues indicator_disabled; indicator_disabled.size = 40.0f;
         auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator_base}},
             {{StylePart::indicator, style_states::disabled, indicator_disabled}});
-        toggle.set_style(style);
+        toggle.set_control_style(style);
         const auto enabled_size = toggle.measure({1000, 1000});
         toggle.set_enabled(false);
         const auto disabled_size = toggle.measure({1000, 1000});
@@ -448,7 +448,7 @@ void measurement_geometry() {
     {
         auto toggle_ptr = make(VisualStyle::classic); auto& toggle = *toggle_ptr;
         PartStyleValues indicator; indicator.size = 80.0f;
-        toggle.set_style_values(StylePart::indicator, indicator);
+        toggle.set_control_style_values(StylePart::indicator, indicator);
         const auto measured = toggle.measure({50, 50});
         require(measured.width == 50 && measured.height == 50, "Available space clamps the styled desired size");
     }
@@ -458,7 +458,7 @@ void measurement_geometry() {
         auto toggle_ptr = make(VisualStyle::classic); auto& toggle = *toggle_ptr;
         toggle.set_fixed_size({200, 50});
         PartStyleValues indicator; indicator.size = 999.0f;
-        toggle.set_style_values(StylePart::indicator, indicator);
+        toggle.set_control_style_values(StylePart::indicator, indicator);
         const auto measured = toggle.measure({1000, 1000});
         require(measured.width == 200 && measured.height == 50, "A fixed size is unaffected by indicator styling");
     }
@@ -470,8 +470,8 @@ void measurement_geometry() {
         auto& classic = *classic_ptr;
         auto& winui = *winui_ptr;
         PartStyleValues indicator; indicator.size = 20.0f;
-        classic.set_style_values(StylePart::indicator, indicator);
-        winui.set_style_values(StylePart::indicator, indicator);
+        classic.set_control_style_values(StylePart::indicator, indicator);
+        winui.set_control_style_values(StylePart::indicator, indicator);
         const auto classic_size = classic.measure({1000, 1000});
         const auto winui_size = winui.measure({1000, 1000});
         require(classic_size.width == 116 && winui_size.width == 89,
@@ -484,7 +484,7 @@ void measurement_geometry() {
             require(label.width == 60, "An authored indicator retains the complete natural-width label in both styles");
         }
         PartStyleValues root; root.padding = Insets{0, 0, 12, 0};
-        winui.set_style_values(StylePart::root, root);
+        winui.set_control_style_values(StylePart::root, root);
         const auto padded = winui.measure({1000, 1000});
         require(padded.width == 101 && winui.label_bounds({0, 0, padded.width, padded.height}).width == 60,
             "Explicit trailing padding increases measurement without clipping the WinUI label");
@@ -496,12 +496,12 @@ void measurement_geometry() {
     {
         auto toggle_ptr = make(VisualStyle::classic); auto& toggle = *toggle_ptr;
         PartStyleValues indicator; indicator.size = 20.0f;
-        toggle.set_style_values(StylePart::indicator, indicator);
+        toggle.set_control_style_values(StylePart::indicator, indicator);
         const auto before_border = toggle.measure({1000, 1000});
         Invalidation invalidation{};
         toggle.set_invalidator([&](Invalidation value) { invalidation = value; });
         PartStyleValues bordered = indicator; bordered.border_thickness = Insets{2, 2, 2, 2};
-        toggle.set_style_values(StylePart::indicator, bordered);
+        toggle.set_control_style_values(StylePart::indicator, bordered);
         require(invalidation == Invalidation::layout, "An indicator border change reaches the shared layout invalidation");
         const auto after_border = toggle.measure({1000, 1000});
         require(after_border.width == before_border.width && after_border.height == before_border.height,
@@ -535,7 +535,7 @@ void allocation_contract() {
 
     PartStyleValues root; root.background = ThemeColor{1};
     auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::root, root}}, {});
-    const auto activation = measure_allocations([&] { plain.set_style(style); });
+    const auto activation = measure_allocations([&] { plain.set_control_style(style); });
     std::cout << "First set_style activation: " << activation.first << " bytes across " << activation.second << " allocations\n";
     require(activation.second > 0,
         "Activating styling for the first time allocates the attachment; this is measured, not claimed free");
@@ -546,7 +546,7 @@ void allocation_contract() {
         for (int i = 0; i < 1000; ++i) {
             plain.pointer_move(i % 2 == 0);
             plain.set_checked(i % 2 == 0);
-            (void)plain.effective_style_values(StylePart::root);
+            (void)plain.effective_control_style_values(StylePart::root);
             plain.measure({1000, 1000});
         }
     });
@@ -573,12 +573,12 @@ void exhaustive_allocation_failures() {
             unsigned notifications{};
             toggle.set_invalidator([&](Invalidation) { ++notifications; });
             if (scenario == 2 || scenario == 3 || scenario == 5) {
-                toggle.set_style(style);
-                toggle.set_style_values(StylePart::root, root);
+                toggle.set_control_style(style);
+                toggle.set_control_style_values(StylePart::root, root);
             }
-            const auto before_style = toggle.style();
-            const auto* before_root = toggle.effective_style_values(StylePart::root);
-            const auto before_local = toggle.style_values(StylePart::root);
+            const auto before_style = toggle.control_style();
+            const auto* before_root = toggle.effective_control_style_values(StylePart::root);
+            const auto before_local = toggle.control_style_values(StylePart::root);
             const auto before_notifications = notifications;
             bool threw{};
             {
@@ -586,18 +586,18 @@ void exhaustive_allocation_failures() {
                 allocation_probe::fail_at = point;
                 try {
                     if (scenario >= 4) toggle.set_control_style_projection(StylePart::indicator, indicator);
-                    else if (scenario % 2 == 0) toggle.set_style(replacement);
-                    else toggle.set_style_values(StylePart::indicator, indicator);
+                    else if (scenario % 2 == 0) toggle.set_control_style(replacement);
+                    else toggle.set_control_style_values(StylePart::indicator, indicator);
                 } catch (const std::bad_alloc&) { threw = true; }
             }
             if (!threw) { completed = true; break; }
             ++failures;
-            require(toggle.style() == before_style && notifications == before_notifications,
+            require(toggle.control_style() == before_style && notifications == before_notifications,
                 "Every allocation failure preserves the previous style and notifications");
-            require(toggle.effective_style_values(StylePart::root) == before_root &&
-                toggle.style_values(StylePart::root).foreground == before_local.foreground,
+            require(toggle.effective_control_style_values(StylePart::root) == before_root &&
+                toggle.control_style_values(StylePart::root).foreground == before_local.foreground,
                 "Every allocation failure preserves locals and cached values");
-            require(!toggle.effective_style_values(StylePart::indicator), "Failed assignments do not publish new slots");
+            require(!toggle.effective_control_style_values(StylePart::indicator), "Failed assignments do not publish new slots");
             require(toggle.control_style_projection_values(StylePart::indicator).empty(), "Failed projections preserve the parent layer");
             if (scenario < 2 || scenario == 4) require(!toggle.has_control_styling(), "Failed first activation does not retain an empty sidecar");
         }

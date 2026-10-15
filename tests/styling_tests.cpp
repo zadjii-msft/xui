@@ -30,112 +30,108 @@ void resources() {
     rejects([&] { ResourceScope::create({}, root); }, "Scope depth is bounded");
 }
 void state_resolution() {
-    ButtonStyleValues base;
+    PartStyleValues base;
     base.background = ThemeColor{1};
     base.foreground = ThemeColor{2};
     base.corner_radius = 8.0f;
-    std::vector<ButtonStyleRule> states;
+    std::vector<StyleRule> states;
     for (unsigned state = 0; state < 5; ++state) {
-        ButtonStyleValues value;
+        PartStyleValues value;
         value.background = ThemeColor{10 + state};
-        states.push_back({static_cast<ButtonStyleState>(state), value});
+        states.push_back({StylePart::root, StyleStateMask{1} << state, value});
     }
-    auto first = ButtonStyle::create(base, states);
-    ButtonStyleValues derived;
+    auto first = ControlStyle::create(StyleTarget::button, {{StylePart::root, base}}, states);
+    PartStyleValues derived;
     derived.foreground = ThemeColor{3};
     derived.corner_radius = 0.0f;
-    auto second = ButtonStyle::create(derived, {}, first);
+    auto second = ControlStyle::create(StyleTarget::button, {{StylePart::root, derived}}, {}, first);
     for (unsigned mask = 0; mask < 32; ++mask) {
         auto expected = 1u;
         for (unsigned state = 0; state < 5; ++state) if (mask & (1 << state)) expected = 10 + state;
-        const auto& value = second->values(mask);
+        const auto value = second->resolve(StylePart::root, mask).value();
         require(value.background == ThemeColor{expected}, "All state conflicts follow focused/checked/hovered/pressed/disabled order");
         require(value.foreground == ThemeColor{3} && value.corner_radius == 0, "Derived values preserve explicit zero");
     }
     derived.foreground = ThemeColor{99};
-    require(second->values(0).foreground == ThemeColor{3}, "Definition copies mutable input");
-    require(first->values(0).corner_radius == 8, "Derivation does not change base");
-    ButtonStyleValues overridden;
+    require(second->resolve(StylePart::root, 0).value().foreground == ThemeColor{3}, "Definition copies mutable input");
+    require(first->resolve(StylePart::root, 0).value().corner_radius == 8, "Derivation does not change base");
+    PartStyleValues overridden;
     overridden.background = ThemeColor{42};
-    auto third = ButtonStyle::create({}, {{ButtonStyleState::hovered, overridden}}, second);
-    require(third->values(4).background == ThemeColor{42}, "Derived state wins the same inherited state");
-    require(third->values(20).background == ThemeColor{14}, "Disabled wins over derived hover");
-    for (unsigned i = 1; i < 16; ++i) first = ButtonStyle::create({}, {}, first);
-    rejects([&] { ButtonStyle::create({}, {}, first); }, "Style depth is bounded");
-    rejects([] { ButtonStyle::create({}, {{static_cast<ButtonStyleState>(5), {}}}); }, "Invalid state fails");
-    rejects([] { ButtonStyle::create({}, std::vector<ButtonStyleRule>(257)); }, "Rule count is bounded");
+    auto third = ControlStyle::create(StyleTarget::button, {}, {{StylePart::root, style_states::hovered, overridden}}, second);
+    require(third->resolve(StylePart::root, 4).value().background == ThemeColor{42}, "Derived state wins the same inherited state");
+    require(third->resolve(StylePart::root, 20).value().background == ThemeColor{14}, "Disabled wins over derived hover");
+    for (unsigned i = 1; i < 16; ++i) first = ControlStyle::create(StyleTarget::button, {}, {}, first);
+    rejects([&] { ControlStyle::create(StyleTarget::button, {}, {}, first); }, "Style depth is bounded");
+    rejects([] { ControlStyle::create(StyleTarget::button, {}, {{StylePart::root, StyleStateMask{1} << 5, {}}}); }, "Invalid state fails");
+    rejects([] { ControlStyle::create(StyleTarget::button, {}, std::vector<StyleRule>(257)); }, "Rule count is bounded");
 }
 void button_model() {
     Button button(L"Delete");
     button.set_text_measurer([](auto, auto) { return Size{40, 14}; });
     const auto original = button.measure({1000, 1000});
-    require(!button.effective_style_values() && !button.style(), "Unstyled Button has no style state");
-    ButtonStyleValues base, hover, disabled, local;
+    require(!button.effective_control_style_values(StylePart::root) && !button.control_style(), "Unstyled Button has no style state");
+    PartStyleValues base, hover, disabled, local;
     base.background = ThemeColor{0xcccccc, 0x111111};
     base.padding = Insets{4, 5, 6, 7};
     base.border_thickness = Insets{3, 0, 0, 0};
     hover.background = ThemeColor{0x222222};
     disabled.padding = Insets{0, 0, 0, 0};
-    auto style = ButtonStyle::create(base, {{ButtonStyleState::hovered, hover}, {ButtonStyleState::disabled, disabled}});
+    auto style = ControlStyle::create(StyleTarget::button, {{StylePart::root, base}}, {{StylePart::root, style_states::hovered, hover}, {StylePart::root, style_states::disabled, disabled}});
     Invalidation invalidation{};
     unsigned notifications{};
     button.set_invalidator([&](Invalidation value) { invalidation = value; ++notifications; });
-    button.set_style(style);
+    button.set_control_style(style);
     require(invalidation == Invalidation::layout, "Padding and borders require layout");
-    const auto* cached_values = button.effective_style_values();
+    const auto* cached_values = button.effective_control_style_values(StylePart::root);
     const auto cached_notifications = notifications;
-    for (unsigned i = 0; i < 8192; ++i) button.set_style(style);
-    require(button.style().get() == style.get() && button.effective_style_values() == cached_values,
+    for (unsigned i = 0; i < 8192; ++i) button.set_control_style(style);
+    require(button.control_style().get() == style.get() && button.effective_control_style_values(StylePart::root) == cached_values,
         "Same definition preserves native identity and cached effective values");
     require(notifications == cached_notifications, "Same definition does not invalidate");
     auto size = button.measure({1000, 1000});
     require(size.width == 53 && size.height == 26, "Measurement includes four padding and border edges");
-    button.set_style_enabled(false);
-    require(button.enabled() && button.effective_style_values()->padding->left == 0,
-        "Disabled presentation context selects disabled style without changing local enabled");
-    button.set_style_enabled(true);
     button.pointer_move(true);
     require(invalidation == Invalidation::paint, "Color-only hover requires paint, not layout");
-    require(button.effective_style_values()->background == ThemeColor{0x222222}, "Hover resolves on state transition");
+    require(button.effective_control_style_values(StylePart::root)->background == ThemeColor{0x222222}, "Hover resolves on state transition");
     button.set_enabled(false);
     require(invalidation == Invalidation::layout, "Disabled padding change requires layout");
     size = button.measure({1000, 1000});
     require(size.width == 43 && size.height == 14, "Explicit zero padding remains explicit");
     local.background = ThemeColor{0};
     local.corner_radius = 0.0f;
-    button.set_style_values(local);
-    require(button.effective_style_values()->background == ThemeColor{0}, "Local value wins active state and supports black");
-    button.set_style(nullptr);
-    require(button.style_values().background == ThemeColor{0} && !button.style(), "Clear style preserves stored local values");
-    button.set_style(style);
-    require(button.effective_style_values()->background == ThemeColor{0}, "Apply style preserves local value");
+    button.set_control_style_values(StylePart::root, local);
+    require(button.effective_control_style_values(StylePart::root)->background == ThemeColor{0}, "Local value wins active state and supports black");
+    button.set_control_style(nullptr);
+    require(button.control_style_values(StylePart::root).background == ThemeColor{0} && !button.control_style(), "Clear style preserves stored local values");
+    button.set_control_style(style);
+    require(button.effective_control_style_values(StylePart::root)->background == ThemeColor{0}, "Apply style preserves local value");
     auto invalid = local;
     invalid.padding = Insets{-1, 0, 0, 0};
-    rejects([&] { button.set_style_values(invalid); }, "Negative dimension fails");
-    require(button.style_values().background == ThemeColor{0} && !button.style_values().padding,
+    rejects([&] { button.set_control_style_values(StylePart::root, invalid); }, "Negative dimension fails");
+    require(button.control_style_values(StylePart::root).background == ThemeColor{0} && !button.control_style_values(StylePart::root).padding,
         "Failed local update is atomic");
     invalid.padding = Insets{0, 0, 0, std::numeric_limits<float>::infinity()};
-    rejects([&] { ButtonStyle::create(invalid); }, "Infinite dimension fails");
+    rejects([&] { ControlStyle::create(StyleTarget::button, {{StylePart::root, invalid}}, {}); }, "Infinite dimension fails");
     invalid.padding.reset(); invalid.corner_radius = std::numeric_limits<float>::quiet_NaN();
-    rejects([&] { ButtonStyle::create(invalid); }, "NaN radius fails");
+    rejects([&] { ControlStyle::create(StyleTarget::button, {{StylePart::root, invalid}}, {}); }, "NaN radius fails");
     invalid.corner_radius = 32769.0f;
-    rejects([&] { ButtonStyle::create(invalid); }, "Huge radius fails");
-    button.set_style(nullptr);
-    button.set_style_values({});
+    rejects([&] { ControlStyle::create(StyleTarget::button, {{StylePart::root, invalid}}, {}); }, "Huge radius fails");
+    button.set_control_style(nullptr);
+    button.set_control_style_values(StylePart::root, {});
     button.set_enabled(true);
     size = button.measure({1000, 1000});
-    require(!button.effective_style_values() && size.width == original.width && size.height == original.height,
-        "Clear local and style releases sidecar and restores original measurement");
+    require(!button.effective_control_style_values(StylePart::root) && size.width == original.width && size.height == original.height,
+        "Clear local and style releases the shared attachment and restores original measurement");
     const auto before = notifications;
-    button.set_style(nullptr);
-    button.set_style_values({});
+    button.set_control_style(nullptr);
+    button.set_control_style_values(StylePart::root, {});
     require(notifications == before, "Repeated empty clears do not invalidate");
     for (unsigned i = 0; i < 10000; ++i) {
-        button.set_style(style);
-        require(button.style().get() == style.get(), "Buttons share immutable definitions");
+        button.set_control_style(style);
+        require(button.control_style().get() == style.get(), "Buttons share immutable definitions");
         button.pointer_move(i % 2 == 0);
-        button.set_style(nullptr);
-        require(!button.effective_style_values(), "Clear drops effective state");
+        button.set_control_style(nullptr);
+        require(!button.effective_control_style_values(StylePart::root), "Clear drops effective state");
     }
     require(style.use_count() == 1, "Apply/clear does not retain style definitions");
 }

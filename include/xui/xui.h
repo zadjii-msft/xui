@@ -20,7 +20,7 @@ extern "C" {
 #define XUI_NOEXCEPT
 #endif
 
-#define XUI_ABI_VERSION 0x00010000u
+#define XUI_ABI_VERSION 0x00020000u
 #define XUI_MAX_STRING_BYTES 1048576u
 #define XUI_MAX_BATCH 4096u
 typedef uint64_t xui_handle;

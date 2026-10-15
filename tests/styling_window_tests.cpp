@@ -25,13 +25,17 @@ struct DrawingTestAccess {
     static void software_target(Drawing& drawing, HWND hwnd) {
         RECT client{};
         if (!GetClientRect(hwnd, &client)) throw std::runtime_error("Read software target size");
+        Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target;
         const auto result = drawing.factory_->CreateHwndRenderTarget(
             D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                 D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
                 96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE),
             D2D1::HwndRenderTargetProperties(hwnd, D2D1::SizeU(client.right, client.bottom)),
-            &drawing.target_);
+            &target);
         if (FAILED(result)) throw std::runtime_error("Create readable Direct2D software HWND target");
+        drawing.target_ = target;
+        drawing.hwnd_target_ = target;
+        drawing.host_window_ = hwnd;
         ++Drawing::live_targets_;
         if (FAILED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)))
             throw std::runtime_error("Create software target brush");
@@ -151,7 +155,7 @@ struct SoftwareFixture {
         }
     }
     ~SoftwareFixture() { drawing.release(); DestroyWindow(hwnd); }
-    Pixels render(const Palette& palette, const ButtonStyleValues* values, bool enabled = true,
+    Pixels render(const Palette& palette, const PartStyleValues* values, bool enabled = true,
         bool hovered = false, bool pressed = false, bool checked = false,
         ButtonAppearance appearance = ButtonAppearance::standard) {
         require(drawing.begin(hwnd, 96, D2D1::ColorF(sentinel)), "Begin software button frame");
@@ -172,8 +176,8 @@ struct SoftwareFixture {
     }
 };
 
-ButtonStyleValues authored_values() {
-    ButtonStyleValues values;
+PartStyleValues authored_values() {
+    PartStyleValues values;
     values.background = ThemeColor{0xe13457, 0x2496c3};
     values.foreground = ThemeColor{0x17420b, 0xffed34};
     values.border_brush = ThemeColor{0x2468ed, 0xda42ef};
@@ -209,7 +213,7 @@ void toggle_pixel_contracts() {
     auto style = ControlStyle::create(StyleTarget::toggle,
         {{StylePart::root, root}, {StylePart::indicator, indicator}, {StylePart::mark, mark}},
         {{StylePart::indicator, style_states::checked, checked}});
-    toggle.set_style(style);
+    toggle.set_control_style(style);
     const auto render = [&](Palette palette, bool focused = false) {
         require(fixture.drawing.begin(fixture.hwnd, 96, D2D1::ColorF(sentinel)), "Begin styled Toggle pixel frame");
         Size size{};
@@ -352,7 +356,7 @@ void switch_ring_pixel_contracts() {
     ToggleSwitch toggle(L"Switch");
     PartStyleValues indicator; indicator.background = ThemeColor{0x2468ac};
     PartStyleValues mark; mark.foreground = ThemeColor{0xfedcba};
-    toggle.set_style(ControlStyle::create(StyleTarget::toggle,
+    toggle.set_control_style(ControlStyle::create(StyleTarget::toggle,
         {{StylePart::indicator, indicator}, {StylePart::mark, mark}}, {}));
     for (const auto visual : {VisualStyle::classic, VisualStyle::winui}) {
         toggle.set_visual_style(visual);
@@ -738,8 +742,8 @@ void checked_disabled_button_pixel_contracts() {
             require(pixels.matches({36, 22, 116, 54}, ink) > 5,
                 "Checked disabled button uses the text-on-accent disabled foreground");
         };
-        ButtonStyleValues legacy; legacy.corner_radius = 16.0f;
-        for (const auto* values : std::array<const ButtonStyleValues*, 2>{nullptr, &legacy})
+        PartStyleValues surface; surface.corner_radius = 16.0f;
+        for (const auto* values : std::array<const PartStyleValues*, 2>{nullptr, &surface})
             for (const bool hovered : {false, true})
                 for (const bool pressed : {false, true})
                     verify(fixture.render(palette, values, false, hovered, pressed, true));
@@ -885,9 +889,9 @@ void button_focus_pixel_contracts() {
                         root.corner_radius = radius;
                         PartStyleValues inherited;
                         if (source == RadiusSource::local) {
-                            ButtonStyleValues local;
+                            PartStyleValues local;
                             local.corner_radius = radius;
-                            button.set_style_values(local);
+                            button.set_control_style_values(StylePart::root, local);
                         } else if (source == RadiusSource::focused_rule) {
                             button.set_control_style(ControlStyle::create(StyleTarget::button, {},
                                 {{StylePart::root, style_states::focused, root}}));
@@ -999,11 +1003,11 @@ void pixel_contracts() {
                     "Actual DirectWrite glyph pixels use the authored foreground");
 
                 const auto baseline = fixture.render(palette, nullptr);
-                ButtonStyleValues padding;
+                PartStyleValues padding;
                 padding.padding = Insets{17, 8, 23, 9};
                 const auto padded = fixture.render(palette, &padding);
                 require(baseline.data == padded.data, "Padding-only styles retain the exact default face and glyph paint");
-                ButtonStyleValues foreground;
+                PartStyleValues foreground;
                 foreground.foreground = values.foreground;
                 const auto recolored = fixture.render(palette, &foreground);
                 for (int y = 10; y < 70; ++y)
@@ -1032,18 +1036,18 @@ void pixel_contracts() {
 
         auto base = authored_values();
         constexpr std::array<uint32_t, 5> colors{0xc52525, 0x27b837, 0x314de2, 0x8f2bba, 0xb28317};
-        std::vector<ButtonStyleRule> rules;
+        std::vector<StyleRule> rules;
         for (std::size_t i = 0; i < colors.size(); ++i) {
-            ButtonStyleValues value;
+            PartStyleValues value;
             value.background = ThemeColor{colors[i]};
-            rules.push_back({static_cast<ButtonStyleState>(i), value});
+            rules.push_back({StylePart::root, StyleStateMask{1} << i, value});
         }
         Button button(L"State pixels");
         button.set_behavior(ButtonBehavior::toggle);
-        button.set_style(ButtonStyle::create(base, rules));
+        button.set_control_style(ControlStyle::create(StyleTarget::button, {{StylePart::root, base}}, rules));
         const auto palette = regular_palette(ThemeMode::light, VisualStyle::classic);
         const auto sample = [&](uint32_t expected) {
-            fixture.render(palette, button.effective_style_values(), button.enabled(), button.hovered(),
+            fixture.render(palette, button.effective_control_style_values(StylePart::root), button.enabled(), button.hovered(),
                 button.pressed(), button.checked()).expect(22, 40, expected, "Resolved Button state reaches actual face pixels");
         };
         sample(base.background->light);
@@ -1053,10 +1057,10 @@ void pixel_contracts() {
         require(button.pointer_down(), "Begin model pointer press without requiring OS keyboard focus");
         sample(colors[3]);
         button.set_enabled(false); sample(colors[4]);
-        ButtonStyleValues local;
+        PartStyleValues local;
         local.background = ThemeColor{0x1dcae1};
-        button.set_style_values(local); sample(0x1dcae1);
-        button.set_style_values({}); sample(colors[4]);
+        button.set_control_style_values(StylePart::root, local); sample(0x1dcae1);
+        button.set_control_style_values(StylePart::root, {}); sample(colors[4]);
         button.set_enabled(true); button.cancel(); button.pointer_move(false);
         button.set_checked(false); button.set_focused(false); sample(base.background->light);
     }
@@ -1222,16 +1226,16 @@ unsigned long long cpu_cycles() {
 void lower_level_benchmarks() {
     const auto palette = regular_palette(ThemeMode::light, VisualStyle::classic);
     const auto colors = theme_colors(ThemeMode::light, VisualStyle::classic);
-    auto equivalent = ButtonStyleValues{};
+    auto equivalent = PartStyleValues{};
     equivalent.background = ThemeColor{colors.surface};
     equivalent.foreground = ThemeColor{colors.text};
     equivalent.border_brush = ThemeColor{colors.border};
     equivalent.corner_radius = 6.0f;
-    ButtonStyleValues hovered;
+    PartStyleValues hovered;
     hovered.background = ThemeColor{colors.hover};
-    const std::array<std::shared_ptr<const ButtonStyle>, 3> styles{
-        nullptr, ButtonStyle::create(equivalent, {{ButtonStyleState::hovered, hovered}}),
-        ButtonStyle::create(authored_values(), {{ButtonStyleState::hovered, hovered}})};
+    const std::array<std::shared_ptr<const ControlStyle>, 3> styles{
+        nullptr, ControlStyle::create(StyleTarget::button, {{StylePart::root, equivalent}}, {{StylePart::root, style_states::hovered, hovered}}),
+        ControlStyle::create(StyleTarget::button, {{StylePart::root, authored_values()}}, {{StylePart::root, style_states::hovered, hovered}})};
     SoftwareFixture fixture;
     Size text_size{};
     auto text = fixture.drawing.layout(L"Style pixels MMMM", TextStyle::body, text_size);
@@ -1241,10 +1245,10 @@ void lower_level_benchmarks() {
         for (unsigned order = 0; order < 3; ++order) {
             const unsigned index = repetition % 2 ? 2 - order : order;
             Button button(L"Style pixels MMMM");
-            button.set_style(styles[index]);
+            button.set_control_style(styles[index]);
             for (unsigned i = 0; i < 10000; ++i) {
                 button.pointer_move(i % 2 != 0);
-                (void)button.effective_style_values();
+                (void)button.effective_control_style_values(StylePart::root);
             }
             constexpr unsigned state_iterations = 1000000;
             auto cycles = cpu_cycles();
@@ -1252,7 +1256,7 @@ void lower_level_benchmarks() {
             auto start = std::chrono::steady_clock::now();
             for (unsigned i = 0; i < state_iterations; ++i) {
                 button.pointer_move(i % 2 != 0);
-                const auto* resolved = button.effective_style_values();
+                const auto* resolved = button.effective_control_style_values(StylePart::root);
                 checksum += resolved && resolved->background ? resolved->background->light : unsigned(button.hovered());
             }
             auto wall = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
@@ -1268,7 +1272,7 @@ void lower_level_benchmarks() {
                 auto ink = palette.text;
                 if (styles[index]) {
                     ink = fixture.drawing.styled_button_face(face, palette, ButtonAppearance::standard,
-                        true, hot, false, false, styles[index]->values(hot ? 4 : 0));
+                        true, hot, false, false, styles[index]->resolve(StylePart::root, hot ? style_states::hovered : 0).value());
                 } else {
                     fixture.drawing.rounded(face, hot ? palette.hover : palette.surface);
                     fixture.drawing.rounded(face, palette.border, 6, true);
@@ -1334,7 +1338,7 @@ void lower_level_benchmarks() {
     }
     std::cout << "LOWER checksum=" << checksum << '\n';
 }
-void benchmark(HWND host, Button& button, const std::shared_ptr<const ButtonStyle>& style) {
+void benchmark(HWND host, Button& button, const std::shared_ptr<const ControlStyle>& style) {
     const auto expected_bounds = button.bounds();
     const auto expected_name = button.name();
     const auto expected_children = children(host);
@@ -1353,7 +1357,7 @@ void benchmark(HWND host, Button& button, const std::shared_ptr<const ButtonStyl
     }
     require(GetForegroundWindow() == host, "Benchmark owns foreground before presentation timing");
     for (const bool styled : {benchmark_styled_first, !benchmark_styled_first}) {
-        button.set_style(styled ? style : nullptr);
+        button.set_control_style(styled ? style : nullptr);
         for (int i = 0; i < 60; ++i) { button.pointer_move(i % 2 != 0); flush(host); }
         const auto bounds = button.bounds();
         require(bounds.x == expected_bounds.x && bounds.y == expected_bounds.y && bounds.width == expected_bounds.width &&
@@ -1398,7 +1402,7 @@ void benchmark(HWND host, Button& button, const std::shared_ptr<const ButtonStyl
             << " targets=" << Drawing::live_targets() << '\n';
     }
     button.pointer_move(false);
-    button.set_style(nullptr);
+    button.set_control_style(nullptr);
 }
 #endif
 
@@ -1457,9 +1461,9 @@ void button_focus_native_contracts(FocusFixture fixture = FocusFixture::all) {
         buttons[i]->set_fixed_size({80, 32});
         row->add(buttons[i]);
     }
-    ButtonStyleValues legacy;
-    legacy.corner_radius = 16.0f;
-    buttons[0]->set_style_values(legacy);
+    PartStyleValues surface;
+    surface.corner_radius = 16.0f;
+    buttons[0]->set_control_style_values(StylePart::root, surface);
     PartStyleValues named;
     named.corner_radius = 16.0f;
     buttons[1]->set_control_style_values(StylePart::root, named);
@@ -1620,7 +1624,7 @@ void button_focus_native_contracts(FocusFixture fixture = FocusFixture::all) {
                     if (button != buttons[2] && !Palette::system(mode, VisualStyle::winui).high_contrast)
                         focused.expect(bounds.left + corner, bounds.top + corner,
                             baseline.at(bounds.left + corner, bounds.top + corner),
-                            "The Window adapter preserves pill focus corners for legacy and named styles");
+                            "The Window adapter preserves pill focus corners for surface and named styles");
                     button->set_focused(false);
                     const auto cleared = capture();
                     cleared.expect(x, y, baseline.at(x, y), "Focus removal repaints the former external border");
@@ -1847,14 +1851,14 @@ void button_alignment_contracts() {
         button->set_auto_size(false);
         button->set_preferred_size({36, 36});
         button->set_maximum_size({36, 36});
-        ButtonStyleValues values;
+        PartStyleValues values;
         values.background = ThemeColor{0x242424};
         values.foreground = text.foreground;
         values.border_brush = ThemeColor{0xa0a0a0};
         values.border_thickness = i == 0 ? Insets{1, 1, 1, 1} : Insets{};
         values.padding = i == 0 ? Insets{} : Insets{2, 2, 2, 2};
         values.corner_radius = 0.0f;
-        button->set_style(ButtonStyle::create(values));
+        button->set_control_style(ControlStyle::create(StyleTarget::button, {{StylePart::root, values}}, {}));
         buttons[i] = button;
         root->add(button);
     }
@@ -1924,6 +1928,14 @@ void toggle_native_contracts() {
     auto root = std::make_shared<Stack>(Axis::vertical);
     auto toggle = std::make_shared<Toggle>(L"Styled Toggle");
     auto content = std::make_shared<Stack>(Axis::vertical); content->add(toggle);
+    auto button = std::make_shared<Button>(L"Named-part Button");
+    PartStyleValues label; label.foreground = ThemeColor{0x102030};
+    PartStyleValues disabled_content; disabled_content.foreground = ThemeColor{0x987654};
+    button->set_control_style(ControlStyle::create(StyleTarget::button, {{StylePart::label, label}},
+        {{StylePart::label, style_states::disabled, disabled_content},
+         {StylePart::icon, style_states::disabled, disabled_content},
+         {StylePart::arrow, style_states::disabled, disabled_content}}));
+    content->add(button);
     auto ancestor = std::make_shared<Expander>(L"Disabled ancestor", content);
     ancestor->set_expanded(true);
     auto input = std::make_shared<TextInput>(L"Retained input");
@@ -1934,7 +1946,7 @@ void toggle_native_contracts() {
     PartStyleValues disabled; disabled.foreground = ThemeColor{0x987654};
     auto style = ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}, {StylePart::root, surface}},
         {{StylePart::root, style_states::disabled, disabled}});
-    toggle->set_style(style);
+    toggle->set_control_style(style);
     window.set_content(root);
     StartFixture start(window, [&](HWND host) {
         flush(host);
@@ -1961,9 +1973,9 @@ void toggle_native_contracts() {
         verify_pixels(ThemeMode::light); verify_pixels(ThemeMode::dark);
         window.set_theme(ThemeMode::light); flush(host);
         SendMessageW(edit, EM_SETSEL, 2, 8);
-        toggle->set_style(nullptr); flush(host);
+        toggle->set_control_style(nullptr); flush(host);
         require(children(host) == peers, "Removing a style does not replace peers or create decorative peers");
-        toggle->set_style(style); flush(host);
+        toggle->set_control_style(style); flush(host);
         require(children(host) == peers, "Applying named parts keeps one native Toggle peer");
         SendMessageW(toggle_peer, WM_SETFOCUS, 0, 0);
         SendMessageW(toggle_peer, WM_KEYDOWN, VK_SPACE, 0);
@@ -2013,18 +2025,28 @@ void toggle_native_contracts() {
         require(!toggle->checked(), "UIA toggles the original model");
         ancestor->set_enabled(false); flush(host); flush(host);
         require(toggle->enabled() && !IsWindowEnabled(toggle_peer) &&
-            toggle->effective_style_values(StylePart::label)->foreground == disabled.foreground,
+            toggle->effective_control_style_values(StylePart::label)->foreground == disabled.foreground,
             "Disabled ancestor selects generic disabled style without changing local enabled");
+        for (const auto part : {StylePart::label, StylePart::icon, StylePart::arrow})
+            require(button->enabled() && button->content_style_values(part).foreground == disabled_content.foreground,
+                "Disabled ancestor reaches Button content parts through the shared attachment");
         ancestor->set_enabled(true); flush(host);
+        require(button->content_style_values(StylePart::label).foreground == label.foreground,
+            "Restoring the ancestor restores Button label styling");
         auto dialog = std::make_shared<ContentDialog>(L"Modal", std::make_shared<Label>(L"Modal content"));
         window.show_dialog(dialog, *toggle); flush(host); flush(host);
         require(toggle->enabled() && !IsWindowEnabled(toggle_peer) &&
-            toggle->effective_style_values(StylePart::label)->foreground == disabled.foreground,
+            toggle->effective_control_style_values(StylePart::label)->foreground == disabled.foreground,
             "Modal context selects generic disabled style");
+        for (const auto part : {StylePart::label, StylePart::icon, StylePart::arrow})
+            require(button->enabled() && button->content_style_values(part).foreground == disabled_content.foreground,
+                "Modal disabled context reaches Button content parts");
         dialog->cancel(); flush(host); flush(host);
         require(IsWindowEnabled(toggle_peer), "Closing the modal restores enabled presentation");
-        toggle->set_style(nullptr); flush(host);
-        require(!toggle->effective_style_values(StylePart::root), "Clearing style restores the default path");
+        require(button->content_style_values(StylePart::label).foreground == label.foreground,
+            "Closing the modal restores Button label styling");
+        toggle->set_control_style(nullptr); flush(host);
+        require(!toggle->effective_control_style_values(StylePart::root), "Clearing style restores the default path");
         require(std::find(peers.begin(), peers.end(), toggle_peer) != peers.end() && IsWindow(toggle_peer),
             "Style changes preserve the native Toggle identity");
         DWORD first{}, last{};
@@ -2040,7 +2062,7 @@ void toggle_native_contracts() {
 void native_contracts(bool measure, int repetition) {
     require(Drawing::live_targets() == 0, "Native fixture begins without retained render targets");
 #ifndef XUI_STYLING_BASELINE
-    std::weak_ptr<const ButtonStyle> released_style;
+    std::weak_ptr<const ControlStyle> released_style;
 #endif
     HWND closed_host{}, closed_edit{}, closed_button{};
     {
@@ -2083,12 +2105,12 @@ void native_contracts(bool measure, int repetition) {
             std::weak_ptr<const ResourceScope> released_scope = scope;
             auto values = authored_values();
             values.background = scope->color("Alias");
-            auto style = ButtonStyle::create(values);
+            auto style = ControlStyle::create(StyleTarget::button, {{StylePart::root, values}}, {});
             released_style = style;
             scope.reset();
             require(released_scope.expired(), "Resolved color values do not retain their source ResourceScope");
             ObservePaints observed(host);
-            ButtonStyleValues local;
+            PartStyleValues local;
             local.background = ThemeColor{0x2abb57};
 #else
             ObservePaints observed(host);
@@ -2117,23 +2139,23 @@ void native_contracts(bool measure, int repetition) {
                 const int x = bounds.left + static_cast<int>(std::lround(10 * dpi));
                 const int y = bounds.top + static_cast<int>(std::lround(10 * dpi));
                 const auto baseline = capture();
-                button->set_style(style);
+                button->set_control_style(style);
                 auto styled = capture();
                 if (!Palette::system(ThemeMode::light).high_contrast)
                     styled.expect(x, y, values.background->light, "A live application Button paints its shared style");
                 verify();
-                button->set_style_values(local);
+                button->set_control_style_values(StylePart::root, local);
                 auto overridden = capture();
                 if (!Palette::system(ThemeMode::light).high_contrast)
                     overridden.expect(x, y, 0x2abb57, "A live application Button paints local overrides");
-                button->set_style_values({});
+                button->set_control_style_values(StylePart::root, {});
                 window.set_theme(ThemeMode::dark);
                 auto dark = capture();
                 if (!Palette::system(ThemeMode::dark).high_contrast)
                     dark.expect(x, y, values.background->dark, "Theme changes repaint a retained style with its dark resource color");
                 verify();
                 window.set_theme(ThemeMode::light);
-                button->set_style(nullptr);
+                button->set_control_style(nullptr);
                 const auto cleared = capture();
                 cleared.expect(x, y, baseline.at(x, y), "Clearing a live Button style restores default face paint");
                 verify();
@@ -2142,22 +2164,22 @@ void native_contracts(bool measure, int repetition) {
 
             const auto cycle = [&](int index) {
 #ifndef XUI_STYLING_BASELINE
-                auto cycle_style = ButtonStyle::create(values);
-                std::weak_ptr<const ButtonStyle> retired = cycle_style;
-                button->set_style(cycle_style);
+                auto cycle_style = ControlStyle::create(StyleTarget::button, {{StylePart::root, values}}, {});
+                std::weak_ptr<const ControlStyle> retired = cycle_style;
+                button->set_control_style(cycle_style);
 #endif
                 window.set_visual_style(index % 2 ? VisualStyle::winui : VisualStyle::classic);
                 window.set_theme(ThemeMode::dark);
                 flush(host); verify();
 #ifndef XUI_STYLING_BASELINE
                 local.padding = Insets{16, 7, 18, 8};
-                button->set_style_values(local);
+                button->set_control_style_values(StylePart::root, local);
 #endif
                 window.set_theme(ThemeMode::high_contrast);
                 flush(host); verify();
 #ifndef XUI_STYLING_BASELINE
-                button->set_style_values({});
-                button->set_style(nullptr);
+                button->set_control_style_values(StylePart::root, {});
+                button->set_control_style(nullptr);
 #endif
                 window.set_theme(ThemeMode::light);
                 window.set_visual_style(VisualStyle::classic);
@@ -2198,9 +2220,9 @@ void native_contracts(bool measure, int repetition) {
             flush(host); flush(host);
             verify();
 #ifndef XUI_STYLING_BASELINE
-            button->set_style(style);
+            button->set_control_style(style);
             flush(host);
-            button->set_style(nullptr);
+            button->set_control_style(nullptr);
             style.reset();
             require(released_style.expired(), "Clearing style releases its last shared definition");
 #endif
@@ -2226,7 +2248,7 @@ void native_contracts(bool measure, int repetition) {
 
 int main(int argc, char** argv) {
     try {
-        bool measure{}, lower{}, toggle_only{}, alignment_only{};
+        bool measure{}, lower{}, toggle_only{}, alignment_only{}, lifetime_only{};
         std::optional<FocusFixture> focus_fixture;
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument{argv[i]};
@@ -2249,12 +2271,13 @@ int main(int argc, char** argv) {
             }
             else if (argument == "--toggle-only" && !toggle_only) toggle_only = true;
             else if (argument == "--alignment-only" && !alignment_only) alignment_only = true;
+            else if (argument == "--lifetime-only" && !lifetime_only) lifetime_only = true;
             else if (argument == "--button-focus-window-only" && !focus_fixture) focus_fixture = FocusFixture::all;
             else if (argument == "--focus-buttons-only" && !focus_fixture) focus_fixture = FocusFixture::buttons;
             else if (argument == "--focus-choices-only" && !focus_fixture) focus_fixture = FocusFixture::choices;
             else if (argument == "--focus-selectors-only" && !focus_fixture) focus_fixture = FocusFixture::selectors;
             else if (argument == "--expander-interaction-only" && !focus_fixture) focus_fixture = FocusFixture::expanders;
-            else throw std::runtime_error("Usage: xui_styling_window_tests [--button-focus-only] [--button-focus-window-only | --focus-buttons-only | --focus-choices-only | --expander-interaction-only] [--switch-ring-only] [--next-controls-only] [--toggle-only] [--alignment-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
+            else throw std::runtime_error("Usage: xui_styling_window_tests [--button-focus-only] [--button-focus-window-only | --focus-buttons-only | --focus-choices-only | --expander-interaction-only] [--switch-ring-only] [--next-controls-only] [--toggle-only] [--alignment-only] [--lifetime-only] [--benchmark] [--styled-first] [--lower-level] [--trace-resources]");
         }
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         success(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED), "Initialize styling fixture COM");
@@ -2274,14 +2297,16 @@ int main(int argc, char** argv) {
             toggle_native_contracts();
             return 0;
         }
-        pixel_contracts();
-        button_focus_pixel_contracts();
-        toggle_pixel_contracts();
-        switch_ring_pixel_contracts();
-        if (lower) { lower_level_benchmarks(); return 0; }
-        button_alignment_contracts();
-        button_focus_native_contracts();
-        toggle_native_contracts();
+        if (!lifetime_only) {
+            pixel_contracts();
+            button_focus_pixel_contracts();
+            toggle_pixel_contracts();
+            switch_ring_pixel_contracts();
+            if (lower) { lower_level_benchmarks(); return 0; }
+            button_alignment_contracts();
+            button_focus_native_contracts();
+            toggle_native_contracts();
+        }
 #else
         require(!lower && !measure && !focus_fixture, "Pristine fixture only measures unchanged Window/editor/theme lifetime");
         std::cout << "BASELINE pristine native library; authored style operations omitted; capture/theme/state checks retained.\n";

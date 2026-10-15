@@ -1240,9 +1240,9 @@ void Drawing::winui_focus_ring(Rect bounds, const Palette& palette, float radius
 }
 
 void Drawing::winui_toggle_focus(const Toggle& toggle, Rect bounds, const Palette& palette, IDWriteTextLayout* label) {
-    const auto* root = toggle.effective_style_values(StylePart::root);
+    const auto* root = toggle.effective_control_style_values(StylePart::root);
     if (toggle.switch_presentation()) {
-        const auto* text = toggle.effective_style_values(StylePart::label);
+        const auto* text = toggle.effective_control_style_values(StylePart::label);
         Size measured{};
         if (label) {
             DWRITE_TEXT_METRICS metrics{};
@@ -1445,7 +1445,7 @@ void Drawing::rounded_border(Rect bounds, D2D1_COLOR_F color, float radius, floa
 }
 
 D2D1_COLOR_F Drawing::styled_button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
-    bool enabled, bool hovered, bool pressed, bool checked, const ButtonStyleValues& values) {
+    bool enabled, bool hovered, bool pressed, bool checked, const PartStyleValues& values) {
     const bool winui = palette.style == VisualStyle::winui;
     const bool selected = pressed || checked;
     auto ink = !enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
@@ -1558,10 +1558,10 @@ void Drawing::styled_surface(Rect bounds, const Palette& palette, const PartStyl
 void Drawing::styled_toggle(const Toggle& toggle, Rect bounds, const Palette& palette, bool enabled,
     IDWriteTextLayout* label, bool focus_visible) {
     const PartStyleValues empty;
-    const auto* root = toggle.effective_style_values(StylePart::root);
-    const auto* indicator = toggle.effective_style_values(StylePart::indicator);
-    const auto* mark = toggle.effective_style_values(StylePart::mark);
-    const auto* text = toggle.effective_style_values(StylePart::label);
+    const auto* root = toggle.effective_control_style_values(StylePart::root);
+    const auto* indicator = toggle.effective_control_style_values(StylePart::indicator);
+    const auto* mark = toggle.effective_control_style_values(StylePart::mark);
+    const auto* text = toggle.effective_control_style_values(StylePart::label);
     const bool winui = palette.style == VisualStyle::winui;
     const auto indicator_box = toggle.indicator_bounds(bounds);
     auto ink = !enabled ? palette.disabled : toggle.pressed() ? palette.selection_text : palette.text;
@@ -1733,21 +1733,8 @@ void Drawing::styled_button(const Button& button, Rect bounds, const Palette& pa
     const float inset = winui ? 0.5f : 2.0f;
     const Rect face{bounds.x + inset, bounds.y + inset, std::max(0.0f, bounds.width - 2 * inset),
         std::max(0.0f, bounds.height - 2 * inset)};
-    auto ink = !enabled ? palette.disabled : selected ? palette.selection_text : palette.text;
-    const bool authored = root.background || root.border_brush || root.border_thickness || root.corner_radius;
-    if (!authored || palette.high_contrast) {
-        ink = styled_button_face(face, palette, button.appearance(), enabled, button.hovered(), button.pressed(), checked, {});
-    } else {
-        auto background = selected ? palette.selection : button.hovered() ? palette.hover : palette.surface;
-        auto border = palette.border;
-        if (winui) {
-            const auto defaults = winui_button_brushes(palette.mode, button.appearance(), enabled,
-                button.hovered(), button.pressed(), checked);
-            background = argb_color(defaults.fill); border = argb_color(defaults.stroke); ink = argb_color(defaults.text);
-        }
-        styled_surface(face, palette, root, background, border, winui ? 4.0f : 6.0f, {1, 1, 1, 1});
-    }
-    if (!palette.high_contrast && root.foreground) ink = D2D1::ColorF(root.foreground->resolve(palette.mode));
+    auto ink = styled_button_face(face, palette, button.appearance(), enabled,
+        button.hovered(), button.pressed(), checked, root);
     auto content = button.content_bounds(bounds);
     if (step_increment || inherited_defaults) {
         const auto padding = root.padding.value_or(Insets{});
@@ -1891,7 +1878,7 @@ void Drawing::search_icon(Rect box, D2D1_COLOR_F value) {
 
 void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
     bool active, bool enabled, bool hovered, bool pressed, bool focused,
-    const PartStyleValues* style, const ButtonStyleValues* local, const PartStyleValues* icon_style) {
+    const PartStyleValues* style, const PartStyleValues* icon_style) {
     if (!caption_format_ && palette.style != VisualStyle::winui) {
         hr_require(text_factory_->CreateTextFormat(L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 10, L"", &caption_format_),
@@ -1923,16 +1910,8 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
         }
     }
     Rect glyph_bounds = bounds;
-    if (style || local) {
-        PartStyleValues values = style ? *style : PartStyleValues{};
-        if (local) {
-            if (local->background) values.background = local->background;
-            if (local->foreground) values.foreground = local->foreground;
-            if (local->border_brush) values.border_brush = local->border_brush;
-            if (local->border_thickness) values.border_thickness = local->border_thickness;
-            if (local->padding) values.padding = local->padding;
-            if (local->corner_radius) values.corner_radius = local->corner_radius;
-        }
+    if (style) {
+        const auto& values = *style;
         styled_surface(bounds, palette, values, background, palette.border, 0, {});
         if (!palette.high_contrast && values.foreground)
             ink = D2D1::ColorF(values.foreground->resolve(palette.mode));
@@ -1962,7 +1941,7 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
     if (focused) {
         const Rect focus{bounds.x + 2.5f, bounds.y + 2.5f, std::max(0.0f, bounds.width - 5),
             std::max(0.0f, bounds.height - 5)};
-        if (style || local || icon_style) focus_ring(focus, palette, 0);
+        if (style || icon_style) focus_ring(focus, palette, 0);
         else outline(focus, ink);
     }
 }

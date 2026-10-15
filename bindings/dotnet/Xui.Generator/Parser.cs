@@ -222,8 +222,8 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         {
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
-            "Button" => ["value", "click", "icon", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
-            "Toggle" or "ToggleSwitch" => ["value", "checked", "change", "style", "background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"],
+            "Button" => ["value", "click", "icon"],
+            "Toggle" or "ToggleSwitch" => ["value", "checked", "change"],
             "ToggleButton" => ["value", "checked", "change", "icon"],
             "CheckBox" => ["value", "checkState", "threeState", "change"],
             "HyperlinkButton" => ["value", "click", "icon"],
@@ -245,8 +245,8 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         };
         string styleTarget = StyleCompiler.TargetName(kind);
         if (kind == "Content")
-            allowed = [.. allowed, "style", .. StyleCompiler.Properties, .. StyleCompiler.ExtendedProperties];
-        else if (kind == "Button" || StyleCatalog.TargetExists(styleTarget))
+            allowed = [.. allowed, "style", .. StyleCompiler.LocalProperties];
+        else if (StyleCatalog.TargetExists(styleTarget))
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
         bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal";

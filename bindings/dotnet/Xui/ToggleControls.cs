@@ -10,10 +10,6 @@ public sealed partial class ToggleSwitch
         remove { Window.Guard(); changed -= value; if (changed is null) Event -= OnChange; }
     }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
-    public ControlStyle? Style { set => SetControlStyle(value); }
-    public ToggleSwitch SetStyle(ControlStyle? value) { SetControlStyle(value); return this; }
-    public ToggleSwitch SetStyleValues(StylePart part, PartStyleValues values) { SetControlStyleValues(part, values); return this; }
-    public PartStyleValues GetStyleValues(StylePart part, bool effective = false) => GetControlStyleValues(part, effective);
 }
 
 public sealed partial class ToggleButton
@@ -27,37 +23,6 @@ public sealed partial class ToggleButton
     }
     public event Action<bool> Changed { add => Toggled += value; remove => Toggled -= value; }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
-    private ButtonStyle? style;
-    public ButtonStyle? Style
-    {
-        get { Window.Guard(); return style; }
-        set => SetStyle(value);
-    }
-    public ToggleButton SetStyle(ButtonStyle? value)
-    {
-        Window.Guard();
-        if (value is null) Window.Check(Native.ButtonSetStyle(Handle, 0));
-        else if (!value.TryApply(Window, Handle))
-            value.WithNativeHandle(Window, handle => Window.Check(Native.ButtonSetStyle(Handle, handle)));
-        style = value;
-        return this;
-    }
-    public ButtonStyleValues StyleValues { get => ReadStyleValues(false); set => SetStyleValues(value); }
-    public ButtonStyleValues EffectiveStyleValues => ReadStyleValues(true);
-    public unsafe ToggleButton SetStyleValues(ButtonStyleValues value)
-    {
-        Window.Guard(); ArgumentNullException.ThrowIfNull(value);
-        var native = value.ToNative();
-        Window.Check(Native.ButtonSetStyleValues(Handle, &native));
-        return this;
-    }
-    private unsafe ButtonStyleValues ReadStyleValues(bool effective)
-    {
-        Window.Guard();
-        var value = ButtonStyleValues.Empty.ToNative();
-        Window.Check(Native.ButtonGetStyleValues(Handle, effective ? 1u : 0u, &value));
-        return ButtonStyleValues.FromNative(value);
-    }
 }
 
 public sealed partial class Progress

@@ -48,7 +48,7 @@ internal sealed partial class Parser
         string target = StyleCompiler.TargetName(Identifier($"a control target after 'for' in style '{name}'"));
         if (target == "Tooltip")
             throw new ParseError($"Style '{name}' targets Tooltip, which the .xui compiler cannot apply. Use the Window API to apply Tooltip styles from C#.", targetStart);
-        if (target != "Button" && !StyleCatalog.TargetExists(target))
+        if (!StyleCatalog.TargetExists(target))
             throw new ParseError($"Unsupported control target '{target}' in style '{name}'. Use a supported style target, such as Button, Text, or TextInput; see docs/specs/control-styling.md.", targetStart);
         string? basedOn = null;
         if (Is("basedOn")) { Take(); basedOn = Identifier($"a base style name after 'basedOn' in style '{name}'"); }
@@ -87,7 +87,7 @@ internal sealed partial class Parser
                     if (!StyleCompiler.AllowedStates(target, part).Contains(state))
                         throw new ParseError($"Unsupported state {stateDescription} on {target} part '{part}' in style '{name}'. " +
                             "Remove or replace this when block. " + DiagnosticText.Choices(StyleCompiler.AllowedStates(target, part)), stateStart);
-                    if (target != "Button" && rules.Any(r => r.Part == part && r.State == state))
+                    if (rules.Any(r => r.Part == part && r.State == state))
                         throw new ParseError($"Duplicate state '{state}' on part '{part}' in style '{name}'. Merge its properties into one when block.", stateStart);
                     Expect("{", $"to begin the '{state}' state rule in style '{name}'");
                     var ruleValues = new Dictionary<string, Expression>(StringComparer.Ordinal);
@@ -112,28 +112,23 @@ internal sealed partial class Parser
 
 internal sealed class StyleCompiler(Component component)
 {
-    internal static readonly string[] Properties = ["background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding"];
-    internal static readonly string[] States = ["focused", "checked", "hovered", "pressed", "disabled"];
+    internal static readonly string[] LocalProperties = ["background", "foreground", "borderBrush", "cornerRadius", "borderThickness", "padding",
+        "fontFamily", "fontSize", "fontWeight", "fontStyle", "horizontalAlignment", "verticalAlignment", "spacing",
+        "rowHeight", "headerHeight", "indentation", "thickness", "width", "height", "rowGap", "columnGap", "maximumLines", "wrapping"];
     internal static string TargetName(string target) => target switch {
         "Text" => "Label", "VStack" or "HStack" => "Stack",
         "ToggleSwitch" => "Toggle", "ToggleButton" or "HyperlinkButton" => "Button", "ProgressRing" => "Progress",
         "CheckBox" => "Toggle", "SelectorBar" => "ChoiceList", "InfoBadge" => "InlineStatus",
         "MenuBar" => "CommandBar", _ => target
     };
-    internal static string[] AllowedProperties(string target, string part, bool stateRule = false) {
-        var properties = stateRule ? StyleCatalog.StateProperties(target, part) : StyleCatalog.Properties(target, part);
-        return target == "Button" && part == "root" ? [.. Properties.Union(properties)] : properties;
-    }
+    internal static string[] AllowedProperties(string target, string part, bool stateRule = false) =>
+        stateRule ? StyleCatalog.StateProperties(target, part) : StyleCatalog.Properties(target, part);
     internal static string[] AllowedStates(string target, string part) =>
-        target == "Button" && part == "root" ? [.. States.Union(StyleCatalog.States(target, part))] : StyleCatalog.States(target, part);
-    internal static readonly string[] ExtendedProperties = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "horizontalAlignment",
-        "verticalAlignment", "spacing", "rowHeight", "headerHeight", "indentation", "thickness", "width", "height",
-        "rowGap", "columnGap", "maximumLines", "wrapping"];
+        StyleCatalog.States(target, part);
     private readonly Dictionary<string, ColorResource> resources = new(StringComparer.Ordinal);
     private readonly Dictionary<string, StyleDefinition> styles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> colors = new(StringComparer.Ordinal);
     private readonly List<StyleDefinition> ordered = [];
-    private readonly HashSet<string> genericStyles = new(StringComparer.Ordinal);
     private static string Key(string value) => SyntaxFactory.ParseToken(value).ValueText;
     private static string Quote(string value) => Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(value, true);
 
@@ -168,19 +163,9 @@ internal sealed class StyleCompiler(Component component)
                 throw new ParseError($"Style '{style.Name}' has an inheritance chain of {depth} layers; at most 16 are supported. Shorten its basedOn chain or combine base styles.", style.Offset);
             visiting.Remove(key);
             depths.Add(key, depth);
-            bool generic = style.Target != "Button" || style.Parts.Count != 0 ||
-                style.Values.Keys.Concat(style.Rules.SelectMany(r => r.Values.Keys)).Any(p => !Properties.Contains(p)) ||
-                (style.BasedOn is { } baseName && genericStyles.Contains(Key(baseName)));
-            if (generic) {
-                genericStyles.Add(key);
-                var duplicate = style.Rules.GroupBy(r => (r.Part, r.State)).FirstOrDefault(group => group.Count() > 1);
-                if (duplicate is not null)
-                    throw new ParseError($"Duplicate state '{duplicate.Key.State}' on part '{duplicate.Key.Part}' in style '{style.Name}'. Generic control styles require one when block per state and part; merge the repeated blocks.", style.Offset);
-            }
-            string valuesTarget = generic ? "generic" : "Button";
-            Values(style.Values, valuesTarget, style.Target);
-            foreach (var rule in style.Rules) Values(rule.Values, valuesTarget, style.Target, rule.Part);
-            foreach (var part in style.Parts) Values(part.Value, valuesTarget, style.Target, part.Key);
+            Values(style.Values, style.Target);
+            foreach (var rule in style.Rules) Values(rule.Values, style.Target, rule.Part);
+            foreach (var part in style.Parts) Values(part.Value, style.Target, part.Key);
             ordered.Add(style);
             return depth;
         }
@@ -260,13 +245,13 @@ internal sealed class StyleCompiler(Component component)
         }
     }
 
-    internal string Values(Dictionary<string, Expression> values, string target = "Button", string? schemaTarget = null, string part = "root")
+    internal string Values(Dictionary<string, Expression> values, string target, string part = "root")
     {
         var fields = new List<string>();
-        var limits = StyleCatalog.Limits(schemaTarget ?? target, part);
+        var limits = StyleCatalog.Limits(target, part);
         foreach (var (key, value) in values)
         {
-            string context = $"'{key}' on {schemaTarget ?? target} part '{part}'";
+            string context = $"'{key}' on {target} part '{part}'";
             string compiled;
             if (key is "background" or "foreground" or "borderBrush") compiled = Color(value, context);
             else
@@ -332,7 +317,7 @@ internal sealed class StyleCompiler(Component component)
             }
             fields.Add(char.ToUpperInvariant(key[0]) + key[1..] + " = " + compiled);
         }
-        return $"new global::Xui.{(target == "Button" ? "ButtonStyleValues" : "PartStyleValues")} {{ " + string.Join(", ", fields) + " }";
+        return "new global::Xui.PartStyleValues { " + string.Join(", ", fields) + " }";
     }
 
     internal string Reference(Expression value, string target = "Button")
@@ -343,59 +328,32 @@ internal sealed class StyleCompiler(Component component)
             throw new ParseError($"Style '{name.Identifier.ValueText}' was not found for {target}. Declare 'style {name.Identifier.ValueText} for {target} {{ ... }}' in this component or correct the style name.", value.Offset);
         if (style.Target != target)
             throw new ParseError($"Style '{style.Name}' targets {style.Target}, not {target}. Choose or declare a style targeting {target}.", value.Offset);
-        return $"(global::Xui.{(genericStyles.Contains(Key(style.Name)) ? "ControlStyle" : "ButtonStyle")})__xuiGetStyles()[" + Quote(name.Identifier.ValueText) + "]";
+        return "__xuiGetStyles()[" + Quote(name.Identifier.ValueText) + "]";
     }
     internal string ReferenceTarget(Expression value) {
         if (SyntaxFactory.ParseExpression(value.Text) is IdentifierNameSyntax name && styles.TryGetValue(name.Identifier.ValueText, out var style))
             return style.Target;
         throw new ParseError($"Content requires a declared style name, not {DiagnosticText.Quote(value.Text)}. Declare a style for the embedded control's target and reference it with 'style: StyleName'.", value.Offset);
     }
-    internal bool GenericReference(Expression value) => genericStyles.Contains(Key(value.Text));
-
     private static string Part(string part) => "global::Xui.StylePart." + char.ToUpperInvariant(part[0]) + part[1..];
-    private string GenericDefinition(StyleDefinition style, string parent)
+    private string Definition(StyleDefinition style, string parent)
     {
-        // Legacy Button rules permit repeated states; promotion preserves their field-wise last-write precedence.
-        var rules = style.Rules.GroupBy(rule => (rule.Part, rule.State)).Select(group =>
-        {
-            var values = new Dictionary<string, Expression>(StringComparer.Ordinal);
-            foreach (var rule in group)
-                foreach (var value in rule.Values) values[value.Key] = value.Value;
-            return new StyleRule(group.Key.State, values, group.Key.Part);
-        });
         return $"new global::Xui.ControlStyle(global::Xui.StyleTarget.{style.Target}, " +
             "new global::Xui.PartStyle[] { " +
-            $"new({Part("root")}, {Values(style.Values, "generic", style.Target)}), " +
-            string.Join(", ", style.Parts.Select(p => $"new({Part(p.Key)}, {Values(p.Value, "generic", style.Target, p.Key)})")) +
+            $"new({Part("root")}, {Values(style.Values, style.Target)}), " +
+            string.Join(", ", style.Parts.Select(p => $"new({Part(p.Key)}, {Values(p.Value, style.Target, p.Key)})")) +
             " }, new global::Xui.ControlStyleRule[] { " +
-            string.Join(", ", rules.Select(r => $"new({Part(r.Part)}, global::Xui.StyleState.{char.ToUpperInvariant(r.State[0]) + r.State[1..]}, {Values(r.Values, "generic", style.Target, r.Part)})")) +
+            string.Join(", ", style.Rules.Select(r => $"new({Part(r.Part)}, global::Xui.StyleState.{char.ToUpperInvariant(r.State[0]) + r.State[1..]}, {Values(r.Values, style.Target, r.Part)})")) +
             " }, " + parent + ")";
     }
     internal string Definitions()
     {
-        var promoted = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var style in ordered.Where(style => genericStyles.Contains(Key(style.Name))))
-            for (var parent = style.BasedOn; parent is not null && !genericStyles.Contains(Key(parent)); parent = styles[Key(parent)].BasedOn)
-                if (!promoted.ContainsKey(Key(parent)))
-                    promoted.Add(Key(parent), "__xuiPromotedStyle" + promoted.Count);
-
-        string GenericBase(StyleDefinition style) => style.BasedOn is not { } parent ? "null" :
-            genericStyles.Contains(Key(parent)) ? $"(global::Xui.ControlStyle)__xuiStyles[{Quote(Key(parent))}]" : promoted[Key(parent)];
         var definitions = new List<string>();
         foreach (var style in ordered)
         {
             string key = Key(style.Name);
-            if (genericStyles.Contains(key))
-                definitions.Add($"__xuiStyles.Add({Quote(key)}, {GenericDefinition(style, GenericBase(style))});");
-            else
-            {
-                definitions.Add($"__xuiStyles.Add({Quote(key)}, new global::Xui.ButtonStyle({Values(style.Values)}, " +
-                    "new global::Xui.ButtonStyleRule[] { " +
-                    string.Join(", ", style.Rules.Select(rule => $"new(global::Xui.ButtonStyleState.{char.ToUpperInvariant(rule.State[0]) + rule.State[1..]}, {Values(rule.Values)})")) +
-                    " }, " + (style.BasedOn is null ? "null" : $"(global::Xui.ButtonStyle)__xuiStyles[{Quote(Key(style.BasedOn))}]") + "));");
-                if (promoted.TryGetValue(key, out string? variable))
-                    definitions.Add($"var {variable} = {GenericDefinition(style, GenericBase(style))};");
-            }
+            string parent = style.BasedOn is null ? "null" : $"__xuiStyles[{Quote(Key(style.BasedOn))}]";
+            definitions.Add($"__xuiStyles.Add({Quote(key)}, {Definition(style, parent)});");
         }
         return string.Join("\n", definitions);
     }

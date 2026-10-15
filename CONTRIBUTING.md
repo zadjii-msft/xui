@@ -1259,7 +1259,7 @@ Build and run the focused style checks:
 
 ```powershell
 cmake --build $build --config Release --target xui xui_styling_tests xui_styling_window_tests xui_abi_features_tests
-ctest --test-dir $build -C Release -R '^xui_(styling_tests|styling_window_tests|abi_features_tests)$' --output-on-failure
+ctest --test-dir $build -C Release -R '^xui_(styling_tests|styling_window_tests|styling_lifetime_window_tests|abi_features_tests)$' --output-on-failure
 dotnet run --project bindings\dotnet\Tests -c Release -r $rid -- --styling
 dotnet run --project bindings\dotnet\GeneratorTests -c Release
 .\bindings\dotnet\GeneratorTests\BuildTests.ps1
@@ -1267,6 +1267,8 @@ dotnet run --project bindings\dotnet\GeneratorTests -c Release
 
 The presentation test requires `XUI_DESKTOP_TESTS=ON` for CTest registration.
 It checks actual Direct2D pixels, native editor identity, resource retention, and idle paints.
+The separate lifetime fixture runs replacement, clearing, theme, retained-editor,
+and resource-teardown checks without the unrelated focus-adapter matrix.
 
 For button focus geometry, run the pixel-only check:
 
@@ -1287,7 +1289,7 @@ With `XUI_DESKTOP_TESTS=ON`, run the separate nonactivating adapter checks:
 ctest --test-dir $build -C Release -R '^xui_(button_focus|choice_focus|selector_focus|expander_interaction)_window_tests$' --output-on-failure -j 1
 ```
 
-The button fixture checks external focus pixels through the window renderer for legacy styles, named styles, unstyled buttons, and rounded hyperlinks.
+The button fixture checks external focus pixels through the window renderer for local values, named styles, unstyled buttons, and rounded hyperlinks.
 It also checks all four focus edges and blur cleanup for default, square, and pill MenuBar headings.
 `xui_menu_bar_tests` covers heading margins, measurement, hidden headings, narrow bounds, and authored root padding.
 `xui_menu_bar_window_tests` covers the native keyboard and popup lifecycle in both visual styles.

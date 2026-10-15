@@ -232,9 +232,9 @@ internal static class FeatureTests
         Expect(toggle.Checked && button.Checked && changes == 1 && toggles == 1 && aliases == 1);
         button.SetIcon(ButtonIcon.Open);
         Expect(button.Icon == ButtonIcon.Open);
-        toggle.SetStyle(new ControlStyle(StyleTarget.Toggle, [new(StylePart.Indicator, new() { Background = new ThemeColor(0x123456) })]));
-        button.SetStyle(new ButtonStyle(new() { Background = new ThemeColor(0x234567) }));
-        Expect(button.EffectiveStyleValues.Background == new ThemeColor(0x234567));
+        toggle.SetControlStyle(new ControlStyle(StyleTarget.Toggle, [new(StylePart.Indicator, new() { Background = new ThemeColor(0x123456) })]));
+        button.SetControlStyle(new ControlStyle(StyleTarget.Button, [new(StylePart.Root, new() { Background = new ThemeColor(0x234567) })]));
+        Expect(button.GetControlStyleValues(StylePart.Root, effective: true).Background == new ThemeColor(0x234567));
         ring.SetControlStyle(new ControlStyle(StyleTarget.Progress, [new(StylePart.Fill, new() { Background = new ThemeColor(0x345678) })]));
         ring.SetRange(new(100, 200)).SetValue(150).SetState(ProgressState.Paused);
         Expect(ring.Range.Minimum == 100 && ring.Value == 150 && ring.State == ProgressState.Paused);
@@ -268,8 +268,8 @@ internal static class FeatureTests
         check.SetState(CheckState.Unchecked); check.Invoke(); link.Invoke();
         Expect(changes == 1 && clicks == 1);
         link.SetIcon(ButtonIcon.Open); Expect(link.Icon == ButtonIcon.Open);
-        link.SetStyle(new ButtonStyle(new() { Background = new ThemeColor(0x123456) }));
-        Expect(link.EffectiveStyleValues.Background == new ThemeColor(0x123456));
+        link.SetControlStyle(new ControlStyle(StyleTarget.Button, [new(StylePart.Root, new() { Background = new ThemeColor(0x123456) })]));
+        Expect(link.GetControlStyleValues(StylePart.Root, effective: true).Background == new ThemeColor(0x123456));
         Choice[] items = [new(1, "First"), new(2, "Second"), new(3, "Disabled", false)];
         selector.SetItems(items, 2); Expect(selector.Selected == 2 && selections == 0);
         Fails(() => selector.SetItems(items, 3)); Fails(() => selector.SetSelected(99));

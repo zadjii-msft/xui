@@ -89,9 +89,7 @@ impl PartStyleValues {
             (4, self.border_brush),
         ] {
             if let Some(c) = value {
-                if c.light > 0xffffff || c.dark > 0xffffff {
-                    return Err(invalid("Colors must be RGB24."));
-                }
+                c.validate()?;
                 record(
                     property,
                     1,
@@ -457,11 +455,10 @@ impl Element {
         PartStyleValues::from_native(&records)
     }
 }
-impl Toggle {
-    pub fn set_style(&self, style: Option<&ControlStyle>) -> Result<()> {
-        self.set_control_style(style)
-    }
-}
+
+#[cfg(test)]
+#[path = "control_styling_tests.rs"]
+mod regression_tests;
 
 #[cfg(test)]
 mod tests {
@@ -576,15 +573,15 @@ mod tests {
         )?;
         let window = Window::new("Generic Toggle", 300.0, 200.0)?;
         let toggle = window.toggle("Styled")?;
-        toggle.set_style(Some(&style))?;
+        toggle.set_control_style(Some(&style))?;
         assert_eq!(
-            toggle.effective_style_values(StylePart::Label)?.foreground,
+            toggle.control_style_values(StylePart::Label, true)?.foreground,
             Some(0x123456.into())
         );
         toggle.checked(true)?;
         assert_eq!(
             toggle
-                .effective_style_values(StylePart::Indicator)?
+                .control_style_values(StylePart::Indicator, true)?
                 .background,
             Some(0x654321.into())
         );
@@ -592,21 +589,21 @@ mod tests {
             foreground: Some(0.into()),
             ..Default::default()
         };
-        toggle.set_style_values(StylePart::Root, local)?;
-        toggle.set_style(None)?;
+        toggle.set_control_style_values(StylePart::Root, local)?;
+        toggle.set_control_style(None)?;
         assert_eq!(
-            toggle.effective_style_values(StylePart::Label)?.foreground,
+            toggle.control_style_values(StylePart::Label, true)?.foreground,
             Some(0.into())
         );
-        toggle.set_style_values(StylePart::Root, PartStyleValues::default())?;
+        toggle.set_control_style_values(StylePart::Root, PartStyleValues::default())?;
         assert_eq!(
-            toggle.effective_style_values(StylePart::Label)?,
+            toggle.control_style_values(StylePart::Label, true)?,
             PartStyleValues::default()
         );
-        toggle.set_style(Some(&style))?;
+        toggle.set_control_style(Some(&style))?;
         let marker = window.button("Before")?.handle;
         for _ in 0..256 {
-            toggle.set_style(Some(&style))?;
+            toggle.set_control_style(Some(&style))?;
         }
         assert_eq!(window.button("After")?.handle, marker + 1);
         assert!(
@@ -617,22 +614,11 @@ mod tests {
         );
         let other = Window::new("Other", 300.0, 200.0)?;
         let shared = other.toggle("Shared")?;
-        shared.set_style(Some(&style))?;
+        shared.set_control_style(Some(&style))?;
         assert_eq!(
-            shared.effective_style_values(StylePart::Indicator)?.size,
+            shared.control_style_values(StylePart::Indicator, true)?.size,
             Some(18.0)
         );
         Ok(())
-    }
-}
-impl Toggle {
-    pub fn set_style_values(&self, part: StylePart, values: PartStyleValues) -> Result<()> {
-        self.set_control_style_values(part, values)
-    }
-    pub fn style_values(&self, part: StylePart) -> Result<PartStyleValues> {
-        self.control_style_values(part, false)
-    }
-    pub fn effective_style_values(&self, part: StylePart) -> Result<PartStyleValues> {
-        self.control_style_values(part, true)
     }
 }

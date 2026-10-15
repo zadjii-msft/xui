@@ -4,7 +4,7 @@ namespace Xui;
 
 internal static unsafe partial class Native
 {
-    internal const uint Version = 0x10000;
+    internal const uint Version = 0x20000;
     [StructLayout(LayoutKind.Sequential)]
     internal struct Text { internal byte* Data; internal uint Length, Reserved; }
     [StructLayout(LayoutKind.Sequential)]

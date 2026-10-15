@@ -35,7 +35,7 @@ internal sealed class PreviewSession : IDisposable
         CloseButton = Window.TitlebarClose;
         OpenButton.SetText(target.IsDirectory ? "Open folder" : "Open")
             .SetIcon(ButtonIcon.Open).SetAutomationId("preview-open").Help("Open in the associated application");
-        OpenButton.SetStyle(ExplorerStyles.IconButton);
+        OpenButton.SetControlStyle(ExplorerStyles.IconButton);
         OpenButton.Click += Open;
         work = new(Window);
         Text = Window.MultilineText("File contents");

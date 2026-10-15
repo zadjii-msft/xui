@@ -99,9 +99,10 @@ internal sealed class CustomizationSettingRow
                 break;
         }
         Reset = window.Button("Reset " + setting.Name + " to default").SetText("").SetIcon(ButtonIcon.Undo)
-            .SetStyle(ExplorerStyles.IconButton).FixedSize(36, 36).SetAutomationId($"setting-{setting.Id}-reset")
+            .FixedSize(36, 36).SetAutomationId($"setting-{setting.Id}-reset")
             .Help("Restore the default for " + setting.Name).Visible(false);
         Reset.SetPresentationFontSize(12);
+        Reset.SetControlStyle(ExplorerStyles.IconButton);
         Save?.SetPresentationFontSize(12);
         // The row supplies the label; retain the native accessible name without a duplicate header.
         Number?.SetControlStyleValues(StylePart.Header, new() { HeaderHeight = 0 });

@@ -277,15 +277,15 @@ void breadcrumb_and_commands() {
     const auto overflow = breadcrumb.overflow_button();
     int navigated{};
     breadcrumb.on_navigate([&](ItemKey key) { require(key == ItemKey{3, 1}, "Exact segment key"); ++navigated; });
-    ButtonStyleValues local;
+    PartStyleValues local;
     local.foreground = ThemeColor{0x00ff00};
-    button->set_style_values(local);
+    button->set_control_style_values(StylePart::root, local);
     breadcrumb.set_control_style(surface(StyleTarget::breadcrumb));
     breadcrumb.arrange({0, 0, 180, 40});
     require(breadcrumb.overflowed() && breadcrumb.current() == ItemKey{3, 1}, "Styled breadcrumb keeps overflow and current identities");
     require(breadcrumb.segment_button({3, 1}) == button && breadcrumb.overflow_button() == overflow,
         "Breadcrumb style application retains segment and overflow Buttons");
-    require(button->style_values().foreground == local.foreground && button->invoke() && navigated == 1,
+    require(button->control_style_values(StylePart::root).foreground == local.foreground && button->invoke() && navigated == 1,
         "Segment-local style and action remain independent of parent");
     breadcrumb.arrange({0, 0, 800, 40});
     require(!breadcrumb.overflowed() && breadcrumb.adjacent(*button, -1) == breadcrumb.segment_button({2, 1}).get(),
@@ -303,11 +303,11 @@ void breadcrumb_and_commands() {
     bar.set_visual_style(VisualStyle::winui);
     bar.arrange({0, 0, 700, 40});
     require(!bar.overflowed() && bar.command_button(1) == action, "Resize and theme retain command Buttons");
-    action->set_style_values(local);
+    action->set_control_style_values(StylePart::root, local);
     bar.set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{
         {1, 0, L"Updated", [&] { invoked += 10; }, true, true}, {2, 0, L"Two"}}));
     require(bar.command_button(1) == action, "Command snapshot refresh retains the Button for its stable ID");
-    require(action->style_values().foreground == local.foreground, "Command snapshot refresh preserves Button-local styling");
+    require(action->control_style_values(StylePart::root).foreground == local.foreground, "Command snapshot refresh preserves Button-local styling");
     require(action->behavior() == ButtonBehavior::toggle && action->checked(),
         "Checked command snapshots update the retained Button behavior and authoritative state");
     require(action->invoke(), "The retained checked command remains invokable");
@@ -320,7 +320,7 @@ void breadcrumb_and_commands() {
     bar.set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{
         {1, 0, L"Unchecked", [&] { invoked += 1000; }, true, false}, {2, 0, L"Two"}}));
     require(bar.command_button(1) == action && action->invoke() && invoked == 1111 && !action->checked() &&
-        action->style_values().foreground == local.foreground,
+        action->control_style_values(StylePart::root).foreground == local.foreground,
         "Unchecked command snapshots dispatch once and preserve authoritative state and local styles");
     CommandRecord separator;
     separator.id = 99;
@@ -340,7 +340,7 @@ void breadcrumb_and_commands() {
         bar.separator_bounds(2).width == 0, "Styled command separators reserve only their real model gaps");
     bar.arrange({0, 0, 340, 40});
     require(bar.overflowed() && bar.overflow_commands()->find(2) && bar.separator_bounds(1).width == 0 &&
-        bar.command_button(1) == action && action->style_values().foreground == local.foreground,
+        bar.command_button(1) == action && action->control_style_values(StylePart::root).foreground == local.foreground,
         "Separator metrics and overflow share geometry without replacing authored command Buttons");
     bar.set_control_style_values(StylePart::separator, {});
     bar.arrange({0, 0, 340, 40});
@@ -486,13 +486,13 @@ void facades() {
     require(view.choices() == choices && view.size() == size && view.content(), "View picker retains choices and size editor");
     SplitButton split(L"Run", L"More");
     const auto primary = split.primary();
-    ButtonStyleValues button_values;
+    PartStyleValues button_values;
     button_values.background = ThemeColor{0x123456};
-    primary->set_style_values(button_values);
+    primary->set_control_style_values(StylePart::root, button_values);
     split.set_control_style(surface(StyleTarget::split_button));
     split.set_spacing(8);
     split.arrange({0, 0, 300, 40});
-    require(split.primary() == primary && primary->style_values().background == button_values.background,
+    require(split.primary() == primary && primary->control_style_values(StylePart::root).background == button_values.background,
         "SplitButton uses existing Button styles without replacing actions");
     require(split.secondary()->bounds().x >= primary->bounds().x + primary->bounds().width + 8,
         "SplitButton spacing reserves a real separator gap");

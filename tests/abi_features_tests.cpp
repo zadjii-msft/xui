@@ -700,10 +700,114 @@ void tooltip_style_contracts() {
     expect(xui_window_set_tooltip_style(window, 0) == XUI_INVALID_HANDLE);
     expect(xui_control_style_release(foreign) == XUI_INVALID_HANDLE);
 }
+void button_style_contracts(xui_handle window, const xui_window_options& options) {
+    xui_handle button{}, peer{}, style{}, derived{}, foreign{}, other{};
+    ok(xui_create(window, XUI_BUTTON, text("Styled"), 0, &button));
+    ok(xui_create(window, XUI_BUTTON, text("Shared identity"), 0, &peer));
+    xui_style_property records[]{
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_BACKGROUND,
+            XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x654321}},
+        {sizeof(xui_style_property), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_PADDING,
+            XUI_STYLE_INSETS, XUI_STYLE_ROOT}
+    };
+    records[1].insets = {1, 2, 3, 4};
+    xui_control_style_options definition{sizeof(definition), XUI_CONTROL_STYLE_VERSION,
+        XUI_STYLE_TARGET_BUTTON, 0, records, 2};
+    ok(xui_control_style_create(window, &definition, &style));
+    xui_style_property radius{sizeof(radius), XUI_CONTROL_STYLE_VERSION, XUI_STYLE_CORNER_RADIUS,
+        XUI_STYLE_NUMBER, XUI_STYLE_ROOT};
+    radius.number = 4;
+    auto inherited = definition;
+    inherited.properties = &radius; inherited.property_count = 1; inherited.based_on = style;
+    ok(xui_control_style_create(window, &inherited, &derived));
+    radius.number = 7;
+    ok(xui_control_set_style_values(button, XUI_STYLE_ROOT, &radius, 1));
+    ok(xui_control_set_style(button, derived));
+    xui_style_property output[8]{};
+    uint32_t count{};
+    ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 0, output, 8, &count));
+    expect(count == 1 && output[0].number == 7);
+    ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 1, output, 8, &count));
+    expect(count == 3 && output[0].color.light == 0x123456 && output[2].number == 7);
+    auto invalid = radius; invalid.number = NAN;
+    expect(xui_control_set_style_values(button, XUI_STYLE_ROOT, &invalid, 1) == XUI_INVALID_ARGUMENT);
+    ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 0, output, 8, &count));
+    expect(count == 1 && output[0].number == 7);
+    ok(xui_window_create_features(&options, 0, &other));
+    ok(xui_control_style_create(other, &definition, &foreign));
+    expect(xui_control_set_style(button, foreign) == XUI_INVALID_ARGUMENT);
+    auto bad = definition; bad.based_on = foreign;
+    xui_handle failed{};
+    expect(xui_control_style_create(window, &bad, &failed) == XUI_INVALID_ARGUMENT && !failed);
+    xui_handle deepest{};
+    auto layer = definition; layer.properties = nullptr; layer.property_count = 0;
+    for (unsigned depth = 0; depth < 16; ++depth) {
+        layer.based_on = deepest;
+        xui_handle next{};
+        ok(xui_control_style_create(window, &layer, &next));
+        if (deepest) ok(xui_control_style_release(deepest));
+        deepest = next;
+    }
+    layer.based_on = deepest;
+    expect(xui_control_style_create(window, &layer, &failed) == XUI_INVALID_ARGUMENT && !failed);
+    ok(xui_control_style_release(deepest));
+    auto disabled = records[0];
+    disabled.property = XUI_STYLE_FOREGROUND; disabled.state = XUI_STYLE_DISABLED; disabled.color = {0xffffff, 0};
+    auto state_definition = definition; state_definition.properties = &disabled; state_definition.property_count = 1;
+    xui_handle state_style{};
+    ok(xui_control_style_create(window, &state_definition, &state_style));
+    ok(xui_control_set_style(button, state_style));
+    xui_property enabled{sizeof(enabled), XUI_ENABLED, button};
+    ok(xui_update(window, &enabled, 1));
+    ok(xui_control_get_style_values(button, XUI_STYLE_LABEL, 1, output, 8, &count));
+    expect(count == 1 && output[0].color.light == 0xffffff);
+    enabled.integer = 1; ok(xui_update(window, &enabled, 1));
+    ok(xui_control_set_style(button, derived));
+    ok(xui_control_style_release(state_style));
+    std::thread worker([&] {
+        uint32_t applied{99}; xui_handle retained{99};
+        expect(xui_control_set_style(button, 0) == XUI_WRONG_THREAD);
+        expect(xui_control_style_release(style) == XUI_WRONG_THREAD);
+        expect(xui_control_try_set_style(button, derived, &applied) == XUI_WRONG_THREAD && !applied);
+        expect(xui_control_style_reacquire(window, derived, &retained) == XUI_WRONG_THREAD && !retained);
+    }); worker.join();
+    ok(xui_control_style_release(style)); ok(xui_control_style_release(derived));
+    expect(xui_control_set_style(button, derived) == XUI_INVALID_HANDLE);
+    uint32_t applied{};
+    ok(xui_control_try_set_style(peer, derived, &applied)); expect(applied == 1);
+    ok(xui_control_set_style(button, 0));
+    ok(xui_control_try_set_style(button, derived, &applied)); expect(applied == 1);
+    xui_handle retained{};
+    ok(xui_control_style_reacquire(window, derived, &retained)); expect(retained && retained != derived);
+    ok(xui_control_set_style(peer, 0)); ok(xui_control_set_style(button, retained));
+    ok(xui_control_style_release(retained));
+    ok(xui_control_style_reacquire(other, derived, &retained)); expect(!retained);
+    for (auto identity : {foreign, xui_handle{0}, UINT64_MAX}) {
+        ok(xui_control_try_set_style(peer, identity, &applied)); expect(!applied);
+    }
+    expect(xui_control_try_set_style(button, derived, nullptr) == XUI_INVALID_ARGUMENT);
+    expect(xui_control_style_reacquire(window, derived, nullptr) == XUI_INVALID_ARGUMENT);
+    ok(xui_control_set_style(button, 0));
+    ok(xui_control_try_set_style(button, derived, &applied)); expect(!applied);
+    ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 1, output, 8, &count));
+    expect(count == 1 && output[0].number == 7);
+    ok(xui_control_set_style_values(button, XUI_STYLE_ROOT, nullptr, 0));
+    xui_handle permanent{};
+    ok(xui_control_style_create(window, &definition, &permanent));
+    ok(xui_control_set_style(peer, permanent)); ok(xui_control_style_release(permanent));
+    for (unsigned i = 0; i < 65537; ++i) {
+        xui_handle transient{};
+        ok(xui_control_style_create(window, &definition, &transient));
+        ok(xui_control_set_style(button, transient)); ok(xui_control_style_release(transient));
+        ok(xui_control_set_style(button, 0));
+    }
+    ok(xui_control_try_set_style(button, permanent, &applied)); expect(applied == 1);
+    ok(xui_control_set_style(peer, 0)); ok(xui_control_set_style(button, 0));
+    ok(xui_control_style_reacquire(window, permanent, &retained)); expect(!retained);
+    ok(xui_window_destroy(other));
+    expect(xui_control_style_release(foreign) == XUI_INVALID_HANDLE);
+}
 void explorer_contracts() {
-    static_assert(sizeof(xui_button_style_values) == 80);
-    static_assert(sizeof(xui_button_style_rule) == 88);
-    static_assert(sizeof(xui_button_style_options) == 112);
     static_assert(sizeof(xui_navigation_entry) == 56);
     static_assert(sizeof(xui_item_visual) == 24);
     static_assert(sizeof(xui_source_options) == 48);
@@ -711,155 +815,7 @@ void explorer_contracts() {
     static_assert(sizeof(xui_navigation_event) == 32);
     xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Explorer primitives"), 600, 400};
     xui_handle window{}; ok(xui_window_create_features(&options, 1, &window));
-    {
-        xui_handle button{}, style{}, derived{}, foreign{}, other_window{};
-        ok(xui_create(window, XUI_BUTTON, text("Styled"), 0, &button));
-        auto empty = [] { return xui_button_style_values{sizeof(xui_button_style_values), XUI_BUTTON_STYLE_VERSION}; };
-        xui_button_style_options definition{sizeof(definition), XUI_BUTTON_STYLE_VERSION, empty()};
-        definition.values.mask = XUI_BUTTON_STYLE_BACKGROUND | XUI_BUTTON_STYLE_PADDING;
-        definition.values.background = {0x123456, 0x654321};
-        definition.values.padding = {1, 2, 3, 4};
-        ok(xui_button_style_create(window, &definition, &style));
-        auto inherited = definition;
-        inherited.values = empty(); inherited.values.mask = XUI_BUTTON_STYLE_CORNER_RADIUS;
-        inherited.values.corner_radius = 4; inherited.based_on = style;
-        ok(xui_button_style_create(window, &inherited, &derived));
-        auto local = empty(); local.mask = XUI_BUTTON_STYLE_CORNER_RADIUS; local.corner_radius = 7;
-        ok(xui_button_set_style_values(button, &local));
-        ok(xui_button_set_style(button, derived));
-        auto output = empty(); ok(xui_button_get_style_values(button, 0, &output));
-        expect(output.mask == local.mask && output.corner_radius == 7);
-        ok(xui_button_get_style_values(button, 1, &output));
-        expect(output.mask == 49 && output.background.light == 0x123456 && output.corner_radius == 7);
-        auto invalid = local; invalid.corner_radius = NAN;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.size = 0;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.version = 0;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_VERSION_MISMATCH);
-        invalid = local; invalid.background.light = 1;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.mask |= 1; invalid.background.dark = 0xff123456;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.mask |= 8; invalid.border_thickness.left = -1;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.reserved = 1;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        invalid = local; invalid.mask = 64;
-        expect(xui_button_set_style_values(button, &invalid) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_set_style_values(button, nullptr) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_set_style_values(window, &local) == XUI_WRONG_KIND);
-        expect(xui_button_get_style_values(button, 2, &output) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_get_style_values(button, 0, nullptr) == XUI_INVALID_ARGUMENT);
-        xui_handle failed = 123;
-        auto bad_definition = definition; bad_definition.size = 0;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT && failed == 0);
-        bad_definition = definition; bad_definition.based_on = button;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_WRONG_KIND && failed == 0);
-        bad_definition = definition; bad_definition.rule_count = 1;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
-        xui_button_style_rule rule{sizeof(rule), 5, empty()};
-        bad_definition.rules = &rule;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
-        rule.state = XUI_BUTTON_STYLE_DISABLED; rule.size = 0;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
-        bad_definition = definition; bad_definition.rule_count = 257;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
-        xui_handle deepest{};
-        auto layer = definition;
-        layer.values = empty();
-        for (unsigned depth = 0; depth < 16; ++depth) {
-            layer.based_on = deepest;
-            xui_handle next{};
-            ok(xui_button_style_create(window, &layer, &next));
-            if (deepest) ok(xui_button_style_release(deepest));
-            deepest = next;
-        }
-        layer.based_on = deepest;
-        expect(xui_button_style_create(window, &layer, &failed) == XUI_INVALID_ARGUMENT && !failed);
-        ok(xui_button_style_release(deepest));
-        rule = {sizeof(rule), XUI_BUTTON_STYLE_DISABLED, empty()};
-        rule.values.mask = XUI_BUTTON_STYLE_FOREGROUND;
-        rule.values.foreground = {0xffffff, 0};
-        bad_definition = definition; bad_definition.rules = &rule; bad_definition.rule_count = 1;
-        xui_handle state_style{};
-        ok(xui_button_style_create(window, &bad_definition, &state_style));
-        ok(xui_button_set_style(button, state_style));
-        xui_property disabled{sizeof(xui_property), XUI_ENABLED, button};
-        ok(xui_update(window, &disabled, 1));
-        ok(xui_button_get_style_values(button, 1, &output));
-        expect((output.mask & 2) && output.foreground.light == 0xffffff);
-        disabled.integer = 1; ok(xui_update(window, &disabled, 1));
-        ok(xui_button_set_style(button, derived)); ok(xui_button_style_release(state_style));
-        ok(xui_window_create_features(&options, 0, &other_window));
-        ok(xui_button_style_create(other_window, &definition, &foreign));
-        expect(xui_button_set_style(button, foreign) == XUI_INVALID_ARGUMENT);
-        bad_definition = definition; bad_definition.based_on = foreign;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_set_style(button, window) == XUI_WRONG_KIND);
-        expect(xui_button_style_release(button) == XUI_WRONG_KIND);
-        std::thread worker([&] {
-            expect(xui_button_set_style(button, 0) == XUI_WRONG_THREAD);
-            expect(xui_button_style_release(style) == XUI_WRONG_THREAD);
-        }); worker.join();
-        ok(xui_button_get_style_values(button, 0, &output)); expect(output.corner_radius == 7 && output.mask == 32);
-        ok(xui_button_style_release(style)); ok(xui_button_style_release(derived));
-        expect(xui_button_style_release(style) == XUI_INVALID_HANDLE);
-        expect(xui_button_set_style(button, style) == XUI_INVALID_HANDLE);
-        xui_handle reused{}, peer{};
-        uint32_t applied{99};
-        ok(xui_create(window, XUI_BUTTON, text("Shared identity"), 0, &peer));
-        ok(xui_button_try_set_style(peer, derived, &applied)); expect(applied == 1);
-        ok(xui_button_set_style(button, 0));
-        ok(xui_button_try_set_style(button, derived, &applied)); expect(applied == 1);
-        ok(xui_button_style_reacquire(window, derived, &reused)); expect(reused != 0 && reused != derived);
-        ok(xui_button_set_style(peer, 0));
-        ok(xui_button_set_style(button, 0));
-        ok(xui_button_set_style(button, reused));
-        ok(xui_button_style_release(reused));
-        ok(xui_button_try_set_style(peer, derived, &applied)); expect(applied == 1);
-        ok(xui_button_set_style(peer, 0));
-        ok(xui_button_style_reacquire(other_window, derived, &reused)); expect(reused == 0);
-        ok(xui_button_try_set_style(button, foreign, &applied)); expect(applied == 0);
-        ok(xui_button_try_set_style(button, 0, &applied)); expect(applied == 0);
-        ok(xui_button_try_set_style(button, UINT64_MAX, &applied)); expect(applied == 0);
-        expect(xui_button_try_set_style(button, derived, nullptr) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_style_reacquire(window, derived, nullptr) == XUI_INVALID_ARGUMENT);
-        expect(xui_button_try_set_style(window, derived, &applied) == XUI_WRONG_KIND && applied == 0);
-        std::thread identity_worker([&] {
-            uint32_t result{99}; xui_handle retained{99};
-            expect(xui_button_try_set_style(button, derived, &result) == XUI_WRONG_THREAD && result == 0);
-            expect(xui_button_style_reacquire(window, derived, &retained) == XUI_WRONG_THREAD && retained == 0);
-        }); identity_worker.join();
-        bad_definition = definition; bad_definition.based_on = style;
-        expect(xui_button_style_create(window, &bad_definition, &failed) == XUI_INVALID_HANDLE);
-        ok(xui_button_get_style_values(button, 1, &output));
-        expect(output.mask == 49 && output.background.dark == 0x654321 && output.corner_radius == 7);
-        ok(xui_button_set_style(button, 0));
-        ok(xui_button_try_set_style(button, derived, &applied)); expect(applied == 0);
-        ok(xui_button_style_reacquire(window, derived, &reused)); expect(reused == 0);
-        ok(xui_button_get_style_values(button, 1, &output)); expect(output.mask == 32 && output.corner_radius == 7);
-        local = empty(); ok(xui_button_set_style_values(button, &local));
-        ok(xui_button_get_style_values(button, 1, &output)); expect(output.mask == 0);
-        ok(xui_button_set_style(button, 0));
-        xui_handle permanent{};
-        ok(xui_button_style_create(window, &definition, &permanent));
-        ok(xui_button_set_style(peer, permanent));
-        ok(xui_button_style_release(permanent));
-        for (unsigned i = 0; i < 65537; ++i) {
-            xui_handle transient{};
-            ok(xui_button_style_create(window, &definition, &transient));
-            ok(xui_button_set_style(button, transient));
-            ok(xui_button_style_release(transient));
-            ok(xui_button_set_style(button, 0));
-        }
-        ok(xui_button_try_set_style(button, permanent, &applied)); expect(applied == 1);
-        ok(xui_button_set_style(peer, 0));
-        ok(xui_button_set_style(button, 0));
-        ok(xui_button_style_reacquire(window, permanent, &reused)); expect(reused == 0);
-        ok(xui_window_destroy(other_window));
-        expect(xui_button_style_release(foreign) == XUI_INVALID_HANDLE);
-    }
+    button_style_contracts(window, options);
     uint32_t style{};
     ok(xui_window_visual_style_get(window, &style)); expect(style == XUI_STYLE_CLASSIC);
     ok(xui_window_visual_style_set(window, XUI_STYLE_WINUI));
@@ -907,11 +863,9 @@ void explorer_contracts() {
     ok(xui_feature_child(second, 0, &second_new_tab));
     expect(new_tab == again && new_tab != second_new_tab);
     expect(xui_feature_child(tabs, 1, &again) == XUI_INVALID_ARGUMENT);
-    xui_button_style_values icon_style{};
-    icon_style.size = sizeof(icon_style);
-    icon_style.version = XUI_BUTTON_STYLE_VERSION;
-    icon_style.mask = XUI_BUTTON_STYLE_BORDER_THICKNESS;
-    ok(xui_button_set_style_values(new_tab, &icon_style));
+    xui_style_property icon_style{sizeof(icon_style), XUI_CONTROL_STYLE_VERSION,
+        XUI_STYLE_BORDER_THICKNESS, XUI_STYLE_INSETS, XUI_STYLE_ROOT};
+    ok(xui_control_set_style_values(new_tab, XUI_STYLE_ROOT, &icon_style, 1));
     uint32_t new_button = 9;
     ok(xui_tab_get_new_button(tabs, &new_button)); expect(new_button == 0);
     ok(xui_tab_set_new_button(tabs, 1));
@@ -1223,9 +1177,10 @@ void toggle_control_contracts() {
             XUI_STYLE_COLOR, XUI_STYLE_ROOT, 0, 0, {0x123456, 0x234567}};
         ok(xui_control_set_style_values(handle, XUI_STYLE_ROOT, &property, 1));
     }
-    xui_button_style_values legacy{}; legacy.size = sizeof(legacy); legacy.version = XUI_BUTTON_STYLE_VERSION;
-    ok(xui_button_set_style_values(button, &legacy));
-    ok(xui_button_get_style_values(button, 0, &legacy));
+    ok(xui_control_set_style_values(button, XUI_STYLE_ROOT, nullptr, 0));
+    uint32_t count{};
+    ok(xui_control_get_style_values(button, XUI_STYLE_ROOT, 0, nullptr, 0, &count));
+    expect(count == 0);
     ok(xui_window_destroy(window));
     expect(xui_invoke(toggle) == XUI_INVALID_HANDLE);
 }
@@ -1350,8 +1305,17 @@ int main(int argc, char** argv) {
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);
     static_assert(sizeof(xui_source_row)==2096);
-    expect(xui_abi_version()==0x10000);expect(xui_feature_version()==0x10001);
+    expect(xui_abi_version()==XUI_ABI_VERSION);expect(xui_feature_version()==XUI_FEATURE_VERSION);
+    const auto runtime = GetModuleHandleW(L"xui.dll");
+    expect(runtime != nullptr);
+    for (const auto name : {"xui_button_style_create", "xui_button_style_release",
+        "xui_button_style_reacquire", "xui_button_try_set_style", "xui_button_set_style",
+        "xui_button_set_style_values", "xui_button_get_style_values"})
+        expect(GetProcAddress(runtime, name) == nullptr);
     xui_window_options o{sizeof(o),XUI_ABI_VERSION,text("ABI features"),600,600};
+    auto old_options = o; old_options.version = 0x00010000u;
+    xui_handle old_window{};
+    expect(xui_window_create(&old_options, &old_window) == XUI_VERSION_MISMATCH && !old_window);
     xui_handle w{};ok(xui_window_create(&o,&w));
     xui_handle handles[45]{};
     for(uint32_t kind=XUI_RANGE_INPUT;kind<=XUI_HISTORY_CHART;++kind){

@@ -1,6 +1,6 @@
 #pragma once
 
-// Shared sparse styles. ButtonStyle remains a separate, compatible API.
+// Shared sparse styles for all supported elements.
 
 #include "xui/core.hpp"
 #include "xui/styling.hpp"

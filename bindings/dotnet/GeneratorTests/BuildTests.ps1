@@ -68,6 +68,8 @@ internal static class ConstructorChecks {
         Xui.Grid grid = component.Layout;
         Xui.DataGrid details = component.Details;
         Xui.Element content = component.Embedded;
+        var styling = new Demo.Styling(window, window.Button("Existing"), attach: false);
+        Xui.Element embeddedButton = styling.EmbeddedButton;
         window.SetContent(root);
     }
 }

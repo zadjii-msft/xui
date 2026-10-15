@@ -2215,10 +2215,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 !peer->collection_drag && !peer->collection_scroll && GetCapture() == peer->window) ReleaseCapture();
             if (!has_images || (IsWindowEnabled(peer->window) != FALSE) != enabled(*peer))
                 EnableWindow(peer->window, enabled(*peer));
-            if (control.role() == ControlRole::button) {
-                auto& button = static_cast<Button&>(*peer->control);
-                if (button.effective_style_values()) button.set_style_enabled(enabled(*peer));
-            }
             peer->control->set_control_style_context_enabled(enabled(*peer));
             if (!enabled(*peer) || !visible(*peer)) {
                 if (auto range_input = std::dynamic_pointer_cast<RangeInput>(peer->control)) range_input->cancel_drag();
@@ -3592,7 +3588,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         (!enabled(peer) ? style_states::disabled : 0);
                     auto swatch = picker->resolve_control_style_part(StylePart::swatch, state);
                     const auto& button = static_cast<const Button&>(control);
-                    if (button.has_control_styling() || button.effective_style_values()) {
+                    if (button.has_control_styling()) {
                         const auto child = button.surface_style_values();
                         if (child.border_brush) swatch.border_brush = child.border_brush;
                         if (child.border_thickness) swatch.border_thickness = child.border_thickness;
@@ -4448,7 +4444,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto icon_values = button.content_style_values(StylePart::icon);
             canvas.caption_button({0, 0, bounds.width, bounds.height}, button.icon(),
                 palette, caption_active, enabled(peer), control.hovered(), control.pressed(), control.focused(),
-                values.empty() ? nullptr : &values, nullptr, icon_values.empty() ? nullptr : &icon_values);
+                values.empty() ? nullptr : &values, icon_values.empty() ? nullptr : &icon_values);
             return;
         }
         const auto* wrapping_label = dynamic_cast<const Label*>(&control);
@@ -4557,17 +4553,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 (button->behavior() == ButtonBehavior::toggle || dynamic_cast<const MenuBar::Heading*>(button));
             const bool winui = palette.style == VisualStyle::winui;
             auto ink = control.pressed() || checked_action ? palette.selection_text : text;
-            const auto* style = button ? button->effective_style_values() : nullptr;
-            if (style)
-                ink = canvas.styled_button_face(box, palette, button->appearance(), enabled(peer),
-                    control.hovered(), control.pressed(), checked_action, *style);
-            else if (button && winui)
+            if (button && winui)
                 ink = canvas.button_face(box, palette, button->appearance(), enabled(peer),
                     control.hovered(), control.pressed(), checked_action);
             else if (!winui && (role == ControlRole::button || control.hovered() || control.pressed()))
                 canvas.rounded(box, control.pressed() ? palette.selection :
                     checked_action ? palette.selection : control.hovered() ? palette.hover : palette.surface);
-            if (role == ControlRole::button && !winui && !style)
+            if (role == ControlRole::button && !winui)
                 canvas.rounded(box, palette.border, 6, true);
             float inset = 14;
             if (role == ControlRole::toggle) {
@@ -4592,28 +4584,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 inset = std::max(winui ? 12.0f : 14.0f, (bounds.width - control.measured_text().width) / 2);
             const auto icon = role == ControlRole::button ? static_cast<const Button&>(control).icon() : ButtonIcon::none;
             const auto* breadcrumb = winui && peer.parent ? dynamic_cast<const Breadcrumb*>(peer.parent->control.get()) : nullptr;
-            if (style && (style->padding || style->border_thickness)) {
-                const auto metrics = style_metrics(palette.style);
-                const auto padding = style->padding.value_or(Insets{metrics.button_padding, 6, metrics.button_padding, winui ? 7.0f : 6.0f});
-                const auto border = style->border_thickness.value_or(Insets{1, 1, 1, 1});
-                Rect content{padding.left + border.left, padding.top + border.top,
-                    std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right),
-                    std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom)};
-                if (button->behavior() == ButtonBehavior::dropdown) {
-                    const float arrow = std::min(20.0f, content.width);
-                    canvas.chevron({content.x + content.width - arrow, content.y, arrow, content.height}, ink, true);
-                    content.width -= arrow;
-                }
-                canvas.push_clip(content);
-                if (icon != ButtonIcon::none)
-                    canvas.button_icon({content.x + (content.width - 16) / 2, content.y + (content.height - 16) / 2, 16, 16}, ink, icon);
-                else {
-                    const auto text_size = control.measured_text();
-                    content.x += std::max(0.0f, (content.width - text_size.width) / 2);
-                    canvas.text_layout(peer.text_layout.Get(), content, ink);
-                }
-                canvas.pop_clip();
-            } else if (button && breadcrumb) {
+            if (button && breadcrumb) {
                 const auto children = breadcrumb->retained_children();
                 if (button == breadcrumb->overflow_button().get()) {
                     canvas.symbol(Symbol::more, {0, 0, bounds.width / 2, bounds.height}, ink);

@@ -352,7 +352,7 @@ Support for a property and a state does not imply support for that property insi
 For example, `ItemsView` accepts base `tile.width`, but rejects `tile.width` in every state rule.
 Parts cannot contain other parts.
 State blocks cannot contain parts.
-Generic styles reject duplicate parts and duplicate state blocks within one part.
+All styles reject duplicate parts and duplicate state blocks within one part.
 The root is implicit, so `part root` is invalid.
 Base and derived styles must target the same control type.
 Per-part local values use the C++, C ABI, C#, or Rust setter.
@@ -420,8 +420,7 @@ An omitted property remains absent, not zero.
 Explicit zero therefore differs from an omitted corner radius, inset, or black color.
 State rules also contain sparse values.
 Repeated properties within the same style body or rule are errors.
-Legacy Button declarations permit repeated state blocks and retain their declaration order.
-Generic declarations reject duplicate state blocks.
+All declarations reject duplicate state blocks within one part.
 Rules cannot contain other rules.
 
 A derived style names its base after `for Button`:
@@ -444,7 +443,7 @@ The style target must match the node.
 Other supported targets use `Content(existingElement, style: NamedStyle)`, without a new constructor syntax.
 Native attachment checks the actual target of that existing element.
 `Content` requires a named style before it accepts local style properties.
-Legacy Button styles require a `Button` node, not `Content`.
+Button styles can also be applied to existing buttons through `Content`.
 
 Style names are XUI references, not fields available inside `code csharp`.
 A Button also accepts the six foundation properties directly as named arguments:
@@ -455,9 +454,9 @@ Button("Local only", background: resource(DangerFill), foreground: 0xFFFFFF);
 ```
 
 Local properties use the same constant syntax as style properties.
-Legacy Button properties produce sparse `Button.StyleValues`, separate from `Button.Style`.
-Parts or extended properties select generic `ControlStyle` definitions.
-Generic local properties use the root part's supported property set.
+Every style declaration produces a `ControlStyle`, and local properties produce sparse `PartStyleValues`.
+Generated code uses `Element.SetControlStyle` and `Element.SetControlStyleValues`.
+Local properties use the root part's supported property set.
 The native engine resolves local overrides, state rules, base styles, and defaults.
 
 The node argument `size: (width, height)` remains structural size, not the scalar style property `size`.

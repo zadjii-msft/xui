@@ -339,7 +339,7 @@ Pointer capture loss, drag-out release, and window deactivation cancel pending p
 Enter activates a focused button. Space activates it on release.
 
 The style target is `button`, with text, icon, and dropdown presentation parts.
-The older `ButtonStyle` API remains supported.
+Use `ControlStyle` and `PartStyleValues` through the common Element attachment API.
 Use the [shared style contract](../control-styling.md) for precedence and compatibility.
 
 ## ToggleButton

@@ -6,6 +6,20 @@ The [inventory](control-styling-inventory.md) and [binding contract](bindings.md
 This feature does not provide WPF API or XAML compatibility.
 Control templates and item templates are not available.
 The [design proposal](styling-and-templates-design.md) describes those later stages.
+The [version-2 migration](bindings.md#breaking-migration-to-version-2) removes the older Button-only types and attachment aliases.
+
+To change a Button or Grid background at runtime, use the same root-local setter:
+
+```csharp
+ColorButton.SetControlStyleValues(Xui.StylePart.Root, new Xui.PartStyleValues {
+    Background = new Xui.ThemeColor(rgb)
+});
+ColorSwatch.SetControlStyleValues(Xui.StylePart.Root, new Xui.PartStyleValues {
+    Background = new Xui.ThemeColor(rgb)
+});
+```
+
+The `ref` names above identify retained controls. Replacing locals updates presentation without replacing either control.
 
 An unstyled Button keeps its existing Classic or WinUI presentation.
 An authored face uses a flat fill, a border, and one corner radius.
@@ -59,7 +73,9 @@ The [language guide](xui-language.md) defines the complete grammar and diagnosti
 
 ## Properties and precedence
 
-The sparse Button foundation properties are `background`, `foreground`, `borderBrush`, `borderThickness`, `cornerRadius`, and `padding`.
+All supported elements use `ControlStyle`, named parts, and `PartStyleValues`.
+The common surface properties are `background`, `foreground`, `borderBrush`, `borderThickness`, `cornerRadius`, and `padding`.
+Each target and part accepts only the properties in its schema.
 Colors contain opaque RGB24 light and dark values.
 Dimensions use device-independent pixels and must be finite, from zero through 32768.
 Insets use left, top, right, bottom order.
@@ -78,7 +94,7 @@ The effective value follows this order, from lowest to highest priority:
 1. The current Classic or WinUI default.
 2. Base-style properties, then derived-style properties.
 3. Active state properties, in the order `focused`, `checked`, `hovered`, `pressed`, `disabled`.
-4. Local Button properties.
+4. Local properties for the part.
 5. The high-contrast accessibility policy for face colors and outline geometry.
 
 State properties inherit separately from ordinary properties.
@@ -86,14 +102,8 @@ A derived hover rule replaces only the inherited hover properties that it specif
 An inherited disabled rule still wins over a derived hover rule.
 For repeated native rules with the same state, the last specified property wins.
 The `.xui` compiler rejects duplicate declarations.
-Toggle declarations also reject duplicate state blocks.
-Button declarations retain repeated state blocks for compatibility.
-
-A Button definition that adds typography or named parts can inherit a legacy-compatible Button definition.
-The compiler creates shared generic copies of legacy ancestors for that derived chain.
-References to the original legacy definitions remain `ButtonStyle` references.
-Promotion preserves theme colors, sparse values, inheritance depth, and field-wise precedence for repeated legacy state blocks.
-Style reload replaces both graphs without replacing controls.
+All declarative styles reject duplicate state blocks within the same part, including Button styles.
+Style inheritance and reload use one shared definition graph without replacing controls.
 
 Local values survive style replacement and removal.
 Clearing a local property exposes the effective style value again.
@@ -105,6 +115,7 @@ This context does not change the stored local `enabled` value.
 
 ```cpp
 #include "xui/styling.hpp"
+#include "xui/control_styling.hpp"
 #include "xui/controls.hpp"
 
 auto resources = xui::ResourceScope::create({
@@ -112,32 +123,33 @@ auto resources = xui::ResourceScope::create({
     {"DangerHover", xui::ThemeColor{0xdc2626, 0xb91c1b}},
     {"DangerAlias", std::string{"DangerFill"}}
 });
-xui::ButtonStyleValues values;
+xui::PartStyleValues values;
 values.background = resources->color("DangerAlias");
 values.foreground = xui::ThemeColor{0xffffff};
 values.border_brush = xui::ThemeColor{0x7f1d1d};
 values.border_thickness = xui::Insets{3, 0, 0, 0};
 values.corner_radius = 0.0f;
-xui::ButtonStyleValues hover;
+xui::PartStyleValues hover;
 hover.background = resources->color("DangerHover");
-auto danger = xui::ButtonStyle::create(values, {
-    {xui::ButtonStyleState::hovered, hover}
+auto danger = xui::ControlStyle::create(xui::StyleTarget::button,
+    {{xui::StylePart::root, values}}, {
+    {xui::StylePart::root, xui::style_states::hovered, hover}
 });
 auto button = std::make_shared<xui::Button>(L"Delete");
-button->set_style(danger);
+button->set_control_style(danger);
 
-xui::ButtonStyleValues local;
+xui::PartStyleValues local;
 local.padding = xui::Insets{16, 8, 16, 8};
-button->set_style_values(local);
-button->set_style(nullptr);       // Local padding remains.
-button->set_style_values({});     // Default presentation returns.
+button->set_control_style_values(xui::StylePart::root, local);
+button->set_control_style(nullptr);                         // Local padding remains.
+button->set_control_style_values(xui::StylePart::root, {});   // Default presentation returns.
 ```
 
-`ButtonStyle::create(values, rules, based_on)` creates a derived definition.
+`ControlStyle::create(target, parts, rules, based_on)` creates a derived definition.
 The factory copies inputs and returns an immutable shared definition.
 Derivation has a maximum depth of 16.
 Each definition accepts at most 256 rules.
-Construction resolves all 32 combinations of the five state flags.
+Construction compiles sparse per-part state buckets, not every possible state combination.
 It does not retain the base definition after that copy.
 Native construction cannot create an inheritance cycle because parents are already immutable.
 The `.xui` compiler reports cycles in named declarations.
@@ -198,16 +210,14 @@ An unset size preserves the existing icon dimensions.
 ## Storage and binding boundaries
 
 Element has an optional generic attachment pointer.
-Button retains its separate, compatible style-state pointer.
 An unstyled control does not allocate an attachment.
 Virtualized collection rows do not retain style instances.
 An unstyled Button allocates no style definition, state cache, or resource scope.
 A styled Button retains one immutable definition and one local/effective-value cache.
 Painting reads the cached values without dictionary, string, or ancestor searches.
 
-Button C ABI structs use explicit property masks to distinguish unset values from zero.
-Generic property records distinguish unset values by absence.
-Existing ABI structs and existing functions retain their layouts and signatures.
+Shared C ABI property records distinguish unset values by absence.
+The version-2 runtime removes the old Button-only descriptors and exports.
 The [binding contract](bindings.md) describes handles, window ownership, sharing, release, and error results.
 The wrappers share definitions per window without retaining unused native handles.
 
@@ -225,7 +235,7 @@ This example and its original property subset describe the committed Toggle foun
 The current generic schema also supports root/label typography and alignment.
 The inventory and exported catalog describe the complete current coverage.
 
-Toggle uses `ControlStyle`, not `ButtonStyle`.
+Toggle uses the same `ControlStyle` API as Button, Grid, and the other supported elements.
 `ToggleSwitch` reuses the `toggle` target, parts, and checked-state rules.
 Its indicator has a switch pill and thumb instead of a checkbox mark.
 `ToggleButton` reuses the `button` target.
@@ -291,21 +301,21 @@ Part declarations belong directly in a style.
 A part can contain properties and `when` rules.
 Nested parts and parts inside `when` rules are invalid.
 Button declarations also accept their supported named parts and typography.
-The compiler retains the compatible `ButtonStyle` path for declarations that use only the original Button properties.
+The compiler emits `ControlStyle` for every declaration, including surface-only Button styles.
 
 ```csharp
 var style = new Xui.ControlStyle(Xui.StyleTarget.Toggle,
     [new(Xui.StylePart.Indicator, new() { Size = 18, CornerRadius = 3 })],
     [new(Xui.StylePart.Indicator, Xui.StyleState.Checked,
         new() { Background = new Xui.ThemeColor(0x2468AD) })]);
-var toggle = window.Toggle("Active").SetStyle(style);
-toggle.SetStyleValues(Xui.StylePart.Label, new() { Foreground = new Xui.ThemeColor(0) });
-toggle.SetStyle(null); // Local label foreground remains.
-toggle.SetStyleValues(Xui.StylePart.Label, new()); // Default presentation returns.
+var toggle = window.Toggle("Active");
+toggle.SetControlStyle(style);
+toggle.SetControlStyleValues(Xui.StylePart.Label, new() { Foreground = new Xui.ThemeColor(0) });
+toggle.SetControlStyle(null); // Local label foreground remains.
+toggle.SetControlStyleValues(Xui.StylePart.Label, new()); // Default presentation returns.
 ```
 
 C++ exposes the common attachment through `Element::set_control_style` and `Element::set_control_style_values`.
-Toggle convenience methods forward to that attachment.
 C# exposes `Element.SetControlStyle` and `Element.SetControlStyleValues`.
 Rust exposes `Element::set_control_style` and `Element::set_control_style_values`.
 Unsupported control types reject generic styles.
@@ -344,7 +354,7 @@ Styles do not create a clear action where the native presentation does not show 
 
 The renderer resolves parent defaults from the actual clear Button interaction state and the owner disabled and empty states.
 It passes these defaults directly to the shared Button renderer, without a child attachment or another cache.
-Explicit child legacy styles, generic styles, and local values override these defaults.
+Explicit child styles and local values override these defaults.
 The WinUI renderer preserves `Symbol::clear`, the existing Button identity, and the native undoable clear action.
 
 Document, password, and date/time controls do not expose an owned header part.
@@ -404,7 +414,7 @@ The adapter must clear its projections when the parent style or composition no l
 
 The child's ordinary local-value getter does not include the projection.
 The effective-value getter includes it.
-`control_style_projection_values` and `own_control_style_values` keep the layers separate for adapters that also support legacy Button styles.
+`control_style_projection_values` and `own_control_style_values` keep parent defaults separate from explicit child styling.
 Legacy child styles and local values must remain above the projected parent defaults.
 Repeated projection updates on existing parts require no allocation.
 

@@ -155,12 +155,12 @@ internal static class Program
 
     private static void TestStyleDefinitions()
     {
-        Assert(CellStyles.Covered.Values.BorderThickness == new Insets(1),
+        Assert(CellStyles.Covered.Parts[0].Values.BorderThickness == new Insets(1),
             "Covered cells have a uniform border.");
-        Assert(CellStyles.Covered.Rules.All(rule => rule.Values.BorderThickness is null),
+        Assert(CellStyles.Covered.Rules.All(rule => rule.Part == StylePart.Root && rule.Values.BorderThickness is null),
             "Interaction states do not shift the cell border or text.");
-        Assert(CellStyles.Cleared.Values.BorderThickness == new Insets(0) &&
-            CellStyles.Cleared.Values.Background is not null, "Borderless cells retain a filled face.");
+        Assert(CellStyles.Cleared.Parts[0].Values.BorderThickness == new Insets(0) &&
+            CellStyles.Cleared.Parts[0].Values.Background is not null, "Borderless cells retain a filled face.");
         Assert(CellStyles.Numbers.Count == 9 && ReferenceEquals(CellStyles.Numbers[0], CellStyles.Cleared),
             "The number palette includes empty squares and all eight counts.");
         var colors = new HashSet<ThemeColor>();
@@ -168,8 +168,8 @@ internal static class Program
         {
             Assert(ReferenceEquals(style.BasedOn, CellStyles.Cleared) && style.Rules.Count == 0,
                 "Numbers share flat geometry and do not lose their color when disabled.");
-            var color = style.Values.Foreground!.Value;
-            var face = CellStyles.Cleared.Values.Background!.Value;
+            var color = style.Parts[0].Values.Foreground!.Value;
+            var face = CellStyles.Cleared.Parts[0].Values.Background!.Value;
             Assert(colors.Add(color), "Each adjacent-mine count has a distinct theme-aware color.");
             Assert(Contrast(color.Light, face.Light) >= 4.5 && Contrast(color.Dark, face.Dark) >= 4.5,
                 "Number text meets 4.5:1 contrast in both themes.");
@@ -219,15 +219,15 @@ internal static class Program
             {
                 var button = board.CellButtons[i];
                 var style = CellStyles.Select(board.Game, i);
-                var values = button.EffectiveStyleValues;
-                Assert(ReferenceEquals(button.Style, style) && button.Text == board.Game.CellText(i),
+                var values = button.GetControlStyleValues(StylePart.Root, effective: true);
+                Assert(ReferenceEquals(button.ControlStyle, style) && button.Text == board.Game.CellText(i),
                     "Compiled native text and style agree with the game state.");
                 Assert(values.Background is not null && values.CornerRadius == 0,
                     "Every native cell retains its square filled face.");
                 if (board.Game.GetCell(i).Revealed && !board.Game.GetCell(i).IsMine)
                 {
                     Assert(values.BorderThickness == new Insets(0) &&
-                        values.Foreground == (style.Values.Foreground ?? CellStyles.Cleared.Values.Foreground),
+                        values.Foreground == (style.Parts[0].Values.Foreground ?? CellStyles.Cleared.Parts[0].Values.Foreground),
                         "Revealed disabled cells compile to borderless, readable numbers.");
                 }
             }
@@ -238,7 +238,7 @@ internal static class Program
         board.Square00.Invoke();
         Assert(board.Game.GetCell(0).Flagged, "A native cell invocation uses its original board index.");
         board.ToggleFlagMode();
-        Assert(board.Square00.EffectiveStyleValues.Foreground == CellStyles.Flagged.Values.Foreground,
+        Assert(board.Square00.GetControlStyleValues(StylePart.Root, effective: true).Foreground == CellStyles.Flagged.Parts[0].Values.Foreground,
             "Disabled flags retain their identifying ink.");
         board.Square44.Invoke();
         Assert(board.Game.GetCell(40).Revealed, "Native reveal still opens the requested square.");
@@ -255,8 +255,8 @@ internal static class Program
         board.CellButtons[mines[0]].Invoke();
         Assert(board.Game.Status == GameStatus.Lost, "Native mine invocation still loses.");
         CheckBoard();
-        Assert(board.CellButtons[mines[0]].EffectiveStyleValues.Background == CellStyles.Exploded.Values.Background &&
-            board.CellButtons[wrongFlag].EffectiveStyleValues.Foreground == CellStyles.IncorrectFlag.Values.Foreground,
+        Assert(board.CellButtons[mines[0]].GetControlStyleValues(StylePart.Root, effective: true).Background == CellStyles.Exploded.Parts[0].Values.Background &&
+            board.CellButtons[wrongFlag].GetControlStyleValues(StylePart.Root, effective: true).Foreground == CellStyles.IncorrectFlag.Parts[0].Values.Foreground,
             "Disabled loss cells retain their error backgrounds and text colors.");
         board.NewGame();
         Assert(board.Game.Status == GameStatus.Ready && !board.Flagging, "Reset clears the game and flag mode.");
@@ -266,7 +266,7 @@ internal static class Program
             if (board.Game.CanAct(safe, false)) board.CellButtons[safe].Invoke();
         Assert(board.Game.Status == GameStatus.Won, "Native safe-cell invocations still win.");
         CheckBoard();
-        Assert(board.CellButtons[mines[0]].EffectiveStyleValues.Background == CellStyles.WonFlag.Values.Background,
+        Assert(board.CellButtons[mines[0]].GetControlStyleValues(StylePart.Root, effective: true).Background == CellStyles.WonFlag.Parts[0].Values.Background,
             "Disabled win flags use the completed-board style.");
 
         // Compile every number, including the rare seven/eight cases, through the native binding.
@@ -276,9 +276,9 @@ internal static class Program
             window.SetTheme(theme);
             foreach (var style in CellStyles.Numbers)
             {
-                number.Style = style;
-                Assert(number.EffectiveStyleValues.BorderThickness == new Insets(0) &&
-                    number.EffectiveStyleValues.Foreground == (style.Values.Foreground ?? CellStyles.Cleared.Values.Foreground),
+                number.ControlStyle = style;
+                Assert(number.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0) &&
+                    number.GetControlStyleValues(StylePart.Root, effective: true).Foreground == (style.Parts[0].Values.Foreground ?? CellStyles.Cleared.Parts[0].Values.Foreground),
                     "All number definitions compile natively and preserve theme pairs.");
             }
             CheckBoard();

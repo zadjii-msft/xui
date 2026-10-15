@@ -10,9 +10,13 @@ struct DrawingTestAccess {
         const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
             96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
+        Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target;
         if (FAILED(drawing.factory_->CreateHwndRenderTarget(properties,
-            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(240, 80)), &drawing.target_)))
+            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(240, 80)), &target)))
             throw std::runtime_error("Create navigation render target");
+        drawing.target_ = target;
+        drawing.hwnd_target_ = target;
+        drawing.host_window_ = window;
         ++Drawing::live_targets_;
         if (FAILED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)))
             throw std::runtime_error("Create navigation render brush");
@@ -98,16 +102,17 @@ void captions(Fixture& fixture) {
     PartStyleValues parent;
     parent.background = ThemeColor{0x123456}; parent.foreground = ThemeColor{0xeeeeee};
     parent.corner_radius = 0;
-    ButtonStyleValues child;
+    PartStyleValues child;
     child.background = ThemeColor{0xabcdef};
+    const auto inherited = merge_part_values(parent, child);
     const auto painted = fixture.render([&] {
         fixture.drawing.caption_button({10, 10, 100, 40}, ButtonIcon::maximize, palette,
-            false, true, true, false, true, &parent, &child);
+            false, true, true, false, true, &inherited);
     });
     require(count(painted, 0xabcdef) > 500 && count(painted, 0x123456) == 0,
         "Caption-local Button style overrides its parent part");
     Button caption(L"Caption");
-    caption.set_style_values(child);
+    caption.set_control_style_values(StylePart::root, child);
     PartStyleValues own;
     own.background = ThemeColor{0x56789a};
     caption.set_control_style_values(StylePart::root, own);
@@ -117,11 +122,11 @@ void captions(Fixture& fixture) {
             false, true, true, false, true, &composed);
     });
     require(count(own_painted, 0x56789a) > 500 && count(own_painted, 0xabcdef) == 0,
-        "Caption composition keeps generic child locals above legacy Button values");
+        "Caption composition keeps generic child locals above surface Button values");
     palette.high_contrast = true;
     const auto contrast = fixture.render([&] {
         fixture.drawing.caption_button({10, 10, 100, 40}, ButtonIcon::close, palette,
-            true, true, true, false, true, &parent, &child);
+            true, true, true, false, true, &inherited);
     });
     require(count(contrast, 0xabcdef) == 0, "High contrast keeps caption system colors and focus");
 }

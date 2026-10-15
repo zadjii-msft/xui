@@ -82,6 +82,8 @@ internal static partial class Program
             new("component Bad { style Accent for Button { when /*error*/selected {} } view { Text(\"x\"); } }", ["Unsupported state 'selected'", "Button part 'root'", "'hovered'"]),
             new("component Bad { style Accent for Button { when /*error*/", ["Unsupported state end of file", "style 'Accent'", "Choose one of"]),
             new("component Bad { style Accent for Text { when disabled {} when /*error*/disabled {} } view { Text(\"x\"); } }", ["Duplicate state 'disabled'", "part 'root'", "Merge"]),
+            new("component Bad { style Accent for Button { when hovered {} when /*error*/hovered {} } view { Text(\"x\"); } }", ["Duplicate state 'hovered'", "part 'root'", "Merge"]),
+            new("component Bad { style Accent for Button { part label { when hovered {} when /*error*/hovered {} } } view { Text(\"x\"); } }", ["Duplicate state 'hovered'", "part 'label'", "Merge"]),
             new("component Bad { style Accent for Button { /*error*/", ["Unclosed style 'Accent'", "Button part 'root'", "Add '}'"]),
             new("component Bad { style Accent for Button { when hovered { /*error*/", ["Unclosed", "'hovered' state rule", "Add '}'"]),
             new("component Bad { style Accent for Button {}/*error*/; view { Text(\"x\"); } }", ["Unexpected ';'", "style 'Accent'", "Remove"]),
@@ -110,7 +112,7 @@ internal static partial class Program
             new("component Bad { style Accent for Button { fontFamily: /*error*/\"\"; } view { Text(\"x\"); } }", ["'fontFamily'", "nonempty string literal", "Segoe UI"], false),
             new("""component Bad { style Accent for Button { fontFamily: /*error*/"\uD800"; } view { Text("x"); } }""", ["'fontFamily'", "unpaired Unicode surrogate", "Replace", "Segoe UI"], false),
             new("component Bad { style Accent for DataGrid { rowHeight: /*error*/0; } view { Text(\"x\"); } }", ["'rowHeight'", "DataGrid part 'root'", "greater than zero", "positive numeric literal"], false),
-            new("component Bad { style /*error*/Accent for Button { fontWeight: 400; when hovered {} when hovered {} } view { Text(\"x\"); } }", ["Duplicate state 'hovered'", "style 'Accent'", "merge the repeated"], false),
+            new("component Bad { style Accent for Button { fontWeight: 400; when hovered {} when /*error*/hovered {} } view { Text(\"x\"); } }", ["Duplicate state 'hovered'", "style 'Accent'", "Merge"]),
             new("component Bad { view { Button(\"x\", style: /*error*/Missing); } }", ["Style 'Missing' was not found for Button", "Declare", "correct the style name"], false),
             new("component Bad { view { Button(\"x\", style: /*error*/\"Accent\"); } }", ["Invalid style reference", "'style: StyleName'", "not a string"], false),
             new("component Bad { style Accent for Text {} view { Button(\"x\", style: /*error*/Accent); } }", ["'Accent' targets Label, not Button", "targeting Button"], false),
@@ -227,10 +229,11 @@ internal static partial class Program
             string.Join(" ", Enumerable.Range(0, 257).Select(i => $"R{i}: 0;")) + " } view { VStack() {} } }");
         Assert(resourceLimit.GetMessage().Contains("Component 'Bad' has more than 256 color resources", StringComparison.Ordinal) &&
             resourceLimit.GetMessage().Contains("Remove or combine", StringComparison.Ordinal), "Resource-limit errors identify the owner, bound, and correction.");
-        var ruleLimit = Invalid("component Bad { style Accent for Button { " +
+        var repeatedRules = Invalid("component Bad { style Accent for Button { " +
             string.Concat(Enumerable.Repeat("when hovered {} ", 257)) + " } view { VStack() {} } }");
-        Assert(ruleLimit.GetMessage().Contains("Style 'Accent' has more than 256 state rules", StringComparison.Ordinal) &&
-            ruleLimit.GetMessage().Contains("Remove or combine", StringComparison.Ordinal), "Rule-limit errors identify the style, bound, and correction.");
+        Assert(repeatedRules.GetMessage().Contains("Duplicate state 'hovered' on part 'root' in style 'Accent'", StringComparison.Ordinal) &&
+            repeatedRules.GetMessage().Contains("Merge", StringComparison.Ordinal),
+            "Repeated Button states fail at the first duplicate rather than reaching the rule-count limit.");
         var inheritanceLimit = Invalid("component Bad { " + string.Join(" ", Enumerable.Range(0, 17)
             .Select(i => $"style S{i} for Text" + (i < 16 ? $" basedOn S{i + 1}" : "") + " {}")) + " view { VStack() {} } }");
         Assert(inheritanceLimit.GetMessage().Contains("16 layers", StringComparison.Ordinal) &&

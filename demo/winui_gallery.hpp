@@ -336,9 +336,9 @@ private:
             std::pair{L"Pill", 1000.0f}}) {
             auto specimen = button(focus_shapes, name, L"winui-specimens-focus-" + std::wstring(name),
                 [this, name] { report(std::wstring(name) + L" button invoked."); });
-            ButtonStyleValues shape;
+            PartStyleValues shape;
             shape.corner_radius = radius;
-            specimen->set_style_values(shape);
+            specimen->set_control_style_values(StylePart::root, shape);
         }
         actions->add(focus_shapes);
 

@@ -40,7 +40,7 @@ internal sealed partial class FilePaneView
                 if (command is null) continue;
                 var button = window.Button(command.Name).Help($"{command.Name} ({app.ShortcutHint(command)})");
                 button.SetIcon(command.Icon);
-                button.SetStyle(ExplorerStyles.IconButton);
+                button.SetControlStyle(ExplorerStyles.IconButton);
                 button.FixedSize(options.ToolbarLabels ? 156 : 36, 36);
                 button.SetEnabled(app.CanExecuteInPane(command, this));
                 customToolbarButtons.Add((button, command));

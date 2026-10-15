@@ -212,9 +212,9 @@ internal static class ExplorerSmoke
                     "Navigation lists share compact row, text, and icon metrics");
                 await Check(() => new[] { app.Window.TitlebarLeading, app.Left.Tabs.NewTabButton,
                     app.Right.Tabs.NewTabButton, app.Left.BackButton, app.Right.BackButton }.All(button =>
-                        ReferenceEquals(button.Style, ExplorerStyles.IconButton)
-                        && button.EffectiveStyleValues.Background == new ThemeColor(0xF3F3F3, 0x202020)
-                        && button.EffectiveStyleValues.BorderThickness == new Insets(0)),
+                        ReferenceEquals(button.ControlStyle, ExplorerStyles.IconButton)
+                        && button.GetControlStyleValues(StylePart.Root, effective: true).Background == new ThemeColor(0xF3F3F3, 0x202020)
+                        && button.GetControlStyleValues(StylePart.Root, effective: true).BorderThickness == new Insets(0)),
                     "Header icons share a borderless style with the window background in both themes");
                 await Ui(() => Shortcut(0x75, KeyModifiers.Control));
                 await Check(() => app.Window.Style == VisualStyle.WinUI, "Light theme retains the WinUI visual style");
@@ -639,12 +639,12 @@ internal static class ExplorerSmoke
                 await Ui(() =>
                 {
                     var segments = bar.Segments.Select(segment => segment.Name).ToArray();
-                    var style = segments[0].Style;
+                    var style = segments[0].ControlStyle;
                     var space = bar.TrailingSpace;
                     var spaceStyle = space.ControlStyle;
                     app.Right.AddressBar.SetPath(app.Right.Model.Active.Path);
-                    if (style is null || segments.Any(button => !ReferenceEquals(button.Style, style))
-                        || !ReferenceEquals(app.Right.AddressBar.Segments[0].Name.Style, style)
+                    if (style is null || segments.Any(button => !ReferenceEquals(button.ControlStyle, style))
+                        || !ReferenceEquals(app.Right.AddressBar.Segments[0].Name.ControlStyle, style)
                         || space.GetControlStyleValues(StylePart.Icon, effective: true).Size != 0)
                         throw new InvalidOperationException("Declarative breadcrumbs must share styles across segments and panes and hide the trailing icon.");
                     bar.SetPath(fixture);
@@ -653,7 +653,7 @@ internal static class ExplorerSmoke
                         throw new InvalidOperationException("An unchanged path must retain its controls without reconstructing declarative components.");
                     string deep = Path.GetPathRoot(fixture)! + string.Join(Path.DirectorySeparatorChar, Enumerable.Repeat("folder", 80));
                     bar.SetPath(deep);
-                    if (bar.Segments.Count != 64 || bar.Segments.Any(segment => !ReferenceEquals(segment.Name.Style, style)))
+                    if (bar.Segments.Count != 64 || bar.Segments.Any(segment => !ReferenceEquals(segment.Name.ControlStyle, style)))
                         throw new InvalidOperationException("Declarative path rebuilds must retain the 64-segment bound and reuse the cached style.");
                     bar.SetPath(fixture);
                     if (!ReferenceEquals(bar.TrailingSpace.ControlStyle, spaceStyle))
@@ -697,7 +697,7 @@ internal static class ExplorerSmoke
                 await Ui(() => currentWidth = bar.Segments[^1].Name.GetBounds().Width);
                 await Check(() => currentWidth is > 0 and < 80 && bar.TrailingSpace.GetBounds().Width > 0
                     && bar.Segments.All(segment => segment.Children.Icon == ButtonIcon.ChevronRight)
-                    && bar.Segments[^1].Name.EffectiveStyleValues.Padding == new Insets(2, 0, 2, 0),
+                    && bar.Segments[^1].Name.GetControlStyleValues(StylePart.Root, effective: true).Padding == new Insets(2, 0, 2, 0),
                     "Short current names use their measured width, compact padding, and right chevrons");
                 await Ui(() => bar.Root.MaximumSize(400, 36));
                 await Until(() => bar.Root.GetBounds().Width <= 400);

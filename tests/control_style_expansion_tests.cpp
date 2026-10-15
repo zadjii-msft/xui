@@ -171,7 +171,7 @@ void retained_child_projection() {
     require(child.effective_control_style_values(StylePart::root)->font_size == authored.font_size,
         "Child style overrides parent projection defaults");
     require(child.own_control_style_values(StylePart::root).font_size == authored.font_size,
-        "Legacy adapters can resolve the child's own layer separately");
+        "Composite adapters can resolve the child's own layer separately");
     {
         Probe probe;
         for (unsigned i = 0; i < 1024; ++i) {

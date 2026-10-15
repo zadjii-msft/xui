@@ -113,6 +113,9 @@ Debug applications can build XUI from source or use `XuiNativeLinkage=CAbi`.
 The C ABI mode links `xui.lib` and copies `xui.dll` beside the executable.
 It does not expose the C++ class API through that DLL.
 The [binding reference](bindings.md) describes the C ABI contract.
+The shared-styling consolidation requires ABI version 2 (`0x00020000`).
+Rebuild applications and deploy matching managed/Rust bindings and the native DLL together;
+a version-1 runtime is not a compatible substitute.
 
 For CMake, extract the NuGet archive and use its package configuration:
 

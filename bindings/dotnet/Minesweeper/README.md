@@ -34,6 +34,9 @@ This demo does not include right-click flag placement, chording, a timer, or dif
 
 ## Cell appearance
 
+[`CellStyles.cs`](CellStyles.cs) defines shared `ControlStyle` values for `StyleTarget.Button` and `StylePart.Root`.
+The presentation layer applies them with `SetControlStyle`, preserving each cell's native identity and callbacks.
+
 Covered squares have uniform one-DIP borders.
 Revealed squares have flat, filled faces without borders.
 All squares keep the same size and position.

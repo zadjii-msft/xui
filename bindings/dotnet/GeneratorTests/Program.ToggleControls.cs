@@ -14,13 +14,13 @@ internal static partial class Program
                 state global::Xui.ProgressState Status = global::Xui.ProgressState.Paused;
                 state int Changes = 0;
                 style SwitchStyle for ToggleSwitch { part indicator { when checked { background: 0x123456; } } }
-                style ButtonStyle for ToggleButton { background: 0x234567; }
+                style ButtonFill for ToggleButton { background: 0x234567; }
                 style RingStyle for ProgressRing { part fill { background: 0x345678; } }
-                style GenericButton for ToggleButton { part label { foreground: 0x456789; } }
+                style ButtonLabel for ToggleButton { part label { foreground: 0x456789; } }
                 view { VStack() {
                     ToggleSwitch("Enabled", checked: Active, change: Changed, ref: Switch, style: SwitchStyle);
-                    ToggleButton("Bold", checked: Active, change: Changed, ref: Button, style: ButtonStyle);
-                    ToggleButton("Generic", style: GenericButton, ref: Generic);
+                    ToggleButton("Bold", checked: Active, change: Changed, ref: Button, style: ButtonFill);
+                    ToggleButton("Label", style: ButtonLabel, ref: LabelButton);
                     ProgressRing("Progress", range: Bounds, currentValue: Current, progressState: Status, ref: Ring, style: RingStyle);
                     ProgressRing("Loading", ref: DefaultRing);
                 } }
@@ -47,8 +47,9 @@ internal static partial class Program
         Assert(defaults.State == Xui.ProgressState.Indeterminate && defaults.RangeSets == 0 && defaults.ValueSets == 0,
             "Omitted arguments preserve the ring's native indeterminate default.");
         Assert(toggle.ControlStyle?.Target == Xui.StyleTarget.Toggle && ring.ControlStyle?.Target == Xui.StyleTarget.Progress &&
-            Control<Xui.ToggleButton>("Generic").ControlStyle?.Target == Xui.StyleTarget.Button && button.Style is not null,
-            "Alias targets support generic styles and legacy Button styles without new style IDs.");
+            Control<Xui.ToggleButton>("LabelButton").ControlStyle?.Target == Xui.StyleTarget.Button &&
+            button.ControlStyle?.Target == Xui.StyleTarget.Button,
+            "Alias targets use the shared style schema for both foundation properties and named parts.");
         toggle.Invoke(true);
         Assert(button.Checked && (int)type.GetProperty("Changes")!.GetValue(instance)! == 1, "Switch changes propagate checked state.");
         button.Invoke(false);

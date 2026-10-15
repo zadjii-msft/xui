@@ -247,33 +247,29 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
         var styleValue = node.Arguments.GetValueOrDefault("style");
         string styleTarget = node.Kind == "Content" && styleValue is not null ? styling.ReferenceTarget(styleValue) : StyleCompiler.TargetName(node.Kind);
-        bool genericStyle = styleValue is not null && styling.GenericReference(styleValue);
         if (node.Kind == "Content" && styleValue is null) {
-            var untypedLocal = node.Arguments.FirstOrDefault(pair => StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key));
+            var untypedLocal = node.Arguments.FirstOrDefault(pair => StyleCompiler.LocalProperties.Contains(pair.Key));
             if (untypedLocal.Value is not null)
                 throw new ParseError($"Content argument '{untypedLocal.Key}' requires a named style to identify the embedded control's target. Declare a style for that control and add 'style: StyleName', or remove the local style argument.", untypedLocal.Value.Offset);
         }
         if (styleValue is not null) {
             string reference = styling.Reference(styleValue, styleTarget);
-            if (!genericStyle && node.Kind is not ("Button" or "ToggleButton" or "HyperlinkButton"))
-                throw new ParseError($"This legacy Button style cannot be applied to {node.Kind}. Use it on Button, ToggleButton, or HyperlinkButton, or declare a style for the embedded control's target.", styleValue.Offset);
-            bindings.Add(new($"__xuiB{index}_style", index, genericStyle ? "global::Xui.ControlStyle" : "global::Xui.ButtonStyle",
-                genericStyle ? $"__xuiN{index}.SetControlStyle({{0}})" : $"__xuiN{index}.Style = {{0}}",
+            bindings.Add(new($"__xuiB{index}_style", index, "global::Xui.ControlStyle",
+                $"__xuiN{index}.SetControlStyle({{0}})",
                 new(reference, styleValue.Offset), []));
         }
-        if (styleTarget == "Button" || StyleCatalog.TargetExists(styleTarget)) {
+        if (StyleCatalog.TargetExists(styleTarget)) {
             var local = node.Arguments.Where(pair =>
-                (StyleCompiler.Properties.Contains(pair.Key) || StyleCompiler.ExtendedProperties.Contains(pair.Key)) &&
+                StyleCompiler.LocalProperties.Contains(pair.Key) &&
                 !((node.Kind is "VStack" or "HStack") && (pair.Key is "spacing" or "padding"))).ToDictionary();
             foreach (var pair in local)
                 if (!StyleCompiler.AllowedProperties(styleTarget, "root").Contains(pair.Key))
                     throw new ParseError($"Unsupported local style property '{pair.Key}' on {node.Kind} (target {styleTarget}, part 'root'). Remove or replace this argument. " +
                         DiagnosticText.Choices(StyleCompiler.AllowedProperties(styleTarget, "root")), pair.Value.Offset);
-            bool genericLocal = styleTarget != "Button" || genericStyle || local.Keys.Any(key => !StyleCompiler.Properties.Contains(key));
             if (local.Count != 0)
-                bindings.Add(new($"__xuiB{index}_styleValues", index, genericLocal ? "global::Xui.PartStyleValues" : "global::Xui.ButtonStyleValues",
-                    genericLocal ? $"__xuiN{index}.SetControlStyleValues(global::Xui.StylePart.Root, {{0}})" : $"__xuiN{index}.StyleValues = {{0}}",
-                    new(styling.Values(local, genericLocal ? "generic" : "Button", styleTarget), local.First().Value.Offset), []));
+                bindings.Add(new($"__xuiB{index}_styleValues", index, "global::Xui.PartStyleValues",
+                    $"__xuiN{index}.SetControlStyleValues(global::Xui.StylePart.Root, {{0}})",
+                    new(styling.Values(local, styleTarget), local.First().Value.Offset), []));
         }
         if (node.Kind == "Grid")
         {
@@ -595,8 +591,8 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         // A method-body revision changes under hot reload. Static field initializers do not rerun.
         Line("private static readonly object __xuiStyleLock = new();");
         Line("private static string? __xuiStyleRevision;");
-        Line("private static global::System.Collections.Generic.Dictionary<string, object>? __xuiStyleCache;");
-        Line("private static global::System.Collections.Generic.Dictionary<string, object> __xuiGetStyles()");
+        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ControlStyle>? __xuiStyleCache;");
+        Line("private static global::System.Collections.Generic.Dictionary<string, global::Xui.ControlStyle> __xuiGetStyles()");
         Line("{");
         string definitions = styling.Definitions();
         string revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(definitions)));
@@ -604,7 +600,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         Line("lock (__xuiStyleLock)");
         Line("{");
         Line("if (__xuiStyleCache is not null && __xuiStyleRevision == __xuiRevision) return __xuiStyleCache;");
-        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, object>(global::System.StringComparer.Ordinal);");
+        Line("var __xuiStyles = new global::System.Collections.Generic.Dictionary<string, global::Xui.ControlStyle>(global::System.StringComparer.Ordinal);");
         Line(definitions);
         Line("__xuiStyleCache = __xuiStyles;");
         Line("__xuiStyleRevision = __xuiRevision;");

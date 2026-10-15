@@ -38,7 +38,6 @@ void retire_content(const std::shared_ptr<Node>& scope) {
     if (state->content_context == scope->handle) state->content_context = 0;
     // Resource destructors can call foreign release callbacks. Never hold the registry mutex here.
     removed.clear();
-    if (state->button_styles) std::erase_if(*state->button_styles, [](const auto& item) { return item.second.value.expired(); });
     if (state->control_styles) std::erase_if(*state->control_styles, [](const auto& item) { return item.second.expired(); });
 }
 void clear_content(const std::shared_ptr<Node>& host) {

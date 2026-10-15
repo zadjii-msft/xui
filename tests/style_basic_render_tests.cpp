@@ -37,9 +37,13 @@ struct DrawingTestAccess {
         const auto properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
             96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
+        Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target;
         if (FAILED(drawing.factory_->CreateHwndRenderTarget(properties,
-            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(200, 100)), &drawing.target_)))
+            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(200, 100)), &target)))
             throw std::runtime_error("Create basic style software target");
+        drawing.target_ = target;
+        drawing.hwnd_target_ = target;
+        drawing.host_window_ = window;
         ++Drawing::live_targets_;
         if (FAILED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)))
             throw std::runtime_error("Create basic style brush");
@@ -519,15 +523,15 @@ void button_variants(Fixture& fixture) {
     });
     require(count(parent_pixels, 0x557799) > 200 && count(parent_pixels, 0x00ff00) > 0 && !clear.has_control_styling(),
         "Private child consumes projected parent surface without a new style attachment");
-    ButtonStyleValues local;
+    PartStyleValues local;
     local.background = ThemeColor{0x112255};
-    clear.set_style_values(local);
+    clear.set_control_style_values(StylePart::root, local);
     const auto local_pixels = fixture.render([&] {
         fixture.drawing.styled_button(clear, {10, 10, 32, 30}, palette, true, false, {}, 0, {}, &inherited);
     });
     require(count(local_pixels, 0x112255) > 200 && count(local_pixels, 0x557799) == 0 &&
-        clear.style_values().background->resolve(ThemeMode::dark) == 0x112255,
-        "Projected parent defaults never overwrite legacy child locals");
+        clear.control_style_values(StylePart::root).background->resolve(ThemeMode::dark) == 0x112255,
+        "Projected parent defaults never overwrite surface child locals");
     palette.high_contrast = true;
     const auto contrast = fixture.render([&] { fixture.drawing.styled_button(button, {10, 10, 160, 70}, palette, true, true); });
     require(count(contrast, 0x223344) == 0 && count(contrast, 0xff0000) == 0,

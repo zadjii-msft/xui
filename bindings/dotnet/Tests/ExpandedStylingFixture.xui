@@ -1,10 +1,9 @@
 component ExpandedStylingFixture {
-    style Legacy for Button {
+    style Base for Button {
         background: 0x123456;
-        when disabled { foreground: 0x112233; }
-        when disabled { background: 0x445566; }
+        when disabled { foreground: 0x112233; background: 0x445566; }
     }
-    style Intermediate for Button basedOn Legacy { cornerRadius: 3; }
+    style Intermediate for Button basedOn Base { cornerRadius: 3; }
     style Typography for Button basedOn Intermediate {
         fontSize: 24;
         part label { foreground: 0xABCDEF; }
@@ -14,7 +13,7 @@ component ExpandedStylingFixture {
     style Heading for Label { foreground: 0xFEDCBA; fontSize: 20; }
     view {
         VStack(ref: PanelRoot, style: Panel) {
-            Button("Legacy", ref: LegacyButton, style: Intermediate);
+            Button("Foundation", ref: FoundationButton, style: Intermediate);
             Button("Generic", ref: GenericButton, style: Typography);
             Button("Other", ref: OtherButton, style: OtherTypography);
             Text("Heading", ref: HeadingLabel, style: Heading);

@@ -66,7 +66,8 @@ internal static partial class Program
         Assert(badge.Kind == Xui.InfoBadgeKind.Count && badge.Count == 3 &&
             Control<Xui.InfoBadge>("Dot").Kind == Xui.InfoBadgeKind.Dot &&
             Control<Xui.InfoBadge>("Icon").Kind == Xui.InfoBadgeKind.Icon, "Badge arguments select the requested presentation.");
-        Assert(link.Style is not null && menu.ControlStyle?.Target == Xui.StyleTarget.CommandBar, "Style aliases preserve native targets.");
+        Assert(link.ControlStyle?.Target == Xui.StyleTarget.Button && menu.ControlStyle?.Target == Xui.StyleTarget.CommandBar,
+            "Style aliases preserve native targets through the common Element methods.");
         Assert(check.ControlStyle?.Target == Xui.StyleTarget.Toggle && selector.ControlStyle?.Target == Xui.StyleTarget.ChoiceList &&
             badge.ControlStyle?.Target == Xui.StyleTarget.InlineStatus, "Parity aliases preserve existing style schemas and parts.");
         check.Invoke(Xui.CheckState.Indeterminate);

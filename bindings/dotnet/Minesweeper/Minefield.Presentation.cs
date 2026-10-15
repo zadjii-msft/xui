@@ -26,7 +26,7 @@ public sealed partial class Minefield
         {
             var button = CellButtons[i];
             var style = CellStyles.Select(game, i);
-            if (!ReferenceEquals(button.Style, style)) button.Style = style;
+            if (!ReferenceEquals(button.ControlStyle, style)) button.SetControlStyle(style);
         }
     }
 }

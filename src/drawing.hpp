@@ -103,14 +103,14 @@ public:
     D2D1_COLOR_F button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
         bool enabled, bool hovered, bool pressed, bool checked);
     D2D1_COLOR_F styled_button_face(Rect bounds, const Palette& palette, ButtonAppearance appearance,
-        bool enabled, bool hovered, bool pressed, bool checked, const ButtonStyleValues& values);
+        bool enabled, bool hovered, bool pressed, bool checked, const PartStyleValues& values);
     void line(float x1, float y1, float x2, float y2, D2D1_COLOR_F color, float thickness = 1);
     void icon(Rect bounds, D2D1_COLOR_F color, bool folder);
     void search_icon(Rect bounds, D2D1_COLOR_F color);
     void button_icon(Rect bounds, D2D1_COLOR_F color, ButtonIcon icon);
     void caption_button(Rect bounds, ButtonIcon icon, const Palette& palette,
         bool active, bool enabled, bool hovered, bool pressed, bool focused,
-        const PartStyleValues* style = nullptr, const ButtonStyleValues* local = nullptr,
+        const PartStyleValues* style = nullptr,
         const PartStyleValues* icon_style = nullptr);
     void tab_strip(const TabStrip& strip, Rect bounds, const Palette& palette, bool enabled, bool on_surface,
         bool focus_visible, std::optional<Point> pointer = {}, const RowImages* images = nullptr);

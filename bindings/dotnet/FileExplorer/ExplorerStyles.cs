@@ -23,17 +23,17 @@ internal static class ExplorerStyles
         new(StylePart.Icon, new() { Size = 16 })
     ]);
 
-    internal static readonly ButtonStyle IconButton = new(new()
+    internal static readonly ControlStyle IconButton = new(StyleTarget.Button, [new(StylePart.Root, new()
     {
         Background = Background,
         BorderThickness = new(0),
         CornerRadius = 4,
         Padding = new(0)
-    },
+    })],
     [
-        new(ButtonStyleState.Hovered, new() { Background = new(0xEAEAEA, 0x2D2D2D) }),
-        new(ButtonStyleState.Pressed, new() { Background = new(0xE1E1E1, 0x292929) }),
-        new(ButtonStyleState.Disabled, new() { Background = Background })
+        new(StylePart.Root, StyleState.Hovered, new() { Background = new(0xEAEAEA, 0x2D2D2D) }),
+        new(StylePart.Root, StyleState.Pressed, new() { Background = new(0xE1E1E1, 0x292929) }),
+        new(StylePart.Root, StyleState.Disabled, new() { Background = Background })
     ]);
 
     internal static readonly ControlStyle CommandIcon = new(StyleTarget.InlineStatus,

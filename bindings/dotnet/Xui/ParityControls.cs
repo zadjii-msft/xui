@@ -25,13 +25,6 @@ public sealed partial class HyperlinkButton
         remove { Window.Guard(); clicked -= value; if (clicked is null) Event -= OnClick; }
     }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
-    private Button? appearance;
-    private Button Appearance => appearance ??= new(Window, Handle);
-    public ButtonStyle? Style { get => Appearance.Style; set => Appearance.Style = value; }
-    public HyperlinkButton SetStyle(ButtonStyle? value) { Appearance.SetStyle(value); return this; }
-    public ButtonStyleValues StyleValues { get => Appearance.StyleValues; set => Appearance.StyleValues = value; }
-    public ButtonStyleValues EffectiveStyleValues => Appearance.EffectiveStyleValues;
-    public HyperlinkButton SetStyleValues(ButtonStyleValues value) { Appearance.SetStyleValues(value); return this; }
 }
 
 public sealed partial class SelectorBar

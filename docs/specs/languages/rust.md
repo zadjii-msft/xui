@@ -105,7 +105,10 @@ The [coverage table](../bindings.md#current-coverage) and [advanced gaps](../bin
 
 `ControlStyle`, `PartStyleValues`, `PartStyle`, and `ControlStyleRule` expose the shared style model.
 The [Toggle examples](../control-styling.md#toggle-pilot) include the Rust constructors and attachment methods.
-The [Button example](../bindings.md#binding-examples) shows the separate `ButtonStyle` API.
+Button and Toggle use the same `Element::set_control_style`,
+`Element::set_control_style_values`, and `Element::control_style_values` methods.
+Pass a `StylePart` when reading or setting local values, and select local or effective
+values with the getter's `effective` argument.
 The [inventory](../control-styling-inventory.md) describes supported properties and native boundaries.
 
 A style definition does not retain a window.

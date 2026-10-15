@@ -1,5 +1,6 @@
 namespace Demo;
 component Styling {
+    param global::Xui.Button Existing;
     state string Entry = "";
     resources {
         DangerFill: theme(light: 0xB42318, dark: 0x8F1D16);
@@ -29,6 +30,9 @@ component Styling {
         VStack() {
             Button("Delete", style: DangerButton, ref: DeleteButton);
             Button("Delete again", style: DangerButton, background: 0, padding: (0, 1, 2, 3), ref: OtherButton);
+            Content(Existing, style: DangerButton, cornerRadius: 0, foreground: 0, ref: EmbeddedButton);
+            Button("Local only", padding: 0, background: 0, ref: LocalButton);
+            Button("Default", ref: DefaultButton);
             TextInput("Entry", text: Entry, change: SetEntry, ref: Input);
         }
     }

@@ -252,7 +252,7 @@ void switch_button_ring() {
         "Explicit switch padding remains authoritative instead of adding implicit trailing or vertical padding");
     toggle.set_control_style_values(StylePart::root, {});
     PartStyleValues indicator; indicator.size = 30.0f;
-    toggle.set_style(ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}}, {}));
+    toggle.set_control_style(ControlStyle::create(StyleTarget::toggle, {{StylePart::indicator, indicator}}, {}));
     require(toggle.indicator_bounds({0, 0, 200, 80}).width == 60, "Toggle styles size the switch track");
     require(toggle.mark_bounds({0, 0, 200, 80}).width == 18, "Authored switch track size scales the WinUI thumb proportionally");
     indicator.border_thickness = Insets{3, 4, 5, 6};

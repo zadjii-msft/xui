@@ -122,12 +122,12 @@ void buttons_and_toggle() {
     const auto paint_only = button.measure({500, 500});
     require(paint_only.width == baseline.width && paint_only.height == baseline.height,
         "Paint-only button styling preserves default metrics");
-    ButtonStyleValues legacy;
-    legacy.padding = Insets{1, 2, 3, 4}; legacy.foreground = ThemeColor{0xabcdef};
-    button.set_style_values(legacy);
-    button.set_style(ButtonStyle::create({}, {}));
-    button.set_style({});
-    require(button.style_values().padding.has_value(), "Legacy locals survive legacy source clearing");
+    PartStyleValues surface;
+    surface.padding = Insets{1, 2, 3, 4}; surface.foreground = ThemeColor{0xabcdef};
+    button.set_control_style_values(StylePart::root, surface);
+    button.set_control_style(ControlStyle::create(StyleTarget::button, {}, {}));
+    button.set_control_style({});
+    require(button.control_style_values(StylePart::root).padding.has_value(), "Legacy locals survive surface source clearing");
     button.set_behavior(ButtonBehavior::dropdown);
     PartStyleValues arrow; arrow.size = 24.0f; arrow.padding = Insets{2, 1, 3, 1};
     button.set_control_style_values(StylePart::arrow, arrow);
@@ -136,7 +136,7 @@ void buttons_and_toggle() {
     PartStyleValues icon; icon.size = 30.0f;
     button.set_icon(ButtonIcon::add);
     button.set_control_style_values(StylePart::icon, icon);
-    require(button.measure({500, 500}).width == 65, "Icon and dropdown metrics include legacy padding and borders");
+    require(button.measure({500, 500}).width == 65, "Icon and dropdown metrics include surface padding and borders");
     button.set_behavior(ButtonBehavior::toggle);
     PartStyleValues checked; checked.font_size = 24.0f;
     button.set_control_style(ControlStyle::create(StyleTarget::button, {},
@@ -146,21 +146,21 @@ void buttons_and_toggle() {
     button.set_enabled(false);
     require(!button.invoke() && button.checked(), "Style states preserve disabled activation and checked semantics");
     button.set_control_style({});
-    require(button.control_style_values(StylePart::icon).size == 30 && button.style_values().padding.has_value(),
-        "Generic and legacy locals survive independent source clearing");
+    require(button.control_style_values(StylePart::icon).size == 30 && button.control_style_values(StylePart::root).padding.has_value(),
+        "Generic and surface locals survive independent source clearing");
 
     Toggle toggle(L"Toggle");
     PartStyleValues root; root.font_size = 16.0f;
     PartStyleValues indicator; indicator.size = 28.0f; indicator.border_thickness = Insets{0, 2, 4, 6};
     PartStyleValues pressed; pressed.font_size = 22.0f;
     PartStyleValues disabled; disabled.font_size = 12.0f;
-    toggle.set_style(ControlStyle::create(StyleTarget::toggle,
+    toggle.set_control_style(ControlStyle::create(StyleTarget::toggle,
         {{StylePart::root, root}, {StylePart::indicator, indicator}},
         {{StylePart::label, style_states::pressed, pressed}, {StylePart::label, style_states::disabled, disabled}}));
     toggle.pointer_move(true); require(toggle.pointer_down(), "Toggle accepts its existing pointer interaction");
-    require(toggle.effective_style_values(StylePart::label)->font_size == 22, "Pressed typography resolves");
+    require(toggle.effective_control_style_values(StylePart::label)->font_size == 22, "Pressed typography resolves");
     toggle.set_enabled(false);
-    require(toggle.effective_style_values(StylePart::label)->font_size == 12, "Disabled typography has precedence");
+    require(toggle.effective_control_style_values(StylePart::label)->font_size == 12, "Disabled typography has precedence");
     const auto mark = toggle.mark_bounds({0, 0, 100, 60});
     require(mark.width == 24 && mark.height == 20, "Toggle mark respects unequal indicator borders");
 }
@@ -173,23 +173,23 @@ void button_projection_precedence() {
     button.set_control_style_projection(StylePart::label, projected_label);
     require(button.content_style_values(StylePart::label).foreground == ThemeColor{3},
         "Projected label overrides projected root defaults");
-    ButtonStyleValues legacy;
-    legacy.background = ThemeColor{4}; legacy.foreground = ThemeColor{5};
-    button.set_style(ButtonStyle::create(legacy));
+    PartStyleValues surface;
+    surface.background = ThemeColor{4}; surface.foreground = ThemeColor{5};
+    button.set_control_style(ControlStyle::create(StyleTarget::button, {{StylePart::root, surface}}, {}));
     require(button.surface_style_values().background == ThemeColor{4} &&
         button.content_style_values(StylePart::label).foreground == ThemeColor{5},
-        "Legacy child definitions override projected root and label defaults");
+        "Child definitions override projected root and label defaults");
     PartStyleValues own_root;
     own_root.background = ThemeColor{6}; own_root.foreground = ThemeColor{7}; own_root.font_size = 30.0f;
     button.set_control_style(ControlStyle::create(StyleTarget::button, {{StylePart::root, own_root}}, {}));
     require(button.surface_style_values().background == ThemeColor{6} &&
         button.content_style_values(StylePart::label).font_size == 30,
         "Own generic root values override projected typography");
-    ButtonStyleValues legacy_local;
-    legacy_local.foreground = ThemeColor{8};
-    button.set_style_values(legacy_local);
+    PartStyleValues root_local;
+    root_local.foreground = ThemeColor{8};
+    button.set_control_style_values(StylePart::root, root_local);
     require(button.content_style_values(StylePart::label).foreground == ThemeColor{8},
-        "Explicit legacy child locals override inherited generic root style");
+        "Explicit surface child locals override inherited root style");
     PartStyleValues label_local;
     label_local.foreground = ThemeColor{9}; label_local.font_size = 40.0f;
     button.set_control_style_values(StylePart::label, label_local);
@@ -198,9 +198,9 @@ void button_projection_precedence() {
         "Explicit child label locals win over all defaults");
     button.set_control_style_projection(StylePart::root, {});
     button.set_control_style_projection(StylePart::label, {});
-    require(button.style() && button.control_style() && button.style_values().foreground == ThemeColor{8} &&
+    require(button.control_style() && button.control_style_values(StylePart::root).foreground == ThemeColor{8} &&
         button.control_style_values(StylePart::label).font_size == 40,
-        "Removing parent projection preserves both child style definitions and locals");
+        "Removing parent projection preserves the child style definition and locals");
 }
 void restored_auto_size() {
     Label label(L"Label");

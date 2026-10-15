@@ -35,7 +35,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, safe menu replacement, and the [prefetch experiment](shell-menu-discovery.md#prefetch-experiment-september-19-2026).
-- [Control styling implementation and evidence](control-styling.md): Shared styles, binding lifetimes, family coverage, native paint checks, and performance evidence.
+- [Control styling implementation and evidence](control-styling.md): Shared-only styling source map, version-2 consolidation, binding lifetimes, and historical native paint/performance evidence.
 
 The language guide describes the current syntax.
 The original language plan records an earlier, narrower control set.

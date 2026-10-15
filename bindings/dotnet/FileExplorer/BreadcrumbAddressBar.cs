@@ -31,7 +31,8 @@ internal sealed class BreadcrumbAddressBar : IDisposable
         Root = layout.Root.AutoSize(false);
         pathPresentation = layout.PathPresentation;
         Display = layout.Display;
-        AncestorsButton = layout.Ancestors.SetStyle(ExplorerStyles.IconButton);
+        AncestorsButton = layout.Ancestors;
+        AncestorsButton.SetControlStyle(ExplorerStyles.IconButton);
         AncestorsButton.Click += ShowAncestors;
         AncestorsButton.FocusEntered += pane.Activate;
 
@@ -98,8 +99,10 @@ internal sealed class BreadcrumbAddressBar : IDisposable
                 throw new InvalidOperationException("Cannot dispatch an address-bar action.");
         }
         Element? tail = null;
-        TrailingSpace = new BreadcrumbSpaceLayout(app.Window, automationId, attach: false).Root
-            .SetStyle(ExplorerStyles.IconButton).AutoSize(false);
+        TrailingSpace = new BreadcrumbSpaceLayout(app.Window, automationId, attach: false).Root.AutoSize(false);
+        var spaceIcon = TrailingSpace.ControlStyle!.Parts.Single(part => part.Part == StylePart.Icon).Values;
+        TrailingSpace.SetControlStyle(ExplorerStyles.IconButton);
+        TrailingSpace.SetControlStyleValues(StylePart.Icon, spaceIcon);
         TrailingSpace.FocusEntered += () => Dispatch(pane.Activate);
         TrailingSpace.Click += () => Dispatch(ShowNavigation);
         // Bound retained controls; the ancestor menu still contains the complete path.
@@ -108,7 +111,8 @@ internal sealed class BreadcrumbAddressBar : IDisposable
             var segment = new BreadcrumbSegmentLayout(app.Window, automationId, parts.Count - 1 - buttons.Count,
                 part.Name, part.Path, part == parts[^1], attach: false);
             var name = segment.Name.MaximumSize(200, 36);
-            var children = segment.Children.SetStyle(ExplorerStyles.IconButton);
+            var children = segment.Children;
+            children.SetControlStyle(ExplorerStyles.IconButton);
             name.FocusEntered += () => Dispatch(pane.Activate);
             children.FocusEntered += () => Dispatch(pane.Activate);
             name.Click += () => Dispatch(() =>

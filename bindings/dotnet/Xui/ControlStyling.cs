@@ -35,6 +35,13 @@ public sealed record PartStyleValues
     public bool? Wrapping { get; init; }
     internal static readonly PartStyleValues Empty = new();
 
+    private void ValidateFoundationValues()
+    {
+        Background?.Validate(); Foreground?.Validate(); BorderBrush?.Validate();
+        StyleValidation.Edges(BorderThickness); StyleValidation.Edges(Padding);
+        if (CornerRadius is { } radius) StyleValidation.Dimension(radius);
+    }
+
     internal void Validate(StyleTarget target, StylePart part, ulong state = 0)
     {
         if (!Enum.IsDefined(target) || !Enum.IsDefined(part))
@@ -53,12 +60,11 @@ public sealed record PartStyleValues
         if ((state & ~schema.States) != 0) throw new ArgumentException("Unsupported state on this style part.");
         ulong allowed = state == 0 ? schema.Properties : schema.StateProperties;
         if ((mask & ~allowed) != 0) throw new ArgumentException("Unsupported property on this style part.");
-        new ButtonStyleValues { Background = Background, Foreground = Foreground, BorderBrush = BorderBrush,
-            BorderThickness = BorderThickness, Padding = Padding, CornerRadius = CornerRadius }.Validate();
-        if (Size is { } size) ButtonStyleValues.Dimension(size);
+        ValidateFoundationValues();
+        if (Size is { } size) StyleValidation.Dimension(size);
         if (FontFamily is { } family && (family.Length == 0 || family.Length > limits.FontFamilyUtf16 || family.Contains('\0') ||
             new UTF8Encoding(false, true).GetByteCount(family) > 1024)) throw new ArgumentException("Invalid font family.");
-        if (FontSize is { } fontSize) { ButtonStyleValues.Dimension(fontSize); if (fontSize == 0 || fontSize > limits.FontSize) throw new ArgumentOutOfRangeException(nameof(FontSize)); }
+        if (FontSize is { } fontSize) { StyleValidation.Dimension(fontSize); if (fontSize == 0 || fontSize > limits.FontSize) throw new ArgumentOutOfRangeException(nameof(FontSize)); }
         if (FontWeight is < 1 or > 999) throw new ArgumentOutOfRangeException(nameof(FontWeight));
         if (FontStyle is { } fontStyle && (!Enum.IsDefined(fontStyle) || (limits.FontStyles & (1u << (int)fontStyle)) == 0))
             throw new ArgumentOutOfRangeException(nameof(FontStyle));
@@ -67,12 +73,13 @@ public sealed record PartStyleValues
         if (VerticalAlignment is { } vertical && (!Enum.IsDefined(vertical) || (limits.VerticalAlignments & (1u << (int)vertical)) == 0))
             throw new ArgumentOutOfRangeException(nameof(VerticalAlignment));
         foreach (var dimension in new[] { Spacing, RowHeight, HeaderHeight, Indentation, Thickness, Width, Height, RowGap, ColumnGap })
-            if (dimension is { } number) ButtonStyleValues.Dimension(number);
+            if (dimension is { } number) StyleValidation.Dimension(number);
         if (RowHeight is 0) throw new ArgumentOutOfRangeException(nameof(RowHeight));
         if (MaximumLines is > 32768) throw new ArgumentOutOfRangeException(nameof(MaximumLines));
     }
     internal unsafe void Append(List<Native.StyleProperty> records, StylePart part, ulong state, Window.Pins pins)
     {
+        ValidateFoundationValues();
         if (FontFamily is { } fontFamily) _ = new UTF8Encoding(false, true).GetByteCount(fontFamily);
         Native.StyleProperty Record(uint property, uint type) => new() {
             Size = (uint)sizeof(Native.StyleProperty), Version = 0x10000,
@@ -289,12 +296,4 @@ public abstract unsafe partial class Element
             Window.Check(Native.ControlGetStyleValues(Handle, (uint)part, effective ? 1u : 0u, p, count, &count));
         return PartStyleValues.FromNative(records);
     }
-}
-
-public sealed partial class Toggle
-{
-    public ControlStyle? Style { get => ControlStyle; set => SetControlStyle(value); }
-    public Toggle SetStyle(ControlStyle? value) { SetControlStyle(value); return this; }
-    public Toggle SetStyleValues(StylePart part, PartStyleValues values) { SetControlStyleValues(part, values); return this; }
-    public PartStyleValues GetStyleValues(StylePart part, bool effective = false) => GetControlStyleValues(part, effective);
 }

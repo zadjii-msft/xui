@@ -116,7 +116,7 @@ The [advanced gaps](../bindings.md#advanced-api-gaps) also identify absent provi
 
 The Window constructor accepts `visualStyle: VisualStyle.WinUI` for the optional WinUI-style appearance.
 `ControlStyle`, `PartStyleValues`, `PartStyle`, and `ControlStyleRule` provide shared named-part definitions.
-The separate `ButtonStyle` API remains available.
+All supported elements, including Button and Grid, use `Element.SetControlStyle` and `Element.SetControlStyleValues`.
 
 The [Toggle style examples](../control-styling.md#toggle-pilot) include C# declarations and attachment.
 The [binding style examples](../bindings.md#binding-examples) describe Button definitions and local values.
