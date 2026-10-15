@@ -314,6 +314,28 @@ void icon_paint_tests(HWND owner) {
         rejects([&] { show_control_menu(button, owner, MAKELPARAM(30, 40), Palette::system(), 96); });
     }
 }
+UINT track_cancelled(HMENU, HWND owner, Point) {
+    // Model Windows reporting a stale error after a cancellation closes the menu before its first paint.
+    SendMessageW(owner, WM_CANCELMODE, 0, 0);
+    SetLastError(ERROR_NOT_ENOUGH_QUOTA);
+    return 0;
+}
+UINT track_failed(HMENU, HWND, Point) {
+    SetLastError(ERROR_NOT_ENOUGH_QUOTA);
+    return 0;
+}
+void cancelled_menu_tests(HWND owner) {
+    Button button(L"Cancelled menu");
+    int actions{};
+    button.on_context_menu([&] { return std::vector<MenuItem>{{L"Command", [&] { ++actions; }}}; });
+    ContextMenuTestAccess::track = track_cancelled;
+    show_control_menu(button, owner, MAKELPARAM(30, 40), Palette::system(), 96);
+    check(!actions, "A cancelled menu closes without an error or a command");
+    ContextMenuTestAccess::track = track_failed;
+    rejects([&] { show_control_menu(button, owner, MAKELPARAM(30, 40), Palette::system(), 96); });
+    ContextMenuTestAccess::track = nullptr;
+    check(!actions, "A menu that cannot open runs no command");
+}
 void custom_model_tests(HWND owner) {
     std::vector<ItemKey> invoked;
     auto provider = std::make_shared<Provider>(); provider->invoked = &invoked;
@@ -1142,6 +1164,7 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "Bitmap menus\n"; bitmap_leaf_tests(owner);
             std::cout << "Icon snapshots\n"; icon_snapshot_tests(owner);
             std::cout << "Icon pixels\n"; icon_paint_tests(owner);
+            std::cout << "Cancelled menus\n"; cancelled_menu_tests(owner);
             std::cout << "Custom models\n"; custom_model_tests(owner);
             std::cout << "Real discovery\n"; real_discovery(owner, directory);
             std::cout << "Binding menus\n"; binding_menus(directory);
